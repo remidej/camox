@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
-import { camox } from "./vite";
+import { CAMOX_OPTIMIZED_DEPS, camox } from "./vite";
 
 type Nitro = Parameters<NonNullable<ReturnType<typeof camox>["nitro"]>["setup"]>[0];
 
@@ -58,4 +60,26 @@ void test("Camox filters the warnings every Camox app produces from the server b
   );
 
   assert.deepEqual(logged, []);
+});
+
+void test("Camox pre-bundles every Base UI component the Studio imports", () => {
+  // Vite can't see the Studio's imports before it loads, so a missing one is only
+  // found at runtime: Vite then optimizes it and reloads the page.
+  const sources = ["../../../src", "../../../../ui/src"].map(
+    (path) => new URL(path, import.meta.url).pathname,
+  );
+  const imported = new Set<string>();
+  for (const root of sources) {
+    for (const file of readdirSync(root, { recursive: true, encoding: "utf8" })) {
+      if (!/\.tsx?$/.test(file)) continue;
+      const code = readFileSync(join(root, file), "utf8");
+      for (const [, specifier] of code.matchAll(/from "(@base-ui\/react\/[^"]+)"/g))
+        imported.add(specifier);
+    }
+  }
+  assert.ok(imported.size > 0);
+  const missing = [...imported].filter(
+    (specifier) => !CAMOX_OPTIMIZED_DEPS.includes(`camox > ${specifier}`),
+  );
+  assert.deepEqual(missing, []);
 });

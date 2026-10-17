@@ -33,13 +33,7 @@ import { createCanvasFlight } from "./canvasFlight";
 import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
-const CAMERA_PROPERTIES = [
-  "--canvas-x",
-  "--canvas-y",
-  "--canvas-zoom",
-  "--canvas-overlays-display",
-];
-const MIN_OVERLAY_ZOOM = 0.3;
+const CAMERA_PROPERTIES = ["--canvas-x", "--canvas-y", "--canvas-zoom"];
 /** The camera counts as moving until it has been still this long. */
 const CAMERA_SETTLE_MS = 150;
 
@@ -338,10 +332,6 @@ export function useCanvasCamera(
       element.style.setProperty("--canvas-x", `${camera.x}px`);
       element.style.setProperty("--canvas-y", `${camera.y}px`);
       element.style.setProperty("--canvas-zoom", String(camera.scale));
-      element.style.setProperty(
-        "--canvas-overlays-display",
-        camera.scale < MIN_OVERLAY_ZOOM ? "none" : "block",
-      );
     };
     paintMirror.current = (element) => {
       paintElement(element);

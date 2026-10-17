@@ -25,6 +25,12 @@ export function canvasOverlayStyle(rect: OverlayRect): React.CSSProperties {
   };
 }
 
+/**
+ * Whether the Canvas draws editing overlays: only while it has a selection. Zoomed
+ * out past the snap, with nothing selected, no frame shows any.
+ */
+export const CanvasOverlaysShownContext = React.createContext(true);
+
 export function CanvasOverlays({
   document,
   activate,
@@ -40,6 +46,7 @@ export function CanvasOverlays({
 }) {
   const [targets, setTargets] = React.useState<CanvasOverlayTarget[]>([]);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
+  const shown = React.use(CanvasOverlaysShownContext);
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const [breadcrumbHoveredDocument, setBreadcrumbHoveredDocument] = React.useState<Document | null>(
     null,
@@ -78,7 +85,7 @@ export function CanvasOverlays({
           height: "calc(100% * var(--canvas-zoom, 1))",
           zIndex: 10,
           pointerEvents: "none",
-          display: isEditMode ? "var(--canvas-overlays-display, block)" : "none",
+          display: isEditMode && shown ? "block" : "none",
           transform: "scale(calc(1 / var(--canvas-zoom, 1)))",
           transformOrigin: "0 0",
         }}

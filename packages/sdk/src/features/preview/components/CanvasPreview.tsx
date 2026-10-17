@@ -117,11 +117,14 @@ function usePreparationToast(
 export function CanvasPreview({
   enabled,
   pathname,
+  pagePathname,
   runtimeBasePath,
   children,
 }: {
   enabled: boolean;
   pathname: string;
+  /** The pathname of the page the Preview page frame shows, if any. */
+  pagePathname?: string;
   runtimeBasePath: string;
   children: React.ReactNode;
 }) {
@@ -208,8 +211,8 @@ export function CanvasPreview({
 
   const [pageFrame] = React.useState(() => new PreviewPageFrame());
   const pageFrameContext = React.useMemo(
-    () => ({ frame: pageFrame, revealed: ready }),
-    [pageFrame, ready],
+    () => ({ frame: pageFrame, revealed: ready, pathname: pagePathname }),
+    [pageFrame, ready, pagePathname],
   );
 
   return (

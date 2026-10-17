@@ -35,8 +35,7 @@ export function EditablePageExperience({
             canvasOnly={input.canvasOnly}
             runtimeBasePath={input.runtimeBasePath}
           >
-            {/* A Canvas-only location has no page content. */}
-            {input.canvasOnly ? null : <EditablePageContent />}
+            <EditablePageContent />
           </CamoxPreview>
         )}
       </CompleteBlockEditingRuntimeProvider>

@@ -300,6 +300,43 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   }
 });
 
+void test("a Canvas-only location keeps the last page mounted in the Preview", async () => {
+  const dom = await setup();
+  const { CamoxPreview } = await import("./CamoxPreview");
+  const { previewStore } = await import("./previewStore");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), { page: { id: 3 } });
+  type Props = React.ComponentProps<typeof CamoxPreview>;
+  const render = (canvasOnly?: Props["canvasOnly"]) =>
+    dom.render(
+      <QueryClientProvider client={client}>
+        <CamoxPreview canvasOnly={canvasOnly}>
+          <p data-content>Site content</p>
+        </CamoxPreview>
+      </QueryClientProvider>,
+    );
+  try {
+    previewStore.send({ type: "enterEditMode" });
+    await render();
+    const content = dom.host.querySelector("[data-content]");
+    assert.ok(content);
+    await render({});
+    assert.equal(
+      dom.host.querySelector("[data-content]"),
+      content,
+      "selecting nothing keeps the page",
+    );
+    await render({ blockId: "hero" });
+    assert.equal(dom.host.querySelector("[data-content]"), content, "so does selecting a block");
+    await render();
+    assert.equal(dom.host.querySelector("[data-content]"), content);
+  } finally {
+    await dom.close();
+    client.clear();
+    previewStore.send({ type: "exitEditMode" });
+  }
+});
+
 void test("a Block Catalog block opens in Edit Mode, and goes home without the Canvas", async (t) => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");

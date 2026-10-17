@@ -13,7 +13,7 @@ import { CanvasWorkspaceContext } from "./canvasZoom";
 /**
  * The selected Page's place in the Canvas row, where the Preview's own page
  * frame shows instead of a frame of the Canvas. Edit Mode then never remounts
- * the page. The slot takes the frame's height, and draws the Canvas overlays
+ * the page, and neither does deselecting it, which keeps it in the frame. The slot takes the frame's height, and draws the Canvas overlays
  * over it.
  */
 export function CanvasPreviewPageSlot({
@@ -21,6 +21,7 @@ export function CanvasPreviewPageSlot({
   derivedLayoutId,
   width,
   viewportHeight,
+  selected,
   hovered,
   onActivate,
 }: {
@@ -28,6 +29,8 @@ export function CanvasPreviewPageSlot({
   derivedLayoutId?: string;
   width: number;
   viewportHeight: number;
+  /** Whether the Page is selected. Once deselected, it keeps the frame, like a frame of the Canvas. */
+  selected: boolean;
   hovered: boolean;
   onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }) {
@@ -42,7 +45,7 @@ export function CanvasPreviewPageSlot({
   const preparation = React.use(PreviewPreparationContext);
   const continuity = React.use(ViewportContinuityContext);
   const { frame, slot, inCanvas, height, overlays, iframe } = usePreviewPageFrame();
-  const mode = useCanvasFrameMode({ near: true, selected: true });
+  const mode = useCanvasFrameMode({ near: true, selected });
   const activateOwner = React.useEffectEvent((source: "selection" | "interaction") => {
     if (!owner) return;
     if (owner.kind === "page") previewStore.send({ type: "activatePage", pageId: owner.pageId });
@@ -94,10 +97,10 @@ export function CanvasPreviewPageSlot({
   }, [placed, continuity]);
 
   React.useEffect(() => {
-    if (!placed || !owner) return;
+    if (!placed || !owner || !selected) return;
     // Only becoming placed or selected takes ownership, as with a frame of the Canvas.
     activateOwner("selection");
-  }, [placed, owner]);
+  }, [placed, owner, selected]);
   React.useEffect(() => {
     if (!iframe) return;
     return () => {

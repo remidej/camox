@@ -5,7 +5,7 @@ import * as React from "react";
 
 import { CollectionItemModalProvider } from "@/features/content/CollectionItemModalContext";
 import { ContentCollectionItemModal } from "@/features/content/ContentCollection";
-import { useLocation, useNavigate } from "@/features/navigation/navigation";
+import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { getApiClient } from "@/lib/api-client";
 import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
@@ -222,11 +222,10 @@ export const PageContent = () => {
  * invalidation keeps them in sync. Only runs for authenticated users.
  * -----------------------------------------------------------------------------------------------*/
 
-function useRefreshMemberPage(enabled: boolean) {
+function useRefreshMemberPage(pathname: string, enabled: boolean) {
   const isAuthenticated = useIsAuthenticated();
   const queryClient = useQueryClient();
   const projectSlug = useProjectSlug();
-  const { pathname } = useLocation();
 
   React.useEffect(() => {
     if (!isAuthenticated || !enabled) return;
@@ -259,6 +258,32 @@ function useRefreshMemberPage(enabled: boolean) {
  * CamoxPreview
  * -----------------------------------------------------------------------------------------------*/
 
+/** The page the Preview shows, at the location that renders it. */
+type ShownPage = { location: LocationState; derived?: PageRenderInput["derived"] };
+
+/**
+ * The page the Preview shows: the current one, or on a Canvas-only location,
+ * which has none, the last one. The Canvas keeps showing that page in its slot
+ * when nothing is selected, so it stays mounted rather than flash as it remounts.
+ */
+function useShownPage(
+  location: LocationState,
+  derived: PageRenderInput["derived"],
+  canvasOnly: boolean,
+): ShownPage | null {
+  const [last, setLast] = React.useState<ShownPage | null>(null);
+  if (canvasOnly) return last;
+  const unchanged =
+    !!last &&
+    last.location.href === location.href &&
+    last.location.pathname === location.pathname &&
+    last.derived === derived;
+  if (unchanged) return last;
+  const current = { location, derived };
+  setLast(current);
+  return current;
+}
+
 export const CamoxPreview = ({
   children,
   runtimeBasePath,
@@ -271,41 +296,48 @@ export const CamoxPreview = ({
   canvasOnly?: PageRenderInput["canvasOnly"];
 }) => {
   const camoxApp = useCamoxApp();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const shown = useShownPage(location, derived, !!canvasOnly);
+  const pathname = shown?.location.pathname;
+  const shownDerived = shown?.derived;
   const projectSlug = useProjectSlug();
   const queryClient = useQueryClient();
   // All route kinds resolve through one component so selecting a layout frame, a
   // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
   const { data } = useSuspenseQuery<PageStructure | DerivedLayoutStructure | null>({
-    queryKey: canvasOnly
-      ? ["camox", "canvas", "canvasOnly"]
-      : derived
-        ? scopedKey([...queryKeys.layouts.all, "get", projectSlug, derived.layoutId])
-        : scopedKey(queryKeys.pages.getByPath(pathname)),
+    queryKey:
+      pathname === undefined
+        ? ["camox", "canvas", "canvasOnly"]
+        : shownDerived
+          ? scopedKey([...queryKeys.layouts.all, "get", projectSlug, shownDerived.layoutId])
+          : scopedKey(queryKeys.pages.getByPath(pathname)),
     queryFn: async () => {
-      // A Canvas-only location has no page or layout record.
-      if (canvasOnly) return null;
-      if (!derived) return pageStructureQueryFn(pathname, projectSlug)();
-      const result = await getApiClient().layouts.get({ projectSlug, layoutId: derived.layoutId });
+      // A Canvas-only location, opened first, has no page to show.
+      if (pathname === undefined) return null;
+      if (!shownDerived) return pageStructureQueryFn(pathname, projectSlug)();
+      const result = await getApiClient().layouts.get({
+        projectSlug,
+        layoutId: shownDerived.layoutId,
+      });
       seedBlockCaches(queryClient, result);
       return result.layout;
     },
-    initialData: canvasOnly ? null : derived?.layout,
-    staleTime: derived ? 0 : Infinity,
+    initialData: pathname === undefined ? null : shownDerived?.layout,
+    staleTime: shownDerived ? 0 : Infinity,
   });
-  useRefreshMemberPage(!derived && !canvasOnly);
+  useRefreshMemberPage(location.pathname, !derived && !canvasOnly);
   // A code-owned page's loader runs again after record edits and publication.
   const derivedResult = useDerivedPageResult({
     projectSlug,
     runtimeBasePath: runtimeBasePath ?? "",
-    pathname,
-    loaded: derived ? { result: derived.result } : undefined,
+    pathname: pathname ?? location.pathname,
+    loaded: shownDerived ? { result: shownDerived.result } : undefined,
   });
   const pageRecord = getPageRecord(derivedResult);
   useFollowPageRecord({
     projectSlug,
     runtimeBasePath: runtimeBasePath ?? "",
-    layoutId: derived?.layoutId,
+    layoutId: shownDerived?.layoutId,
     record: pageRecord,
   });
   const pageData = data && "page" in data ? data : undefined;
@@ -315,17 +347,18 @@ export const CamoxPreview = ({
       <PreviewShell
         pageData={pageData}
         derivedLayout={layout}
+        pageLocation={shown?.location}
         canvasOnly={canvasOnly}
         runtimeBasePath={runtimeBasePath}
       >
-        {derived && layout ? (
+        {shownDerived && layout ? (
           <DerivedPageContent
             camoxApp={camoxApp}
-            derived={{ ...derived, layout, result: derivedResult }}
+            derived={{ ...shownDerived, layout, result: derivedResult }}
           />
-        ) : (
+        ) : shown ? (
           children
-        )}
+        ) : null}
       </PreviewShell>
     </PageRecordContext>
   );
@@ -356,12 +389,15 @@ export const PreviewShell = ({
   children,
   pageData,
   derivedLayout,
+  pageLocation,
   canvasOnly,
   runtimeBasePath = "",
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
   derivedLayout?: DerivedLayoutStructure;
+  /** Where the shown page renders, when not at the current location. */
+  pageLocation?: LocationState;
   canvasOnly?: PageRenderInput["canvasOnly"];
   runtimeBasePath?: string;
 }) => {
@@ -373,8 +409,9 @@ export const PreviewShell = ({
   const showCanvas = !isMobileStudio && isEditMode;
   const { pathname } = useLocation();
 
-  const pageId = pageData?.page.id;
-  const layoutId = derivedLayout?.layoutId;
+  // A Canvas-only location edits no page, even while the Preview still shows the last one.
+  const pageId = canvasOnly ? undefined : pageData?.page.id;
+  const layoutId = canvasOnly ? undefined : derivedLayout?.layoutId;
   const editingOwner = React.useMemo<EditingOwner | null>(() => {
     if (pageId != null) return { kind: "page", pageId };
     if (layoutId != null) return { kind: "layout", layoutId };
@@ -455,13 +492,19 @@ export const PreviewShell = ({
             !isEditMode && "bg-black",
           )}
         >
-          <CanvasPreview enabled={showCanvas} pathname={pathname} runtimeBasePath={runtimeBasePath}>
+          <CanvasPreview
+            enabled={showCanvas}
+            pathname={pathname}
+            pagePathname={pageLocation?.pathname}
+            runtimeBasePath={runtimeBasePath}
+          >
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel
                 active={!showCanvas}
                 isMobileExperience={isMobileStudio}
                 page={pageData?.page}
                 layoutId={derivedLayout?.layoutId}
+                pageLocation={pageLocation}
                 projectName={pageData?.projectName}
               >
                 {children}
