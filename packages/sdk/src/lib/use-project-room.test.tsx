@@ -19,6 +19,8 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { useProjectRoom } = await import("./use-project-room");
+const { createDraftScope } = await import("./draft-scope");
+const { createStudioCache } = await import("./studio-reads");
 
 async function waitFor(check: () => boolean, message = "Expected live preview update") {
   for (let i = 0; i < 200 && !check(); i++) {
@@ -43,7 +45,7 @@ async function settle() {
 async function projectRoom(
   t: TestContext,
   queryKeys: ReadonlyArray<readonly unknown[]>,
-  options: Parameters<typeof useProjectRoom>[2] = {},
+  options: Parameters<typeof useProjectRoom>[3] & { developmentDraftId?: string } = {},
 ) {
   const NativeWebSocket = globalThis.WebSocket;
   const requestedUrls: URL[] = [];
@@ -75,6 +77,18 @@ async function projectRoom(
   assert.ok(address && typeof address !== "string");
   const apiUrl = `http://checkout.localhost:${address.port}`;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // Dev mode keys its queries `development` and learns its development draft's id on demand.
+  const { developmentDraftId } = options;
+  const draftScope = createDraftScope({
+    queryClient,
+    developmentMode: developmentDraftId !== undefined,
+    loadDevelopmentDraftId: async () => developmentDraftId,
+  });
+  const studioCache = createStudioCache({
+    queryClient,
+    scope: draftScope,
+    api: () => assert.fail("realtime reads nothing itself"),
+  });
   const host = document.createElement("div");
   const root = createRoot(host);
   const fetches = queryKeys.map(() => 0);
@@ -91,7 +105,7 @@ async function projectRoom(
     return <p>{query.data}</p>;
   }
   function Preview() {
-    useProjectRoom(apiUrl, 1, options);
+    useProjectRoom(apiUrl, 1, studioCache, options);
     return queryKeys.map((key, index) => <Query key={JSON.stringify(key)} index={index} />);
   }
 

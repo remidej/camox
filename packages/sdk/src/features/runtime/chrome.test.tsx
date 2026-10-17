@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
@@ -28,6 +27,7 @@ registerHooks({
 void test("token links SSR a styled sign-in page before loading any content or stylesheets", async (t) => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { PageApp } = await import("./pageApp");
+  const { testDraftScope } = await import("../../lib/draft-scope.fixtures");
   const camoxApp = createApp({ blocks: [] });
   t.mock.method(globalThis, "fetch", async () => {
     throw new Error("The handoff must not load content before authentication");
@@ -40,7 +40,14 @@ void test("token links SSR a styled sign-in page before loading any content or s
       projectSlug: "test",
       pageClientEntryUrl: "/client.js",
       renderPage: async (input) =>
-        renderToString(createElement(PageApp, { input, queryClient: new QueryClient(), camoxApp })),
+        renderToString(
+          createElement(PageApp, {
+            input,
+            queryClient: new QueryClient(),
+            camoxApp,
+            draftScope: testDraftScope(),
+          }),
+        ),
     },
   );
   assert.equal(response?.status, 200);
@@ -55,6 +62,8 @@ void test("token links SSR a styled sign-in page before loading any content or s
 void test("authenticated documents SSR real chrome and server-loaded project data", async () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { PageApp } = await import("./pageApp");
+  const { testDraftScope, testStudioCache } = await import("../../lib/draft-scope.fixtures");
+  const { reads } = await import("../../lib/studio-reads");
   const camoxApp = createApp({ blocks: [] });
   const queryClient = new QueryClient();
   const project = {
@@ -63,7 +72,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     slug: "test",
     organizationSlug: "team",
   } as NonNullable<PageRenderInput["project"]>;
-  queryClient.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), {
+  testStudioCache(queryClient).set(reads.pageStructure({ path: "/", projectSlug: "test" }), {
     page: { id: 1, blockIds: [] },
     layout: null,
     project,
@@ -88,7 +97,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   // Like the server renderer, load the members-only chrome before rendering a member's document.
   const { loadRuntimeChrome } = await import("./runtimeChromeLoader");
   await loadRuntimeChrome();
-  const html = renderToString(createElement(PageApp, { input, queryClient, camoxApp }));
+  const html = renderToString(
+    createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
+  );
   assert.match(html, /My actual project/);
   assert.match(html, /Quick find/);
   assert.match(html, /Edit mode/);
@@ -111,6 +122,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
 
   const studioHtml = renderToString(
     createElement(PageApp, {
+      draftScope: testDraftScope(),
       input: {
         ...input,
         pathname: "/camox/content",
@@ -130,7 +142,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   const { previewStore } = await import("../preview/previewStore");
   previewStore.send({ type: "enterEditMode" });
   try {
-    const canvasPageHtml = renderToString(createElement(PageApp, { input, queryClient, camoxApp }));
+    const canvasPageHtml = renderToString(
+      createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
+    );
     assert.match(canvasPageHtml, /data-chat-sidebar/);
   } finally {
     previewStore.send({ type: "reset" });
@@ -164,6 +178,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
       const canvasHtml = renderToString(
         createElement(PageApp, {
+          draftScope: testDraftScope(),
           input: {
             ...input,
             pathname: "/camox/canvas/blog/post",
@@ -193,6 +208,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   const publicInput = { ...input, presentation: "public" as const, project: undefined };
   const publicHtml = renderToString(
     createElement(PageApp, {
+      draftScope: testDraftScope(),
       input: publicInput,
       queryClient: new QueryClient(),
       camoxApp,

@@ -1,18 +1,15 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { AnyLayoutLoaderResult } from "@/core/createLayout";
 import { useLatestRecord } from "@/core/editing/useLatestRecord";
 import { asCollectionItem } from "@/core/recordItem";
 import type { CollectionRecordId } from "@/core/requestContext";
-import { collectionQueries } from "@/lib/queries";
 
-import { scopedKey } from "../../lib/studio-draft";
+import { useDraftScope } from "../../lib/draft-scope";
+import { reads, useReadQuery } from "../../lib/studio-reads";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
-import type { PageRenderInput } from "../runtime/runtime";
 import type { LayoutRecordPlacer } from "./components/useRecordView";
 
 export type PageRecordId = CollectionRecordId;
@@ -22,30 +19,6 @@ export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRe
   const record = asCollectionItem(result);
   if (!record) return undefined;
   return { collectionId: record.collectionId, id: record.data.id };
-}
-
-/**
- * A code-owned page's loader result. Its records are what the session may read, so it reloads
- * with record edits and publication.
- */
-export function derivedPageQuery(projectSlug: string, runtimeBasePath: string, pathname: string) {
-  return {
-    queryKey: scopedKey([...queryKeys.layouts.all, "data", projectSlug, runtimeBasePath, pathname]),
-    queryFn: async ({ signal }: { signal: AbortSignal }) => {
-      const response = await fetchRuntimeJson(
-        "/_camox/data",
-        runtimeBasePath,
-        { path: pathname },
-        signal,
-      );
-      // A record without live content has no page for visitors.
-      if (response.status === 404) return null;
-      if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
-      const input = (await response.json()) as PageRenderInput;
-      return input.derived?.result ?? null;
-    },
-    staleTime: Infinity,
-  };
 }
 
 /**
@@ -63,11 +36,12 @@ export function useDerivedPageResult({
   pathname: string;
   loaded: { result: AnyLayoutLoaderResult | undefined } | undefined;
 }): AnyLayoutLoaderResult | undefined {
-  const { data } = useQuery({
-    ...derivedPageQuery(projectSlug, runtimeBasePath, pathname),
+  // The server rendered the page with its result, which it filled in for the studio too.
+  const { data } = useReadQuery(reads.derivedPageData({ projectSlug, runtimeBasePath, pathname }), {
     enabled: loaded != null,
-    initialData: loaded ? (loaded.result ?? null) : undefined,
   });
+  // Until the read loads, the result the server rendered with stands in for it.
+  if (data === undefined) return loaded?.result;
   return data ?? undefined;
 }
 
@@ -90,17 +64,19 @@ export function useFollowPageRecord({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: savedAt } = useQuery({
-    ...collectionQueries.record(projectSlug, record?.collectionId ?? "", record?.id ?? ""),
-    enabled: false,
-    select: (saved) => saved.updatedAt,
-  });
+  const draftScope = useDraftScope();
+  const { data: savedAt } = useReadQuery(
+    reads.record({ projectSlug, collectionId: record?.collectionId ?? "", id: record?.id ?? "" }),
+    { enabled: false, select: (saved) => saved.updatedAt },
+  );
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
     if (!layoutId || !record) return;
     const response = await fetchRuntimeJson(
+      draftScope,
       "/_camox/routes",
       runtimeBasePath,
       { layoutId, recordId: record.id },
+      draftScope.current(),
       signal,
     );
     if (!response.ok) return;

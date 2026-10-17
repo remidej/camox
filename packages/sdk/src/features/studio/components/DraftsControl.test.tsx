@@ -34,7 +34,11 @@ const { DraftsControl } = await import("./DraftsControl");
 const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
-const { getDraftRequestHeaders, readDraftFromUrl } = await import("@/lib/studio-draft");
+const { createDraftScope } = await import("@/lib/draft-scope");
+const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
+/** The draft scope of the rendered control, and whether it runs in dev mode. */
+let draftScope: import("@/lib/draft-scope").DraftScope;
+let developmentMode = false;
 const { CommandPalette, useCommandPaletteActions } =
   await import("@/features/provider/components/CommandPalette");
 const { useAdminShortcuts } = await import("@/features/provider/useAdminShortcuts");
@@ -212,10 +216,11 @@ const nameInput = () =>
 
 async function render(t: test.TestContext, at: string | null) {
   window.history.replaceState(null, "", at ? `/?${DRAFT_SEARCH_PARAM}=${at}` : "/");
-  readDraftFromUrl();
-  initApiClient("http://api.test");
   const navigations: { to: string; draft?: string | null }[] = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  draftScope = createDraftScope({ queryClient: client, browser: window as never, developmentMode });
+  draftScope.adopt({ draftId: at ?? undefined });
+  initApiClient("http://api.test", draftScope);
   const host = window.document.createElement("div");
   window.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
@@ -228,12 +233,14 @@ async function render(t: test.TestContext, at: string | null) {
   await React.act(async () =>
     root.render(
       <QueryClientProvider client={client}>
-        <AuthContext.Provider value={auth}>
-          <NavigationProvider navigate={(options) => void navigations.push(options)}>
-            <DraftsControl />
-            <Palette />
-          </NavigationProvider>
-        </AuthContext.Provider>
+        <StudioScopeProvider client={client} draftScope={draftScope}>
+          <AuthContext.Provider value={auth}>
+            <NavigationProvider navigate={(options) => void navigations.push(options)}>
+              <DraftsControl />
+              <Palette />
+            </NavigationProvider>
+          </AuthContext.Provider>
+        </StudioScopeProvider>
       </QueryClientProvider>,
     ),
   );
@@ -343,8 +350,10 @@ void test("discards the draft only after a second confirmation, then switches to
 
 /** The localhost studio: dev mode, whose API answers for the caller's development draft. */
 function devMode(t: test.TestContext) {
-  Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: true });
-  t.after(() => Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: false }));
+  developmentMode = true;
+  t.after(() => {
+    developmentMode = false;
+  });
   const developmentDraft = drafts.find((draft) => draft.kind === "development");
   return mockApi(t, (path) => {
     if (path === "drafts/get") return json(developmentDraft);
@@ -394,7 +403,7 @@ void test("says Started a new draft when the first edit starts one, without aski
   await render(t, null);
 
   await React.act(async () => {
-    getDraftRequestHeaders(["blocks", "create"]).settle(true);
+    draftScope.requestHeaders(true).settle(true);
   });
 
   assert.deepEqual(

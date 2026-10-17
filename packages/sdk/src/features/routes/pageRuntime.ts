@@ -2,11 +2,9 @@ import type { Router } from "@camox/api-contract";
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
-  DRAFT_SEARCH_PARAM,
   NO_DEVELOPMENT_DRAFT_ERROR,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
-import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
@@ -14,6 +12,8 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
+import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
+import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
 
@@ -216,60 +216,7 @@ export async function readDraftOrLive<T>(
 
 /** The URL a render shows: without the draft param when the draft couldn't be read. */
 export function renderedHref(url: string, read: DraftRead): string {
-  if (!read.refusedDraft) return url;
-  const href = new URL(url);
-  href.searchParams.delete(DRAFT_SEARCH_PARAM);
-  return href.href;
-}
-
-function visitForFileIds(value: unknown, ids: Set<string>) {
-  if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "string") {
-    ids.add((value as { _fileId: string })._fileId);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) visitForFileIds(item, ids);
-    return;
-  }
-  for (const child of Object.values(value as Record<string, unknown>)) {
-    visitForFileIds(child, ids);
-  }
-}
-
-function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<string>) {
-  for (const value of Object.values(content)) {
-    visitForFileIds(value, ids);
-  }
-}
-
-/** Caches each block of a read from Live (`draftId` null) or a draft under that scope's keys. */
-export function seedBlockCaches(
-  queryClient: QueryClient,
-  pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-  draftId: string | null,
-) {
-  const filesById = new Map(pageData.files.map((f) => [f.id, f]));
-
-  for (const block of pageData.blocks) {
-    const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
-    const fileIds = new Set<string>();
-    collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
-    for (const item of blockItems) {
-      collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
-    }
-    const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
-
-    queryClient.setQueryData(inScope(queryKeys.blocks.get(block.id), draftId), {
-      block,
-      repeatableItems: blockItems,
-      files: blockFiles,
-    });
-
-    for (const file of blockFiles) {
-      queryClient.setQueryData(inScope(queryKeys.files.get(file.id), draftId), file);
-    }
-  }
+  return read.refusedDraft ? withoutDraft(url) : url;
 }
 
 export async function loadCamoxPage({
@@ -280,28 +227,30 @@ export async function loadCamoxPage({
   projectSlug,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
-  const serverApi = createServerApiClient(apiUrl, { authCookieHeader, draftId });
+  const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader });
   // Only a session names the draft, so without one the read is Live's.
-  const scope = draftId && authCookieHeader ? draftId : null;
-  return queryClient.ensureQueryData({
-    queryKey: inScope(queryKeys.pages.getByPath(pathname), scope),
-    queryFn: async () => {
-      const [data, pagesList] = await Promise.all([
-        serverApi.pages.getByPath({ path: pathname, projectSlug }),
-        serverApi.pages.listBySlug({ projectSlug }).catch(() => null),
-      ]);
-      seedBlockCaches(queryClient, data, scope);
-      if (pagesList) {
-        queryClient.setQueryData(inScope(queryKeys.pages.list, scope), pagesList);
-      }
-      return {
-        page: data.page,
-        layout: data.layout,
-        projectName: data.projectName,
-        project: data.project,
-      };
-    },
-    staleTime: Infinity,
+  const inDraft = { in: draftId && authCookieHeader ? draftId : null };
+  const [page] = await Promise.all([
+    studioCache.ensure(reads.pageStructure({ path: pathname, projectSlug }), inDraft),
+    // Links resolve against the site's pages, which a render can do without.
+    studioCache.ensure(reads.pageList({ projectSlug }), inDraft).catch(() => null),
+  ]);
+  return page;
+}
+
+/**
+ * The studio's reads for one server request, read with its session. Each operation names the
+ * draft it acts in, once the request settled which one it reads.
+ */
+export function createServerStudioCache(
+  queryClient: QueryClient,
+  { apiUrl, authCookieHeader }: { apiUrl: string; authCookieHeader?: string },
+): StudioCache {
+  return createStudioCache({
+    queryClient,
+    scope: createDraftScope({ queryClient }),
+    api: (draft) =>
+      createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined }),
   });
 }
 

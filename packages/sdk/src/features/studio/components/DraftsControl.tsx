@@ -11,26 +11,21 @@ import {
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
 import { toast } from "@camox/ui/toaster";
-import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { ChevronDownIcon, Eye, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
-import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
-import { isDevelopmentMode, onDraftStarted } from "@/lib/studio-draft";
+import { useCurrentDraftId, useDraftScope } from "@/lib/draft-scope";
+import { type DraftList, type DraftSummary } from "@/lib/queries";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
-import {
-  DiscardDraftDialog,
-  ReviewDraftDialog,
-  useCurrentDraftId,
-  useLeaveDraft,
-} from "./ReviewDraftDialog";
+import { DiscardDraftDialog, ReviewDraftDialog, useLeaveDraft } from "./ReviewDraftDialog";
 
 const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
@@ -48,15 +43,22 @@ const draftClassName =
  * nothing to switch to (ADR 0006). The command palette offers the same actions.
  */
 export function DraftsControl() {
+  const draftScope = useDraftScope();
   const draftId = useCurrentDraftId();
   const authCtx = React.useContext(AuthContext);
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
   const review = useSelector(studioStore, (state) => state.context.reviewDraftDialog);
   const discarding = useSelector(studioStore, (state) => state.context.isDiscardDraftDialogOpen);
-  const developmentMode = isDevelopmentMode();
+  const developmentMode = draftScope.developmentMode;
 
-  React.useEffect(() => onDraftStarted(() => void toast.success("Started a new draft")), []);
+  React.useEffect(
+    () =>
+      draftScope.subscribe(({ move }) => {
+        if (move === "started") toast.success("Started a new draft");
+      }),
+    [draftScope],
+  );
   // The dialogs belong to the draft they were opened in.
   React.useEffect(
     () => () => {
@@ -66,17 +68,14 @@ export function DraftsControl() {
     [draftId],
   );
 
-  const project = useQuery({
-    ...projectQueries.getBySlug(authCtx?.projectSlug ?? ""),
+  const project = useReadQuery(reads.project({ slug: authCtx?.projectSlug ?? "" }), {
     enabled: !!authCtx?.projectSlug,
   });
   const projectId = project.data?.id;
-  const list = useQuery({
-    ...draftQueries.list(projectId ?? 0),
+  const list = useReadQuery(reads.draftList({ projectId: projectId ?? 0 }), {
     enabled: !!projectId && !developmentMode,
   });
-  const draft = useQuery({
-    ...draftQueries.get(projectId ?? 0, draftId ?? ""),
+  const draft = useReadQuery(reads.draft({ projectId: projectId ?? 0, draftId: draftId ?? "" }), {
     enabled: !!projectId && !!draftId,
   });
 

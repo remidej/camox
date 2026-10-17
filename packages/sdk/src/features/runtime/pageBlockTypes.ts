@@ -1,3 +1,5 @@
+import { reads } from "../../lib/studio-reads";
+
 /**
  * The block definitions a render input's blocks use. Every block a page or layout renders
  * is seeded as a block query, so its dehydrated state names them all.
@@ -15,8 +17,7 @@ export function getPageBlockTypes(dehydratedState: unknown): string[] {
     queryKey?: unknown[];
     state?: { data?: { block?: { type?: unknown } } };
   }[]) {
-    const key = query.queryKey;
-    if (key?.[0] !== "camox" || key[1] !== "blocks" || key[2] !== "get") continue;
+    if (!query.queryKey || reads.blockBundle.paramsOf(query.queryKey) === null) continue;
     const type = query.state?.data?.block?.type;
     if (typeof type === "string") types.add(type);
   }

@@ -16,7 +16,6 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useQuery } from "@tanstack/react-query";
 import { FileIcon, GripVertical } from "lucide-react";
 import * as React from "react";
 
@@ -24,9 +23,10 @@ import { transformImageUrl } from "@/core/lib/imageTransform";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useProjectSlug } from "@/lib/auth";
-import { type File, projectQueries } from "@/lib/queries";
+import { type File } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { AssetActionButtons } from "./AssetFieldEditor";
 import { AssetLightbox } from "./AssetLightbox";
 import { AssetPickerModal } from "./AssetPickerModal";
@@ -164,7 +164,7 @@ const MultipleAssetFieldEditor = ({
   const isImage = assetType === "Image";
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
 
   // Resolved array: [{ url, alt, ..., _fileId }, ...] — flat ImageValue/FileValue
   const items = ((currentData[fieldName] ?? []) as ResolvedAsset[]).filter(

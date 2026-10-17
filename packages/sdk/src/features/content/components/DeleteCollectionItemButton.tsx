@@ -10,11 +10,13 @@ import {
   AlertDialogTrigger,
 } from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { collectionMutations, collectionQueries } from "@/lib/queries";
+import { collectionMutations } from "@/lib/queries";
+
+import { reads, useStudioCache } from "../../../lib/studio-reads";
 
 export function DeleteCollectionItemButton({
   projectSlug,
@@ -33,8 +35,8 @@ export function DeleteCollectionItemButton({
   disabled?: boolean;
   onDeleted?: () => Promise<void> | void;
 }) {
+  const studioCache = useStudioCache();
   const [target, setTarget] = useState<{ label: string } | null>(null);
-  const queryClient = useQueryClient();
   const deletion = useMutation(collectionMutations.delete());
 
   const confirmDelete = async () => {
@@ -47,12 +49,8 @@ export function DeleteCollectionItemButton({
     }
     setTarget(null);
     await onDeleted?.();
-    queryClient.removeQueries({
-      queryKey: collectionQueries.record(projectSlug, collectionId, id).queryKey,
-    });
-    await queryClient.invalidateQueries({
-      queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
-    });
+    studioCache.remove(reads.record({ projectSlug, collectionId, id }));
+    await studioCache.invalidate(reads.records({ projectSlug, collectionId }));
   };
 
   return (

@@ -9,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
 import { Skeleton } from "@camox/ui/skeleton";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ImageIcon, Info, Settings, Users } from "lucide-react";
 import * as React from "react";
 
@@ -17,9 +16,10 @@ import { Link } from "@/features/navigation/navigation";
 import { buildFaviconUrl } from "@/features/routes/pageRuntime";
 import { getApiUrl } from "@/lib/api-client";
 import { AuthContext } from "@/lib/auth";
-import { type Project, projectQueries } from "@/lib/queries";
+import { type Project } from "@/lib/queries";
 
 import { version } from "../../../../package.json";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { FaviconDialog } from "./FaviconDialog";
 
 export const Favicon = ({ project, size = 16 }: { project: Project; size?: number }) => (
@@ -33,7 +33,7 @@ export const Favicon = ({ project, size = 16 }: { project: Project; size?: numbe
 
 export const ProjectMenu = () => {
   const authCtx = React.useContext(AuthContext);
-  const { data: project } = useQuery(projectQueries.getBySlug(authCtx!.projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: authCtx!.projectSlug }));
   const [isFaviconDialogOpen, setIsFaviconDialogOpen] = React.useState(false);
 
   if (!project) {

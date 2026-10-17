@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -10,11 +10,13 @@ import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoute
 import { getPageDestinations } from "../../core/pageDestinations";
 import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
 import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
+import { draftNamedBy } from "../../lib/draft-scope";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
+import { reads } from "../../lib/studio-reads";
 import {
   buildCamoxPageHead,
   buildFaviconUrl,
@@ -22,8 +24,8 @@ import {
   createMarkdownResponse,
   parseMarkdownPath,
   createServerApiClient,
+  createServerStudioCache,
   isNotFoundError,
-  seedBlockCaches,
   loadCamoxPageForRequest,
   prefersMarkdown,
   readDraftOrLive,
@@ -161,7 +163,7 @@ export function getRuntimePathname(
  */
 function getRequestDraftId(request: Request, options: RuntimeOptions): string | undefined {
   if (options.developmentDraft) return DEVELOPMENT_DRAFT;
-  return new URL(request.url).searchParams.get(DRAFT_SEARCH_PARAM) || undefined;
+  return draftNamedBy(request.url) ?? undefined;
 }
 
 /**
@@ -794,7 +796,27 @@ async function createDerivedResponse(
       studio && requestedDraft
         ? await readLayout().then(async (read) => [await runLoader(read.draftId), read] as const)
         : await Promise.all([runLoader(), readLayout()]);
-    seedBlockCaches(queryClient, shared, read.draftId ?? null);
+    // The studio shows the layout and its loader's result as read here, in the draft read.
+    const studioCache = createServerStudioCache(queryClient, {
+      apiUrl: options.apiUrl!,
+      authCookieHeader,
+    });
+    const projectSlug = options.projectSlug!;
+    const shownIn = { in: read.draftId ?? null };
+    studioCache.land(
+      reads.derivedLayout({ projectSlug, layoutId: match.layout._internal.id }),
+      shared,
+      shownIn,
+    );
+    studioCache.set(
+      reads.derivedPageData({
+        projectSlug,
+        runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+        pathname,
+      }),
+      serializedResult ?? null,
+      shownIn,
+    );
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);

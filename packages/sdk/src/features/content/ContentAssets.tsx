@@ -1,7 +1,7 @@
 import { Button } from "@camox/ui/button";
 import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { PanelContent } from "@camox/ui/panel";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { ImageIcon, UploadIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -9,9 +9,10 @@ import { AssetLightbox } from "@/features/preview/components/AssetLightbox";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useMarqueeSelection } from "@/hooks/use-marquee-selection";
 import { useProjectSlug } from "@/lib/auth";
-import { fileMutations, fileQueries, projectQueries } from "@/lib/queries";
+import { fileMutations } from "@/lib/queries";
 import { checkIfInputFocused } from "@/lib/utils";
 
+import { reads, useReadQuery } from "../../lib/studio-reads";
 import { AssetCard } from "./components/AssetCard";
 import { AssetCardSkeleton } from "./components/AssetCardSkeleton";
 import { UploadDropZone } from "./components/UploadDropZone";
@@ -19,9 +20,8 @@ import { UploadProgressDrawer } from "./components/UploadProgressDrawer";
 
 export const ContentAssets = () => {
   const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: files } = useQuery({
-    ...fileQueries.list(project?.id ?? 0),
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { data: files } = useReadQuery(reads.fileList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

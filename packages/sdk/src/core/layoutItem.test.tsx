@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -9,6 +9,7 @@ import { NavigationProvider } from "../features/navigation/navigation";
 import { CamoxAppProvider } from "../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
+import { StudioQueryClientProvider, testDraftScope } from "../lib/draft-scope.fixtures";
 import { createApp } from "./createApp";
 import { createCollection } from "./createCollection";
 import { createLayout, type AnyLayoutLoaderResult } from "./createLayout";
@@ -16,7 +17,7 @@ import { BlockEditingRuntimeProvider } from "./editing/BlockEditingRuntime";
 import { plainTextToLexicalState } from "./lib/lexicalState";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("https://api.example.test");
+initApiClient("https://api.example.test", testDraftScope());
 
 const authors = createCollection({
   id: "authors",
@@ -113,7 +114,7 @@ const editingRuntime = {
 function render(result: AnyLayoutLoaderResult | undefined) {
   const Component = ArticlePage._internal.component;
   return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
+    <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
         value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
       >
@@ -127,7 +128,7 @@ function render(result: AnyLayoutLoaderResult | undefined) {
           </CamoxAppProvider>
         </NavigationProvider>
       </AuthContext.Provider>
-    </QueryClientProvider>,
+    </StudioQueryClientProvider>,
   );
 }
 

@@ -1,5 +1,4 @@
 import { Button } from "@camox/ui/button";
-import { useQuery } from "@tanstack/react-query";
 import { FileIcon, Upload } from "lucide-react";
 import * as React from "react";
 
@@ -8,8 +7,9 @@ import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { UploadItemRow } from "@/features/content/components/UploadProgressDrawer";
 import { type UploadItem, useFileUpload } from "@/hooks/use-file-upload";
 import { useProjectSlug } from "@/lib/auth";
-import { type File, projectQueries } from "@/lib/queries";
+import { type File } from "@/lib/queries";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { AssetLightbox } from "./AssetLightbox";
 import { AssetPickerModal } from "./AssetPickerModal";
 import { UnlinkAssetButton } from "./UnlinkAssetButton";
@@ -114,7 +114,7 @@ const SingleAssetFieldEditor = ({
   const isImage = assetType === "Image";
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
 
   const { uploads, uploadFiles } = useFileUpload({
     projectId: project?.id,

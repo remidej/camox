@@ -7,7 +7,8 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { createApp } from "../../core/createApp";
-import { getCurrentDraftId, getDraftRequestHeaders, onDraftNotice } from "../../lib/studio-draft";
+import { createDraftScope } from "../../lib/draft-scope";
+import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { Link, useNavigate } from "../navigation/navigation";
 import type { DraftNotice } from "../routes/pageRuntime";
 import { PageNavigationProvider } from "./pageNavigation";
@@ -71,8 +72,14 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
     };
     return Response.json(next);
   });
+  // The window's draft scope, as the page client creates it.
+  const draftScope = createDraftScope({
+    queryClient,
+    browser: window as never,
+    developmentMode: false,
+  });
   const notices: DraftNotice[] = [];
-  t.after(onDraftNotice((notice) => notices.push(notice)));
+  t.after(draftScope.onNotice((notice) => notices.push(notice)));
 
   let navigate!: ReturnType<typeof useNavigate>;
   let mounts = 0;
@@ -96,13 +103,15 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
   const root = createRoot(document.getElementById("root")!);
   await React.act(async () => {
     root.render(
-      <PageNavigationProvider
-        camoxApp={createApp({ blocks: [] })}
-        initialInput={input}
-        queryClient={queryClient}
-      >
-        {() => <Workspace />}
-      </PageNavigationProvider>,
+      <StudioScopeProvider client={queryClient} draftScope={draftScope}>
+        <PageNavigationProvider
+          camoxApp={createApp({ blocks: [] })}
+          initialInput={input}
+          queryClient={queryClient}
+        >
+          {() => <Workspace />}
+        </PageNavigationProvider>
+      </StudioScopeProvider>,
     );
   });
   t.after(async () => {
@@ -113,6 +122,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
 
   return {
     window,
+    draftScope,
     dataRequests,
     notices,
     mounts: () => mounts,
@@ -141,7 +151,7 @@ void test("plain links in the page keep the draft, and the page they open is rea
   assert.equal(page.window.location.pathname, "/contact");
   assert.equal(page.draftInUrl(), "d1");
   assert.equal(page.dataRequests.at(-1)!.searchParams.get("camox-draft"), "d1");
-  assert.equal(getCurrentDraftId(), "d1");
+  assert.equal(page.draftScope.current(), "d1");
 });
 
 void test("SDK links name the draft, including one the first edit just started", async (t) => {
@@ -150,7 +160,7 @@ void test("SDK links name the draft, including one the first edit just started",
   assert.equal(sdkLink(), "/pricing");
 
   await React.act(async () => {
-    getDraftRequestHeaders(["blocks", "updateContent"]).settle(true);
+    page.draftScope.requestHeaders(true).settle(true);
   });
 
   const started = page.draftInUrl();
@@ -179,14 +189,14 @@ void test("switching drafts reads the page from the new draft, and Back returns 
   assert.equal(page.window.history.length, entries + 1);
   assert.equal(page.dataRequests.length, 1, "the same page is read again from the draft");
   assert.equal(page.dataRequests[0]!.searchParams.get("camox-draft"), "d2");
-  assert.equal(getCurrentDraftId(), "d2");
+  assert.equal(page.draftScope.current(), "d2");
   assert.equal(page.mounts(), 2, "the page is shown afresh in the draft");
 
   await page.back("/about");
 
   assert.equal(page.dataRequests.length, 2);
   assert.equal(page.dataRequests[1]!.searchParams.get("camox-draft"), null);
-  assert.equal(getCurrentDraftId(), null, "Back returns to Live");
+  assert.equal(page.draftScope.current(), null, "Back returns to Live");
   assert.equal(page.mounts(), 3);
 });
 
@@ -205,7 +215,7 @@ void test("a draft the page can't show is removed from the URL without a history
   });
 
   assert.equal(page.draftInUrl(), null, "the param goes as the page opens");
-  assert.equal(getCurrentDraftId(), null);
+  assert.equal(page.draftScope.current(), null);
   assert.deepEqual(page.notices, [{ reason: "ended", ...ended }]);
 
   const entries = page.window.history.length;
@@ -224,4 +234,20 @@ void test("a visitor's draft param goes without a notice", async (t) => {
 
   assert.equal(page.draftInUrl(), null);
   assert.deepEqual(page.notices, []);
+});
+
+void test("a draft that ended switches the page to Live in place, read afresh", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
+  const entries = page.window.history.length;
+
+  await React.act(async () => {
+    page.draftScope.leave(ended, { notice: true });
+  });
+
+  assert.equal(page.draftInUrl(), null);
+  assert.equal(page.window.history.length, entries, "the draft's entry is replaced");
+  assert.equal(page.dataRequests.length, 1);
+  assert.equal(page.dataRequests[0]!.searchParams.get("camox-draft"), null, "read from Live");
+  assert.equal(page.mounts(), 2, "the page is shown afresh on Live");
+  assert.deepEqual(page.notices, [{ reason: "ended", ...ended }]);
 });

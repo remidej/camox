@@ -37,7 +37,7 @@ import { Switch } from "@camox/ui/switch";
 import { toast } from "@camox/ui/toaster";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useForm } from "@tanstack/react-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Globe, Info, Pencil, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
@@ -45,15 +45,10 @@ import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
-import {
-  blockQueries,
-  layoutQueries,
-  pageMutations,
-  pageQueries,
-  projectQueries,
-} from "@/lib/queries";
+import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
@@ -67,14 +62,12 @@ type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 const usePageMetadataData = (pageId: string) => {
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
-  const { data: page } = useQuery(pageQueries.getById(pageId));
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
+  const { data: page } = useReadQuery(reads.page({ id: pageId }));
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
     enabled: !!project,
   });
-  const { data: allLayouts } = useQuery({
-    ...layoutQueries.list(project?.id ?? 0),
+  const { data: allLayouts } = useReadQuery(reads.layoutList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });
 
@@ -832,6 +825,7 @@ const SocialPreviewSection = ({
   layoutId?: string;
   projectName?: string;
 }) => {
+  const studioCache = useStudioCache();
   const pageMetaTitle = page.metaTitle ?? page.pathSegment;
   const ogImageParams = new URLSearchParams({
     ...(layoutId && { layoutId }),
@@ -844,12 +838,11 @@ const SocialPreviewSection = ({
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${origin}${page.fullPath}`;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
 
   const uploadCustomOgImage = useMutation({
     ...pageMutations.uploadCustomOgImage(),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: pageQueries.getById(page.id).queryKey });
+      void studioCache.invalidate(reads.page({ id: page.id }));
     },
     onError: (error: Error) => {
       toast.error(error.message || "Could not upload image");
@@ -859,7 +852,7 @@ const SocialPreviewSection = ({
   const deleteCustomOgImage = useMutation({
     ...pageMutations.deleteCustomOgImage(),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: pageQueries.getById(page.id).queryKey });
+      void studioCache.invalidate(reads.page({ id: page.id }));
     },
     onError: () => {
       toast.error("Could not remove image");
@@ -956,7 +949,7 @@ const PageMarkdownPreview = ({
   metaTitle: string;
   metaDescription: string;
 }) => {
-  const { data: markdown } = useQuery(blockQueries.getPageMarkdown(pageId));
+  const { data: markdown } = useReadQuery(reads.pageMarkdown(pageId));
   if (markdown === undefined) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 py-2 text-sm">

@@ -1,13 +1,8 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
-import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
-import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
-import { seedBlockCaches } from "../../lib/normalized-data";
-import { blockQueries } from "../../lib/queries";
-import { scopedKey } from "../../lib/studio-draft";
+import { reads, useRead, useReadQuery } from "../../lib/studio-reads";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { AddBlockDialog } from "../preview/components/AddBlockDialog";
 import { CreatePageModal } from "../preview/components/CreatePageModal";
@@ -44,12 +39,8 @@ function CuratedSidebar() {
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
   const owner = React.useContext(PreviewEditingOwnerContext);
-  const { data: structure } = useSuspenseQuery({
-    // PageTree reads this same query through usePreviewedPage.
-    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
-    queryFn: () => getApiClient().pages.getStructure({ path: pathname, projectSlug }),
-    staleTime: Infinity,
-  });
+  // PageTree reads the same page through usePreviewedPage.
+  const structure = useRead(reads.pageStructure({ path: pathname, projectSlug }));
   return (
     <>
       <PageSidebar pageId={structure.page.id} />
@@ -62,16 +53,7 @@ function CuratedSidebar() {
 
 function LayoutSidebar({ layoutId, pageRecord }: { layoutId: string; pageRecord?: PageRecordId }) {
   const projectSlug = useProjectSlug();
-  const queryClient = useQueryClient();
-  const { data: layout } = useSuspenseQuery({
-    queryKey: scopedKey([...queryKeys.layouts.all, "get", projectSlug, layoutId]),
-    queryFn: async () => {
-      const result = await getApiClient().layouts.get({ projectSlug, layoutId });
-      seedBlockCaches(queryClient, result);
-      return result.layout;
-    },
-    staleTime: Infinity,
-  });
+  const layout = useRead(reads.derivedLayout({ projectSlug, layoutId }));
   return <PageSidebar derivedLayout={layout} pageRecord={pageRecord} />;
 }
 
@@ -90,7 +72,7 @@ function PagesMessage({ role, children }: { role?: "status" | "alert"; children:
 function PlacementPages({ block, projectId }: { block: Block; projectId: number }) {
   const { search, hash } = useLocation();
   const navigate = useNavigate();
-  const pages = useQuery(blockQueries.getPagesUsing(projectId, block._internal.id));
+  const pages = useReadQuery(reads.pagesUsingBlock({ projectId, type: block._internal.id }));
   if (pages.isPending) return <PagesMessage role="status">Loading pages…</PagesMessage>;
   if (pages.error)
     return <PagesMessage role="alert">Could not load the pages using this block.</PagesMessage>;

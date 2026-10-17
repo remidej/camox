@@ -8,6 +8,7 @@ import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
 import { useAuthState, useSignInRedirect } from "../../lib/auth";
+import { type DraftScope, DraftScopeContext } from "../../lib/draft-scope";
 import { CuratedPageContent } from "../page/CuratedPageContent";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Frame } from "../preview/components/Frame";
@@ -19,44 +20,53 @@ import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
 import { RuntimeChromeSlot } from "./runtimeChromeLoader";
 
+/** The page app of one server request or browser window, viewing the draft `draftScope` names. */
 export function PageApp({
   camoxApp,
+  draftScope,
   input,
   queryClient,
 }: {
   camoxApp: CamoxApp;
+  draftScope: DraftScope;
   input: PageRenderInput;
   queryClient: QueryClient;
 }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <HydrationBoundary state={input.dehydratedState as DehydratedState}>
-        <PageNavigationProvider camoxApp={camoxApp} initialInput={input} queryClient={queryClient}>
-          {(currentInput) => (
-            <CoreCamoxProvider
-              camoxApp={camoxApp}
-              authenticationUrl={input.authenticationUrl}
-              apiUrl={input.apiUrl}
-              projectSlug={input.projectSlug}
-              initialAuthenticated={input.presentation === "studio"}
-              initialProject={currentInput.project}
-            >
-              <PreviewDocumentContext.Provider value={currentInput.previewDocument}>
-                {input.previewHandoff ? (
-                  <PreviewSignInPage />
-                ) : (
-                  <PageExperience
-                    camoxApp={camoxApp}
-                    input={currentInput}
-                    queryClient={queryClient}
-                    studioDocument={input.presentation === "studio"}
-                  />
-                )}
-              </PreviewDocumentContext.Provider>
-            </CoreCamoxProvider>
-          )}
-        </PageNavigationProvider>
-      </HydrationBoundary>
+      <DraftScopeContext.Provider value={draftScope}>
+        <HydrationBoundary state={input.dehydratedState as DehydratedState}>
+          <PageNavigationProvider
+            camoxApp={camoxApp}
+            initialInput={input}
+            queryClient={queryClient}
+          >
+            {(currentInput) => (
+              <CoreCamoxProvider
+                camoxApp={camoxApp}
+                authenticationUrl={input.authenticationUrl}
+                apiUrl={input.apiUrl}
+                projectSlug={input.projectSlug}
+                initialAuthenticated={input.presentation === "studio"}
+                initialProject={currentInput.project}
+              >
+                <PreviewDocumentContext.Provider value={currentInput.previewDocument}>
+                  {input.previewHandoff ? (
+                    <PreviewSignInPage />
+                  ) : (
+                    <PageExperience
+                      camoxApp={camoxApp}
+                      input={currentInput}
+                      queryClient={queryClient}
+                      studioDocument={input.presentation === "studio"}
+                    />
+                  )}
+                </PreviewDocumentContext.Provider>
+              </CoreCamoxProvider>
+            )}
+          </PageNavigationProvider>
+        </HydrationBoundary>
+      </DraftScopeContext.Provider>
     </QueryClientProvider>
   );
 }

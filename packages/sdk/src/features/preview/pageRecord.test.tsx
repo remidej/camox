@@ -1,20 +1,25 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
 
 import type { AnyLayoutLoaderResult } from "@/core/createLayout";
 import { initApiClient } from "@/lib/api-client";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
-import { collectionQueries } from "@/lib/queries";
 
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 
 const record = (title: string): AnyLayoutLoaderResult => ({
   kind: "collection-item",
@@ -33,6 +38,9 @@ async function renderPreview(t: TestContext, title: string) {
     return Response.json({ derived: { result: record(title) } });
   });
   const client = new QueryClient();
+  // The server filled in the result it rendered the page with.
+  const derivedPage = { projectSlug: "site", runtimeBasePath: "", pathname: "/articles/hello" };
+  testStudioCache(client).set(reads.derivedPageData(derivedPage), record("Server draft"));
   const { createRoot } = await import("react-dom/client");
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -49,9 +57,9 @@ async function renderPreview(t: TestContext, title: string) {
   }
   await act(async () =>
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <Title />
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     ),
   );
   const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -93,7 +101,7 @@ async function renderRecordPage(t: TestContext, pathname: string) {
   }
   await act(async () =>
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <NavigationProvider
           location={{ pathname, href: `${pathname}?zoom=2`, search: "?zoom=2", hash: "" }}
           navigate={(options) => {
@@ -102,7 +110,7 @@ async function renderRecordPage(t: TestContext, pathname: string) {
         >
           <Studio />
         </NavigationProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     ),
   );
   const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -115,8 +123,8 @@ async function renderRecordPage(t: TestContext, pathname: string) {
   const save = async (updatedAt: number, slug: string) => {
     site.articlePath = `/articles/${slug}`;
     await act(async () =>
-      client.setQueryData(
-        collectionQueries.record("site", ARTICLE.collectionId, ARTICLE.id).queryKey,
+      testStudioCache(client).set(
+        reads.record({ projectSlug: "site", collectionId: ARTICLE.collectionId, id: ARTICLE.id }),
         { id: ARTICLE.id, content: { slug }, createdAt: 1000, updatedAt },
       ),
     );
@@ -148,7 +156,9 @@ void test("editing a record reloads the record page's data", async (t) => {
   const preview = await renderPreview(t, "Draft after editing");
   assert.equal(preview.title(), "Server draft");
   assert.deepEqual(preview.requests, []);
-  await act(() => invalidateCollectionRecordViews(preview.client, "site", "articles"));
+  await act(() =>
+    invalidateCollectionRecordViews(testStudioCache(preview.client) as never, "site", "articles"),
+  );
   await preview.settle();
   assert.equal(preview.title(), "Draft after editing");
   assert.deepEqual(preview.requests, ["/_camox/data?path=%2Farticles%2Fhello"]);

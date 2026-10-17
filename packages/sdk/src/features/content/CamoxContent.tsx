@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 import { Navigate, useLocation, useNavigate } from "@/features/navigation/navigation";
@@ -9,8 +8,8 @@ import {
   STUDIO_CONTENT_PATH,
 } from "@/features/studio/routes";
 import { useProjectSlug } from "@/lib/auth";
-import { collectionQueries } from "@/lib/queries";
 
+import { reads, useReadQuery } from "../../lib/studio-reads";
 import {
   CollectionItemModalProvider,
   type CollectionItemModalTarget,
@@ -49,7 +48,7 @@ const ExperimentalContent = () => {
     data: collections = [],
     isError,
     isPending,
-  } = useQuery(collectionQueries.list(projectSlug));
+  } = useReadQuery(reads.collectionList({ projectSlug }));
   const collection = collections.find((entry) => entry.collectionId === route?.collectionId);
   const routeTarget =
     route && (route.isNew || route.itemId)

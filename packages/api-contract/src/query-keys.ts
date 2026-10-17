@@ -8,28 +8,17 @@ import type { EndedDraft } from "./drafts";
 export type QueryKey = [first: "camox", ...rest: Array<string | number>];
 type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
 
+/**
+ * The key prefixes the API's realtime invalidations name (ADR 0011). The studio caches each read
+ * under one of them, with the scope appended, so an invalidation reaches every read it should;
+ * the studio's own keys live with its reads, in the SDK.
+ */
 export const queryKeys = {
   collections: {
-    list: (projectSlug: string) => ["camox", "collections", "list", projectSlug],
-    get: (projectSlug: string, collectionId: string) => [
-      "camox",
-      "collections",
-      "get",
-      projectSlug,
-      collectionId,
-    ],
     record: (projectSlug: string, collectionId: string, id: string) => [
       "camox",
       "collections",
       "record",
-      projectSlug,
-      collectionId,
-      id,
-    ],
-    recordUsageCount: (projectSlug: string, collectionId: string, id: string) => [
-      "camox",
-      "collections",
-      "recordUsageCount",
       projectSlug,
       collectionId,
       id,
@@ -54,15 +43,11 @@ export const queryKeys = {
   },
   blocks: {
     get: (id: string) => ["camox", "blocks", "get", id],
+    // Every placement change refreshes what's under this prefix: counts, pages using a block.
     getUsageCounts: ["camox", "blocks", "getUsageCounts"],
-    // Under the usage counts prefix, so every usage invalidation refreshes it too.
-    getPagesUsing: (type: string) => ["camox", "blocks", "getUsageCounts", "pages", type],
-    // Also under that prefix, so placing or removing the block refreshes it.
+    // Under the usage counts prefix, so placing or removing the block refreshes it too.
     getSyncedContent: (type: string) => ["camox", "blocks", "getUsageCounts", "synced", type],
     getPageMarkdown: (pageId: string) => ["camox", "blocks", "getPageMarkdown", pageId],
-  },
-  repeatableItems: {
-    get: (id: string) => ["camox", "repeatableItems", "get", id],
   },
   layouts: {
     all: ["camox", "layouts"],
@@ -73,7 +58,6 @@ export const queryKeys = {
     list: ["camox", "drafts", "list"],
     // The draft a viewer is in, scoped to it like content.
     get: ["camox", "drafts", "get"],
-    previewPublish: ["camox", "drafts", "previewPublish"],
   },
 } satisfies Record<string, QueryKeyGroup>;
 

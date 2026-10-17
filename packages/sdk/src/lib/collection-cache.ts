@@ -1,20 +1,29 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@camox/api-contract/query-keys";
 
-import { collectionQueries } from "./queries";
+import type { StudioCache } from "./studio-reads";
 
-/** Refresh a collection's records in every placement, even without a realtime connection. */
-export async function invalidateCollectionRecordViews(
-  queryClient: QueryClient,
+/**
+ * Refreshes a collection's records in every placement, in every scope, as the API's broadcast
+ * after a record edit does, so the edit shows even without a realtime connection.
+ */
+export function invalidateCollectionRecordViews(
+  studioCache: StudioCache,
   projectSlug: string,
   collectionId: string,
 ) {
-  await Promise.all([
-    queryClient.invalidateQueries({
-      queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
-    }),
-    queryClient.invalidateQueries({
-      predicate: ({ queryKey }) =>
-        queryKey[0] === "camox" && ["blocks", "pages", "layouts"].includes(String(queryKey[1])),
-    }),
-  ]);
+  return studioCache.receive(
+    {
+      type: "invalidate",
+      // A Live change: other drafts read the records Live shows wherever they change none.
+      draftId: null,
+      targets: [
+        queryKeys.collections.records(projectSlug, collectionId),
+        ["camox", "blocks"],
+        queryKeys.pages.getByPathAll,
+        queryKeys.pages.list,
+        queryKeys.layouts.all,
+      ],
+    },
+    0,
+  );
 }

@@ -11,7 +11,7 @@ import {
   resolveAssetValue,
   useNormalizedData,
 } from "../lib/normalized-data";
-import { useViewPages } from "../lib/view-queries";
+import { useViewPages } from "../lib/view-pages";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
   ArtifactStudioContext,

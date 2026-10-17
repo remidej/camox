@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 
 // Render the real frame and block, signed in, without the Camox provider.
 registerHooks({
@@ -133,7 +139,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const render = (previewDocument: string, selected = false) =>
     React.act(async () => {
       root.render(
-        <QueryClientProvider client={client}>
+        <StudioQueryClientProvider client={client}>
           <BlockEditingRuntimeProvider runtime={editingRuntime}>
             <PreviewDocumentContext.Provider value={previewDocument}>
               <CanvasBlockFrame
@@ -147,7 +153,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
               />
             </PreviewDocumentContext.Provider>
           </BlockEditingRuntimeProvider>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       );
     });
   previewStore.send({ type: "enterEditMode" });
@@ -284,7 +290,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     try {
       await React.act(async () =>
         brokenRoot.render(
-          <QueryClientProvider client={client}>
+          <StudioQueryClientProvider client={client}>
             <Boundary>
               <PreviewDocumentContext.Provider value={siteDocument("Home")}>
                 <CanvasBlockFrame
@@ -298,7 +304,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                 />
               </PreviewDocumentContext.Provider>
             </Boundary>
-          </QueryClientProvider>,
+          </StudioQueryClientProvider>,
         ),
       );
       await React.act(async () => observers.at(-1)!.callback([{ isIntersecting: true }]));
@@ -331,11 +337,10 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
   const { createBlock } = await import("../../core/createBlock");
   const { BlockEditingRuntimeProvider } = await import("../../core/editing/BlockEditingRuntime");
   const { initApiClient } = await import("../../lib/api-client");
-  const { blockQueries } = await import("../../lib/queries");
   const { PreviewDocumentContext } = await import("../runtime/PreviewDocumentContext");
   const { previewStore } = await import("../preview/previewStore");
   const { CanvasBlockFrame } = await import("./CanvasBlockFrame");
-  initApiClient("https://api.example.test");
+  initApiClient("https://api.example.test", testDraftScope());
 
   const projectId = 7;
   const defineBlock = (id: string, synced: boolean) => {
@@ -381,14 +386,14 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
   });
   const client = new QueryClient();
   // The project has shared content for the navbar, none yet for the footer.
-  client.setQueryData(
-    blockQueries.getSyncedContent(projectId, "navbar").queryKey,
+  testStudioCache(client).set(
+    reads.syncedContent({ projectId, type: "navbar" }),
     sharedContent("navbar", "Shared navbar title") as never,
   );
-  client.setQueryData(blockQueries.getSyncedContent(projectId, "footer").queryKey, null as never);
+  testStudioCache(client).set(reads.syncedContent({ projectId, type: "footer" }), null as never);
   // Placements of a block that isn't synced have their own content, never shared.
-  client.setQueryData(
-    blockQueries.getSyncedContent(projectId, "banner").queryKey,
+  testStudioCache(client).set(
+    reads.syncedContent({ projectId, type: "banner" }),
     sharedContent("banner", "Placed banner title") as never,
   );
   const editingRenders: unknown[] = [];
@@ -412,7 +417,7 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
     roots.push(root);
     await React.act(async () =>
       root.render(
-        <QueryClientProvider client={client}>
+        <StudioQueryClientProvider client={client}>
           <BlockEditingRuntimeProvider runtime={editingRuntime}>
             <PreviewDocumentContext.Provider value={siteDocument}>
               <CanvasBlockFrame
@@ -426,7 +431,7 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
               />
             </PreviewDocumentContext.Provider>
           </BlockEditingRuntimeProvider>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       ),
     );
     await React.act(async () => observers.at(-1)!.callback([{ isIntersecting: true }]));

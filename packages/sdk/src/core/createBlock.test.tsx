@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { NavigationProvider } from "../features/navigation/navigation";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../lib/normalized-data";
-import { viewPageQueries, viewProjectQueries } from "../lib/view-queries";
+import { reads } from "../lib/studio-reads";
 import { createBlock, type ContentFieldBuilder } from "./createBlock";
 
 const options = {
@@ -69,7 +74,7 @@ void test("rejects fields declared in the wrong context by untyped callers", () 
 
 void test("a link field renders a link to an existing page and plain text for a missing one", () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-  initApiClient("https://api.example.test");
+  initApiClient("https://api.example.test", testDraftScope());
   const projectId = 7;
   const existingPageId = "0199f0a0-0000-7000-8000-000000000001";
   const missingPageId = "0199f0a0-0000-7000-8000-000000000002";
@@ -84,14 +89,14 @@ void test("a link field renders a link to an existing page and plain text for a 
   });
   const render = (pageId: string) => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(viewProjectQueries.getBySlug("test").queryKey, {
+    testStudioCache(queryClient).set(reads.project({ slug: "test" }), {
       id: projectId,
     } as never);
-    queryClient.setQueryData(viewPageQueries.list(projectId).queryKey, [
+    testStudioCache(queryClient).set(reads.pageList({ projectSlug: "site" }), [
       { id: existingPageId, fullPath: "/pricing" },
     ]);
     return renderToStaticMarkup(
-      <QueryClientProvider client={queryClient}>
+      <StudioQueryClientProvider client={queryClient}>
         <AuthContext.Provider
           value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
         >
@@ -111,7 +116,7 @@ void test("a link field renders a link to an existing page and plain text for a 
             </NormalizedDataProvider>
           </NavigationProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   };
   assert.match(render(existingPageId), />(<a to="\/pricing">See pricing<\/a>)<\/div>$/);

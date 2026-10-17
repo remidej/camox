@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
+
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  readKey,
+  testStudioCache,
+} from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 
 void test("both delete buttons require confirmation, allow cancellation, and retain errors for retry", async (t) => {
   // Initialize the DOM before importing UI components, which detect portals at module load.
@@ -31,8 +39,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
   const { createRoot } = await import("react-dom/client");
   const { DeleteCollectionItemButton } = await import("./components/DeleteCollectionItemButton");
   const { initApiClient } = await import("@/lib/api-client");
-  const { collectionQueries } = await import("@/lib/queries");
-  initApiClient("http://localhost:8788");
+  initApiClient("http://localhost:8788", testDraftScope());
   const calls: unknown[] = [];
   let fail = false;
   const id = "a6479288-341f-4008-b118-dea6d8dd9158";
@@ -55,8 +62,16 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
   });
   for (const compact of [true, false]) {
     const client = new QueryClient();
-    client.setQueryData(collectionQueries.records("site", "articles").queryKey, []);
-    client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, { id });
+    testStudioCache(client).set(
+      reads.records({ projectSlug: "site", collectionId: "articles" }),
+      [],
+    );
+    testStudioCache(client).set(
+      reads.record({ projectSlug: "site", collectionId: "articles", id }),
+      {
+        id,
+      },
+    );
     const host = window.document.createElement("div");
     window.document.body.append(host);
     const root = createRoot(host as unknown as HTMLElement);
@@ -70,7 +85,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
     try {
       await React.act(async () =>
         root.render(
-          <QueryClientProvider client={client}>
+          <StudioQueryClientProvider client={client}>
             <DeleteCollectionItemButton
               projectSlug="site"
               collectionId="articles"
@@ -81,7 +96,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
                 deleted++;
               }}
             />
-          </QueryClientProvider>,
+          </StudioQueryClientProvider>,
         ),
       );
       const before = calls.length;
@@ -115,11 +130,15 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
       assert.equal(deleted, 1);
       assert.deepEqual(calls.at(-1), { projectSlug: "site", collectionId: "articles", id });
       assert.equal(
-        client.getQueryData(collectionQueries.record("site", "articles", id).queryKey),
+        testStudioCache(client).get(
+          reads.record({ projectSlug: "site", collectionId: "articles", id }),
+        ),
         undefined,
       );
       assert.equal(
-        client.getQueryState(collectionQueries.records("site", "articles").queryKey)?.isInvalidated,
+        client.getQueryState(
+          readKey(reads.records({ projectSlug: "site", collectionId: "articles" })),
+        )?.isInvalidated,
         true,
       );
     } finally {

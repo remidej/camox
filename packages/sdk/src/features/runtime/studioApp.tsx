@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
+import type { DraftScope } from "../../lib/draft-scope";
 import { PageApp } from "./pageApp";
 import type { PageRenderInput } from "./runtime";
 
@@ -10,6 +11,7 @@ export type StudioRenderInput = PageRenderInput;
 
 export function StudioApp(props: {
   camoxApp: CamoxApp;
+  draftScope: DraftScope;
   input: StudioRenderInput;
   queryClient: QueryClient;
 }) {

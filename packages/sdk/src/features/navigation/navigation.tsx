@@ -7,7 +7,13 @@ import {
 import type { LinkProps as TanStackLinkProps } from "@tanstack/react-router";
 import * as React from "react";
 
-import { withDraftParam } from "./draftParam";
+import {
+  type DraftScope,
+  draftNamedBy,
+  followUrl,
+  DraftScopeContext,
+  useOptionalDraftScope,
+} from "../../lib/draft-scope";
 
 export type NavigationSource = "canvas";
 
@@ -57,15 +63,21 @@ function toHref(to: string): string {
   return to;
 }
 
-async function browserNavigate({ replace, to, source, draft }: NavigateOptions): Promise<void> {
+async function browserNavigate(
+  { replace, to, source, draft }: NavigateOptions,
+  draftScope: DraftScope | null,
+): Promise<void> {
   if (typeof window === "undefined") return;
 
-  const href = withDraftParam(toHref(to), window.location.href, draft);
+  const href = draftScope
+    ? draftScope.hrefFor(toHref(to), { from: window.location.href, draft })
+    : toHref(to);
   if (replace) {
     window.history.replaceState(null, "", href);
   } else {
     window.history.pushState(null, "", href);
   }
+  if (draftScope) followUrl(draftScope, window.location.href);
   window.dispatchEvent(new CustomEvent("camox:navigation", { detail: { source } }));
 }
 
@@ -74,7 +86,7 @@ function NavigationProvider({
   getLocation = getBrowserLocation,
   initialLocation,
   location: controlledLocation,
-  navigate = browserNavigate,
+  navigate: controlledNavigate,
 }: {
   children: React.ReactNode;
   getLocation?: () => LocationState;
@@ -83,10 +95,18 @@ function NavigationProvider({
   navigate?: (options: NavigateOptions) => Promise<void> | void;
 }) {
   const [location, setLocation] = React.useState(initialLocation ?? getLocation);
+  const draftScope = React.useContext(DraftScopeContext);
+  const navigateInBrowser = React.useCallback(
+    (options: NavigateOptions) => browserNavigate(options, draftScope),
+    [draftScope],
+  );
+  const navigate = controlledNavigate ?? navigateInBrowser;
 
   React.useEffect(() => {
     if (controlledLocation) return;
-    const updateLocation = (event: Event) =>
+    const updateLocation = (event: Event) => {
+      // History traversal restores a URL naming the draft it was in.
+      if (event.type === "popstate" && draftScope) followUrl(draftScope, window.location.href);
       setLocation({
         ...getLocation(),
         source:
@@ -94,13 +114,19 @@ function NavigationProvider({
             ? (event as CustomEvent<{ source?: NavigationSource }>).detail?.source
             : undefined,
       });
+    };
     window.addEventListener("popstate", updateLocation);
     window.addEventListener("camox:navigation", updateLocation);
+    // Starting or leaving a draft rewrites the URL in place.
+    const unsubscribe = draftScope?.subscribe(({ move }) => {
+      if (move !== "adopted") setLocation(getLocation());
+    });
     return () => {
       window.removeEventListener("popstate", updateLocation);
       window.removeEventListener("camox:navigation", updateLocation);
+      unsubscribe?.();
     };
-  }, [getLocation, controlledLocation]);
+  }, [getLocation, controlledLocation, draftScope]);
 
   const value = React.useMemo(
     () => ({ location: controlledLocation ?? location, navigate }),
@@ -169,13 +195,20 @@ function useNavigate(): NavigationContextValue["navigate"] {
 const Link: React.ForwardRefExoticComponent<LinkProps & React.RefAttributes<HTMLAnchorElement>> =
   React.forwardRef<HTMLAnchorElement, LinkProps>(function Link(props, ref) {
     const context = React.useContext(NavigationContext);
+    const { scope: draftScope, draftId } = useOptionalDraftScope();
     if (!context) return <TanStackLink {...props} ref={ref} />;
 
     const { activeProps, children, onClick, target, to, ...rest } = props;
-    // The href names the current draft too, so opening the link in a new tab keeps it.
-    const href = context.location.href
-      ? withDraftParam(toHref(String(to)), context.location.href)
-      : toHref(String(to));
+    // The href names the viewed draft too, so opening the link in a new tab keeps it. A target
+    // naming a draft keeps its own.
+    const path = toHref(String(to));
+    const href =
+      context.location.href && draftScope
+        ? draftScope.hrefFor(path, {
+            from: context.location.href,
+            draft: draftNamedBy(path) ? undefined : draftId,
+          })
+        : path;
     const isActive = context.location.pathname === new URL(href, "http://camox.local").pathname;
     const activeAnchorProps = (isActive ? activeProps : undefined) as
       | React.AnchorHTMLAttributes<HTMLAnchorElement>

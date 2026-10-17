@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { useLocation } from "../../features/navigation/navigation";
 import { resolveAssetValue, useNormalizedData } from "../../lib/normalized-data";
-import { useViewPages } from "../../lib/view-queries";
+import { useViewPages } from "../../lib/view-pages";
 import { fieldPlainText } from "../recordItem";
 import type { FileValue, ImageValue } from "./contentType";
 import { renderImagePlaceholder } from "./imagePlaceholder";

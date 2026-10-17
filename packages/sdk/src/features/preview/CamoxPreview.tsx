@@ -1,5 +1,3 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -7,13 +5,12 @@ import { CollectionItemModalProvider } from "@/features/content/CollectionItemMo
 import { ContentCollectionItemModal } from "@/features/content/ContentCollection";
 import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
-import { getApiClient } from "@/lib/api-client";
 import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
-import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/normalized-data";
-import { blockQueries } from "@/lib/queries";
+import { NormalizedDataProvider, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 
-import { scopedKey } from "../../lib/studio-draft";
+import { useCurrentDraftId } from "../../lib/draft-scope";
+import { reads, type Read, useRead, useStudioCache } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
@@ -58,36 +55,11 @@ function useIsMobileStudio() {
  * PageContent
  * -----------------------------------------------------------------------------------------------*/
 
-/**
- * Fetches the current page being previewed, with live updates for authenticated users.
- *
- * Data for the current route is guaranteed in queryClient cache from the loader's
- * ensureQueryData. Live updates are gated by useProjectRoom only running in
- * AuthenticatedCamoxProvider — unauthenticated users get SSR data that never refetches.
- */
-/**
- * Lightweight queryFn for client-side refetches — only fetches structural data.
- * Used after initial SSR load when block caches are already populated.
- * Public visitors never invalidate (no project room) so this query function
- * doesn't run for them — they stay on the SSR-seeded data.
- */
-function pageStructureQueryFn(path: string, projectSlug: string) {
-  return () => getApiClient().pages.getStructure({ path, projectSlug });
-}
-
+/** The page the Preview shows: as the server rendered it, then following edits. */
 export function usePreviewedPage() {
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
-
-  // Current page: SSR loader seeds block caches on first load. Client-side
-  // refetches (after invalidation) use the lightweight endpoint.
-  const { data: currentPage } = useSuspenseQuery({
-    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
-    queryFn: pageStructureQueryFn(pathname, projectSlug),
-    staleTime: Infinity,
-  });
-
-  return currentPage;
+  return useRead(reads.pageStructure({ path: pathname, projectSlug }));
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -105,7 +77,7 @@ const BlockRenderer = ({
   showAddBlockTop: boolean;
   showAddBlockBottom: boolean;
 }) => {
-  const { data } = useSuspenseQuery(blockQueries.get(blockId));
+  const data = useRead(reads.blockBundle(blockId));
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
 
@@ -213,45 +185,47 @@ export const PageContent = () => {
 };
 
 /* -------------------------------------------------------------------------------------------------
- * useRefreshMemberPage
+ * useRefreshMemberRead
  *
  * The server may have rendered the page before the studio authenticated, so
  * linked collection records show their published content. Project members
- * read their saved drafts instead: after the initial paint, fetch the page
- * again with the session and re-seed the caches. From there, every block
+ * read their saved drafts instead: after the initial paint, load the page or
+ * derived layout again with the session, filling its blocks' reads. From there, every block
  * invalidation keeps them in sync. Only runs for authenticated users.
  * -----------------------------------------------------------------------------------------------*/
 
-function useRefreshMemberPage(pathname: string, enabled: boolean) {
-  const isAuthenticated = useIsAuthenticated();
-  const queryClient = useQueryClient();
-  const projectSlug = useProjectSlug();
+/**
+ * The read of the page the Preview shows: a curated page's structure, or a derived layout's. A
+ * Canvas-only location, opened first, has no page to show.
+ */
+function pageRead(
+  projectSlug: string,
+  pathname: string | undefined,
+  derived: PageRenderInput["derived"] | undefined,
+): Read<PageStructure | DerivedLayoutStructure, unknown> | null {
+  if (pathname === undefined) return null;
+  if (derived) return reads.derivedLayout({ projectSlug, layoutId: derived.layoutId });
+  return reads.pageStructure({ path: pathname, projectSlug });
+}
 
-  React.useEffect(() => {
-    if (!isAuthenticated || !enabled) return;
-    let cancelled = false;
-    void getApiClient()
-      .pages.getByPath({ path: pathname, projectSlug })
-      .then((data) => {
-        if (cancelled) return;
-        seedBlockCaches(queryClient, data);
-        queryClient.setQueryData(scopedKey(queryKeys.pages.getByPath(pathname)), {
-          page: data.page,
-          layout: data.layout,
-          projectName: data.projectName,
-          project: data.project,
-        });
-      })
-      .catch(() => {
-        // A fetch failure (network blip, 404 on a just-deleted page) is
-        // non-fatal — the SSR-seeded view stays on screen and the next edit
-        // invalidation will retry. Throwing here would break the studio for a
-        // transient error.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, isAuthenticated, pathname, projectSlug, queryClient]);
+function useRefreshMemberRead(read: Read<unknown, unknown> | null) {
+  const isAuthenticated = useIsAuthenticated();
+  const studioCache = useStudioCache();
+  const draftId = useCurrentDraftId();
+  const identity = read
+    ? JSON.stringify(studioCache.options(read, { in: draftId }).queryKey)
+    : null;
+  const reload = React.useEffectEvent(() => {
+    if (!isAuthenticated || !read) return;
+    // The read lands in the draft it was made in, even if the studio moves meanwhile.
+    void studioCache.reload(read).catch(() => {
+      // A fetch failure (network blip, 404 on a just-deleted page) is
+      // non-fatal — the SSR-seeded view stays on screen and the next edit
+      // invalidation will retry. Throwing here would break the studio for a
+      // transient error.
+    });
+  });
+  React.useEffect(() => reload(), [identity, isAuthenticated]);
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -301,31 +275,11 @@ export const CamoxPreview = ({
   const pathname = shown?.location.pathname;
   const shownDerived = shown?.derived;
   const projectSlug = useProjectSlug();
-  const queryClient = useQueryClient();
   // All route kinds resolve through one component so selecting a layout frame, a
   // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
-  const { data } = useSuspenseQuery<PageStructure | DerivedLayoutStructure | null>({
-    queryKey:
-      pathname === undefined
-        ? ["camox", "canvas", "canvasOnly"]
-        : shownDerived
-          ? scopedKey([...queryKeys.layouts.all, "get", projectSlug, shownDerived.layoutId])
-          : scopedKey(queryKeys.pages.getByPath(pathname)),
-    queryFn: async () => {
-      // A Canvas-only location, opened first, has no page to show.
-      if (pathname === undefined) return null;
-      if (!shownDerived) return pageStructureQueryFn(pathname, projectSlug)();
-      const result = await getApiClient().layouts.get({
-        projectSlug,
-        layoutId: shownDerived.layoutId,
-      });
-      seedBlockCaches(queryClient, result);
-      return result.layout;
-    },
-    initialData: pathname === undefined ? null : shownDerived?.layout,
-    staleTime: shownDerived ? 0 : Infinity,
-  });
-  useRefreshMemberPage(location.pathname, !derived && !canvasOnly);
+  const shownRead = pageRead(projectSlug, pathname, shownDerived);
+  const data = useRead(shownRead);
+  useRefreshMemberRead(shownRead);
   // A code-owned page's loader runs again after record edits and publication.
   const derivedResult = useDerivedPageResult({
     projectSlug,

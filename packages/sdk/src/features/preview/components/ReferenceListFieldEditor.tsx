@@ -18,7 +18,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useQuery } from "@tanstack/react-query";
 import { GripVertical, ListOrdered, X } from "lucide-react";
 import * as React from "react";
 
@@ -28,8 +27,8 @@ import { useCollectionItemModal } from "@/features/content/CollectionItemModalCo
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
-import { collectionQueries } from "@/lib/queries";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
@@ -215,10 +214,7 @@ export function ReferenceListFieldEditor({
   const collection = useCamoxApp().getCollectionById(collectionId);
   const collectionTitle = collection?._internal.title ?? collectionId;
   const modal = useCollectionItemModal();
-  const records = useQuery({
-    ...collectionQueries.records(projectSlug, collectionId),
-    enabled: !drill,
-  });
+  const records = useReadQuery(reads.records({ projectSlug, collectionId }), { enabled: !drill });
   const storedIds = referenceListIds(value);
   // The order shown while a write is in flight, so dragged cards don't snap back.
   const [pendingIds, setPendingIds] = React.useState<string[] | null>(null);

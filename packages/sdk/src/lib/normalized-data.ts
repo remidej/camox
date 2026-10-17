@@ -1,11 +1,7 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
-import type { QueryClient } from "@tanstack/react-query";
-import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { BlockBundle, PageStructure, PageWithBlocks } from "./queries";
-import { scopedKey } from "./studio-draft";
-import { viewBlockQueries } from "./view-queries";
+import { reads, useReadQueries } from "./studio-reads";
 
 /* -------------------------------------------------------------------------------------------------
  * Types
@@ -218,9 +214,7 @@ export function usePageBlocks(pageStructure: {
     [blockIds, beforeIds, afterIds],
   );
 
-  const results = useQueries({
-    queries: allIds.map((id) => viewBlockQueries.get(id)),
-  });
+  const results = useReadQueries(allIds.map((id) => reads.blockBundle(id)));
 
   const bundleMap = React.useMemo(() => {
     const map = new Map<string, BlockBundle>();
@@ -302,39 +296,22 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<st
   }
 }
 
-export function seedBlockCaches(
-  queryClient: QueryClient,
-  pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-) {
-  const filesById = new Map(pageData.files.map((f) => [f.id, f]));
-
-  for (const block of pageData.blocks) {
-    const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
-
-    // Collect file IDs referenced by this block and its items
-    const fileIds = new Set<string>();
-    collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
-    for (const record of linkedRecords((block as ReferenceBlock).references)) {
+/**
+ * The files a block places: in its content, its items' content, and the content of the records
+ * they link.
+ */
+export function collectFileIds(
+  block: Pick<NormalizedBlock, "content">,
+  items: ReadonlyArray<Pick<NormalizedItem, "content">>,
+): Set<string> {
+  const fileIds = new Set<string>();
+  for (const owner of [block, ...items]) {
+    collectFileIdsFromContent(owner.content as Record<string, unknown>, fileIds);
+    for (const record of linkedRecords((owner as ReferenceBlock).references)) {
       collectFileIdsFromContent(record.content, fileIds);
     }
-    for (const item of blockItems) {
-      collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
-      for (const record of linkedRecords((item as ReferenceBlock).references)) {
-        collectFileIdsFromContent(record.content, fileIds);
-      }
-    }
-    const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
-
-    queryClient.setQueryData(scopedKey(queryKeys.blocks.get(block.id)), {
-      block,
-      repeatableItems: blockItems,
-      files: blockFiles,
-    });
-
-    for (const file of blockFiles) {
-      queryClient.setQueryData(scopedKey(queryKeys.files.get(file.id)), file);
-    }
   }
+  return fileIds;
 }
 
 /** Materialized collection revisions own their asset metadata. Only marker-only

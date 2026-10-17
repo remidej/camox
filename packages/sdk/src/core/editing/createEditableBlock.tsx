@@ -6,7 +6,7 @@ import {
   type TSchema,
   type Static,
 } from "@sinclair/typebox";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
@@ -17,10 +17,7 @@ import {
   blockMutations,
   repeatableItemMutations,
   type Page,
-  pageQueries,
-  projectQueries,
   collectionMutations,
-  collectionQueries,
 } from "@/lib/queries";
 
 import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
@@ -105,6 +102,7 @@ export type {
   TextStyleData,
   TextLinkStyleData,
 } from "../lib/lexicalReact";
+import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 
 /** Normalize legacy links (no `type` field) to the new union shape */
 const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
@@ -863,9 +861,8 @@ export function createEditableBlock<
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
     const projectSlug = useProjectSlug();
-    const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-    const { data: pages } = useQuery({
-      ...pageQueries.list(project?.id ?? 0),
+    const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+    const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
       enabled: !!project,
     });
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -1234,9 +1231,8 @@ export function createEditableBlock<
 
     const { filesMap } = useNormalizedData();
     const projectSlug = useProjectSlug();
-    const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-    const { data: pages } = useQuery({
-      ...pageQueries.list(project?.id ?? 0),
+    const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+    const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
       enabled: !!project,
     });
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -1320,9 +1316,8 @@ export function createEditableBlock<
     const updateBlockContent = useMutation(blockMutations.updateContent());
     const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
     const projectSlug = useProjectSlug();
-    const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-    const { data: pages } = useQuery({
-      ...pageQueries.list(project?.id ?? 0),
+    const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+    const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
       enabled: !!project,
     });
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -2423,6 +2418,7 @@ export function createEditableBlock<
     fieldName: string,
     record: ReferenceRecord | null,
   ) => {
+    const studioCache = useStudioCache();
     const selectTarget = usePreviewSelection();
     const projectSlug = useProjectSlug();
     const queryClient = useQueryClient();
@@ -2457,12 +2453,12 @@ export function createEditableBlock<
       void referenceWritesFor(queryClient)
         .save(record, field, value, async (input) => {
           const saved = await mutation.mutateAsync({ ...input, projectSlug });
-          queryClient.setQueryData(
-            collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+          studioCache.set(
+            reads.record({ projectSlug, collectionId: record.collectionId, id: record.id }),
             saved,
           );
           // Shared source changes must refresh every placement, not only this block.
-          void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
+          void invalidateCollectionRecordViews(studioCache, projectSlug, record.collectionId);
           return saved;
         })
         .catch((cause: unknown) => {

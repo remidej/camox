@@ -8,14 +8,13 @@ import {
   DialogTitle,
 } from "@camox/ui/dialog";
 import { Skeleton } from "@camox/ui/skeleton";
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import { AssetCard } from "@/features/content/components/AssetCard";
 import { useProjectSlug } from "@/lib/auth";
 import type { File } from "@/lib/queries";
-import { fileQueries, projectQueries } from "@/lib/queries";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { AssetLightbox } from "./AssetLightbox";
 
 interface AssetPickerModalProps {
@@ -36,9 +35,8 @@ const AssetPickerModal = ({
   onSelectMultiple,
 }: AssetPickerModalProps) => {
   const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: allFiles } = useQuery({
-    ...fileQueries.list(project?.id ?? 0),
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { data: allFiles } = useReadQuery(reads.fileList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());

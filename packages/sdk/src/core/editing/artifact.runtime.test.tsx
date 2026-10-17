@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { Window } from "happy-dom";
 import * as React from "react";
@@ -12,6 +12,7 @@ import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { previewStore, selectIsEditMode } from "../../features/preview/previewStore";
 import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
+import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import {
   artifactBlock,
@@ -38,7 +39,7 @@ Object.assign(globalThis, {
   useTestEditMode: () => useSelector(previewStore, selectIsEditMode),
   captureArtifactSelection: (selection: unknown) => selections.push(selection),
 });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
@@ -125,7 +126,7 @@ async function mount(content: Record<string, unknown>, editMode: boolean) {
   const root = createRoot(host);
   await act(async () =>
     root.render(
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <CompleteBlockEditingRuntimeProvider>
           <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
             <artifactBlock._internal.Component
@@ -134,7 +135,7 @@ async function mount(content: Record<string, unknown>, editMode: boolean) {
             />
           </NormalizedDataProvider>
         </CompleteBlockEditingRuntimeProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     ),
   );
   /** The element the pointer lands on over a frame: a layer on top of it, or the frame itself. */

@@ -14,13 +14,14 @@ import { Button } from "@camox/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@camox/ui/dialog";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { draftMutations, draftQueries, type DraftSummary } from "@/lib/queries";
-import { getCurrentDraftId, isDevelopmentMode, switchToLive } from "@/lib/studio-draft";
+import { useDraftScope } from "@/lib/draft-scope";
+import { draftMutations, type DraftSummary } from "@/lib/queries";
 
+import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 
 type Subject = PublishPreview["changes"][number];
@@ -148,36 +149,15 @@ function Changes({ changes }: { changes: PublishPreview["changes"] }) {
   );
 }
 
-/** The draft the studio is in, following switches that the studio's navigation announces. */
-export function useCurrentDraftId() {
-  return React.useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener("camox:navigation", onChange);
-      window.addEventListener("popstate", onChange);
-      return () => {
-        window.removeEventListener("camox:navigation", onChange);
-        window.removeEventListener("popstate", onChange);
-      };
-    },
-    getCurrentDraftId,
-    () => null,
-  );
-}
-
 /**
  * Switches the studio to Live once its draft ended here, replacing the draft's URL entry. A
  * development draft never ends: publishing or discarding empties it, and dev mode stays in it.
  */
 export function useLeaveDraft() {
-  const queryClient = useQueryClient();
+  const draftScope = useDraftScope();
   return (ended: EndedDraft | null) => {
-    if (isDevelopmentMode()) {
-      void queryClient.invalidateQueries({ queryKey: ["camox"] });
-      return;
-    }
-    switchToLive();
-    void queryClient.invalidateQueries({ queryKey: ["camox"] });
-    if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
+    const left = draftScope.leave(ended);
+    if (left && ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
   };
 }
 
@@ -194,14 +174,14 @@ function DraftName({
   draft: DraftSummary;
   startRenaming: boolean;
 }) {
-  const queryClient = useQueryClient();
+  const studioCache = useStudioCache();
   const [editing, setEditing] = React.useState(startRenaming);
   const [value, setValue] = React.useState(draft.name ?? "");
   const rename = useMutation({
     ...draftMutations.rename(),
     onSuccess: (renamed) => {
-      queryClient.setQueryData(draftQueries.get(projectId, draft.id).queryKey, renamed);
-      void queryClient.invalidateQueries({ queryKey: draftQueries.list(projectId).queryKey });
+      studioCache.set(reads.draft({ projectId, draftId: draft.id }), renamed);
+      void studioCache.invalidate(reads.draftList({ projectId }));
     },
     onError: (error) => toast.error(error.message || "Could not rename the draft"),
   });
@@ -269,11 +249,8 @@ export function ReviewDraftDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
-  const preview = useQuery({
-    ...draftQueries.previewPublish(projectId, draftId),
-    enabled: open,
-  });
-  const draft = useQuery({ ...draftQueries.get(projectId, draftId), enabled: open });
+  const preview = useReadQuery(reads.publishPreview({ projectId, draftId }), { enabled: open });
+  const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
   const leaveDraft = useLeaveDraft();
 
   const leave = (ended: EndedDraft | null) => {

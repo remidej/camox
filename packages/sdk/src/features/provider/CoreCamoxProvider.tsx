@@ -1,11 +1,17 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
-import { initApiClient } from "../../lib/api-client";
+import { getDraftReadClient, initApiClient } from "../../lib/api-client";
 import { AuthContext, createCamoxAuthClient, useProcessOtt } from "../../lib/auth";
-import { projectQueries, type Project } from "../../lib/queries";
-import { onDraftStarted, seedStartedDraft } from "../../lib/studio-draft";
+import {
+  createDraftScope,
+  type DraftScope,
+  followUrl,
+  DraftScopeContext,
+} from "../../lib/draft-scope";
+import type { Project } from "../../lib/queries";
+import { StudioCacheContext, createStudioCache, reads } from "../../lib/studio-reads";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { PreviewSignInPage } from "./PreviewSignInPage";
 
@@ -42,30 +48,36 @@ export function CoreCamoxProvider({
 }: CoreCamoxProviderProps) {
   const queryClient = useQueryClient();
   const authClient = React.useMemo(() => createCamoxAuthClient(apiUrl), [apiUrl]);
-  const initializedApiUrl = React.useRef<string | null>(null);
-  // oxlint-disable-next-line react/refs -- one-time client init must happen before children render
-  if (initializedApiUrl.current !== apiUrl) {
-    initApiClient(apiUrl);
-    // oxlint-disable-next-line react/refs -- see above
-    initializedApiUrl.current = apiUrl;
-  }
-
-  // Once the first block edit moves the studio into a new draft, refetch everything so the
-  // studio shows the draft rather than Live. Its keys start from what Live showed, so nothing
-  // flashes empty meanwhile.
-  React.useEffect(
-    () =>
-      onDraftStarted((draftId) => {
-        seedStartedDraft(queryClient, draftId);
-        void queryClient.invalidateQueries({ queryKey: ["camox"] });
-      }),
-    [queryClient],
+  // The page runtime gives every request and window its draft scope. Mounted in a host
+  // application instead, the studio follows the window's URL.
+  const providedScope = React.useContext(DraftScopeContext);
+  const [ownScope] = React.useState(() =>
+    providedScope ? null : createWindowDraftScope(queryClient),
   );
+  const draftScope = providedScope ?? ownScope!;
+  const initializedClient = React.useRef<{ apiUrl: string; draftScope: DraftScope } | null>(null);
+  if (
+    // oxlint-disable-next-line react/refs -- one-time client init must happen before children render
+    initializedClient.current?.apiUrl !== apiUrl ||
+    // oxlint-disable-next-line react/refs -- see above
+    initializedClient.current.draftScope !== draftScope
+  ) {
+    initApiClient(apiUrl, draftScope);
+    // oxlint-disable-next-line react/refs -- see above
+    initializedClient.current = { apiUrl, draftScope };
+  }
+  const providedCache = React.useContext(StudioCacheContext);
+  const [ownCache] = React.useState(() =>
+    providedCache
+      ? null
+      : createStudioCache({ queryClient, scope: draftScope, api: getDraftReadClient }),
+  );
+  const studioCache = providedCache ?? ownCache!;
 
   const seededProject = React.useRef<Project | undefined>(undefined);
   // oxlint-disable-next-line react/refs -- the cache must be seeded before children query it
   if (initialProject && seededProject.current !== initialProject) {
-    queryClient.setQueryData(projectQueries.getBySlug(projectSlug).queryKey, initialProject);
+    studioCache.set(reads.project({ slug: projectSlug }), initialProject);
     // oxlint-disable-next-line react/refs -- see above
     seededProject.current = initialProject;
   }
@@ -88,16 +100,27 @@ export function CoreCamoxProvider({
   }
 
   return (
-    <AuthContext.Provider
-      value={{
-        authClient,
-        authenticationUrl,
-        apiUrl,
-        projectSlug,
-        initialAuthenticated,
-      }}
-    >
-      <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
-    </AuthContext.Provider>
+    <DraftScopeContext.Provider value={draftScope}>
+      <StudioCacheContext.Provider value={studioCache}>
+        <AuthContext.Provider
+          value={{
+            authClient,
+            authenticationUrl,
+            apiUrl,
+            projectSlug,
+            initialAuthenticated,
+          }}
+        >
+          <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
+        </AuthContext.Provider>
+      </StudioCacheContext.Provider>
+    </DraftScopeContext.Provider>
   );
+}
+
+function createWindowDraftScope(queryClient: QueryClient) {
+  if (typeof window === "undefined") return createDraftScope({ queryClient });
+  const draftScope = createDraftScope({ queryClient, browser: window });
+  followUrl(draftScope, window.location.href);
+  return draftScope;
 }

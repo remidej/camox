@@ -1,5 +1,4 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { Badge } from "@camox/ui/badge";
 import {
   Command,
@@ -17,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@camox/ui/dialog";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
@@ -26,15 +25,9 @@ import type { Block } from "@/core/createBlock";
 import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
-import {
-  type BlockBundle,
-  type PageStructure,
-  blockMutations,
-  blockQueries,
-  projectQueries,
-} from "@/lib/queries";
+import { type BlockBundle, blockMutations } from "@/lib/queries";
 
-import { scopedKey } from "../../../lib/studio-draft";
+import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -55,23 +48,23 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   }, []);
   const gridRef = React.useRef<HTMLDivElement>(null);
   const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
-  const queryClient = useQueryClient();
+  const studioCache = useStudioCache();
+  const projectSlug = useProjectSlug();
   const { pathname } = useLocation();
 
   const createBlock = useMutation({
     ...blockMutations.create(),
     onMutate: (variables) => {
       // Optimistic insert, like useUpdateBlockPosition.
-      const pageQueryKey = scopedKey(queryKeys.pages.getByPath(pathname));
-      const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
-      if (!previousPage) return { pageQueryKey };
+      const edit = studioCache.edit();
+      const page = reads.pageStructure({ path: pathname, projectSlug });
+      const previousPage = edit.get(page);
+      if (!previousPage) return { edit };
 
       // Read block positions from individual caches for position computation
       const blockIds = previousPage.page.blockIds;
       const pageBlocks = blockIds
-        .map(
-          (id) => queryClient.getQueryData<BlockBundle>(scopedKey(queryKeys.blocks.get(id)))?.block,
-        )
+        .map((id) => edit.get(reads.blockBundle(id))?.block)
         .filter((b) => b != null);
       const { afterPosition } = variables;
 
@@ -114,12 +107,13 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
         updatedAt: now,
       };
 
-      // Seed the optimistic block's individual cache
-      queryClient.setQueryData(scopedKey(queryKeys.blocks.get(optimisticId)), {
+      // Seed the optimistic block's own read. It lacks the block's repeatable items, so
+      // settling refetches the created block.
+      edit.set(reads.blockBundle(optimisticId), {
         block: optimisticBlock,
         repeatableItems: [],
         files: [],
-      });
+      } as unknown as BlockBundle);
 
       // Insert at the correct position in blockIds
       const insertIndex = pageBlocks.findIndex((b) => b.position > position);
@@ -130,49 +124,23 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
         newBlockIds.splice(insertIndex, 0, optimisticId);
       }
 
-      queryClient.setQueryData<PageStructure>(pageQueryKey, {
-        ...previousPage,
-        page: { ...previousPage.page, blockIds: newBlockIds },
-      });
-
-      void queryClient.cancelQueries({ queryKey: pageQueryKey });
-      return { previousPage, optimisticId, pageQueryKey };
+      edit.set(page, { ...previousPage, page: { ...previousPage.page, blockIds: newBlockIds } });
+      return { edit };
     },
-    onError: (_error, _variables, context) => {
-      if (context?.previousPage) {
-        queryClient.setQueryData(context.pageQueryKey, context.previousPage);
-      }
-      if (context?.optimisticId) {
-        queryClient.removeQueries({
-          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
-        });
-      }
-    },
-    onSettled: (_data, _error, _variables, context) => {
-      if (!context) return;
-      void queryClient.invalidateQueries({
-        queryKey: context.pageQueryKey,
-      });
-      // The optimistic bundle lacks the block's repeatable items; refetch the created block.
-      if (context.optimisticId) {
-        void queryClient.invalidateQueries({
-          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
-        });
-      }
-    },
+    onError: (_error, _variables, context) => context?.edit.rollback(),
+    onSettled: (_data, _error, _variables, context) => context?.edit.settle(),
   });
 
-  const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
   const availableBlocks = useCamoxApp()
     .getBlocks()
     .filter((b) => !b._internal.layoutOnly);
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
-  const { data: totalCounts = {} } = useQuery({
-    ...blockQueries.getUsageCounts(project?.id ?? 0),
-    enabled: !!project,
-  });
+  const { data: totalCounts = {} } = useReadQuery(
+    reads.blockUsageCounts({ projectId: project?.id ?? 0 }),
+    { enabled: !!project },
+  );
   // Keep ordering in React rather than letting cmdk reorder the thumbnail DOM.
   // This also makes the first keyboard selection match the highest search score.
   const filteredBlocks = availableBlocks

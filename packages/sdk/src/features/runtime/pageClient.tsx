@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { hydrateRoot } from "react-dom/client";
 
 import type { CamoxApp } from "../../core/createApp";
+import { createDraftScope } from "../../lib/draft-scope";
 import { restoreArtifactSources } from "./artifactSources";
 import { readHydrationData } from "./hydrationData";
 import { PageApp } from "./pageApp";
@@ -29,5 +30,9 @@ export async function hydratePageWithApp(camoxApp: CamoxApp) {
     input.presentation === "studio" ? loadRuntimeChrome() : undefined,
   ]);
 
-  hydrateRoot(root, <PageApp camoxApp={camoxApp} input={input} queryClient={queryClient} />);
+  const draftScope = createDraftScope({ queryClient, browser: window });
+  hydrateRoot(
+    root,
+    <PageApp camoxApp={camoxApp} draftScope={draftScope} input={input} queryClient={queryClient} />,
+  );
 }

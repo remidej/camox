@@ -1,9 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import type * as React from "react";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { StudioQueryClientProvider } from "../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../lib/normalized-data";
 import { createBlock } from "./createBlock";
 import { defineDocument } from "./defineDocument";
@@ -127,7 +128,7 @@ function ArtifactBlock({
   queryClient: QueryClient;
 }) {
   return (
-    <QueryClientProvider client={queryClient}>
+    <StudioQueryClientProvider client={queryClient}>
       <Providers>
         <NormalizedDataProvider files={files} repeatableItems={[]} blocks={[]}>
           <block._internal.Component
@@ -142,7 +143,7 @@ function ArtifactBlock({
           />
         </NormalizedDataProvider>
       </Providers>
-    </QueryClientProvider>
+    </StudioQueryClientProvider>
   );
 }
 

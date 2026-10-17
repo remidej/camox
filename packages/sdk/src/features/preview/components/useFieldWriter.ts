@@ -1,5 +1,5 @@
 import { toast } from "@camox/ui/toaster";
-import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import { referenceWritesFor } from "@/core/editing/referenceWrites";
@@ -17,12 +17,11 @@ import {
 import {
   type BlockBundle,
   blockMutations,
-  blockQueries,
   collectionMutations,
-  collectionQueries,
   repeatableItemMutations,
 } from "@/lib/queries";
 
+import { reads, type StudioCache, useStudioCache } from "../../../lib/studio-reads";
 import { contentFieldSchema } from "./contentFieldSchema";
 
 /**
@@ -84,25 +83,27 @@ function withReferenceList(
  * Returns an undo.
  */
 function applyReferenceListOptimistically(
-  queryClient: QueryClient,
+  studioCache: StudioCache,
   blockId: string,
   owner: ListOwner,
   fieldName: string,
   ids: string[],
   linkRecord: (id: string) => Promise<NormalizedCollectionRecord>,
 ) {
-  const queryKey = blockQueries.get(blockId).queryKey;
-  const previous = queryClient.getQueryData<BlockBundle>(queryKey);
+  // The block bundle in the draft the change was made in, even if the studio moves meanwhile.
+  const edit = studioCache.edit();
+  const bundle = reads.blockBundle(blockId);
+  const previous = edit.get(bundle);
   const previousOwner = previous && listOwnerIn(previous, owner);
   if (!previous || !previousOwner) return () => {};
   const hydrated = referenceList(previousOwner.references, fieldName);
-  queryClient.setQueryData(queryKey, withReferenceList(previous, owner, fieldName, ids, hydrated));
+  edit.set(bundle, withReferenceList(previous, owner, fieldName, ids, hydrated));
 
   const missing = ids.filter((id) => !hydrated.some((record) => record.id === id));
   if (missing.length > 0) {
     void Promise.all(missing.map(linkRecord))
       .then((linked) =>
-        queryClient.setQueryData<BlockBundle>(queryKey, (current) => {
+        edit.set(bundle, (current) => {
           // A later change or the server's own hydration wins.
           const currentOwner = current && listOwnerIn(current, owner);
           if (!current || !currentOwner) return current;
@@ -118,7 +119,7 @@ function applyReferenceListOptimistically(
         // The block refetch after the write hydrates the record instead.
       });
   }
-  return () => queryClient.setQueryData(queryKey, previous);
+  return () => edit.rollback();
 }
 
 /**
@@ -136,6 +137,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
   const updateBlockContent = useMutation(blockMutations.updateContent());
   const updateItemContent = useMutation(repeatableItemMutations.updateContent());
   const editRecord = useMutation(collectionMutations.edit());
+  const studioCache = useStudioCache();
 
   return React.useCallback(
     (fieldName: string, value: unknown) => {
@@ -147,12 +149,12 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         const saving = referenceWritesFor(queryClient)
           .save(record, fieldName, serializeAssetField(fieldType, value), async (input) => {
             const saved = await editRecord.mutateAsync({ ...input, projectSlug });
-            queryClient.setQueryData(
-              collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+            studioCache.set(
+              reads.record({ projectSlug, collectionId: record.collectionId, id: record.id }),
               saved,
             );
             // Shared source changes must refresh every placement, not only this block.
-            void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
+            void invalidateCollectionRecordViews(studioCache, projectSlug, record.collectionId);
             return saved;
           })
           .then(() => undefined);
@@ -171,8 +173,8 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       if (field?.fieldType === "ReferenceList" && target) {
         const { collectionId = "" } = field;
         const linkRecord = async (recordId: string): Promise<NormalizedCollectionRecord> => {
-          const record = await queryClient.ensureQueryData(
-            collectionQueries.record(projectSlug, collectionId, recordId),
+          const record = await studioCache.ensure(
+            reads.record({ projectSlug, collectionId, id: recordId }),
           );
           const labelField = camoxApp.getCollectionById(collectionId)?._internal.label;
           const label = labelField ? record.content[labelField] : undefined;
@@ -185,7 +187,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         };
         return (async () => {
           const restore = applyReferenceListOptimistically(
-            queryClient,
+            studioCache,
             target.blockId,
             target.kind === "item" ? { kind: "item", itemId: target.itemId } : { kind: "block" },
             fieldName,
@@ -202,9 +204,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
             restore();
             throw cause;
           }
-          void queryClient.invalidateQueries({
-            queryKey: blockQueries.get(target.blockId).queryKey,
-          });
+          void studioCache.invalidate(reads.blockBundle(target.blockId));
         })();
       }
       if (field?.fieldType === "Reference") {
@@ -220,6 +220,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       target,
       schema,
       queryClient,
+      studioCache,
       projectSlug,
       camoxApp,
       editRecord,

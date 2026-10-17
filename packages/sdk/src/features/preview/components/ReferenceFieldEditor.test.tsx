@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -17,12 +17,17 @@ import { CamoxAppProvider } from "@/features/provider/components/CamoxAppContext
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
-import { collectionQueries } from "@/lib/queries";
 
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../../../lib/draft-scope.fixtures";
+import { reads } from "../../../lib/studio-reads";
 import { referencePickerFocus } from "../referencePickerFocus";
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 
 const customers = createCollection({
   id: "customers",
@@ -105,17 +110,20 @@ async function renderReference(
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  client.setQueryData(
-    collectionQueries.records("site", "customers").queryKey,
+  testStudioCache(client).set(
+    reads.records({ projectSlug: "site", collectionId: "customers" }),
     options.records ?? defaultRecords,
   );
-  client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
-    collectionId: "customers",
-    title: "Customers",
-    description: "",
-    label: "name",
-    contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
-  });
+  testStudioCache(client).set(
+    reads.collection({ projectSlug: "site", collectionId: "customers" }),
+    {
+      collectionId: "customers",
+      title: "Customers",
+      description: "",
+      label: "name",
+      contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
+    },
+  );
   const changes: (string | null)[] = [];
   const opened: string[] = [];
   const control = { reject: false };
@@ -158,7 +166,7 @@ async function renderReference(
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
             projectSlug: "site",
@@ -175,7 +183,7 @@ async function renderReference(
             </CollectionItemModalProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   });
 

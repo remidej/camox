@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 
+import { createDraftScope, DraftScopeContext } from "../../lib/draft-scope";
 import {
   Link,
   NavigationDisabled,
@@ -99,11 +101,20 @@ void test("navigation keeps the draft param across SDK links, and switching draf
   const root = createRoot(host as unknown as HTMLElement);
   const draftOf = () => new URL(dom.location.href).searchParams.get("camox-draft");
   try {
+    // The studio's scope, viewing the draft the URL names.
+    const draftScope = createDraftScope({
+      queryClient: new QueryClient(),
+      browser: dom as never,
+      developmentMode: false,
+    });
+    draftScope.adopt({ draftId: "d1" });
     await React.act(async () => {
       root.render(
-        <NavigationProvider>
-          <Probe />
-        </NavigationProvider>,
+        <DraftScopeContext.Provider value={draftScope}>
+          <NavigationProvider>
+            <Probe />
+          </NavigationProvider>
+        </DraftScopeContext.Provider>,
       );
     });
     const link = host.querySelector("#contact")!;
@@ -128,6 +139,7 @@ void test("navigation keeps the draft param across SDK links, and switching draf
     assert.equal(draftOf(), null, "switching to Live drops the param");
     await React.act(async () => navigate({ to: "/contact" }));
     assert.equal(draftOf(), null, "Live stays Live");
+    assert.equal(draftScope.current(), null, "the studio follows the switches");
   } finally {
     await React.act(async () => root.unmount());
     await dom.happyDOM.close();
