@@ -25,7 +25,7 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
-import { DiscardDraftDialog, ReviewDraftDialog, useLeaveDraft } from "./ReviewDraftDialog";
+import { DiscardDraftDialog, ReviewDraftSheet, useLeaveDraft } from "./ReviewDraftSheet";
 
 const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
@@ -48,7 +48,7 @@ export function DraftsControl() {
   const authCtx = React.useContext(AuthContext);
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
-  const review = useSelector(studioStore, (state) => state.context.reviewDraftDialog);
+  const review = useSelector(studioStore, (state) => state.context.reviewDraftSheet);
   const discarding = useSelector(studioStore, (state) => state.context.isDiscardDraftDialogOpen);
   const developmentMode = draftScope.developmentMode;
 
@@ -62,7 +62,7 @@ export function DraftsControl() {
   // The dialogs belong to the draft they were opened in.
   React.useEffect(
     () => () => {
-      studioStore.send({ type: "closeReviewDraftDialog" });
+      studioStore.send({ type: "closeReviewDraftSheet" });
       studioStore.send({ type: "closeDiscardDraftDialog" });
     },
     [draftId],
@@ -130,7 +130,7 @@ export function DraftsControl() {
         <DropdownMenuContent className="w-80" align="end">
           {draftId ? (
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => studioStore.send({ type: "openReviewDraftDialog" })}>
+              <DropdownMenuItem onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}>
                 <Eye />
                 Review and publish
               </DropdownMenuItem>
@@ -176,13 +176,13 @@ export function DraftsControl() {
 
       {draftId && (
         <>
-          <ReviewDraftDialog
+          <ReviewDraftSheet
             projectId={projectId}
             draftId={draftId}
             open={review.open}
             startRenaming={review.startRenaming}
             onOpenChange={(open) => {
-              if (!open) studioStore.send({ type: "closeReviewDraftDialog" });
+              if (!open) studioStore.send({ type: "closeReviewDraftSheet" });
             }}
           />
           <DiscardDraftDialog
@@ -227,7 +227,7 @@ function useDraftsActions({
         aliases: ["Publish", "Deploy", "Go live", "Push to production", "Ship"],
         groupLabel: "Drafts",
         checkIfAvailable: () => inDraft,
-        execute: () => studioStore.send({ type: "openReviewDraftDialog" }),
+        execute: () => studioStore.send({ type: "openReviewDraftSheet" }),
       },
       {
         id: "discard-draft",
@@ -244,7 +244,7 @@ function useDraftsActions({
         groupLabel: "Drafts",
         // Only a regular draft has a name.
         checkIfAvailable: () => inDraft && !developmentMode,
-        execute: () => studioStore.send({ type: "openReviewDraftDialog", startRenaming: true }),
+        execute: () => studioStore.send({ type: "openReviewDraftSheet", startRenaming: true }),
       },
       {
         id: "switch-to-live",
