@@ -716,12 +716,11 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
   const { project, scope, entity } = yield* accessTo(ctx, { block: id }, "public");
-  return yield* blockView(readerOf(ctx, project.id, scope), entity.block);
+  return yield* blockView(
+    contentReader(ctx, { projectId: project.id, draft: scope }),
+    entity.block,
+  );
 }, Effect.scoped);
-
-/** The content reader for a project, as a scope reads it. */
-const readerOf = (ctx: ServiceContext, projectId: number, draft: DraftScope) =>
-  contentReader(ctx, { projectId, draft });
 
 /** A block as a scope's readers see it, with its items and the files and records they use. */
 const blockView = Effect.fn("blocks.blockView")(function* (
@@ -757,7 +756,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   );
   if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
-  const rendered = yield* readerOf(ctx, page.projectId, scope).markdown([
+  const rendered = yield* contentReader(ctx, { projectId: page.projectId, draft: scope }).markdown([
     { pageId },
     { layoutId: page.layoutId },
   ]);
@@ -799,7 +798,9 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
   );
   if (!layout) return yield* new NotFoundError();
   return layoutSlotsMarkdown(
-    yield* readerOf(ctx, project.id, scope).markdown([{ layoutId: layout.layoutId }]),
+    yield* contentReader(ctx, { projectId: project.id, draft: scope }).markdown([
+      { layoutId: layout.layoutId },
+    ]),
   );
 }, Effect.scoped);
 
@@ -862,7 +863,7 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
   if (id === null) return null;
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   if (!stored) return null;
-  return yield* blockView(readerOf(ctx, projectId, scope), stored);
+  return yield* blockView(contentReader(ctx, { projectId, draft: scope }), stored);
 }, Effect.scoped);
 
 // --- Writes ---
@@ -874,7 +875,7 @@ const shownBlock = Effect.fn("blocks.shownBlock")(function* (
   scope: DraftScope,
   block: typeof blocks.$inferSelect,
 ) {
-  return (yield* readerOf(ctx, projectId, scope).shown.blocks([block]))[0]!;
+  return (yield* contentReader(ctx, { projectId, draft: scope }).shown.blocks([block]))[0]!;
 });
 
 /** A request's access to write a block. */
@@ -1048,7 +1049,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   });
 
   const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
-  const [created] = yield* readerOf(ctx, page.projectId, scope).shown.blocks([stored]);
+  const created = yield* shownBlock(ctx, page.projectId, scope, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 }, Effect.scoped);
 
@@ -1298,7 +1299,7 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     projectId: project.id,
     targets: [queryKeys.pages.getByPathAll, queryKeys.pages.list, queryKeys.blocks.getUsageCounts],
   });
-  return yield* readerOf(ctx, project.id, scope).shown.blocks(result);
+  return yield* contentReader(ctx, { projectId: project.id, draft: scope }).shown.blocks(result);
 }, Effect.scoped);
 
 export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (

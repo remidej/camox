@@ -370,6 +370,27 @@ describe("write responses", () => {
   });
 });
 
+describe("delete responses", () => {
+  it("show the deleted block and item as readers saw them", async () => {
+    const f = await fixture();
+    const block = await callSeedingLive(
+      router.blocks.create,
+      { pageId: f.page.id, type: "cards", content: { heading: "Team", cards: [{ label: "Ada" }] } },
+      f.options,
+    );
+    const [item] = (await call(router.blocks.get, { id: block.id }, f.options)).repeatableItems;
+
+    const deletedItem = await callSeedingLive(
+      router.repeatableItems.delete,
+      { id: item.id },
+      f.options,
+    );
+    expect(deletedItem).toMatchObject({ id: item.id, content: { label: "Ada" } });
+    const deletedBlock = await callSeedingLive(router.blocks.delete, { id: block.id }, f.options);
+    expect(deletedBlock).toMatchObject({ id: block.id, content: { heading: "Team" } });
+  });
+});
+
 describe("pages whose layout is gone", () => {
   const read = (f: Awaited<ReturnType<typeof fixture>>, path = f.page.fullPath) =>
     call(router.pages.getByPath, { projectSlug: f.project.slug, path }, f.options);

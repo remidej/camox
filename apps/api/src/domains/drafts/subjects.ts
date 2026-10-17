@@ -183,15 +183,15 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
   scope: Scope,
   rows: Iterable<RecordRow>,
 ) {
-  const read = contentReader(ctx, { projectId: scope.projectId, draft: scope });
+  const reader = contentReader(ctx, { projectId: scope.projectId, draft: scope });
   const byId = new Map([...rows].map((row) => [row.id, row]));
   const labels = new Map<string, string>();
   const owners = new Map<string, Owner>();
   for (const [collectionId, group] of Map.groupBy(byId.values(), (row) => row.collectionId)) {
-    const definition = yield* read.collection(collectionId);
+    const definition = yield* reader.collection(collectionId);
     if (!definition) continue;
     owners.set(collectionId, { kind: "collection", name: collectionId, title: definition.title });
-    for (const record of yield* read.shown.records(collectionId, group)) {
+    for (const record of yield* reader.shown.records(collectionId, group)) {
       labels.set(record.id, record.label);
     }
   }
@@ -210,7 +210,7 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
 });
 
 /**
- * Names the entities a preview mentions. Pages, blocks, synced blocks and items are read here;
+ * Names the entities a preview mentions. Pages, blocks, synced blocks and items are reader here;
  * records and files are named from the rows the caller already holds (the draft's, as it reads
  * them), so a record is labelled by its content and a file by its filename.
  */

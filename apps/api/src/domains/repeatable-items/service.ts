@@ -480,9 +480,10 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
 ) {
   const { id } = yield* decodeInput(getRepeatableItemInput, rawInput);
   const { project, scope, entity } = yield* accessTo(ctx, { item: id }, "public");
-  const read = yield* contentReader(ctx, { projectId: project.id, draft: scope }).item(entity.item);
-  if (!read) return yield* new NotFoundError();
-  return read;
+  const reader = contentReader(ctx, { projectId: project.id, draft: scope });
+  const view = yield* reader.item(entity.item);
+  if (!view) return yield* new NotFoundError();
+  return view;
 }, Effect.scoped);
 
 // --- Writes ---

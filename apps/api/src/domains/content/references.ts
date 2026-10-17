@@ -1,4 +1,3 @@
-import { QUERY_LIMIT_CAP } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -6,11 +5,11 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { conformRecordContent } from "../_shared/conform-content";
-import { type Field, fieldsOf, isAsset, pointersOf } from "../_shared/fields";
+import { type Field, fieldsOf, isAsset, pointersOf, type ReferenceQuery } from "../_shared/fields";
 import { type ContentScope, recordsOf } from "../collections/identity";
 import { collectionRecords } from "../collections/schema";
-import * as overlay from "../drafts/overlay";
 import type { FileView } from "../files/generated-metadata";
+import { selectInChunks } from "./chunks";
 import type { CollectionDefinition, Definitions } from "./definitions";
 import { resolveAssets } from "./files";
 
@@ -20,7 +19,7 @@ export type ResolvedReference = {
   label: string;
   content: Record<string, unknown>;
   contentSchema: unknown;
-  /** The records this record links, one hop further; absent beyond the second hop. */
+  /** The records this record references, one hop further; absent beyond the second hop. */
   references?: ResolvedReferences;
 };
 
@@ -34,30 +33,8 @@ type ReferenceField = Extract<Field, { kind: "Reference" | "ReferenceList" }>;
 type ReferenceListField = Extract<Field, { kind: "ReferenceList" }>;
 type RecordRow = typeof collectionRecords.$inferSelect;
 
-/** A query-backed list's normalized query: an optional ordering key and a capped limit. */
-type ReferenceQuery = {
-  orderBy?: { key: string; direction: "asc" | "desc" };
-  limit: number;
-};
-
-// D1 binds at most 100 parameters per statement.
-const CHUNK = 90;
-
 function isReference(field: Field): field is ReferenceField {
   return field.kind === "Reference" || field.kind === "ReferenceList";
-}
-
-/** A reference list field's normalized query; manual lists have none. */
-function referenceQuery(field: ReferenceListField): ReferenceQuery | null {
-  const query = field.schema.query as
-    | { orderBy?: Record<string, "asc" | "desc">; limit?: number }
-    | undefined;
-  if (!query || typeof query !== "object") return null;
-  const [entry] = Object.entries(query.orderBy ?? {});
-  return {
-    ...(entry ? { orderBy: { key: entry[0], direction: entry[1] } } : {}),
-    limit: Math.min(query.limit ?? QUERY_LIMIT_CAP, QUERY_LIMIT_CAP),
-  };
 }
 
 /**
@@ -149,8 +126,8 @@ type Plan =
   | { field: ReferenceField; gone: true };
 
 /**
- * Resolves the records each holder links, with every record conformed to its collection
- * (ADR 0007). `hops` 2 resolves the records the linked records link too, which link nothing
+ * Resolves the records each holder references, with every record conformed to its collection
+ * (ADR 0007). `hops` 2 resolves the records those records reference too, which resolve nothing
  * further: resolution is bounded, so cycles can't expand without limit. A record of a removed
  * collection, a missing record, or one outside the collection the field names resolves to
  * nothing.
@@ -194,7 +171,7 @@ export const resolveReferences = Effect.fn("content.resolveReferences")(function
       for (const plan of plans.flat()) {
         if (!("query" in plan) || queried.has(plan.query)) continue;
         const field = plan.field;
-        const ids = yield* queryRecordIds(db, at, field.collectionId, referenceQuery(field)!);
+        const ids = yield* queryRecordIds(db, at, field.collectionId, field.query!);
         queried.set(plan.query, ids);
       }
       const idsOf = (plan: Plan) =>
@@ -225,15 +202,15 @@ export const resolveReferences = Effect.fn("content.resolveReferences")(function
         const result: ResolvedReferences = {};
         for (const plan of fields) {
           const { field } = plan;
-          const linked = idsOf(plan)
+          const found = idsOf(plan)
             .map((id) => nodeOf(id, field.collectionId))
             .filter((node) => node !== null);
-          result[field.name] = field.kind === "Reference" ? (linked[0] ?? null) : linked;
+          result[field.name] = field.kind === "Reference" ? (found[0] ?? null) : found;
         }
         return result;
       });
 
-      // Records placed at the first hop resolve their own links; the second hop stops.
+      // Records placed at the first hop resolve their own references; the second hop stops.
       if (hop === 1 && hops === 2) {
         const placed = [...nodes.values()];
         const further = yield* resolveHop(
@@ -250,19 +227,13 @@ export const resolveReferences = Effect.fn("content.resolveReferences")(function
     Effect.gen(function* () {
       const collections = yield* definitions.collections();
       const missing = [...new Set(ids)].filter((id) => !loaded.has(id));
-      for (let start = 0; start < missing.length; start += CHUNK) {
-        const chunk = missing.slice(start, start + CHUNK);
-        const rows = yield* overlay.select(
-          db,
-          at.draft,
-          collectionRecords,
-          and(eq(collectionRecords.projectId, at.projectId), inArray(collectionRecords.id, chunk)),
-        );
-        for (const row of rows) {
-          const definition = collections.get(row.collectionId);
-          loaded.set(row.id, definition ? { row, definition } : null);
-        }
-        for (const id of chunk) if (!loaded.has(id)) loaded.set(id, null);
+      const rows = yield* selectInChunks(db, at.draft, collectionRecords, missing, (chunk) =>
+        and(eq(collectionRecords.projectId, at.projectId), inArray(collectionRecords.id, chunk)),
+      );
+      for (const id of missing) loaded.set(id, null);
+      for (const row of rows) {
+        const definition = collections.get(row.collectionId);
+        loaded.set(row.id, definition ? { row, definition } : null);
       }
     });
 
@@ -274,7 +245,7 @@ export const resolveReferences = Effect.fn("content.resolveReferences")(function
 function planOf(field: ReferenceField, content: unknown): Plan {
   if (field.kind === "ReferenceList" && field.queryBacked) {
     // A query-backed list ignores any stored value: code defines its membership and order.
-    return { field, query: `${field.collectionId}\u0000${JSON.stringify(field.schema.query)}` };
+    return { field, query: `${field.collectionId}\u0000${JSON.stringify(field.query)}` };
   }
   const values = content as Record<string, unknown> | null;
   const ids = pointersOf(field, values?.[field.name])

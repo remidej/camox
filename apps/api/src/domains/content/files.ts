@@ -3,10 +3,10 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { files } from "../../schema";
-import { assetFileId, fieldsOf, isAsset } from "../_shared/fields";
+import { assetFileId, assetShape, fieldsOf, isAsset } from "../_shared/fields";
 import type { ContentScope } from "../collections/identity";
-import * as overlay from "../drafts/overlay";
 import { type FileView, withFileMetadata } from "../files/generated-metadata";
+import { selectInChunks } from "./chunks";
 
 /** An asset as record reads return it: its file reference and the file's current metadata. */
 export type ResolvedAsset = {
@@ -18,9 +18,6 @@ export type ResolvedAsset = {
   size: number;
 };
 
-// D1 binds at most 100 parameters per statement.
-const CHUNK = 90;
-
 /**
  * The files content places, by id, as the scope reads them: a draft shows its replaced bytes,
  * and generated metadata where it applies. Only the project's own files resolve: an id naming
@@ -31,18 +28,9 @@ export const loadFiles = Effect.fn("content.loadFiles")(function* (
   at: ContentScope,
   ids: ReadonlySet<string>,
 ) {
-  const all = [...ids];
-  const rows: (typeof files.$inferSelect)[] = [];
-  for (let start = 0; start < all.length; start += CHUNK) {
-    rows.push(
-      ...(yield* overlay.select(
-        db,
-        at.draft,
-        files,
-        and(eq(files.projectId, at.projectId), inArray(files.id, all.slice(start, start + CHUNK))),
-      )),
-    );
-  }
+  const rows = yield* selectInChunks(db, at.draft, files, [...ids], (chunk) =>
+    and(eq(files.projectId, at.projectId), inArray(files.id, chunk)),
+  );
   const shown = yield* withFileMetadata(db, at.draft, rows);
   return new Map<string, FileView>(shown.map((file) => [file.id, file]));
 });
@@ -66,7 +54,7 @@ export function resolveAssets(
   const resolved = { ...content };
   for (const field of fieldsOf(schema).filter(isAsset)) {
     const value = content[field.name];
-    if (field.kind === "Image" || field.kind === "File") {
+    if (assetShape(field.kind) === "single") {
       resolved[field.name] = resolve(value);
       continue;
     }

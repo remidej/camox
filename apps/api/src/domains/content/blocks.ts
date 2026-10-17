@@ -1,4 +1,4 @@
-import { eq, inArray, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
@@ -6,7 +6,7 @@ import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markd
 import { blocks, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers, nestChildItems } from "../_shared/block-markers";
 import { type Conformed, conformBlocks } from "../_shared/conform-content";
-import { collectFileIds, itemSchemas } from "../_shared/fields";
+import { collectFileIds, itemSchemas, markdownOf, propertiesOf } from "../_shared/fields";
 import { withSharedContent } from "../blocks/shared-content";
 import type { ContentScope } from "../collections/identity";
 import * as overlay from "../drafts/overlay";
@@ -14,6 +14,7 @@ import type { FileView } from "../files/generated-metadata";
 import { readValues } from "../generated-values/service";
 import { blocksOfLayout } from "../layouts/identity";
 import { itemsUnder, type ItemRoot, rootOfItem } from "../repeatable-items/roots";
+import { selectInChunks } from "./chunks";
 import type { BlockDefinition, Definitions } from "./definitions";
 import { loadFiles } from "./files";
 import {
@@ -37,26 +38,6 @@ export type BlockSource = readonly (
   | { block: BlockRow }
 )[];
 
-// D1 binds at most 100 parameters per statement.
-const CHUNK = 90;
-
-const selectChunked = <T extends overlay.ContentTable>(
-  db: Database,
-  at: ContentScope,
-  table: T,
-  ids: readonly string[],
-  where: (chunk: string[]) => SQL,
-) =>
-  Effect.gen(function* () {
-    const rows: T["$inferSelect"][] = [];
-    for (let start = 0; start < ids.length; start += CHUNK) {
-      rows.push(
-        ...(yield* overlay.select(db, at.draft, table, where(ids.slice(start, start + CHUNK)))),
-      );
-    }
-    return rows;
-  });
-
 /** The stored blocks of a source as the scope reads them, by position, with their items. */
 const loadSource = Effect.fn("content.loadSource")(function* (
   db: Database,
@@ -71,12 +52,19 @@ const loadSource = Effect.fn("content.loadSource")(function* (
     return [];
   });
   const held = source.flatMap((entry) => ("block" in entry ? [entry.block] : []));
-  const placed = owners.length ? yield* overlay.select(db, at.draft, blocks, or(...owners)) : [];
+  const placed = owners.length
+    ? yield* overlay.select(
+        db,
+        at.draft,
+        blocks,
+        and(eq(blocks.projectId, at.projectId), or(...owners)),
+      )
+    : [];
   const byId = new Map([...held, ...placed].map((block) => [block.id, block]));
   const sorted = overlay.sortByPosition([...byId.values()]);
-  const items = yield* selectChunked(
+  const items = yield* selectInChunks(
     db,
-    at,
+    at.draft,
     repeatableItems,
     sorted.map((block) => block.id),
     (chunk) => inArray(repeatableItems.blockId, chunk),
@@ -139,10 +127,10 @@ function itemContentSchemas(
 }
 
 /**
- * The records shown blocks and items link, two hops deep, and every file they place: one query
+ * The records shown blocks and items reference, two hops deep, and every file they place: one query
  * per hop, one per query-backed list, and one for the files.
  */
-const linksAndFiles = Effect.fn("content.linksAndFiles")(function* (
+const referencesAndFiles = Effect.fn("content.referencesAndFiles")(function* (
   db: Database,
   at: ContentScope,
   definitions: Definitions,
@@ -157,13 +145,13 @@ const linksAndFiles = Effect.fn("content.linksAndFiles")(function* (
     })),
     ...shown.items.map((item) => ({ schema: schemas.get(item.id), content: item.content })),
   ];
-  const linked = yield* resolveReferences(db, at, definitions, holders, 2);
+  const resolved = yield* resolveReferences(db, at, definitions, holders, 2);
   const fileIds = new Set<string>();
   for (const value of [...shown.blocks, ...shown.items]) collectFileIds(value.content, fileIds);
-  recordFileIds(linked.records, fileIds);
+  recordFileIds(resolved.records, fileIds);
   const files = fileIds.size ? yield* loadFiles(db, at, fileIds) : new Map<string, FileView>();
-  attachFiles(linked.records, files);
-  const references = linked.references;
+  attachFiles(resolved.records, files);
+  const references = resolved.references;
   return {
     blockReferences: references.slice(0, shown.blocks.length),
     itemReferences: references.slice(shown.blocks.length),
@@ -172,14 +160,14 @@ const linksAndFiles = Effect.fn("content.linksAndFiles")(function* (
 });
 
 export type BlockBundle = {
-  /** By position, each with `{ _itemId }` markers for its repeaters and its resolved links. */
+  /** By position, each with `{ _itemId }` markers for its repeaters and the records it references. */
   blocks: (ShownBlock & { references: ResolvedReferences })[];
   /** Grouped by block, by position within it, with markers for nested repeaters. */
   repeatableItems: (ShownItem & { references: ResolvedReferences })[];
   files: FileView[];
 };
 
-/** Blocks with their items, the records they link and the files they place. */
+/** Blocks with their items, the records they reference and the files they place. */
 export const blockBundle = Effect.fn("content.blockBundle")(function* (
   db: Database,
   at: ContentScope,
@@ -188,9 +176,9 @@ export const blockBundle = Effect.fn("content.blockBundle")(function* (
 ): Effect.fn.Return<BlockBundle> {
   const stored = yield* loadSource(db, at, source);
   const shown = yield* show(db, at, definitions, stored.blocks, stored.items);
-  const linked = yield* linksAndFiles(db, at, definitions, shown);
+  const resolved = yield* referencesAndFiles(db, at, definitions, shown);
   const itemReferences = new Map(
-    shown.items.map((item, index) => [item.id, linked.itemReferences[index]!]),
+    shown.items.map((item, index) => [item.id, resolved.itemReferences[index]!]),
   );
   const itemsByBlock = Map.groupBy(shown.items, (item) => item.blockId);
   const marked = shown.blocks.map((block, index) => {
@@ -199,14 +187,14 @@ export const blockBundle = Effect.fn("content.blockBundle")(function* (
       itemsByBlock.get(block.id) ?? [],
     );
     return {
-      block: { ...markedBlock, references: linked.blockReferences[index]! },
+      block: { ...markedBlock, references: resolved.blockReferences[index]! },
       items: items.map((item) => ({ ...item, references: itemReferences.get(item.id)! })),
     };
   });
   return {
     blocks: marked.map(({ block }) => block),
     repeatableItems: marked.flatMap(({ items }) => items),
-    files: [...linked.files.values()],
+    files: [...resolved.files.values()],
   } satisfies BlockBundle;
 });
 
@@ -224,7 +212,7 @@ export type BlockMarkdown = {
 
 /**
  * The Markdown Representation of each block, by position, with its items nested in its
- * content, its links and its files. Blocks whose definition is gone render nothing.
+ * content, the records it references and its files. Blocks whose definition is gone render nothing.
  */
 export const blockMarkdown = Effect.fn("content.blockMarkdown")(function* (
   db: Database,
@@ -234,11 +222,11 @@ export const blockMarkdown = Effect.fn("content.blockMarkdown")(function* (
 ) {
   const stored = yield* loadSource(db, at, source);
   const shown = yield* show(db, at, definitions, stored.blocks, stored.items);
-  const linked = yield* linksAndFiles(db, at, definitions, shown);
+  const resolved = yield* referencesAndFiles(db, at, definitions, shown);
   const blockDefinitions = yield* definitions.blocks();
   const items = shown.items.map((item, index) => ({
     ...item,
-    references: linked.itemReferences[index],
+    references: resolved.itemReferences[index],
   }));
   nestChildItems(items);
   const topItemsByBlock = Map.groupBy(
@@ -248,12 +236,9 @@ export const blockMarkdown = Effect.fn("content.blockMarkdown")(function* (
   return shown.blocks.flatMap((block, index): BlockMarkdown[] => {
     const definition = blockDefinitions.get(block.type);
     if (!definition) return [];
-    const schema = definition.contentSchema as {
-      properties?: Record<string, unknown>;
-      toMarkdown?: readonly string[];
-    } | null;
-    const content = block.content as Record<string, unknown>;
-    const json = JSON.stringify(stripArtifactSources(schema?.properties, content));
+    const { content } = block;
+    const properties = propertiesOf(definition.contentSchema);
+    const json = JSON.stringify(stripArtifactSources(properties, content));
     const entry = {
       id: block.id,
       pageId: block.pageId,
@@ -261,16 +246,17 @@ export const blockMarkdown = Effect.fn("content.blockMarkdown")(function* (
       position: block.position,
       json,
     };
-    if (!schema?.toMarkdown || !schema.properties) return [{ ...entry, markdown: undefined }];
+    const declared = markdownOf(definition.contentSchema);
+    if (!declared) return [{ ...entry, markdown: undefined }];
     const withItems = { ...content };
     const blockItems = topItemsByBlock.get(block.id) ?? [];
     for (const fieldName of new Set(blockItems.map((item) => item.fieldName))) {
       withItems[fieldName] = blockItems.filter((item) => item.fieldName === fieldName);
     }
-    const markdown = contentToMarkdown(schema.toMarkdown, schema.properties, withItems, {
+    const markdown = contentToMarkdown(declared.lines, declared.properties, withItems, {
       settings: block.settings as Record<string, unknown> | null | undefined,
-      files: linked.files,
-      references: linked.blockReferences[index],
+      files: resolved.files,
+      references: resolved.blockReferences[index],
     });
     return [{ ...entry, markdown: `<!-- ${definition.title} -->\n${markdown}` }];
   });
@@ -283,18 +269,21 @@ const loadTrees = Effect.fn("content.loadTrees")(function* (
   roots: readonly ItemRoot[],
 ) {
   const blockIds = roots.flatMap((root) => ("blockId" in root ? [root.blockId] : []));
-  const rootBlocks = yield* selectChunked(db, at, blocks, blockIds, (chunk) =>
-    inArray(blocks.id, chunk),
+  const rootBlocks = yield* selectInChunks(db, at.draft, blocks, blockIds, (chunk) =>
+    and(eq(blocks.projectId, at.projectId), inArray(blocks.id, chunk)),
   );
   const typeOf = new Map(rootBlocks.map((block) => [block.id, block.type]));
   const keyOf = (root: ItemRoot) =>
     "blockId" in root ? root.blockId : `shared:${root.sharedContent.type}`;
   const distinct = [...new Map(roots.map((root) => [keyOf(root), root])).values()];
-  const trees = yield* overlay.select(
+  // A root binds up to two parameters.
+  const trees = yield* selectInChunks(
     db,
     at.draft,
     repeatableItems,
-    or(...distinct.map((root) => itemsUnder(root))),
+    distinct,
+    (chunk) => or(...chunk.map((root) => itemsUnder(root))),
+    40,
   );
   // Each tree conforms under a stand-in block of its definition, keyed by its root.
   const standIns = distinct.flatMap((root) => {
@@ -308,8 +297,9 @@ const loadTrees = Effect.fn("content.loadTrees")(function* (
 
 /**
  * Items as readers see them, in the order given, under their stored block: conformed through
- * their repeater path, with their summaries. An item the definitions no longer show, under a
- * removed repeater or block definition, has no content or settings.
+ * their repeater path, with their summaries. The rows given conform as they are, even one the
+ * scope no longer reads, such as an item just deleted. An item the definitions no longer show,
+ * under a removed repeater or block definition, has no content or settings.
  */
 export const shownItems = Effect.fn("content.shownItems")(function* (
   db: Database,
@@ -319,7 +309,9 @@ export const shownItems = Effect.fn("content.shownItems")(function* (
 ) {
   if (rows.length === 0) return [];
   const trees = yield* loadTrees(db, at, rows.map(rootOfItem));
-  const conformed = conformBlocks(yield* definitions.blocks(), trees.standIns, trees.items);
+  const items = new Map(trees.items.map((item) => [item.id, item]));
+  for (const row of rows) items.set(row.id, { ...row, blockId: trees.keyOf(rootOfItem(row)) });
+  const conformed = conformBlocks(yield* definitions.blocks(), trees.standIns, [...items.values()]);
   const byId = new Map(conformed.items.map((item) => [item.id, item]));
   const summaries = yield* readValues(
     db,
@@ -340,7 +332,7 @@ export const shownItems = Effect.fn("content.shownItems")(function* (
 });
 
 /**
- * One item with markers for its nested repeaters, the records it links and the files it
+ * One item with markers for its nested repeaters, the records it references and the files it
  * places. Undefined when the definitions no longer show it.
  */
 export const itemBundle = Effect.fn("content.itemBundle")(function* (
@@ -359,7 +351,7 @@ export const itemBundle = Effect.fn("content.itemBundle")(function* (
   const content = marked.find((item) => item.id === row.id)!.content;
   const schemas = itemContentSchemas(blockDefinitions, trees.standIns, tree);
   const summaries = yield* readValues(db, at.draft, "repeatableItem", "summary", [row.id]);
-  const linked = yield* resolveReferences(
+  const resolved = yield* resolveReferences(
     db,
     at,
     definitions,
@@ -368,16 +360,16 @@ export const itemBundle = Effect.fn("content.itemBundle")(function* (
   );
   const fileIds = new Set<string>();
   collectFileIds(content, fileIds);
-  recordFileIds(linked.records, fileIds);
+  recordFileIds(resolved.records, fileIds);
   const files = fileIds.size ? yield* loadFiles(db, at, fileIds) : new Map<string, FileView>();
-  attachFiles(linked.records, files);
+  attachFiles(resolved.records, files);
   return {
     item: {
       ...found,
       content,
       blockId: row.blockId,
       summary: summaries.get(row.id)?.value?.summary ?? "",
-      references: linked.references[0]!,
+      references: resolved.references[0]!,
     },
     files: [...files.values()],
   };
