@@ -4,10 +4,11 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { InvalidInputError, type ServiceError } from "../../lib/errors";
-import { lexicalStateToPlainText, pageTextLinkIds } from "../../lib/lexical-state";
+import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { blockDefinitions } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
+import { type Field, fieldsOf, itemSchemas, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
@@ -16,7 +17,11 @@ import { resolveRecordFiles } from "./record-files";
 import { collectionDefinitions, collectionRecords } from "./schema";
 import { validatePageLink } from "./text-content";
 
-type Field = Record<string, unknown>;
+/** A node of a stored schema, walked whatever its place in the schema. */
+type SchemaNode = Record<string, unknown>;
+type ReferenceField = Extract<Field, { kind: "Reference" | "ReferenceList" }>;
+type ReferenceListField = Extract<Field, { kind: "ReferenceList" }>;
+
 export type ResolvedReference = {
   id: string;
   collectionId: string;
@@ -30,26 +35,12 @@ export type ResolvedReference = {
 /** A block's resolved references: a record (or null) per reference, records in order per list. */
 export type ResolvedReferences = Record<string, ResolvedReference | ResolvedReference[] | null>;
 
-function fieldsOfType(
-  schema: unknown,
-  fieldType: "Reference" | "ReferenceList" | "String" | "Link",
-): [string, Field][] {
-  const properties = (schema as { properties?: Record<string, Field> } | null)?.properties;
-  return Object.entries(properties ?? {}).filter(([, field]) => field.fieldType === fieldType);
+function referenceFields(schema: unknown) {
+  return fieldsOf(schema).filter((field) => field.kind === "Reference");
 }
 
-export function referenceFields(schema: unknown): [string, Field][] {
-  return fieldsOfType(schema, "Reference");
-}
-
-export function referenceListFields(schema: unknown): [string, Field][] {
-  return fieldsOfType(schema, "ReferenceList");
-}
-
-/** The record ids a reference list value links, in stored order; anything else links none. */
-export function referenceListIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((id): id is string => typeof id === "string" && id !== "");
+function referenceListFields(schema: unknown) {
+  return fieldsOf(schema).filter((field) => field.kind === "ReferenceList");
 }
 
 /** Every record that resolved references link, single or listed. */
@@ -69,24 +60,18 @@ export function resolvedReferenceList(references: ResolvedReferences | undefined
   return Array.isArray(value) ? value : [];
 }
 
-/** A content schema's repeater fields, whose items hold their own content schema. */
-function repeaterFields(schema: unknown): [string, Field][] {
-  const properties = (schema as { properties?: Record<string, Field> } | null)?.properties;
-  return Object.entries(properties ?? {}).filter(([, field]) => field.fieldType === "Repeater");
-}
-
 /**
  * References and reference lists are supported at the top level of block content and of
  * repeatable item content, at any repeater depth. Fail closed for other shapes, such as
  * settings, item settings or nested objects.
  */
 export function validateReferenceSchema(schema: unknown, allow = true) {
-  const allowed = new Set<Field>();
+  const allowed = new Set<unknown>();
   const collect = (content: unknown) => {
-    for (const [, field] of [...referenceFields(content), ...referenceListFields(content)]) {
-      allowed.add(field);
+    for (const field of fieldsOf(content)) {
+      if (field.kind === "Reference" || field.kind === "ReferenceList") allowed.add(field.schema);
+      if (field.kind === "Repeater") collect(field.itemContentSchema);
     }
-    for (const [, repeater] of repeaterFields(content)) collect(repeater.items);
   };
   if (allow) collect(schema);
   /** `parentKey` is the key holding `value`, named in query errors. */
@@ -99,7 +84,7 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
       }
       return;
     }
-    const field = value as Field;
+    const field = value as SchemaNode;
     const kind = field.kind ?? field.fieldType;
     if (kind === "ReferenceList" || kind === "Reference") {
       if (field.fieldType !== kind || !allowed.has(field)) {
@@ -138,17 +123,18 @@ export type NormalizedReferenceQuery = {
  * Why a reference list's query is invalid, if it is. Ordering keys must name a text field of
  * the collection (from the content schema the field carries) or system metadata.
  */
-function queryProblem(field: Field) {
-  const properties = (field.referenceSchema as { properties?: Record<string, Field> } | undefined)
-    ?.properties;
+function queryProblem(field: SchemaNode) {
+  const properties = (
+    field.referenceSchema as { properties?: Record<string, SchemaNode> } | undefined
+  )?.properties;
   return referenceQueryProblem(field.query, (key) =>
     properties && Object.hasOwn(properties, key) ? properties[key]?.fieldType : undefined,
   );
 }
 
 /** A reference list field's normalized query; manual lists have none. */
-export function referenceQuery(field: Field): NormalizedReferenceQuery | null {
-  const query = field.query as
+function referenceQuery(field: ReferenceListField): NormalizedReferenceQuery | null {
+  const query = field.schema.query as
     | { orderBy?: Record<string, "asc" | "desc">; limit?: number }
     | undefined;
   if (!query || typeof query !== "object") return null;
@@ -160,30 +146,6 @@ export function referenceQuery(field: Field): NormalizedReferenceQuery | null {
 }
 
 type ItemRow = { id: string; parentItemId: string | null; fieldName: string };
-
-/**
- * Each repeatable item's content schema, found by walking its repeater path from the block's
- * content schema. Items whose path no longer matches the schema have none.
- */
-export function itemSchemas(blockSchema: unknown, items: readonly ItemRow[]) {
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const schemas = new Map<string, unknown>();
-  const schemaOf = (item: ItemRow, seen: Set<string>): unknown => {
-    if (schemas.has(item.id)) return schemas.get(item.id);
-    if (seen.has(item.id)) return undefined;
-    seen.add(item.id);
-    const parent = item.parentItemId === null ? null : byId.get(item.parentItemId);
-    const container =
-      item.parentItemId === null ? blockSchema : parent ? schemaOf(parent, seen) : undefined;
-    const repeater = (container as { properties?: Record<string, Field> } | undefined)
-      ?.properties?.[item.fieldName];
-    const schema = repeater?.fieldType === "Repeater" ? repeater.items : undefined;
-    schemas.set(item.id, schema);
-    return schema;
-  };
-  for (const item of items) schemaOf(item, new Set());
-  return schemas;
-}
 
 /**
  * Resolves the records a block, item or record links. Resolution is bounded at two hops: records
@@ -202,20 +164,22 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
   const result: ResolvedReferences = {};
   if (!singles.length && !lists.length) return result;
   const values = content as Record<string, unknown> | null;
-  for (const [name, field] of singles) {
+  for (const field of singles) {
     const definition = yield* definitionIn(ctx, scope, field);
-    result[name] = definition ? yield* resolveRecord(ctx, definition, values?.[name], hop) : null;
+    result[field.name] = definition
+      ? yield* resolveRecord(ctx, definition, values?.[field.name], hop)
+      : null;
   }
-  for (const [name, field] of lists) {
+  for (const field of lists) {
     const records: ResolvedReference[] = [];
-    result[name] = records;
+    result[field.name] = records;
     const definition = yield* definitionIn(ctx, scope, field);
     if (!definition) continue;
     // A query-backed list ignores any stored value: code defines its membership and order.
     const query = referenceQuery(field);
     const ids = query
       ? yield* queryRecordIds(ctx, definition, query)
-      : referenceListIds(values?.[name]);
+      : pointersOf(field, values?.[field.name]).map((pointer) => pointer.id);
     // Missing records, such as deleted ones, are left out.
     for (const id of ids) {
       const record = yield* resolveRecord(ctx, definition, id, hop);
@@ -331,7 +295,7 @@ function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1) {
 const definitionIn = Effect.fn("collections.definitionIn")(function* (
   ctx: ServiceContext,
   scope: ContentScope,
-  field: Field,
+  field: ReferenceField,
 ) {
   const definition = yield* Effect.promise(() =>
     ctx.db
@@ -341,7 +305,7 @@ const definitionIn = Effect.fn("collections.definitionIn")(function* (
         and(
           eq(collectionDefinitions.projectId, scope.projectId),
           definitionsIn(collectionDefinitions, scope.draft),
-          eq(collectionDefinitions.collectionId, String(field.collectionId)),
+          eq(collectionDefinitions.collectionId, field.collectionId),
         ),
       )
       .get(),
@@ -441,7 +405,7 @@ export const hydrateItemReferences = Effect.fn("collections.hydrateItemReference
       (definition) => definition.blockId === block.type,
     )?.contentSchema;
     const blockItems = items.filter((item) => item.blockId === block.id);
-    for (const [id, schema] of itemSchemas(blockSchema, blockItems)) schemas.set(id, schema);
+    for (const [id, { content }] of itemSchemas(blockSchema, blockItems)) schemas.set(id, content);
   }
   return yield* Effect.forEach(
     items,
@@ -466,48 +430,52 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   path = "",
 ): Effect.fn.Return<void, InvalidInputError> {
   const values = content as Record<string, unknown> | null;
-  for (const [name, field] of referenceFields(schema)) {
-    const value = values?.[name];
-    if (value === undefined || value === null) continue;
-    if (!(yield* recordInScope(ctx, scope, field, value)))
-      return yield* missingReference(path + name);
-  }
-  for (const [name, field] of referenceListFields(schema)) {
+  for (const field of fieldsOf(schema)) {
+    const { name } = field;
     const value = values?.[name];
     if (value === undefined) continue;
-    if (isQueryBacked(field)) {
-      return yield* new InvalidInputError({
-        message: `${path}${name}: query-backed reference lists are resolved, not written`,
-      });
-    }
-    if (!Array.isArray(value))
-      return yield* invalidList(path + name, "must be an array of record ids");
-    if (new Set(value).size !== value.length) {
-      return yield* invalidList(path + name, "links the same record more than once");
-    }
-    if (typeof field.maxItems === "number" && value.length > field.maxItems) {
-      return yield* invalidList(path + name, `links more than ${field.maxItems} records`);
-    }
-    for (const id of value) {
-      if (!(yield* recordInScope(ctx, scope, field, id)))
+    if (field.kind === "Reference") {
+      if (value === null) continue;
+      if (!(yield* recordInScope(ctx, scope, field, value)))
         return yield* missingReference(path + name);
+      continue;
     }
-  }
-  for (const [name] of fieldsOfType(schema, "String")) {
-    for (const pageId of pageTextLinkIds(values?.[name]))
-      yield* validatePageLink(ctx, scope, pageId);
-  }
-  for (const [name] of fieldsOfType(schema, "Link")) {
-    // A link switched to a page holds an empty page id until a page is picked.
-    const pageId = (values?.[name] as { pageId?: unknown } | null | undefined)?.pageId;
-    if (pageId !== undefined && pageId !== "") yield* validatePageLink(ctx, scope, pageId);
-  }
-  for (const [name, repeater] of repeaterFields(schema)) {
-    const items = values?.[name];
-    if (!Array.isArray(items)) continue;
-    for (const [index, item] of items.entries()) {
+    if (field.kind === "ReferenceList") {
+      if (field.queryBacked) {
+        return yield* new InvalidInputError({
+          message: `${path}${name}: query-backed reference lists are resolved, not written`,
+        });
+      }
+      if (!Array.isArray(value))
+        return yield* invalidList(path + name, "must be an array of record ids");
+      if (new Set(value).size !== value.length) {
+        return yield* invalidList(path + name, "links the same record more than once");
+      }
+      if (field.maxItems !== undefined && value.length > field.maxItems) {
+        return yield* invalidList(path + name, `links more than ${field.maxItems} records`);
+      }
+      for (const id of value) {
+        if (!(yield* recordInScope(ctx, scope, field, id)))
+          return yield* missingReference(path + name);
+      }
+      continue;
+    }
+    if (field.kind === "String" || field.kind === "Link") {
+      for (const pointer of pointersOf(field, value)) {
+        yield* validatePageLink(ctx, scope, pointer.id);
+      }
+      continue;
+    }
+    if (field.kind !== "Repeater" || !Array.isArray(value)) continue;
+    for (const [index, item] of value.entries()) {
       if (!item || typeof item !== "object") continue;
-      yield* validateReferenceValues(ctx, scope, repeater.items, item, `${path}${name}[${index}].`);
+      yield* validateReferenceValues(
+        ctx,
+        scope,
+        field.itemContentSchema,
+        item,
+        `${path}${name}[${index}].`,
+      );
     }
   }
 });
@@ -515,7 +483,7 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
 export const recordInScope = Effect.fn("collections.recordInScope")(function* (
   ctx: ServiceContext,
   scope: ContentScope,
-  field: Field,
+  field: { collectionId?: unknown },
   value: unknown,
 ) {
   const validId = uuidv7Schema.safeParse(value);

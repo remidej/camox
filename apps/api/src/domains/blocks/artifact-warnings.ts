@@ -1,21 +1,18 @@
 import { artifactSourceTitle, UNTITLED_ARTIFACT } from "@camox/api-contract";
 
+import { fieldOf } from "../_shared/fields";
+
 /**
  * Warnings for the artifact sources a content write sets without a non-empty `<title>`. Such
  * writes succeed, but the artifact gets no accessible name or Markdown Representation.
  */
-export function artifactWarnings(
-  schema: { properties?: Record<string, any> } | null | undefined,
-  content: unknown,
-  path = "content",
-): string[] {
-  const properties = schema?.properties;
-  if (!properties || !content || typeof content !== "object" || Array.isArray(content)) return [];
+export function artifactWarnings(schema: unknown, content: unknown, path = "content"): string[] {
+  if (!content || typeof content !== "object" || Array.isArray(content)) return [];
   const warnings: string[] = [];
   for (const [key, value] of Object.entries(content as Record<string, unknown>)) {
-    const field = properties[key];
+    const field = fieldOf(schema, key);
     const fieldPath = `${path}.${key}`;
-    if (field?.fieldType === "Artifact") {
+    if (field?.kind === "Artifact") {
       if (typeof value !== "string" || value.trim() === "") continue;
       if (artifactSourceTitle(value)) continue;
       warnings.push(
@@ -25,9 +22,9 @@ export function artifactWarnings(
       );
       continue;
     }
-    if (field?.fieldType !== "Repeater" || !Array.isArray(value)) continue;
+    if (field?.kind !== "Repeater" || !Array.isArray(value)) continue;
     value.forEach((item, index) => {
-      warnings.push(...artifactWarnings(field.items, item, `${fieldPath}[${index}]`));
+      warnings.push(...artifactWarnings(field.itemContentSchema, item, `${fieldPath}[${index}]`));
     });
   }
   return warnings;

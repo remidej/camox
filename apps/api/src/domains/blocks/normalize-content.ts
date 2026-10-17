@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
 import { InvalidInputError } from "../../lib/errors";
+import { fieldOf } from "../_shared/fields";
 import { normalizeFieldValue } from "./asset-value";
 import { validateContent } from "./validate-content";
 
@@ -17,6 +18,7 @@ export type BlockItemSeed = {
 };
 
 export type SchemaProps = Record<string, FieldSchema>;
+/** A stored JSON Schema node, as services pass schemas around. `fieldOf` reads its fields. */
 export type FieldSchema = {
   [key: string]: unknown;
   type?: string;
@@ -49,16 +51,15 @@ export const validateItemSeeds = Effect.fn("validateItemSeeds")(function* (
     }
     const parentProperties =
       seed.parentTempId === null ? rootProperties : schemas.get(seed.parentTempId);
-    const fieldSchema = parentProperties?.[seed.fieldName];
-    if (fieldSchema && fieldSchema.fieldType !== "Repeater") {
+    const field = fieldOf({ properties: parentProperties }, seed.fieldName);
+    if (field && field.kind !== "Repeater") {
       return yield* badRequest(
         `Field "${seed.fieldName}" is not a repeater`,
         `${path}[${index}].fieldName`,
       );
     }
-    const schema = fieldSchema?.items;
-    const properties = schema?.properties;
-    schemas.set(seed.tempId, properties);
+    const schema = field?.itemContentSchema as FieldSchema | undefined;
+    schemas.set(seed.tempId, schema?.properties);
     yield* validateContent(seed.content, schema, {
       path: `${path}[${index}].content`,
       rootSchema,
@@ -86,16 +87,15 @@ export const normalizeBlockContent = Effect.fn("normalizeBlockContent")(function
   contentSchema: unknown,
   rootSchema: unknown = contentSchema,
 ) {
-  const schemaProps = (contentSchema as { properties?: SchemaProps } | null)?.properties;
   yield* validateContent(rawContent, contentSchema, { rootSchema });
   const ctx = { counter: { v: 0 }, seeds: [] as BlockItemSeed[] };
-  const content = yield* walk(rawContent, schemaProps, null, ctx);
+  const content = yield* walk(rawContent, contentSchema, null, ctx);
   return { content, seeds: ctx.seeds };
 });
 
 const walk = Effect.fn("walk")(function* (
   rawContent: unknown,
-  schemaProps: SchemaProps | undefined,
+  schema: unknown,
   parentTempId: string | null,
   ctx: { counter: { v: number }; seeds: BlockItemSeed[] },
 ): Effect.fn.Return<Record<string, unknown>, InvalidInputError> {
@@ -104,13 +104,12 @@ const walk = Effect.fn("walk")(function* (
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
-    const fieldSchema = schemaProps?.[key];
-    if (fieldSchema?.fieldType === "Repeater") {
+    const field = fieldOf(schema, key);
+    if (field?.kind === "Repeater") {
       if (value == null) continue;
       if (!Array.isArray(value)) {
         return yield* badRequest(`Field "${key}" is repeatable; expected an array`, key);
       }
-      const itemSchemaProps = fieldSchema.items?.properties;
       let prevPos: string | null = null;
       for (const element of value) {
         if (element == null || typeof element !== "object" || Array.isArray(element)) {
@@ -133,12 +132,12 @@ const walk = Effect.fn("walk")(function* (
           position,
         };
         ctx.seeds.push(seed);
-        seed.content = yield* walk(element, itemSchemaProps, tempId, ctx);
+        seed.content = yield* walk(element, field.itemContentSchema, tempId, ctx);
         prevPos = position;
       }
       continue;
     }
-    out[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
+    out[key] = normalizeFieldValue(value, field?.kind);
   }
   return out;
 });
@@ -160,9 +159,9 @@ export const sanitizeItemContent = Effect.fn("sanitizeItemContent")(function* (
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
-    const fieldSchema = itemSchemaProps?.[key];
-    if (fieldSchema?.fieldType === "Repeater") continue;
-    out[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
+    const field = fieldOf({ properties: itemSchemaProps }, key);
+    if (field?.kind === "Repeater") continue;
+    out[key] = normalizeFieldValue(value, field?.kind);
   }
   return out;
 });

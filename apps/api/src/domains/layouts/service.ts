@@ -10,6 +10,7 @@ import { decodeInput, NotFoundError } from "../../lib/errors";
 import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
+import { collectFileIds } from "../_shared/fields";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import { layoutSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
@@ -24,7 +25,7 @@ import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import { RELEASE, type WriteTarget } from "../drafts/scope";
-import { buildFileMap, collectFileIds } from "../pages/ai";
+import { buildFileMap } from "../files/file-map";
 import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
 

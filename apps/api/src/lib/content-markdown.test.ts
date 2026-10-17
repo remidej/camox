@@ -52,3 +52,19 @@ describe("file Markdown", () => {
     expect(markdown).toBe("[snapshot.pdf](https://assets.example.com/a.pdf)");
   });
 });
+
+describe("link Markdown", () => {
+  const pageId = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
+  const render = (link: unknown) =>
+    contentToMarkdown(["{{cta}}"], { cta: { fieldType: "Link" } }, { cta: link });
+
+  it("links the page a page link names", () => {
+    expect(render({ type: "page", pageId, text: "About" })).toBe(`[About](camox:page:${pageId})`);
+  });
+
+  it("links an external link's href, like the website, even if it once linked a page", () => {
+    expect(render({ type: "external", href: "https://camox.ai", pageId, text: "Camox" })).toBe(
+      "[Camox](https://camox.ai)",
+    );
+  });
+});

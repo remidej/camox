@@ -14,6 +14,7 @@ import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
 import { conformBlocksIn } from "../_shared/conform-content";
+import { collectFileIds } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { initializeBlockContent } from "../blocks/initialize-content";
@@ -36,6 +37,7 @@ import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import { buildFileMap } from "../files/file-map";
 import {
   copyValue,
   homeOf,
@@ -43,7 +45,6 @@ import {
   requestGeneration,
   saveValue,
 } from "../generated-values/service";
-import { buildFileMap, collectFileIds } from "../pages/ai";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
 // --- Input Schemas ---

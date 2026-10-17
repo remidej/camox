@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { files } from "../../schema";
+import { accepts, fieldsOf, isAsset, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import type { Holder } from "../drafts/content-checks";
 import * as overlay from "../drafts/overlay";
@@ -28,61 +29,6 @@ export type Finding = {
   field: string;
   message: string;
 };
-
-type FieldSchema = {
-  fieldType?: string;
-  required?: unknown;
-  title?: string;
-  accept?: unknown;
-  items?: { accept?: unknown };
-};
-
-const ASSET_FIELDS = new Set(["Image", "File", "ImageList", "FileList"]);
-
-function fieldsOf(schema: unknown): [string, FieldSchema][] {
-  const properties = (schema as { properties?: unknown } | null | undefined)?.properties;
-  if (!properties || typeof properties !== "object") return [];
-  return Object.entries(properties as Record<string, FieldSchema>);
-}
-
-/** Every `_fileId` anywhere in a value. */
-function fileIdsIn(value: unknown, found: string[] = []): string[] {
-  if (value === null || typeof value !== "object") return found;
-  if (Array.isArray(value)) {
-    for (const entry of value) fileIdsIn(entry, found);
-    return found;
-  }
-  const record = value as Record<string, unknown>;
-  if (typeof record._fileId === "string") found.push(record._fileId);
-  for (const [key, entry] of Object.entries(record)) {
-    if (key !== "_fileId") fileIdsIn(entry, found);
-  }
-  return found;
-}
-
-/** Whether an image or file field holds no file: placeholders and hydrated shapes don't count. */
-function isEmpty(value: unknown): boolean {
-  if (value === null || typeof value !== "object") return true;
-  return typeof (value as { _fileId?: unknown })._fileId !== "string";
-}
-
-/** Whether a file matches one of a field's `accept` entries: a MIME type, `type/*`, or `.ext`. */
-export function accepts(accept: string[], file: { mimeType: string; filename: string }) {
-  const mimeType = file.mimeType.toLowerCase();
-  return accept.some((raw) => {
-    const entry = raw.trim().toLowerCase();
-    if (entry === "*" || entry === "*/*") return true;
-    if (entry.startsWith(".")) return file.filename.toLowerCase().endsWith(entry);
-    if (entry.endsWith("/*")) return mimeType.startsWith(entry.slice(0, -1));
-    return mimeType === entry;
-  });
-}
-
-function acceptOf(schema: FieldSchema): string[] | undefined {
-  const accept = schema.fieldType?.endsWith("List") ? schema.items?.accept : schema.accept;
-  if (!Array.isArray(accept)) return undefined;
-  return accept.filter((entry): entry is string => typeof entry === "string");
-}
 
 /**
  * Blockers and warnings about files: empty required image and file fields, references to files that are gone,
@@ -138,14 +84,15 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
   for (const holder of holders) {
     const draftChangedIt = holder.changed;
     const content = (holder.content ?? {}) as Record<string, unknown>;
-    for (const [field, schema] of fieldsOf(holder.schema)) {
-      const title = schema.title ?? field;
-      const value = content[field];
-      const at = { entity: holder.entity, id: holder.id, field };
+    for (const field of fieldsOf(holder.schema)) {
+      if (!isAsset(field)) continue;
+      const { title } = field;
+      const at = { entity: holder.entity, id: holder.id, field: field.name };
+      const fileIds = pointersOf(field, content[field.name]).map((pointer) => pointer.id);
 
       // Lists can't be required: an empty list is always valid.
-      const single = schema.fieldType === "Image" || schema.fieldType === "File";
-      if (single && schema.required === true && isEmpty(value)) {
+      const single = field.kind === "Image" || field.kind === "File";
+      if (single && field.required && fileIds.length === 0) {
         (draftChangedIt ? blockers : warnings).push({
           ...at,
           code: "emptyRequiredFile",
@@ -153,9 +100,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
         });
       }
 
-      if (!ASSET_FIELDS.has(schema.fieldType ?? "")) continue;
-      const accept = acceptOf(schema);
-      for (const fileId of new Set(fileIdsIn(value))) {
+      for (const fileId of fileIds) {
         const file = shownFiles.get(fileId);
         if (!file) {
           // Untouched content pointing at a file the draft deletes is the draft's problem too.
@@ -167,7 +112,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
           });
           continue;
         }
-        if (!accept || accepts(accept, file)) continue;
+        if (accepts(field, file)) continue;
         (draftChangedIt || replaced.has(fileId) ? blockers : warnings).push({
           ...at,
           code: "unacceptedFileType",

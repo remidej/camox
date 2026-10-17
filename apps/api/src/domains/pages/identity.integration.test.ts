@@ -276,6 +276,19 @@ describe("stable page tree identity", () => {
     );
   });
 
+  it("an external link renders its href, even holding a page it once linked that is gone", async () => {
+    const f = await fixture();
+    const gone = generateUuidv7();
+    const cta = { type: "external", text: "Camox", href: "https://camox.ai", pageId: gone };
+    await createBlock(f, { content: { cta, entries: [] } });
+    const markdown = await callSeedingLive(
+      blockRoutes.getPageMarkdown,
+      { pageId: f.page.id },
+      f.options,
+    );
+    expect(markdown.markdown).toContain("[Camox](https://camox.ai)");
+  });
+
   it("rejects page links in text and link fields that don't store a UUIDv7", async () => {
     const f = await fixture();
     const block = await createBlock(f);

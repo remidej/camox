@@ -4,6 +4,7 @@ import { Validator, type OutputUnit, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
 
 import { InvalidInputError } from "../../lib/errors";
+import { assetShape } from "../_shared/fields";
 import { projectAssetValue } from "./asset-value";
 
 export type ContentSchema = Schema & { fieldType?: string };
@@ -26,7 +27,6 @@ type AdaptContext = {
 
 // An entity id (`_fileId`, `_itemId`) as JSON Schema.
 const entityIdSchema = uuidv7JsonSchema as Schema;
-const assetTypes = new Set(["Image", "File", "ImageList", "FileList"]);
 const assetSchema: Schema = {
   anyOf: [
     { type: "null" },
@@ -44,7 +44,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isSingleAsset(schema: ContentSchema): boolean {
-  return schema.fieldType === "Image" || schema.fieldType === "File";
+  return assetShape(schema.fieldType) === "single";
+}
+
+function isAssetList(schema: ContentSchema): boolean {
+  return assetShape(schema.fieldType) === "list";
 }
 
 /**
@@ -215,7 +219,7 @@ function adaptSchema(
       const property = schema.properties?.[key];
       if (typeof property !== "object") return true;
       if (property.fieldType === "ReferenceList" && isQueryBacked(property)) return false;
-      return !assetTypes.has(property.fieldType);
+      return assetShape(property.fieldType) === undefined;
     });
   }
 
@@ -268,7 +272,7 @@ function adaptSchema(
     );
   }
 
-  if (schema.fieldType === "ImageList" || schema.fieldType === "FileList") {
+  if (isAssetList(schema)) {
     out.items = structuredClone(assetSchema);
   }
   if (schema.fieldType !== "Repeater") return out;
@@ -326,7 +330,7 @@ function project(value: unknown, schema: ContentSchema | boolean): unknown {
   if (typeof schema === "boolean") return value;
   if (isSingleAsset(schema)) return projectAssetValue(value);
   if (Array.isArray(value)) {
-    if (schema.fieldType === "ImageList" || schema.fieldType === "FileList") {
+    if (isAssetList(schema)) {
       return value.map(projectAssetValue);
     }
     return value.map((item, index) => {

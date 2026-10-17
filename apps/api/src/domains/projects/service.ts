@@ -25,15 +25,12 @@ import {
   sharedContents,
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
+import { fieldsOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { requestBlockSummary } from "../blocks/service";
 import { adoptSharedContent } from "../blocks/shared-content";
-import {
-  referenceFields,
-  resolveReferences,
-  validateReferenceValues,
-} from "../collections/references";
+import { resolveReferences, validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import type { WriteTarget } from "../drafts/scope";
@@ -426,9 +423,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
     const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
-    if (
-      referenceFields(schema).some(([name, field]) => field.required === true && !resolved[name])
-    ) {
+    if (fieldsOf(schema).some((f) => f.kind === "Reference" && f.required && !resolved[f.name])) {
       return yield* new InvalidInputError({
         message: "Bootstrap requires its required references to link existing records",
       });

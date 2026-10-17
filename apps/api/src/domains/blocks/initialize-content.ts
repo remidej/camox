@@ -1,11 +1,4 @@
-type FieldSchema = {
-  fieldType?: string;
-  default?: unknown;
-  defaultItems?: number;
-  minItems?: number;
-  items?: ContentSchema;
-};
-type ContentSchema = { properties?: Record<string, FieldSchema> };
+import { defaultOf, fieldsOf } from "../_shared/fields";
 
 /**
  * Fill omitted fields at creation time, without replacing explicit values.
@@ -19,25 +12,25 @@ export function initializeBlockContent(
 ): Record<string, unknown> {
   const result: Record<string, unknown> =
     content && typeof content === "object" && !Array.isArray(content) ? { ...content } : {};
-  const properties = (schema as ContentSchema | null)?.properties ?? {};
 
-  for (const [key, field] of Object.entries(properties)) {
-    if (field.fieldType === "Repeater") {
-      if (!Object.hasOwn(result, key) && seedRepeaters) {
-        result[key] = Array.from({ length: field.defaultItems ?? field.minItems ?? 0 }, () => ({}));
+  for (const field of fieldsOf(schema)) {
+    const { name } = field;
+    if (field.kind === "Repeater") {
+      if (!Object.hasOwn(result, name) && seedRepeaters) {
+        result[name] = Array.from({ length: field.defaultItems }, () => ({}));
       }
-      if (Array.isArray(result[key])) {
-        result[key] = result[key].map((item: unknown) => {
+      if (Array.isArray(result[name])) {
+        result[name] = result[name].map((item: unknown) => {
           // Leave invalid values intact so normalization still rejects them.
           if (!item || typeof item !== "object" || Array.isArray(item)) return item;
-          return initializeBlockContent(item, field.items, seedRepeaters);
+          return initializeBlockContent(item, field.itemContentSchema, seedRepeaters);
         });
       }
       continue;
     }
-    if (["Image", "File", "ImageList", "FileList"].includes(field.fieldType ?? "")) continue;
-    if (Object.hasOwn(result, key) || !Object.hasOwn(field, "default")) continue;
-    result[key] = structuredClone(field.default);
+    if (Object.hasOwn(result, name)) continue;
+    const fallback = defaultOf(field, "block");
+    if (fallback) result[name] = fallback.value;
   }
   return result;
 }

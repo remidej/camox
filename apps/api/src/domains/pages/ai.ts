@@ -7,14 +7,13 @@ import { z } from "zod";
 
 import type { Database } from "../../db";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
-import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
+import { blockDefinitions, blocks, pages, repeatableItems } from "../../schema";
 import { conformBlocks } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
-import { type FileView, withFileMetadata } from "../files/generated-metadata";
 import { homeOf, readValue, saveValue, settleRequest } from "../generated-values/service";
 import { seoGenerated, seoKey } from "./generated-seo";
 
@@ -169,7 +168,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
         )
       : [],
   );
-  const conformed = conformBlocks(definitions, shown.blocks, sortItemsByPosition(shown.items));
+  const conformed = conformBlocks(definitions, shown.blocks, overlay.sortByPosition(shown.items));
   const allItems = conformed.items;
 
   nestChildItems(allItems);
@@ -242,41 +241,6 @@ export const runPageSeoJob = Effect.fn("pages.runPageSeoJob")(function* (
 
 // --- Content Assembly Helpers ---
 
-/**
- * Sorts repeatable items by position, then by id: positions picked in different drafts can
- * collide (ADR 0005).
- */
-export function sortItemsByPosition<T extends { position: string; id: string }>(items: T[]): T[] {
-  return overlay.sortByPosition(items);
-}
-
-function visitForFileIds(value: unknown, fileIds: Set<string>) {
-  if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value) {
-    const fileId = (value as { _fileId: unknown })._fileId;
-    if (typeof fileId === "string") fileIds.add(fileId);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) visitForFileIds(item, fileIds);
-    return;
-  }
-  // Repeatable items arrive as { content, settings, ... } — recurse into `content`
-  // when present, otherwise fall back to walking all object values.
-  const obj = value as Record<string, unknown>;
-  if ("content" in obj && obj.content && typeof obj.content === "object") {
-    visitForFileIds(obj.content, fileIds);
-    return;
-  }
-  for (const child of Object.values(obj)) visitForFileIds(child, fileIds);
-}
-
-export function collectFileIds(content: Record<string, unknown>, fileIds: Set<string>) {
-  for (const value of Object.values(content)) {
-    visitForFileIds(value, fileIds);
-  }
-}
-
 /** Recursively nest child items into their parent item's content. */
 export function nestChildItems(
   allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
@@ -302,14 +266,3 @@ export function nestChildItems(
     }
   }
 }
-
-/** The files content uses, by id, as the scope reads them: a draft shows its replaced bytes. */
-export const buildFileMap = Effect.fn("pages.buildFileMap")(function* (
-  db: Database,
-  fileIds: Set<string>,
-  scope: DraftScope,
-) {
-  if (fileIds.size === 0) return new Map<string, FileView>();
-  const rows = yield* overlay.select(db, scope, files, inArray(files.id, [...fileIds]));
-  return new Map((yield* withFileMetadata(db, scope, rows)).map((f) => [f.id, f]));
-});
