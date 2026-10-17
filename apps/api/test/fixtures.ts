@@ -11,8 +11,7 @@ import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
 import { draftOf, RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
 import type { ServiceError } from "../src/lib/errors";
-import type { Journal } from "../src/lib/journal";
-import { runService } from "../src/lib/run-service";
+import { runService, type ServiceRequirements } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
 import { router } from "../src/router";
 import {
@@ -29,19 +28,7 @@ import type { Bindings } from "../src/types";
 
 const now = 1_700_000_000_000;
 
-/**
- * Stands in for a Durable Object that services reach fire-and-forget (`waitUntil`). A request to
- * the real one could land after its test file ended. Tests that check those calls mock
- * `schedule-ai-job` instead. The project rooms are swapped for a recorder for every test
- * (`project-rooms.ts`).
- */
-const fireAndForgetDouble = (stub: object) =>
-  ({ idFromName: (name: string) => name, get: () => stub }) as unknown as DurableObjectNamespace;
-
-const testBindings: Bindings = {
-  ...(env as unknown as Bindings),
-  AI_JOB_SCHEDULER: fireAndForgetDouble({ fetch: async () => new Response(null) }),
-};
+const testBindings = env as unknown as Bindings;
 
 export async function createProjectFixture(suffix: string) {
   const db = createDb(env.DB);
@@ -201,7 +188,10 @@ export const callSeedingLive: typeof call = async (procedure, input, ...rest) =>
 export async function seedLiveThrough<A>(
   ctx: ServiceContext,
   projectId: number,
-  run: (draft: Draft, inDraft: ServiceContext) => Effect.Effect<A, ServiceError, Journal>,
+  run: (
+    draft: Draft,
+    inDraft: ServiceContext,
+  ) => Effect.Effect<A, ServiceError, ServiceRequirements>,
 ): Promise<A> {
   const draft = await ctx.db
     .insert(drafts)

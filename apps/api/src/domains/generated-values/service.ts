@@ -3,9 +3,8 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import type { Bindings } from "../../types";
 import * as overlay from "../drafts/overlay";
+import { drafts } from "../drafts/schema";
 import type { DraftScope } from "../drafts/scope";
 import {
   generatedValues,
@@ -145,7 +144,7 @@ const recordValue = (db: Database, home: ValueHome, key: ValueKey) =>
 
 /**
  * Upserts a value row. A draft that ended meanwhile has no row to hold it: nothing is written,
- * as for any job whose draft ended.
+ * as for any job whose draft ended. Any other failure fails the write.
  */
 const upsert = (
   db: Database,
@@ -160,9 +159,25 @@ const upsert = (
       .values({ ...home, ...key, ...insert })
       .onConflictDoUpdate({ ...conflictTarget(home.draftId), set }),
   ).pipe(
-    Effect.andThen(() => recordValue(db, home, key)),
-    Effect.ignore,
+    Effect.as(true),
+    Effect.catch((error) =>
+      Effect.flatMap(draftEnded(db, home.draftId), (ended) =>
+        ended ? Effect.succeed(false) : Effect.die(error),
+      ),
+    ),
+    Effect.flatMap((written) => (written ? recordValue(db, home, key) : Effect.void)),
   );
+
+/** Whether a value's draft has ended: Live never does. */
+const draftEnded = (db: Database, draftId: string | null) =>
+  draftId === null
+    ? Effect.succeed(false)
+    : Effect.map(
+        Effect.promise(() =>
+          db.select({ id: drafts.id }).from(drafts).where(eq(drafts.id, draftId)).get(),
+        ),
+        (draft) => draft === undefined,
+      );
 
 /**
  * Stores a job's value where it was scheduled from, settling the job unless another one was
@@ -185,6 +200,14 @@ export const saveValue = <T extends GeneratedType>(
   );
 };
 
+const keyIn = (draftId: string | null, key: ValueKey) =>
+  and(
+    eq(generatedValues.entity, key.entity),
+    eq(generatedValues.entityId, key.entityId),
+    eq(generatedValues.type, key.type),
+    draftId === null ? isNull(generatedValues.draftId) : eq(generatedValues.draftId, draftId),
+  );
+
 /** Settles a job that generated nothing, e.g. because its group is manual. */
 export const settleRequest = (db: Database, home: ValueHome, key: ValueKey, startedAt: number) =>
   Effect.andThen(
@@ -192,19 +215,34 @@ export const settleRequest = (db: Database, home: ValueHome, key: ValueKey, star
       db
         .update(generatedValues)
         .set({ requestedAt: settled(startedAt) })
-        .where(
-          and(
-            eq(generatedValues.entity, key.entity),
-            eq(generatedValues.entityId, key.entityId),
-            eq(generatedValues.type, key.type),
-            home.draftId === null
-              ? isNull(generatedValues.draftId)
-              : eq(generatedValues.draftId, home.draftId),
-          ),
-        ),
+        .where(keyIn(home.draftId, key)),
     ),
     recordValue(db, home, key),
   );
+
+/**
+ * Settles a job that failed for good, so its value stops showing as pending: the value stays as
+ * it was. The job doesn't know its project; the value's row does.
+ */
+export const settleFailedRequest = Effect.fn("generatedValues.settleFailed")(function* (
+  db: Database,
+  draftId: string | null,
+  key: ValueKey,
+  startedAt: number,
+) {
+  const rows = yield* Effect.promise(() =>
+    db
+      .update(generatedValues)
+      .set({ requestedAt: settled(startedAt) })
+      .where(keyIn(draftId, key))
+      .returning({ projectId: generatedValues.projectId }),
+  );
+  for (const { projectId } of rows) yield* recordValue(db, { projectId, draftId }, key);
+});
+
+/** Marks a value pending: generation was requested and hasn't finished since `requestedAt`. */
+export const markRequested = (db: Database, home: ValueHome, key: ValueKey, requestedAt: number) =>
+  upsert(db, home, key, { requestedAt }, { requestedAt });
 
 const GENERATED_ENTITIES: GeneratedEntity[] = [
   "block",
@@ -213,52 +251,6 @@ const GENERATED_ENTITIES: GeneratedEntity[] = [
   "page",
   "file",
 ];
-
-const ENTITY_TABLES = {
-  block: "blocks",
-  repeatableItem: "repeatableItems",
-  page: "pages",
-  file: "files",
-} as const;
-
-/** The entities a job runs on: a synced block's summary is generated through a placement. */
-export type JobEntity = keyof typeof ENTITY_TABLES;
-
-const JOB_TYPES = {
-  block: "summary",
-  repeatableItem: "summary",
-  page: "seo",
-  file: "fileMetadata",
-} as const satisfies Record<JobEntity, GeneratedType>;
-
-export type GenerationDeps = {
-  db: Database;
-  env: Pick<Bindings, "AI_JOB_SCHEDULER">;
-  waitUntil: (promise: Promise<unknown>) => void;
-};
-
-/**
- * Requests a value's generation in a scope: marks it pending and schedules the job keyed by
- * entity, type, and Live or draft. A newer request for the same key replaces the job.
- */
-export const requestGeneration = Effect.fn("generatedValues.request")(function* (
-  deps: GenerationDeps,
-  home: ValueHome,
-  job: { entity: JobEntity; entityId: string; delayMs: number },
-) {
-  const now = Date.now();
-  const key: ValueKey = { entity: job.entity, entityId: job.entityId, type: JOB_TYPES[job.entity] };
-  yield* upsert(deps.db, home, key, { requestedAt: now }, { requestedAt: now });
-  deps.waitUntil(
-    scheduleAiJob(deps.env.AI_JOB_SCHEDULER, {
-      entityTable: ENTITY_TABLES[job.entity],
-      entityId: job.entityId,
-      type: key.type,
-      delayMs: job.delayMs,
-      draftId: home.draftId,
-    }),
-  );
-});
 
 /** Copies a value to another entity in the same scope, e.g. onto a duplicate. */
 export const copyValue = Effect.fn("generatedValues.copy")(function* (

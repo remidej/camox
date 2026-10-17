@@ -14,6 +14,7 @@ import {
   seedLiveThrough,
   inScope,
 } from "../../../test/fixtures";
+import { forgetScheduled, scheduledFor } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, drafts, files, repeatableItems } from "../../schema";
@@ -26,11 +27,9 @@ import { deleteFile, getProjectFile, listFiles, updateFile } from "./service";
 
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
-/** Whether each job a mocked scheduler received runs in a draft or on Live. */
-const jobScopes = (scheduleAiJob: ReturnType<typeof vi.fn>) =>
-  scheduleAiJob.mock.calls.map(([, init]) =>
-    JSON.parse((init as RequestInit).body as string).draftId ? "draft" : "live",
-  );
+/** Whether each job scheduled for a file runs in a draft or on Live. */
+const jobScopes = (fileId: string) =>
+  scheduledFor(fileId).map((job) => (job.draftId ? "draft" : "live"));
 
 // Independent of the shared schema: version nibble 7, RFC 4122 variant.
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -52,16 +51,8 @@ async function openDraft(
 
 async function fixture(media?: MediaBinding) {
   const fixture = await createProjectFixture(crypto.randomUUID());
-  const scheduleAiJob = vi.fn().mockResolvedValue(new Response(null));
   const baseContext = createServiceContext(fixture.db, fixture.memberUser);
-  const bindings = {
-    ...baseContext.env,
-    MEDIA: media,
-    AI_JOB_SCHEDULER: {
-      idFromName: (name: string) => baseContext.env.AI_JOB_SCHEDULER.idFromName(name),
-      get: () => ({ fetch: scheduleAiJob }),
-    } as unknown as DurableObjectNamespace,
-  };
+  const bindings = { ...baseContext.env, MEDIA: media };
   const ctx = { ...baseContext, env: bindings };
   const app = new Hono<AppEnv>();
   app.onError(() => new Response("Test request failed", { status: 500 }));
@@ -118,14 +109,13 @@ async function fixture(media?: MediaBinding) {
     const { token } = await call(router.drafts.previewPublish, { projectId }, options);
     await call(router.drafts.publish, { projectId, token }, options);
   }
-  return { ...fixture, ctx, app, upload, scheduleAiJob };
+  return { ...fixture, ctx, app, upload };
 }
 
 describe("media persistence", () => {
   it("persists supplied and empty alt text before scheduling, and serves the stored bytes", async () => {
-    const { upload, db, app, scheduleAiJob } = await fixture();
+    const { upload, db, app } = await fixture();
     for (const alt of ["Product screenshot", ""]) {
-      scheduleAiJob.mockClear();
       const response = await upload({ alt }, "image/png", "hero café #1.png");
       expect(response.status).toBe(201);
       const record = await response.json<typeof files.$inferSelect>();
@@ -133,7 +123,7 @@ describe("media persistence", () => {
       expect(await db.select().from(files).where(eq(files.id, record.id)).get()).toMatchObject({
         alt,
       });
-      expect(scheduleAiJob).not.toHaveBeenCalled();
+      expect(scheduledFor(record.id)).toEqual([]);
       const served = await app.request(record.url, {}, env);
       expect(new TextDecoder().decode(await served.arrayBuffer())).toBe("image bytes");
     }
@@ -215,15 +205,11 @@ describe("media persistence", () => {
   });
 
   it("preserves AI defaults, accepts explicit settings, and rejects conflicts and unsupported media", async () => {
-    const { upload, scheduleAiJob } = await fixture();
-    scheduleAiJob.mockClear();
-    expect(await (await upload()).json()).toMatchObject({
-      aiMetadata: true,
-      alt: "",
-      filename: "hero.png",
-    });
+    const { upload } = await fixture();
+    const uploaded = await (await upload()).json<typeof files.$inferSelect>();
+    expect(uploaded).toMatchObject({ aiMetadata: true, alt: "", filename: "hero.png" });
     // Generated in the upload's draft, then on Live once the draft is published.
-    expect(jobScopes(scheduleAiJob)).toEqual(["draft", "live"]);
+    expect(jobScopes(uploaded.id)).toEqual(["draft", "live"]);
     expect(await (await upload({ aiMetadata: "true" })).json()).toMatchObject({
       aiMetadata: true,
     });
@@ -239,7 +225,7 @@ describe("media persistence", () => {
   });
 
   it("updates metadata atomically and enforces project and membership boundaries", async () => {
-    const { upload, ctx, db, project, outsiderUser, scheduleAiJob } = await fixture();
+    const { upload, ctx, db, project, outsiderUser } = await fixture();
     const record = await (await upload()).json<typeof files.$inferSelect>();
     const target = { projectId: project.id, id: record.id };
     expect(
@@ -274,7 +260,7 @@ describe("media persistence", () => {
         getProjectFile(inScope(other.ctx, null), { ...target, projectId: other.project.id }),
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    scheduleAiJob.mockClear();
+    forgetScheduled(record.id);
     // Generated again, it shows what was generated: the upload's starting value so far.
     expect(
       await seedLiveThrough(ctx, project.id, (draft) =>
@@ -285,7 +271,7 @@ describe("media persistence", () => {
       alt: "",
       filename: "hero.png",
     });
-    expect(scheduleAiJob).toHaveBeenCalledOnce();
+    expect(jobScopes(record.id)).toEqual(["draft", "live"]);
     expect(
       await seedLiveThrough(ctx, project.id, (draft) =>
         updateFile(inScope(ctx, draft), { ...target, alt: "" }),
@@ -332,7 +318,7 @@ describe("media persistence", () => {
   });
 
   it("replaces bytes and metadata together, keeping references and bytes another draft names", async () => {
-    const { upload, ctx, db, project, layout, memberUser, app, scheduleAiJob } = await fixture();
+    const { upload, ctx, db, project, layout, memberUser, app } = await fixture();
     const original = await (
       await upload({ alt: "Original alt" })
     ).json<typeof files.$inferSelect>();
@@ -365,7 +351,7 @@ describe("media persistence", () => {
     // Another draft still holds the file as it was, naming the same R2 object.
     const otherDraftId = await openDraft(db, project.id, memberUser.id);
     await db.insert(files).values({ ...original, rowId: undefined, draftId: otherDraftId });
-    scheduleAiJob.mockClear();
+    forgetScheduled(original.id);
     const response = await upload(
       { alt: "New alt" },
       "image/webp",
@@ -385,7 +371,7 @@ describe("media persistence", () => {
       createdAt: original.createdAt,
     });
     expect(replaced.url).not.toBe(original.url);
-    expect(scheduleAiJob).not.toHaveBeenCalled();
+    expect(scheduledFor(original.id)).toEqual([]);
     expect(await runService(listFiles(inScope(ctx, null), { projectId: project.id }))).toHaveLength(
       1,
     );
@@ -423,13 +409,13 @@ describe("media persistence", () => {
   });
 
   it("preserves omitted metadata, schedules only the target, and removes unshared old blobs", async () => {
-    const { upload, ctx, project, scheduleAiJob } = await fixture();
+    const { upload, ctx, project } = await fixture();
     const original = await (await upload({ alt: "Keep this" })).json<typeof files.$inferSelect>();
     const target = { id: original.id, projectId: project.id };
     await seedLiveThrough(ctx, project.id, (draft) =>
       updateFile(inScope(ctx, draft), { ...target, aiMetadata: true }),
     );
-    scheduleAiJob.mockClear();
+    forgetScheduled(original.id);
     const replacement = await (
       await upload({}, "image/webp", "new.webp", original.id)
     ).json<typeof files.$inferSelect>();
@@ -439,16 +425,15 @@ describe("media persistence", () => {
       aiMetadata: true,
       filename: "new.webp",
     });
-    expect(jobScopes(scheduleAiJob)).toEqual(["draft", "live"]);
-    const scheduled = JSON.parse(scheduleAiJob.mock.calls[0]![1].body);
-    expect(scheduled).toMatchObject({ entityId: original.id, type: "fileMetadata" });
+    expect(jobScopes(original.id)).toEqual(["draft", "live"]);
+    expect(scheduledFor(original.id)[0]).toMatchObject({ entity: "file" });
     expect(await ctx.env.FILES_BUCKET.head(original.blobId)).toBeNull();
-    scheduleAiJob.mockClear();
+    forgetScheduled(original.id);
     // A file that can't have generated metadata gets manual metadata.
     expect(
       await (await upload({}, "application/pdf", "new.pdf", original.id)).json(),
     ).toMatchObject({ alt: "Keep this", filename: "new.pdf", aiMetadata: false });
-    expect(scheduleAiJob).not.toHaveBeenCalled();
+    expect(scheduledFor(original.id)).toEqual([]);
     expect(
       await (await upload({ alt: "" }, "image/png", "empty-alt.png", original.id)).json(),
     ).toMatchObject({ alt: "", aiMetadata: false });

@@ -1,13 +1,11 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { chat } from "@tanstack/ai";
-import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect, type Scope } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
-import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
+import { AiModel } from "../../lib/ai-model";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import {
   ConflictError,
@@ -17,6 +15,7 @@ import {
   type ServiceError,
 } from "../../lib/errors";
 import type { Journal } from "../../lib/journal";
+import type { AiCallError } from "../../lib/retry-ai-call";
 import {
   blockDefinitions,
   blocks,
@@ -34,20 +33,16 @@ import { type BlockMarkdown, contentReader, type ContentReader } from "../conten
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
-import { draftScopeOfJob } from "../drafts/service";
+import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
 import {
   copyValue,
-  type GenerationDeps,
   homeOf,
   readValue,
-  requestGeneration,
   saveValue,
   settleRequest,
 } from "../generated-values/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
-import { seoGenerated } from "../pages/generated-seo";
-import { requestPageSeo } from "../pages/service";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
@@ -235,76 +230,6 @@ function findLastIndexLe<T extends { position: string }>(items: T[], target: str
   return result;
 }
 
-const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
-  apiKey: string,
-  options: { type: string; markdown: string; previousSummary?: string },
-  abortController?: AbortController,
-) {
-  const stabilityBlock = options.previousSummary
-    ? outdent`
-
-      <previous_summary>${options.previousSummary}</previous_summary>
-      <stability_instruction>
-        A summary was previously generated for this content.
-        Return the SAME summary unless it is no longer accurate.
-        Only change it if the content has meaningfully changed.
-      </stability_instruction>
-    `
-    : "";
-
-  return yield* Effect.promise(() =>
-    chat({
-      adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
-      stream: false,
-      abortController,
-      messages: [
-        {
-          role: "user",
-          content: outdent`
-            <instruction>
-              Generate a concise summary for a piece of website content.
-            </instruction>
-
-            <constraints>
-              - MAXIMUM 4 WORDS
-              - Capture the main idea or purpose
-              - Be descriptive and specific to the content type
-              - Use sentence case (only capitalize the first word and proper nouns)
-              - Don't use markdown, just plain text
-              - Don't use punctuation
-              - Use abbreviations or acronyms where appropriate
-            </constraints>
-
-            <context>
-              <type>${options.type}</type>
-              <content>${options.markdown}</content>
-            </context>
-            ${stabilityBlock}
-
-            <examples>
-              <example>
-                <type>paragraph</type>
-                <content>{"text": "This is a description of how our service works in detail."}</content>
-                <output>Service explanation details</output>
-              </example>
-
-              <example>
-                <type>button</type>
-                <content>{"text": "Submit Form", "action": "submit"}</content>
-                <output>Submit form button</output>
-              </example>
-            </examples>
-
-            <format>
-              Return only the summary text, nothing else.
-            </format>
-          `,
-        },
-      ],
-    }),
-  );
-});
-
 const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   db: Database,
   blockId: string,
@@ -386,16 +311,14 @@ const summaryKeyOf = (blockId: string, shared: SharedContentRow | null) =>
 /**
  * Generates a block's summary as a scope reads it, into the scope's generated values: never into
  * the block, so it never copies one into a draft (ADR 0012). Returns the block's page when the
- * summary changed and the page's SEO is generated, so the caller requests it again.
+ * summary changed: its SEO describes the block.
  */
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
-  apiKey: string,
-  blockId: string,
   scope: DraftScope,
-  abortController?: AbortController,
-): Effect.fn.Return<{ page: typeof pages.$inferSelect } | null, never, Journal> {
-  const startedAt = Date.now();
+  blockId: string,
+  startedAt: number,
+): Effect.fn.Return<Stale | null, AiCallError, AiModel | Journal> {
   const assembled = yield* assembleBlockContent(db, blockId, scope);
   if (!assembled?.projectId) return null;
 
@@ -412,11 +335,12 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
         })
       : JSON.stringify(stripArtifactSources(contentSchema?.properties, content));
 
-  const summary = yield* generateObjectSummary(
-    apiKey,
-    { type: block.type, markdown, previousSummary: previous },
-    abortController,
-  );
+  const model = yield* AiModel;
+  const summary = yield* model.summarize({
+    type: block.type,
+    markdown,
+    previousSummary: previous,
+  });
 
   const home = homeOf(scope, projectId);
   yield* saveValue(db, home, key, { summary }, startedAt);
@@ -426,34 +350,8 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   const pageId = block.pageId;
   if (summary === previous || !pageId) return null;
   const page = yield* overlay.get(db, scope, pages, pageId);
-  return page && seoGenerated(page) ? { page } : null;
+  return page ? { projectId, target: { entity: "page", row: page } } : null;
 });
-
-/**
- * Runs a block summary job in the draft it was scheduled from, or in Live. A job whose draft
- * has ended does nothing.
- */
-export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(function* (
-  db: Database,
-  apiKey: string,
-  job: { entityId: string; draftId: string | null },
-  abortController?: AbortController,
-) {
-  const scope = yield* draftScopeOfJob(db, job.draftId);
-  if (scope === undefined) return null;
-  const stale = yield* executeBlockSummary(db, apiKey, job.entityId, scope, abortController);
-  return stale ? { ...stale, scope } : null;
-});
-
-/** Requests a block's summary in the scope it was written in (ADR 0012). */
-export const requestBlockSummary = (
-  ctx: GenerationDeps,
-  scope: DraftScope,
-  projectId: number,
-  blockId: string,
-  delayMs: number,
-) =>
-  requestGeneration(ctx, homeOf(scope, projectId), { entity: "block", entityId: blockId, delayMs });
 
 /**
  * Apply a partial content patch to a block, with replace-within-field semantics
@@ -1029,7 +927,12 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 
   yield* adoptSharedContent(ctx, scope, result);
 
-  yield* requestBlockSummary(ctx, scope, page.projectId, result.id, 0);
+  yield* requestGeneration(
+    ctx.db,
+    homeOf(scope, page.projectId),
+    { entity: "block", row: result },
+    { immediately: true },
+  );
 
   const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
   const created = yield* shownBlock(ctx, page.projectId, scope, stored);
@@ -1099,7 +1002,10 @@ const writeBlockContent = Effect.fn("blocks.writeBlockContent")(function* (
     scope,
   );
 
-  yield* requestBlockSummary(ctx, scope, project.id, id, 5000);
+  yield* requestGeneration(ctx.db, homeOf(scope, project.id), {
+    entity: "block",
+    row: { id },
+  });
 
   return yield* shownBlock(ctx, project.id, scope, result);
 });
@@ -1226,8 +1132,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { block: id }, "member");
 
-  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
-  if (seoStale) yield* requestPageSeo(ctx, scope, seoStale.page, 15000);
+  yield* generateNow(ctx.db, scope, "block", id).pipe(Effect.orDie);
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   return stored && (yield* shownBlock(ctx, project.id, scope, stored));
 }, Effect.scoped);

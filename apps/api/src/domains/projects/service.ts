@@ -29,15 +29,14 @@ import { definitionsIn } from "../_shared/definitions";
 import { type Field, fieldsOf, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
-import { requestBlockSummary } from "../blocks/service";
 import { adoptSharedContent } from "../blocks/shared-content";
 import { validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import type { WriteTarget } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
-import { homeOf, requestGeneration } from "../generated-values/service";
-import { requestPageSeo } from "../pages/service";
+import { requestGeneration } from "../generated-values/generation";
+import { homeOf } from "../generated-values/service";
 import { itemsInProject } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
@@ -467,7 +466,8 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       updatedAt: now,
     });
 
-    yield* requestBlockSummary(ctx, draft, project.id, block.id, 0);
+    const home = homeOf(draft, project.id);
+    yield* requestGeneration(ctx.db, home, { entity: "block", row: block }, { immediately: true });
 
     const itemSeeds = blockDef.repeatableItems;
     if (itemSeeds && itemSeeds.length > 0) {
@@ -487,11 +487,12 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
           updatedAt: now,
         });
         tempIdToRealId.set(itemSeed.tempId, inserted.id);
-        yield* requestGeneration(ctx, homeOf(draft, project.id), {
-          entity: "repeatableItem",
-          entityId: inserted.id,
-          delayMs: 0,
-        });
+        yield* requestGeneration(
+          ctx.db,
+          home,
+          { entity: "repeatableItem", row: inserted },
+          { immediately: true },
+        );
       }
     }
 
@@ -499,7 +500,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     blockCount++;
   }
 
-  // The homepage's SEO is generated once its blocks are summarised (ADR 0012).
-  yield* requestPageSeo(ctx, draft, homepage, 15000);
+  // The homepage's SEO waits for its blocks' edits, like after any edit (ADR 0012).
+  yield* requestGeneration(ctx.db, homeOf(draft, project.id), { entity: "page", row: homepage });
   return { created: true, pageId: homepage.id, blockCount };
 });

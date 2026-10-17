@@ -1,12 +1,11 @@
-import { chat } from "@tanstack/ai";
-import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
-import { outdent } from "outdent";
-import { z } from "zod";
 
 import type { Database } from "../../db";
+import { AiModel } from "../../lib/ai-model";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
+import type { Journal } from "../../lib/journal";
+import type { AiCallError } from "../../lib/retry-ai-call";
 import { blockDefinitions, blocks, pages, repeatableItems } from "../../schema";
 import { nestChildItems } from "../_shared/block-markers";
 import { conformBlocks } from "../_shared/conform-content";
@@ -14,7 +13,7 @@ import { definitionsIn } from "../_shared/definitions";
 import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { draftScopeOfJob } from "../drafts/service";
+import type { Stale } from "../generated-values/generation";
 import { homeOf, readValue, saveValue, settleRequest } from "../generated-values/service";
 import { seoGenerated, seoKey } from "./generated-seo";
 
@@ -51,85 +50,22 @@ function stripNonSeoFields(obj: Record<string, unknown>): Record<string, unknown
   return result;
 }
 
-const generatePageSeoFromAi = Effect.fn("generatePageSeoFromAi")(function* (
-  apiKey: string,
-  options: {
-    fullPath: string;
-    blocks: { type: string; markdown: string }[];
-    previousMetaTitle?: string | null;
-    previousMetaDescription?: string | null;
-  },
-  abortController?: AbortController,
-) {
-  const stabilityBlock =
-    options.previousMetaTitle || options.previousMetaDescription
-      ? outdent`
-
-      <previous_metadata>
-        <metaTitle>${options.previousMetaTitle ?? ""}</metaTitle>
-        <metaDescription>${options.previousMetaDescription ?? ""}</metaDescription>
-      </previous_metadata>
-      <stability_instruction>
-        Metadata was previously generated for this page.
-        Return the SAME metadata unless it is no longer accurate.
-        Only change it if the page content has meaningfully changed.
-      </stability_instruction>
-    `
-      : "";
-
-  return yield* Effect.promise(() =>
-    chat({
-      adapter: createOpenRouterText("google/gemini-3-flash-preview", apiKey),
-      abortController,
-      outputSchema: z.object({
-        metaTitle: z.string(),
-        metaDescription: z.string(),
-      }),
-      messages: [
-        {
-          role: "user",
-          content: outdent`
-          <instruction>
-            Generate SEO metadata for a web page.
-          </instruction>
-
-          <constraints>
-            - metaTitle: under 60 characters, concise and descriptive. Use sentence case (only capitalize the first word and proper nouns). Do NOT include the site/brand name — it will be appended automatically. Do NOT use separators like "-", "|", or ":" to split the title into parts.
-            - metaDescription: under 160 characters, compelling summary of the page
-            - Be specific to the actual content, not generic
-            - Don't use markdown, just plain text
-          </constraints>
-
-          <page>
-            <path>${options.fullPath}</path>
-            <blocks>${JSON.stringify(options.blocks)}</blocks>
-          </page>
-          ${stabilityBlock}
-        `,
-        },
-      ],
-    }),
-  );
-});
-
 /**
  * Generates a page's SEO as the scope reads it, into the scope's generated values: never into
  * the page, so it never copies one into a draft (ADR 0012). Pages with manual SEO are skipped.
  */
 export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   db: Database,
-  apiKey: string,
-  pageId: string,
   scope: DraftScope,
-  abortController?: AbortController,
-) {
-  const startedAt = Date.now();
+  pageId: string,
+  startedAt: number,
+): Effect.fn.Return<Stale | null, AiCallError, AiModel | Journal> {
   const page = yield* overlay.get(db, scope, pages, pageId);
-  if (!page) return;
+  if (!page) return null;
   const home = homeOf(scope, page.projectId);
   if (!seoGenerated(page)) {
     yield* settleRequest(db, home, seoKey(pageId), startedAt);
-    return;
+    return null;
   }
 
   const pageBlocks = yield* overlay.select(db, scope, blocks, eq(blocks.pageId, pageId));
@@ -205,16 +141,13 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   });
 
   const previous = (yield* readValue(db, scope, seoKey(pageId))).value;
-  const seo = yield* generatePageSeoFromAi(
-    apiKey,
-    {
-      fullPath: page.fullPath,
-      blocks: markdownBlocks,
-      previousMetaTitle: previous?.metaTitle,
-      previousMetaDescription: previous?.metaDescription,
-    },
-    abortController,
-  );
+  const model = yield* AiModel;
+  const seo = yield* model.pageSeo({
+    fullPath: page.fullPath,
+    blocks: markdownBlocks,
+    previousMetaTitle: previous?.metaTitle,
+    previousMetaDescription: previous?.metaDescription,
+  });
   yield* saveValue(
     db,
     home,
@@ -222,20 +155,6 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
     { metaTitle: seo.metaTitle, metaDescription: seo.metaDescription },
     startedAt,
   );
-  return { projectId: page.projectId };
-});
-
-/**
- * Runs a page SEO job in the scope it was scheduled from. Returns the page's project to
- * refresh, or undefined when the draft has ended or the page is gone.
- */
-export const runPageSeoJob = Effect.fn("pages.runPageSeoJob")(function* (
-  db: Database,
-  apiKey: string,
-  job: { entityId: string; draftId: string | null },
-  abortController?: AbortController,
-) {
-  const scope = yield* draftScopeOfJob(db, job.draftId);
-  if (scope === undefined) return undefined;
-  return yield* executePageSeo(db, apiKey, job.entityId, scope, abortController);
+  // A page's SEO makes nothing else stale.
+  return null;
 });

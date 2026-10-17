@@ -1,22 +1,22 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { chat } from "@tanstack/ai";
-import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
-import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
+import { AiModel } from "../../lib/ai-model";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
+import { isRasterImage } from "../../lib/image-transform";
+import type { Journal } from "../../lib/journal";
+import type { AiCallError } from "../../lib/retry-ai-call";
 import { files } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
-import { draftScopeOfJob } from "../drafts/service";
-import { homeOf, requestGeneration, saveValue, settleRequest } from "../generated-values/service";
+import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
+import { homeOf, saveValue, settleRequest } from "../generated-values/service";
 import {
   fileView,
   metadataColumns,
@@ -26,7 +26,6 @@ import {
   seedMetadata,
   withFileMetadata,
 } from "./generated-metadata";
-import { readMetadataImage } from "./metadata-image";
 import { optimizedVideoKey } from "./video-optimization";
 
 // Files live in Live and in drafts like any content (ADR 0005): every service takes the draft
@@ -90,76 +89,6 @@ export const deleteFilesInput = z.object({ ids: z.array(uuidv7Schema) });
 export const setFileAiMetadataInput = z.object({ id: uuidv7Schema, enabled: z.boolean() });
 export const generateFileMetadataInput = z.object({ id: uuidv7Schema });
 
-const generateImageMetadata = Effect.fn("generateImageMetadata")(function* (
-  apiKey: string,
-  imageUrl: string,
-  imageMimeType: string,
-  currentFilename: string,
-  abortController?: AbortController,
-) {
-  // Gemini 2.5 Flash Lite processes images in 768×768 tiles — larger sizes are
-  // downsampled by the model and just inflate tokens. Bound BOTH dimensions so
-  // very tall or very wide images fit inside one tile instead of being split.
-  // Force WebP so the payload is small and the format is accepted across vision
-  // models (AVIF support is inconsistent). SVG passes through unchanged.
-  const optimizedUrl = transformImageUrl(imageUrl, {
-    width: 768,
-    height: 768,
-    format: "webp",
-    mimeType: imageMimeType,
-  });
-  // Fetch image server-side — the AI provider can't reach localhost URLs in development
-  const response = yield* Effect.promise(() =>
-    fetch(optimizedUrl, { signal: abortController?.signal }),
-  );
-  const { bytes, mimeType } = yield* readMetadataImage(response);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  const base64 = btoa(binary);
-
-  return yield* Effect.promise(() =>
-    chat({
-      adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
-      abortController,
-      outputSchema: z.object({
-        filename: z.string(),
-        alt: z.string(),
-      }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image" as const,
-              source: { type: "data" as const, value: base64, mimeType },
-            },
-            {
-              type: "text" as const,
-              content: outdent`
-              Analyze this image and generate metadata for it:
-              - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
-              - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
-            `,
-            },
-          ],
-        },
-      ],
-    }),
-  );
-});
-
-/** Requests the file's metadata in the scope it was asked from (ADR 0012). */
-const requestFileMetadata = (
-  ctx: ServiceContext,
-  file: { id: string; projectId: number | null },
-  scope: DraftScope,
-) =>
-  requestGeneration(ctx, homeOf(scope, file.projectId!), {
-    entity: "file",
-    entityId: file.id,
-    delayMs: 0,
-  });
-
 // --- AI Executor ---
 
 /**
@@ -169,30 +98,25 @@ const requestFileMetadata = (
  */
 export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(function* (
   db: Database,
-  apiKey: string,
-  fileId: string,
   scope: DraftScope,
-  abortController?: AbortController,
-) {
-  const startedAt = Date.now();
+  fileId: string,
+  startedAt: number,
+): Effect.fn.Return<Stale | null, AiCallError, AiModel | Journal> {
   const file = yield* overlay.get(db, scope, files, fileId);
-  if (!file?.projectId) return;
+  if (!file?.projectId) return null;
   const home = homeOf(scope, file.projectId);
   if (!metadataGenerated(file) || !isRasterImage(file.mimeType)) {
     yield* settleRequest(db, home, metadataKey(fileId), startedAt);
-    return;
+    return null;
   }
   const shown = yield* fileView(db, scope, file);
 
-  // An unusable image fails the attempt like any other AI job error, so the
-  // scheduler can retry it.
-  const metadata = yield* generateImageMetadata(
-    apiKey,
-    file.url,
-    file.mimeType,
-    shown.filename,
-    abortController,
-  ).pipe(Effect.orDie);
+  const model = yield* AiModel;
+  const metadata = yield* model.imageMetadata({
+    url: file.url,
+    mimeType: file.mimeType,
+    filename: shown.filename,
+  });
   yield* saveValue(
     db,
     home,
@@ -200,23 +124,8 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
     { alt: metadata.alt, filename: metadata.filename },
     startedAt,
   );
-});
-
-/**
- * Runs a scheduled metadata job in the scope it was scheduled from. Returns the file's project
- * to refresh, or undefined when the draft has ended or the file is gone.
- */
-export const runFileMetadataJob = Effect.fn("files.runFileMetadataJob")(function* (
-  db: Database,
-  apiKey: string,
-  job: { entityId: string; draftId: string | null },
-  abortController?: AbortController,
-) {
-  const scope = yield* draftScopeOfJob(db, job.draftId);
-  if (scope === undefined) return undefined;
-  yield* executeFileMetadata(db, apiKey, job.entityId, scope, abortController);
-  const file = yield* overlay.get(db, scope, files, job.entityId);
-  return file?.projectId ?? undefined;
+  // A file's metadata makes nothing else stale.
+  return null;
 });
 
 // --- Blobs ---
@@ -368,7 +277,7 @@ const writeMetadata = Effect.fn("files.writeMetadata")(function* (
   if (generate) {
     const home = homeOf(scope, file.projectId!);
     yield* seedMetadata(ctx.db, scope, home, file.id, { alt: shown.alt, filename: shown.filename });
-    yield* requestFileMetadata(ctx, file, scope);
+    yield* requestGeneration(ctx.db, home, { entity: "file", row: result });
   }
   return yield* fileView(ctx.db, scope, result);
 });
@@ -506,7 +415,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
       },
       0,
     );
-    yield* requestFileMetadata(ctx, result, scope);
+    yield* requestGeneration(ctx.db, home, { entity: "file", row: result });
   }
   return yield* fileView(ctx.db, scope, result);
 });
@@ -550,7 +459,7 @@ export const createFile = Effect.fn("files.createFile")(function* (
       },
       0,
     );
-    yield* requestFileMetadata(ctx, created, scope);
+    yield* requestGeneration(ctx.db, home, { entity: "file", row: created });
   }
   return yield* fileView(ctx.db, scope, created);
 });
@@ -572,7 +481,7 @@ export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(func
   const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
   const { scope } = yield* accessTo(ctx, { file: id }, "member");
 
-  yield* executeFileMetadata(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
+  yield* generateNow(ctx.db, scope, "file", id).pipe(Effect.orDie);
   const shown = yield* overlay.get(ctx.db, scope, files, id);
   return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
 }, Effect.scoped);

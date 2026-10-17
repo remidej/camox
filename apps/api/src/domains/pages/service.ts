@@ -11,7 +11,8 @@ import { type BlockBundle, contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
-import { type GenerationDeps, homeOf, requestGeneration } from "../generated-values/service";
+import { generateNow, requestGeneration } from "../generated-values/generation";
+import { homeOf } from "../generated-values/service";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
 import {
   assertCuratedLayout,
@@ -19,9 +20,8 @@ import {
   pageServingProblems,
   servesPages,
 } from "../layouts/route-ownership";
-import { executePageSeo } from "./ai";
 import { duplicatePathIds } from "./duplicate-paths";
-import { type PageView, seoGenerated } from "./generated-seo";
+import { type PageView } from "./generated-seo";
 
 const { sortByPosition } = overlay;
 
@@ -357,7 +357,12 @@ export const createPage = Effect.fn("pages.createPage")(function* (
   if (!page) return yield* new ConflictError({ message: `Page ${id} already exists` });
 
   // A new page's SEO is generated: publishing waits for a meta title (ADR 0009).
-  yield* requestPageSeo(ctx, scope, page, 0);
+  yield* requestGeneration(
+    ctx.db,
+    homeOf(scope, page.projectId),
+    { entity: "page", row: page },
+    { immediately: true },
+  );
 
   return { page: yield* shownPage(ctx, scope, page), fullPath: page.fullPath };
 }, Effect.scoped);
@@ -463,7 +468,14 @@ export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
           metaDescription: metaDescription ?? shown.metaDescription ?? "",
         };
   const result = yield* writePage(ctx, scope, page, columns);
-  if (aiSeo === true) yield* requestPageSeo(ctx, scope, result, 0);
+  if (aiSeo === true) {
+    yield* requestGeneration(
+      ctx.db,
+      homeOf(scope, result.projectId),
+      { entity: "page", row: result },
+      { immediately: true },
+    );
+  }
   return yield* shownPage(ctx, scope, result);
 }, Effect.scoped);
 
@@ -485,22 +497,7 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
   const { scope } = yield* accessTo(ctx, { page: id }, "member");
 
-  yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
+  yield* generateNow(ctx.db, scope, "page", id).pipe(Effect.orDie);
   const page = yield* overlay.get(ctx.db, scope, pages, id);
   return page ? yield* shownPage(ctx, scope, page) : undefined;
 }, Effect.scoped);
-
-/** Requests a page's SEO in the scope, unless it's manual (ADR 0012). */
-export const requestPageSeo = Effect.fn("pages.requestPageSeo")(function* (
-  ctx: GenerationDeps,
-  scope: DraftScope,
-  page: typeof pages.$inferSelect,
-  delayMs: number,
-) {
-  if (!seoGenerated(page)) return;
-  yield* requestGeneration(ctx, homeOf(scope, page.projectId), {
-    entity: "page",
-    entityId: page.id,
-    delayMs,
-  });
-});

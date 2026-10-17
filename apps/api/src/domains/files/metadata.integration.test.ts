@@ -1,23 +1,12 @@
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
+import { answerNext, modelCalls } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { files } from "../../schema";
-import { executeFileMetadata, getFile } from "./service";
-
-const { chat } = vi.hoisted(() => {
-  vi.resetModules();
-  return { chat: vi.fn() };
-});
-vi.mock("@tanstack/ai", () => ({ chat }));
-
-const png = Uint8Array.from(
-  atob(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aM1sAAAAASUVORK5CYII=",
-  ),
-  (char) => char.charCodeAt(0),
-);
+import { runGenerationJob } from "../generated-values/generation";
+import { getFile } from "./service";
 
 async function fixture() {
   const { db, project } = await createProjectFixture(crypto.randomUUID());
@@ -29,7 +18,7 @@ async function fixture() {
       alt: null,
       filename: null,
       mimeType: "image/png",
-      size: png.length,
+      size: 68,
       blobId: crypto.randomUUID(),
       path: "/",
       createdAt: Date.now(),
@@ -40,109 +29,17 @@ async function fixture() {
   return { db, file };
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.resetAllMocks();
-});
-
-describe("metadata image validation", () => {
-  const failures = [
-    { name: "network failure", response: () => Promise.reject(new Error("Network failure")) },
-    {
-      name: "HTTP 404",
-      response: () => new Response(png, { status: 404, headers: { "content-type": "image/png" } }),
-    },
-    { name: "HTTP 500", response: () => new Response("Server error", { status: 500 }) },
-    {
-      name: "HTML",
-      response: () =>
-        new Response("<html>Not found</html>", { headers: { "content-type": "text/html" } }),
-    },
-    { name: "missing content type", response: () => new Response(png) },
-    {
-      name: "unsupported image type",
-      response: () => new Response(png, { headers: { "content-type": "image/svg+xml" } }),
-    },
-    {
-      name: "unsupported raster type",
-      response: () => new Response(png, { headers: { "content-type": "image/avif" } }),
-    },
-    {
-      name: "HTML labeled as an image",
-      response: () =>
-        new Response("<html>Not found</html>", { headers: { "content-type": "image/jpeg" } }),
-    },
-    {
-      name: "empty image",
-      response: () => new Response(null, { headers: { "content-type": "image/webp" } }),
-    },
-    {
-      name: "mismatched image type",
-      response: () => new Response(png, { headers: { "content-type": "image/jpeg" } }),
-    },
-    {
-      name: "body read failure",
-      response: () =>
-        new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.error(new Error("Read failed"));
-            },
-          }),
-          { headers: { "content-type": "image/png" } },
-        ),
-    },
-  ];
-
-  it.each(failures)(
-    "rejects $name without invoking AI or changing metadata",
-    async ({ response }) => {
-      const { db, file } = await fixture();
-      vi.stubGlobal("fetch", vi.fn().mockImplementation(response));
-
-      await expect(
-        runService(executeFileMetadata(db, "test-api-key", file.id, null)),
-      ).rejects.toThrow();
-
-      expect(chat).not.toHaveBeenCalled();
-      expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
-    },
-  );
-
-  it("generates and saves metadata for a valid image", async () => {
+describe("file metadata generation", () => {
+  it("asks the model about the file's image and saves its answer beside the file", async () => {
     const { db, file } = await fixture();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(png, {
-          headers: { "content-type": "IMAGE/PNG; charset=binary" },
-        }),
-      ),
-    );
     const metadata = { filename: "generated", alt: "Generated description" };
-    chat.mockResolvedValue(metadata);
+    answerNext("imageMetadata", metadata);
 
-    await runService(executeFileMetadata(db, "test-api-key", file.id, null));
+    await runService(runGenerationJob(db, { entity: "file", entityId: file.id, draftId: null }));
 
-    expect(chat).toHaveBeenCalledOnce();
-    expect(chat).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          expect.objectContaining({
-            content: expect.arrayContaining([
-              expect.objectContaining({
-                type: "image",
-                source: {
-                  type: "data",
-                  value: btoa(String.fromCharCode(...png)),
-                  mimeType: "image/png",
-                },
-              }),
-            ]),
-          }),
-        ],
-      }),
-    );
+    expect(modelCalls()).toEqual([
+      { method: "imageMetadata", request: expect.objectContaining({ url: file.url }) },
+    ]);
     // Generated beside the file, which stays as it was (ADR 0012).
     expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
     expect(

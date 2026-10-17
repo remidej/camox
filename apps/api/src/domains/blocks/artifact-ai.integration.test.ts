@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
 import {
@@ -8,21 +8,12 @@ import {
   seedLiveThrough,
   inScope,
 } from "../../../test/fixtures";
+import { answerNext, modelCalls } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-import { executePageSeo } from "../pages/ai";
-import { executeRepeatableItemSummary } from "../repeatable-items/service";
-import { createBlock, executeBlockSummary, getPageMarkdown } from "./service";
-
-const { chat, scheduleAiJob } = vi.hoisted(() => {
-  vi.resetModules();
-  return { chat: vi.fn(), scheduleAiJob: vi.fn().mockResolvedValue(undefined) };
-});
-vi.mock("@tanstack/ai", () => ({ chat }));
-vi.mock("../../lib/schedule-ai-job", () => ({ scheduleAiJob }));
-
-afterEach(() => vi.clearAllMocks());
+import { runGenerationJob } from "../generated-values/generation";
+import { createBlock, getPageMarkdown } from "./service";
 
 // Recognizable pieces of each source that must never reach an LLM.
 const titled = `<!doctype html><title>Orbiting  moons</title><script>const orbitSecret = 1;</script>`;
@@ -100,8 +91,8 @@ async function fixture(type: "templated" | "raw") {
   return { ...base, ctx, page, block, item };
 }
 
-/** Everything sent to the LLM in the mocked `chat` calls. */
-const prompts = () => JSON.stringify(chat.mock.calls);
+/** Everything the model was asked. */
+const prompts = () => JSON.stringify(modelCalls());
 
 describe("artifact Markdown Representation", () => {
   it("is the artifact's title, or Untitled artifact", async () => {
@@ -124,27 +115,29 @@ describe("artifact sources are kept out of LLM-bound fallbacks", () => {
 
   it("block summaries", async () => {
     const { db, block } = await fixture("raw");
-    chat.mockResolvedValueOnce("Space visual");
-    await runService(executeBlockSummary(db, "key", block.id, null));
-    expect(chat).toHaveBeenCalledOnce();
+    answerNext("summarize", "Space visual");
+    await runService(runGenerationJob(db, { entity: "block", entityId: block.id, draftId: null }));
+    expect(modelCalls()).toHaveLength(1);
     expect(prompts()).toContain("Space");
     expect(prompts()).not.toMatch(SOURCE_PIECES);
   });
 
   it("repeatable item summaries", async () => {
     const { db, item } = await fixture("templated");
-    chat.mockResolvedValueOnce("Moon scene");
-    await runService(executeRepeatableItemSummary(db, "key", item.id, null));
-    expect(chat).toHaveBeenCalledOnce();
+    answerNext("summarize", "Moon scene");
+    await runService(
+      runGenerationJob(db, { entity: "repeatableItem", entityId: item.id, draftId: null }),
+    );
+    expect(modelCalls()).toHaveLength(1);
     expect(prompts()).toContain("Moon");
     expect(prompts()).not.toMatch(SOURCE_PIECES);
   });
 
   it("AI SEO", async () => {
     const { db, page } = await fixture("raw");
-    chat.mockResolvedValueOnce({ metaTitle: "Space", metaDescription: "Space visuals" });
-    await runService(executePageSeo(db, "key", page.id, null));
-    expect(chat).toHaveBeenCalledOnce();
+    answerNext("pageSeo", { metaTitle: "Space", metaDescription: "Space visuals" });
+    await runService(runGenerationJob(db, { entity: "page", entityId: page.id, draftId: null }));
+    expect(modelCalls()).toHaveLength(1);
     expect(prompts()).toContain("Space");
     expect(prompts()).not.toMatch(SOURCE_PIECES);
   });

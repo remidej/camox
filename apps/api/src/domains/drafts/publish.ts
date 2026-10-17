@@ -26,13 +26,13 @@ import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import { sharedPlacementId } from "../blocks/shared-content";
-import { metadataGenerated, withFileMetadata } from "../files/generated-metadata";
+import { withFileMetadata } from "../files/generated-metadata";
 import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
+import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import * as generatedValueStatements from "../generated-values/service";
-import { homeOf, requestGeneration } from "../generated-values/service";
+import { homeOf } from "../generated-values/service";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
-import { requestPageSeo } from "../pages/service";
 import { rootOfItem } from "../repeatable-items/roots";
 import { accessTo } from "./access";
 import {
@@ -343,22 +343,21 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
   const pageRows = yield* liveRows(ctx, pages, pageIds);
   const fileRows = yield* liveRows(ctx, files, fileIds);
 
+  // Items are summarised right away; their blocks and pages wait for them, as after an edit.
   const live = homeOf(null, scope.projectId);
-  for (const item of items) {
-    yield* requestGeneration(ctx, live, {
-      entity: "repeatableItem",
-      entityId: item.id,
-      delayMs: 0,
+  // Each request writes and reaches a Durable Object: a few at a time, not one after another.
+  const request = (targets: GenerationTarget[], options?: { immediately: boolean }) =>
+    Effect.forEach(targets, (target) => requestGeneration(ctx.db, live, target, options), {
+      concurrency: 8,
+      discard: true,
     });
-  }
-  for (const block of blockRows) {
-    yield* requestGeneration(ctx, live, { entity: "block", entityId: block.id, delayMs: 5000 });
-  }
-  for (const page of pageRows) yield* requestPageSeo(ctx, null, page, 15000);
-  for (const file of fileRows) {
-    if (!metadataGenerated(file)) continue;
-    yield* requestGeneration(ctx, live, { entity: "file", entityId: file.id, delayMs: 0 });
-  }
+  yield* request(
+    items.map((row) => ({ entity: "repeatableItem", row })),
+    { immediately: true },
+  );
+  yield* request(blockRows.map((row) => ({ entity: "block", row })));
+  yield* request(pageRows.map((row) => ({ entity: "page", row })));
+  yield* request(fileRows.map((row) => ({ entity: "file", row })));
 });
 
 /** The draft a request names, which publishing and discarding need. */
