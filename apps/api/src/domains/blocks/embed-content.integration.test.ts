@@ -118,7 +118,7 @@ describe("embed content validation", () => {
       .select()
       .from(repeatableItems)
       .where(eq(repeatableItems.blockId, block.id))
-      .orderBy(repeatableItems.id);
+      .orderBy(repeatableItems.position);
     const [first, second] = items.filter((item) => item.parentItemId === null);
     const clip = items.find((item) => item.parentItemId === second.id)!;
     await expectRejectedWithoutWrites(db, () =>
