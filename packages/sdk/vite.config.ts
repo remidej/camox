@@ -1,4 +1,4 @@
-import pluginBabel from "@rollup/plugin-babel";
+import { transform as compileReact } from "oxc-transform-react";
 import { defineConfig } from "vite-plus";
 
 import { transformArtifactRuntime } from "./src/features/vite/artifactRuntimeMinification";
@@ -55,16 +55,24 @@ export default defineConfig({
     },
     plugins: [
       { name: "camox:minify-artifact-runtime", transform: transformArtifactRuntime },
-      pluginBabel({
-        babelHelpers: "bundled",
-        parserOpts: {
-          sourceType: "module",
-          plugins: ["jsx", "typescript"],
+      {
+        // Oxc's React Compiler. It strips TypeScript but keeps JSX for the pack to transform.
+        name: "camox:react-compiler",
+        transform: {
+          // Declaration emit routes `.d.ts` modules through here too; they hold no components.
+          filter: { id: { include: /\.[jt]sx?$/, exclude: [/node_modules/, /\.d\.[cm]?ts$/] } },
+          async handler(code, id) {
+            const result = await compileReact(id, code, { jsx: "preserve", sourcemap: true });
+            if (result.fatal) {
+              const diagnostics = result.errors.map((error) =>
+                error.codeframe ? `${error.message}\n${error.codeframe}` : error.message,
+              );
+              throw new Error(diagnostics.join("\n\n"));
+            }
+            return { code: result.code, map: result.map };
+          },
         },
-        plugins: ["babel-plugin-react-compiler"],
-        extensions: [".js", ".jsx", ".ts", ".tsx"],
-        exclude: /node_modules/,
-      }),
+      },
     ],
   },
 });
