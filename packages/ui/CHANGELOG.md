@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.0](https://github.com/remidej/camox/compare/camox-v0.44.0...@camox/ui-v1.0.0) (2026-10-17)
+
+
+### Features
+
+* **sdk:** set the favicon from the studio's project menu ([#287](https://github.com/remidej/camox/issues/287)) ([ba000b9](https://github.com/remidej/camox/commit/ba000b9820d62152819865aa69f19951e09cd03d))
+* **sdk:** track repeatable items with Fragment refs instead of a wrapper div ([#175](https://github.com/remidej/camox/issues/175)) ([b34d7d2](https://github.com/remidej/camox/commit/b34d7d28edf92f5fbaec066a8e18848a33ecd869)), closes [#119](https://github.com/remidej/camox/issues/119)
+* **sdk:** tuck page settings behind a checkbox in the page sidebar ([912dc24](https://github.com/remidej/camox/commit/912dc247a676e6da2505719cbd4a716c9f2be731))
+
+
+### Bug Fixes
+
+* **ui:** merge credential buttons into inputs and steady menu trigger colors ([#252](https://github.com/remidej/camox/issues/252)) ([e8b31c9](https://github.com/remidej/camox/commit/e8b31c929dbe8bedaa872e7bf22a45be52950051))
+
+
+### Miscellaneous
+
+* clean up warnings and tooling quirks after vite-plus 1.3.0 ([#299](https://github.com/remidej/camox/issues/299)) ([7a9f2c8](https://github.com/remidej/camox/commit/7a9f2c886cdba11c8ff6532896cd60956b0215d9))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/ui-v0.44.0) (2026-09-24)
 
 

@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.0.0](https://github.com/remidej/camox/compare/camox-v0.44.0...@camox/cli-v1.0.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove comments ([#298](https://github.com/remidej/camox/issues/298))
+
+### Features
+
+* **api:** identify definitions by their names ([#255](https://github.com/remidej/camox/issues/255)) ([0024c88](https://github.com/remidej/camox/commit/0024c8870a64fd2f67b5cb461bd9fdd6c7ad021b))
+* **cli:** expose layout-owned block discovery ([975bf9a](https://github.com/remidej/camox/commit/975bf9a8056810272f24864ade2b87fbaf148418))
+* **cli:** set string fields from files with --field-file ([#174](https://github.com/remidej/camox/issues/174)) ([3b302ba](https://github.com/remidej/camox/commit/3b302ba37115561320049b72cddf6447ce698c48))
+* development drafts replace development environments ([#274](https://github.com/remidej/camox/issues/274)) ([e1f8a07](https://github.com/remidej/camox/commit/e1f8a07c69b594d7b9ccb455e8e20d615c015ba6)), closes [#246](https://github.com/remidej/camox/issues/246)
+* **dev:** isolate worktree sessions and open playground sign-in ([e5615b6](https://github.com/remidej/camox/commit/e5615b64c679404cd9ba0f360e5aa3e1df4c1f4f))
+* drafts v1 ([e6473b2](https://github.com/remidej/camox/commit/e6473b2ffd21e7ba3a404a03c6a73dccae136876))
+* generated values sit beside content ([#272](https://github.com/remidej/camox/issues/272)) ([81cb4da](https://github.com/remidej/camox/commit/81cb4da1330ccb25784e3ec3587d8feaba7cd130)), closes [#244](https://github.com/remidej/camox/issues/244)
+* identify files, collection records and comments by UUIDv7 ([#253](https://github.com/remidej/camox/issues/253)) ([2efc5da](https://github.com/remidej/camox/commit/2efc5da7a6c56e6bc3428d954684fb23f36d1b80))
+* identify pages, blocks and repeatable items by UUIDv7 ([#260](https://github.com/remidej/camox/issues/260)) ([ee3a8c9](https://github.com/remidej/camox/commit/ee3a8c90af9bd5d79803c53cc5c4dc8b17fe56cb))
+* publish from the CLI and AI tools, and remove environments ([#275](https://github.com/remidej/camox/issues/275)) ([eb8369b](https://github.com/remidej/camox/commit/eb8369bd433b32cd31ad5f283aed691871e6b395)), closes [#248](https://github.com/remidej/camox/issues/248)
+* remove comments ([#298](https://github.com/remidej/camox/issues/298)) ([400b1d9](https://github.com/remidej/camox/commit/400b1d995f4bf88cea175a3684e11c3f3a89fc5d))
+* **sdk:** add camox-expand skill ([#171](https://github.com/remidej/camox/issues/171)) ([30738e8](https://github.com/remidej/camox/commit/30738e8a9a98a3b17d5a818c9da098731b0ea8b2))
+* **sdk:** print authenticated development links ([20cbdb8](https://github.com/remidej/camox/commit/20cbdb8b77fd948dc5531fe7986a9240fc453f57))
+* **sdk:** track repeatable items with Fragment refs instead of a wrapper div ([#175](https://github.com/remidej/camox/issues/175)) ([b34d7d2](https://github.com/remidej/camox/commit/b34d7d28edf92f5fbaec066a8e18848a33ecd869)), closes [#119](https://github.com/remidej/camox/issues/119)
+
+
+### Bug Fixes
+
+* **drafts:** address the feat/drafts review findings ([#277](https://github.com/remidej/camox/issues/277)) ([1e46291](https://github.com/remidej/camox/commit/1e462917c3a258dba5e1134c9de3f8ed4fb4104f)), closes [#226](https://github.com/remidej/camox/issues/226)
+* lint errors ([8ca7cee](https://github.com/remidej/camox/commit/8ca7cee221965a4cd2090c69da863d15163fde09))
+
+
+### Refactoring
+
+* align terminology across the platform ([5c68704](https://github.com/remidej/camox/commit/5c687042a3fe9892c9faaaa560d567fabd9acdfa))
+* drop page and layout checkpoints and per-item publishing ([#256](https://github.com/remidej/camox/issues/256)) ([989cb75](https://github.com/remidej/camox/commit/989cb75c8f20cec2e7f69be00871c2dec34d7adb))
+
+
+### Miscellaneous
+
+* merge main for collections landing ([c3237cb](https://github.com/remidej/camox/commit/c3237cb474543dac3c4fb042417ddfef5824ef2e))
+* merge main into canvas landing ([6eb58c6](https://github.com/remidej/camox/commit/6eb58c6b36332a982b0330c45c26c0795c5e1112))
+* merge main into schema validation landing ([21f15da](https://github.com/remidej/camox/commit/21f15da740dfdd991d50d0b194b31f51f941af8f))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/cli-v0.44.0) (2026-09-24)
 
 
