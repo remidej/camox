@@ -2,19 +2,17 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
-import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import {
   blockDefinitions,
   blocks,
-  collectionDefinitions,
   collectionRecords,
   pages,
   repeatableItems,
   sharedContents,
 } from "../../schema";
-import { conformRecordContent } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
+import { contentReader } from "../content/reader";
 import type { GeneratedEntity } from "../generated-values/schema";
 import { readValues } from "../generated-values/service";
 import * as overlay from "./overlay";
@@ -185,48 +183,34 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
   scope: Scope,
   rows: Iterable<RecordRow>,
 ) {
-  const definitions = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(collectionDefinitions)
-      .where(
-        and(
-          eq(collectionDefinitions.projectId, scope.projectId),
-          definitionsIn(collectionDefinitions, scope),
-        ),
-      ),
-  );
-  const definitionOf = (row: RecordRow) =>
-    definitions.find(
-      (definition) =>
-        definition.projectId === row.projectId && definition.collectionId === row.collectionId,
-    );
+  const reader = contentReader(ctx, { projectId: scope.projectId, draft: scope });
   const byId = new Map([...rows].map((row) => [row.id, row]));
+  const labels = new Map<string, string>();
+  const owners = new Map<string, Owner>();
+  for (const [collectionId, group] of Map.groupBy(byId.values(), (row) => row.collectionId)) {
+    const definition = yield* reader.collection(collectionId);
+    if (!definition) continue;
+    owners.set(collectionId, { kind: "collection", name: collectionId, title: definition.title });
+    for (const record of yield* reader.shown.records(collectionId, group)) {
+      labels.set(record.id, record.label);
+    }
+  }
 
   return (id: string): Subject => {
     const row = byId.get(id);
     if (!row) return { entity: "record", id, label: "Record", owner: null };
-    const definition = definitionOf(row);
+    const owner = owners.get(row.collectionId);
     // A record of a removed collection is still named by its collection's name (ADR 0007).
-    if (!definition) {
-      const owner: Owner = { kind: "collection", name: row.collectionId, title: row.collectionId };
-      return { entity: "record", id, label: "Record", owner };
+    if (!owner) {
+      const named: Owner = { kind: "collection", name: row.collectionId, title: row.collectionId };
+      return { entity: "record", id, label: "Record", owner: named };
     }
-    const content = conformRecordContent(definition.contentSchema, row.content);
-    const label = lexicalStateToPlainText(
-      content[definition.label] as string | Record<string, unknown>,
-    );
-    return {
-      entity: "record",
-      id,
-      label: label || "Untitled record",
-      owner: { kind: "collection", name: definition.collectionId, title: definition.title },
-    };
+    return { entity: "record", id, label: labels.get(id) || "Untitled record", owner };
   };
 });
 
 /**
- * Names the entities a preview mentions. Pages, blocks, synced blocks and items are read here;
+ * Names the entities a preview mentions. Pages, blocks, synced blocks and items are reader here;
  * records and files are named from the rows the caller already holds (the draft's, as it reads
  * them), so a record is labelled by its content and a file by its filename.
  */

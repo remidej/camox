@@ -1,7 +1,7 @@
 import { artifactTitle } from "@camox/api-contract";
 
 import { assetShape, fieldsOf, pointersOf, readField } from "../domains/_shared/fields";
-import type { ResolvedReferences } from "../domains/collections/references";
+import type { ResolvedReferences } from "../domains/content/reader";
 import { transformImageUrl } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
 

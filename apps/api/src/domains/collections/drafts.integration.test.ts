@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createProjectFixture, createRpcContext, callSeedingLive } from "../../../test/fixtures";
 import { router } from "../../router";
 import { blockDefinitions, pages } from "../../schema";
-import type { ResolvedReference } from "./references";
+import type { ResolvedReference } from "../content/reader";
 
 const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
   // Modules loaded by earlier test files would keep the real broadcaster.

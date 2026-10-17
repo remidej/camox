@@ -45,3 +45,32 @@ export function injectRepeatableItemMarkers<
 
   return { block: { ...block, content }, items };
 }
+
+/**
+ * Nests each item into its parent item's content, under its repeater field, for views that
+ * render items in place, such as Markdown. Mutates the items' content.
+ */
+export function nestChildItems(
+  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
+) {
+  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
+  for (const item of allItems) {
+    if (item.parentItemId === null) continue;
+    let fieldMap = childrenByParent.get(item.parentItemId);
+    if (!fieldMap) {
+      fieldMap = new Map();
+      childrenByParent.set(item.parentItemId, fieldMap);
+    }
+    const list = fieldMap.get(item.fieldName) ?? [];
+    list.push(item);
+    fieldMap.set(item.fieldName, list);
+  }
+  for (const item of allItems) {
+    const childFields = childrenByParent.get(item.id);
+    if (!childFields) continue;
+    const content = item.content as Record<string, unknown>;
+    for (const [fieldName, children] of childFields) {
+      content[fieldName] = children;
+    }
+  }
+}

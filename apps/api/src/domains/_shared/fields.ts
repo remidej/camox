@@ -1,3 +1,4 @@
+import { QUERY_LIMIT_CAP } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 
 import { pageTextLinkIds } from "../../lib/lexical-state";
@@ -40,6 +41,12 @@ type FieldBase = {
   schema: Record<string, unknown>;
 };
 
+/** How a query-backed reference list orders its records, and how many it takes. */
+export type ReferenceQuery = {
+  orderBy?: { key: string; direction: "asc" | "desc" };
+  limit: number;
+};
+
 export type Field = FieldBase &
   (
     | { kind: "String" | "Artifact" | "Embed" | "Icon" | "Link" | "Boolean" }
@@ -67,6 +74,8 @@ export type Field = FieldBase &
         collectionId: string;
         /** A query-backed list resolves its records in code and stores nothing. */
         queryBacked: boolean;
+        /** A query-backed list's query, its limit capped; undefined for a manual list. */
+        query: ReferenceQuery | undefined;
         maxItems: number | undefined;
         recordSchema: unknown;
       }
@@ -84,6 +93,18 @@ function stringsOf(value: unknown): string[] | undefined {
 
 function numberOf(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+/** A stored query, normalized: its first ordering key, and a limit no higher than the cap. */
+function queryOf(query: unknown): ReferenceQuery | undefined {
+  if (!isObject(query)) return undefined;
+  const [entry] = isObject(query.orderBy) ? Object.entries(query.orderBy) : [];
+  const direction = entry?.[1] === "desc" ? "desc" : "asc";
+  const limit = numberOf(query.limit) ?? QUERY_LIMIT_CAP;
+  return {
+    ...(entry ? { orderBy: { key: entry[0], direction } } : {}),
+    limit: Math.min(limit, QUERY_LIMIT_CAP),
+  };
 }
 
 /** One field of a schema, from its stored JSON Schema. */
@@ -129,6 +150,7 @@ function fieldFrom(name: string, schema: Record<string, unknown>): Field {
         ...reference,
         kind,
         queryBacked: schema.query !== undefined,
+        query: queryOf(schema.query),
         maxItems: numberOf(schema.maxItems),
       };
     }
@@ -147,6 +169,24 @@ export function fieldOf(schema: unknown, name: string): Field | undefined {
 /** A field schema read on its own, wherever it sits, such as an asset list's single asset. */
 export function readField(schema: unknown, name = ""): Field | undefined {
   return isObject(schema) ? fieldFrom(name, schema) : undefined;
+}
+
+/**
+ * The Markdown Representation a content schema declares: its `toMarkdown` lines and the field
+ * schemas they name. Undefined when it declares none.
+ */
+export function markdownOf(
+  schema: unknown,
+): { lines: readonly string[]; properties: Record<string, unknown> } | undefined {
+  if (!isObject(schema) || !isObject(schema.properties)) return undefined;
+  const lines = stringsOf(schema.toMarkdown);
+  if (!lines) return undefined;
+  return { lines, properties: schema.properties };
+}
+
+/** The field schemas of a content schema, by name, as Markdown templates name them. */
+export function propertiesOf(schema: unknown): Record<string, unknown> {
+  return isObject(schema) && isObject(schema.properties) ? schema.properties : {};
 }
 
 /** The fields of a content or settings schema, in schema order. */

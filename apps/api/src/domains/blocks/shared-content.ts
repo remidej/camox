@@ -8,7 +8,8 @@ import { blocks, repeatableItems, sharedContentId, sharedContents } from "../../
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import { readScopeOf, type DraftScope, type WriteTarget } from "../drafts/scope";
-import { readValues } from "../generated-values/service";
+import type { GeneratedEntity } from "../generated-values/schema";
+import { readValuesOf } from "../generated-values/service";
 import {
   itemsUnder,
   rootColumns,
@@ -97,37 +98,21 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   itemRows: readonly ItemRow[],
 ) {
   const shown = yield* sharedContentShown(db, scope, blockRows, itemRows);
-  const blockSummaries = yield* readValues(
-    db,
-    scope,
-    "block",
-    "summary",
-    shown.blocks.filter((block) => !block.sharedContentId).map((block) => block.id),
-  );
-  const sharedSummaries = yield* readValues(
-    db,
-    scope,
-    "sharedContent",
-    "summary",
-    shown.blocks.flatMap((block) => (block.sharedContentId ? [block.sharedContentId] : [])),
-  );
-  const itemSummaries = yield* readValues(
-    db,
-    scope,
-    "repeatableItem",
-    "summary",
-    shown.items.map((item) => item.id),
-  );
+  const summaries = yield* readValuesOf(db, scope, "summary", {
+    block: shown.blocks.filter((block) => !block.sharedContentId).map((block) => block.id),
+    sharedContent: shown.blocks.flatMap((block) =>
+      block.sharedContentId ? [block.sharedContentId] : [],
+    ),
+    repeatableItem: shown.items.map((item) => item.id),
+  });
+  const summaryOf = (entity: GeneratedEntity, id: string) =>
+    summaries.get(entity)?.get(id)?.value?.summary ?? "";
   return {
     blocks: shown.blocks.map(({ sharedContentId: shared, ...block }) => ({
       ...block,
-      summary:
-        (shared ? sharedSummaries.get(shared) : blockSummaries.get(block.id))?.value?.summary ?? "",
+      summary: shared ? summaryOf("sharedContent", shared) : summaryOf("block", block.id),
     })),
-    items: shown.items.map((item) => ({
-      ...item,
-      summary: itemSummaries.get(item.id)?.value?.summary ?? "",
-    })),
+    items: shown.items.map((item) => ({ ...item, summary: summaryOf("repeatableItem", item.id) })),
   };
 });
 
@@ -195,15 +180,6 @@ const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends 
     }
   }
   return { blocks: projectedBlocks, items };
-});
-
-/** A block as a scope's readers see it. */
-export const shownBlock = Effect.fn("shownBlock")(function* <B extends BlockRow>(
-  db: Database,
-  scope: DraftScope,
-  block: B,
-) {
-  return (yield* withSharedContent(db, scope, [block], [])).blocks[0];
 });
 
 /** Invalidates every read showing a definition's shared content, in the scope it changed in. */

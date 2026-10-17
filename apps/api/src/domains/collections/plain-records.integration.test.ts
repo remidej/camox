@@ -13,10 +13,10 @@ import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, drafts, files, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { createBlock, getBlock } from "../blocks/service";
+import type { ResolvedReference } from "../content/reader";
 import type { DraftScope } from "../drafts/scope";
 import { deleteFile, getFileUsageCount, updateFile } from "../files/service";
 import { createRepeatableItem } from "../repeatable-items/service";
-import type { ResolvedReference } from "./references";
 import {
   createRecord,
   deleteRecord,

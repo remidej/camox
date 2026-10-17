@@ -13,8 +13,6 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
-import { conformBlocksIn } from "../_shared/conform-content";
-import { collectFileIds } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { initializeBlockContent } from "../blocks/initialize-content";
@@ -33,11 +31,11 @@ import {
 } from "../blocks/shared-content";
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
+import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
-import { buildFileMap } from "../files/file-map";
 import {
   copyValue,
   homeOf,
@@ -463,6 +461,17 @@ const siblingsOf = Effect.fn("repeatableItems.siblingsOf")(function* (
   return overlay.sortByPosition(rows.filter((item) => item.parentItemId === parentItemId));
 });
 
+/** An item as readers see it, for a write's response. */
+const shownItem = Effect.fn("repeatableItems.shownItem")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  scope: DraftScope,
+  item: typeof repeatableItems.$inferSelect,
+) {
+  const reader = contentReader(ctx, { projectId, draft: scope });
+  return (yield* reader.shown.items([item]))[0]!;
+});
+
 // --- Reads ---
 
 export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(function* (
@@ -470,35 +479,11 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   rawInput: z.input<typeof getRepeatableItemInput>,
 ) {
   const { id } = yield* decodeInput(getRepeatableItemInput, rawInput);
-  const { scope, entity } = yield* accessTo(ctx, { item: id }, "public");
-  const stored = entity.item;
-  // An item conforms through its repeater path, which runs through its tree's definition and
-  // its ancestors.
-  const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(stored));
-  // Conforming walks items up to a block: a stand-in block of the tree's definition holds them.
-  const treeOwner = { id: "tree-owner", type: tree.definition.type, content: {}, settings: null };
-  const siblings = yield* itemsOfTree(ctx.db, scope, tree.root);
-  const conformed = yield* conformBlocksIn(
-    ctx,
-    tree.definition,
-    scope,
-    [treeOwner],
-    siblings.map((sibling) => ({ ...sibling, blockId: treeOwner.id })),
-  );
-  const found = conformed.items.find((candidate) => candidate.id === id);
-  if (!found) return yield* new NotFoundError();
-  const item = { ...found, blockId: stored.blockId };
-
-  // Collect and fetch referenced files
-  const fileIds = new Set<string>();
-  collectFileIds(item.content as Record<string, unknown>, fileIds);
-
-  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
-
-  return {
-    item,
-    files: fileRows,
-  };
+  const { project, scope, entity } = yield* accessTo(ctx, { item: id }, "public");
+  const reader = contentReader(ctx, { projectId: project.id, draft: scope });
+  const view = yield* reader.item(entity.item);
+  if (!view) return yield* new NotFoundError();
+  return view;
 }, Effect.scoped);
 
 // --- Writes ---
@@ -638,7 +623,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   yield* requestSummary(ctx, scope, project.id, result.id, 0);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath, [queryKeys.blocks.getUsageCounts]);
 
-  return result;
+  return yield* shownItem(ctx, project.id, scope, result);
 }, Effect.scoped);
 
 export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepeatableItemContent")(
@@ -684,7 +669,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
     yield* requestSummary(ctx, scope, project.id, id, 5000);
     invalidateTree(ctx, scope, project.id, tree, access.pagePath);
 
-    return result;
+    return result && (yield* shownItem(ctx, project.id, scope, result));
   },
   Effect.scoped,
 );
@@ -723,7 +708,7 @@ export const updateRepeatableItemSettings = Effect.fn(
   broadcastSharedTreeChange(ctx, scope, tree, project.id);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath);
 
-  return result;
+  return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);
 
 export const updateRepeatableItemPosition = Effect.fn(
@@ -768,7 +753,7 @@ export const updateRepeatableItemPosition = Effect.fn(
   });
   broadcastSharedTreeChange(ctx, scope, tree, project.id);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath);
-  return result;
+  return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);
 
 export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepeatableItem")(
@@ -824,7 +809,7 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
     invalidateTree(ctx, scope, project.id, tree, access.pagePath, [
       queryKeys.blocks.getUsageCounts,
     ]);
-    return result;
+    return yield* shownItem(ctx, project.id, scope, result);
   },
   Effect.scoped,
 );
@@ -855,7 +840,8 @@ export const generateRepeatableItemSummary = Effect.fn(
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return yield* overlay.get(ctx.db, scope, repeatableItems, id);
+  const stored = yield* overlay.get(ctx.db, scope, repeatableItems, id);
+  return stored && (yield* shownItem(ctx, project.id, scope, stored));
 }, Effect.scoped);
 
 /**
@@ -890,5 +876,5 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);
   broadcastSharedTreeChange(ctx, scope, tree, project.id);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath, [queryKeys.blocks.getUsageCounts]);
-  return result;
+  return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);

@@ -48,15 +48,6 @@ export const withSeo = Effect.fn("pages.withSeo")(function* <P extends PageRow>(
   });
 });
 
-/** One page with the SEO in effect for the scope. */
-export const pageView = Effect.fn("pages.pageView")(function* <P extends PageRow>(
-  db: Database,
-  scope: DraftScope,
-  row: P,
-) {
-  return (yield* withSeo(db, scope, [row]))[0]!;
-});
-
 /** The generated SEO of pages as the scope reads it, with whether a job is pending. */
 export const generatedSeoOf = (db: Database, scope: DraftScope, pageIds: string[]) =>
   readValues(db, scope, "page", "seo", pageIds);

@@ -8,24 +8,17 @@ import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema";
-import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
-import { collectFileIds } from "../_shared/fields";
-import { readOwnerBlocks } from "../_shared/owner-blocks";
 import { layoutSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { adoptSharedContent } from "../blocks/shared-content";
-import {
-  hydrateItemReferences,
-  hydrateReferences,
-  validateReferenceValues,
-} from "../collections/references";
+import { validateReferenceValues } from "../collections/references";
+import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import { RELEASE, type WriteTarget } from "../drafts/scope";
-import { buildFileMap } from "../files/file-map";
 import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
 
@@ -114,29 +107,10 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   if (!layout) return yield* new NotFoundError();
 
-  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
-  const normalized = layoutBlocks.map((block) =>
-    injectRepeatableItemMarkers(
-      block,
-      items.filter((item) => item.blockId === block.id),
-    ),
-  );
-  const hydrated = yield* hydrateReferences(
-    ctx,
-    { ...layout, draft: scope },
-    normalized.map(({ block }) => block),
-  );
-  const hydratedItems = yield* hydrateItemReferences(
-    ctx,
-    { ...layout, draft: scope },
-    layoutBlocks,
-    normalized.flatMap(({ items }) => items),
-  );
-  const fileIds = new Set<string>();
-  for (const value of [...layoutBlocks, ...items])
-    collectFileIds(value.content as Record<string, unknown>, fileIds);
-  for (const value of [...hydrated, ...hydratedItems]) collectFileIds(value.references, fileIds);
-  const fileRows = yield* buildFileMap(ctx.db, fileIds, scope);
+  const content = yield* contentReader(ctx, { projectId: project.id, draft: scope }).blocks([
+    { layoutId: layout.layoutId },
+  ]);
+  const layoutBlocks = content.blocks;
   return {
     projectName: project.name,
     // Enough for the SDK to build a cache-busted favicon URL, as for pages.
@@ -152,9 +126,9 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
         .filter((block) => block.slot === "after")
         .map((block) => block.id),
     },
-    blocks: hydrated,
-    repeatableItems: hydratedItems,
-    files: [...fileRows.values()],
+    blocks: content.blocks,
+    repeatableItems: content.repeatableItems,
+    files: content.files,
   };
 }, Effect.scoped);
 

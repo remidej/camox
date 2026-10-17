@@ -26,24 +26,16 @@ import {
   repeatableItems,
   sharedContents,
 } from "../../schema";
-import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
+import { nestChildItems } from "../_shared/block-markers";
+import { conformBlocks } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
-import { collectFileIds } from "../_shared/fields";
-import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
-import type { ContentScope } from "../collections/identity";
-import {
-  blockScope,
-  hydrateItemReferences,
-  hydrateReferences,
-  type ResolvedReferences,
-  validateReferenceValues,
-} from "../collections/references";
+import { blockScope, validateReferenceValues } from "../collections/references";
+import { type BlockMarkdown, contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
-import { buildFileMap } from "../files/file-map";
 import {
   copyValue,
   type GenerationDeps,
@@ -68,7 +60,6 @@ import {
   broadcastSharedContentChange,
   contentOwnerOf,
   sharedPlacementId,
-  shownBlock,
   withSharedContent,
   type SharedContentRow,
 } from "./shared-content";
@@ -244,32 +235,6 @@ function findLastIndexLe<T extends { position: string }>(items: T[], target: str
     else break;
   }
   return result;
-}
-
-/** Recursively nest child items into their parent item's content. */
-function nestChildItems(
-  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
-) {
-  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
-  for (const item of allItems) {
-    if (item.parentItemId === null) continue;
-    let fieldMap = childrenByParent.get(item.parentItemId);
-    if (!fieldMap) {
-      fieldMap = new Map();
-      childrenByParent.set(item.parentItemId, fieldMap);
-    }
-    const list = fieldMap.get(item.fieldName) ?? [];
-    list.push(item);
-    fieldMap.set(item.fieldName, list);
-  }
-  for (const item of allItems) {
-    const childFields = childrenByParent.get(item.id);
-    if (!childFields) continue;
-    const content = item.content as Record<string, unknown>;
-    for (const [fieldName, children] of childFields) {
-      content[fieldName] = children;
-    }
-  }
 }
 
 const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
@@ -750,204 +715,30 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   rawInput: z.input<typeof getBlockInput>,
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
-  const { scope, entity } = yield* accessTo(ctx, { block: id }, "public");
-  return yield* blockView(ctx, scope, entity.block);
+  const { project, scope, entity } = yield* accessTo(ctx, { block: id }, "public");
+  return yield* blockView(
+    contentReader(ctx, { projectId: project.id, draft: scope }),
+    entity.block,
+  );
 }, Effect.scoped);
 
 /** A block as a scope's readers see it, with its items and the files and records they use. */
 const blockView = Effect.fn("blocks.blockView")(function* (
-  ctx: ServiceContext,
-  scope: DraftScope,
+  reader: ContentReader,
   stored: typeof blocks.$inferSelect,
 ) {
-  const shown = yield* withSharedContent(
-    ctx.db,
-    scope,
-    [stored],
-    yield* overlay.select(ctx.db, scope, repeatableItems, eq(repeatableItems.blockId, stored.id)),
-  );
-  const conformed = yield* conformBlocksIn(ctx, stored, scope, shown.blocks, shown.items);
-  const block = conformed.blocks[0];
-  const sorted = overlay.sortByPosition(conformed.items);
-
-  // Build a map of parentItemId → grouped children by fieldName
-  const childrenByParent = new Map<string | null, Map<string, typeof sorted>>();
-  for (const item of sorted) {
-    let fieldMap = childrenByParent.get(item.parentItemId);
-    if (!fieldMap) {
-      fieldMap = new Map();
-      childrenByParent.set(item.parentItemId, fieldMap);
-    }
-    const list = fieldMap.get(item.fieldName) ?? [];
-    list.push(item);
-    fieldMap.set(item.fieldName, list);
-  }
-
-  // Inject _itemId markers only for Repeater fields — i.e., where content
-  // doesn't already hold the field's data. Asset list arrays keep their inline
-  // _fileId markers stored on the parent; any stray child rows for those fields
-  // are ignored.
-  const hasInlineArray = (c: Record<string, unknown>, key: string) => {
-    const v = c[key];
-    return Array.isArray(v) && v.length > 0;
-  };
-
-  const content = { ...(block.content as Record<string, unknown>) };
-  const topLevelFields = childrenByParent.get(null);
-  if (topLevelFields) {
-    for (const [fieldName, fieldItems] of topLevelFields) {
-      if (hasInlineArray(content, fieldName)) continue;
-      content[fieldName] = fieldItems.map((i) => ({ _itemId: i.id }));
-    }
-  }
-
-  for (const item of sorted) {
-    const nestedFields = childrenByParent.get(item.id);
-    if (!nestedFields) continue;
-    const itemContent = { ...(item.content as Record<string, unknown>) };
-    for (const [fieldName, fieldItems] of nestedFields) {
-      if (hasInlineArray(itemContent, fieldName)) continue;
-      itemContent[fieldName] = fieldItems.map((i) => ({ _itemId: i.id }));
-    }
-    (item as any).content = itemContent;
-  }
-
-  const referenceScope = blockScope(block, scope);
-  const hydratedBlock = (yield* hydrateReferences(ctx, referenceScope, [{ ...block, content }]))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, referenceScope, [block], sorted);
-
-  // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
-  const fileIds = new Set<string>();
-  collectFileIds(content, fileIds);
-  collectFileIds(hydratedBlock.references, fileIds);
-  for (const item of hydratedItems) {
-    collectFileIds(item.content as Record<string, unknown>, fileIds);
-    collectFileIds(item.references, fileIds);
-  }
-
-  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
-
-  return {
-    block: hydratedBlock,
-    repeatableItems: hydratedItems,
-    files: fileRows,
-  };
-});
-
-type RenderableBlock = typeof blocks.$inferSelect;
-type RenderableItem = typeof repeatableItems.$inferSelect & {
-  blockId: string;
-  references?: ResolvedReferences;
-};
-
-/**
- * Renders each block's Markdown Representation, resolving its references and files.
- * `markdown` is undefined for a block whose definition declares no Markdown; `json` is
- * its raw content instead, with artifact sources replaced by their titles.
- */
-const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* (
-  ctx: ServiceContext,
-  scope: ContentScope,
-  blockRows: RenderableBlock[],
-  itemRows: RenderableItem[],
-) {
-  // Get the project's block definitions for content schemas and Markdown representations.
-  const defs = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, scope.projectId),
-          definitionsIn(blockDefinitions, scope.draft),
-        ),
-      ),
-  );
-  const schemaByType = new Map<
-    string,
-    { title: string; properties: Record<string, any>; toMarkdown?: readonly string[] }
-  >();
-  for (const def of defs) {
-    const schema = def.contentSchema as Record<string, unknown> | null;
-    if (schema?.properties) {
-      schemaByType.set(def.blockId, {
-        title: def.title,
-        properties: schema.properties as Record<string, any>,
-        toMarkdown: schema.toMarkdown as readonly string[] | undefined,
-      });
-    }
-  }
-
-  const items: RenderableItem[] = yield* hydrateItemReferences(ctx, scope, blockRows, itemRows);
-  nestChildItems(items);
-  const itemsByBlock = new Map<string, RenderableItem[]>();
-  for (const item of items) {
-    if (item.parentItemId !== null) continue;
-    const list = itemsByBlock.get(item.blockId) ?? [];
-    list.push(item);
-    itemsByBlock.set(item.blockId, list);
-  }
-
-  const hydrated = yield* hydrateReferences(ctx, scope, blockRows);
-  // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
-  const fileIds = new Set<string>();
-  for (const block of hydrated) {
-    collectFileIds(block.content as Record<string, unknown>, fileIds);
-    collectFileIds(block.references, fileIds);
-  }
-  for (const item of items) {
-    collectFileIds(item.content as Record<string, unknown>, fileIds);
-    collectFileIds(item.references ?? {}, fileIds);
-  }
-  const fileMap = yield* buildFileMap(ctx.db, fileIds, scope.draft);
-
-  const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
-  const json = (block: RenderableBlock) =>
-    JSON.stringify(
-      stripArtifactSources(
-        schemaByType.get(block.type)?.properties,
-        block.content as Record<string, unknown>,
-      ),
-    );
-  const markdown = (block: RenderableBlock): string | undefined => {
-    const schema = schemaByType.get(block.type);
-    if (!schema?.toMarkdown) return undefined;
-    const blockItems = itemsByBlock.get(block.id) ?? [];
-    const content = { ...(block.content as Record<string, unknown>) };
-    for (const fieldName of new Set(blockItems.map((i) => i.fieldName))) {
-      content[fieldName] = blockItems.filter((i) => i.fieldName === fieldName);
-    }
-    return `<!-- ${schema.title} -->\n${contentToMarkdown(
-      schema.toMarkdown,
-      schema.properties,
-      content,
-      {
-        settings: block.settings as Record<string, unknown> | null | undefined,
-        files: fileMap,
-        references: referencesByBlock.get(block.id),
-      },
-    )}`;
-  };
-  /** A block whose definition is gone renders nothing, not even its JSON. */
-  const rendersNothing = (block: RenderableBlock) =>
-    !defs.some((def) => def.blockId === block.type);
-  return { markdown, json, rendersNothing };
+  const bundle = yield* reader.blocks([{ block: stored }]);
+  return { block: bundle.blocks[0]!, repeatableItems: bundle.repeatableItems, files: bundle.files };
 });
 
 /** Joins the Markdown of a layout's before and after slots, skipping blocks without Markdown. */
-function layoutSlotsMarkdown(
-  layoutBlocks: RenderableBlock[],
-  render: (block: RenderableBlock) => string | undefined,
-) {
-  const before: string[] = [];
-  const after: string[] = [];
-  for (const block of layoutBlocks) {
-    const markdown = render(block);
-    if (!markdown) continue;
-    if (block.slot === "before") before.push(markdown);
-    else after.push(markdown);
-  }
-  return { before: before.join("\n\n"), after: after.join("\n\n") };
+function layoutSlotsMarkdown(rendered: readonly BlockMarkdown[]) {
+  const slot = (name: "before" | "after") =>
+    rendered
+      .filter((block) => block.pageId === null && block.slot === name && block.markdown)
+      .map((block) => block.markdown)
+      .join("\n\n");
+  return { before: slot("before"), after: slot("after") };
 }
 
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
@@ -965,28 +756,17 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   );
   if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
-  const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId }, scope);
-  const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(
-    ctx,
-    { projectId: page.projectId, layoutId: page.layoutId },
-    scope,
-  );
-
-  const render = yield* renderBlocksMarkdown(
-    ctx,
-    { ...page, draft: scope },
-    [...sorted, ...sortedLayout],
-    [...allItems, ...layoutAllItems],
-  );
-  const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
-
-  // Convert page blocks to markdown
-  const blockMarkdowns = sorted
-    .filter((block) => !render.rendersNothing(block))
+  const rendered = yield* contentReader(ctx, { projectId: page.projectId, draft: scope }).markdown([
+    { pageId },
+    { layoutId: page.layoutId },
+  ]);
+  const { before, after } = layoutSlotsMarkdown(rendered);
+  const blockMarkdowns = rendered
+    .filter((block) => block.pageId === pageId)
     .map((block) => ({
       id: block.id,
       position: block.position,
-      markdown: render.markdown(block) ?? render.json(block),
+      markdown: block.markdown ?? block.json,
     }));
 
   const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
@@ -1017,9 +797,11 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
-  const render = yield* renderBlocksMarkdown(ctx, { ...layout, draft: scope }, layoutBlocks, items);
-  return layoutSlotsMarkdown(layoutBlocks, render.markdown);
+  return layoutSlotsMarkdown(
+    yield* contentReader(ctx, { projectId: project.id, draft: scope }).markdown([
+      { layoutId: layout.layoutId },
+    ]),
+  );
 }, Effect.scoped);
 
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (
@@ -1081,10 +863,20 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
   if (id === null) return null;
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   if (!stored) return null;
-  return yield* blockView(ctx, scope, stored);
+  return yield* blockView(contentReader(ctx, { projectId, draft: scope }), stored);
 }, Effect.scoped);
 
 // --- Writes ---
+
+/** A block as readers see it, for a write's response. */
+const shownBlock = Effect.fn("blocks.shownBlock")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  scope: DraftScope,
+  block: typeof blocks.$inferSelect,
+) {
+  return (yield* contentReader(ctx, { projectId, draft: scope }).shown.blocks([block]))[0]!;
+});
 
 /** A request's access to write a block. */
 type BlockWrite = ContentAccess<{ block: string }, "write">;
@@ -1257,7 +1049,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   });
 
   const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
-  const created = yield* shownBlock(ctx.db, scope, stored);
+  const created = yield* shownBlock(ctx, page.projectId, scope, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 }, Effect.scoped);
 
@@ -1341,7 +1133,7 @@ const writeBlockContent = Effect.fn("blocks.writeBlockContent")(function* (
     ],
   });
 
-  return result;
+  return yield* shownBlock(ctx, project.id, scope, result);
 });
 
 export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
@@ -1389,7 +1181,7 @@ const writeBlockSettings = Effect.fn("blocks.writeBlockSettings")(function* (
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
     ],
   });
-  return result;
+  return yield* shownBlock(ctx, project.id, scope, result);
 });
 
 export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
@@ -1447,7 +1239,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return yield* shownBlock(ctx.db, scope, result);
+  return yield* shownBlock(ctx, project.id, scope, result);
 }, Effect.scoped);
 
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
@@ -1475,7 +1267,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return result && (yield* shownBlock(ctx, project.id, scope, result));
 }, Effect.scoped);
 
 export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
@@ -1507,7 +1299,7 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     projectId: project.id,
     targets: [queryKeys.pages.getByPathAll, queryKeys.pages.list, queryKeys.blocks.getUsageCounts],
   });
-  return result;
+  return yield* contentReader(ctx, { projectId: project.id, draft: scope }).shown.blocks(result);
 }, Effect.scoped);
 
 export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (
@@ -1533,7 +1325,8 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return yield* overlay.get(ctx.db, scope, blocks, id);
+  const stored = yield* overlay.get(ctx.db, scope, blocks, id);
+  return stored && (yield* shownBlock(ctx, project.id, scope, stored));
 }, Effect.scoped);
 
 export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
@@ -1588,5 +1381,5 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return yield* shownBlock(ctx.db, scope, result);
+  return yield* shownBlock(ctx, project.id, scope, result);
 }, Effect.scoped);

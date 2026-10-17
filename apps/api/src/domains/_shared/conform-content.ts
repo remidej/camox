@@ -1,15 +1,10 @@
-import { and, eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 import { z } from "zod";
 
 import { isLexicalState, lexicalStateToPlainText } from "../../lib/lexical-state";
-import { blockDefinitions } from "../block-definitions/schema";
 import { normalizeFieldValue } from "../blocks/asset-value";
 import { validateContent } from "../blocks/validate-content";
-import type { DraftScope } from "../drafts/scope";
-import { definitionsIn } from "./definitions";
 import { assetFileId, defaultOf, type Field, fieldsOf, itemSchemas } from "./fields";
-import type { ServiceContext } from "./service-context";
 
 /**
  * Conforming content to its definitions (ADR 0007). Stored content keeps whatever shape it
@@ -98,6 +93,11 @@ function conformSettings(settings: unknown, schema: unknown, rootSchema: unknown
   return conformBlockObject(settings, schema, rootSchema);
 }
 
+/** Content conformed to its definition: an object holding the definition's fields only. */
+export type Conformed<T extends { content: unknown }> = Omit<T, "content"> & {
+  content: Record<string, unknown>;
+};
+
 export type BlockDefinitionSchemas = { contentSchema: unknown; settingsSchema?: unknown };
 
 type ConformableBlock = { id: string; type: string; content: unknown; settings: unknown };
@@ -119,7 +119,7 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
   definitions: ReadonlyMap<string, BlockDefinitionSchemas>,
   blocks: readonly B[],
   items: readonly I[],
-): { blocks: B[]; items: I[] } {
+): { blocks: Conformed<B>[]; items: Conformed<I>[] } {
   const blockById = new Map(blocks.map((block) => [block.id, block]));
   const itemsByBlock = Map.groupBy(items, (item) => item.blockId);
   const itemSchemasById = new Map(
@@ -159,38 +159,6 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
   });
   return { blocks: conformedBlocks, items: conformedItems };
 }
-
-/**
- * Conforms blocks and items to the block definitions of the scope they're read in: a
- * development draft's own, or Live's (ADR 0006, ADR 0007).
- */
-export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
-  B extends ConformableBlock,
-  I extends ConformableItem,
->(
-  ctx: ServiceContext,
-  scope: { projectId: number },
-  draft: DraftScope,
-  blocks: readonly B[],
-  items: readonly I[],
-) {
-  const rows = yield* Effect.promise(() =>
-    ctx.db
-      .select({
-        blockId: blockDefinitions.blockId,
-        contentSchema: blockDefinitions.contentSchema,
-        settingsSchema: blockDefinitions.settingsSchema,
-      })
-      .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, scope.projectId),
-          definitionsIn(blockDefinitions, draft),
-        ),
-      ),
-  );
-  return conformBlocks(new Map(rows.map((row) => [row.blockId, row])), blocks, items);
-});
 
 const uuid = z.uuid();
 function textOf(value: unknown): string | null {
