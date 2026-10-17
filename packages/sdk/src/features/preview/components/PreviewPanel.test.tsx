@@ -38,9 +38,6 @@ registerHooks({
       for (const name of ["MobilePreviewDrawer"]) {
         if (specifier === `./${name}`) source = `export const ${name} = () => null`;
       }
-      if (specifier === "./PreviewToolbar")
-        source =
-          "export const PreviewToolbar = () => React.createElement('aside', {'data-preview-toolbar': true})";
     }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
@@ -118,7 +115,6 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
   const canvasFrame = document.createElement("iframe");
   try {
     await render(true, "3");
-    assert.ok(dom.host.querySelector("[data-preview-toolbar]"));
     const ready = frameCallbacks.at(-1)!;
     ready(outgoingFrame);
     assert.equal(store.getSnapshot().context.iframeElement, outgoingFrame);
@@ -132,7 +128,6 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
     frameCallbacks.at(-1)!(outgoingFrame);
     assert.equal(store.getSnapshot().context.editingContext, canvasOwner);
     assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);
-    assert.equal(dom.host.querySelector("[data-preview-toolbar]"), null);
     await dom.render(null);
     ready(outgoingFrame);
     assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);

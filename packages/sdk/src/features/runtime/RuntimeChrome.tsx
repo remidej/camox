@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 import studioCssUrl from "virtual:camox-studio-css";
 
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
-import { previewStore } from "../preview/previewStore";
+import { previewStore, selectIsEditMode } from "../preview/previewStore";
+import { ChatSidebar } from "../studio/components/ChatSidebar";
 import { Navbar } from "../studio/components/Navbar";
 import type { PageRenderInput } from "./runtime";
-import { SharedChromeContext } from "./SharedChromeContext";
 
 export function RuntimeChrome({
   input,
@@ -17,22 +17,29 @@ export function RuntimeChrome({
 }) {
   const preview = !input.routeKind;
   const hidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
+  const isEditMode = useSelector(previewStore, selectIsEditMode);
+  // A page location is the Canvas in edit mode, and the preview otherwise.
+  const showChat = !preview || isEditMode;
 
   return (
-    <SharedChromeContext.Provider value={true}>
+    <>
       <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       <div className="bg-background flex h-screen flex-col overflow-hidden">
         <div className={preview ? "max-md:hidden" : undefined} hidden={preview && hidden}>
           <Navbar isPreview={preview} />
         </div>
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
-          {/* Kept at a stable position, outside route Suspense and editor imports. */}
-          <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
-            <PreviewToolbar />
+        <div className="flex min-h-0 flex-1">
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
+            {/* Kept at a stable position, outside route Suspense and editor imports. */}
+            <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
+              <PreviewToolbar />
+            </div>
           </div>
+          {/* Outside the route content, so the chat survives moving between Studio pages. */}
+          {showChat && <ChatSidebar />}
         </div>
       </div>
-    </SharedChromeContext.Provider>
+    </>
   );
 }

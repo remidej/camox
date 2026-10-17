@@ -1,15 +1,15 @@
-import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
+import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
 
 /**
- * The Canvas's chat with an Agent, shown whatever is selected. A placeholder
- * for now: no messages, and its composer is disabled.
+ * The Studio's chat with an Agent, beside every Studio page except the preview.
+ * A placeholder for now: no messages, and its composer is disabled.
  */
-export function CanvasChatSidebar() {
+export function ChatSidebar() {
   return (
     <aside
       aria-label="Chat"
-      data-canvas-chat-sidebar
-      className="bg-background flex shrink-0 flex-col border-l-2"
+      data-chat-sidebar
+      className="bg-background flex shrink-0 flex-col border-l-2 max-md:hidden"
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
       <p className="p-4 text-base font-semibold">Chat</p>

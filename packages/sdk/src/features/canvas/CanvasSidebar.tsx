@@ -128,7 +128,7 @@ function BlockPlacementSidebar({ block, projectId }: { block: Block; projectId: 
   );
 }
 
-export function CanvasLeftSidebar({
+export function CanvasSidebar({
   page,
   catalog,
   navigator,

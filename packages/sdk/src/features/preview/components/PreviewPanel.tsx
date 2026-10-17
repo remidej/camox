@@ -11,7 +11,6 @@ import { CanvasWorkspaceContext } from "../../canvas/canvasZoom";
 import { useCanvasFrameInput } from "../../canvas/useCanvasFrameInput";
 import { NavigationDisabled } from "../../navigation/navigation";
 import { actionsStore } from "../../provider/actionsStore";
-import { SharedChromeContext } from "../../runtime/SharedChromeContext";
 import {
   PREVIEW_PAGE_Z_INDEX,
   previewPageIframeProps,
@@ -27,7 +26,6 @@ import { MobilePreviewDrawer } from "./MobilePreviewDrawer";
 import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
 import type { PreviewedPage } from "./PageNavigatorSidebar";
-import { PreviewToolbar } from "./PreviewToolbar";
 
 /* -------------------------------------------------------------------------------------------------
  * Frame
@@ -177,7 +175,6 @@ interface PreviewPanelProps {
   page?: PreviewedPage;
   layoutId?: string;
   projectName?: string;
-  toolbarProps?: React.ComponentProps<typeof PreviewToolbar>;
 }
 
 export function CuratedBlockShortcuts() {
@@ -262,9 +259,7 @@ const PreviewPanel = ({
   page,
   layoutId,
   projectName = "Project",
-  toolbarProps,
 }: PreviewPanelProps) => {
-  const sharedChrome = React.useContext(SharedChromeContext);
   const pageId = page?.id;
   const owner = React.useMemo<EditingOwner | null>(() => {
     if (pageId != null) return { kind: "page", pageId };
@@ -331,13 +326,9 @@ const PreviewPanel = ({
               {pageContent}
             </PreviewFrame>
           </div>
-          {active &&
-            !isToolbarHidden &&
-            (page ? (
-              <MobilePreviewDrawer page={page} projectName={projectName} />
-            ) : (
-              !sharedChrome && <PreviewToolbar {...toolbarProps} />
-            ))}
+          {active && !isToolbarHidden && page && (
+            <MobilePreviewDrawer page={page} projectName={projectName} />
+          )}
         </PanelContent>
       </PreviewEditingOwnerContext>
     );
@@ -394,7 +385,6 @@ const PreviewPanel = ({
             />
           </div>
         </PreviewPageClip>
-        {active && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
       </PanelContent>
     </PreviewEditingOwnerContext>
   );

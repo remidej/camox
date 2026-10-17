@@ -39,12 +39,8 @@ registerHooks({
         "../provider/components/CamoxAppContext": "export const useCamoxApp = () => ({})",
         "../page/DerivedPageContent":
           "export const DerivedPageContent = () => React.createElement('p', {'data-derived-content': true})",
-        "../studio/components/Navbar":
-          "export const Navbar = () => React.createElement('nav', {'data-navbar': true})",
         "./components/PreviewPanel":
           "export const PreviewPanel = ({children, layoutId}) => React.createElement('section', {'data-preview': true, 'data-layout-id': layoutId}, children)",
-        "./components/PreviewToolbar":
-          "export const PreviewToolbar = () => React.createElement('div', {'data-toolbar': true})",
         // The record page's data and slug following load nothing in the shell.
         "./pageRecord": `
           export const PageRecordContext = React.createContext(undefined);
@@ -112,7 +108,6 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore: store } = await import("./previewStore");
   const { actionsStore } = await import("../provider/actionsStore");
-  const { SharedChromeContext } = await import("../runtime/SharedChromeContext");
   type ShellProps = React.ComponentProps<typeof PreviewShell>;
   const pageData = {
     page: { id: "3" },
@@ -186,7 +181,6 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
         await React.act(async () => store.send({ type: "enterEditMode" }));
         assertCanvas();
         assertSameContent();
-        assert.equal(count("[data-toolbar]"), 1);
         assert.ok(canvasImports > 0);
 
         await React.act(async () => store.send({ type: "exitEditMode" }));
@@ -195,24 +189,6 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
         assert.ok(canvasImports > 0);
       });
     }
-
-    await t.test("shared chrome has no duplicate navbar or toolbar", async () => {
-      // Unmounting the previous shell resets the mode, so set it afterwards.
-      await dom.render(null);
-      await React.act(async () => store.send({ type: "enterEditMode" }));
-      await dom.render(
-        <SharedChromeContext value={true}>
-          <nav data-navbar />
-          <div data-toolbar />
-          <PreviewShell pageData={pageData} runtimeBasePath="/nested/studio">
-            <p data-content>Site content</p>
-          </PreviewShell>
-        </SharedChromeContext>,
-      );
-      assertCanvas();
-      assert.equal(count("[data-navbar]"), 1);
-      assert.equal(count("[data-toolbar]"), 1);
-    });
 
     await t.test(
       "entering edit mode before a single frame commits releases the SSR fallback",
