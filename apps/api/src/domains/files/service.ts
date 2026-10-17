@@ -1,5 +1,4 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray } from "drizzle-orm";
@@ -8,7 +7,6 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { files } from "../../schema";
@@ -149,21 +147,6 @@ const generateImageMetadata = Effect.fn("generateImageMetadata")(function* (
     }),
   );
 });
-
-function invalidateFile(
-  ctx: ServiceContext,
-  projectId: number,
-  scope: DraftScope,
-  targets: Parameters<typeof broadcastInvalidation>[0]["targets"],
-) {
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId,
-    targets,
-  });
-}
 
 /** Requests the file's metadata in the scope it was asked from (ADR 0012). */
 const requestFileMetadata = (
@@ -362,7 +345,6 @@ const writeFile = Effect.fn("files.writeFile")(function* (
     updatedAt: Math.max(Date.now(), file.updatedAt + 1),
   });
   if (!result) return yield* new NotFoundError();
-  invalidateFile(ctx, file.projectId!, scope, [queryKeys.files.list, queryKeys.files.get(file.id)]);
   return result;
 });
 
@@ -434,11 +416,6 @@ const removeFiles = Effect.fn("files.removeFiles")(function* (
     ctx,
     shown.map((file) => file.blobId),
   );
-  invalidateFile(ctx, shown[0]!.projectId!, scope, [
-    queryKeys.files.list,
-    ...shown.map((file) => queryKeys.files.get(file.id)),
-    queryKeys.blocks.getUsageCounts,
-  ]);
 });
 
 export const deleteFile = Effect.fn("files.deleteFile")(function* (
@@ -531,12 +508,6 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
     );
     yield* requestFileMetadata(ctx, result, scope);
   }
-  invalidateFile(ctx, target.projectId, scope, [
-    queryKeys.files.list,
-    queryKeys.files.get(oldFile.id),
-    queryKeys.blocks.getUsageCounts,
-    queryKeys.pages.getByPathAll,
-  ]);
   return yield* fileView(ctx.db, scope, result);
 });
 
@@ -581,10 +552,6 @@ export const createFile = Effect.fn("files.createFile")(function* (
     );
     yield* requestFileMetadata(ctx, created, scope);
   }
-  invalidateFile(ctx, values.projectId, scope, [
-    queryKeys.files.list,
-    queryKeys.files.get(created.id),
-  ]);
   return yield* fileView(ctx.db, scope, created);
 });
 
@@ -603,10 +570,9 @@ export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(func
   rawInput: z.input<typeof generateFileMetadataInput>,
 ) {
   const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
-  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "member");
+  const { scope } = yield* accessTo(ctx, { file: id }, "member");
 
   yield* executeFileMetadata(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
-  invalidateFile(ctx, file.projectId, scope, [queryKeys.files.list, queryKeys.files.get(id)]);
   const shown = yield* overlay.get(ctx.db, scope, files, id);
   return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
 }, Effect.scoped);

@@ -1,13 +1,12 @@
 import type { DraftKind } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, InvalidInputError } from "../../lib/errors";
+import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import { accessTo } from "./access";
@@ -140,13 +139,6 @@ export const createDraft = Effect.fn("drafts.create")(function* (
 
   const id = generateUuidv7();
   yield* startDraft(ctx.db, { id, projectId, createdBy: user.id, name: name?.trim() || null });
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId,
-    draftId: null,
-    targets: [queryKeys.drafts.all],
-  });
   const draft = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, id)).get(),
   );
@@ -194,13 +186,7 @@ export const renameDraft = Effect.fn("drafts.rename")(function* (
   yield* Effect.promise(() =>
     ctx.db.update(drafts).set({ name: trimmed }).where(eq(drafts.id, draft.id)),
   );
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId,
-    draftId: null,
-    targets: [queryKeys.drafts.all],
-  });
+  yield* record(ctx.db, { kind: "drafts", projectId });
   const [summary] = yield* summarize(ctx.db, [{ ...draft, name: trimmed }]);
   return summary!;
 });

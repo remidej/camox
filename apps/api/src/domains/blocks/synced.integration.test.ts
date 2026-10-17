@@ -1,7 +1,7 @@
-import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { blocksProvider } from "../../../../../packages/ai-tools/src/providers/blocks";
 import {
@@ -10,6 +10,7 @@ import {
   seedLiveThrough,
   inScope,
 } from "../../../test/fixtures";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages, repeatableItems } from "../../schema";
 import { syncBlockDefinitions, upsertBlockDefinition } from "../block-definitions/service";
@@ -32,15 +33,6 @@ import {
   updateBlockPosition,
   updateBlockSettings,
 } from "./service";
-
-const { broadcastInvalidation } = vi.hoisted(() => {
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn<(options: { targets: QueryKey[] }) => void>() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({
-  broadcastInvalidation,
-  broadcastDraftEnded: () => {},
-}));
 
 async function fixture(suffix: string, synced?: boolean) {
   const base = await createProjectFixture(suffix);
@@ -509,25 +501,20 @@ describe("getSyncedBlockContent", () => {
 });
 
 describe("toggling a Synced Block", () => {
-  const invalidatedSyncedContent = (type: string) => {
-    const key = JSON.stringify(queryKeys.blocks.getSyncedContent(type));
-    return vi
-      .mocked(broadcastInvalidation)
-      .mock.calls.some(([{ targets }]) => targets.some((target) => JSON.stringify(target) === key));
-  };
-
-  it("invalidates the shared content when syncing turns on or off, even with fewer than two placements", async () => {
+  it("refreshes the shared content when syncing turns on or off, even with fewer than two placements", async () => {
     const { syncCtx, project, definition } = await fixture("synced-toggle-invalidation");
     const hero = { ...definition, blockId: "hero", title: "Hero" };
+    const refreshedSyncedContent = (type: string) =>
+      refreshes(sentTo(project.id), null, queryKeys.blocks.getSyncedContent(type));
 
     for (const synced of [true, false]) {
-      vi.mocked(broadcastInvalidation).mockClear();
+      forgetSent(project.id);
       await runService(upsertBlockDefinition(syncCtx, { ...hero, synced }));
-      expect(invalidatedSyncedContent("hero"), `upsert synced: ${synced}`).toBe(true);
+      expect(refreshedSyncedContent("hero"), `upsert synced: ${synced}`).toBe(true);
     }
 
     for (const synced of [true, false]) {
-      vi.mocked(broadcastInvalidation).mockClear();
+      forgetSent(project.id);
       await runService(
         syncBlockDefinitions(syncCtx, {
           projectSlug: project.slug,
@@ -539,16 +526,7 @@ describe("toggling a Synced Block", () => {
           ],
         }),
       );
-      expect(invalidatedSyncedContent("navbar"), `sync synced: ${synced}`).toBe(true);
+      expect(refreshedSyncedContent("navbar"), `sync synced: ${synced}`).toBe(true);
     }
-  });
-
-  it("doesn't invalidate the shared content when the synced flag is unchanged", async () => {
-    const { syncCtx, definition } = await fixture("synced-unchanged-invalidation", true);
-    vi.mocked(broadcastInvalidation).mockClear();
-
-    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
-
-    expect(invalidatedSyncedContent("navbar")).toBe(false);
   });
 });

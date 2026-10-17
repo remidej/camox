@@ -2,7 +2,7 @@ import { DRAFT_CREATE_HEADER, DRAFT_HEADER, type DraftKind } from "@camox/api-co
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { and, eq, isNull } from "drizzle-orm";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
@@ -12,17 +12,11 @@ import {
   openDevelopmentDraft,
   seedLive,
 } from "../../../test/fixtures";
+import { sentTo } from "../../../test/project-rooms";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, drafts, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-
-const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn(), broadcastDraftEnded: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
 
 /** Headers naming a draft, creating it when missing. */
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
@@ -185,7 +179,8 @@ async function fixture() {
 
 describe("publishing a draft", () => {
   it("applies every block the draft created, changed or deleted to Live at once, and ends the draft", async () => {
-    const { createBlock, editTitle, deleteBlock, pageTitles, publish, titleIn } = await fixture();
+    const { createBlock, editTitle, deleteBlock, pageTitles, project, publish, titleIn } =
+      await fixture();
     const changed = await createBlock("Changed");
     const removed = await createBlock("Removed");
     const draft = generateUuidv7();
@@ -196,9 +191,7 @@ describe("publishing a draft", () => {
     const result = await publish(draft);
 
     expect(result.ended).toMatchObject({ outcome: "published", endedBy: { name: "Member" } });
-    expect(broadcastDraftEnded).toHaveBeenCalledWith(
-      expect.objectContaining({ ended: result.ended }),
-    );
+    expect(sentTo(project.id).at(-1)).toEqual({ type: "draftEnded", ...result.ended });
     expect(await pageTitles()).toEqual(["Changed in draft", "Created"]);
     await expect(titleIn(changed.id, inDraft(draft))).rejects.toMatchObject({
       status: 410,
@@ -537,7 +530,7 @@ describe("publishing a draft", () => {
 
 describe("discarding a draft", () => {
   it("removes every draft row, and later writes fail with the outcome and who discarded it", async () => {
-    const { createBlock, db, discard, editTitle, pageTitles, titleIn } = await fixture();
+    const { createBlock, db, discard, editTitle, pageTitles, project, titleIn } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     await editTitle(block.id, "Mine", startingDraft(draft));
@@ -546,7 +539,7 @@ describe("discarding a draft", () => {
     const { ended } = await discard(draft);
 
     expect(ended).toMatchObject({ outcome: "discarded", endedBy: { name: "Member" } });
-    expect(broadcastDraftEnded).toHaveBeenCalledWith(expect.objectContaining({ ended }));
+    expect(sentTo(project.id).at(-1)).toEqual({ type: "draftEnded", ...ended });
     expect(await db.select().from(blocks).where(eq(blocks.draftId, draft))).toEqual([]);
     expect(await pageTitles()).toEqual(["Live"]);
     await expect(editTitle(block.id, "Again", inDraft(draft))).rejects.toMatchObject({

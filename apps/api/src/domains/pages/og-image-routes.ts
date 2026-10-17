@@ -1,9 +1,7 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { Effect } from "effect";
 import { Hono } from "hono";
 
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { NotFoundError } from "../../lib/errors";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import type { AppEnv } from "../../types";
@@ -71,17 +69,6 @@ const writeOgImage = (
           yield* deleteUnreferencedOgImageBlobs(ctx, [prevBlobId]);
         }
 
-        broadcastInvalidation({
-          waitUntil: ctx.waitUntil,
-          projectRoomNamespace: ctx.env.ProjectRoom,
-          draftId: scope.id,
-          projectId: page.projectId,
-          targets: [
-            queryKeys.pages.list,
-            queryKeys.pages.getById(pageId),
-            queryKeys.pages.getByPathAll,
-          ],
-        });
         return result;
       }
     }),

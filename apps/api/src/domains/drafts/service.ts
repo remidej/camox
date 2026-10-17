@@ -2,6 +2,7 @@ import type { EndedDraft } from "@camox/api-contract/drafts";
 import { and, eq, not, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as overlay from "./overlay";
@@ -52,7 +53,9 @@ export const startDraft = Effect.fn("startDraft")(function* (
       where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${draft.id})
       on conflict do nothing`),
   );
-  return inserted.meta.changes > 0;
+  const started = inserted.meta.changes > 0;
+  if (started) yield* record(db, { kind: "drafts", projectId: draft.projectId });
+  return started;
 });
 
 /** Deletes a draft in one statement, only while it stores nothing. */

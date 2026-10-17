@@ -10,6 +10,7 @@ import {
   seedLiveThrough,
 } from "../../../test/fixtures";
 import type { ServiceError } from "../../lib/errors";
+import type { Journal } from "../../lib/journal";
 import { markdownToLexicalState, plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
 import { files, pages } from "../../schema";
@@ -82,7 +83,7 @@ async function fixture(suffix: string) {
       .returning()
       .get();
   // Record writes reach Live by publishing a throwaway draft (ADR 0009).
-  const live = <A>(run: (inDraft: ServiceContext) => Effect.Effect<A, ServiceError>) =>
+  const live = <A>(run: (inDraft: ServiceContext) => Effect.Effect<A, ServiceError, Journal>) =>
     seedLiveThrough(ctx, base.project.id, (_draft, inDraft) => run(inDraft));
   await sync();
   return { ...base, ctx, publicCtx, scope, sync, insertFile, live };

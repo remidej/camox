@@ -11,6 +11,7 @@ import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
 import { draftOf, RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
 import type { ServiceError } from "../src/lib/errors";
+import type { Journal } from "../src/lib/journal";
 import { runService } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
 import { router } from "../src/router";
@@ -31,14 +32,14 @@ const now = 1_700_000_000_000;
 /**
  * Stands in for a Durable Object that services reach fire-and-forget (`waitUntil`). A request to
  * the real one could land after its test file ended. Tests that check those calls mock
- * `broadcast-invalidation` or `schedule-ai-job` instead.
+ * `schedule-ai-job` instead. The project rooms are swapped for a recorder for every test
+ * (`project-rooms.ts`).
  */
 const fireAndForgetDouble = (stub: object) =>
   ({ idFromName: (name: string) => name, get: () => stub }) as unknown as DurableObjectNamespace;
 
 const testBindings: Bindings = {
   ...(env as unknown as Bindings),
-  ProjectRoom: fireAndForgetDouble({ broadcastMessage: async () => {} }),
   AI_JOB_SCHEDULER: fireAndForgetDouble({ fetch: async () => new Response(null) }),
 };
 
@@ -200,7 +201,7 @@ export const callSeedingLive: typeof call = async (procedure, input, ...rest) =>
 export async function seedLiveThrough<A>(
   ctx: ServiceContext,
   projectId: number,
-  run: (draft: Draft, inDraft: ServiceContext) => Effect.Effect<A, ServiceError>,
+  run: (draft: Draft, inDraft: ServiceContext) => Effect.Effect<A, ServiceError, Journal>,
 ): Promise<A> {
   const draft = await ctx.db
     .insert(drafts)

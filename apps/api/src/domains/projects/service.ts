@@ -10,6 +10,7 @@ import {
   requireUser,
 } from "../../authorization";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
+import { record } from "../../lib/journal";
 import {
   blockDefinitions,
   collectionDefinitions,
@@ -221,6 +222,7 @@ export const updateProject = Effect.fn("projects.updateProject")(function* (
       .returning()
       .get(),
   );
+  yield* record(ctx.db, { kind: "project", projectId: id });
   return result;
 });
 
@@ -322,6 +324,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   const result = yield* Effect.promise(() =>
     ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
   );
+  yield* record(ctx.db, { kind: "project", projectId });
   return result;
 });
 

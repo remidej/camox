@@ -1,5 +1,4 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -9,7 +8,6 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import {
   ConflictError,
@@ -18,6 +16,7 @@ import {
   NotFoundError,
   type ServiceError,
 } from "../../lib/errors";
+import type { Journal } from "../../lib/journal";
 import {
   blockDefinitions,
   blocks,
@@ -57,7 +56,6 @@ import { type FieldSchema } from "./normalize-content";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
 import {
   adoptSharedContent,
-  broadcastSharedContentChange,
   contentOwnerOf,
   sharedPlacementId,
   withSharedContent,
@@ -163,7 +161,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
 ): Effect.fn.Return<
   { afterPosition?: string | null; beforePosition?: string | null },
   ServiceError,
-  Scope.Scope
+  Journal | Scope.Scope
 > {
   const input = yield* decodeInput(resolveBlockPositionInput, rawInput);
   if (!input.blockId && !input.pageId) {
@@ -396,7 +394,7 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   blockId: string,
   scope: DraftScope,
   abortController?: AbortController,
-): Effect.fn.Return<{ page: typeof pages.$inferSelect } | null> {
+): Effect.fn.Return<{ page: typeof pages.$inferSelect } | null, never, Journal> {
   const startedAt = Date.now();
   const assembled = yield* assembleBlockContent(db, blockId, scope);
   if (!assembled?.projectId) return null;
@@ -479,7 +477,7 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   patch: Record<string, unknown>,
   contentSchema: unknown,
   now: number,
-): Effect.fn.Return<Record<string, unknown>, ServiceError> {
+): Effect.fn.Return<Record<string, unknown>, ServiceError, Journal> {
   const props = (contentSchema as { properties?: Record<string, FieldSchema> } | null)?.properties;
 
   // Start from existing content with all known repeatable fields stripped (items
@@ -494,7 +492,7 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   let allItems: Effect.Success<ReturnType<typeof fetchBlockItems>> | null = null;
   // Build the entire mutation plan first: a later bad reference or value must
   // not leave earlier siblings repositioned, inserted, or deleted.
-  const writes: Effect.Effect<unknown>[] = [];
+  const writes: Effect.Effect<unknown, never, Journal>[] = [];
   for (const [key, value] of Object.entries(patch)) {
     const fieldSchema = props?.[key];
     if (fieldSchema?.fieldType !== "Repeater") {
@@ -538,9 +536,9 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     fieldSchema: FieldSchema;
     rootSchema: unknown;
     now: number;
-    writes: Effect.Effect<unknown>[];
+    writes: Effect.Effect<unknown, never, Journal>[];
   },
-): Effect.fn.Return<void, ServiceError> {
+): Effect.fn.Return<void, ServiceError, Journal> {
   const {
     root,
     parentItemId,
@@ -892,7 +890,7 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   values: { content?: unknown; settings?: unknown; updatedAt: number },
   scope: Draft,
 ) {
-  const { block, projectId } = access;
+  const { block } = access;
   if (!shared) {
     const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values);
     if (!result) return yield* new NotFoundError();
@@ -902,7 +900,6 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   // then shows.
   const updated = yield* overlay.update(ctx.db, scope, sharedContents, shared.id, values);
   if (!updated) return yield* new NotFoundError();
-  broadcastSharedContentChange(ctx, scope, projectId, shared.type);
   return {
     ...block,
     content: updated.content,
@@ -1033,20 +1030,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   yield* adoptSharedContent(ctx, scope, result);
 
   yield* requestBlockSummary(ctx, scope, page.projectId, result.id, 0);
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: page.projectId,
-    targets: [
-      // Block create/delete/duplicate restructures the page — refetch the
-      // page view and the page list, whose rows carry `content_updated_at`.
-      queryKeys.pages.getByPath(page.fullPath),
-      queryKeys.pages.list,
-      queryKeys.blocks.getPageMarkdown(pageId),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
 
   const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
   const created = yield* shownBlock(ctx, page.projectId, scope, stored);
@@ -1117,21 +1100,6 @@ const writeBlockContent = Effect.fn("blocks.writeBlockContent")(function* (
   );
 
   yield* requestBlockSummary(ctx, scope, project.id, id, 5000);
-  // Granular invalidation: only refetch this block, not the entire page.
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: project.id,
-    targets: [
-      queryKeys.blocks.get(id),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath)]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
-    ],
-  });
 
   return yield* shownBlock(ctx, project.id, scope, result);
 });
@@ -1166,21 +1134,6 @@ const writeBlockSettings = Effect.fn("blocks.writeBlockSettings")(function* (
     { settings: merged, updatedAt: Date.now() },
     scope,
   );
-  // Granular invalidation: only refetch this block, not the entire page.
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: project.id,
-    targets: [
-      queryKeys.blocks.get(id),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath)]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
-    ],
-  });
   return yield* shownBlock(ctx, project.id, scope, result);
 });
 
@@ -1225,20 +1178,6 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
     updatedAt: Date.now(),
   });
   if (!result) return yield* new NotFoundError();
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: project.id,
-    targets: [
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath)]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
   return yield* shownBlock(ctx, project.id, scope, result);
 }, Effect.scoped);
 
@@ -1247,26 +1186,11 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   rawInput: z.input<typeof deleteBlockInput>,
 ) {
   const { id } = yield* decodeInput(deleteBlockInput, rawInput);
-  const { scope, project, entity: access } = yield* accessTo(ctx, { block: id }, "write");
+  const { scope, project } = yield* accessTo(ctx, { block: id }, "write");
 
   // In a draft, a tombstone hides the block from the draft only.
   const result = yield* overlay.remove(ctx.db, scope, blocks, id);
   if (result) yield* deleteBlockDependents(ctx, scope, [result]);
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: project.id,
-    targets: [
-      // Deleting a block restructures the page. Invalidate all active page path
-      // reads so Studio preview updates even when the browser path and stored
-      // fullPath differ in normalization (for example trailing-slash redirects).
-      queryKeys.pages.getByPathAll,
-      queryKeys.pages.list,
-      ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
   return result && (yield* shownBlock(ctx, project.id, scope, result));
 }, Effect.scoped);
 
@@ -1292,13 +1216,6 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     if (removed) result.push(removed);
   }
   yield* deleteBlockDependents(ctx, scope, result);
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: project.id,
-    targets: [queryKeys.pages.getByPathAll, queryKeys.pages.list, queryKeys.blocks.getUsageCounts],
-  });
   return yield* contentReader(ctx, { projectId: project.id, draft: scope }).shown.blocks(result);
 }, Effect.scoped);
 
@@ -1307,24 +1224,10 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   rawInput: z.input<typeof generateBlockSummaryInput>,
 ) {
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
-  const { scope, project, entity: access } = yield* accessTo(ctx, { block: id }, "member");
+  const { scope, project } = yield* accessTo(ctx, { block: id }, "member");
 
   const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   if (seoStale) yield* requestPageSeo(ctx, scope, seoStale.page, 15000);
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: project.id,
-    targets: [
-      queryKeys.blocks.get(id),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath)]
-        : [queryKeys.pages.getByPathAll]),
-      ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   return stored && (yield* shownBlock(ctx, project.id, scope, stored));
 }, Effect.scoped);
@@ -1367,19 +1270,5 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     summaryKeyOf(original.id, null),
     result.id,
   );
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope.id,
-    projectId: project.id,
-    targets: [
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath)]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      ...(original.pageId ? [queryKeys.blocks.getPageMarkdown(original.pageId)] : []),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
   return yield* shownBlock(ctx, project.id, scope, result);
 }, Effect.scoped);

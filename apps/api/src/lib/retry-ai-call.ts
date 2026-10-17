@@ -18,9 +18,9 @@ export class AiCallError extends Data.TaggedError("AiCallError")<{ readonly caus
  * OpenRouter request is cancelled. Fails with the last error once retries are
  * exhausted.
  */
-export function retryAiCall<A, E>(
+export function retryAiCall<A, E, R>(
   label: string,
-  run: (abortController: AbortController) => Effect.Effect<A, E>,
+  run: (abortController: AbortController) => Effect.Effect<A, E, R>,
 ) {
   const attempt = Effect.suspend(() => {
     // TanStack AI's `chat()` takes an AbortController rather than a signal.

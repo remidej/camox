@@ -4,6 +4,7 @@ import { Hono } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
 import type { Database } from "../../db";
+import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
 import { projects } from "../../schema";
@@ -172,6 +173,7 @@ faviconHonoRoutes.post("/upload", async (c) => {
 
   const updatedAt = Date.now();
   await c.var.db.update(projects).set({ updatedAt }).where(eq(projects.id, projectId));
+  await runService(record(c.var.db, { kind: "project", projectId }));
 
   return c.json({ updatedAt }, 200);
 });
@@ -189,6 +191,7 @@ faviconHonoRoutes.delete("/:projectId", async (c) => {
 
   await c.env.FILES_BUCKET.delete(faviconKey(projectId));
   await c.var.db.update(projects).set({ updatedAt: Date.now() }).where(eq(projects.id, projectId));
+  await runService(record(c.var.db, { kind: "project", projectId }));
 
   return new Response(null, { status: 204 });
 });

@@ -2,7 +2,7 @@ import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
@@ -20,13 +20,6 @@ import {
 } from "../../schema";
 import * as overlay from "./overlay";
 import { RELEASE } from "./scope";
-
-const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn(), broadcastDraftEnded: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
 
 type Headers = Record<string, string>;
 /** Headers naming a draft, creating it when missing. */

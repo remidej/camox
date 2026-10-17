@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertSyncAccess } from "../../authorization";
+import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
 import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions } from "../../schema";
@@ -239,6 +239,7 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
     );
   }
 
+  yield* recordDefinitionsSynced(ctx.db, target);
   return {
     results,
     draftCreated: target.draftCreated,
@@ -270,6 +271,7 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
     body,
     Date.now(),
   );
+  yield* recordDefinitionsSynced(ctx.db, target);
   const action = written.action === "created" ? "created" : "updated";
   return { ...written.row, action: action as "created" | "updated" };
 });
@@ -294,5 +296,6 @@ export const deleteBlockDefinition = Effect.fn("blockDefinitions.deleteBlockDefi
       .returning()
       .get(),
   );
+  if (result) yield* recordDefinitionsSynced(ctx.db, target);
   return { deleted: !!result, blockId };
 });
