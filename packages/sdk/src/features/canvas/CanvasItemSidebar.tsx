@@ -5,7 +5,7 @@ import type * as React from "react";
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 
 /**
- * The left sidebar of a selected Canvas item: its name, beside a button that leaves
+ * The Canvas sidebar's view of a selected Canvas item: its name, beside a button that leaves
  * the selection and zooms out to the whole Canvas, then the item's content.
  */
 export function CanvasItemSidebar({

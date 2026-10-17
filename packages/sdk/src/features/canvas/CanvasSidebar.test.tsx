@@ -13,7 +13,7 @@ import { getCanvasShelves } from "./canvasItems";
 import type { CanvasPage } from "./canvasPages";
 
 type CanvasNavigator = React.ComponentProps<
-  typeof import("./CanvasLeftSidebar").CanvasLeftSidebar
+  typeof import("./CanvasSidebar").CanvasSidebar
 >["navigator"];
 
 const navigationUrl = new URL("../navigation/navigation.tsx", import.meta.url).href;
@@ -29,7 +29,7 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     let source: string | undefined;
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
-    if (context.parentURL?.endsWith("/CanvasLeftSidebar.tsx")) {
+    if (context.parentURL?.endsWith("/CanvasSidebar.tsx")) {
       if (specifier.endsWith("/auth"))
         source = 'export const useProjectSlug = () => "test-project"';
       if (specifier.endsWith("/api-client"))
@@ -145,7 +145,7 @@ async function setup() {
   );
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
-  const { CanvasLeftSidebar } = await import("./CanvasLeftSidebar");
+  const { CanvasSidebar } = await import("./CanvasSidebar");
   const { PreviewEditingOwnerContext } = await import("../preview/previewSelection");
   const { previewStore: store } = await import("../preview/previewStore");
   const mount = dom.document.createElement("div");
@@ -183,7 +183,7 @@ async function setup() {
               }}
             >
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
-                <CanvasLeftSidebar
+                <CanvasSidebar
                   page={page}
                   catalog={catalog}
                   navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}

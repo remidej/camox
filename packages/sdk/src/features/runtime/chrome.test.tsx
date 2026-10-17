@@ -103,6 +103,8 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(html, /<iframe[^>]+srcDoc=/i);
   assert.match(html, /&lt;main id=&quot;site-content&quot;/);
   assert.doesNotMatch(html, /<main id="site-content"/);
+  // The preview is the only Studio location without the chat.
+  assert.doesNotMatch(html, /data-chat-sidebar/);
 
   const studioHtml = renderToString(
     createElement(PageApp, {
@@ -119,6 +121,17 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(studioHtml, /My actual project/);
   assert.match(studioHtml, /Quick find/);
   assert.doesNotMatch(studioHtml, /camox-loading/);
+  assert.match(studioHtml, /data-chat-sidebar/);
+
+  // In edit mode, a page location is the Canvas, which has the chat too.
+  const { previewStore } = await import("../preview/previewStore");
+  previewStore.send({ type: "enterEditMode" });
+  try {
+    const canvasPageHtml = renderToString(createElement(PageApp, { input, queryClient, camoxApp }));
+    assert.match(canvasPageHtml, /data-chat-sidebar/);
+  } finally {
+    previewStore.send({ type: "reset" });
+  }
 
   const { getNavbarLinks, isContentNavbarPath } = await import("../studio/components/Navbar");
   assert.equal(isContentNavbarPath("/camox/content"), true);

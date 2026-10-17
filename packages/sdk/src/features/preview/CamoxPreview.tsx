@@ -20,15 +20,12 @@ import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
-import { SharedChromeContext } from "../runtime/SharedChromeContext";
-import { Navbar } from "../studio/components/Navbar";
 import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
-import { PreviewToolbar } from "./components/PreviewToolbar";
 import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
 import {
   getPageRecord,
@@ -371,9 +368,7 @@ export const PreviewShell = ({
   const isAuthenticated = useIsAuthenticated();
   const projectSlug = useProjectSlug();
   const isMobileStudio = useIsMobileStudio();
-  const sharedChrome = React.useContext(SharedChromeContext);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   usePreviewViewportActions();
   const showCanvas = !isMobileStudio && isEditMode;
   const { pathname } = useLocation();
@@ -456,12 +451,10 @@ export const PreviewShell = ({
       <PreviewEditingOwnerContext value={editingOwner}>
         <div
           className={cn(
-            "bg-background relative flex min-h-0 flex-1 flex-col overflow-hidden",
-            sharedChrome ? "h-full" : "h-screen",
+            "bg-background relative flex h-full min-h-0 flex-1 flex-col overflow-hidden",
             !isEditMode && "bg-black",
           )}
         >
-          {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
           <CanvasPreview enabled={showCanvas} pathname={pathname} runtimeBasePath={runtimeBasePath}>
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel
@@ -475,7 +468,6 @@ export const PreviewShell = ({
               </PreviewPanel>
             </div>
           </CanvasPreview>
-          {showCanvas && !sharedChrome && <PreviewToolbar />}
           {!showCanvas && (
             <>
               <CreatePageModal />

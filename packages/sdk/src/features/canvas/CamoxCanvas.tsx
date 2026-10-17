@@ -21,7 +21,6 @@ import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
-import { CanvasChatSidebar } from "./CanvasChatSidebar";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
   CANVAS_ITEM_GAP,
@@ -35,7 +34,6 @@ import {
   isCanvasShelfShown,
   positionCanvasShelves,
 } from "./canvasItems";
-import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
 import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
@@ -48,6 +46,7 @@ import {
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
 import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
+import { CanvasSidebar } from "./CanvasSidebar";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
@@ -224,7 +223,7 @@ function CanvasBlockUsageHeader({
   return <CanvasBlockHeader block={block} pageCount={pages.data?.length} onSelect={onSelect} />;
 }
 
-/** What the Canvas offers to the sidebars around it. */
+/** What the Canvas offers to the Canvas sidebar beside it. */
 type CanvasWorkspaceHandle = {
   /**
    * Shows an item: selects it as from outside the Canvas, so the camera flies to
@@ -664,7 +663,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   };
   const { page: selectedPage, block: selectedBlock } = selectionAt(location.pathname);
   // A Canvas selection commits once its route payload loads. Until then, the
-  // sidebars and the camera already follow it, so they move as the camera snaps.
+  // Canvas sidebar and the camera already follow it, so they move as the camera snaps.
   const [intent, setIntent] = React.useState<{ from: string; to: typeof location } | null>(null);
   // An intent ends once the location leaves where it started, committed or not, so
   // coming back there later doesn't revive it.
@@ -742,11 +741,11 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       {selectedPage?.pageId != null && <CuratedBlockShortcuts />}
-      {/* The sidebars stay mounted and route to the intended selection, or the Canvas itself. */}
+      {/* The Canvas sidebar stays mounted and routes to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>
         {/* The record page's record, which its sidebar edits. */}
         <PageRecordContext value={recordResult}>
-          <CanvasLeftSidebar
+          <CanvasSidebar
             page={intendedSelection.page}
             catalog={
               intendedSelection.block && {
@@ -789,7 +788,6 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
           })
         }
       />
-      <CanvasChatSidebar />
     </div>
   );
 }
