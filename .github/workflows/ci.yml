@@ -27,10 +27,34 @@ jobs:
 
       - run: pnpm check
 
-      - run: pnpm test
+      # The API tests run in the api-test job.
+      - run: pnpm exec nx run-many -t test --all --exclude=@camox/api
 
       - run: pnpm exec nx run camox:build
 
       - run: pnpm --filter camox exec tsx --test src/features/vite/vite.test.ts src/features/vite/workerBuild.test.ts src/features/runtime/workerRequest.test.ts
 
       - run: pnpm --filter @camox/template-default test:production
+
+  # Each test file boots its own workerd, so the suite is CPU-bound; one runner per
+  # shard (the test-shard-* targets in apps/api/package.json) splits that cost.
+  api-test:
+    name: api-test (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec nx run @camox/api:test-shard-${{ matrix.shard }}
