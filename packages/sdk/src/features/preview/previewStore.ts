@@ -174,14 +174,10 @@ export function selectionField(
   return null;
 }
 
-export type PreviewMode = "editing-draft" | "commenting-draft" | "previewing-draft";
+export type PreviewMode = "editing-draft" | "previewing-draft";
 
-export const selectIsCommentMode = (state: { context: { mode: PreviewMode } }) =>
-  state.context.mode === "commenting-draft";
-
-/** Commenting is an editing submode. */
 export const selectIsEditMode = (state: { context: { mode: PreviewMode } }) =>
-  state.context.mode === "editing-draft" || selectIsCommentMode(state);
+  state.context.mode === "editing-draft";
 
 export type ViewportMode = "full" | "tablet" | "mobile";
 
@@ -212,18 +208,6 @@ export const previewStore = createStore({
   on: {
     /** Leaving the preview discards its session; returning starts fresh. */
     reset: () => initialPreviewContext,
-    setCommentMode: (context, event: { enabled: boolean }) => {
-      if (!selectIsEditMode({ context })) return context;
-      const commenting = event.enabled;
-      return {
-        ...context,
-        mode: commenting ? ("commenting-draft" as const) : ("editing-draft" as const),
-        editingContext:
-          commenting && context.editingContext
-            ? { ...context.editingContext, selection: null }
-            : context.editingContext,
-      };
-    },
     exitEditMode: (context) => {
       if (!selectIsEditMode({ context })) return context;
       return {

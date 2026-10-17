@@ -42,10 +42,6 @@ export const queryKeys = {
       collectionId,
     ],
   },
-  comments: {
-    all: ["camox", "comments"],
-    list: (pageId: string) => ["camox", "comments", "list", pageId],
-  },
   pages: {
     list: ["camox", "pages", "list"],
     getByPath: (path: string) => ["camox", "pages", "getByPath", path],

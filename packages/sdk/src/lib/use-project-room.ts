@@ -1,10 +1,5 @@
 import { DEVELOPMENT_DRAFT, type EndedDraft } from "@camox/api-contract/drafts";
-import {
-  queryKeys,
-  scopeOfKey,
-  type ProjectRoomMessage,
-  type QueryKey,
-} from "@camox/api-contract/query-keys";
+import { scopeOfKey, type ProjectRoomMessage, type QueryKey } from "@camox/api-contract/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePartySocket } from "partysocket/react";
 import { useEffect, useRef } from "react";
@@ -53,7 +48,6 @@ export function useProjectRoom(
     query: () => ({ _authCookie: getAuthCookieHeader() }),
     enabled: !!projectId,
     onOpen() {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.comments.all });
       if (process.env.NODE_ENV !== "production") {
         console.debug("[useProjectRoom] WebSocket connected");
       }

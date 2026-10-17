@@ -192,41 +192,26 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
         await React.act(async () => store.send({ type: "exitEditMode" }));
         assertPreview();
         assertSameContent();
-        await React.act(async () => {
-          store.send({ type: "enterEditMode" });
-          store.send({ type: "setCommentMode", enabled: true });
-        });
-        assert.equal(store.getSnapshot().context.mode, "commenting-draft");
-        assertCanvas();
-        assertSameContent();
-        await React.act(async () => store.send({ type: "exitEditMode" }));
-        assertPreview();
-        assertSameContent();
         assert.ok(canvasImports > 0);
       });
     }
 
     await t.test("shared chrome has no duplicate navbar or toolbar", async () => {
-      for (const commenting of [false, true]) {
-        // Unmounting the previous shell resets the mode, so set it afterwards.
-        await dom.render(null);
-        await React.act(async () => {
-          store.send({ type: "enterEditMode" });
-          store.send({ type: "setCommentMode", enabled: commenting });
-        });
-        await dom.render(
-          <SharedChromeContext value={true}>
-            <nav data-navbar />
-            <div data-toolbar />
-            <PreviewShell pageData={pageData} runtimeBasePath="/nested/studio">
-              <p data-content>Site content</p>
-            </PreviewShell>
-          </SharedChromeContext>,
-        );
-        assertCanvas();
-        assert.equal(count("[data-navbar]"), 1);
-        assert.equal(count("[data-toolbar]"), 1);
-      }
+      // Unmounting the previous shell resets the mode, so set it afterwards.
+      await dom.render(null);
+      await React.act(async () => store.send({ type: "enterEditMode" }));
+      await dom.render(
+        <SharedChromeContext value={true}>
+          <nav data-navbar />
+          <div data-toolbar />
+          <PreviewShell pageData={pageData} runtimeBasePath="/nested/studio">
+            <p data-content>Site content</p>
+          </PreviewShell>
+        </SharedChromeContext>,
+      );
+      assertCanvas();
+      assert.equal(count("[data-navbar]"), 1);
+      assert.equal(count("[data-toolbar]"), 1);
     });
 
     await t.test(
@@ -254,18 +239,16 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
   }
 });
 
-void test("leaving the preview resets preview, comment and canvas state", async () => {
+void test("leaving the preview resets preview and canvas state", async () => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
-  const { previewCommentsStore } = await import("./previewCommentsStore");
   const { canvasStore } = await import("../canvas/canvasStore");
   const pageData = {
     page: { id: "3" },
     projectName: "Test",
   } as React.ComponentProps<typeof PreviewShell>["pageData"];
   const initialPreview = previewStore.getSnapshot().context;
-  const initialComments = previewCommentsStore.getSnapshot().context;
   try {
     await dom.render(
       <PreviewShell pageData={pageData}>
@@ -276,7 +259,6 @@ void test("leaving the preview resets preview, comment and canvas state", async 
       previewStore.send({ type: "enterEditMode" });
       previewStore.send({ type: "setViewportMode", mode: "mobile" });
       previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "9" });
-      previewCommentsStore.send({ type: "selectComment", id: "comment" });
       canvasStore.send({
         type: "rememberView",
         workspaceKey: "workspace",
@@ -287,7 +269,6 @@ void test("leaving the preview resets preview, comment and canvas state", async 
 
     await dom.render(null);
     assert.deepEqual(previewStore.getSnapshot().context, initialPreview);
-    assert.deepEqual(previewCommentsStore.getSnapshot().context, initialComments);
     assert.deepEqual(canvasStore.getSnapshot().context.views, {});
   } finally {
     await dom.close();

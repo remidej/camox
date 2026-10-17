@@ -26,7 +26,7 @@ void test("canvas zoom subscribers update on scale without rerendering for pan",
   }
   const { createRoot } = await import("react-dom/client");
   const root = createRoot(window.document.body as unknown as HTMLElement);
-  const workspaceKey = "comment-indicator-zoom";
+  const workspaceKey = "canvas-zoom-probe";
   let renders = 0;
   function Probe() {
     renders++;

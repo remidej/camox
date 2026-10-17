@@ -116,9 +116,6 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx));
   const tool = findTool(tools, name);
   // Live is read-only (ADR 0003): a tool writing content needs the session to name a draft.
-  if (tool && writesContent(tool) && !ctx.draft) return yield* new LiveReadOnlyError();
+  if (tool?.meta.kind === "write" && !ctx.draft) return yield* new LiveReadOnlyError();
   return yield* executeTool({ toolCtx, tools, name, args });
 });
-
-const writesContent = (tool: ToolDefinition) =>
-  tool.meta.kind === "write" && !tool.meta.allowedOnLive;

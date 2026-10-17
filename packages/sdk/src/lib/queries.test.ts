@@ -16,7 +16,6 @@ const { seedStartedDraft } = await import("./studio-draft");
 const {
   blockQueries,
   collectionQueries,
-  commentQueries,
   fileQueries,
   layoutQueries,
   pageMutations,
@@ -35,7 +34,6 @@ function keysAt(url: string) {
     pageQueries.list(1).queryKey,
     fileQueries.get("file-1").queryKey,
     layoutQueries.list(1).queryKey,
-    commentQueries.list("page-1").queryKey,
     collectionQueries.records("site", "posts").queryKey,
     collectionQueries.record("site", "posts", "record-1").queryKey,
   ];

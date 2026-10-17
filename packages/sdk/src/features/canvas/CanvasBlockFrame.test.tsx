@@ -209,15 +209,13 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     const editingAffordances = [
       "[data-canvas-overlays]",
       "[data-canvas-insertion-seam]",
-      "[data-canvas-comment]",
-      "[data-canvas-comment-group]",
       "[data-camox-block-id]",
       "[data-camox-field-id]",
     ].join(", ");
     assert.equal(
       host.querySelector(editingAffordances),
       null,
-      "no overlays, field toolbar, add-block seams or comments around the frame",
+      "no overlays, field toolbar or add-block seams around the frame",
     );
     assert.equal(
       frame.document.querySelector(editingAffordances),

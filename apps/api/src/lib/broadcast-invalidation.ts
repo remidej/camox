@@ -33,20 +33,15 @@ function broadcast(
 }
 
 export function broadcastInvalidation({ draftId, targets, ...room }: BroadcastInvalidationOptions) {
-  // Comment availability depends on current objects and field definitions.
-  // Refresh it for every content mutation, including deletions.
   const contentChanged = targets.some(([, domain]) =>
     ["pages", "blocks", "repeatableItems", "layouts", "blockDefinitions"].includes(String(domain)),
   );
-  const alreadyIncludesComments = targets.some((key) => key.length === 2 && key[1] === "comments");
-  const withComments =
-    contentChanged && !alreadyIncludesComments ? [...targets, queryKeys.comments.all] : targets;
   // A change in a draft changes its change count: in its own summary, and in everyone's list.
   const draftChanged = contentChanged && draftId !== null;
   const message: InvalidationMessage = {
     type: "invalidate",
     draftId,
-    targets: draftChanged ? [...withComments, queryKeys.drafts.get] : withComments,
+    targets: draftChanged ? [...targets, queryKeys.drafts.get] : targets,
   };
   broadcast(room, message);
   if (draftChanged) {

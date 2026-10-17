@@ -36,15 +36,9 @@ import {
   useDerivedPageResult,
   useFollowPageRecord,
 } from "./pageRecord";
-import { previewCommentsStore } from "./previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
-import {
-  previewStore,
-  selectIsCommentMode,
-  selectIsEditMode,
-  type EditingOwner,
-} from "./previewStore";
+import { previewStore, selectIsEditMode, type EditingOwner } from "./previewStore";
 import { usePreviewViewportActions } from "./usePreviewViewportActions";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -379,7 +373,6 @@ export const PreviewShell = ({
   const isMobileStudio = useIsMobileStudio();
   const sharedChrome = React.useContext(SharedChromeContext);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   usePreviewViewportActions();
   const showCanvas = !isMobileStudio && isEditMode;
@@ -397,7 +390,6 @@ export const PreviewShell = ({
   React.useEffect(
     () => () => {
       previewStore.send({ type: "reset" });
-      previewCommentsStore.send({ type: "reset" });
       canvasStore.send({ type: "reset" });
     },
     [],
@@ -432,28 +424,12 @@ export const PreviewShell = ({
         shortcut: EDIT_MODE_SHORTCUT,
       },
       {
-        id: "enter-comment-mode",
-        label: "Leave feedback",
-        aliases: ["Comment", "Comment mode", "Show feedback"],
-        groupLabel: "Preview",
-        checkIfAvailable: () =>
-          isAuthenticated && !isMobileStudio && pageData != null && !isCommentMode,
-        execute: () => {
-          if (!isEditMode) previewStore.send({ type: "enterEditMode" });
-          previewStore.send({ type: "setCommentMode", enabled: true });
-        },
-        shortcut: { key: "c" },
-      },
-      {
         id: "clear-selection",
         label: "Clear selection",
         aliases: ["Deselect", "Unselect"],
         groupLabel: "Preview",
         checkIfAvailable: () => true,
-        execute: () => {
-          previewStore.send({ type: "setCommentMode", enabled: false });
-          previewStore.send({ type: "clearSelection" });
-        },
+        execute: () => previewStore.send({ type: "clearSelection" }),
         shortcut: { key: "Escape" },
       },
     ] satisfies Action[];
@@ -469,15 +445,12 @@ export const PreviewShell = ({
         ids: actions.map((a) => a.id),
       });
     };
-  }, [isEditMode, isCommentMode, isAuthenticated, isMobileStudio, pageData]);
+  }, [isEditMode, isAuthenticated, isMobileStudio]);
 
   if (!isAuthenticated) {
     return <>{children}</>;
   }
 
-  const toolbarProps = {
-    pageId: pageData?.page.id,
-  };
   return (
     <CollectionItemModalProvider onRouteTargetClose={() => {}}>
       <PreviewEditingOwnerContext value={editingOwner}>
@@ -497,13 +470,12 @@ export const PreviewShell = ({
                 page={pageData?.page}
                 layoutId={derivedLayout?.layoutId}
                 projectName={pageData?.projectName}
-                toolbarProps={toolbarProps}
               >
                 {children}
               </PreviewPanel>
             </div>
           </CanvasPreview>
-          {showCanvas && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
+          {showCanvas && !sharedChrome && <PreviewToolbar />}
           {!showCanvas && (
             <>
               <CreatePageModal />

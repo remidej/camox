@@ -2,38 +2,24 @@ import { Button } from "@camox/ui/button";
 import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { Label } from "@camox/ui/label";
 import { Switch } from "@camox/ui/switch";
-import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
-import { MessageCircle, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import { DeviceSelector } from "@/components/DeviceSelector";
 import { formatShortcut } from "@/lib/utils";
 
-import { isSettledIn, useCommentDraftId } from "../commentStatus";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
-import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
-import { usePageComments } from "../usePageComments";
+import { previewStore, selectIsEditMode } from "../previewStore";
 
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
-  onCommentModeChange?: (enabled: boolean) => void;
-  pageId?: string;
 }
 
-export const PreviewToolbar = ({
-  onEditModeChange,
-  onCommentModeChange,
-  pageId,
-}: PreviewToolbarProps) => {
+export const PreviewToolbar = ({ onEditModeChange }: PreviewToolbarProps) => {
   const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
-
-  const { data: comments } = usePageComments(pageId);
-  const draftId = useCommentDraftId();
-  const hasComments = comments?.some((comment) => !isSettledIn(comment, draftId)) ?? false;
 
   if (isToolbarHidden) return null;
 
@@ -59,39 +45,6 @@ export const PreviewToolbar = ({
         </Label>
       </div>
       <div className="flex shrink-0 items-center gap-6 self-stretch">
-        <Tooltip.Tooltip>
-          <Tooltip.TooltipTrigger
-            render={
-              <Toggle
-                pressed={isCommentMode}
-                data-state={isCommentMode ? "on" : "off"}
-                onPressedChange={(enabled) => {
-                  if (onCommentModeChange) {
-                    onCommentModeChange(enabled);
-                    return;
-                  }
-
-                  if (enabled && !isEditMode) {
-                    previewStore.send({ type: "enterEditMode" });
-                  }
-                  previewStore.send({ type: "setCommentMode", enabled });
-                }}
-                variant="outline"
-                className="relative"
-              />
-            }
-          >
-            <MessageCircle />
-            Feedback
-            {hasComments && (
-              <span
-                aria-hidden
-                className="absolute -top-1 -right-1 size-2.5 rounded-full bg-blue-500"
-              />
-            )}
-          </Tooltip.TooltipTrigger>
-          <Tooltip.TooltipContent>Leave feedback for agents</Tooltip.TooltipContent>
-        </Tooltip.Tooltip>
         <DeviceSelector
           value={viewportMode === "full" ? "desktop" : viewportMode}
           desktopLabel="Full view"

@@ -13,7 +13,6 @@ import type { BaseContext } from "../../orpc";
 import { callTool } from "../agent/service";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { blockProcedures as blockRoutes } from "../blocks/routes";
-import { commentProcedures as commentRoutes } from "../comments/routes";
 import { repeatableItemProcedures as itemRoutes } from "../repeatable-items/routes";
 import { pageProcedures as pageRoutes } from "./routes";
 
@@ -189,19 +188,6 @@ describe("stable page tree identity", () => {
         [itemRoutes.get, { id }],
         [itemRoutes.updateContent, { id, content: {} }],
         [itemRoutes.delete, { id }],
-        [commentRoutes.list, { pageId: id }],
-        [
-          commentRoutes.create,
-          { pageId: f.page.id, message: "Hi", target: { kind: "block", blockId: id } },
-        ],
-        [
-          commentRoutes.create,
-          {
-            pageId: f.page.id,
-            message: "Hi",
-            target: { kind: "item", blockId: block.id, itemId: id },
-          },
-        ],
       ] as const) {
         await expect(
           callSeedingLive(procedure as never, input as never, f.options),
@@ -220,7 +206,6 @@ describe("stable page tree identity", () => {
         ["editBlock", { id, content: {} }],
         ["moveBlock", { id, position: "first" }],
         ["deleteBlock", { id }],
-        ["listComments", { pageId: id }],
       ] as const) {
         expect(await tool(f, name, args)).toMatchObject({ ok: false });
       }
@@ -265,22 +250,6 @@ describe("stable page tree identity", () => {
         ),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
-  });
-
-  it("comments anchor to pages, blocks and repeatable items by UUIDv7", async () => {
-    const f = await fixture();
-    const block = await createBlock(f);
-    const item = await createItem(f, block.id);
-    const target = { kind: "item-field", blockId: block.id, itemId: item.id, fieldName: "title" };
-    const comment = await callSeedingLive(
-      commentRoutes.create,
-      { pageId: f.page.id, message: "Typo", target } as never,
-      f.options,
-    );
-    expect(comment).toMatchObject({ pageId: f.page.id, target });
-    expect(
-      await callSeedingLive(commentRoutes.list, { pageId: f.page.id }, f.options),
-    ).toMatchObject([{ id: comment.id, target }]);
   });
 
   it("page links in text and link fields store the page's UUIDv7 and render as links", async () => {

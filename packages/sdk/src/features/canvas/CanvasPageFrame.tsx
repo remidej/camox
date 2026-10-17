@@ -1,17 +1,15 @@
 import { HydrationBoundary, type DehydratedState } from "@tanstack/react-query";
-import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
 
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Overlays } from "../preview/components/Overlays";
-import { PreviewComments } from "../preview/components/PreviewComments";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
 import { EditablePageContent } from "../preview/EditablePageContent";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
-import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
+import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -75,7 +73,6 @@ function PageFrame({
   onActivate,
 }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const href = canvasPageHref(input);
   const layoutId = input.derived?.layout.layoutId;
   const owner = React.useMemo<EditingOwner | null>(() => {
@@ -131,7 +128,6 @@ function PageFrame({
               document={mount?.ownerDocument ?? null}
               activate={activate}
               pageHovered={hovered}
-              pageId={owner?.kind === "page" ? owner.pageId : undefined}
               canAddBlocks={owner?.kind === "page"}
             >
               <style>{overlayStyles}</style>
@@ -160,16 +156,11 @@ function PageFrame({
                           <EditablePageContent />
                         )}
                         <PreviewFrameEffects />
-                        {owner?.kind === "page" && (
-                          <PreviewComments iframeElement={iframeRef.current} />
-                        )}
-                        {!isCommentMode && (
-                          <Overlays
-                            iframeElement={iframeRef.current}
-                            owner={owner}
-                            canAddBlocks={owner?.kind === "page"}
-                          />
-                        )}
+                        <Overlays
+                          iframeElement={iframeRef.current}
+                          owner={owner}
+                          canAddBlocks={owner?.kind === "page"}
+                        />
                         {/* This commits only after onLoad and the portal's content resolves. */}
                         <PageContentCommitted
                           selected={selected}

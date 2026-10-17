@@ -14,7 +14,7 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlock } from "../../lib/bump-content-updated-at";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { blocks, comments, repeatableItems } from "../../schema";
+import { blocks, repeatableItems } from "../../schema";
 import { conformBlocksIn } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
@@ -933,21 +933,14 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   );
   yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
   if (!scope) {
-    // Items hold no foreign keys (ADR 0005): their nested items go with them, and comments
-    // anchored to any of them are kept unanchored.
+    // Items hold no foreign keys (ADR 0005): their nested items go with them.
     const descendants = descendantIdsOf(yield* itemsOfTree(ctx.db, null, tree.root), id);
     yield* Effect.promise(() =>
-      ctx.db.batch([
-        ctx.db
-          .delete(repeatableItems)
-          .where(
-            and(inArray(repeatableItems.id, descendants), overlay.storedIn(repeatableItems, null)),
-          ),
-        ctx.db
-          .update(comments)
-          .set({ itemId: null })
-          .where(and(isNull(comments.draftId), inArray(comments.itemId, [id, ...descendants]))),
-      ]),
+      ctx.db
+        .delete(repeatableItems)
+        .where(
+          and(inArray(repeatableItems.id, descendants), overlay.storedIn(repeatableItems, null)),
+        ),
     );
   }
   const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);

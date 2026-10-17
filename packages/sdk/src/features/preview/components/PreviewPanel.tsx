@@ -19,12 +19,7 @@ import {
   type PreviewPageSlot,
 } from "../previewPageFrame";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import {
-  previewStore,
-  selectIsCommentMode,
-  type EditingOwner,
-  type ViewportMode,
-} from "../previewStore";
+import { previewStore, type EditingOwner, type ViewportMode } from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
 import { Frame, useFrame } from "./Frame";
@@ -32,7 +27,6 @@ import { MobilePreviewDrawer } from "./MobilePreviewDrawer";
 import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
 import type { PreviewedPage } from "./PageNavigatorSidebar";
-import { PreviewComments } from "./PreviewComments";
 import { PreviewToolbar } from "./PreviewToolbar";
 
 /* -------------------------------------------------------------------------------------------------
@@ -256,23 +250,8 @@ function PreviewPageCanvasEffects({ owner }: { owner: EditingOwner | null }) {
     <>
       <FieldOverlayStyles />
       <OverlayTracker />
-      {owner?.kind === "page" && <PreviewComments iframeElement={iframeElement} />}
-      <PreviewPageOverlays owner={owner} iframeElement={iframeElement} />
+      <Overlays iframeElement={iframeElement} owner={owner} canAddBlocks={owner?.kind === "page"} />
     </>
-  );
-}
-
-function PreviewPageOverlays({
-  owner,
-  iframeElement,
-}: {
-  owner: EditingOwner | null;
-  iframeElement: HTMLIFrameElement | null;
-}) {
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
-  if (isCommentMode) return null;
-  return (
-    <Overlays iframeElement={iframeElement} owner={owner} canAddBlocks={owner?.kind === "page"} />
   );
 }
 

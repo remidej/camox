@@ -7,14 +7,7 @@ import { z } from "zod";
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
-import {
-  blockDefinitions,
-  blocks,
-  comments,
-  layouts,
-  projects,
-  repeatableItems,
-} from "../../schema";
+import { blockDefinitions, blocks, layouts, projects, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
@@ -266,7 +259,7 @@ const insertDeclaredBlock = Effect.fn("layouts.insertDeclaredBlock")(function* (
 
 /**
  * Deletes layout-only blocks no layout declares any more, in the sync's target. A release
- * deletes Live's with their items and Live's comments on them; drafts keep theirs. Dev mode
+ * deletes Live's with their items; drafts keep theirs. Dev mode
  * deletes them in the development draft.
  */
 const deleteOrphanedBlocks = Effect.fn("layouts.deleteOrphanedBlocks")(function* (
@@ -279,10 +272,9 @@ const deleteOrphanedBlocks = Effect.fn("layouts.deleteOrphanedBlocks")(function*
     for (const id of ids) yield* overlay.remove(ctx.db, scope, blocks, id);
     return;
   }
-  // Items and comments hold no foreign key to their block (ADR 0005).
+  // Items hold no foreign key to their block (ADR 0005).
   yield* Effect.promise(() =>
     ctx.db.batch([
-      ctx.db.delete(comments).where(and(isNull(comments.draftId), inArray(comments.blockId, ids))),
       ctx.db
         .delete(repeatableItems)
         .where(and(visibleIn(repeatableItems, null), inArray(repeatableItems.blockId, ids))),

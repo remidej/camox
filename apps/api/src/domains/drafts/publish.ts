@@ -1,6 +1,6 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -17,7 +17,6 @@ import {
   blocks,
   collectionDefinitions,
   collectionRecords,
-  comments,
   files,
   layouts,
   pages,
@@ -28,7 +27,6 @@ import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import { sharedPlacementId } from "../blocks/shared-content";
-import * as draftComments from "../comments/drafts";
 import { metadataGenerated, withFileMetadata } from "../files/generated-metadata";
 import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
@@ -70,12 +68,7 @@ export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletio
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject & {
-  code:
-    | "unresolvedComment"
-    | "commentDeleted"
-    | "definitionsDiffer"
-    | FileProblemCode
-    | ContentProblemCode;
+  code: "definitionsDiffer" | FileProblemCode | ContentProblemCode;
   field: string;
   message: string;
 };
@@ -110,69 +103,6 @@ const decodeToken = (token: string) =>
     try: () => tokenSchema.parse(JSON.parse(atob(token))) as overlay.ConflictKey[],
     catch: () => new InvalidInputError({ message: "Invalid publish token" }),
   });
-
-// --- Blockers ---
-
-/** Feedback as a problem: on its page, naming the field it's anchored to, if any. */
-const commentProblems = Effect.fn("drafts.commentProblems")(function* (
-  ctx: ServiceContext,
-  where: SQL,
-  code: Problem["code"],
-  message: string,
-) {
-  const rows = yield* Effect.promise(() =>
-    ctx.db
-      .select({
-        id: comments.id,
-        message: comments.message,
-        target: comments.target,
-        page: { id: pages.id, path: pages.fullPath, nickname: pages.nickname },
-      })
-      .from(comments)
-      .leftJoin(pages, eq(pages.id, comments.pageId))
-      .where(where),
-  );
-  return rows.map((row): Problem => ({
-    entity: "comment",
-    id: row.id,
-    label: `Feedback "${excerpt(row.message)}"`,
-    owner: row.page ? { kind: "page", ...row.page } : null,
-    code,
-    field: row.target && "fieldName" in row.target ? row.target.fieldName : "",
-    message,
-  }));
-});
-
-const EXCERPT_LENGTH = 60;
-
-function excerpt(text: string) {
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > EXCERPT_LENGTH ? `${line.slice(0, EXCERPT_LENGTH - 1)}…` : line;
-}
-
-/**
- * Unresolved feedback written in the draft blocks publishing it. Unresolved Live feedback on
- * what the draft deletes is a warning: publishing deletes it (#241).
- */
-const checkComments = Effect.fn("drafts.checkComments")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-) {
-  return {
-    blockers: yield* commentProblems(
-      ctx,
-      draftComments.unresolvedCommentsWrittenIn(scope.id),
-      "unresolvedComment",
-      "Unresolved feedback written in this draft: resolve it before publishing",
-    ),
-    warnings: yield* commentProblems(
-      ctx,
-      draftComments.unresolvedLiveCommentsDeletedBy(scope.id),
-      "commentDeleted",
-      "Unresolved feedback on content this draft deletes: publishing deletes it",
-    ),
-  };
-});
 
 // --- Definitions of a development draft (ADR 0006) ---
 
@@ -252,7 +182,6 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const stored = yield* overlay.changesOf(ctx.db, scope);
   const storedConflicts = yield* overlay.conflictsOf(ctx.db, scope);
   const losses = yield* overlay.lostOf(ctx.db, scope);
-  const feedback = yield* checkComments(ctx, scope);
   const checked = yield* checkContentProblems(ctx, scope);
   const fileChecks = yield* checkFileProblems(ctx, scope, checked.holders);
   const findings = [
@@ -300,13 +229,8 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     ...(yield* checkDefinitions(ctx, scope)),
     ...fileChecks.blockers.map(asProblem),
     ...checked.blockers.map(asProblem),
-    ...feedback.blockers,
   ];
-  const warnings = [
-    ...fileChecks.warnings.map(asProblem),
-    ...checked.warnings.map(asProblem),
-    ...feedback.warnings,
-  ];
+  const warnings = [...fileChecks.warnings.map(asProblem), ...checked.warnings.map(asProblem)];
 
   const publisherIds = [
     ...new Set(storedConflicts.flatMap((c) => (c.publishedBy ? [c.publishedBy] : []))),
@@ -556,7 +480,6 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       shown,
       publishedBy: user.id,
       now: Date.now(),
-      alongside: draftComments.publishStatements(ctx.db, scope.id),
       after: generatedValueStatements.publishStatements(ctx.db, scope),
     }),
   );
@@ -600,10 +523,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
     overlay.discard(ctx.db, scope, {
       discardedBy: user.id,
       now: Date.now(),
-      alongside: [
-        ...draftComments.discardStatements(ctx.db, scope.id),
-        ...generatedValueStatements.discardStatements(ctx.db, scope.id),
-      ],
+      alongside: generatedValueStatements.discardStatements(ctx.db, scope.id),
     }),
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;

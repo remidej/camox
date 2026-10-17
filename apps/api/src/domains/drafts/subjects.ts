@@ -38,8 +38,8 @@ export type Owner =
   | { kind: "collection"; name: string; title: string }
   | null;
 
-/** What a preview can mention: an entity drafts hold, feedback, or a definition (ADR 0006). */
-export type SubjectKind = overlay.EntityKind | "comment" | "definition";
+/** What a preview can mention: an entity drafts hold, or a definition (ADR 0006). */
+export type SubjectKind = overlay.EntityKind | "definition";
 
 /** An entity as people know it. */
 export type Subject = {

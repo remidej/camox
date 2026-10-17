@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
-import { comments, drafts, pages } from "../../schema";
+import { drafts, pages } from "../../schema";
 import type { AppEnv } from "../../types";
 import { fileHonoRoutes } from "../files/routes";
 
@@ -152,37 +152,5 @@ describe("Live is read-only", () => {
     }
     const after = await env.FILES_BUCKET.list({ prefix: `${f.project.id}/` });
     expect(after.objects.length).toBe(before.objects.length);
-  });
-
-  it("commenting on Live starts no draft", async () => {
-    const f = await fixture();
-    const page = await f.db
-      .insert(pages)
-      .values({
-        projectId: f.project.id,
-        layoutId: f.layout.layoutId,
-        pathSegment: "",
-        fullPath: "/",
-        nickname: "Home",
-        contentUpdatedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-
-    await call(
-      router.comments.create,
-      { pageId: page.id, message: "Typo here", target: { kind: "page" } },
-      f.member(),
-    );
-
-    const stored = await f.db.select().from(comments).where(eq(comments.pageId, page.id)).all();
-    expect(stored.map((comment) => [comment.message, comment.draftId])).toEqual([
-      ["Typo here", null],
-    ]);
-    expect(
-      await f.db.select().from(drafts).where(eq(drafts.projectId, f.project.id)).all(),
-    ).toEqual([]);
   });
 });

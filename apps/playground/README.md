@@ -247,5 +247,4 @@ Editing an article on its page, signed in to Studio:
 5. Publish from the page's publication modal with the article's switch on, then preview live
    content: the page shows the published article. Switching between draft and live, and
    publishing, reload the page's article.
-6. Comments can't be left on the article's fields yet. Signed out, the page still shows only
-   the published article.
+6. Signed out, the page still shows only the published article.

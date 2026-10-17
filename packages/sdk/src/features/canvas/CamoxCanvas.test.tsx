@@ -38,8 +38,7 @@ registerHooks({
       source =
         "export const useSelector = (_, selector) => selector({context: {viewportMode: 'full'}})";
     if (specifier.endsWith("/previewStore"))
-      source = `export const previewStore = {send: () => {}};
-        export const selectIsCommentMode = () => globalThis.CanvasCommentMode;`;
+      source = "export const previewStore = {send: () => {}};";
     if (specifier.endsWith("/useCanvasCamera"))
       source = "export const useCanvasCamera = (...args) => globalThis.CanvasCameraProbe(...args)";
     if (specifier.endsWith("/CanvasPageFrame"))
@@ -50,10 +49,10 @@ registerHooks({
     if (specifier.endsWith("/CanvasBlockFrame"))
       source = "export const CanvasBlockFrame = (props) => globalThis.CanvasBlockFrameProbe(props)";
     if (specifier.endsWith("/FieldToolbar")) source = "export const FieldToolbar = () => null";
-    for (const side of ["Left", "Right"]) {
-      if (specifier.endsWith(`/Canvas${side}Sidebar`))
-        source = `export const Canvas${side}Sidebar = (props) => globalThis.CanvasSidebarProbe("${side}", props)`;
-    }
+    if (specifier.endsWith("/CanvasLeftSidebar"))
+      source = `export const CanvasLeftSidebar = (props) => globalThis.CanvasSidebarProbe("Left", props)`;
+    if (specifier.endsWith("/CanvasChatSidebar"))
+      source = "export const CanvasChatSidebar = () => null";
     if (specifier.endsWith("/CanvasPageHeader"))
       source = "export const CanvasPageHeader = (props) => globalThis.CanvasHeaderProbe(props)";
     if (specifier.endsWith("/PreviewPanel"))
@@ -120,7 +119,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       projectId?: number;
     };
     onShowCanvas?: () => void;
-    blockSelected?: boolean;
   };
   const sidebars = new Map<string, SidebarProps>();
   const flyTo = (key: string) => flights.push(key);
@@ -142,7 +140,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       hash: "",
       source: undefined as "canvas" | undefined,
     },
-    CanvasCommentMode: false,
     CanvasBlocks: [] as unknown[],
     CanvasNavigationProbe: (props: {
       location: { pathname: string };
@@ -586,12 +583,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
         };
         const shown = (side: string) => {
-          const { page, catalog, blockSelected } = sidebars.get(side)!;
+          const { page, catalog } = sidebars.get(side)!;
           return {
             page: page?.key,
             block: catalog?.block._internal.id,
             projectId: catalog?.projectId,
-            blockSelected,
           };
         };
         const navigator = () => sidebars.get("Left")!.navigator!;
@@ -614,8 +610,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             "the left sidebar's navigator holds every item, under its shelf, in Canvas order",
           );
           assert.equal(navigator().selectedKey, "block:hero");
-          assert.equal(shown("Right").blockSelected, true, "the right sidebar stays on chat");
-          assert.equal(shown("Right").page, undefined);
 
           // Picking a block in the navigator selects it without the canvas source.
           globals.CanvasNavigate = (options) => {
@@ -641,11 +635,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           await render();
           const contact = [...headers.keys()][1]!;
           assert.deepEqual(flights, [contact], "the camera flies to the Page");
-          for (const side of ["Left", "Right"]) {
-            assert.equal(shown(side).page, contact, `the ${side} sidebar shows the Page again`);
-          }
+          assert.equal(shown("Left").page, contact, "the left sidebar shows the Page again");
           assert.equal(shown("Left").block, undefined);
-          assert.equal(shown("Right").blockSelected, false);
 
           // The back button leaves the selection from the Canvas, then zooms out to all of it.
           actions.length = 0;
@@ -813,10 +804,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.deepEqual(signals, ["ready"], "no frame needs to load first");
         assert.equal(initialTarget, undefined, "the camera starts on the overview");
         assert.equal(cameraRow.selected, null);
-        for (const side of ["Left", "Right"]) {
-          assert.equal(sidebars.get(side)!.page, undefined, `the ${side} sidebar shows the Canvas`);
-          assert.equal(sidebars.get(side)!.catalog, undefined);
-        }
+        assert.equal(sidebars.get("Left")!.page, undefined, "the left sidebar shows the Canvas");
+        assert.equal(sidebars.get("Left")!.catalog, undefined);
         assert.equal(sidebars.get("Left")!.navigator!.selectedKey, undefined, "nothing is current");
         assert.equal(sidebarPathname, "/camox/canvas");
       } finally {
@@ -874,9 +863,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           await React.act(async () => cameraRow.onDeselect!());
           assert.deepEqual(navigations, [{ to: "/camox/canvas", source: "canvas" }]);
           assert.equal(cameraRow.selected, null, "the camera has nothing left to deselect");
-          for (const side of ["Left", "Right"]) {
-            assert.equal(shownPage(side), undefined, "the sidebars switch to the Canvas at once");
-          }
+          assert.equal(shownPage("Left"), undefined, "the sidebars switch to the Canvas at once");
           assert.equal(sidebarPathname, "/camox/canvas");
 
           await commit();
@@ -894,9 +881,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           };
           await render();
           assert.equal(cameraRow.selected, about);
-          for (const side of ["Left", "Right"]) {
-            assert.equal(shownPage(side), about, "the deselection is over, not intended again");
-          }
+          assert.equal(shownPage("Left"), about, "the deselection is over, not intended again");
           assert.equal(sidebarPathname, "/about");
           globals.CanvasLocation = {
             ...globals.CanvasLocation,
@@ -908,9 +893,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
 
           await React.act(async () => snap(contact!));
           assert.equal(cameraRow.selected, contact);
-          for (const side of ["Left", "Right"]) {
-            assert.equal(shownPage(side), contact, "snapping to a Page switches them at once");
-          }
+          assert.equal(shownPage("Left"), contact, "snapping to a Page switches them at once");
           assert.equal(sidebarPathname, "/contact");
 
           await commit();
@@ -1027,69 +1010,66 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         host.remove();
       }
     });
-    for (const commentMode of [false, true]) {
-      await t.test(`navigation flight wiring (comment mode: ${commentMode})`, async () => {
-        scenario = "";
-        includeNewPage = false;
-        flights.length = 0;
-        actions.length = 0;
-        globals.CanvasCommentMode = commentMode;
-        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-        const host = dom.document.createElement("div");
-        dom.document.body.append(host);
-        const root = createRoot(host as unknown as HTMLElement);
-        const render = async () => {
-          Object.assign(globalThis, globals);
-          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-        };
-        try {
+    await t.test("navigation flight wiring", async () => {
+      scenario = "";
+      includeNewPage = false;
+      flights.length = 0;
+      actions.length = 0;
+      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const render = async () => {
+        Object.assign(globalThis, globals);
+        await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+      };
+      try {
+        await render();
+        assert.equal(flights.length, 0, "mount does not fly");
+        const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
+        assert.equal(
+          header.style.transform,
+          "translate(calc(var(--canvas-x, 64px) + 0px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
+        );
+        assert.equal(header.style.width, "calc(1366px * var(--canvas-zoom, .4))");
+        assert.equal(header.style.willChange, "transform");
+        globals.CanvasLocation.pathname = "/contact";
+        await render();
+        assert.equal(flights.length, 1, "external navigation flies");
+        assert.equal(flights[0], [...headers.keys()][1], "flight targets the selected page key");
+        globals.CanvasLocation.search = "?view=wide";
+        globals.CanvasLocation.hash = "#section";
+        await render();
+        assert.equal(flights.length, 1, "query/hash changes do not fly");
+        globals.CanvasLocation.search = "";
+        globals.CanvasLocation.hash = "";
+        for (const select of [
+          () => frames.get("/about")!.onActivate(null as never, "interaction"),
+          () => [...headers.values()][1]!.onSelect(),
+          () => [...headers.values()][0]!.onChange("/about"),
+          () => snap([...headers.keys()][1]!),
+        ]) {
+          await React.act(async () => select());
+          assert.deepEqual(actions.splice(0), ["cancel", "navigate"]);
           await render();
-          assert.equal(flights.length, 0, "mount does not fly");
-          const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
-          assert.equal(
-            header.style.transform,
-            "translate(calc(var(--canvas-x, 64px) + 0px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
-          );
-          assert.equal(header.style.width, "calc(1366px * var(--canvas-zoom, .4))");
-          assert.equal(header.style.willChange, "transform");
-          globals.CanvasLocation.pathname = "/contact";
-          await render();
-          assert.equal(flights.length, 1, "external navigation flies");
-          assert.equal(flights[0], [...headers.keys()][1], "flight targets the selected page key");
-          globals.CanvasLocation.search = "?view=wide";
-          globals.CanvasLocation.hash = "#section";
-          await render();
-          assert.equal(flights.length, 1, "query/hash changes do not fly");
-          globals.CanvasLocation.search = "";
-          globals.CanvasLocation.hash = "";
-          for (const select of [
-            () => frames.get("/about")!.onActivate(null as never, "interaction"),
-            () => [...headers.values()][1]!.onSelect(),
-            () => [...headers.values()][0]!.onChange("/about"),
-            () => snap([...headers.keys()][1]!),
-          ]) {
-            await React.act(async () => select());
-            assert.deepEqual(actions.splice(0), ["cancel", "navigate"]);
-            await render();
-            assert.equal(flights.length, 1, "canvas selections do not fly");
-          }
-          globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-          await render();
-          assert.equal(flights.length, 2, "external navigation after canvas selection flies");
-          globals.CanvasLocation.pathname = "/new";
-          await render();
-          assert.equal(flights.length, 2, "wait for a newly created page to appear in the list");
-          includeNewPage = true;
-          await render();
-          assert.equal(flights.length, 3, "fly once the destination geometry is available");
-          await render();
-          assert.equal(flights.length, 3, "refreshing the same destination does not refly");
-        } finally {
-          await React.act(async () => root.unmount());
-          host.remove();
+          assert.equal(flights.length, 1, "canvas selections do not fly");
         }
-      });
-    }
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        await render();
+        assert.equal(flights.length, 2, "external navigation after canvas selection flies");
+        globals.CanvasLocation.pathname = "/new";
+        await render();
+        assert.equal(flights.length, 2, "wait for a newly created page to appear in the list");
+        includeNewPage = true;
+        await render();
+        assert.equal(flights.length, 3, "fly once the destination geometry is available");
+        await render();
+        assert.equal(flights.length, 3, "refreshing the same destination does not refly");
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+      }
+    });
   } finally {
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {

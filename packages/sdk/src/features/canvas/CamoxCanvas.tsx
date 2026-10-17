@@ -14,14 +14,14 @@ import {
   PreviewPageFrameContext,
 } from "../preview/previewPageFrame";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
-import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
+import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
-import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
+import { CanvasChatSidebar } from "./CanvasChatSidebar";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
   CANVAS_ITEM_GAP,
@@ -40,7 +40,6 @@ import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
 import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
 import { CanvasPreviewPageSlot } from "./CanvasPreviewPageSlot";
-import { CanvasRightSidebar } from "./CanvasRightSidebar";
 import {
   CANVAS_WORLD_TRANSFORM,
   canvasScreenLength,
@@ -556,29 +555,10 @@ function CanvasWorkspace({
               onRename={
                 page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
               }
-              comments={
-                page.pageId != null && pathname ? (
-                  <CanvasPageCommentIndicators
-                    pageId={page.pageId}
-                    targets={[]}
-                    placement="header"
-                    activate={() => {
-                      previewStore.send({ type: "activatePage", pageId: page.pageId! });
-                      onActivate(pathname, { kind: "page", pageId: page.pageId! });
-                      selectPage(pathname);
-                    }}
-                  />
-                ) : null
-              }
               selected={page.key === selectedPage?.key}
               onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
-              onSelect={(commenting) => {
+              onSelect={() => {
                 if (!pathname) return;
-                // Keep the clicked page's ownership through URL navigation, just
-                // like an interaction inside its frame.
-                if (commenting && page.pageId != null) {
-                  onActivate(pathname, { kind: "page", pageId: page.pageId });
-                }
                 selectPage(pathname);
               }}
               onChange={(path) => {
@@ -636,7 +616,6 @@ function useDiscoveredPreviewPaths(runtimeBasePath: string) {
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const app = useCamoxApp();
   const location = useLocation();
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const viewport = CANVAS_DEVICES[viewportMode === "full" ? "desktop" : viewportMode];
   const [activeFrame, setActiveFrame] = React.useState<{
@@ -758,7 +737,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     (intendedSelection.block && canvasBlockKey(intendedSelection.block._internal.id));
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      {selectedPage?.pageId != null && !isCommentMode && <CuratedBlockShortcuts />}
+      {selectedPage?.pageId != null && <CuratedBlockShortcuts />}
       {/* The sidebars stay mounted and route to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>
         {/* The record page's record, which its sidebar edits. */}
@@ -806,13 +785,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
           })
         }
       />
-      <NavigationProvider location={intended} navigate={navigate}>
-        <CanvasRightSidebar
-          page={intendedSelection.page}
-          pages={canvasPages}
-          blockSelected={intendedSelection.block != null}
-        />
-      </NavigationProvider>
+      <CanvasChatSidebar />
     </div>
   );
 }
