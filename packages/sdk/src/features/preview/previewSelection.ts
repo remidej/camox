@@ -1,17 +1,8 @@
 import { useSelector } from "@xstate/store-react";
 import { createContext, useCallback, useContext } from "react";
 
-import type { FieldType } from "@/core/lib/fieldTypes";
-
 import {
-  previewCommentsStore,
-  revealCommentTarget,
-  type CommentTarget,
-} from "./previewCommentsStore";
-import {
-  isBlockPlacement,
   previewStore,
-  selectIsCommentMode,
   selectIsEditMode,
   selectionForOwner,
   type EditingOwner,
@@ -25,86 +16,17 @@ export function usePreviewTargetSelection() {
   return useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
 }
 
-export type SelectionEvent = {
-  currentTarget: Element;
-  preventDefault(): void;
-  stopPropagation(): void;
-};
-
-/** Where a comment on the selection anchors; null where comments are not supported yet. */
-function commentTarget(selection: Selection | null): CommentTarget | null {
-  if (!selection) return { kind: "page" };
-  switch (selection.type) {
-    case "block":
-      return { kind: "block", blockId: selection.blockId };
-    case "item":
-      return { kind: "item", blockId: selection.blockId, itemId: selection.itemId };
-    case "block-field":
-      return { kind: "block-field", blockId: selection.blockId, fieldName: selection.fieldName };
-    case "item-field":
-      return {
-        kind: "item-field",
-        blockId: selection.blockId,
-        itemId: selection.itemId,
-        fieldName: selection.fieldName,
-      };
-    // Comments on records are out of scope; anchor them to the placing reference field.
-    // A record page's record has none, and comments on its fields are deferred.
-    case "record":
-    case "record-field":
-      if (!isBlockPlacement(selection)) return null;
-      return { kind: "block-field", blockId: selection.blockId, fieldName: selection.fieldName };
-  }
-}
-
-function selectionFieldType(selection: Selection | null): FieldType | undefined {
-  if (!selection) return undefined;
-  if (selection.type === "record" || selection.type === "record-field") return "Reference";
-  if ("fieldType" in selection) return selection.fieldType;
-  return undefined;
-}
-
-/** Both editing and commenting use the target already known by the editable component. */
-export function selectPreviewTarget(
-  selection: Selection | null,
-  owner: EditingOwner | null,
-  event?: SelectionEvent,
-) {
-  const snapshot = previewStore.getSnapshot();
-  if (!selectIsEditMode(snapshot)) return;
-  if (!selectIsCommentMode(snapshot)) {
-    if (owner === null) return;
-    if (selection?.type === "block") {
-      previewStore.send({ type: "setFocusedBlock", ...owner, blockId: selection.blockId });
-      return;
-    }
-    previewStore.send({ type: "selectTarget", ...owner, selection });
+export function selectPreviewTarget(selection: Selection | null, owner: EditingOwner | null) {
+  if (!selectIsEditMode(previewStore.getSnapshot())) return;
+  if (owner === null) return;
+  if (selection?.type === "block") {
+    previewStore.send({ type: "setFocusedBlock", ...owner, blockId: selection.blockId });
     return;
   }
-
-  // Focus alone must not place a comment or start inline editing.
-  if (!event) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (owner?.kind !== "page") return;
-  const { pageId } = owner;
-  const target = commentTarget(selection);
-  if (!target) return;
-  previewCommentsStore.send({
-    type: "startComment",
-    pageId,
-    target,
-    focusComposer: true,
-    popover: true,
-    anchor: event.currentTarget,
-  });
-  revealCommentTarget(pageId, target, selectionFieldType(selection));
+  previewStore.send({ type: "selectTarget", ...owner, selection });
 }
 
 export function usePreviewSelection() {
   const owner = useContext(PreviewEditingOwnerContext);
-  return useCallback(
-    (selection: Selection, event?: SelectionEvent) => selectPreviewTarget(selection, owner, event),
-    [owner],
-  );
+  return useCallback((selection: Selection) => selectPreviewTarget(selection, owner), [owner]);
 }

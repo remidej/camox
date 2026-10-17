@@ -25,12 +25,6 @@ registerHooks({
         source = "export const PreviewFrameEffects = () => null";
       if (specifier.endsWith("/Overlays")) source = "export const Overlays = () => null";
     }
-    if (
-      context.parentURL?.endsWith("/CanvasOverlays.tsx") &&
-      specifier.endsWith("/CanvasCommentIndicators")
-    ) {
-      source = "export const CanvasPageCommentIndicators = () => null";
-    }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     return nextResolve(specifier, context);
@@ -82,17 +76,12 @@ void test("canvas frames share the studio cache, activate their own owner, and f
   const { CanvasPageFrame } = await import("./CanvasPageFrame");
   const { usePreviewSelection } = await import("../preview/previewSelection");
   const { previewStore } = await import("../preview/previewStore");
-  const { previewCommentsStore } = await import("../preview/previewCommentsStore");
   const client = new QueryClient();
   const clients: QueryClient[] = [];
   function ContentProbe() {
     clients.push(useQueryClient());
     const select = usePreviewSelection();
-    return (
-      <button onClick={(event) => select({ type: "block", blockId: "42" }, event)}>
-        Select block
-      </button>
-    );
+    return <button onClick={() => select({ type: "block", blockId: "42" })}>Select block</button>;
   }
   const host = dom.document.createElement("div");
   dom.document.body.append(host);
@@ -106,7 +95,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     dehydratedState: { queries: [], mutations: [] },
   } as unknown as PageRenderInput;
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "setCommentMode", enabled: true });
   try {
     await React.act(async () => {
       root.render(
@@ -130,12 +118,10 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     Object.defineProperty(iframe, "offsetWidth", { value: 1000 });
     iframe.getBoundingClientRect = () => new dom.DOMRect(50, 80, 500, 400);
     await React.act(async () => iframe.dispatchEvent(new dom.Event("load")));
-    assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
-    assert.match(frame.document.head.textContent, /cursor:/);
     assert.equal(
       (host.querySelector("[data-canvas-overlays]") as unknown as HTMLElement).style.display,
       "var(--canvas-overlays-display, block)",
-      "comment mode keeps the overlay layer visible",
+      "edit mode shows the overlay layer",
     );
     await React.act(async () => {
       root.render(
@@ -156,7 +142,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     });
     assert.equal(host.querySelector("iframe"), iframe, "content updates must retain the iframe");
     assert.ok(frame.document.querySelector("button"), "portal content remains mounted");
-    await React.act(async () => previewStore.send({ type: "setCommentMode", enabled: false }));
     assert.ok(clients.length);
     assert.ok(
       clients.every((value) => value === client),
@@ -199,7 +184,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     await React.act(async () => {
       previewStore.send({ type: "activatePage", pageId: "99" });
       previewStore.send({ type: "setIframeElement", element: null });
-      previewStore.send({ type: "setCommentMode", enabled: true });
     });
     await React.act(async () => button.click());
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframe);
@@ -208,14 +192,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
       pageId: "7",
       selection: { type: "block", blockId: "42" },
     });
-    const draft = previewCommentsStore.getSnapshot().context.draft!;
-    assert.equal(draft.pageId, "7");
-    assert.deepEqual(draft.target, { kind: "block", blockId: "42" });
-    assert.equal(
-      previewStore.getSnapshot().context.mode,
-      "editing-draft",
-      "placing a comment retains the existing reveal-in-editor behavior",
-    );
   } finally {
     await React.act(async () => root.unmount());
     assert.equal(previewStore.getSnapshot().context.iframeElement, null);
@@ -224,7 +200,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     previewStore.send({ type: "activatePage", pageId: null });
     previewStore.send({ type: "setIframeElement", element: null });
     previewStore.send({ type: "exitEditMode" });
-    previewCommentsStore.send({ type: "clearSelection" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -371,10 +346,7 @@ void test("selected ready frames own editing without a click and follow URL sele
       owner: { kind: "page", pageId: "2" },
       source: "interaction",
     });
-    await React.act(async () => {
-      previewStore.send({ type: "setCommentMode", enabled: true });
-      root.render(<Workspace pathname="/about" />);
-    });
+    await React.act(async () => root.render(<Workspace pathname="/about" />));
     assert.equal(activations.length, 2, "old URL selection must not reclaim ownership");
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[1]);
 

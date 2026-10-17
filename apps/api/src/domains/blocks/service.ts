@@ -26,7 +26,6 @@ import {
 import {
   blockDefinitions,
   blocks,
-  comments,
   layouts,
   member,
   pages,
@@ -150,9 +149,8 @@ const bumpLiveOwner = (ctx: ServiceContext, scope: DraftScope, parent: BlockPare
 type BlockParent = Parameters<typeof bumpContentUpdatedAt>[1];
 
 /**
- * Once no scope holds a deleted block any more, deletes the repeatable items it owns and
- * unanchors its comments, which hold no foreign key to it and live in Live (ADR 0005). A block
- * deleted on Live keeps them while a draft's copy still shows it; a block a draft created takes
+ * Once no scope holds a deleted block any more, deletes the repeatable items it owns, which hold
+ * no foreign key to it (ADR 0005). A block deleted on Live keeps them while a draft's copy still shows it; a block a draft created takes
  * them along when the draft deletes it.
  */
 const deleteBlockDependents = Effect.fn("blocks.deleteBlockDependents")(function* (
@@ -163,10 +161,7 @@ const deleteBlockDependents = Effect.fn("blocks.deleteBlockDependents")(function
   const gone = blockIds.filter((id) => !held.has(id));
   if (gone.length === 0) return;
   yield* Effect.promise(() =>
-    ctx.db.batch([
-      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, gone)),
-      ctx.db.update(comments).set({ blockId: null }).where(inArray(comments.blockId, gone)),
-    ]),
+    ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, gone)),
   );
 });
 

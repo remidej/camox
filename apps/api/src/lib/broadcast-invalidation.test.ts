@@ -22,42 +22,13 @@ function projectRoom() {
   return { send, idFromName, room, settled: () => Promise.all(pending) };
 }
 
-describe("feedback invalidation dependencies", () => {
-  it("refreshes feedback when content changes without duplicating or mutating targets", async () => {
-    const { send, room, settled } = projectRoom();
-    const targets: QueryKey[] = [queryKeys.blocks.get("3")];
-    const broadcast = (keys: QueryKey[]) =>
-      broadcastInvalidation({ ...room, draftId: null, targets: keys });
-    broadcast(targets);
-    expect(send).toHaveBeenLastCalledWith({
-      type: "invalidate",
-      draftId: null,
-      targets: [...targets, queryKeys.comments.all],
-    });
-    expect(targets).toEqual([queryKeys.blocks.get("3")]);
-    broadcast([...targets, queryKeys.comments.all]);
-    expect(send).toHaveBeenLastCalledWith({
-      type: "invalidate",
-      draftId: null,
-      targets: [...targets, queryKeys.comments.all],
-    });
-    broadcast([queryKeys.comments.list("2")]);
-    expect(send).toHaveBeenLastCalledWith({
-      type: "invalidate",
-      draftId: null,
-      targets: [queryKeys.comments.list("2")],
-    });
-    await settled();
-  });
-});
-
 describe("the project room", () => {
   it("names the draft a change came from in its invalidation", async () => {
     const { send, room, settled } = projectRoom();
 
-    broadcastInvalidation({ ...room, draftId: "draft-1", targets: [queryKeys.comments.all] });
+    broadcastInvalidation({ ...room, draftId: "draft-1", targets: [queryKeys.pages.list] });
 
-    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ draftId: "draft-1" }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ draftId: "draft-1" }));
     await settled();
   });
 

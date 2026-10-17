@@ -16,7 +16,6 @@ import {
   blocks,
   collectionDefinitions,
   collectionRecords,
-  comments,
   files,
   invitation,
   layouts,
@@ -63,7 +62,6 @@ function getLocalD1Db(): string {
 
 async function clearAll(db: ReturnType<typeof createDrizzle>) {
   await db.delete(generatedValues).run();
-  await db.delete(comments).run();
   await db.delete(repeatableItems).run();
   await db.delete(blocks).run();
   await db.delete(pages).run();
@@ -114,7 +112,6 @@ function createDrizzle(sqlitePath: string) {
       blockDefinitions,
       files,
       repeatableItems,
-      comments,
       generatedValues,
       collectionDefinitions,
       collectionRecords,

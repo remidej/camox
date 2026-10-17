@@ -36,14 +36,8 @@ For any CLI operation, first read [CLI common guidance](references/cli-common.md
 
 - Pages, metadata, layout assignments, Blocks, content, or ordering:
   [CLI Content](references/cli-content.md).
-- List comments on a Page or resolve a comment by its ID:
-  [CLI Content — Comments](references/cli-content.md#comments).
 - Where the CLI writes, publishing or discarding the development draft, or its status:
   [CLI Publishing](references/cli-publishing.md).
-
-## Addressing feedback
-
-When asked to address feedback on a Page, read [CLI common guidance](references/cli-common.md) and [CLI Content — Comments](references/cli-content.md#comments), plus the relevant references for each change. Run `{{CAMOX_CMD}} comments list --page-id <PAGE_ID>` to load the Page's comments. For each unresolved comment, inspect its message and target, then find the relevant Page, Block, item, or field with the CLI (and its code definition if applicable). Make the required changes using the CLI for content and code for definitions. Only after addressing a comment, run `{{CAMOX_CMD}} comments resolve --page-id <PAGE_ID> --id <COMMENT_UUID>`. Leave comments you could not address unresolved and explain why. Re-list the Page's comments to verify their status.
 
 Code definitions do not place blocks on existing Pages or assign their layouts; `blocks.initial` only seeds the initial homepage. When the request includes placement or assignment on existing Pages, follow with the relevant CLI workflow. Singleton pages and derived routes are declared in code, not created through the pages CLI.
 

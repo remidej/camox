@@ -1,12 +1,8 @@
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@camox/ui/popover";
 import { toast } from "@camox/ui/toaster";
-import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
-import { COMMENT_CURSOR } from "../preview/commentCursor";
 import { PAGE_NICKNAME_MAX_LENGTH } from "../preview/components/PageNicknameField";
-import { selectPreviewTarget } from "../preview/previewSelection";
-import { previewStore, selectIsCommentMode } from "../preview/previewStore";
 import type { CanvasPage } from "./canvasPages";
 import { DerivedPagePathInput } from "./DerivedPagePathInput";
 
@@ -18,16 +14,14 @@ export function CanvasPageHeader({
   onHoverChange,
   onChange,
   onRename,
-  comments,
 }: {
   page: CanvasPage;
   pathname: string | null;
   selected: boolean;
-  onSelect: (commenting: boolean) => void;
+  onSelect: () => void;
   onHoverChange?: (hovered: boolean) => void;
   onChange: (pathname: string) => void;
   onRename?: (nickname: string) => Promise<void>;
-  comments?: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<string | null>(null);
@@ -60,7 +54,6 @@ export function CanvasPageHeader({
       setSaving(false);
     }
   };
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const path = pathname ?? page.pattern;
   const pathClassName =
     "text-muted-foreground w-full min-w-0 truncate text-left text-xs font-normal";
@@ -92,34 +85,26 @@ export function CanvasPageHeader({
       <button
         type="button"
         className={`min-w-0 truncate text-left text-sm font-medium ${focusClassName}`}
-        style={{ cursor: isCommentMode ? COMMENT_CURSOR : undefined }}
         title={page.title}
         aria-pressed={selected}
         disabled={!pathname}
         onDoubleClick={() => {
-          if (!onRename || isCommentMode) return;
+          if (!onRename) return;
           finishing.current = false;
           setDraft(page.title);
         }}
-        onClick={(event) => {
-          const commenting = isCommentMode && page.pageId != null;
-          if (commenting) {
-            selectPreviewTarget(null, { kind: "page", pageId: page.pageId! }, event);
-          }
-          onSelect(commenting);
-        }}
+        onClick={onSelect}
         onMouseEnter={() => onHoverChange?.(true)}
         onMouseLeave={() => onHoverChange?.(false)}
       >
         {page.title}
       </button>
     );
-  const nameAndComments = (
+  const nameRow = (
     <span className="flex w-full min-w-0 items-center gap-3">
       <span className={`flex min-w-0 items-center gap-1.5 ${draft !== null ? "flex-1" : ""}`}>
         {name}
       </span>
-      {comments}
     </span>
   );
   const headerClassName =
@@ -130,7 +115,7 @@ export function CanvasPageHeader({
         <span data-canvas-path className={pathClassName} title={path}>
           {path}
         </span>
-        {nameAndComments}
+        {nameRow}
       </h2>
     );
 
@@ -145,7 +130,7 @@ export function CanvasPageHeader({
         >
           {path}
         </PopoverTrigger>
-        {nameAndComments}
+        {nameRow}
       </h2>
       <PopoverContent className="w-96 max-w-[calc(100vw-2rem)]" align="start">
         <PopoverTitle>Preview {page.title}</PopoverTitle>

@@ -118,7 +118,6 @@ export function CanvasPreviewPageSlot({
             document={document}
             activate={onInteract}
             pageHovered={hovered}
-            pageId={owner?.kind === "page" ? owner.pageId : undefined}
             canAddBlocks={owner?.kind === "page"}
           >
             <style>{overlayStyles}</style>

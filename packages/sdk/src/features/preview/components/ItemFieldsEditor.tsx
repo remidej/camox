@@ -231,7 +231,6 @@ const ItemFieldsEditor = ({
     const fieldId = getFieldId(fieldName);
     focusedFieldIdRef.current = null;
     postToIframe({ type: "CAMOX_FOCUS_FIELD_END", fieldId });
-    // Keep the field screen open when focus moves into its comments.
   };
 
   /**

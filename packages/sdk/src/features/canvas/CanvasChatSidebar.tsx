@@ -1,8 +1,8 @@
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 
 /**
- * The Canvas's chat with an Agent, shown whatever is selected, unless
- * commenting. A placeholder for now: no messages, and its composer is disabled.
+ * The Canvas's chat with an Agent, shown whatever is selected. A placeholder
+ * for now: no messages, and its composer is disabled.
  */
 export function CanvasChatSidebar() {
   return (

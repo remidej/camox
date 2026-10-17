@@ -21,7 +21,6 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
-import { comments } from "../comments/schema";
 import { files } from "../files/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
@@ -85,12 +84,6 @@ type ParentRelation = {
   within?: [child: AnySQLiteColumn, parent: AnySQLiteColumn][];
 };
 
-/**
- * A Live-only table whose rows belong to the entity through `column`. Publishing a deletion
- * deletes them (`delete`) or clears their pointer (`detach`) once nothing holds the entity.
- */
-type Dependent = { onDelete: "delete" | "detach"; column: AnySQLiteColumn };
-
 /** The kinds of entity drafts hold: what changes, conflicts and publish tokens name. */
 export const ENTITY_KINDS = [
   "page",
@@ -113,12 +106,6 @@ export type ContentTableRegistration = {
   parents: ParentRelation[];
   /** The columns a change on another entity can rewrite, copying this one into the draft. */
   rewritable: AnySQLiteColumn[];
-  dependents: Dependent[];
-  /**
-   * The comment column anchoring comments to the entity. Deleting the entity deletes the
-   * scope's comments on it, and publishing a deletion deletes Live's (#241).
-   */
-  commentAnchor?: AnySQLiteColumn;
   /** The table's rows in a project, Live's and every draft's, as a condition on the table. */
   inProject: (projectId: number) => SQL;
 };
@@ -145,8 +132,6 @@ registerContentTable(pages, {
   parents: [{ column: pages.parentPageId, key: pages.id }],
   // Renaming or moving a page rewrites the full path of every descendant page.
   rewritable: [pages.fullPath],
-  dependents: [{ onDelete: "delete", column: comments.pageId }],
-  commentAnchor: comments.pageId,
   inProject: (projectId) => eq(pages.projectId, projectId),
 });
 
@@ -161,8 +146,6 @@ registerContentTable(blocks, {
     },
   ],
   rewritable: [],
-  dependents: [{ onDelete: "detach", column: comments.blockId }],
-  commentAnchor: comments.blockId,
   inProject: (projectId) => eq(blocks.projectId, projectId),
 });
 
@@ -170,7 +153,6 @@ registerContentTable(sharedContents, {
   entity: "sharedContent",
   parents: [],
   rewritable: [],
-  dependents: [],
   inProject: (projectId) => eq(sharedContents.projectId, projectId),
 });
 
@@ -186,8 +168,6 @@ registerContentTable(repeatableItems, {
     },
   ],
   rewritable: [],
-  dependents: [{ onDelete: "detach", column: comments.itemId }],
-  commentAnchor: comments.itemId,
   // An item's tree is rooted in a shared content of the project, or in a block.
   inProject: (projectId) =>
     sql`(${repeatableItems.projectId} = ${projectId} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."project_id" = ${projectId}))`,
@@ -198,7 +178,6 @@ registerContentTable(files, {
   entity: "file",
   parents: [],
   rewritable: [],
-  dependents: [],
   inProject: (projectId) => eq(files.projectId, projectId),
 });
 
@@ -208,7 +187,6 @@ registerContentTable(collectionRecords, {
   entity: "record",
   parents: [],
   rewritable: [],
-  dependents: [],
   inProject: (projectId) => eq(collectionRecords.projectId, projectId),
 });
 
@@ -414,7 +392,6 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
 ) {
   const shown = yield* get(db, scope, table, id);
   if (!shown) return undefined;
-  yield* deleteCommentsOn(db, scope, table, id);
   const createdByDraft = scope != null && shown.draftId === scope.id && shown.baseVersion == null;
   if (!scope || createdByDraft) {
     yield* Effect.promise(() =>
@@ -433,31 +410,6 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
   );
   return shown;
 });
-
-/** Deletes the comments a scope wrote on an entity it deletes (#241). */
-const deleteCommentsOn = (db: Database, scope: DraftScope, table: ContentTable, id: string) => {
-  const anchor = registrationOf(table).commentAnchor;
-  if (!anchor) return Effect.void;
-  const writtenHere = scope ? eq(comments.draftId, scope.id) : isNull(comments.draftId);
-  return Effect.promise(() => db.delete(comments).where(and(writtenHere, eq(anchor, id))));
-};
-
-/**
- * Whether a comment is anchored to an entity the draft deletes, through any registered table's
- * comment anchor. Comments on what that entity holds are anchored to it too: an item's comment
- * names its block, and a block's names its page.
- */
-export function anchoredToDeletionIn(draftId: string): SQL {
-  const checks = tables().flatMap((table) => {
-    const anchor = registrationOf(table).commentAnchor;
-    if (!anchor) return [];
-    const t = sql.identifier(getTableName(table));
-    return [
-      sql`${anchor} in (select ${at("d", table.id)} from ${t} as "d" where ${at("d", table.draftId)} = ${draftId} and ${at("d", table.deleted)} = 1)`,
-    ];
-  });
-  return checks.length ? or(...checks)! : sql`0`;
-}
 
 /** Per registered entity, the ids Live holds, as a subquery. */
 export function liveIds(): { entity: EntityKind; ids: SQL }[] {
@@ -1020,21 +972,6 @@ function descendantsStatement(table: ContentTable): BatchItem | undefined {
     ) select "id" from "doomed")`;
 }
 
-/**
- * Statements for one table's Live-only dependents: rows pointing at an entity that nothing holds
- * any more, neither Live nor any draft, are deleted or have their pointer cleared.
- */
-function dependentStatements(table: ContentTable): BatchItem[] {
-  const t = sql.identifier(getTableName(table));
-  return registrationOf(table).dependents.map(({ onDelete, column }) => {
-    const pointer = sql`${tableOf(column)}.${ident(column)}`;
-    const unheld = sql`${pointer} is not null and not exists (select 1 from ${t} as "h" where ${at("h", table.id)} = ${pointer} and ${at("h", table.deleted)} = 0)`;
-    return onDelete === "delete"
-      ? sql`delete from ${tableOf(column)} where ${unheld}`
-      : sql`update ${tableOf(column)} set ${ident(column)} = null where ${unheld}`;
-  });
-}
-
 /** Statements deleting every row a draft stores, keeping the draft. */
 function emptyStatements(db: Database, draftId: string): BatchItem[] {
   return tables().map((table) => db.delete(table as SQLiteTable).where(eq(table.draftId, draftId)));
@@ -1068,7 +1005,7 @@ function endStatements(
 /**
  * Publishes a draft in one batch: a guard that aborts unless the conflicts are still `shown`,
  * then each table's draft rows applied to Live (bumping versions and setting who published and
- * when), deletions with their Live descendants and dependents, lost changes dropped, and the
+ * when), deletions with their Live descendants, lost changes dropped, and the
  * draft ended.
  * Fails when the batch aborted, having applied nothing.
  */
@@ -1079,14 +1016,11 @@ export const publish = (
     shown,
     publishedBy,
     now,
-    alongside = [],
     after = [],
   }: {
     shown: ConflictKey[];
     publishedBy: string;
     now: number;
-    /** Statements of other domains, run after the guard and before any row is applied. */
-    alongside?: BatchItem[];
     /**
      * Statements of other domains, run once Live holds what the publish leaves, descendants
      * deleted and lost changes dropped, before the draft ends.
@@ -1096,10 +1030,8 @@ export const publish = (
 ) => {
   const statements = [
     guardStatement(scope.id, shown),
-    ...alongside,
     ...tables().flatMap((table) => applyStatements(table, scope.id, publishedBy, now)),
     ...tables().flatMap((table) => descendantsStatement(table) ?? []),
-    ...tables().flatMap(dependentStatements),
     ...after,
     ...endStatements(db, scope, "published", publishedBy, now),
   ];

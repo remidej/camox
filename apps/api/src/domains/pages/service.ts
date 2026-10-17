@@ -7,7 +7,7 @@ import { z } from "zod";
 import { assertPageAccess, getAuthorizedProject, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { blocks, comments, layouts, pages, projects, repeatableItems, user } from "../../schema";
+import { blocks, layouts, pages, projects, repeatableItems, user } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsIn } from "../_shared/definitions";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
@@ -480,7 +480,7 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
 /**
  * Deletes a page. In a draft it's a tombstone: publishing deletes the page from Live with its
  * descendants, blocks and repeatable items (ADR 0009). On Live, the page goes with its Live
- * blocks, their items and its comments; drafts keep their own rows, which publishing lists as
+ * blocks and their items; drafts keep their own rows, which publishing lists as
  * lost.
  */
 export const deletePage = Effect.fn("pages.deletePage")(function* (
@@ -502,7 +502,7 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
     .select({ id: blocks.id })
     .from(blocks)
     .where(and(eq(blocks.pageId, id), overlay.storedIn(blocks, null)));
-  const [, , , [result]] = yield* Effect.promise(() =>
+  const [, , [result]] = yield* Effect.promise(() =>
     ctx.db.batch([
       ctx.db
         .delete(repeatableItems)
@@ -513,7 +513,6 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
           ),
         ),
       ctx.db.delete(blocks).where(and(eq(blocks.pageId, id), overlay.storedIn(blocks, null))),
-      ctx.db.delete(comments).where(and(eq(comments.pageId, id), isNull(comments.draftId))),
       ctx.db
         .delete(pages)
         .where(and(eq(pages.id, id), overlay.storedIn(pages, null)))

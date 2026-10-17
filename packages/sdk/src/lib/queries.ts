@@ -76,18 +76,6 @@ export const collectionMutations = {
 
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 
-export const commentQueries = {
-  list: (pageId: string) => ({
-    ...getOrpc().comments.list.queryOptions({ input: { pageId }, staleTime: 30_000 }),
-    queryKey: scopedKey(queryKeys.comments.list(pageId)),
-  }),
-};
-
-export const commentMutations = {
-  create: () => getOrpc().comments.create.mutationOptions(),
-  setResolved: () => getOrpc().comments.setResolved.mutationOptions(),
-};
-
 export const pageQueries = {
   list: (projectId: number) => ({
     ...getOrpc().pages.list.queryOptions({ input: { projectId }, staleTime: Infinity }),

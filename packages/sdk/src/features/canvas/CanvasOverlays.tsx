@@ -5,8 +5,7 @@ import * as React from "react";
 
 import { FieldToolbar } from "../preview/components/FieldToolbar";
 import { postOverlayMessage } from "../preview/overlayMessages";
-import { previewStore, selectIsCommentMode, selectIsEditMode } from "../preview/previewStore";
-import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
+import { previewStore, selectIsEditMode } from "../preview/previewStore";
 import { canvasInsertionSeams } from "./canvasInsertionSeams";
 import {
   observeCanvasOverlays,
@@ -29,21 +28,18 @@ export function canvasOverlayStyle(rect: OverlayRect): React.CSSProperties {
 export function CanvasOverlays({
   document,
   activate,
-  pageId,
   canAddBlocks = false,
   pageHovered = false,
   children,
 }: {
   document: Document | null;
   activate: () => void;
-  pageId?: string;
   canAddBlocks?: boolean;
   pageHovered?: boolean;
   children: React.ReactNode;
 }) {
   const [targets, setTargets] = React.useState<CanvasOverlayTarget[]>([]);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const [breadcrumbHoveredDocument, setBreadcrumbHoveredDocument] = React.useState<Document | null>(
     null,
@@ -60,7 +56,6 @@ export function CanvasOverlays({
     frameWindow.addEventListener("message", onMessage);
     return () => frameWindow.removeEventListener("message", onMessage);
   }, [document]);
-  const editingControlsEnabled = isEditMode && !isCommentMode;
   // The frame installs its sizing observer in a layout effect first. Registering
   // afterward keeps content-triggered measurements behind that sizing pass.
   React.useEffect(() => {
@@ -95,7 +90,7 @@ export function CanvasOverlays({
             style={{ position: "absolute", inset: 0 }}
           />
         )}
-        {editingControlsEnabled && document && iframeElement?.contentDocument === document && (
+        {isEditMode && document && iframeElement?.contentDocument === document && (
           <FieldToolbar document={document} />
         )}
         {targets.flatMap((target, index) =>
@@ -112,10 +107,7 @@ export function CanvasOverlays({
               ))
             : [],
         )}
-        {isEditMode && pageId != null && (
-          <CanvasPageCommentIndicators pageId={pageId} targets={targets} activate={activate} />
-        )}
-        {editingControlsEnabled &&
+        {isEditMode &&
           seams.map((seam) => (
             <div
               key={seam.key}

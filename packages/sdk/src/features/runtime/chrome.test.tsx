@@ -3,7 +3,7 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 import { inScope, queryKeys } from "@camox/api-contract/query-keys";
-import { QueryClient, QueryClientProvider, dehydrate } from "@tanstack/react-query";
+import { QueryClient, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -183,33 +183,4 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     }),
   );
   assert.doesNotMatch(publicHtml, /Quick find|Edit mode|My actual project|studio.css/);
-});
-
-void test("feedback is available without experimental features, page metadata or authentication", async () => {
-  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
-  const { initApiClient } = await import("../../lib/api-client");
-  initApiClient("https://api.test");
-  const { PreviewToolbar } = await import("../preview/components/PreviewToolbar");
-  const renderToolbar = () =>
-    renderToString(
-      createElement(
-        QueryClientProvider,
-        { client: new QueryClient() },
-        createElement(PreviewToolbar),
-      ),
-    );
-  const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-  try {
-    for (const flag of [undefined, false]) {
-      if (flag === undefined)
-        Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-      else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
-      // No auth provider or page metadata is required, including on derived previews.
-      assert.match(renderToolbar(), /Feedback/);
-    }
-  } finally {
-    if (previousFlag === undefined)
-      Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-    else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
-  }
 });

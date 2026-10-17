@@ -189,7 +189,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(
       viewportEvents.length,
       beforeSubmode,
-      "edit/comment rerenders do not hand off the viewport",
+      "edit rerenders do not hand off the viewport",
     );
 
     await render(false);

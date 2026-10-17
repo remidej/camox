@@ -64,8 +64,7 @@ export const LIVE_READ_ONLY_ERROR = "LIVE_READ_ONLY";
 // for one on Live. Every procedure is listed, so a new one fails the type check until it's
 // classified and can't be forgotten. Procedures that only fill a generated value (ADR 0012),
 // like `generateSummary`, write no content. A synced block's shared content is written through
-// `blocks` and `repeatableItems`. Comments are written where you are, Live included, so their
-// router isn't listed; neither are releases and dev-mode sync.
+// `blocks` and `repeatableItems`. Releases and dev-mode sync aren't listed.
 const BLOCK_WRITES: Record<keyof Router["blocks"], boolean> = {
   get: false,
   getPageMarkdown: false,

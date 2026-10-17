@@ -38,8 +38,6 @@ const COMMANDS = [
   ["blocks", "edit", "--id", ID, "--content", "{}"],
   ["blocks", "move", "--id", ID, "--position", "last"],
   ["blocks", "delete", "--id", ID],
-  ["comments", "list", "--page-id", ID],
-  ["comments", "resolve", "--page-id", ID, "--id", OTHER_ID],
   ["layouts", "list"],
   ["layouts", "get", "--layout-id", "default"],
   ["files", "list"],

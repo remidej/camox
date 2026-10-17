@@ -11,19 +11,15 @@ import {
   observeCanvasOverlays,
   type CanvasOverlayTarget,
 } from "../../features/canvas/canvasOverlayGeometry";
-import { previewStore } from "../../features/preview/previewStore";
-import { closestRepeatableItem } from "../../features/preview/repeatableItemTargets";
 import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 
 // Exercise the real editable repeater against React's Fragment refs. The harness
 // substitutes only network/auth/iframe boundaries, the selection owner and
 // Lexical's input surface (Lexical itself has dedicated DOM editing tests).
-const selections: unknown[] = [];
 Object.assign(globalThis, {
   React,
   __CAMOX_TELEMETRY_DISABLED__: true,
-  captureItemSelection: (selection: unknown) => selections.push(selection),
 });
 initApiClient("http://localhost:8788");
 registerHooks({
@@ -38,7 +34,7 @@ registerHooks({
         "export const useFrame = () => ({window: globalThis.window ?? null})",
       "../hooks/useIsEditable.ts": "export const useIsEditable = mode => mode === 'site'",
       "../../features/preview/previewSelection": `
-        export const usePreviewSelection = () => globalThis.captureItemSelection;
+        export const usePreviewSelection = () => () => {};
         export const usePreviewTargetSelection = () => null;
         export { PreviewEditingOwnerContext } from ${JSON.stringify(new URL("../../features/preview/previewSelection.ts", import.meta.url).href)};
       `,
@@ -140,11 +136,7 @@ void test("editable repeatable items render the author's elements as-is and stay
       ["dt", "dd", "dt", "dd"],
       "no wrapper element between the list and its items",
     );
-    const [firstLabel, firstValue, , secondValue] = Array.from(dl.children) as unknown as Element[];
-    assert.equal(closestRepeatableItem(firstValue!)?.itemId, "7");
-    assert.equal(closestRepeatableItem(firstValue!.firstElementChild!)?.itemId, "7");
-    assert.equal(closestRepeatableItem(secondValue!)?.itemId, "8");
-    assert.equal(closestRepeatableItem(dl as unknown as Element), undefined);
+    const [firstLabel, firstValue] = Array.from(dl.children) as unknown as Element[];
 
     assert.deepEqual(
       itemTargets().map((target) => target.item),
@@ -172,18 +164,7 @@ void test("editable repeatable items render the author's elements as-is and stay
       targets.filter((target) => target.hovered),
       [],
     );
-
-    // Commenting on an item's non-field element selects that item.
-    await act(async () => {
-      previewStore.send({ type: "enterEditMode" });
-      previewStore.send({ type: "setCommentMode", enabled: true });
-    });
-    await act(async () => {
-      (secondValue as unknown as HTMLElement).click();
-    });
-    assert.deepEqual(selections.at(-1), { type: "item", blockId: "3", itemId: "8" });
   } finally {
-    await act(async () => previewStore.send({ type: "exitEditMode" }));
     stop();
     await act(async () => root.unmount());
     await window.happyDOM.close();

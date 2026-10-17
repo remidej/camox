@@ -38,17 +38,6 @@ meta title blocks publishing.
 Metadata edits apply right away in the development draft. Read metadata
 with `pages get`.
 
-## Comments
-
-List a Page's comments, then use a returned comment `id` to resolve one on that same Page:
-
-```sh
-{{CAMOX_CMD}} comments list --page-id <PAGE_UUID>
-{{CAMOX_CMD}} comments resolve --page-id <PAGE_UUID> --id <COMMENT_UUID>
-```
-
-`--page-id` is the Page's UUIDv7 (find it with `pages get --path /about`); `--id` is the comment's UUIDv7, not a Block or Page ID. Resolution changes the comment's status, not the Page's content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project` and `--cwd` select the same project and working directory as other CLI commands.
-
 ## Blocks
 
 ### Inspect before changing

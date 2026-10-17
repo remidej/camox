@@ -141,8 +141,8 @@ async function fixture() {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 describe("a release", () => {
-  it("adds the declared content of a new layout to Live, and deletes orphaned layout-only blocks with their comments", async () => {
-    const { member, page, releaseDefinitions, releaseLayouts, layoutBlocks } = await fixture();
+  it("adds the declared content of a new layout to Live, and deletes orphaned layout-only blocks", async () => {
+    const { releaseDefinitions, releaseLayouts, layoutBlocks } = await fixture();
     await releaseDefinitions([
       { blockId: "navbar", layoutOnly: true },
       { blockId: "banner", layoutOnly: true },
@@ -153,18 +153,7 @@ describe("a release", () => {
         { type: "banner", slot: "after" },
       ],
     });
-    const [navbar, banner] = await layoutBlocks("default");
-    const comment = (blockId: string, message: string, headers: Record<string, string> = {}) =>
-      call(
-        router.comments.create,
-        { pageId: page.id, message, target: { kind: "block", blockId } },
-        member(headers),
-      );
-    await comment(navbar.id, "On the navbar");
-    await comment(banner.id, "On the banner");
-    const draft = generateUuidv7();
-    await comment(banner.id, "On the banner, in a draft", startingDraft(draft));
-
+    const [navbar] = await layoutBlocks("default");
     await releaseLayouts({
       default: [{ type: "navbar", slot: "before" }],
       landing: [{ type: "navbar", slot: "before" }],
@@ -176,18 +165,6 @@ describe("a release", () => {
         type: "navbar",
         content: expect.objectContaining({ title: "navbar" }),
       }),
-    ]);
-    const comments = await call(router.comments.list, { pageId: page.id }, member());
-    expect(comments.map((c) => c.message)).toEqual(["On the navbar"]);
-    // A release writes Live only: the draft keeps its comment, unavailable with its block gone.
-    const inTheDraft = await call(
-      router.comments.list,
-      { pageId: page.id },
-      member(inDraft(draft)),
-    );
-    expect(inTheDraft).toEqual([
-      expect.objectContaining({ message: "On the navbar" }),
-      expect.objectContaining({ message: "On the banner, in a draft", target: null }),
     ]);
   });
 

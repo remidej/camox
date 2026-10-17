@@ -3,7 +3,7 @@ import type { FragmentInstance } from "react";
 /**
  * Repeatable items render no element of their own: the editor tracks each item
  * through a Fragment ref over the author's elements, so the edited page keeps the
- * live site's DOM. This registry is how canvas overlays and click handling find
+ * live site's DOM. This registry is how canvas overlays find
  * those items, since no attribute marks them in the document.
  */
 export type RepeatableItemState = {
@@ -79,30 +79,6 @@ export function subscribeRepeatableItems(
 function fragmentsOf(element: Element): ReadonlySet<FragmentInstance> | undefined {
   // React 19.3 records each Fragment ref owning a first-level host child.
   return (element as Element & { reactFragments?: Set<FragmentInstance> }).reactFragments;
-}
-
-/** The innermost item that owns `element` among its first-level elements. */
-function ownerOf(element: Element, items: ReadonlySet<RepeatableItemTarget>) {
-  const fragments = fragmentsOf(element);
-  if (!fragments) return undefined;
-  let owner: RepeatableItemTarget | undefined;
-  for (const item of items) {
-    if (!fragments.has(item.fragment)) continue;
-    if (!owner || item.nesting > owner.nesting) owner = item;
-  }
-  return owner;
-}
-
-/** Like `closest()`, stopping at the enclosing block. */
-export function closestRepeatableItem(node: Element): RepeatableItemTarget | undefined {
-  const items = registries.get(node.ownerDocument)?.items;
-  if (!items?.size) return undefined;
-  for (let element: Element | null = node; element; element = element.parentElement) {
-    const owner = ownerOf(element, items);
-    if (owner) return owner;
-    if (element.matches("[data-camox-block-id], [data-camox-comment-block-id]")) return undefined;
-  }
-  return undefined;
 }
 
 /** Each registered item with its first-level elements, in document order. */

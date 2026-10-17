@@ -222,10 +222,6 @@ _Avoid_: Block library, component gallery, storybook
 The hosted interface for managing organizations, projects, and members, outside any one website.
 _Avoid_: Admin, console
 
-**Comment**:
-Feedback left by a user on a page, optionally anchored to a block, repeatable item, or field, on Live or in a draft. A comment made in a draft is seen only there and ends with it; a comment made on Live is seen in every draft. A comment is deleted with what it's anchored to.
-_Avoid_: Note, annotation, feedback
-
 **Editor**:
 A human who changes content through the studio.
 _Avoid_: Author, admin, content manager

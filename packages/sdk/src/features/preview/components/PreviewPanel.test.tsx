@@ -31,13 +31,7 @@ registerHooks({
           "export const useBlockActionsShortcuts = () => { throw new Error('Read-only preview must not register block shortcuts') }",
       };
       source = stubs[specifier] ?? source;
-      for (const name of [
-        "FieldToolbar",
-        "Overlays",
-        "PreviewComments",
-        "FieldOverlayStyles",
-        "OverlayTracker",
-      ]) {
+      for (const name of ["FieldToolbar", "Overlays", "FieldOverlayStyles", "OverlayTracker"]) {
         if (specifier === `./${name}`)
           source = `export const ${name} = () => { throw new Error('Read-only preview must not mount ${name}') }`;
       }
@@ -95,11 +89,6 @@ void test("retained preview keeps the editing runtime but is never editable in a
     await render();
     const content = dom.host.querySelector("p");
     await React.act(async () => store.send({ type: "enterEditMode" }));
-    await render(false);
-    assert.equal(dom.host.querySelector("p"), content);
-    assert.equal(mounts, 1);
-    await React.act(async () => store.send({ type: "setCommentMode", enabled: true }));
-    assert.equal(store.getSnapshot().context.mode, "commenting-draft");
     await render(false);
     assert.equal(dom.host.querySelector("p"), content);
     assert.equal(mounts, 1);

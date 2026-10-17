@@ -16,8 +16,8 @@ import { blockQueries, collectionQueries, fileQueries, projectQueries } from "@/
 import type { EditingOwner, Selection } from "../previewStore";
 import { referencePickerFocus } from "../referencePickerFocus";
 
-// Render the real sidebar; only replace leaves that need a rich-text engine or
-// comment queries. The String editor stub types plain text into the field.
+// Render the real sidebar; only replace leaves that need a rich-text engine.
+// The String editor stub types plain text into the field.
 registerHooks({
   resolve(specifier, context, nextResolve) {
     let source: string | undefined;
@@ -34,8 +34,6 @@ registerHooks({
         });
       }`;
     }
-    if (specifier === "./AttachedComments" && context.parentURL?.endsWith("/PageEditorSidebar.tsx"))
-      source = "export const AttachedComments = () => null";
     if (
       context.parentURL?.endsWith("/AssetFieldEditor.tsx") ||
       context.parentURL?.endsWith("/MultipleAssetFieldEditor.tsx")
