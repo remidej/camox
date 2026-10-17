@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { files } from "../../schema";
 import { executeFileMetadata, getFile } from "./service";
@@ -146,7 +146,7 @@ describe("metadata image validation", () => {
     // Generated beside the file, which stays as it was (ADR 0012).
     expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
     expect(
-      await runService(getFile(createServiceContext(db, null), { id: file.id }, null)),
+      await runService(getFile(inScope(createServiceContext(db, null), null), { id: file.id })),
     ).toMatchObject({ ...metadata, aiMetadata: true });
   });
 });

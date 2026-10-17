@@ -7,9 +7,14 @@ import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Overlays } from "../preview/components/Overlays";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
 import { EditablePageContent } from "../preview/EditablePageContent";
+import {
+  useEditingFrameClaim,
+  useEditingOwner,
+  type ReleaseEditingFrame,
+} from "../preview/editingFrame";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
-import { previewStore, type EditingOwner } from "../preview/previewStore";
+import type { EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -38,6 +43,19 @@ function PageContentCommitted({
   return null;
 }
 
+/** Why a Canvas Page's frame became the editing frame: its Page was selected, or used. */
+export type CanvasFrameActivation = "selection" | "interaction";
+
+/**
+ * A Canvas Page's frame became the editing frame. The Canvas keeps the release,
+ * to let the frame go once it moves on.
+ */
+export type CanvasFrameActivate = (
+  owner: EditingOwner,
+  source: CanvasFrameActivation,
+  release: ReleaseEditingFrame,
+) => void;
+
 export interface CanvasPageFrameProps {
   input: PageRenderInput;
   width: number;
@@ -51,7 +69,7 @@ export interface CanvasPageFrameProps {
    * are kept.
    */
   mode?: CanvasFrameMode;
-  onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
+  onActivate: CanvasFrameActivate;
 }
 
 /**
@@ -74,12 +92,7 @@ function PageFrame({
 }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
   const href = canvasPageHref(input);
-  const layoutId = input.derived?.layout.layoutId;
-  const owner = React.useMemo<EditingOwner | null>(() => {
-    if (layoutId != null) return { kind: "layout", layoutId };
-    if (pageId != null) return { kind: "page", pageId };
-    return null;
-  }, [layoutId, pageId]);
+  const owner = useEditingOwner({ pageId, layoutId: input.derived?.layout.layoutId });
   const { iframeRef, iframe, mount, iframeProps } = useCanvasFrame({
     previewDocument: input.previewDocument,
     href,
@@ -89,20 +102,10 @@ function PageFrame({
     subject: "page",
     mode,
   });
-  React.useEffect(() => {
-    if (!iframe || !mount) return;
-    return () => {
-      if (previewStore.getSnapshot().context.iframeElement !== iframe) return;
-      previewStore.send({ type: "clearSelection" });
-      previewStore.send({ type: "setIframeElement", element: null });
-    };
-  }, [iframe, mount]);
-  const activateOwner = (source: "selection" | "interaction") => {
+  const claim = useEditingFrameClaim(iframe, owner);
+  const activateOwner = (source: CanvasFrameActivation) => {
     if (!owner) return;
-    if (owner.kind === "page") previewStore.send({ type: "activatePage", pageId: owner.pageId });
-    else previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
-    previewStore.send({ type: "setIframeElement", element: iframeRef.current });
-    onActivate(owner, source);
+    onActivate(owner, source, claim());
   };
   const activate = () => activateOwner("interaction");
   const activateSelected = React.useEffectEvent(() => activateOwner("selection"));
@@ -151,7 +154,7 @@ function PageFrame({
                         )}
                         <PreviewFrameEffects />
                         <Overlays
-                          iframeElement={iframe}
+                          frame={iframe}
                           owner={owner}
                           canAddBlocks={owner?.kind === "page"}
                         />

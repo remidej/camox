@@ -4,6 +4,7 @@ import { PlusIcon } from "lucide-react";
 import * as React from "react";
 
 import { FieldToolbar } from "../preview/components/FieldToolbar";
+import { useEditingFrame } from "../preview/editingFrame";
 import { postOverlayMessage } from "../preview/overlayMessages";
 import { previewStore, selectIsEditMode } from "../preview/previewStore";
 import { canvasInsertionSeams } from "./canvasInsertionSeams";
@@ -47,12 +48,12 @@ export function CanvasOverlays({
   const [targets, setTargets] = React.useState<CanvasOverlayTarget[]>([]);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const shown = React.use(CanvasOverlaysShownContext);
-  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
+  const { document: editingDocument } = useEditingFrame();
   const [breadcrumbHoveredDocument, setBreadcrumbHoveredDocument] = React.useState<Document | null>(
     null,
   );
-  const isActiveFrame = !!document && iframeElement?.contentDocument === document;
-  const pageHover = pageHovered || (isActiveFrame && breadcrumbHoveredDocument === document);
+  const isEditingFrame = !!document && editingDocument === document;
+  const pageHover = pageHovered || (isEditingFrame && breadcrumbHoveredDocument === document);
   React.useEffect(() => {
     const frameWindow = document?.defaultView;
     if (!frameWindow) return;
@@ -97,9 +98,7 @@ export function CanvasOverlays({
             style={{ position: "absolute", inset: 0 }}
           />
         )}
-        {isEditMode && document && iframeElement?.contentDocument === document && (
-          <FieldToolbar document={document} />
-        )}
+        {isEditMode && isEditingFrame && <FieldToolbar document={document} />}
         {targets.flatMap((target, index) =>
           target.hovered || target.focused
             ? target.rects.map((rect, fragment) => (

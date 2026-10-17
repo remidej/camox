@@ -2,10 +2,18 @@ import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+  inScope,
+} from "../../../test/fixtures";
+import type { Database } from "../../db";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, files, pages } from "../../schema";
 import { createBlock, getBlock, getPageMarkdown, updateBlockContent } from "../blocks/service";
+import * as overlay from "../drafts/overlay";
+import { RELEASE } from "../drafts/scope";
 import { getLayout } from "../layouts/service";
 import { getPageByPath } from "../pages/service";
 import {
@@ -27,6 +35,14 @@ import {
   syncCollectionDefinitions,
 } from "./service";
 
+/**
+ * Deletes a record from Live through the overlay's release mode. Publishing refuses to leave
+ * Live's references to a record dangling (ADR 0009), yet reads still treat a missing record as
+ * empty, as for references a release left dangling.
+ */
+const deleteFromLive = (db: Database, id: string) =>
+  runService(overlay.remove(db, RELEASE, collectionRecords, id));
+
 /** The testimonial's (or a logo's) single reference. */
 const customer = (owner: { references: ResolvedReferences }) =>
   owner.references.customer as ResolvedReference | null;
@@ -36,6 +52,9 @@ async function fixture(assets = false) {
   const ctx = createServiceContext(f.db, f.memberUser);
   const publicCtx = createServiceContext(f.db, null);
   const scope = { projectSlug: f.project.slug, collectionId: "customers" };
+  // Content writes reach Live by publishing a throwaway draft (ADR 0009).
+  const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
+    seedLiveThrough(ctx, f.project.id, run);
   await runService(
     syncCollectionDefinitions(publicCtx, {
       projectSlug: f.project.slug,
@@ -65,8 +84,8 @@ async function fixture(assets = false) {
       ],
     }),
   );
-  const record = await runService(
-    createRecord(ctx, {
+  const record = await live((_draft, c) =>
+    createRecord(c, {
       ...scope,
       content: {
         name: "Original",
@@ -113,18 +132,14 @@ async function fixture(assets = false) {
     createdAt: 1,
     updatedAt: 1,
   });
-  const block = await runService(
-    createBlock(
-      ctx,
-      {
-        pageId: page.id,
-        type: "testimonial",
-        content: { customer: record.id },
-      },
-      null,
-    ),
+  const block = await live((draft) =>
+    createBlock(inScope(ctx, draft), {
+      pageId: page.id,
+      type: "testimonial",
+      content: { customer: record.id },
+    }),
   );
-  return { ...f, ctx, publicCtx, scope, record, page, block, schema };
+  return { ...f, ctx, publicCtx, scope, live, record, page, block, schema };
 }
 
 describe("single collection references", () => {
@@ -159,8 +174,8 @@ describe("single collection references", () => {
         },
       ])
       .returning();
-    await runService(
-      editRecord(f.ctx, {
+    await f.live((_draft, c) =>
+      editRecord(c, {
         ...f.scope,
         id: f.record.id,
         content: {
@@ -176,9 +191,9 @@ describe("single collection references", () => {
       .set({ url: "https://assets.example.com/replaced.png", alt: "Changed" })
       .where(eq(files.id, managed[0].id));
     for (const ctx of [f.ctx, f.publicCtx]) {
-      const block = await runService(getBlock(ctx, { id: f.block.id }, null));
+      const block = await runService(getBlock(inScope(ctx, null), { id: f.block.id }));
       const page = await runService(
-        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }, null),
+        getPageByPath(inScope(ctx, null), { projectSlug: f.project.slug, path: "/reference" }),
       );
       for (const result of [block, page]) {
         expect(result.files.map((file) => file.id).sort()).toEqual(
@@ -193,7 +208,7 @@ describe("single collection references", () => {
         mimeType: "image/png",
         size: 123,
       });
-      const markdown = await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null));
+      const markdown = await runService(getPageMarkdown(inScope(ctx, null), { pageId: f.page.id }));
       expect(markdown.markdown).toContain("![Changed]");
       expect(markdown.markdown).toContain("replaced.png");
       expect(markdown.markdown).toContain("[report.pdf](https://assets.example.com/report.pdf)");
@@ -205,7 +220,7 @@ describe("single collection references", () => {
       .where(eq(blocks.id, f.block.id));
     for (const ctx of [f.ctx, f.publicCtx]) {
       const layout = await runService(
-        getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }, null),
+        getLayout(inScope(ctx, null), { projectSlug: f.project.slug, layoutId: "default" }),
       );
       expect(layout.files.map((file) => file.id).sort()).toEqual(
         managed.map((file) => file.id).sort(),
@@ -215,7 +230,7 @@ describe("single collection references", () => {
         url: "https://assets.example.com/report.pdf",
       });
       expect(
-        (await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null))).markdown,
+        (await runService(getPageMarkdown(inScope(ctx, null), { pageId: f.page.id }))).markdown,
       ).toContain("[report.pdf](https://assets.example.com/report.pdf)");
     }
   });
@@ -223,7 +238,7 @@ describe("single collection references", () => {
   it("stores record ids, resolves the record's content for members and visitors, and rejects records out of scope", async () => {
     const f = await fixture();
     for (const ctx of [f.ctx, f.publicCtx]) {
-      const read = await runService(getBlock(ctx, { id: f.block.id }, null));
+      const read = await runService(getBlock(inScope(ctx, null), { id: f.block.id }));
       expect(read.block.content.customer).toBe(f.record.id);
       expect(read.block.references.customer).toMatchObject({
         id: f.record.id,
@@ -232,28 +247,31 @@ describe("single collection references", () => {
     }
     const other = await fixture();
     await expect(
-      runService(
-        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: other.record.id } }, null),
+      f.live((draft) =>
+        updateBlockContent(inScope(f.ctx, draft), {
+          id: f.block.id,
+          content: { customer: other.record.id },
+        }),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      runService(
-        updateBlockContent(
-          f.ctx,
-          { id: f.block.id, content: { customer: { id: f.record.id } } },
-          null,
-        ),
+      f.live((draft) =>
+        updateBlockContent(inScope(f.ctx, draft), {
+          id: f.block.id,
+          content: { customer: { id: f.record.id } },
+        }),
       ),
     ).rejects.toThrow();
   });
 
   it("shows a record edit to visitors with no edit to the page", async () => {
     const f = await fixture();
-    await runService(
-      editRecord(f.ctx, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
+    await f.live((_draft, c) =>
+      editRecord(c, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
     );
     expect(
-      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id }, null))).markdown,
+      (await runService(getPageMarkdown(inScope(f.publicCtx, null), { pageId: f.page.id })))
+        .markdown,
     ).toContain("Customer: Changed");
   });
 
@@ -269,11 +287,12 @@ describe("single collection references", () => {
         validateReferenceSchema({ properties: { list: { fieldType: "ReferenceList" } } }),
       ),
     ).toThrow();
-    await runService(
-      updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }, null),
+    await f.live((draft) =>
+      updateBlockContent(inScope(f.ctx, draft), { id: f.block.id, content: { customer: null } }),
     );
     expect(
-      (await runService(getBlock(f.ctx, { id: f.block.id }, null))).block.references.customer,
+      (await runService(getBlock(inScope(f.ctx, null), { id: f.block.id }))).block.references
+        .customer,
     ).toBeNull();
   });
 
@@ -287,14 +306,14 @@ describe("single collection references", () => {
       customer(
         (
           await runService(
-            getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }, null),
+            getLayout(inScope(ctx, null), { projectSlug: f.project.slug, layoutId: "default" }),
           )
         ).blocks[0],
       )?.content.name;
     expect(await layoutCustomer(f.ctx)).toBe("Original");
     expect(await layoutCustomer(f.publicCtx)).toBe("Original");
-    await runService(
-      editRecord(f.ctx, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
+    await f.live((_draft, c) =>
+      editRecord(c, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
     );
     expect(await layoutCustomer(f.ctx)).toBe("Changed");
     expect(await layoutCustomer(f.publicCtx)).toBe("Changed");
@@ -302,13 +321,13 @@ describe("single collection references", () => {
 
   it("deletes a referenced record, after which the reference reads as empty for members and visitors", async () => {
     const f = await fixture();
-    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id }));
+    await deleteFromLive(f.db, f.record.id);
     for (const ctx of [f.ctx, f.publicCtx]) {
-      const read = await runService(getBlock(ctx, { id: f.block.id }, null));
+      const read = await runService(getBlock(inScope(ctx, null), { id: f.block.id }));
       expect(read.block.content.customer).toBe(f.record.id);
       expect(read.block.references.customer).toBeNull();
       expect(
-        (await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null))).markdown,
+        (await runService(getPageMarkdown(inScope(ctx, null), { pageId: f.page.id }))).markdown,
       ).not.toContain("Original");
     }
   });
@@ -328,7 +347,7 @@ async function listFixture() {
   const f = await fixture();
   const [beta, gamma] = await Promise.all(
     ["Beta", "Gamma"].map((name) =>
-      runService(createRecord(f.ctx, { ...f.scope, content: { name } })),
+      f.live((_draft, c) => createRecord(c, { ...f.scope, content: { name } })),
     ),
   );
   await f.db.insert(blockDefinitions).values({
@@ -346,17 +365,19 @@ async function listFixture() {
     createdAt: 1,
     updatedAt: 1,
   });
-  const list = await runService(
-    createBlock(f.ctx, { pageId: f.page.id, type: "logo-grid", content: {} }, null),
+  const list = await f.live((draft) =>
+    createBlock(inScope(f.ctx, draft), { pageId: f.page.id, type: "logo-grid", content: {} }),
   );
   const setList = (customers: unknown) =>
-    runService(updateBlockContent(f.ctx, { id: list.id, content: { customers } }, null));
+    f.live((draft) =>
+      updateBlockContent(inScope(f.ctx, draft), { id: list.id, content: { customers } }),
+    );
   const ids = (references: Record<string, unknown> | undefined) =>
     ((references?.customers ?? []) as { id: string }[]).map((record) => record.id);
   const listIds = async (ctx: typeof f.ctx) =>
-    ids((await runService(getBlock(ctx, { id: list.id }, null))).block.references);
+    ids((await runService(getBlock(inScope(ctx, null), { id: list.id }))).block.references);
   const listMarkdown = async (ctx: typeof f.ctx) =>
-    (await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null))).markdown;
+    (await runService(getPageMarkdown(inScope(ctx, null), { pageId: f.page.id }))).markdown;
   return { ...f, alpha: f.record, beta, gamma, list, setList, ids, listIds, listMarkdown };
 }
 
@@ -406,7 +427,7 @@ describe("reference lists", () => {
     expect(f.list.content).toEqual({ customers: [] });
     await f.setList([f.gamma.id, f.alpha.id]);
     expect(
-      (await runService(getBlock(f.ctx, { id: f.list.id }, null))).block.content.customers,
+      (await runService(getBlock(inScope(f.ctx, null), { id: f.list.id }))).block.content.customers,
     ).toEqual([f.gamma.id, f.alpha.id]);
 
     const otherProject = await fixture();
@@ -466,7 +487,7 @@ describe("reference lists", () => {
     for (const ctx of [f.ctx, f.publicCtx]) {
       expect(await f.listIds(ctx)).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
       const page = await runService(
-        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }, null),
+        getPageByPath(inScope(ctx, null), { projectSlug: f.project.slug, path: "/reference" }),
       );
       expect(f.ids(page.blocks.find((block) => block.id === f.list.id)?.references)).toEqual([
         f.gamma.id,
@@ -491,7 +512,7 @@ describe("reference lists", () => {
   it("leaves a deleted record out of a reference list for members and visitors", async () => {
     const f = await listFixture();
     await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
-    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id }));
+    await deleteFromLive(f.db, f.beta.id);
     for (const ctx of [f.ctx, f.publicCtx]) {
       expect(await f.listIds(ctx)).toEqual([f.gamma.id, f.alpha.id]);
       expect(await f.listMarkdown(ctx)).toContain(
@@ -556,26 +577,22 @@ async function itemFixture() {
     createdAt: 1,
     updatedAt: 1,
   });
-  const wall = await runService(
-    createBlock(
-      f.ctx,
-      {
-        pageId: f.page.id,
-        type: "logo-wall",
-        content: {
-          logos: [
-            {
-              customer: f.alpha.id,
-              partners: [f.gamma.id],
-              quotes: [{ speaker: f.beta.id }],
-            },
-          ],
-        },
+  const wall = await f.live((draft) =>
+    createBlock(inScope(f.ctx, draft), {
+      pageId: f.page.id,
+      type: "logo-wall",
+      content: {
+        logos: [
+          {
+            customer: f.alpha.id,
+            partners: [f.gamma.id],
+            quotes: [{ speaker: f.beta.id }],
+          },
+        ],
       },
-      null,
-    ),
+    }),
   );
-  const bundle = (ctx: typeof f.ctx) => runService(getBlock(ctx, { id: wall.id }, null));
+  const bundle = (ctx: typeof f.ctx) => runService(getBlock(inScope(ctx, null), { id: wall.id }));
   const read = await bundle(f.ctx);
   const logo = read.repeatableItems.find((item) => item.fieldName === "logos")!;
   const quote = read.repeatableItems.find((item) => item.fieldName === "quotes")!;
@@ -620,23 +637,28 @@ describe("references in repeatable items", () => {
     ]);
     expect((f.quote.references.speaker as ResolvedReference).id).toBe(f.beta.id);
 
-    await runService(
-      updateRepeatableItemSettings(f.ctx, { id: f.logo.id, settings: { emphasized: true } }, null),
+    await f.live((draft) =>
+      updateRepeatableItemSettings(inScope(f.ctx, draft), {
+        id: f.logo.id,
+        settings: { emphasized: true },
+      }),
     );
-    await runService(
-      updateRepeatableItemContent(
-        f.ctx,
-        { id: f.logo.id, content: { customer: f.gamma.id } },
-        null,
-      ),
+    await f.live((draft) =>
+      updateRepeatableItemContent(inScope(f.ctx, draft), {
+        id: f.logo.id,
+        content: { customer: f.gamma.id },
+      }),
     );
     const read = await f.bundle(f.ctx);
     const logo = read.repeatableItems.find((item) => item.id === f.logo.id)!;
     expect(logo.settings).toEqual({ emphasized: true });
     expect(customer(logo)?.id).toBe(f.gamma.id);
     // Unlinking the placement never touches the record.
-    await runService(
-      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: null } }, null),
+    await f.live((draft) =>
+      updateRepeatableItemContent(inScope(f.ctx, draft), {
+        id: f.logo.id,
+        content: { customer: null },
+      }),
     );
     expect(
       (await runService(getCollectionRecord(f.ctx, { ...f.scope, id: f.gamma.id }))).content,
@@ -653,57 +675,47 @@ describe("references in repeatable items", () => {
       { partners: [f.alpha.id, f.beta.id, f.gamma.id] },
     ]) {
       await expect(
-        runService(updateRepeatableItemContent(f.ctx, { id: f.logo.id, content }, null)),
+        f.live((draft) =>
+          updateRepeatableItemContent(inScope(f.ctx, draft), { id: f.logo.id, content }),
+        ),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
     await expect(
-      runService(
-        createRepeatableItem(
-          f.ctx,
-          {
-            blockId: f.wall.id,
-            fieldName: "logos",
-            content: { customer: f.alpha.id },
-            nestedItems: [
-              {
-                tempId: "quote",
-                parentTempId: null,
-                fieldName: "quotes",
-                content: { speaker: foreign },
-                position: "a0",
-              },
-            ],
-          },
-          null,
-        ),
+      f.live((draft) =>
+        createRepeatableItem(inScope(f.ctx, draft), {
+          blockId: f.wall.id,
+          fieldName: "logos",
+          content: { customer: f.alpha.id },
+          nestedItems: [
+            {
+              tempId: "quote",
+              parentTempId: null,
+              fieldName: "quotes",
+              content: { speaker: foreign },
+              position: "a0",
+            },
+          ],
+        }),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("speaker") });
     await expect(
-      runService(
-        createBlock(
-          f.ctx,
-          {
-            pageId: f.page.id,
-            type: "logo-wall",
-            content: { logos: [{ customer: foreign }] },
-          },
-          null,
-        ),
+      f.live((draft) =>
+        createBlock(inScope(f.ctx, draft), {
+          pageId: f.page.id,
+          type: "logo-wall",
+          content: { logos: [{ customer: foreign }] },
+        }),
       ),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "logos[0].customer: reference is missing or outside this collection/project",
     });
     await expect(
-      runService(
-        updateBlockContent(
-          f.ctx,
-          {
-            id: f.wall.id,
-            content: { logos: [{ _itemId: f.logo.id, customer: foreign }] },
-          },
-          null,
-        ),
+      f.live((draft) =>
+        updateBlockContent(inScope(f.ctx, draft), {
+          id: f.wall.id,
+          content: { logos: [{ _itemId: f.logo.id, customer: foreign }] },
+        }),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
@@ -732,13 +744,16 @@ describe("references in repeatable items", () => {
           );
       expect((await quote())?.id).toBe(f.beta.id);
       const page = await runService(
-        getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/reference" }, null),
+        getPageByPath(inScope(f.publicCtx, null), {
+          projectSlug: f.project.slug,
+          path: "/reference",
+        }),
       );
       expect(customer(page.repeatableItems.find((item) => item.id === logo.id) as never)?.id).toBe(
         f.alpha.id,
       );
 
-      await runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id }));
+      await deleteFromLive(f.db, f.beta.id);
       expect(await quote()).toBeNull();
     },
   );
@@ -768,6 +783,9 @@ async function relationFixture() {
   const f = await createProjectFixture(`relations-${crypto.randomUUID()}`);
   const ctx = createServiceContext(f.db, f.memberUser);
   const publicCtx = createServiceContext(f.db, null);
+  // Content writes reach Live by publishing a throwaway draft (ADR 0009).
+  const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
+    seedLiveThrough(ctx, f.project.id, run);
   const definition = (collectionId: string, properties: Record<string, unknown>) => ({
     collectionId,
     title: collectionId,
@@ -797,21 +815,21 @@ async function relationFixture() {
   await sync([authorsDefinition, articlesDefinition]);
   const authors = { projectSlug: f.project.slug, collectionId: "authors" };
   const articles = { projectSlug: f.project.slug, collectionId: "articles" };
-  const jane = await runService(
-    createRecord(ctx, { ...authors, content: { name: "Jane", favorite: null } }),
+  const jane = await live((_draft, c) =>
+    createRecord(c, { ...authors, content: { name: "Jane", favorite: null } }),
   );
-  const sam = await runService(
-    createRecord(ctx, { ...authors, content: { name: "Sam", favorite: null } }),
+  const sam = await live((_draft, c) =>
+    createRecord(c, { ...authors, content: { name: "Sam", favorite: null } }),
   );
-  const article = await runService(
-    createRecord(ctx, {
+  const article = await live((_draft, c) =>
+    createRecord(c, {
       ...articles,
       content: { name: "Launch", author: jane.id, coauthors: [sam.id] },
     }),
   );
   // Jane's favorite article closes the cycle article → author → article.
-  await runService(
-    editRecord(ctx, {
+  await live((_draft, c) =>
+    editRecord(c, {
       ...authors,
       id: jane.id,
       content: { name: "Jane", favorite: article.id },
@@ -846,17 +864,18 @@ async function relationFixture() {
     createdAt: 1,
     updatedAt: 1,
   });
-  const block = await runService(
-    createBlock(
-      ctx,
-      { pageId: page.id, type: "article-teaser", content: { article: article.id } },
-      null,
-    ),
+  const block = await live((draft) =>
+    createBlock(inScope(ctx, draft), {
+      pageId: page.id,
+      type: "article-teaser",
+      content: { article: article.id },
+    }),
   );
   const teaser = async (reader: typeof ctx) =>
-    (await runService(getBlock(reader, { id: block.id }, null))).block.references
+    (await runService(getBlock(inScope(reader, null), { id: block.id }))).block.references
       .article as ResolvedReference | null;
   return {
+    live,
     ...f,
     ctx,
     publicCtx,
@@ -911,11 +930,11 @@ describe("references between collections", () => {
       { name: "x", author: "not-a-uuid", coauthors: [] },
     ]) {
       await expect(
-        runService(createRecord(f.ctx, { ...f.articles, content })),
+        f.live((_draft, c) => createRecord(c, { ...f.articles, content })),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
-    const saved = await runService(
-      createRecord(f.ctx, {
+    const saved = await f.live((_draft, c) =>
+      createRecord(c, {
         ...f.articles,
         content: { name: "x", author: null, coauthors: [f.sam.id, f.jane.id] },
       }),
@@ -941,14 +960,14 @@ describe("references between collections", () => {
   it("renders nested reference Markdown through the placement's per-use format", async () => {
     const f = await relationFixture();
     expect(
-      (await runService(getPageMarkdown(f.ctx, { pageId: f.page.id }, null))).markdown,
+      (await runService(getPageMarkdown(inScope(f.ctx, null), { pageId: f.page.id }))).markdown,
     ).toContain("Launch by Jane\n\n- Sam");
   });
 
   it("leaves a deleted record out of the references of records linking it", async () => {
     const f = await relationFixture();
-    await runService(deleteRecord(f.ctx, { ...f.authors, id: f.sam.id }));
-    await runService(deleteRecord(f.ctx, { ...f.authors, id: f.jane.id }));
+    await deleteFromLive(f.db, f.sam.id);
+    await deleteFromLive(f.db, f.jane.id);
     expect((await f.teaser(f.ctx))?.references).toEqual({ author: null, coauthors: [] });
   });
 
@@ -1011,6 +1030,9 @@ async function queryFixture() {
   const f = await createProjectFixture(`queries-${crypto.randomUUID()}`);
   const ctx = createServiceContext(f.db, f.memberUser);
   const publicCtx = createServiceContext(f.db, null);
+  // Content writes reach Live by publishing a throwaway draft (ADR 0009).
+  const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
+    seedLiveThrough(ctx, f.project.id, run);
   const scope = { projectSlug: f.project.slug, collectionId: "articles" };
   await runService(
     syncCollectionDefinitions(publicCtx, {
@@ -1030,8 +1052,8 @@ async function queryFixture() {
   );
   const create = (title: string, time: number) =>
     at(time, () =>
-      runService(
-        createRecord(ctx, { ...scope, content: { title, excerpt: `About ${title}`, cover: null } }),
+      live((_draft, c) =>
+        createRecord(c, { ...scope, content: { title, excerpt: `About ${title}`, cover: null } }),
       ),
     );
   const bravo = await create("Bravo", 1000);
@@ -1094,29 +1116,26 @@ async function queryFixture() {
     createdAt: 1,
     updatedAt: 1,
   });
-  const block = await runService(
-    createBlock(
-      ctx,
-      {
-        pageId: page.id,
-        type: "article-index",
-        content: { features: [{}] },
-      },
-      null,
-    ),
+  const block = await live((draft) =>
+    createBlock(inScope(ctx, draft), {
+      pageId: page.id,
+      type: "article-index",
+      content: { features: [{}] },
+    }),
   );
   const bundle = (reader: Reader) =>
-    runService(getBlock(reader === "member" ? ctx : publicCtx, { id: block.id }, null));
+    runService(getBlock(inScope(reader === "member" ? ctx : publicCtx, null), { id: block.id }));
   /** The titles a list resolves to, in order. */
   const titles = async (field: keyof typeof lists, reader: Reader) =>
     ((await bundle(reader)).block.references[field] as ResolvedReference[]).map((r) => r.label);
   const markdown = async (reader: Reader) =>
     (
       await runService(
-        getPageMarkdown(reader === "member" ? ctx : publicCtx, { pageId: page.id }, null),
+        getPageMarkdown(inScope(reader === "member" ? ctx : publicCtx, null), { pageId: page.id }),
       )
     ).markdown;
   return {
+    live,
     ...f,
     ctx,
     publicCtx,
@@ -1217,49 +1236,48 @@ describe("query-backed reference lists", () => {
       message: `${name}: query-backed reference lists are resolved, not written`,
     });
     await expect(
-      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: ids } }, null)),
+      f.live((draft) =>
+        updateBlockContent(inScope(f.ctx, draft), { id: f.block.id, content: { recent: ids } }),
+      ),
     ).rejects.toMatchObject(rejection("recent"));
     await expect(
-      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: [] } }, null)),
+      f.live((draft) =>
+        updateBlockContent(inScope(f.ctx, draft), { id: f.block.id, content: { recent: [] } }),
+      ),
     ).rejects.toMatchObject(rejection("recent"));
     await expect(
-      runService(
-        createBlock(
-          f.ctx,
-          { pageId: f.page.id, type: "article-index", content: { byTitle: ids } },
-          null,
-        ),
+      f.live((draft) =>
+        createBlock(inScope(f.ctx, draft), {
+          pageId: f.page.id,
+          type: "article-index",
+          content: { byTitle: ids },
+        }),
       ),
     ).rejects.toMatchObject(rejection("byTitle"));
     await expect(
-      runService(
-        createBlock(
-          f.ctx,
-          {
-            pageId: f.page.id,
-            type: "article-index",
-            content: { features: [{ latest: ids }] },
-          },
-          null,
-        ),
+      f.live((draft) =>
+        createBlock(inScope(f.ctx, draft), {
+          pageId: f.page.id,
+          type: "article-index",
+          content: { features: [{ latest: ids }] },
+        }),
       ),
     ).rejects.toMatchObject(rejection("features[0].latest"));
     await expect(
-      runService(
-        updateRepeatableItemContent(f.ctx, { id: item.id, content: { latest: ids } }, null),
+      f.live((draft) =>
+        updateRepeatableItemContent(inScope(f.ctx, draft), {
+          id: item.id,
+          content: { latest: ids },
+        }),
       ),
     ).rejects.toMatchObject(rejection("latest"));
     await expect(
-      runService(
-        createRepeatableItem(
-          f.ctx,
-          {
-            blockId: f.block.id,
-            fieldName: "features",
-            content: { latest: ids },
-          },
-          null,
-        ),
+      f.live((draft) =>
+        createRepeatableItem(inScope(f.ctx, draft), {
+          blockId: f.block.id,
+          fieldName: "features",
+          content: { latest: ids },
+        }),
       ),
     ).rejects.toMatchObject(rejection("latest"));
   });
@@ -1294,8 +1312,8 @@ describe("query-backed reference lists", () => {
     }
 
     // A title change re-sorts the list for everyone, with no edit to the page.
-    await runService(
-      editRecord(f.ctx, {
+    await f.live((_draft, c) =>
+      editRecord(c, {
         ...f.scope,
         id: f.records.bravo.id,
         content: { title: "Zulu", excerpt: "", cover: null },
@@ -1322,8 +1340,8 @@ describe("query-backed reference lists", () => {
     await expectOrder();
     // The oldest record, edited last, keeps its place.
     await at(50_000, () =>
-      runService(
-        editRecord(f.ctx, {
+      f.live((_draft, c) =>
+        editRecord(c, {
           ...f.scope,
           id: f.records.bravo.id,
           content: { title: "Bravo", excerpt: "Edited", cover: null },
@@ -1399,12 +1417,12 @@ describe("query-backed reference lists", () => {
     const f = await queryFixture();
     await f.create("Echo", 6000);
     expect(await f.titles("recent", "visitor")).toEqual(["Echo", "", "Delta"]);
-    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.records.alpha.id }));
+    await f.live((_draft, c) => deleteRecord(c, { ...f.scope, id: f.records.alpha.id }));
     for (const reader of readers) {
       expect(await f.titles("byTitle", reader)).toEqual(["Bravo", "Charlie", "Delta", "Echo", ""]);
     }
     const live = await runService(
-      getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/articles" }, null),
+      getPageByPath(inScope(f.publicCtx, null), { projectSlug: f.project.slug, path: "/articles" }),
     );
     const block = live.blocks.find((candidate) => candidate.id === f.block.id)!;
     expect((block.references.byTitle as ResolvedReference[]).map((r) => r.label)).toEqual([

@@ -8,9 +8,9 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
-  seedingLive,
   callSeedingLive,
   openDevelopmentDraft,
+  seedLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -148,9 +148,25 @@ async function fixture() {
     return id;
   };
 
+  /**
+   * A Live quote with its required author left empty, which no publish would let through: Live
+   * gets it as a release writes it.
+   */
+  const seedEmptyQuote = (title: string) =>
+    seedLive(base.db, blocks, {
+      projectId,
+      pageId: page.id,
+      type: "quote",
+      content: { title, author: null },
+      position: "a0",
+      createdAt: now,
+      updatedAt: now,
+    });
+
   return {
     ...base,
     page,
+    seedEmptyQuote,
     openDraft,
     createPage,
     member,
@@ -302,15 +318,15 @@ describe("publishing a draft", () => {
   it("lists Live items added to a block after the draft deleted it as lost, and deletes them with the block", async () => {
     const { createBlock, deleteBlock, member, preview, publish } = await fixture();
     const block = await createBlock("Live");
-    const before = await call(
-      seedingLive(router.repeatableItems.create),
+    const before = await callSeedingLive(
+      router.repeatableItems.create,
       { blockId: block.id, fieldName: "links", content: { label: "Before" } },
       member(),
     );
     const draft = generateUuidv7();
     await deleteBlock(block.id, startingDraft(draft));
-    const after = await call(
-      seedingLive(router.repeatableItems.create),
+    const after = await callSeedingLive(
+      router.repeatableItems.create,
       { blockId: block.id, fieldName: "links", content: { label: "After" } },
       member(),
     );
@@ -340,8 +356,8 @@ describe("publishing a draft", () => {
     await publishedOnLive(async (headers) => {
       added = await createBlock("Added", headers, { pageId: about.id });
     });
-    const item = await call(
-      seedingLive(router.repeatableItems.create),
+    const item = await callSeedingLive(
+      router.repeatableItems.create,
       { blockId: older.id, fieldName: "links", content: { label: "Added" } },
       member(),
     );
@@ -398,8 +414,8 @@ describe("publishing a draft", () => {
   });
 
   it("blocks publishing on an empty required reference in a block the draft changed", async () => {
-    const { createBlock, editTitle, preview, publish, publishWith, titleIn } = await fixture();
-    const quote = await createBlock("Quote", {}, { type: "quote" });
+    const { seedEmptyQuote, editTitle, preview, publish, publishWith, titleIn } = await fixture();
+    const quote = await seedEmptyQuote("Quote");
     const draft = generateUuidv7();
     await editTitle(quote.id, "Edited quote", startingDraft(draft));
 
@@ -420,8 +436,8 @@ describe("publishing a draft", () => {
   });
 
   it("only warns about an empty required reference in an untouched Live block", async () => {
-    const { createBlock, editTitle, preview, publish, titleIn } = await fixture();
-    const quote = await createBlock("Quote", {}, { type: "quote" });
+    const { createBlock, seedEmptyQuote, editTitle, preview, publish, titleIn } = await fixture();
+    const quote = await seedEmptyQuote("Quote");
     const hero = await createBlock("Hero");
     const draft = generateUuidv7();
     await editTitle(hero.id, "Hero in draft", startingDraft(draft));

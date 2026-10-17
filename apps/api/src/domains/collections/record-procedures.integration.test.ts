@@ -144,7 +144,12 @@ describe("collection record procedures", () => {
 
   it("AI tools use validated session-scoped services and ask approval to delete", async () => {
     const f = await fixture();
-    const context = { ...f.context, projectId: f.project.id };
+    // AI tools work in a draft: Live is read-only (ADR 0003).
+    const context = {
+      ...f.context,
+      draft: { id: generateUuidv7(), create: true },
+      projectId: f.project.id,
+    };
     const tools = await collectionsProvider(context);
     const tool = (name: string) => {
       const result = tools.find((entry) => entry.name === name);

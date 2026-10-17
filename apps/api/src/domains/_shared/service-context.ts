@@ -23,7 +23,12 @@ export type ServiceContext = {
   /**
    * The draft the request names through `x-camox-draft`, not yet checked against the
    * caller or a project. `null` means Live. Services turn it into a `DraftScope` with
-   * `requireDraftScope` once they know the project.
+   * content access (`accessTo`), which knows the project.
    */
   draft: DraftRequest | null;
+  /**
+   * The project the request is bound to, such as an AI tool session's: content access reads
+   * every other project's content as missing.
+   */
+  projectId?: number;
 };

@@ -4,9 +4,22 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture, createRpcContext, callSeedingLive } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  callSeedingLive,
+  seedLive,
+} from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blockDefinitions, collectionDefinitions } from "../../schema";
+import {
+  blockDefinitions,
+  collectionDefinitions,
+  collectionRecords,
+  repeatableItems,
+} from "../../schema";
+import * as overlay from "./overlay";
+import { RELEASE } from "./scope";
 
 const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
   // Modules loaded by earlier test files would keep the real broadcaster.
@@ -216,6 +229,27 @@ async function fixture() {
   const deletePage = (id: string, headers: Headers = {}) =>
     callSeedingLive(router.pages.delete, { id }, member(headers));
 
+  // Live states no publish lets through, written as a release writes Live.
+  const seedAuthor = (name: string) =>
+    seedLive(base.db, collectionRecords, {
+      projectId,
+      collectionId: "authors",
+      content: { name, mentor: null },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  const releaseDeletesAuthor = (id: string) =>
+    runService(overlay.remove(base.db, RELEASE, collectionRecords, id));
+  const seedCard = (blockId: string, content: Record<string, unknown>) =>
+    seedLive(base.db, repeatableItems, {
+      blockId,
+      fieldName: "cards",
+      content,
+      position: "a0",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
   const preview = (draftId: string) =>
     call(router.drafts.previewPublish, { projectId }, member(inDraft(draftId)));
   const publish = async (draftId: string) =>
@@ -235,6 +269,9 @@ async function fixture() {
     deletePage,
     createAuthor,
     deleteAuthor,
+    seedAuthor,
+    releaseDeletesAuthor,
+    seedCard,
     listAuthors,
     getAuthor,
     createByline,
@@ -364,7 +401,8 @@ describe("duplicate record page values", () => {
     const f = await fixture();
     await withAuthorPages(f);
     const first = await f.createAuthor("ada");
-    const second = await f.createAuthor("ada");
+    // No publish lets a second "ada" through.
+    const second = await f.seedAuthor("ada");
     const draft = generateUuidv7();
     await f.createAuthor("grace", null, startingDraft(draft));
 
@@ -429,8 +467,9 @@ describe("dangling references", () => {
     const byline = await f.createByline(home.id, { title: "By", author: ada.id });
     const draft = generateUuidv7();
     await f.editByline(byline.id, { title: "Written by" }, startingDraft(draft));
-    // Live deletes the record after the draft copied the block.
-    await f.deleteAuthor(ada.id);
+    // Live loses the record after the draft copied the block. No publish deletes a record Live
+    // content points at, so a release does.
+    await f.releaseDeletesAuthor(ada.id);
 
     expect((await f.preview(draft)).blockers).toEqual([
       expect.objectContaining({ code: "danglingReference", id: byline.id, field: "author" }),
@@ -442,7 +481,7 @@ describe("dangling references", () => {
     const home = await f.createPage("");
     const ada = await f.createAuthor("Ada");
     const byline = await f.createByline(home.id, { title: "By", author: ada.id });
-    await f.deleteAuthor(ada.id);
+    await f.releaseDeletesAuthor(ada.id);
     const draft = generateUuidv7();
     await f.createPage("about", startingDraft(draft));
 
@@ -518,7 +557,8 @@ describe("empty required references", () => {
     const f = await fixture();
     const home = await f.createPage("");
     const cards = await f.createBlock(home.id, "cards", {});
-    const card = await f.addCard(cards.id, { label: "Card" });
+    // No publish lets the empty required author through.
+    const card = await f.seedCard(cards.id, { label: "Card", author: null });
     const draft = generateUuidv7();
     await f.createPage("about", startingDraft(draft));
 

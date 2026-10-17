@@ -1,12 +1,19 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
+import type { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { collection as articles } from "../../../../playground/src/collections/articles";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
+import type { ServiceError } from "../../lib/errors";
 import { markdownToLexicalState, plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
 import { files, pages } from "../../schema";
+import type { ServiceContext } from "../_shared/service-context";
 import { deleteProject } from "../projects/service";
 import { collectionDefinitions } from "./schema";
 import {
@@ -74,32 +81,35 @@ async function fixture(suffix: string) {
       })
       .returning()
       .get();
+  // Record writes reach Live by publishing a throwaway draft (ADR 0009).
+  const live = <A>(run: (inDraft: ServiceContext) => Effect.Effect<A, ServiceError>) =>
+    seedLiveThrough(ctx, base.project.id, (_draft, inDraft) => run(inDraft));
   await sync();
-  return { ...base, ctx, publicCtx, scope, sync, insertFile };
+  return { ...base, ctx, publicCtx, scope, sync, insertFile, live };
 }
 
 describe("authenticated collection browsing", () => {
   it("stores empty and unlinked assets as null without materializing preview defaults", async () => {
     const f = await fixture("empty-assets");
-    const created = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    const created = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     expect(created.content.cover).toBeNull();
     const cover = await f.insertFile("cover.png");
-    await runService(
-      editRecord(f.ctx, {
+    await f.live((c) =>
+      editRecord(c, {
         ...f.scope,
         id: created.id,
         content: { ...article, cover: { _fileId: cover.id } },
       }),
     );
-    const unlinked = await runService(
-      editRecord(f.ctx, { ...f.scope, id: created.id, content: article }),
+    const unlinked = await f.live((c) =>
+      editRecord(c, { ...f.scope, id: created.id, content: article }),
     );
     expect(unlinked.content.cover).toBeNull();
   });
 
   it("loads records within their authorized collection", async () => {
     const f = await fixture("authoring");
-    const created = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    const created = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     const input = { ...f.scope, id: created.id };
     expect(await runService(getCollectionRecord(f.ctx, input))).toEqual(created);
     await expect(runService(getCollectionRecord(f.publicCtx, input))).rejects.toMatchObject({
@@ -114,8 +124,8 @@ describe("authenticated collection browsing", () => {
     await expect(
       runService(getCollectionRecord(f.ctx, { ...input, id: generateUuidv7() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await runService(
-      editRecord(f.ctx, { ...input, content: { ...article, title: "Updated title" } }),
+    await f.live((c) =>
+      editRecord(c, { ...input, content: { ...article, title: "Updated title" } }),
     );
     expect((await runService(getCollectionRecord(f.ctx, input))).content.title).toBe(
       "Updated title",
@@ -123,9 +133,9 @@ describe("authenticated collection browsing", () => {
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: created.id, label: "Updated title", duplicatePageValue: false },
     ]);
-    await expect(
-      runService(createRecord(f.ctx, { ...f.scope, content: {} })),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(f.live((c) => createRecord(c, { ...f.scope, content: {} }))).rejects.toMatchObject(
+      { code: "BAD_REQUEST" },
+    );
   });
 
   it("returns the definition's stored TypeBox schema and metadata from the request's own definitions", async () => {
@@ -221,7 +231,7 @@ describe("authenticated collection browsing", () => {
 
   it("hides a removed collection's records and brings them back with it", async () => {
     const f = await fixture("browse-removed");
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     const result = await f.sync([]);
     expect(result.retired).toEqual(["articles"]);
     const read = { ...f.scope, id: record.id };
@@ -232,9 +242,9 @@ describe("authenticated collection browsing", () => {
       code: "NOT_FOUND",
     });
     await expect(
-      runService(editRecord(f.ctx, { ...read, content: { ...article, title: "Edited" } })),
+      f.live((c) => editRecord(c, { ...read, content: { ...article, title: "Edited" } })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(runService(deleteRecord(f.ctx, read))).rejects.toMatchObject({
+    await expect(f.live((c) => deleteRecord(c, read))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
 
@@ -265,15 +275,15 @@ describe("authenticated collection browsing", () => {
   it("lists records newest first with plain text labels, isolated by collection and draft", async () => {
     const f = await fixture("browse-records");
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([]);
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
-    await runService(
-      editRecord(f.ctx, {
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
+    await f.live((c) =>
+      editRecord(c, {
         ...f.scope,
         id: record.id,
         content: { ...article, title: plainTextToLexicalState("Rich title") },
       }),
     );
-    const newer = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    const newer = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: newer.id, label: "Hello", duplicatePageValue: false },
       { id: record.id, label: "Rich title", duplicatePageValue: false },
@@ -310,8 +320,8 @@ describe("collection record lifecycle", () => {
   it("deletes an authorized record while protecting foreign requests, and keeps its files", async () => {
     const f = await fixture("delete-record");
     const file = await f.insertFile("cover.png");
-    const created = await runService(
-      createRecord(f.ctx, { ...f.scope, content: { ...article, cover: { _fileId: file.id } } }),
+    const created = await f.live((c) =>
+      createRecord(c, { ...f.scope, content: { ...article, cover: { _fileId: file.id } } }),
     );
     const input = { ...f.scope, id: created.id };
     await expect(runService(deleteRecord(f.publicCtx, input))).rejects.toMatchObject({
@@ -322,17 +332,17 @@ describe("collection record lifecycle", () => {
     ).rejects.toThrow();
     await f.sync([definition, { ...definition, collectionId: "other" }]);
     await expect(
-      runService(deleteRecord(f.ctx, { ...input, collectionId: "other" })),
+      f.live((c) => deleteRecord(c, { ...input, collectionId: "other" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    const other = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
-    await runService(deleteRecord(f.ctx, input));
+    const other = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
+    await f.live((c) => deleteRecord(c, input));
     await expect(runService(getCollectionRecord(f.ctx, input))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: other.id, label: "Hello", duplicatePageValue: false },
     ]);
-    await expect(runService(deleteRecord(f.ctx, input))).rejects.toMatchObject({
+    await expect(f.live((c) => deleteRecord(c, input))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect(await f.db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
@@ -380,7 +390,7 @@ describe("collection record lifecycle", () => {
       gallery: [image],
       documents: [pdf],
     };
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content }));
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content }));
     expect(record.content).toMatchObject({
       ...content,
       gallery: [{ ...image, filename: "photo.png" }],
@@ -395,7 +405,7 @@ describe("collection record lifecycle", () => {
       { ...content, documents: [image] },
     ])
       await expect(
-        runService(createRecord(f.ctx, { ...f.scope, content: invalid })),
+        f.live((c) => createRecord(c, { ...f.scope, content: invalid })),
       ).rejects.toThrow();
     for (const fieldType of ["Repeater", "Link", "Icon", "Reference", "ReferenceList"]) {
       const malformed = {
@@ -438,7 +448,7 @@ describe("collection record lifecycle", () => {
     ]);
     const pdf = [{ _fileId: (await f.insertFile("doc.pdf", "application/pdf")).id }];
     const content = { ...article, anything: pdf, unrestricted: pdf, padded: pdf };
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content }));
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content }));
     expect(record.content).toMatchObject({
       anything: [{ filename: "doc.pdf" }],
       unrestricted: [{ filename: "doc.pdf" }],
@@ -454,7 +464,7 @@ describe("collection record lifecycle", () => {
       excerpt: JSON.stringify(plainTextToLexicalState("Rich excerpt")),
       body: markdownToLexicalState("Hello **world** and [a link](https://example.com)."),
     };
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content }));
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content }));
     expect(record.content).toMatchObject({
       title: content.title,
       body: content.body,
@@ -485,7 +495,7 @@ describe("collection record lifecycle", () => {
       },
       { ...article, body: markdownToLexicalState("[Integer page id](camox:page:1)") },
     ])
-      await expect(runService(createRecord(f.ctx, { ...f.scope, content: bad }))).rejects.toThrow();
+      await expect(f.live((c) => createRecord(c, { ...f.scope, content: bad }))).rejects.toThrow();
   });
 
   it("stores a text link to a page by the page's UUIDv7", async () => {
@@ -505,8 +515,8 @@ describe("collection record lifecycle", () => {
       .returning()
       .get();
     const body = markdownToLexicalState(`[About](camox:page:${page.id})`);
-    const record = await runService(
-      createRecord(f.ctx, { ...f.scope, content: { ...article, body } }),
+    const record = await f.live((c) =>
+      createRecord(c, { ...f.scope, content: { ...article, body } }),
     );
     expect(record.content).toMatchObject({ body });
   });
@@ -530,7 +540,7 @@ describe("collection record lifecycle", () => {
 
   it("enforces auth, project, collection and draft definitions on every operation", async () => {
     const f = await fixture("isolation");
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     const input = { ...f.scope, id: record.id };
     const outsider = createServiceContext(f.db, f.outsiderUser);
     for (const ctx of [f.publicCtx, outsider]) {
@@ -546,10 +556,10 @@ describe("collection record lifecycle", () => {
       runService(getCollectionRecord(anotherProject.ctx, { ...input, ...anotherProject.scope })),
     ).rejects.toThrow();
     await expect(
-      runService(
-        editRecord(anotherProject.ctx, { ...input, ...anotherProject.scope, content: article }),
+      anotherProject.live((c) =>
+        editRecord(c, { ...input, ...anotherProject.scope, content: article }),
       ),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     // A development draft whose code doesn't define the collection can't reach its records.
     const devCtx = { ...f.ctx, draft: { development: true as const } };
     const syncDevelopment = (autoCreate: boolean, definitions: (typeof definition)[]) =>
@@ -573,7 +583,7 @@ describe("collection record lifecycle", () => {
     expect(await runService(getCollectionRecord(f.ctx, input))).toEqual(record);
     await f.sync([definition, { ...definition, collectionId: "customers" }]);
     await expect(
-      runService(editRecord(f.ctx, { ...input, collectionId: "customers", content: article })),
+      f.live((c) => editRecord(c, { ...input, collectionId: "customers", content: article })),
     ).rejects.toThrow();
   });
 
@@ -587,18 +597,18 @@ describe("collection record lifecycle", () => {
       { ...article, cover: placeholder },
       { ...article, cover: { _fileId: (await f.insertFile("doc.pdf", "application/pdf")).id } },
     ]) {
-      await expect(runService(createRecord(f.ctx, { ...f.scope, content }))).rejects.toThrow();
+      await expect(f.live((c) => createRecord(c, { ...f.scope, content }))).rejects.toThrow();
     }
     const file = await f.insertFile("real.png");
-    const record = await runService(
-      createRecord(f.ctx, { ...f.scope, content: { ...article, cover: { _fileId: file.id } } }),
+    const record = await f.live((c) =>
+      createRecord(c, { ...f.scope, content: { ...article, cover: { _fileId: file.id } } }),
     );
     expect(record.content.cover).toMatchObject({ url: file.url, filename: file.filename });
     const otherProject = await fixture("validation-other");
     const foreign = await otherProject.insertFile("foreign.png");
     await expect(
-      runService(
-        editRecord(f.ctx, {
+      f.live((c) =>
+        editRecord(c, {
           ...f.scope,
           id: record.id,
           content: { ...article, cover: { _fileId: foreign.id } },
@@ -629,7 +639,7 @@ describe("collection record lifecycle", () => {
     ).rejects.toThrow();
     await expect(f.sync([{ ...definition, label: "cover" }])).rejects.toThrow();
     await expect(f.sync([definition, definition])).rejects.toThrow();
-    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     await f.sync([{ ...definition, title: "Renamed articles", label: "slug" }]);
     await f.sync();
     expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: record.id }))).toEqual(

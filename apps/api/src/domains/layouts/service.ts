@@ -7,7 +7,7 @@ import { z } from "zod";
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
-import { blockDefinitions, blocks, layouts, projects, repeatableItems } from "../../schema";
+import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { collectFileIds } from "../_shared/fields";
@@ -21,10 +21,10 @@ import {
   hydrateReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { releasedNew, visibleIn } from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
-import { resolveDraftScope } from "../drafts/service";
+import { visibleIn } from "../drafts/overlay";
+import { RELEASE, type WriteTarget } from "../drafts/scope";
 import { buildFileMap } from "../files/file-map";
 import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
@@ -83,26 +83,22 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
   rawInput: z.input<typeof listLayoutsInput>,
 ) {
   const { projectId } = yield* decodeInput(listLayoutsInput, rawInput);
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
       .where(and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope))),
   );
-});
+}, Effect.scoped);
 
 // Standalone layout reads use the same current blocks as curated pages.
 export const getLayout = Effect.fn("layouts.getLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutInput>,
-  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutInput, rawInput);
-  const project = yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
-  );
-  if (!project) return yield* new NotFoundError();
+  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -160,7 +156,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     repeatableItems: hydratedItems,
     files: [...fileRows.values()],
   };
-});
+}, Effect.scoped);
 
 // --- Writes ---
 
@@ -217,21 +213,14 @@ type ItemSeed = {
  */
 const insertDeclaredBlock = Effect.fn("layouts.insertDeclaredBlock")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  target: WriteTarget,
   values: DeclaredBlock,
   seeds: readonly ItemSeed[] | undefined,
   now: number,
 ) {
   const timestamps = { createdAt: now, updatedAt: now };
-  const block = scope
-    ? (yield* overlay.insert(ctx.db, scope, blocks, { ...values, ...timestamps }))!
-    : yield* Effect.promise(() =>
-        ctx.db
-          .insert(blocks)
-          .values({ ...values, ...releasedNew(now), ...timestamps })
-          .returning()
-          .get(),
-      );
+  // A fresh id, so the target can't already hold the block or its items.
+  const block = (yield* overlay.insert(ctx.db, target, blocks, { ...values, ...timestamps }))!;
 
   const tempIdToRealId = new Map<string, string>();
   for (const seed of seeds ?? []) {
@@ -244,15 +233,7 @@ const insertDeclaredBlock = Effect.fn("layouts.insertDeclaredBlock")(function* (
       position: seed.position,
       ...timestamps,
     };
-    const inserted = scope
-      ? (yield* overlay.insert(ctx.db, scope, repeatableItems, item))!
-      : yield* Effect.promise(() =>
-          ctx.db
-            .insert(repeatableItems)
-            .values({ ...item, ...releasedNew(now) })
-            .returning()
-            .get(),
-        );
+    const inserted = (yield* overlay.insert(ctx.db, target, repeatableItems, item))!;
     tempIdToRealId.set(seed.tempId, inserted.id);
   }
   return block;
@@ -265,23 +246,21 @@ const insertDeclaredBlock = Effect.fn("layouts.insertDeclaredBlock")(function* (
  */
 const deleteOrphanedBlocks = Effect.fn("layouts.deleteOrphanedBlocks")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  target: WriteTarget,
   ids: string[],
 ) {
   if (ids.length === 0) return;
-  if (scope) {
-    for (const id of ids) yield* overlay.remove(ctx.db, scope, blocks, id);
-    return;
+  if (target === RELEASE) {
+    // Items hold no foreign key to their block (ADR 0005).
+    const items = yield* overlay.select(
+      ctx.db,
+      null,
+      repeatableItems,
+      inArray(repeatableItems.blockId, ids),
+    );
+    for (const item of items) yield* overlay.remove(ctx.db, target, repeatableItems, item.id);
   }
-  // Items hold no foreign key to their block (ADR 0005).
-  yield* Effect.promise(() =>
-    ctx.db.batch([
-      ctx.db
-        .delete(repeatableItems)
-        .where(and(visibleIn(repeatableItems, null), inArray(repeatableItems.blockId, ids))),
-      ctx.db.delete(blocks).where(and(visibleIn(blocks, null), inArray(blocks.id, ids))),
-    ]),
-  );
+  for (const id of ids) yield* overlay.remove(ctx.db, target, blocks, id);
 });
 
 export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
@@ -291,7 +270,11 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   const input = yield* decodeInput(syncLayoutsInput, rawInput);
   const { projectSlug, layouts: layoutDefs, autoCreate } = input;
   // A release writes Live; dev mode writes the caller's development draft (ADR 0006).
-  const { project, scope } = yield* assertSyncAccess(
+  const {
+    project,
+    scope,
+    writes: target,
+  } = yield* assertSyncAccess(
     ctx.db,
     projectSlug,
     { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
@@ -439,7 +422,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
 
       const block = yield* insertDeclaredBlock(
         ctx,
-        scope,
+        target,
         {
           projectId: layout.projectId,
           layoutId: layout.layoutId,
@@ -453,7 +436,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         now,
       );
 
-      yield* adoptSharedContent(ctx, scope, block);
+      yield* adoptSharedContent(ctx, target, block);
       entry.position = newPos;
       lastPos = newPos;
     }
@@ -472,7 +455,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         skippedOrphanTypes.push(existing.type);
       }
     }
-    yield* deleteOrphanedBlocks(ctx, scope, orphanIdsToDelete);
+    yield* deleteOrphanedBlocks(ctx, target, orphanIdsToDelete);
 
     results.push({
       layout,

@@ -189,7 +189,6 @@ interface PreviewContext {
   editingPageId: string | null;
   viewportMode: ViewportMode;
   editingContext: EditingContext | null;
-  iframeElement: HTMLIFrameElement | null;
 }
 
 const initialPreviewContext: PreviewContext = {
@@ -200,7 +199,6 @@ const initialPreviewContext: PreviewContext = {
   editingPageId: null,
   viewportMode: "full",
   editingContext: null,
-  iframeElement: null,
 };
 
 export const previewStore = createStore({
@@ -435,10 +433,6 @@ export const previewStore = createStore({
     closeEditPageModal: (context) => ({
       ...context,
       editingPageId: null,
-    }),
-    setIframeElement: (context, event: { element: HTMLIFrameElement | null }) => ({
-      ...context,
-      iframeElement: event.element,
     }),
   },
 });

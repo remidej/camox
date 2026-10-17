@@ -1,7 +1,7 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages } from "../../schema";
 import { callTool } from "../agent/service";
@@ -80,7 +80,7 @@ describe("setPageSeo", () => {
     expect(
       await tool("setPageSeo", { id: page.id, metaTitle: "Both", metaDescription: "Together" }),
     ).toMatchObject({ ok: true, result: { metaTitle: "Both", metaDescription: "Together" } });
-    expect(await runService(getPage(ctx, { id: page.id }, scope))).toMatchObject({
+    expect(await runService(getPage(inScope(ctx, scope), { id: page.id }))).toMatchObject({
       metaTitle: "Both",
       metaDescription: "Together",
       aiSeo: false,
@@ -137,7 +137,7 @@ describe("page SEO generation", () => {
     await generate({ metaTitle: "Generated", metaDescription: "Generated" });
 
     expect(chat).not.toHaveBeenCalled();
-    expect(await runService(getPage(ctx, { id: page.id }, scope))).toMatchObject({
+    expect(await runService(getPage(inScope(ctx, scope), { id: page.id }))).toMatchObject({
       metaTitle: "Manual",
     });
   });

@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { getAuthorizedProject, requireUser } from "../../authorization";
+import { requireUser } from "../../authorization";
 import { broadcastDraftEnded, broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import {
   ConflictsChangedError,
@@ -35,6 +35,7 @@ import { homeOf, requestGeneration } from "../generated-values/service";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { requestPageSeo } from "../pages/service";
 import { rootOfItem } from "../repeatable-items/roots";
+import { accessTo } from "./access";
 import {
   checkContentProblems,
   type ContentFinding,
@@ -42,7 +43,7 @@ import {
 } from "./content-checks";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
-import { findEndedDraft, resolveDraftScope } from "./service";
+import { findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
 export type { Owner, Subject, SubjectKind } from "./subjects";
@@ -366,7 +367,7 @@ const requireDraft = Effect.fn("drafts.requireDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "member"));
   if (!scope) {
     return yield* new InvalidInputError({ message: "Live isn't a draft: name one to publish" });
   }
@@ -384,19 +385,14 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
 });
 
 /**
- * How the request's draft ended earlier, so a retried publish or discard reports it instead of
- * applying anything again.
+ * The draft a request names, or how it ended when an earlier attempt published or discarded
+ * it, so a retried publish or discard reports that instead of applying anything again.
  */
-const endedEarlier = Effect.fn("drafts.endedEarlier")(function* (
-  ctx: ServiceContext,
-  projectId: number,
-) {
-  const user = yield* requireUser(ctx);
-  yield* getAuthorizedProject(ctx.db, projectId, user.id);
-  // A development draft never ends: publishing and discarding empty it (ADR 0006).
-  if (!ctx.draft || "development" in ctx.draft) return undefined;
-  return yield* findEndedDraft(ctx.db, projectId, ctx.draft.id);
-});
+const draftOrEnded = (ctx: ServiceContext, projectId: number) =>
+  requireDraft(ctx, projectId).pipe(
+    Effect.map((draft) => ({ draft, ended: null })),
+    Effect.catchTag("DraftEndedError", ({ ended }) => Effect.succeed({ draft: null, ended })),
+  );
 
 const roomOf = (ctx: ServiceContext, projectId: number) => ({
   waitUntil: ctx.waitUntil,
@@ -456,10 +452,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   rawInput: z.input<typeof publishInput>,
 ) {
   const { projectId, token } = yield* decodeInput(publishInput, rawInput);
-  const earlier = yield* endedEarlier(ctx, projectId);
-  if (earlier) return endedAs(earlier);
-
-  const scope = yield* requireDraft(ctx, projectId);
+  const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
+  if (!scope) return endedAs(earlier);
   const shown = yield* decodeToken(token);
   const stored = yield* overlay.changesOf(ctx.db, scope);
   if (stored.length === 0) return nothingToPublish;
@@ -511,10 +505,8 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   rawInput: z.input<typeof discardInput>,
 ) {
   const { projectId } = yield* decodeInput(discardInput, rawInput);
-  const earlier = yield* endedEarlier(ctx, projectId);
-  if (earlier) return { ended: earlier as EndedDraft | null };
-
-  const scope = yield* requireDraft(ctx, projectId);
+  const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
+  if (!scope) return { ended: earlier as EndedDraft | null };
   const user = yield* requireUser(ctx);
   // Collected before the cascade drops the draft's rows.
   const blobs = yield* blobsOfDraft(ctx.db, scope);

@@ -76,7 +76,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const actions: string[] = [];
   const frames = new Map<
     string,
-    { mode?: string; onActivate: (owner: never, source: string) => void }
+    { mode?: string; onActivate: (owner: never, source: string, release: () => void) => void }
   >();
   /** Whether Page frames are near the camera as soon as they are observed. */
   let nearByDefault = true;
@@ -228,7 +228,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       selected: boolean;
       mode?: string;
       input: { pathname: string };
-      onActivate: (owner: never, source: string) => void;
+      onActivate: (owner: never, source: string, release: () => void) => void;
     }) => {
       const { selected } = props;
       frames.set(props.input.pathname, props);
@@ -874,8 +874,15 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           };
 
           await render();
+          let released = 0;
+          await React.act(async () =>
+            frames
+              .get("/about")!
+              .onActivate({ kind: "page", pageId: "1" } as never, "selection", () => released++),
+          );
           await React.act(async () => cameraRow.onDeselect!());
           assert.deepEqual(navigations, [{ to: "/camox/canvas", source: "canvas" }]);
+          assert.equal(released, 0, "the Page keeps the editing frame until the route commits");
           assert.equal(cameraRow.selected, null, "the camera has nothing left to deselect");
           assert.equal(
             shownPage("Canvas"),
@@ -885,6 +892,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.equal(sidebarPathname, "/camox/canvas");
 
           await commit();
+          assert.equal(released, 1, "on the Canvas route, the Page lets the editing frame go");
           assert.deepEqual(signals, ["ready"]);
           assert.equal(flights.length, 0, "deselecting does not fly");
           assert.equal(cameraRow.selected, null);
@@ -1062,7 +1070,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         globals.CanvasLocation.search = "";
         globals.CanvasLocation.hash = "";
         for (const select of [
-          () => frames.get("/about")!.onActivate(null as never, "interaction"),
+          () => frames.get("/about")!.onActivate(null as never, "interaction", () => {}),
           () => [...headers.values()][1]!.onSelect(),
           () => [...headers.values()][0]!.onChange("/about"),
           () => snap([...headers.keys()][1]!),

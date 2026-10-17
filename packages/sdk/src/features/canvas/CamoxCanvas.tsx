@@ -7,6 +7,7 @@ import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { blockQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
+import type { ReleaseEditingFrame } from "../preview/editingFrame";
 import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
 import {
   CANVAS_CHROME_Z_INDEX,
@@ -35,7 +36,7 @@ import {
   positionCanvasShelves,
 } from "./canvasItems";
 import { CanvasOverlaysShownContext } from "./CanvasOverlays";
-import { CanvasPageFrame } from "./CanvasPageFrame";
+import { CanvasPageFrame, type CanvasFrameActivate } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
 import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
 import { CanvasPreviewPageSlot } from "./CanvasPreviewPageSlot";
@@ -110,7 +111,7 @@ type CanvasPagePreviewProps = {
   viewport: CanvasViewport;
   selected: boolean;
   hovered: boolean;
-  onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
+  onActivate: CanvasFrameActivate;
 };
 
 /**
@@ -260,7 +261,7 @@ function CanvasWorkspace({
   intendedItemKey: string | undefined;
   runtimeBasePath: string;
   viewport: CanvasViewport;
-  onActivate: (pathname: string, owner: EditingOwner) => void;
+  onActivate: (pathname: string, owner: EditingOwner, release: ReleaseEditingFrame) => void;
   onSelectionIntent: (pathname: string) => void;
   ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
@@ -496,12 +497,9 @@ function CanvasWorkspace({
                       !!previewPageFrame &&
                       page.key === previewedPage?.key &&
                       pathname === previewedPath;
-                    const onPageActivate = (
-                      owner: EditingOwner,
-                      source: "selection" | "interaction",
-                    ) => {
+                    const onPageActivate: CanvasFrameActivate = (owner, source, release) => {
                       if (!pathname) return;
-                      onActivate(pathname, owner);
+                      onActivate(pathname, owner, release);
                       if (source === "interaction") selectPage(pathname);
                     };
                     return (
@@ -638,6 +636,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const [activeFrame, setActiveFrame] = React.useState<{
     pathname: string;
     owner: EditingOwner;
+    release: ReleaseEditingFrame;
   } | null>(null);
   const selectedPath = location.pathname;
   const previousPath = React.useRef(selectedPath);
@@ -645,17 +644,16 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     if (previousPath.current === selectedPath) return;
     previousPath.current = selectedPath;
     if (!activeFrame || activeFrame.pathname === selectedPath) return;
-    previewStore.send({ type: "clearSelection" });
-    previewStore.send({ type: "setIframeElement", element: null });
-    // oxlint-disable-next-line react/set-state-in-effect -- released together with the store's selection and iframe
+    activeFrame.release();
+    // oxlint-disable-next-line react/set-state-in-effect -- released together with the editing frame
     setActiveFrame(null);
   }, [activeFrame, selectedPath]);
   React.useEffect(() => {
     previewStore.send({ type: "clearSelection" });
     return () => {
       previewStore.send({ type: "clearSelection" });
-      // Each frame releases only its own iframe. The read-only preview may
-      // already have reclaimed ownership when preparation is cancelled.
+      // Each frame releases only its own claim. The Preview may already have
+      // claimed its frame again when preparation is cancelled.
     };
   }, []);
   const projectSlug = useProjectSlug();
@@ -793,7 +791,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         intendedItemKey={intendedItemKey}
         runtimeBasePath={runtimeBasePath}
         viewport={viewport}
-        onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
+        onActivate={(pathname, owner, release) => setActiveFrame({ pathname, owner, release })}
         onSelectionIntent={(pathname) =>
           setIntent({
             from: location.pathname,

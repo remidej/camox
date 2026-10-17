@@ -3,15 +3,13 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 import { Effect } from "effect";
 import { Hono } from "hono";
 
-import { assertPageAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { NotFoundError } from "../../lib/errors";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
+import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { projectOfPage } from "../drafts/request-scope";
-import { inDraftScope } from "../drafts/service";
 import { deleteUnreferencedOgImageBlobs } from "./og-image-blobs";
 import { pages } from "./schema";
 
@@ -47,15 +45,12 @@ const writeOgImage = (
   pageId: string,
   store: (projectId: number) => Effect.Effect<OgImage | null>,
 ) =>
-  Effect.gen(function* () {
-    const user = yield* requireUser(ctx);
-    const projectId = yield* projectOfPage(ctx, pageId);
-    if (projectId === undefined) return yield* new NotFoundError();
-    return yield* inDraftScope(ctx, projectId, (scope) =>
-      Effect.gen(function* () {
-        const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
-        const prevBlobId = access.page.customOgImageBlobId;
-        const image = yield* store(access.page.projectId);
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { scope, entity: page } = yield* accessTo(ctx, { page: pageId }, "write");
+      {
+        const prevBlobId = page.customOgImageBlobId;
+        const image = yield* store(page.projectId);
         const dropStored = image
           ? deleteUnreferencedOgImageBlobs(ctx, [image.blobId])
           : Effect.void;
@@ -64,7 +59,7 @@ const writeOgImage = (
           .update(ctx.db, scope, pages, pageId, {
             customOgImageBlobId: image?.blobId ?? null,
             customOgImageUrl: image?.url ?? null,
-            updatedAt: Math.max(Date.now(), access.page.updatedAt + 1),
+            updatedAt: Math.max(Date.now(), page.updatedAt + 1),
           })
           .pipe(Effect.onError(() => dropStored));
         if (!result) {
@@ -79,8 +74,8 @@ const writeOgImage = (
         broadcastInvalidation({
           waitUntil: ctx.waitUntil,
           projectRoomNamespace: ctx.env.ProjectRoom,
-          draftId: scope?.id ?? null,
-          projectId: access.page.projectId,
+          draftId: scope.id,
+          projectId: page.projectId,
           targets: [
             queryKeys.pages.list,
             queryKeys.pages.getById(pageId),
@@ -88,9 +83,9 @@ const writeOgImage = (
           ],
         });
         return result;
-      }),
-    );
-  });
+      }
+    }),
+  );
 
 pageHonoRoutes.post("/:id/og-image", async (c) => {
   const user = c.var.user;

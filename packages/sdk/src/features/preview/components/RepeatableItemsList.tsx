@@ -18,14 +18,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation } from "@tanstack/react-query";
-import { useSelector } from "@xstate/store-react";
 import { CircleMinus, CirclePlus, GripVertical } from "lucide-react";
 import { useContext } from "react";
 
 import { repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import type { OverlayMessage } from "../overlayMessages";
+import { useEditingFrame } from "../editingFrame";
 import { PreviewEditingOwnerContext, usePreviewTargetSelection } from "../previewSelection";
 import { previewStore, selectionItemId } from "../previewStore";
 import { useRepeatableItemActions, type RepeatableArraySchema } from "./useRepeatableItemActions";
@@ -70,29 +69,14 @@ const SortableRepeatableItem = ({
   // Check if this item is currently selected
   const isSelected = selectionItemId(usePreviewTargetSelection()) === item.id;
 
-  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
+  const { send } = useEditingFrame();
 
   const shouldShowHover = !isDragging && !isSelected;
 
-  const handleMouseEnter = () => {
-    if (!iframeElement?.contentWindow) return;
-    const message: OverlayMessage = {
-      type: "CAMOX_HOVER_REPEATABLE_ITEM",
-      blockId: blockId,
-      itemId: item.id,
-    };
-    iframeElement.contentWindow.postMessage(message, "*");
-  };
-
-  const handleMouseLeave = () => {
-    if (!iframeElement?.contentWindow) return;
-    const message: OverlayMessage = {
-      type: "CAMOX_HOVER_REPEATABLE_ITEM_END",
-      blockId: blockId,
-      itemId: item.id,
-    };
-    iframeElement.contentWindow.postMessage(message, "*");
-  };
+  const handleMouseEnter = () =>
+    send({ type: "CAMOX_HOVER_REPEATABLE_ITEM", blockId, itemId: item.id });
+  const handleMouseLeave = () =>
+    send({ type: "CAMOX_HOVER_REPEATABLE_ITEM_END", blockId, itemId: item.id });
 
   return (
     <li>

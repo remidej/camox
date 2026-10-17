@@ -2,7 +2,12 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+  inScope,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -77,20 +82,16 @@ async function fixture(type: "templated" | "raw") {
     })
     .returning()
     .get();
-  const block = await runService(
-    createBlock(
-      ctx,
-      {
-        pageId: page.id,
-        type,
-        content: {
-          heading: "Space",
-          visual: titled,
-          scenes: [{ caption: "Moon", scene: untitled }],
-        },
+  const block = await seedLiveThrough(ctx, base.project.id, (draft) =>
+    createBlock(inScope(ctx, draft), {
+      pageId: page.id,
+      type,
+      content: {
+        heading: "Space",
+        visual: titled,
+        scenes: [{ caption: "Moon", scene: untitled }],
       },
-      null,
-    ),
+    }),
   );
   const [item] = await base.db
     .select()
@@ -105,7 +106,7 @@ const prompts = () => JSON.stringify(chat.mock.calls);
 describe("artifact Markdown Representation", () => {
   it("is the artifact's title, or Untitled artifact", async () => {
     const { ctx, page } = await fixture("templated");
-    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }, null));
+    const { markdown } = await runService(getPageMarkdown(inScope(ctx, null), { pageId: page.id }));
     expect(markdown).toContain("Orbiting moons");
     expect(markdown).toMatch(/Moon — Untitled artifact/);
     expect(markdown).not.toMatch(SOURCE_PIECES);
@@ -115,7 +116,7 @@ describe("artifact Markdown Representation", () => {
 describe("artifact sources are kept out of LLM-bound fallbacks", () => {
   it("page markdown of blocks without a Markdown template", async () => {
     const { ctx, page } = await fixture("raw");
-    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }, null));
+    const { markdown } = await runService(getPageMarkdown(inScope(ctx, null), { pageId: page.id }));
     expect(markdown).toContain("Space");
     expect(markdown).toContain("Orbiting moons");
     expect(markdown).not.toMatch(SOURCE_PIECES);

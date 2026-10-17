@@ -4,16 +4,15 @@ import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { Kbd } from "@camox/ui/kbd";
 import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
-import { useSelector } from "@xstate/store-react";
 import { Bold, Italic, Strikethrough, Highlighter } from "lucide-react";
 import * as React from "react";
 
 import { TextLinkPopover } from "@/core/components/lexical/TextLinkPopover";
 
 import { FORMAT_FLAGS } from "../../../core/lib/modifierFormats";
+import { useEditingFrame } from "../editingFrame";
 import type { OverlayMessage } from "../overlayMessages";
 import { isOverlayMessage } from "../overlayMessages";
-import { previewStore } from "../previewStore";
 
 const FORMAT_BUTTONS = [
   { key: "bold", flag: FORMAT_FLAGS.bold, icon: Bold, label: "Bold", shortcut: "⌘ B" },
@@ -35,7 +34,7 @@ const FORMAT_BUTTONS = [
 ] as const;
 
 export const FieldToolbar = ({ document }: { document: Document }) => {
-  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
+  const { send } = useEditingFrame();
 
   const [hasSelection, setHasSelection] = React.useState(false);
   const [activeFormats, setActiveFormats] = React.useState(0);
@@ -101,10 +100,7 @@ export const FieldToolbar = ({ document }: { document: Document }) => {
   }, [document, updateAnchor]);
 
   const sendFormat = (formatKey: string) => {
-    iframeElement?.contentWindow?.postMessage(
-      { type: "CAMOX_FORMAT_TEXT", formatKey } satisfies OverlayMessage,
-      "*",
-    );
+    send({ type: "CAMOX_FORMAT_TEXT", formatKey });
   };
 
   const handleLinkPopoverOpenChange = (open: boolean) => {
@@ -113,10 +109,7 @@ export const FieldToolbar = ({ document }: { document: Document }) => {
   };
 
   const sendTextLink = (target: string | null, text?: string) => {
-    iframeElement?.contentWindow?.postMessage(
-      { type: "CAMOX_TOGGLE_TEXT_LINK", target, text } satisfies OverlayMessage,
-      "*",
-    );
+    send({ type: "CAMOX_TOGGLE_TEXT_LINK", target, text });
     handleLinkPopoverOpenChange(false);
   };
 
