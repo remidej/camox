@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import type { AiModel } from "../../lib/ai-model";
+import { Background } from "../../lib/background";
 import {
   type GenerationJob,
   GenerationScheduler,
@@ -108,7 +109,8 @@ const keyOf = (entity: JobEntity, entityId: string): ValueKey => ({
 /**
  * Requests an entity's value in a scope, unless its group is manual: marks it pending and
  * schedules its job, after the kind's debounce or `immediately`. A newer request for the same
- * entity and scope replaces a pending job. A job that can't be scheduled leaves nothing pending.
+ * entity and scope replaces a pending job. Scheduling doesn't hold up the request: it runs after
+ * it, and a job that can't be scheduled settles its request, leaving nothing pending.
  */
 export const requestGeneration = Effect.fn("generation.request")(function* (
   db: Database,
@@ -128,15 +130,18 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
     draftId: home.draftId,
   };
   const scheduler = yield* GenerationScheduler;
-  yield* scheduler
-    .schedule(job, options.immediately ? 0 : kind.debounceMs)
-    .pipe(
-      Effect.catchTag("ScheduleError", (error) =>
-        Effect.logError(`[generation] ${jobName(job)} could not be scheduled`, error.cause).pipe(
-          Effect.andThen(settleRequest(db, home, key, requestedAt)),
+  const background = yield* Background;
+  yield* background.run(
+    scheduler
+      .schedule(job, options.immediately ? 0 : kind.debounceMs)
+      .pipe(
+        Effect.catchTag("ScheduleError", (error) =>
+          Effect.logError(`[generation] ${jobName(job)} could not be scheduled`, error.cause).pipe(
+            Effect.andThen(settleRequest(db, home, key, requestedAt)),
+          ),
         ),
       ),
-    );
+  );
 });
 
 /**

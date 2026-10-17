@@ -1,6 +1,7 @@
 import { Context, Effect } from "effect";
 
 import { AiModel } from "../src/lib/ai-model";
+import { Background, inline } from "../src/lib/background";
 import {
   type GenerationJob,
   GenerationScheduler,
@@ -89,4 +90,8 @@ export const failNextSchedule = () => {
 
 /** The services `runService` and the job Durable Object provide, in tests. */
 export const testGenerationServices = () =>
-  Context.make(AiModel, scriptedModel).pipe(Context.add(GenerationScheduler, recordingScheduler));
+  Context.make(AiModel, scriptedModel).pipe(
+    Context.add(GenerationScheduler, recordingScheduler),
+    // Scheduling runs before the request answers, so tests see the jobs it scheduled.
+    Context.add(Background, inline),
+  );

@@ -3,6 +3,7 @@ import { Effect, Option, Schema } from "effect";
 
 import { createDb } from "../db";
 import { runGenerationJob } from "../domains/generated-values/generation";
+import { inline } from "../lib/background";
 import { generationServices } from "../lib/generation-adapters";
 import { entityOfStoredName, type GenerationJob, jobName } from "../lib/generation-scheduler";
 import { announce } from "../lib/invalidation";
@@ -63,7 +64,8 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       // Cloudflare retries the alarm with backoff. What the job generated reaches the project's
       // viewers like any write (ADR 0012).
       const run = runGenerationJob(createDb(this.env.DB), job.value).pipe(
-        Effect.provideContext(generationServices(this.env)),
+        // The alarm waits for what the job schedules: nothing answers sooner for it.
+        Effect.provideContext(generationServices(this.env, inline)),
         Effect.annotateLogs("job", jobName(job.value)),
       );
       await Effect.runPromise(journaled(run, announce));
