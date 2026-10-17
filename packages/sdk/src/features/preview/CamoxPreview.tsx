@@ -17,6 +17,7 @@ import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
+import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview } from "./components/CanvasPreview";
@@ -30,7 +31,7 @@ import {
   useDerivedPageResult,
   useFollowPageRecord,
 } from "./pageRecord";
-import { EDIT_MODE_SHORTCUT } from "./previewConstants";
+import { EDIT_MODE_SHORTCUT, SHOW_CANVAS_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
 import { previewStore, selectIsEditMode, type EditingOwner } from "./previewStore";
 import { usePreviewViewportActions } from "./usePreviewViewportActions";
@@ -477,6 +478,37 @@ export const PreviewShell = ({
     </CollectionItemModalProvider>
   );
 };
+
+/** Zooms out to the whole Canvas, from anywhere in the site or the Studio. */
+export function useShowCanvasAction() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isMobileStudio = useIsMobileStudio();
+
+  React.useEffect(() => {
+    const actions = [
+      {
+        id: "show-canvas",
+        label: "Show whole canvas",
+        aliases: ["Canvas", "Show canvas", "Zoom out", "Canvas overview", "Back to the canvas"],
+        groupLabel: "Navigation",
+        // The Canvas needs room the mobile Studio doesn't have.
+        checkIfAvailable: () => !isMobileStudio,
+        execute: () => {
+          previewStore.send({ type: "enterEditMode" });
+          if (pathname !== STUDIO_CANVAS_PATH) void navigate({ to: STUDIO_CANVAS_PATH });
+          canvasStore.send({ type: "requestOverview" });
+        },
+        shortcut: SHOW_CANVAS_SHORTCUT,
+      },
+    ] satisfies Action[];
+
+    actionsStore.send({ type: "registerManyActions", actions });
+    return () => {
+      actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
+    };
+  }, [navigate, pathname, isMobileStudio]);
+}
 
 export function usePreviewPagesActions() {
   const navigate = useNavigate();

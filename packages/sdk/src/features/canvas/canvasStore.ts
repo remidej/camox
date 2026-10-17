@@ -13,9 +13,12 @@ export const canvasStore = createStore({
     views: {} as Partial<Record<string, CanvasView>>,
     /** Workspaces whose camera is moving, until it has been still for a moment. */
     moving: {} as Partial<Record<string, boolean>>,
+    /** Counts requests to zoom out to the whole Canvas; a mounted Canvas answers each new one. */
+    overviewRequests: 0,
   },
   on: {
-    reset: () => ({ views: {}, moving: {} }),
+    reset: () => ({ views: {}, moving: {}, overviewRequests: 0 }),
+    requestOverview: (context) => ({ ...context, overviewRequests: context.overviewRequests + 1 }),
     setCameraMoving: (context, event: { workspaceKey: string; moving: boolean }) => {
       if (!!context.moving[event.workspaceKey] === event.moving) return context;
       return { ...context, moving: { ...context.moving, [event.workspaceKey]: event.moving } };

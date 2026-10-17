@@ -647,6 +647,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           await React.act(async () => sidebars.get("Canvas")!.onShowCanvas!());
           assert.deepEqual(navigations.splice(0), [{ to: "/camox/canvas", source: "canvas" }]);
           assert.deepEqual(actions, ["cancel", "fit all"]);
+
+          // A request from outside the Canvas, like the show whole canvas action, zooms out too.
+          actions.length = 0;
+          await React.act(async () => canvasStore.send({ type: "requestOverview" }));
+          assert.deepEqual(actions, ["fit all"]);
         } finally {
           globals.CanvasNavigate = committingNavigate;
           await React.act(async () => root.unmount());

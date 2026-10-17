@@ -6,7 +6,7 @@ import { AuthContext, useAuthActions } from "../../lib/auth";
 import { useDraftScope } from "../../lib/draft-scope";
 import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import { useProjectRoom } from "../../lib/use-project-room";
-import { usePreviewPagesActions } from "../preview/CamoxPreview";
+import { usePreviewPagesActions, useShowCanvasAction } from "../preview/CamoxPreview";
 import { useNavbarActions } from "../studio/components/Navbar";
 import { draftNoticeMessage } from "../studio/draftNotice";
 import { useApplyTheme, useThemeActions } from "../studio/useTheme";
@@ -20,6 +20,7 @@ export function AuthenticatedCamoxProvider({ children }: { children: React.React
   useAuthActions();
   useNavbarActions();
   usePreviewPagesActions();
+  useShowCanvasAction();
 
   const { apiUrl, projectSlug } = React.useContext(AuthContext)!;
   const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
