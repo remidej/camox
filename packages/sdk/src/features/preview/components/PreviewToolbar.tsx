@@ -24,7 +24,8 @@ export const PreviewToolbar = ({ onEditModeChange }: PreviewToolbarProps) => {
   if (isToolbarHidden) return null;
 
   return (
-    <FloatingToolbar className="bottom-2 w-max justify-between gap-6 transition-none">
+    // Fixed, so it centers on the viewport rather than on the column beside the sidebars.
+    <FloatingToolbar className="fixed bottom-2 w-max justify-between gap-6 transition-none">
       <div className="flex shrink-0 items-center gap-2 px-2">
         <Switch
           id="edit-mode"

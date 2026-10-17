@@ -15,6 +15,7 @@ import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
 import { PreviewSignInPage } from "../provider/PreviewSignInPage";
+import { EditModeFallbackSlot } from "./editModeFallback";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
@@ -155,7 +156,11 @@ function PageExperience({
             <React.Suspense fallback={loading}>{editor ?? loading}</React.Suspense>
           ) : (
             <PreviewActivation
-              fallback={<Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>}
+              fallback={
+                <EditModeFallbackSlot derived={!!input.derived}>
+                  <Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>
+                </EditModeFallbackSlot>
+              }
             >
               {editor}
             </PreviewActivation>

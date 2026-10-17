@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from "../navigation/navigation";
 import { AddBlockDialog } from "../preview/components/AddBlockDialog";
 import { CreatePageModal } from "../preview/components/CreatePageModal";
 import { PageSidebar } from "../preview/components/PageSidebar";
+import { PageSidebarSkeleton } from "../preview/components/PageSidebarSkeleton";
 import type { PageRecordId } from "../preview/pageRecord";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import type { EditingOwner } from "../preview/previewStore";
@@ -14,10 +15,10 @@ import { CanvasItemSidebar } from "./CanvasItemSidebar";
 import { CanvasNavigatorSidebar } from "./CanvasNavigatorSidebar";
 import type { CanvasPage } from "./canvasPages";
 
-function SidebarMessage({ error = false }: { error?: boolean }) {
+function SidebarError() {
   return (
-    <p role={error ? "alert" : "status"} className="p-4">
-      {error ? "This page’s sidebar could not be loaded." : "Loading page sidebar…"}
+    <p role="alert" className="p-4">
+      This page’s sidebar could not be loaded.
     </p>
   );
 }
@@ -30,7 +31,7 @@ class SidebarBoundary extends React.Component<{ children: React.ReactNode }, { f
   }
 
   render() {
-    if (this.state.failed) return <SidebarMessage error />;
+    if (this.state.failed) return <SidebarError />;
     return this.props.children;
   }
 }
@@ -150,7 +151,9 @@ export function CanvasSidebar({
     <CanvasItemSidebar title={page.title} onBack={onShowCanvas}>
       <PreviewEditingOwnerContext value={owner}>
         <SidebarBoundary key={`${page.key}:${pathname}`}>
-          <React.Suspense fallback={<SidebarMessage />}>
+          <React.Suspense
+            fallback={<PageSidebarSkeleton derived={page.pageId == null && !!page.layoutId} />}
+          >
             {page.pageId != null ? (
               <CuratedSidebar />
             ) : page.layoutId ? (

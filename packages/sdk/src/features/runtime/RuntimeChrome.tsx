@@ -2,11 +2,21 @@ import { useSelector } from "@xstate/store-react";
 import type { ReactNode } from "react";
 import studioCssUrl from "virtual:camox-studio-css";
 
+import { EditModePreviewFallback } from "../preview/components/EditModePreviewFallback";
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
 import { previewStore, selectIsEditMode } from "../preview/previewStore";
 import { ChatSidebar } from "../studio/components/ChatSidebar";
 import { Navbar } from "../studio/components/Navbar";
+import { EditModeFallbackContext } from "./editModeFallback";
 import type { PageRenderInput } from "./runtime";
+
+const renderEditModeFallback = ({
+  derived,
+  children,
+}: {
+  derived: boolean;
+  children: ReactNode;
+}) => <EditModePreviewFallback derived={derived}>{children}</EditModePreviewFallback>;
 
 export function RuntimeChrome({
   input,
@@ -30,7 +40,12 @@ export function RuntimeChrome({
         </div>
         <div className="flex min-h-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              {/* A Canvas-only location has no page to lay out while the editor loads. */}
+              <EditModeFallbackContext value={input.canvasOnly ? null : renderEditModeFallback}>
+                {children}
+              </EditModeFallbackContext>
+            </div>
             {/* Kept at a stable position, outside route Suspense and editor imports. */}
             <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
               <PreviewToolbar />
