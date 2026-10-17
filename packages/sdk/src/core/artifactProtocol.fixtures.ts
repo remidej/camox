@@ -5,7 +5,7 @@ type Viewport = { progress: number; visibleRatio: number };
 /** What an artifact sees of its `camox` runtime. */
 export type ArtifactWindow = Window & {
   camox: {
-    readonly studio: { editMode: boolean; canvas: boolean } | null;
+    readonly studio: { editing: boolean; canvas: boolean } | null;
     readonly data: Record<string, unknown>;
     onData(callback: (data: Record<string, unknown>) => void): () => void;
     readonly theme: ArtifactTheme;

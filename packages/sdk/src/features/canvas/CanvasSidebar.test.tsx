@@ -186,7 +186,7 @@ async function setup() {
                   page={page}
                   catalog={catalog}
                   navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
-                  onShowCanvas={() => canvasShown++}
+                  onShowWholeCanvas={() => canvasShown++}
                 />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
@@ -204,7 +204,7 @@ async function setup() {
       await React.act(async () => root.unmount());
       client.clear();
       store.send({ type: "activatePage", pageId: null });
-      store.send({ type: "exitEditMode" });
+      store.send({ type: "hideCanvas" });
       await dom.happyDOM.close();
       for (const [key, descriptor] of previous) {
         if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -216,7 +216,7 @@ async function setup() {
 
 void test("curated sidebar shares the selected path cache and forwards sidebar/dialog site navigation", async () => {
   const dom = await setup();
-  dom.store.send({ type: "enterEditMode" });
+  dom.store.send({ type: "showCanvas" });
   dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
   const snapshot = dom.store.getSnapshot();
   try {
@@ -268,7 +268,7 @@ function clientPage(client: QueryClient, path: string) {
 
 void test("singleton and derived layout sidebars load shared layouts, seed their blocks, and use full URL pages", async () => {
   const dom = await setup();
-  dom.store.send({ type: "enterEditMode" });
+  dom.store.send({ type: "showCanvas" });
   try {
     for (const [path, page] of [
       ["/about", singleton],

@@ -6,7 +6,7 @@ import { artifactFrameProps } from "./lib/artifact";
 import { connectArtifactHost } from "./lib/artifactHost";
 
 const srcDoc = artifactFrameProps("<!doctype html><title>Orbit</title><svg></svg>").srcDoc;
-const editing = { editMode: true, canvas: false };
+const editing = { editing: true, canvas: false };
 
 /** `camox.studio` as seen by the artifact, copied out of its realm for comparison. */
 function studioOf(artifact: ArtifactWindow) {
@@ -20,7 +20,7 @@ void test("an artifact sees the studio context once its frame connects", async (
   connectArtifactHost(frame, { studio: editing });
   const artifact = harness.load(frame, srcDoc);
   await harness.settle();
-  assert.deepEqual(studioOf(artifact), { editMode: true, canvas: false });
+  assert.deepEqual(studioOf(artifact), { editing: true, canvas: false });
 });
 
 void test("an artifact that loaded before its host connected still sees the studio context", async () => {
@@ -30,23 +30,23 @@ void test("an artifact that loaded before its host connected still sees the stud
   await harness.settle();
   connectArtifactHost(frame, { studio: editing });
   await harness.settle();
-  assert.deepEqual(studioOf(artifact), { editMode: true, canvas: false });
+  assert.deepEqual(studioOf(artifact), { editing: true, canvas: false });
 });
 
-void test("camox.studio follows Edit Mode as it toggles", async () => {
+void test("camox.studio follows the Canvas as it shows and hides", async () => {
   const harness = createArtifactPage();
   const frame = harness.addFrame();
-  const host = connectArtifactHost(frame, { studio: { editMode: true, canvas: true } });
+  const host = connectArtifactHost(frame, { studio: { editing: true, canvas: true } });
   const artifact = harness.load(frame, srcDoc);
   await harness.settle();
 
-  host.update({ studio: { editMode: false, canvas: true } });
+  host.update({ studio: { editing: false, canvas: true } });
   await harness.settle();
-  assert.deepEqual(studioOf(artifact), { editMode: false, canvas: true });
+  assert.deepEqual(studioOf(artifact), { editing: false, canvas: true });
 
-  host.update({ studio: { editMode: true, canvas: true } });
+  host.update({ studio: { editing: true, canvas: true } });
   await harness.settle();
-  assert.deepEqual(studioOf(artifact), { editMode: true, canvas: true });
+  assert.deepEqual(studioOf(artifact), { editing: true, canvas: true });
 });
 
 void test("camox.studio is null on the website", async () => {
@@ -63,12 +63,12 @@ void test("each artifact on a page sees only its own host's context", async () =
   const editingFrame = harness.addFrame();
   const previewFrame = harness.addFrame();
   connectArtifactHost(editingFrame, { studio: editing });
-  connectArtifactHost(previewFrame, { studio: { editMode: false, canvas: true } });
+  connectArtifactHost(previewFrame, { studio: { editing: false, canvas: true } });
   const editingArtifact = harness.load(editingFrame, srcDoc);
   const previewArtifact = harness.load(previewFrame, srcDoc);
   await harness.settle();
-  assert.deepEqual(studioOf(editingArtifact), { editMode: true, canvas: false });
-  assert.deepEqual(studioOf(previewArtifact), { editMode: false, canvas: true });
+  assert.deepEqual(studioOf(editingArtifact), { editing: true, canvas: false });
+  assert.deepEqual(studioOf(previewArtifact), { editing: false, canvas: true });
 });
 
 void test("a reloaded artifact sees the latest studio context", async () => {
@@ -77,10 +77,10 @@ void test("a reloaded artifact sees the latest studio context", async () => {
   const host = connectArtifactHost(frame, { studio: editing });
   harness.load(frame, srcDoc);
   await harness.settle();
-  host.update({ studio: { editMode: false, canvas: false } });
+  host.update({ studio: { editing: false, canvas: false } });
   const reloaded = harness.load(frame, srcDoc);
   await harness.settle();
-  assert.deepEqual(studioOf(reloaded), { editMode: false, canvas: false });
+  assert.deepEqual(studioOf(reloaded), { editing: false, canvas: false });
 });
 
 void test("a disconnected host no longer connects its artifact", async () => {
@@ -120,7 +120,7 @@ void test("new Artifact Data reaches camox.data and onData callbacks", async () 
 
 void test("unchanged Artifact Data calls no onData callback", async () => {
   const { harness, host, seen } = await loadWithData({ label: "Speed" });
-  host.update({ studio: { editMode: false, canvas: false }, data: { label: "Speed" } });
+  host.update({ studio: { editing: false, canvas: false }, data: { label: "Speed" } });
   await harness.settle();
   assert.deepEqual(seen, []);
 });

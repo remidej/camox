@@ -20,15 +20,15 @@ import { UserButton } from "./UserButton";
 const links = [
   {
     to: "/",
-    title: "Preview",
+    title: "Website",
     children: (
       <>
         <Globe className="h-4 w-4" />
-        Preview
+        Website
       </>
     ),
     icon: "Globe",
-    aliases: ["Preview", "Website"],
+    aliases: ["Website"],
   },
   {
     to: STUDIO_CONTENT_PATH as LinkProps["to"],
@@ -55,7 +55,7 @@ export const getNavbarLinks = () => links;
 export const isContentNavbarPath = (pathname: string) =>
   pathname === STUDIO_CONTENT_PATH || pathname.startsWith(`${STUDIO_CONTENT_PATH}/`);
 
-const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
+const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
   const pages = usePageDestinations();
 
   const { pathname } = useLocation();
@@ -67,8 +67,8 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         </div>
         <ul className="flex items-center gap-1">
           {getNavbarLinks().map((link, index) => {
-            const isPreviewActive =
-              index === 0 && (isPreview || pages?.some((page) => page.fullPath === pathname));
+            const isWebsiteActive =
+              index === 0 && (isWebsite || pages?.some((page) => page.fullPath === pathname));
             const isContentActive =
               link.to === STUDIO_CONTENT_PATH && isContentNavbarPath(pathname);
             return (
@@ -81,7 +81,7 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
                     // interaction styles
                     "hover:bg-accent hover:text-accent-foreground outline-none transition-[color,box-shadow] focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
                     // active style
-                    isPreviewActive || isContentActive
+                    isWebsiteActive || isContentActive
                       ? "bg-accent hover:bg-accent text-accent-foreground"
                       : "text-muted-foreground",
                   )}

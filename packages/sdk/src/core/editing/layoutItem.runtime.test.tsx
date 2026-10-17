@@ -183,7 +183,7 @@ function setup() {
   requests.length = 0;
   selections.length = 0;
   previewStore.send({ type: "reset" });
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   const client = new QueryClient();
   const loaded = envelope(article);
   /**

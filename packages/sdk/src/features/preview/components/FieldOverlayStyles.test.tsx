@@ -20,7 +20,7 @@ registerHooks({
   },
 });
 
-void test("edit mode disables all nested iframes, not selection wrappers or the outer page frame", async () => {
+void test("the Canvas disables all nested iframes, not selection wrappers or the outer page frame", async () => {
   const host = new Window();
   const page = new Window();
   const TestFrameContext = React.createContext({ window: page });
@@ -49,12 +49,12 @@ void test("edit mode disables all nested iframes, not selection wrappers or the 
   const embedded = wrapper.querySelector("iframe")!;
   const raw = page.document.getElementById("raw")!;
   const frameRoot = page.document.documentElement;
-  previewStore.send({ type: "exitEditMode" });
+  previewStore.send({ type: "hideCanvas" });
   try {
     await React.act(async () => root.render(<FieldOverlayStyles />));
-    assert.equal(frameRoot.hasAttribute("data-camox-edit-mode"), false);
-    await React.act(async () => previewStore.send({ type: "enterEditMode" }));
-    assert.equal(frameRoot.hasAttribute("data-camox-edit-mode"), true);
+    assert.equal(frameRoot.hasAttribute("data-camox-canvas-shown"), false);
+    await React.act(async () => previewStore.send({ type: "showCanvas" }));
+    assert.equal(frameRoot.hasAttribute("data-camox-canvas-shown"), true);
     assert.equal(pointerEvents(embedded), "none");
     assert.equal(pointerEvents(raw), "none");
     assert.notEqual(pointerEvents(wrapper), "none");
@@ -62,20 +62,20 @@ void test("edit mode disables all nested iframes, not selection wrappers or the 
       host.getComputedStyle(host.document.querySelector("iframe")!).pointerEvents,
       "none",
     );
-    assert.equal(host.document.documentElement.hasAttribute("data-camox-edit-mode"), false);
+    assert.equal(host.document.documentElement.hasAttribute("data-camox-canvas-shown"), false);
 
     // CSS also covers widgets mounted after editing is enabled, without an observer.
     const late = page.document.createElement("iframe");
     page.document.body.appendChild(late);
     assert.equal(pointerEvents(late), "none");
-    await React.act(async () => previewStore.send({ type: "exitEditMode" }));
-    assert.equal(frameRoot.hasAttribute("data-camox-edit-mode"), false);
-    await React.act(async () => previewStore.send({ type: "enterEditMode" }));
+    await React.act(async () => previewStore.send({ type: "hideCanvas" }));
+    assert.equal(frameRoot.hasAttribute("data-camox-canvas-shown"), false);
+    await React.act(async () => previewStore.send({ type: "showCanvas" }));
     await React.act(async () => root.unmount());
-    assert.equal(frameRoot.hasAttribute("data-camox-edit-mode"), false);
+    assert.equal(frameRoot.hasAttribute("data-camox-canvas-shown"), false);
   } finally {
     await React.act(async () => root.unmount());
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await page.happyDOM.close();
     await host.happyDOM.close();
     for (const [key, descriptor] of previous) {

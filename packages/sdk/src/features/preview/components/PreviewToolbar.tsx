@@ -9,15 +9,15 @@ import { X } from "lucide-react";
 import { DeviceSelector } from "@/components/DeviceSelector";
 import { formatShortcut } from "@/lib/utils";
 
-import { EDIT_MODE_SHORTCUT } from "../previewConstants";
-import { previewStore, selectIsEditMode } from "../previewStore";
+import { TOGGLE_CANVAS_SHORTCUT } from "../previewConstants";
+import { previewStore, selectIsCanvasShown } from "../previewStore";
 
 interface PreviewToolbarProps {
-  onEditModeChange?: (checked: boolean) => void;
+  onCanvasShownChange?: (checked: boolean) => void;
 }
 
-export const PreviewToolbar = ({ onEditModeChange }: PreviewToolbarProps) => {
-  const isEditMode = useSelector(previewStore, selectIsEditMode);
+export const PreviewToolbar = ({ onCanvasShownChange }: PreviewToolbarProps) => {
+  const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
@@ -28,21 +28,21 @@ export const PreviewToolbar = ({ onEditModeChange }: PreviewToolbarProps) => {
     <FloatingToolbar className="fixed bottom-2 w-max justify-between gap-6 transition-none">
       <div className="flex shrink-0 items-center gap-2 px-2">
         <Switch
-          id="edit-mode"
-          checked={isEditMode}
+          id="show-canvas"
+          checked={isCanvasShown}
           onCheckedChange={(checked) => {
-            if (onEditModeChange) {
-              onEditModeChange(checked);
+            if (onCanvasShownChange) {
+              onCanvasShownChange(checked);
               return;
             }
 
             previewStore.send({
-              type: checked ? "enterEditMode" : "exitEditMode",
+              type: checked ? "showCanvas" : "hideCanvas",
             });
           }}
         />
-        <Label htmlFor="edit-mode" className="flex items-center gap-2">
-          Edit mode {formatShortcut(EDIT_MODE_SHORTCUT)}
+        <Label htmlFor="show-canvas" className="flex items-center gap-2">
+          Show canvas {formatShortcut(TOGGLE_CANVAS_SHORTCUT)}
         </Label>
       </div>
       <div className="flex shrink-0 items-center gap-6 self-stretch">
@@ -64,7 +64,7 @@ export const PreviewToolbar = ({ onEditModeChange }: PreviewToolbarProps) => {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  disabled={isEditMode}
+                  disabled={isCanvasShown}
                   onClick={() => previewStore.send({ type: "hideToolbar" })}
                   aria-label="Hide toolbar"
                   className="text-muted-foreground"

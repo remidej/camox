@@ -31,7 +31,7 @@ void test("the minified runtime still connects, and shares data, studio and them
   harness.page.document.head.append(style);
   const frame = harness.addFrame();
   const data = { label: "Uptime" };
-  connectArtifactHost(frame, { studio: { editMode: true, canvas: false }, data });
+  connectArtifactHost(frame, { studio: { editing: true, canvas: false }, data });
   const artifact = harness.load(
     frame,
     `<!doctype html><script>${minifiedRuntime()}</script>` +
@@ -41,7 +41,7 @@ void test("the minified runtime still connects, and shares data, studio and them
   await harness.settle();
 
   assert.equal(artifact.camox.data.label, "Uptime");
-  assert.equal(artifact.camox.studio?.editMode, true);
+  assert.equal(artifact.camox.studio?.editing, true);
   assert.equal(artifact.camox.theme.tokens["--radius"], "0.5rem");
   assert.deepEqual({ ...artifact.camox.theme.colors["--primary"] }, { r: 51, g: 102, b: 153 });
 });

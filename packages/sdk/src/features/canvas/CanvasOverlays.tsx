@@ -6,7 +6,7 @@ import * as React from "react";
 import { FieldToolbar } from "../preview/components/FieldToolbar";
 import { useEditingFrame } from "../preview/editingFrame";
 import { postOverlayMessage } from "../preview/overlayMessages";
-import { previewStore, selectIsEditMode } from "../preview/previewStore";
+import { previewStore, selectIsCanvasShown } from "../preview/previewStore";
 import { canvasInsertionSeams } from "./canvasInsertionSeams";
 import {
   observeCanvasOverlays,
@@ -46,7 +46,7 @@ export function CanvasOverlays({
   children: React.ReactNode;
 }) {
   const [targets, setTargets] = React.useState<CanvasOverlayTarget[]>([]);
-  const isEditMode = useSelector(previewStore, selectIsEditMode);
+  const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
   const shown = React.use(CanvasOverlaysShownContext);
   const { document: editingDocument } = useEditingFrame();
   const [breadcrumbHoveredDocument, setBreadcrumbHoveredDocument] = React.useState<Document | null>(
@@ -86,7 +86,7 @@ export function CanvasOverlays({
           height: "calc(100% * var(--canvas-zoom, 1))",
           zIndex: 10,
           pointerEvents: "none",
-          display: isEditMode && shown ? "block" : "none",
+          display: isCanvasShown && shown ? "block" : "none",
           transform: "scale(calc(1 / var(--canvas-zoom, 1)))",
           transformOrigin: "0 0",
         }}
@@ -98,7 +98,7 @@ export function CanvasOverlays({
             style={{ position: "absolute", inset: 0 }}
           />
         )}
-        {isEditMode && isEditingFrame && <FieldToolbar document={document} />}
+        {isCanvasShown && isEditingFrame && <FieldToolbar document={document} />}
         {targets.flatMap((target, index) =>
           target.hovered || target.focused
             ? target.rects.map((rect, fragment) => (
@@ -113,7 +113,7 @@ export function CanvasOverlays({
               ))
             : [],
         )}
-        {isEditMode &&
+        {isCanvasShown &&
           seams.map((seam) => (
             <div
               key={seam.key}

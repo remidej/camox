@@ -97,7 +97,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     previewDocument: "<html><head></head><body><div data-camox-preview-root></div></body></html>",
     dehydratedState: { queries: [], mutations: [] },
   } as unknown as PageRenderInput;
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     await React.act(async () => {
       root.render(
@@ -124,7 +124,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     assert.equal(
       (host.querySelector("[data-canvas-overlays]") as unknown as HTMLElement).style.display,
       "block",
-      "edit mode shows the overlay layer",
+      "the shown Canvas shows the overlay layer",
     );
     await React.act(async () => {
       root.render(
@@ -199,7 +199,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     await frame.happyDOM.close();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -312,7 +312,7 @@ void test("selected ready frames own editing without a click and follow URL sele
     );
   }
   const studio = await editingFrameHarness(dom.document as unknown as Document);
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     await React.act(async () => root.render(<Workspace pathname="/about" />));
     const iframes = [...host.querySelectorAll("iframe")];
@@ -383,7 +383,7 @@ void test("selected ready frames own editing without a click and follow URL sele
     await studio.close();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

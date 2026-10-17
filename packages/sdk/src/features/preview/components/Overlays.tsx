@@ -8,7 +8,7 @@ import { useEditingFrame, type EditingFrameElement } from "../editingFrame";
 import { isOverlayMessage, overlayFieldId, recordFieldId } from "../overlayMessages";
 import {
   previewStore,
-  selectIsEditMode,
+  selectIsCanvasShown,
   selectionForOwner,
   type EditingOwner,
   type Selection,
@@ -37,9 +37,9 @@ function CuratedAddBlockListener({ frame }: { frame: EditingFrameElement | null 
 
       // Handle add block request from the page
       if (message.type === "CAMOX_ADD_BLOCK_REQUEST") {
-        // Ignore stale page messages after leaving Edit Mode.
+        // Ignore stale page messages after hiding the Canvas.
         const snapshot = previewStore.getSnapshot();
-        if (!selectIsEditMode(snapshot)) return;
+        if (!selectIsCanvasShown(snapshot)) return;
         if (!isEditingFrame) return;
         const owner = snapshot.context.editingContext;
         if (owner?.kind !== "page" || owner.pageId !== page.page.id) return;

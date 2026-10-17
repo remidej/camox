@@ -127,7 +127,7 @@ name to edit it inline: the edit changes
 the shared customer, so the testimonial updates too. Agents can also set the
 list through the block edit tools with an array of customer IDs.
 
-1. Add a logo grid to a draft page. In edit mode the empty list shows an "Add
+1. Add a logo grid to a draft page. On the Canvas the empty list shows an "Add
    Customers" placeholder that opens the list view with the picker focused; the
    live site renders nothing. Link two customers, one of which the testimonial
    also uses. Customers never published show a Draft badge on their card.
@@ -144,7 +144,7 @@ The customer highlights block is a repeater whose items each hold
 setting. Each item's `highlight.Reference` renders the shared customer with the same
 typed scope as `testimonial.Reference`; the note and emphasis belong to the item only.
 
-1. Add customer highlights to a draft page. In edit mode each item's unset customer shows a
+1. Add customer highlights to a draft page. On the Canvas each item's unset customer shows a
    "Select Customers" placeholder that opens that item's Customer view with the picker
    focused. Link a customer the testimonial or logo grid also uses.
 2. Select an item in the sidebar and drill into its Customer: the path reads Customer
@@ -189,7 +189,7 @@ membership and order, and the block stores nothing. Both blocks render with the 
 1. In Content → Articles, create at least four articles and publish three of them.
 2. Add a recent articles block to an existing page, and an article list block to another.
    The preview lists drafts too: never-published articles sort first in the recent list,
-   as if published now. In edit mode an empty result renders nothing; there is no "Add"
+   as if published now. On the Canvas an empty result renders nothing; there is no "Add"
    placeholder.
 3. Click an article title in either list to edit it inline: the edit changes the shared
    article, so the other list and the author bio update too. A draft title change re-sorts
@@ -234,7 +234,7 @@ After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm
 
 Editing an article on its page, signed in to Studio:
 
-1. Open `/articles/editing-in-context` in edit mode. The article's fields have purple
+1. Open `/articles/editing-in-context` with the Canvas shown. The article's fields have purple
    outlines, like any shared record. Click its title: the sidebar opens the article's fields
    under Layout → the article's title.
 2. Edit the title inline, or the excerpt in the sidebar. The `/articles` frame's article list

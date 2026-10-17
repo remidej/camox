@@ -156,7 +156,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
         </StudioQueryClientProvider>,
       );
     });
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     await render(siteDocument("Home"));
     assert.equal(
@@ -325,7 +325,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     await React.act(async () => root.unmount());
     await studio.close();
     client.clear();
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await frame.happyDOM.close();
     await restore();
   }
@@ -443,7 +443,7 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
     await React.act(async () => iframe.dispatchEvent(new dom.Event("load")));
     return frame;
   };
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     const sharedFrame = await showFrame(navbar);
     const shared = sharedFrame.document;
@@ -495,7 +495,7 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
   } finally {
     for (const root of roots) await React.act(async () => root.unmount());
     client.clear();
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     for (const frame of frames) await frame.happyDOM.close();
     await restore();
   }

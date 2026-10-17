@@ -165,8 +165,8 @@ const KeyDownForwarder = () => {
  * PreviewPanel
  * -----------------------------------------------------------------------------------------------*/
 
-/** The preview's read-only tree is never editable, whatever the Edit Mode toggle says. */
-const READ_ONLY_ARTIFACT_STUDIO = { editMode: false, canvas: false };
+/** The preview's read-only tree is never editable, whether or not the Canvas shows. */
+const READ_ONLY_ARTIFACT_STUDIO = { editing: false, canvas: false };
 
 const viewportClassName: Record<Exclude<ViewportMode, "full">, string> = {
   tablet: "h-[1024px] w-[768px] max-h-full max-w-full",
@@ -289,7 +289,7 @@ const PreviewPanel = ({
     (element: HTMLDivElement | null) => frame?.setOverlays(element),
     [frame],
   );
-  // The same tree in every placement, so Edit Mode never remounts the page: the
+  // The same tree in every placement, so toggling the Canvas never remounts the page: the
   // editing runtime stays, and the Canvas placement only makes it editable.
   const pageContent = (
     <NavigationLocation location={pageLocation}>

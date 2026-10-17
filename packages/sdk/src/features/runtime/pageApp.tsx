@@ -15,7 +15,7 @@ import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
 import { PreviewSignInPage } from "../provider/PreviewSignInPage";
-import { EditModeFallbackSlot } from "./editModeFallback";
+import { EditingFallbackSlot } from "./editingFallback";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
@@ -157,9 +157,9 @@ function PageExperience({
           ) : (
             <PreviewActivation
               fallback={
-                <EditModeFallbackSlot derived={!!input.derived}>
+                <EditingFallbackSlot derived={!!input.derived}>
                   <Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>
-                </EditModeFallbackSlot>
+                </EditingFallbackSlot>
               }
             >
               {editor}

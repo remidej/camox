@@ -12,7 +12,7 @@ export function normalizeLexicalState(value: string | Record<string, unknown>): 
   else if (typeof value === "string") state = markdownToLexicalState(value);
 
   // Fields are inline content. Preserve paragraph separators as explicit breaks
-  // rather than adjacent paragraph spans that collapse together in edit mode.
+  // rather than adjacent paragraph spans that collapse together while editing.
   const paragraphs = state.root.children;
   if (paragraphs.length <= 1) return JSON.stringify(state);
   const children = paragraphs.flatMap((paragraph: any, index: number) => [

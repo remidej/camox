@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext } from "react";
 
 import {
   previewStore,
-  selectIsEditMode,
+  selectIsCanvasShown,
   selectionForOwner,
   type EditingOwner,
   type Selection,
@@ -17,7 +17,7 @@ export function usePreviewTargetSelection() {
 }
 
 export function selectPreviewTarget(selection: Selection | null, owner: EditingOwner | null) {
-  if (!selectIsEditMode(previewStore.getSnapshot())) return;
+  if (!selectIsCanvasShown(previewStore.getSnapshot())) return;
   if (owner === null) return;
   if (selection?.type === "block") {
     previewStore.send({ type: "setFocusedBlock", ...owner, blockId: selection.blockId });

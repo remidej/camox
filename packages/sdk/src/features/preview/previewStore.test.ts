@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import type { PreviewMode, Selection } from "./previewStore";
+import type { WebsiteView, Selection } from "./previewStore";
 
 // Test real store transitions without browser-only notifications.
 registerHooks({
@@ -204,7 +204,7 @@ void test("parent navigation, insertion focus and modal state remain independent
 void test("preview clicks select the containing page, and unresolved or nonediting clicks do nothing", async () => {
   const { previewStore: store } = await import("./previewStore");
   const { selectPreviewTarget } = await import("./previewSelection");
-  store.send({ type: "enterEditMode" });
+  store.send({ type: "showCanvas" });
   store.send({ type: "activatePage", pageId: "3" });
   const selection: Selection = {
     type: "block-field",
@@ -227,38 +227,38 @@ void test("preview clicks select the containing page, and unresolved or nonediti
   const selected = store.getSnapshot().context.editingContext;
   selectPreviewTarget(selection, null);
   assert.equal(store.getSnapshot().context.editingContext, selected);
-  store.send({ type: "exitEditMode" });
+  store.send({ type: "hideCanvas" });
   selectPreviewTarget(selection, { kind: "page", pageId: "6" });
   assert.equal(store.getSnapshot().context.editingContext, selected);
   store.send({ type: "activatePage", pageId: null });
 });
 
-void test("preview modes have only valid edit combinations across every transition", async () => {
-  const { previewStore, selectIsEditMode } = await import("./previewStore");
-  const modes: PreviewMode[] = ["editing-draft", "previewing-draft"];
+void test("preview views have only valid edit combinations across every transition", async () => {
+  const { previewStore, selectIsCanvasShown } = await import("./previewStore");
+  const views: WebsiteView[] = ["canvas", "preview"];
   const transitions = [
     {
-      type: "enterEditMode",
-      expected: ["editing-draft", "editing-draft"],
+      type: "showCanvas",
+      expected: ["canvas", "canvas"],
     },
     {
-      type: "exitEditMode",
-      expected: ["previewing-draft", "previewing-draft"],
+      type: "hideCanvas",
+      expected: ["preview", "preview"],
     },
   ] as const;
 
-  assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
+  assert.equal(previewStore.getSnapshot().context.view, "preview");
 
-  for (const [index, mode] of modes.entries()) {
+  for (const [index, view] of views.entries()) {
     for (const { type, expected } of transitions) {
-      previewStore.send({ type: "enterEditMode" });
-      if (mode === "previewing-draft") previewStore.send({ type: "exitEditMode" });
+      previewStore.send({ type: "showCanvas" });
+      if (view === "preview") previewStore.send({ type: "hideCanvas" });
 
       previewStore.send({ type });
       const snapshot = previewStore.getSnapshot();
-      assert.equal(snapshot.context.mode, expected[index], `${mode} → ${type}`);
-      assert.equal(selectIsEditMode(snapshot), snapshot.context.mode === "editing-draft");
-      if (type === "enterEditMode") assert.equal(snapshot.context.isToolbarHidden, false);
+      assert.equal(snapshot.context.view, expected[index], `${view} → ${type}`);
+      assert.equal(selectIsCanvasShown(snapshot), snapshot.context.view === "canvas");
+      if (type === "showCanvas") assert.equal(snapshot.context.isToolbarHidden, false);
     }
   }
 });

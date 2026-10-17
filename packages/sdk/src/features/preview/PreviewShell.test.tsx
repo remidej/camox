@@ -139,7 +139,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
     assert.equal(cycle?.shortcut?.key, "m", "viewport commands survive both Canvas modes");
   };
   const reset = () => {
-    store.send({ type: "exitEditMode" });
+    store.send({ type: "hideCanvas" });
   };
   try {
     reset();
@@ -166,7 +166,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
           </PreviewShell>,
         );
         assertPreview();
-        // Edit Mode never remounts the page, in either direction.
+        // Toggling the Canvas never remounts the page, in either direction.
         const content = dom.host.querySelector("[data-content]");
         const assertSameContent = () =>
           assert.equal(dom.host.querySelector("[data-content]"), content);
@@ -176,16 +176,16 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
             "article",
           );
         }
-        await React.act(async () => store.send({ type: "enterEditMode" }));
+        await React.act(async () => store.send({ type: "showCanvas" }));
         assertCanvas();
         assertSameContent();
         assert.ok(canvasImports > 0);
 
-        await React.act(async () => store.send({ type: "exitEditMode" }));
+        await React.act(async () => store.send({ type: "hideCanvas" }));
         assert.equal(count("[data-preview]"), 1);
         assert.equal(count("[data-content]"), 1);
         const kept = dom.host.querySelector("[data-canvas]");
-        assert.ok(kept, "the ready Canvas is kept, so Edit Mode shows it again without loading");
+        assert.ok(kept, "the ready Canvas is kept, so showing it again needs no loading");
         assert.equal(
           (kept.closest("[data-canvas-preparation]") as HTMLElement | null)?.style.display,
           "none",
@@ -194,7 +194,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
         assertSameContent();
         const imports = canvasImports;
 
-        await React.act(async () => store.send({ type: "enterEditMode" }));
+        await React.act(async () => store.send({ type: "showCanvas" }));
         assert.equal(dom.host.querySelector("[data-canvas]"), kept, "the kept Canvas shows again");
         assert.equal(canvasImports, imports);
         assertSameContent();
@@ -202,7 +202,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
     }
 
     await t.test(
-      "entering edit mode before a single frame commits releases the SSR fallback",
+      "showing the Canvas before a single frame commits releases the SSR fallback",
       async () => {
         const { PreviewActivation } = await import("./components/PreviewActivation");
         await dom.render(null);
@@ -215,7 +215,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
           </PreviewActivation>,
         );
         assert.equal(count("[data-server-fallback]"), 1);
-        await React.act(async () => store.send({ type: "enterEditMode" }));
+        await React.act(async () => store.send({ type: "showCanvas" }));
         assertCanvas();
         assert.equal(count("[data-server-fallback]"), 0);
       },
@@ -243,7 +243,7 @@ void test("leaving the preview resets preview and canvas state", async () => {
       </PreviewShell>,
     );
     await React.act(async () => {
-      previewStore.send({ type: "enterEditMode" });
+      previewStore.send({ type: "showCanvas" });
       previewStore.send({ type: "setViewportMode", mode: "mobile" });
       previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "9" });
       canvasStore.send({
@@ -252,7 +252,7 @@ void test("leaving the preview resets preview and canvas state", async () => {
         view: { camera: { x: 1, y: 2, scale: 0.5 }, fitted: false },
       });
     });
-    assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
+    assert.equal(previewStore.getSnapshot().context.view, "canvas");
 
     await dom.render(null);
     assert.deepEqual(previewStore.getSnapshot().context, initialPreview);
@@ -289,7 +289,7 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
       </StudioQueryClientProvider>,
     );
   try {
-    previewStore.send({ type: "enterEditMode" });
+    previewStore.send({ type: "showCanvas" });
     await render();
     const canvas = dom.host.querySelector("[data-canvas]");
     assert.ok(canvas);
@@ -306,7 +306,7 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   } finally {
     await dom.close();
     client.clear();
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
   }
 });
 
@@ -328,7 +328,7 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
       </StudioQueryClientProvider>,
     );
   try {
-    previewStore.send({ type: "enterEditMode" });
+    previewStore.send({ type: "showCanvas" });
     await render();
     const content = dom.host.querySelector("[data-content]");
     assert.ok(content);
@@ -345,11 +345,11 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   } finally {
     await dom.close();
     client.clear();
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
   }
 });
 
-void test("a Block Catalog block opens in Edit Mode, and goes home without the Canvas", async (t) => {
+void test("a Block Catalog block opens on the Canvas, and goes home without it", async (t) => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
@@ -362,15 +362,15 @@ void test("a Block Catalog block opens in Edit Mode, and goes home without the C
   );
   const home = [{ to: "/", replace: true }];
   try {
-    await t.test("a block link enters Edit Mode on the Canvas", async () => {
+    await t.test("a block link shows the Canvas", async () => {
       await dom.render(shell);
-      assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
+      assert.equal(previewStore.getSnapshot().context.view, "canvas");
       assert.ok(dom.host.querySelector("[data-canvas]"));
       assert.deepEqual(navigations, []);
     });
 
-    await t.test("leaving Edit Mode on a block goes home", async () => {
-      await React.act(async () => previewStore.send({ type: "exitEditMode" }));
+    await t.test("hiding the Canvas on a block goes home", async () => {
+      await React.act(async () => previewStore.send({ type: "hideCanvas" }));
       assert.deepEqual(navigations.splice(0), home);
     });
 
@@ -390,7 +390,7 @@ void test("a Block Catalog block opens in Edit Mode, and goes home without the C
     });
   } finally {
     await dom.close();
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     Reflect.deleteProperty(globalThis, "testNavigations");
   }
 });

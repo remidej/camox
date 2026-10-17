@@ -93,14 +93,14 @@ window.camox.onData(render);
 
 `null` on the website. Inside the studio, an object describing where the artifact is shown:
 
-- `editMode`: `true` while an editor has Edit Mode on.
+- `editing`: `true` while editors can edit the artifact's block, on the Canvas.
 - `canvas`: `true` on the Canvas, where pages and blocks are laid out side by side.
 
 ```js
-const editing = window.camox.studio?.editMode === true;
+const editing = window.camox.studio?.editing === true;
 ```
 
-Read it when you act rather than once at startup: it's `null` until the frame connects, and it changes when the editor toggles Edit Mode. Use it to stay calm while someone is editing, for example by not autoplaying sound.
+Read it when you act rather than once at startup: it's `null` until the frame connects, and it changes when the editor shows or hides the Canvas. Use it to stay calm while someone is editing, for example by not autoplaying sound.
 
 ### Theme: `camox.theme` and `camox.onTheme`
 

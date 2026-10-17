@@ -50,7 +50,7 @@ export function matchBlockCatalogPath(pathname: string) {
 }
 
 /**
- * A location that only exists on the Canvas, in Edit Mode: the Canvas with
+ * A location that only exists on the Canvas: the Canvas with
  * nothing selected, or a block of the Block Catalog.
  */
 export function matchCanvasOnlyPath(pathname: string): { blockId?: string } | null {

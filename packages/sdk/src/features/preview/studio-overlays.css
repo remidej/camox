@@ -15,7 +15,7 @@
 
 /* This stylesheet lives inside the page frame. Only nested players/widgets lose
    pointer input; their editable wrappers and the outer canvas frame still receive it. */
-html[data-camox-edit-mode] iframe {
+html[data-camox-canvas-shown] iframe {
   pointer-events: none !important;
 }
 

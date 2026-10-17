@@ -354,11 +354,11 @@ function useBlockActionsShortcuts() {
       {
         id: "delete-selected",
         label: "Delete selected",
-        groupLabel: "Preview",
+        groupLabel: "Website",
         shortcut: { key: "Backspace", withMeta: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (ctx.mode !== "editing-draft") return false;
+          if (ctx.view !== "canvas") return false;
           const sel = blockSelectionForPage(ctx, page.page.id);
           if (!sel) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -405,11 +405,11 @@ function useBlockActionsShortcuts() {
       {
         id: "duplicate-selected",
         label: "Duplicate selected",
-        groupLabel: "Preview",
+        groupLabel: "Website",
         shortcut: { key: "d", withMeta: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (ctx.mode !== "editing-draft") return false;
+          if (ctx.view !== "canvas") return false;
           const sel = blockSelectionForPage(ctx, page.page.id);
           if (!sel) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -438,11 +438,11 @@ function useBlockActionsShortcuts() {
       {
         id: "move-block-up",
         label: "Move block up",
-        groupLabel: "Preview",
+        groupLabel: "Website",
         shortcut: { key: "ArrowUp", withAlt: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (ctx.mode !== "editing-draft") return false;
+          if (ctx.view !== "canvas") return false;
           const sel = blockSelectionForPage(ctx, page.page.id);
           if (!sel || !page) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -467,11 +467,11 @@ function useBlockActionsShortcuts() {
       {
         id: "move-block-down",
         label: "Move block down",
-        groupLabel: "Preview",
+        groupLabel: "Website",
         shortcut: { key: "ArrowDown", withAlt: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (ctx.mode !== "editing-draft") return false;
+          if (ctx.view !== "canvas") return false;
           const sel = blockSelectionForPage(ctx, page.page.id);
           if (!sel || !page) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -497,11 +497,11 @@ function useBlockActionsShortcuts() {
       {
         id: "add-block-below",
         label: "Add block below",
-        groupLabel: "Preview",
+        groupLabel: "Website",
         shortcut: { key: "o" },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (ctx.mode !== "editing-draft") return false;
+          if (ctx.view !== "canvas") return false;
           return blockSelectionForPage(ctx, page.page.id) !== null;
         },
         execute: () => {
@@ -519,11 +519,11 @@ function useBlockActionsShortcuts() {
       {
         id: "add-block-above",
         label: "Add block above",
-        groupLabel: "Preview",
+        groupLabel: "Website",
         shortcut: { key: "o", withShift: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (ctx.mode !== "editing-draft") return false;
+          if (ctx.view !== "canvas") return false;
           return blockSelectionForPage(ctx, page.page.id) !== null;
         },
         execute: () => {

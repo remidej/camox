@@ -1187,7 +1187,7 @@ export function createEditableBlock<
 
   /**
    * Renders an artifact's sandboxed frame; an empty artifact shows a placeholder in its place.
-   * In Edit Mode, a transparent layer covers the frame, so clicks select the artifact field
+   * On the Canvas, a transparent layer covers the frame, so clicks select the artifact field
    * instead of reaching the page inside it.
    */
   const Artifact = <K extends keyof ArtifactFields>({
@@ -1254,7 +1254,7 @@ export function createEditableBlock<
       ? repeaterContext.itemSchema?.[fieldName]
       : (blockContext.sourceSchema ?? typeboxSchema.properties)[fieldName];
     const hostProps = useArtifactHost({
-      studio: { editMode: isContentEditable, canvas },
+      studio: { editing: isContentEditable, canvas },
       data,
       size: fieldSchema?.size,
       navigate: useNavigate(),
@@ -2568,7 +2568,7 @@ export function createEditableBlock<
   };
 
   /**
-   * Shown in edit mode while a reference links nothing: selects the reference field and asks
+   * Shown on the Canvas while a reference links nothing: selects the reference field and asks
    * the sidebar to open its record picker.
    */
   const ReferencePlaceholder = ({
@@ -2598,7 +2598,7 @@ export function createEditableBlock<
     );
   };
 
-  /** The edit-mode wrapper of a placed record: its overlay target, and its inline write error. */
+  /** The editing wrapper of a placed record: its overlay target, and its inline write error. */
   const PlacedRecordWrapper = ({
     fieldId,
     record,
@@ -2796,7 +2796,7 @@ export function createEditableBlock<
     );
   };
 
-  // An empty manual list shows a placeholder in edit mode that opens the sidebar's record
+  // An empty manual list shows a placeholder on the Canvas that opens the sidebar's record
   // picker. A query-backed list renders the records its query resolved to, and nothing when
   // there are none: editors cannot add to it.
   const ReferenceList = <K extends ReferenceListKeys<TSchemaShape>>({

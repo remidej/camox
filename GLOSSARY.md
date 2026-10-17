@@ -198,17 +198,21 @@ _Avoid_: Collision, merge conflict
 The in-website editing interface used by editors to change content.
 _Avoid_: Admin, editor, back office, CMS UI
 
-**Preview**:
-The rendered website, as Live or as one draft, shown inside the studio, where content is edited in place.
-_Avoid_: Iframe
+**Website Section**:
+The part of the studio that shows the website, as the Preview or on the Canvas, as opposed to the Content Section.
+_Avoid_: Preview (for the section)
 
-**Edit Mode**:
-The state of the preview in which content can be selected and changed, as opposed to browsing the website as a visitor would.
-_Avoid_: Editing state, design mode
+**Content Section**:
+The part of the studio that lists the website's content as structured data, such as pages, collections and assets.
+_Avoid_: CMS, data view
+
+**Preview**:
+The Website Section with the Canvas hidden: one page of the website, as Live or as one draft, as a visitor would see it.
+_Avoid_: Iframe, view mode
 
 **Canvas**:
-A studio view that shows many pages side by side at once.
-_Avoid_: Board, overview, sitemap view
+A studio view that shows many pages side by side, which editors and agents pan and zoom across, and where content is selected and edited in place. The Website Section shows either the Canvas or the Preview.
+_Avoid_: Board, overview, sitemap view, edit mode, design mode
 
 **Shelf Marker**:
 A labelled horizontal bar above the page headers, spanning the area of the canvas it names, such as the area holding its pages.

@@ -78,7 +78,7 @@ async function setup() {
     async close() {
       await React.act(async () => root.unmount());
       store.send({ type: "activatePage", pageId: null });
-      store.send({ type: "exitEditMode" });
+      store.send({ type: "hideCanvas" });
       await dom.happyDOM.close();
       for (const [key, descriptor] of previous) {
         if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -90,7 +90,7 @@ async function setup() {
 
 void test("without a selection, a page shows its blocks, then what's about it", async () => {
   const dom = await setup();
-  dom.store.send({ type: "enterEditMode" });
+  dom.store.send({ type: "showCanvas" });
   // Another frame's selection isn't this sidebar's.
   dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
   const snapshot = dom.store.getSnapshot();
@@ -113,7 +113,7 @@ void test("without a selection, a page shows its blocks, then what's about it", 
 
 void test("the active frame owner's selection opens the editor in place of the page's overview", async () => {
   const dom = await setup();
-  dom.store.send({ type: "enterEditMode" });
+  dom.store.send({ type: "showCanvas" });
   try {
     for (const [props, owner] of [
       [{ pageId: "7" }, { kind: "page", pageId: "7" }],
@@ -132,7 +132,7 @@ void test("the active frame owner's selection opens the editor in place of the p
 
 void test("a record page's selected record opens the editor, with no block selected", async () => {
   const dom = await setup();
-  dom.store.send({ type: "enterEditMode" });
+  dom.store.send({ type: "showCanvas" });
   const owner = { kind: "layout", layoutId: "docs" } as const;
   try {
     dom.store.send({

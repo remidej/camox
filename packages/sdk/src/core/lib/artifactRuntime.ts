@@ -106,7 +106,7 @@ export const ARTIFACT_RUNTIME = `(() => {
   const receivers = {
     studio(message) {
       const next = message.studio;
-      studio = next ? Object.freeze({ editMode: !!next.editMode, canvas: !!next.canvas }) : null;
+      studio = next ? Object.freeze({ editing: !!next.editing, canvas: !!next.canvas }) : null;
     },
     data(message) {
       readData();
