@@ -88,7 +88,7 @@ Nitro exists to keep Camox framework-agnostic. Committing to Cloudflare would re
 - `packages/sdk/src/features/og/imageResponse.node.ts`: OG images, which would need a Workers-compatible renderer, for example satori with resvg-wasm.
 - Comments in `packages/sdk/src/core/createLayout.tsx` and `packages/sdk/src/features/vite/definitionsSync.ts`.
 
-Nitro's Cloudflare output also bundles everything into one Worker, which is incompatible with a separate shell and per-block modules. That decision is hard to reverse and changes Camox's positioning from a devtool to a product, so it should get an ADR when it's made.
+Nitro's Cloudflare output also bundles everything into one Worker, which is incompatible with a separate shell and per-block modules. That decision is hard to reverse and changes Camox's positioning from a devtool to a product, so it should get an ADR when it's made. It now has one: [ADR 0014](../adr/0014-camox-apps-run-on-cloudflare-workers.md).
 
 ## Independent near-term step
 

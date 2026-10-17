@@ -1,7 +1,7 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { camox } from "camox/vite";
-import { nitro } from "nitro/vite";
 import { defineConfig } from "vite-plus";
 
 import { checkoutHostname } from "../../scripts/dev-hostname";
@@ -17,7 +17,7 @@ const config = defineConfig({
   plugins: [
     checkoutHostname(process.env.CAMOX_DEV_HOSTNAME),
     tailwindcss(),
-    nitro(),
+    cloudflare(),
     camox({
       projectSlug: "camox-landing",
     }),

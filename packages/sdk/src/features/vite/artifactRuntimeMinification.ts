@@ -34,5 +34,6 @@ export function minifyArtifactRuntimeModule(code: string) {
  */
 export function transformArtifactRuntime(code: string, id: string) {
   if (!RUNTIME_MODULE.test(id)) return null;
-  return minifyArtifactRuntimeModule(code);
+  // The module is one minified string with nothing worth mapping back to.
+  return { code: minifyArtifactRuntimeModule(code), map: { mappings: "" } };
 }

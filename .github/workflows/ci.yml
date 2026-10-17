@@ -31,6 +31,6 @@ jobs:
 
       - run: pnpm exec nx run camox:build
 
-      - run: pnpm --filter camox exec tsx --test src/features/vite/vite.test.ts
+      - run: pnpm --filter camox exec tsx --test src/features/vite/vite.test.ts src/features/vite/workerBuild.test.ts src/features/runtime/workerRequest.test.ts
 
       - run: pnpm --filter @camox/template-default test:production

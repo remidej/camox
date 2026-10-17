@@ -7,8 +7,8 @@
     "dev": "vp dev",
     "build": "vp build",
     "release": "camox release",
-    "preview": "wrangler dev --config .output/server/wrangler.json",
-    "deploy": "pnpm release && wrangler deploy --config .output/server/wrangler.json"
+    "preview": "wrangler dev",
+    "deploy": "pnpm release && wrangler deploy"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -18,7 +18,6 @@
     "camox": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
-    "nitro": "3.0.260903-beta",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.7.0",
@@ -26,6 +25,7 @@
     "vite-tsconfig-paths": "^6.1.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "^6.1.2",

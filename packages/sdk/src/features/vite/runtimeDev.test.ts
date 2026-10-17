@@ -31,3 +31,18 @@ void test("the server's app loads every block and names their modules for preloa
   assert.match(app, /"\/src\/blocks\/\*\.\{ts,tsx\}", \{ eager: true \}/);
   assert.match(app, /export const blockModulePaths/);
 });
+
+void test("the server module tells the Worker where the runtime is mounted", () => {
+  for (const [option, basePath] of [
+    [undefined, ""],
+    ["/", ""],
+    ["site/", "/site"],
+  ] as const) {
+    const server = loadRuntimeDevModule("\0virtual:camox/server", { runtimeBasePath: option });
+    assert.ok(server);
+    assert.match(
+      server,
+      new RegExp(`export const runtimeBasePath = "${basePath.replace("/", "\\/")}";`),
+    );
+  }
+});

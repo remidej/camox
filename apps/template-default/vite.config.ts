@@ -1,7 +1,7 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { camox } from "camox/vite";
-import { nitro } from "nitro/vite";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
@@ -17,7 +17,7 @@ export default defineConfig({
   },
   plugins: [
     tailwindcss(),
-    nitro(),
+    cloudflare(),
     camox({
       projectSlug: "camox-template-default-01", // camox-cli:replace-slug
       // camox-cli:dev-only-start

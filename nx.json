@@ -21,7 +21,7 @@
           "env": "VITE_DASHBOARD_URL"
         }
       ],
-      "outputs": ["{projectRoot}/dist", "{projectRoot}/.output"],
+      "outputs": ["{projectRoot}/dist"],
       "dependsOn": ["^build"],
       "cache": true
     },

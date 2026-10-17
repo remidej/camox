@@ -60,9 +60,9 @@ STACK
 
   No more tooling problems. Your app comes with the fastest linter, formatter and type checker, based on oxc and tsgo.
 
-- ### Nitro
+- ### Cloudflare Workers
 
-  Nitro adds support for all runtimes (serverless or not) so you can deploy anywhere. Or swap it for the Cloudflare Vite plugin – your code, your choice.
+  Your site runs on Cloudflare's global network. Development runs on the same runtime as production, so what works locally works deployed.
 
 - ### Tailwind and shadcn/ui
 

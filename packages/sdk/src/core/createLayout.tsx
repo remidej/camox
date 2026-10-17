@@ -421,11 +421,10 @@ function createLayoutDefinition<
   const buildOgImage = options.buildOgImage
     ? async (params: OgImageParams): Promise<Response> => {
         // OG rendering is server-only. This guard also lets Vite remove the
-        // WASM import from client builds, where Nitro's WASM loader is absent.
+        // WASM import from client builds.
         if (import.meta.env?.SSR === false) {
           throw new Error("OG images can only be rendered on the server.");
         }
-        // Conditional exports select the appropriate WASM loader for the runtime.
         const { ImageResponse } = await import("camox/_internal/imageResponse");
         const jsx = options.buildOgImage!(params);
         return new ImageResponse(jsx, { width: 1200, height: 630 });

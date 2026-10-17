@@ -13,6 +13,10 @@ declare module "virtual:camox-overlay-css" {
 
 declare module "virtual:camox/server" {
   export function handleCamoxRequest(request: Request): Promise<Response | null>;
+  /** Where the runtime is mounted, without a trailing slash; empty at the root. */
+  export const runtimeBasePath: string;
+  /** What Vite injects into HTML in dev; `null` in builds. */
+  export const devHtml: { head: string; body: string } | null;
 }
 
 declare module "virtual:camox/page-client-url" {

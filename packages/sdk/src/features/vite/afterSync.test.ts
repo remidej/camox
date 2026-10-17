@@ -108,6 +108,8 @@ async function startDevServer(
     customLogger: logger,
     server: { host: "127.0.0.1", port: 0 },
     plugins: [
+      // Sync runs in Node, so these tests need no Worker: only the name Camox checks for.
+      { name: "vite-plugin-cloudflare" },
       camox({
         projectSlug: "checkout",
         _internal: {

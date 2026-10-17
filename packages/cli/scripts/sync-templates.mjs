@@ -13,10 +13,8 @@ const TEMPLATES = [{ src: "apps/template-default", dest: "packages/cli/templates
 const EXCLUDED_PATHS = new Set([
   "node_modules",
   "dist",
-  ".output",
   ".tanstack",
-  ".nitro",
-  ".vinxi",
+  ".wrangler",
   ".vite-hooks",
   ".agents",
   ".claude",

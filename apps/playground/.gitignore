@@ -5,6 +5,5 @@ dist-ssr
 *.local
 count.txt
 .env
-.nitro
-.output
+.wrangler
 src/camox/app.ts

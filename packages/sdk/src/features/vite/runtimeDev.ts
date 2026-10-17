@@ -12,7 +12,6 @@ const VIRTUAL_CAMOX_DOCUMENT = "virtual:camox/document";
 const RESOLVED_VIRTUAL_CAMOX_DOCUMENT = "\0" + VIRTUAL_CAMOX_DOCUMENT;
 const VIRTUAL_CAMOX_SERVER = "virtual:camox/server";
 const RESOLVED_VIRTUAL_CAMOX_SERVER = "\0" + VIRTUAL_CAMOX_SERVER;
-const VIRTUAL_CAMOX_NITRO_HANDLER = "#camox/nitro-handler";
 const VIRTUAL_PAGE_SERVER = "virtual:camox/page-server";
 const RESOLVED_VIRTUAL_PAGE_SERVER = "\0" + VIRTUAL_PAGE_SERVER;
 const VIRTUAL_STUDIO_SERVER = "virtual:camox/studio-server";
@@ -33,6 +32,8 @@ const VIRTUAL_STUDIO_CSS = "virtual:camox-studio-css";
 const RESOLVED_VIRTUAL_STUDIO_CSS = "\0" + VIRTUAL_STUDIO_CSS;
 const VIRTUAL_OVERLAY_CSS = "virtual:camox-overlay-css";
 const RESOLVED_VIRTUAL_OVERLAY_CSS = "\0" + VIRTUAL_OVERLAY_CSS;
+export const VIRTUAL_DEV_HTML = "virtual:camox/dev-html";
+export const RESOLVED_VIRTUAL_DEV_HTML = "\0" + VIRTUAL_DEV_HTML;
 
 function normalizeImporterPath(importer?: string): string {
   if (!importer) return "";
@@ -68,6 +69,7 @@ function resolveCamoxSourceImport(id: string): string | undefined {
     "camox/_internal/studioClient": resolve(sdkRoot, "src/features/runtime/studioClient.tsx"),
     "camox/_internal/studioServer": resolve(sdkRoot, "src/features/runtime/studioServer.tsx"),
     "camox/_internal/runtime": resolve(sdkRoot, "src/features/runtime/runtime.ts"),
+    "camox/worker": resolve(sdkRoot, "src/features/runtime/worker.ts"),
   };
   const sourceImport = sourceImports[id];
   if (!sourceImport || !existsSync(sourceImport)) return;
@@ -209,6 +211,10 @@ import pageClientEntryUrl from "virtual:camox/page-client-url";
 import studioClientEntryUrl from "virtual:camox/studio-client-url";
 import { renderPage } from "virtual:camox/page-server";
 import { renderStudio } from "virtual:camox/studio-server";
+import devHtml from "virtual:camox/dev-html";
+
+export { devHtml };
+export const runtimeBasePath = ${JSON.stringify(normalizeRuntimeBasePath(runtimeBasePath))};
 
 export async function handleCamoxRequest(request) {
   return handleRuntimeRequest(request, {
@@ -228,77 +234,6 @@ export async function handleCamoxRequest(request) {
     studioStylesheetUrl,
   });
 }
-`;
-}
-
-function generateVirtualCamoxNitroHandler(runtimeBasePath?: string): string {
-  return `import { defineHandler } from "nitro";
-import { handleCamoxRequest } from "virtual:camox/server";
-
-const runtimeBasePath = ${JSON.stringify(normalizeRuntimeBasePath(runtimeBasePath))};
-
-function isDocumentRequest(request) {
-  const accept = request.headers.get("Accept") ?? request.headers.get("accept") ?? "";
-  // Agents ask for the Markdown Representation of the same page URLs.
-  return accept.includes("text/html") || accept.includes("text/markdown") || accept.includes("*/*");
-}
-
-function getRuntimePathname(pathname) {
-  if (!runtimeBasePath) return pathname;
-  if (pathname === runtimeBasePath) return "/";
-  if (!pathname.startsWith(runtimeBasePath + "/")) return null;
-  return pathname.slice(runtimeBasePath.length) || "/";
-}
-
-function shouldHandleRequest(request) {
-  const url = new URL(request.url);
-  const pathname = getRuntimePathname(url.pathname);
-  if (!pathname) return false;
-  if (request.method !== "GET" && request.method !== "HEAD") return false;
-  if (
-    pathname === "/_camox/data" ||
-    pathname === "/_camox/health" ||
-    pathname === "/_camox/registry" ||
-    pathname === "/_camox/routes"
-  ) {
-    return true;
-  }
-  if (pathname === "/og" || pathname === "/sitemap.xml") return true;
-  if (pathname === "/camox" || pathname.startsWith("/camox/")) return true;
-  // A page's Markdown Representation is the only file-like URL the runtime answers.
-  if (pathname.endsWith(".md")) return true;
-  if (/\\.[a-z0-9]+$/i.test(pathname)) return false;
-  if (pathname.startsWith("/@") || pathname.startsWith("/src/")) return false;
-  if (pathname.startsWith("/__vite")) return false;
-  if (pathname.startsWith("/node_modules/")) return false;
-  return isDocumentRequest(request);
-}
-
-async function transformHtmlResponse(response) {
-  const contentType = response.headers.get("Content-Type") ?? response.headers.get("content-type") ?? "";
-  if (!contentType.includes("text/html")) return response;
-  if (!globalThis.__transform_html__) return response;
-
-  const headers = new Headers(response.headers);
-  headers.delete("Content-Length");
-  headers.delete("content-length");
-
-  return new Response(await globalThis.__transform_html__(await response.text()), {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  });
-}
-
-export default defineHandler(async (event) => {
-  if (!shouldHandleRequest(event.req)) {
-    return new Response("Not found", { status: 404 });
-  }
-
-  const response = await handleCamoxRequest(event.req);
-  if (response) return transformHtmlResponse(response);
-  return new Response("Not found", { status: 404 });
-});
 `;
 }
 
@@ -322,6 +257,7 @@ export function resolveRuntimeDevId(id: string, importer?: string): string | und
   if (id === VIRTUAL_BLOCK_CHUNKS) return RESOLVED_VIRTUAL_BLOCK_CHUNKS;
   if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
   if (id === VIRTUAL_OVERLAY_CSS) return RESOLVED_VIRTUAL_OVERLAY_CSS;
+  if (id === VIRTUAL_DEV_HTML) return RESOLVED_VIRTUAL_DEV_HTML;
 }
 
 export function loadRuntimeDevModule(
@@ -334,8 +270,6 @@ export function loadRuntimeDevModule(
   if (id === RESOLVED_VIRTUAL_CAMOX_DOCUMENT) return generateVirtualCamoxDocument();
   if (id === RESOLVED_VIRTUAL_CAMOX_SERVER)
     return generateVirtualCamoxServer(options.runtimeBasePath);
-  if (id === VIRTUAL_CAMOX_NITRO_HANDLER)
-    return generateVirtualCamoxNitroHandler(options.runtimeBasePath);
   if (id === RESOLVED_VIRTUAL_PAGE_SERVER) return generateVirtualPageServer();
   if (id === RESOLVED_VIRTUAL_STUDIO_SERVER) return generateVirtualStudioServer();
   if (id === RESOLVED_VIRTUAL_PAGE_CLIENT) return generateVirtualPageClient();
@@ -370,63 +304,4 @@ function normalizeRuntimeBasePath(basePath?: string): string {
   return basePath.startsWith("/")
     ? basePath.replace(/\/+$/, "")
     : `/${basePath.replace(/\/+$/, "")}`;
-}
-
-function isDocumentRequest(request: Request): boolean {
-  const accept = request.headers.get("Accept") ?? request.headers.get("accept") ?? "";
-  // Agents ask for the Markdown Representation of the same page URLs.
-  return accept.includes("text/html") || accept.includes("text/markdown") || accept.includes("*/*");
-}
-
-export function shouldHandleRuntimeRequest(request: Request, runtimeBasePath?: string) {
-  const url = new URL(request.url);
-  const basePath = normalizeRuntimeBasePath(runtimeBasePath);
-  if (basePath) return url.pathname === basePath || url.pathname.startsWith(`${basePath}/`);
-
-  if (request.method !== "GET" && request.method !== "HEAD") return false;
-  if (
-    url.pathname === "/_camox/data" ||
-    url.pathname === "/_camox/health" ||
-    url.pathname === "/_camox/registry" ||
-    url.pathname === "/_camox/routes"
-  ) {
-    return true;
-  }
-  if (url.pathname === "/og" || url.pathname === "/sitemap.xml") return true;
-  if (url.pathname === "/camox" || url.pathname.startsWith("/camox/")) return true;
-  // A page's Markdown Representation is the only file-like URL the runtime answers.
-  if (url.pathname.endsWith(".md")) return true;
-  if (/\.[a-z0-9]+$/i.test(url.pathname)) return false;
-  if (url.pathname.startsWith("/@") || url.pathname.startsWith("/src/")) return false;
-  if (url.pathname.startsWith("/__vite")) return false;
-  if (url.pathname.startsWith("/node_modules/")) return false;
-  if (!isDocumentRequest(request)) return false;
-
-  return true;
-}
-
-export function installRuntimeNitroRoutes(
-  nitro: { options: { routes: Record<string, string>; virtual: Record<string, string> } },
-  options: { runtimeBasePath?: string },
-) {
-  const routes =
-    options.runtimeBasePath && options.runtimeBasePath !== "/"
-      ? [options.runtimeBasePath, `${options.runtimeBasePath}/**`]
-      : [
-          "/",
-          "/_camox/data",
-          "/_camox/health",
-          "/_camox/registry",
-          "/_camox/routes",
-          "/og",
-          "/sitemap.xml",
-          "/camox",
-          "/camox/**",
-          "/**",
-        ];
-
-  for (const route of routes) nitro.options.routes[route] = VIRTUAL_CAMOX_NITRO_HANDLER;
-  nitro.options.virtual[VIRTUAL_CAMOX_NITRO_HANDLER] = generateVirtualCamoxNitroHandler(
-    options.runtimeBasePath,
-  );
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,36 +36,24 @@ import { type BundlerOnLog, withoutExpectedCamoxLogs } from "./bundlerLogs";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
+import { buildClientThenWorker } from "./workerBuild";
 
 const PRODUCTION_API_URL = "https://api.camox.dev";
 import { syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
 import { cleanupGeneratedRouteFiles } from "./routeGeneration";
-import { installRuntimeNitroRoutes, loadRuntimeDevModule, resolveRuntimeDevId } from "./runtimeDev";
+import { RESOLVED_VIRTUAL_DEV_HTML, loadRuntimeDevModule, resolveRuntimeDevId } from "./runtimeDev";
 
 /** Authentication URL to use for Camox authentication (production Camox Dashboard) */
 const DEFAULT_AUTHENTICATION_URL = "https://app.camox.dev";
 
-interface CamoxNitro {
-  hooks: {
-    hook: (name: "compiled", callback: (nitro: CamoxNitro) => void) => void;
-  };
-  options: {
-    noExternals?: boolean | (string | RegExp)[];
-    rolldownConfig?: { onLog?: BundlerOnLog };
-    output: {
-      publicDir: string;
-      serverDir: string;
-    };
-    routes: Record<string, string>;
-    virtual: Record<string, string>;
+/** What Vite injects into HTML in dev, which the Worker can't ask Vite for itself. */
+async function getDevHtml(server: ViteDevServer): Promise<{ head: string; body: string }> {
+  const html = await server.transformIndexHtml("/", "<html><head></head><body></body></html>");
+  return {
+    head: /<head[^>]*>([\s\S]*)<\/head>/i.exec(html)?.[1] ?? "",
+    body: /<body[^>]*>([\s\S]*)<\/body>/i.exec(html)?.[1] ?? "",
   };
 }
-
-type CamoxVitePlugin = Plugin & {
-  nitro?: {
-    setup: (nitro: CamoxNitro) => void;
-  };
-};
 
 /** The `onLog` the app set for its client build, which Camox wraps rather than replaces. */
 function findClientOnLog(config: UserConfig): BundlerOnLog | undefined {
@@ -232,7 +220,20 @@ export const CAMOX_OPTIMIZED_DEPS = [
   "camox > zod",
 ];
 
-export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
+/**
+ * The Worker runs in workerd, so its dependencies are pre-bundled too. Discovering them one
+ * request at a time would reload the Worker for each, so start from the browser's list.
+ */
+export const CAMOX_WORKER_OPTIMIZED_DEPS = [
+  ...CAMOX_OPTIMIZED_DEPS,
+  "react-dom/server",
+  "react/compiler-runtime",
+  "camox > @unhead/react/server",
+  "camox > @takumi-rs/image-response/wasm",
+  "camox > @takumi-rs/wasm/next",
+];
+
+export function camox(options: CamoxPluginOptions): Plugin {
   const apiUrl = options._internal?.apiUrl ?? PRODUCTION_API_URL;
   const authenticationUrl = options._internal?.authenticationUrl ?? DEFAULT_AUTHENTICATION_URL;
   const enableTanstackDevtools = options._internal?.enableTanstackDevtools ?? false;
@@ -244,6 +245,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
   let resolvedConfig: ResolvedConfig;
   let localAuth: StoredAuth | null = null;
   let blockChunks: Record<string, string[]> = {};
+  let devServer: ViteDevServer | undefined;
 
   return {
     name: "camox",
@@ -254,7 +256,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
       if (id === VIRTUAL_OVERLAY_CSS) return RESOLVED_VIRTUAL_OVERLAY_CSS;
     },
-    load(id, loadOptions) {
+    async load(id, loadOptions) {
       // Local CSS watchers must not share the directory cleaned by package builds.
       const stylesDir = resolve(sdkRoot, !isBuild && isSdkSource ? ".dev" : "dist");
       if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
@@ -287,6 +289,10 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (id === RESOLVED_VIRTUAL_BLOCK_CHUNKS && isBuild) {
         return `export default ${JSON.stringify(blockChunks)};`;
       }
+      if (id === RESOLVED_VIRTUAL_DEV_HTML) {
+        if (!devServer) return "export default null;";
+        return `export default ${JSON.stringify(await getDevHtml(devServer))};`;
+      }
       return loadRuntimeDevModule(id, { runtimeBasePath, ssr: loadOptions?.ssr });
     },
     // Apps that compile the SDK from source minify the artifact runtime as its build does.
@@ -296,27 +302,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
     generateBundle(_outputOptions, bundle) {
       if (this.environment.name !== "client") return;
       blockChunks = collectBlockChunks(bundle, resolvedConfig.root);
-    },
-    nitro: {
-      setup(nitro) {
-        // The runtime imports virtual modules that must pass through the Camox plugin.
-        if (nitro.options.noExternals !== true) {
-          const noExternals = Array.isArray(nitro.options.noExternals)
-            ? nitro.options.noExternals
-            : [];
-          // Bundle tslib as well: tracing only its aliased ESM entry leaves a
-          // partial package whose Node exports point to missing modules/index.js.
-          nitro.options.noExternals = [...noExternals, "camox", "tslib"];
-        }
-        installRuntimeNitroRoutes(nitro, { runtimeBasePath });
-        const rolldownConfig = (nitro.options.rolldownConfig ??= {});
-        rolldownConfig.onLog = withoutExpectedCamoxLogs(rolldownConfig.onLog);
-        nitro.hooks.hook("compiled", ({ options }) => {
-          const serverAssets = join(options.output.serverDir, "assets");
-          if (!existsSync(serverAssets)) return;
-          cpSync(serverAssets, join(options.output.publicDir, "assets"), { recursive: true });
-        });
-      },
     },
     async config(_config, env) {
       const iconIds = await generateIconTypes(
@@ -337,6 +322,8 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         build: {
           emitAssets: true,
         },
+        // An app's own build order wins.
+        ...(_config.builder?.buildApp ? {} : { builder: { buildApp: buildClientThenWorker } }),
         define: {
           __CAMOX_ICON_IDS__: JSON.stringify(iconIds),
           __CAMOX_TELEMETRY_DISABLED__: JSON.stringify(!!options.disableTelemetry),
@@ -387,8 +374,35 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         },
       };
     },
+    configEnvironment(name, config) {
+      if (name === "client") return;
+      const build = config.build;
+      return {
+        optimizeDeps: {
+          // The app's own dependencies, found in its source.
+          entries: ["src/**/*.{ts,tsx}"],
+          include: CAMOX_WORKER_OPTIMIZED_DEPS,
+          // Camox's modules import its virtual modules, which only the dev server resolves.
+          exclude: ["camox"],
+        },
+        build: {
+          rollupOptions: {
+            onLog: withoutExpectedCamoxLogs(
+              build?.rolldownOptions?.onLog ?? build?.rollupOptions?.onLog,
+            ),
+          },
+        },
+      };
+    },
     configResolved(config) {
       resolvedConfig = config;
+      if (!config.plugins.some((plugin) => plugin.name.startsWith("vite-plugin-cloudflare"))) {
+        throw new Error(
+          "Camox: Camox apps run on Cloudflare Workers. Add `cloudflare()` from " +
+            "`@cloudflare/vite-plugin` to your Vite plugins, and point `main` in " +
+            "`wrangler.jsonc` at `camox/worker`.",
+        );
+      }
       const routesDir = resolve(config.root, "src/routes");
 
       writeRuntimeSidecar(config.root, {
@@ -420,6 +434,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
     },
 
     configureServer(server: ViteDevServer) {
+      devServer = server;
       const routesDir = resolve(server.config.root, "src/routes");
 
       installDevAuthenticationMiddleware(server, {

@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 
+import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { nitro } from "nitro/vite";
 import { defineConfig } from "vite-plus";
 
 import { camox } from "../../packages/sdk/src/features/vite/vite";
@@ -71,7 +71,7 @@ const config = defineConfig({
   plugins: [
     checkoutHostname(process.env.CAMOX_DEV_HOSTNAME),
     tailwindcss(),
-    nitro(),
+    cloudflare(),
     camox({
       projectSlug: "camox-playground-01",
       icons: "lucide",
