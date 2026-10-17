@@ -231,7 +231,7 @@ type CanvasWorkspaceHandle = {
    */
   showItem: (key: string) => void;
   /** Leaves the selection and zooms out to the whole Canvas. */
-  showCanvas: () => void;
+  showWholeCanvas: () => void;
 };
 
 function CanvasWorkspace({
@@ -412,7 +412,7 @@ function CanvasWorkspace({
       if (collapsedShelves.has(shelf.key)) toggleShelf(shelf.key);
       setPendingFlight(key);
     },
-    showCanvas() {
+    showWholeCanvas() {
       selectPage(STUDIO_CANVAS_PATH);
       fitAll();
     },
@@ -499,7 +499,7 @@ function CanvasWorkspace({
                     if (!slot) return null;
                     const { page, pathname } = slot;
                     const selected = page.key === selectedPage?.key;
-                    // The Preview's page shows the Preview's own frame, so Edit Mode keeps its
+                    // The Preview's page shows the Preview's own frame, so toggling the Canvas keeps its
                     // state. Deselecting it keeps it there too, rather than remount it.
                     const previewed =
                       !!previewPageFrame &&
@@ -771,7 +771,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
               selectedKey: intendedItemKey,
               onShowItem: (key) => workspace.current?.showItem(key),
             }}
-            onShowCanvas={() => workspace.current?.showCanvas()}
+            onShowWholeCanvas={() => workspace.current?.showWholeCanvas()}
             owner={editingOwner}
             pageRecord={pageRecord}
           />

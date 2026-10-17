@@ -82,10 +82,10 @@ void test("retained preview keeps the editing runtime but is never editable in a
       </BlockEditingRuntimeProvider>,
     );
   try {
-    store.send({ type: "exitEditMode" });
+    store.send({ type: "hideCanvas" });
     await render();
     const content = dom.host.querySelector("p");
-    await React.act(async () => store.send({ type: "enterEditMode" }));
+    await React.act(async () => store.send({ type: "showCanvas" }));
     await render(false);
     assert.equal(dom.host.querySelector("p"), content);
     assert.equal(mounts, 1);
@@ -93,7 +93,7 @@ void test("retained preview keeps the editing runtime but is never editable in a
     assert.equal(dom.host.querySelector("p")?.textContent, "Retained content");
   } finally {
     await dom.close();
-    store.send({ type: "exitEditMode" });
+    store.send({ type: "hideCanvas" });
   }
 });
 
@@ -219,7 +219,7 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
     );
   try {
     store.send({ type: "activatePage", pageId: null });
-    store.send({ type: "enterEditMode" });
+    store.send({ type: "showCanvas" });
     await render();
     await React.act(async () => dom.host.querySelector("button")!.click());
     assert.equal(store.getSnapshot().context.editingContext, null);
@@ -281,7 +281,7 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
     await dom.close();
     store.send({ type: "activatePage", pageId: null });
     store.send({ type: "setViewportMode", mode: "full" });
-    store.send({ type: "exitEditMode" });
+    store.send({ type: "hideCanvas" });
   }
 });
 
@@ -293,14 +293,14 @@ void test("read-only panel centers responsive viewports and preserves shell sele
   const clearSelection = {
     id: "clear-selection",
     label: "Shell clear selection",
-    groupLabel: "Preview" as const,
+    groupLabel: "Website" as const,
     checkIfAvailable: () => true,
     execute: () => {},
     shortcut: { key: "Escape" },
   };
   actionsStore.send({ type: "registerManyActions", actions: [clearSelection] });
   try {
-    store.send({ type: "enterEditMode" });
+    store.send({ type: "showCanvas" });
     store.send({ type: "setViewportMode", mode: "tablet" });
     await dom.render(
       <PreviewPanel page={{ id: "3" } as PreviewedPage}>
@@ -333,7 +333,7 @@ void test("read-only panel centers responsive viewports and preserves shell sele
     actionsStore.send({ type: "unregisterManyActions", ids: ["clear-selection"] });
     store.send({ type: "activatePage", pageId: null });
     store.send({ type: "setViewportMode", mode: "full" });
-    store.send({ type: "exitEditMode" });
+    store.send({ type: "hideCanvas" });
   }
 });
 
@@ -356,7 +356,7 @@ void test("nested preview targets use their containing owner, not the active rou
     );
   }
   try {
-    store.send({ type: "enterEditMode" });
+    store.send({ type: "showCanvas" });
     await dom.render(
       <PreviewPanel page={{ id: "3" } as PreviewedPage}>
         <Target name="Route" />
@@ -377,6 +377,6 @@ void test("nested preview targets use their containing owner, not the active rou
   } finally {
     await dom.close();
     store.send({ type: "activatePage", pageId: null });
-    store.send({ type: "exitEditMode" });
+    store.send({ type: "hideCanvas" });
   }
 });

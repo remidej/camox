@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { Window } from "happy-dom";
 import * as React from "react";
 
-void test("Edit Mode, turned on before the editor loads, shows the Canvas sidebar placeholder and a loading screen over the page", async () => {
+void test("the Canvas, shown before the editor loads, shows the Canvas sidebar placeholder and a loading screen over the page", async () => {
   const dom = new Window();
   const globals = {
     React,
@@ -18,9 +18,9 @@ void test("Edit Mode, turned on before the editor loads, shows the Canvas sideba
   );
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
-  const { EditModeFallbackContext, EditModeFallbackSlot } =
-    await import("../../runtime/editModeFallback");
-  const { EditModePreviewFallback } = await import("./EditModePreviewFallback");
+  const { EditingFallbackContext, EditingFallbackSlot } =
+    await import("../../runtime/editingFallback");
+  const { StudioEditingFallback } = await import("./StudioEditingFallback");
   const { previewStore } = await import("../previewStore");
   const root = createRoot(dom.document.body as unknown as HTMLElement);
   const sidebar = () => dom.document.querySelector("[data-canvas-sidebar-skeleton]");
@@ -29,19 +29,19 @@ void test("Edit Mode, turned on before the editor loads, shows the Canvas sideba
   const render = (chrome: boolean) =>
     React.act(async () =>
       root.render(
-        <EditModeFallbackContext
+        <EditingFallbackContext
           value={
             chrome
               ? ({ derived, children }) => (
-                  <EditModePreviewFallback derived={derived}>{children}</EditModePreviewFallback>
+                  <StudioEditingFallback derived={derived}>{children}</StudioEditingFallback>
                 )
               : null
           }
         >
-          <EditModeFallbackSlot derived={false}>
+          <EditingFallbackSlot derived={false}>
             <div data-read-only-page />
-          </EditModeFallbackSlot>
-        </EditModeFallbackContext>,
+          </EditingFallbackSlot>
+        </EditingFallbackContext>,
       ),
     );
 
@@ -56,11 +56,15 @@ void test("Edit Mode, turned on before the editor loads, shows the Canvas sideba
     await render(true);
     const original = page();
     assert.ok(original);
-    assert.equal(sidebar(), null, "outside Edit Mode, the page shows without a Canvas sidebar");
-    assert.equal(loading(), null, "outside Edit Mode, the page shows");
+    assert.equal(
+      sidebar(),
+      null,
+      "with the Canvas hidden, the page shows without a Canvas sidebar",
+    );
+    assert.equal(loading(), null, "with the Canvas hidden, the page shows");
 
-    await React.act(async () => previewStore.send({ type: "enterEditMode" }));
-    assert.ok(sidebar(), "Edit Mode makes room for the Canvas sidebar right away");
+    await React.act(async () => previewStore.send({ type: "showCanvas" }));
+    assert.ok(sidebar(), "showing the Canvas makes room for its sidebar right away");
     assert.ok(
       sidebar()!.compareDocumentPosition(page()!) & dom.Node.DOCUMENT_POSITION_FOLLOWING,
       "the Canvas sidebar sits before the page",
@@ -72,12 +76,12 @@ void test("Edit Mode, turned on before the editor loads, shows the Canvas sideba
       "a loading screen covers the page, where the Canvas will show",
     );
 
-    await React.act(async () => previewStore.send({ type: "exitEditMode" }));
+    await React.act(async () => previewStore.send({ type: "hideCanvas" }));
     assert.equal(sidebar(), null);
     assert.equal(loading(), null);
     assert.equal(page(), original);
   } finally {
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await React.act(async () => root.unmount());
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {

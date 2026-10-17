@@ -49,7 +49,7 @@ void test("only the active page resolves add requests, including layout boundari
   const frames = [0, 1].map(
     () => fakeEditingFrame(document.implementation.createHTMLDocument()).frame,
   );
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     await React.act(async () => {
       root.render(
@@ -102,7 +102,7 @@ void test("only the active page resolves add requests, including layout boundari
       assert.equal(previewStore.getSnapshot().context.addBlockDialog?.afterPosition, expected);
     }
     previewStore.send({ type: "closeAddBlockDialog" });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     dom.dispatchEvent(
       new dom.MessageEvent("message", {
         data: { type: "CAMOX_ADD_BLOCK_REQUEST", insertPosition: "after", blockPosition: "a0" },
@@ -114,7 +114,7 @@ void test("only the active page resolves add requests, including layout boundari
     await React.act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
     previewStore.send({ type: "closeAddBlockDialog" });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -139,7 +139,7 @@ void test("selecting a record text field focuses it in the selected placement", 
   // Another Canvas frame of the same derived layout, which is not being edited.
   const other = fakeEditingFrame(document.implementation.createHTMLDocument());
   const owner = { kind: "page", pageId: "1" } as const;
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     await React.act(async () =>
       root.render(
@@ -169,7 +169,7 @@ void test("selecting a record text field focuses it in the selected placement", 
   } finally {
     await React.act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

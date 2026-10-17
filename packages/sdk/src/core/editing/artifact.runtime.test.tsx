@@ -9,7 +9,7 @@ import * as React from "react";
 import { act } from "react";
 
 import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
-import { previewStore, selectIsEditMode } from "../../features/preview/previewStore";
+import { previewStore, selectIsCanvasShown } from "../../features/preview/previewStore";
 import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
 import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
@@ -30,13 +30,13 @@ import { createArtifactPage, type ArtifactWindow } from "../artifactProtocol.fix
 import { createApp } from "../createApp";
 
 // Render real block definitions through the studio's editing runtime. The harness substitutes
-// only the network, auth, iframe and selection boundaries of the editable block. Edit Mode comes
+// only the network, auth, iframe and selection boundaries of the editable block. Showing the Canvas comes
 // from the real preview store.
 const selections: unknown[] = [];
 Object.assign(globalThis, {
   React,
   __CAMOX_TELEMETRY_DISABLED__: true,
-  useTestEditMode: () => useSelector(previewStore, selectIsEditMode),
+  useTestCanvasShown: () => useSelector(previewStore, selectIsCanvasShown),
   captureArtifactSelection: (selection: unknown) => selections.push(selection),
 });
 initApiClient("http://localhost:8788", testDraftScope());
@@ -50,9 +50,9 @@ registerHooks({
         "export const useLocation = () => '/'; export const useNavigate = () => () => {}",
       "../../features/preview/components/Frame":
         "export const useFrame = () => ({window: globalThis.window ?? null})",
-      // Edit Mode comes from the real preview store; only the auth check is left out.
+      // Whether the Canvas shows comes from the real preview store; only the auth check is left out.
       "../hooks/useIsEditable.ts":
-        "export const useIsEditable = mode => mode === 'site' && globalThis.useTestEditMode()",
+        "export const useIsEditable = mode => mode === 'site' && globalThis.useTestCanvasShown()",
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => globalThis.captureArtifactSelection;
         export const usePreviewTargetSelection = () => null;
@@ -115,9 +115,9 @@ void test("the studio preview shows a placeholder for empty artifacts", () => {
   }
 });
 
-/** Mounts the artifact block in the studio preview with Edit Mode on or off. */
-async function mount(content: Record<string, unknown>, editMode: boolean) {
-  previewStore.send({ type: editMode ? "enterEditMode" : "exitEditMode" });
+/** Mounts the artifact block in the studio with the Canvas shown or hidden. */
+async function mount(content: Record<string, unknown>, editing: boolean) {
+  previewStore.send({ type: editing ? "showCanvas" : "hideCanvas" });
   const window = new Window();
   Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
   const { createRoot } = await import("react-dom/client");
@@ -161,7 +161,7 @@ const withItem = {
   slides: [{ id: "12", content: { scene: "<title>Scene</title>" } }],
 };
 
-void test("in Edit Mode, clicking an artifact selects its field instead of reaching the frame", async () => {
+void test("on the Canvas, clicking an artifact selects its field instead of reaching the frame", async () => {
   selections.length = 0;
   const preview = await mount(withItem, true);
   try {
@@ -178,7 +178,7 @@ void test("in Edit Mode, clicking an artifact selects its field instead of reach
   }
 });
 
-void test("in Edit Mode, an empty artifact's placeholder selects its field too", async () => {
+void test("on the Canvas, an empty artifact's placeholder selects its field too", async () => {
   selections.length = 0;
   const preview = await mount({ slides: [] }, true);
   try {
@@ -192,7 +192,7 @@ void test("in Edit Mode, an empty artifact's placeholder selects its field too",
   }
 });
 
-void test("in Edit Mode, sidebar hover highlights the artifact", async () => {
+void test("on the Canvas, sidebar hover highlights the artifact", async () => {
   const preview = await mount(withItem, true);
   try {
     const [visual] = preview.frames();
@@ -208,7 +208,7 @@ void test("in Edit Mode, sidebar hover highlights the artifact", async () => {
   }
 });
 
-void test("with Edit Mode off, the artifact frame receives pointer events and clicks select nothing", async () => {
+void test("with the Canvas hidden, the artifact frame receives pointer events and clicks select nothing", async () => {
   selections.length = 0;
   const preview = await mount(withItem, false);
   try {
@@ -241,26 +241,26 @@ function studioOf(artifact: ArtifactWindow) {
   return studio && { ...studio };
 }
 
-void test("artifacts in the studio preview follow Edit Mode", async () => {
-  previewStore.send({ type: "enterEditMode" });
+void test("artifacts in the studio follow the Canvas", async () => {
+  previewStore.send({ type: "showCanvas" });
   const { harness, artifacts, unmount } = await mountInStudio(CompleteBlockEditingRuntimeProvider);
   assert.equal(artifacts.length, 2);
   for (const artifact of artifacts) {
-    assert.deepEqual(studioOf(artifact), { editMode: true, canvas: false });
+    assert.deepEqual(studioOf(artifact), { editing: true, canvas: false });
   }
 
   await act(async () => {
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
   });
   await harness.settle();
   for (const artifact of artifacts) {
-    assert.deepEqual(studioOf(artifact), { editMode: false, canvas: false });
+    assert.deepEqual(studioOf(artifact), { editing: false, canvas: false });
   }
   await unmount();
 });
 
 void test("artifacts on the Canvas know they are on the Canvas", async () => {
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   const { artifacts, unmount } = await mountInStudio(({ children }) => (
     <CanvasWorkspaceContext
       value={{ workspaceKey: "test", zoomAt: () => {}, mirrorCamera: () => () => {} }}
@@ -270,13 +270,13 @@ void test("artifacts on the Canvas know they are on the Canvas", async () => {
   ));
   assert.equal(artifacts.length, 2);
   for (const artifact of artifacts) {
-    assert.deepEqual(studioOf(artifact), { editMode: true, canvas: true });
+    assert.deepEqual(studioOf(artifact), { editing: true, canvas: true });
   }
   await unmount();
 });
 
 void test("in the studio preview, a frame sized to its content gets the height its artifact reports", async () => {
-  previewStore.send({ type: "exitEditMode" });
+  previewStore.send({ type: "hideCanvas" });
   const { harness, frames, artifacts, unmount } = await mountInStudio(
     CompleteBlockEditingRuntimeProvider,
   );
@@ -309,7 +309,7 @@ void test("the studio preview inlines each artifact's Artifact Data in its frame
 });
 
 void test("editing a listed sibling field or setting updates camox.data without reloading the frame", async () => {
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   const harness = createArtifactPage();
   const container = harness.page.document.createElement("div");
   harness.page.document.body.append(container);

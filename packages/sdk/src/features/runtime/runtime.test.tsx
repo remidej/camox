@@ -377,7 +377,7 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
       options,
     );
 
-  await t.test("a block opens Edit Mode's page app with the block selected", async () => {
+  await t.test("a block opens the Canvas's page app with the block selected", async () => {
     const response = await request("/_camox/data?path=/camox/blocks/hero");
     assert.equal(response?.status, 200);
     assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
@@ -397,7 +397,7 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
     assert.match(html, /<title>Hero<\/title>/);
   });
 
-  await t.test("the Canvas opens Edit Mode's page app with nothing selected", async () => {
+  await t.test("the Canvas opens its page app with nothing selected", async () => {
     const response = await request("/_camox/data?path=/camox/canvas");
     assert.equal(response?.status, 200);
     const input = (await response!.json()) as PageRenderInput;

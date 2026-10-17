@@ -3,7 +3,7 @@ import type { ArtifactData } from "./artifactData";
 import { observeArtifactTheme, readArtifactTheme } from "./artifactTheme";
 
 /** The studio context an artifact sees as `camox.studio`; `null` on the website. */
-export type ArtifactStudio = { editMode: boolean; canvas: boolean };
+export type ArtifactStudio = { editing: boolean; canvas: boolean };
 
 /** What the page shares with an artifact through its runtime. */
 export type ArtifactHostState = {
@@ -38,7 +38,7 @@ function isRuntimeMessage(data: unknown): data is RuntimeMessage {
 
 function sameStudio(a: ArtifactStudio | null, b: ArtifactStudio | null) {
   if (!a || !b) return a === b;
-  return a.editMode === b.editMode && a.canvas === b.canvas;
+  return a.editing === b.editing && a.canvas === b.canvas;
 }
 
 /**

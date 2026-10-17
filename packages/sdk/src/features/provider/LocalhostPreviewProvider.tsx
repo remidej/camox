@@ -15,7 +15,7 @@ import studioCssUrl from "virtual:camox-studio-css";
 import { useSignInRedirect } from "../../lib/auth";
 import { PreviewPanel } from "../preview/components/PreviewPanel";
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
-import { EDIT_MODE_SHORTCUT } from "../preview/previewConstants";
+import { TOGGLE_CANVAS_SHORTCUT } from "../preview/previewConstants";
 import { useApplyTheme } from "../studio/useTheme";
 import { actionsStore, type Action } from "./actionsStore";
 import { useAdminShortcuts } from "./useAdminShortcuts";
@@ -31,11 +31,11 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
       {
         id: "sign-in-to-edit",
         label: "Sign in to edit",
-        aliases: ["Enter edit mode", "Edit mode"],
-        groupLabel: "Preview",
+        aliases: ["Show canvas", "Edit mode"],
+        groupLabel: "Website",
         checkIfAvailable: () => true,
         execute: () => setIsSignInOpen(true),
-        shortcut: EDIT_MODE_SHORTCUT,
+        shortcut: TOGGLE_CANVAS_SHORTCUT,
       },
     ] satisfies Action[];
     actionsStore.send({ type: "registerManyActions", actions });
@@ -54,7 +54,7 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
       <div className="bg-background relative flex h-screen flex-col overflow-hidden">
         <PreviewPanel>{children}</PreviewPanel>
         <PreviewToolbar
-          onEditModeChange={(checked) => {
+          onCanvasShownChange={(checked) => {
             if (checked) setIsSignInOpen(true);
           }}
         />
@@ -64,7 +64,7 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
           <AlertDialogHeader>
             <AlertDialogTitle>Sign in to edit</AlertDialogTitle>
             <AlertDialogDescription>
-              You need to sign in before you can enable edit mode.
+              You need to sign in before you can show the canvas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

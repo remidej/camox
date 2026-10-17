@@ -2,21 +2,21 @@ import { useSelector } from "@xstate/store-react";
 import type { ReactNode } from "react";
 import studioCssUrl from "virtual:camox-studio-css";
 
-import { EditModePreviewFallback } from "../preview/components/EditModePreviewFallback";
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
-import { previewStore, selectIsEditMode } from "../preview/previewStore";
+import { StudioEditingFallback } from "../preview/components/StudioEditingFallback";
+import { previewStore, selectIsCanvasShown } from "../preview/previewStore";
 import { ChatSidebar } from "../studio/components/ChatSidebar";
 import { Navbar } from "../studio/components/Navbar";
-import { EditModeFallbackContext } from "./editModeFallback";
+import { EditingFallbackContext } from "./editingFallback";
 import type { PageRenderInput } from "./runtime";
 
-const renderEditModeFallback = ({
+const renderEditingFallback = ({
   derived,
   children,
 }: {
   derived: boolean;
   children: ReactNode;
-}) => <EditModePreviewFallback derived={derived}>{children}</EditModePreviewFallback>;
+}) => <StudioEditingFallback derived={derived}>{children}</StudioEditingFallback>;
 
 export function RuntimeChrome({
   input,
@@ -25,29 +25,29 @@ export function RuntimeChrome({
   input: PageRenderInput;
   children: ReactNode;
 }) {
-  const preview = !input.routeKind;
+  const website = !input.routeKind;
   const hidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const isEditMode = useSelector(previewStore, selectIsEditMode);
-  // A page location is the Canvas in edit mode, and the preview otherwise.
-  const showChat = !preview || isEditMode;
+  const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
+  // A page location shows the Canvas or the Preview.
+  const showChat = !website || isCanvasShown;
 
   return (
     <>
       <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       <div className="bg-background flex h-screen flex-col overflow-hidden">
-        <div className={preview ? "max-md:hidden" : undefined} hidden={preview && hidden}>
-          <Navbar isPreview={preview} />
+        <div className={website ? "max-md:hidden" : undefined} hidden={website && hidden}>
+          <Navbar isWebsite={website} />
         </div>
         <div className="flex min-h-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               {/* A Canvas-only location has no page to lay out while the editor loads. */}
-              <EditModeFallbackContext value={input.canvasOnly ? null : renderEditModeFallback}>
+              <EditingFallbackContext value={input.canvasOnly ? null : renderEditingFallback}>
                 {children}
-              </EditModeFallbackContext>
+              </EditingFallbackContext>
             </div>
             {/* Kept at a stable position, outside route Suspense and editor imports. */}
-            <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
+            <div hidden={!website} className={input.derived ? undefined : "max-md:hidden"}>
               <PreviewToolbar />
             </div>
           </div>

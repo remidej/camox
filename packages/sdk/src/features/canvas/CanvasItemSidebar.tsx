@@ -5,7 +5,7 @@ import type * as React from "react";
 
 import { formatShortcut } from "@/lib/utils";
 
-import { CMS_SIDEBAR_WIDTH, SHOW_CANVAS_SHORTCUT } from "../preview/previewConstants";
+import { CMS_SIDEBAR_WIDTH, SHOW_WHOLE_CANVAS_SHORTCUT } from "../preview/previewConstants";
 
 /**
  * The Canvas sidebar's view of a selected Canvas item: its name, beside a button that leaves
@@ -43,7 +43,7 @@ export function CanvasItemSidebar({
             <Minimize2 />
           </Tooltip.TooltipTrigger>
           <Tooltip.TooltipContent side="bottom">
-            Show whole canvas {formatShortcut(SHOW_CANVAS_SHORTCUT)}
+            Show whole canvas {formatShortcut(SHOW_WHOLE_CANVAS_SHORTCUT)}
           </Tooltip.TooltipContent>
         </Tooltip.Tooltip>
         <h2 className="truncate text-base font-medium">{title}</h2>

@@ -35,7 +35,7 @@ type Snapshot = {
 
 /**
  * The Preview's one page frame, which the Canvas borrows for the selected Page.
- * Edit Mode only moves and restyles it, so the page's state, such as an open
+ * Toggling the Canvas only moves and restyles it, so the page's state, such as an open
  * modal or typed input, carries over in both directions. Selecting another
  * Page renders that Page in it instead.
  */

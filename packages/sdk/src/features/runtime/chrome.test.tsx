@@ -102,14 +102,14 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   );
   assert.match(html, /My actual project/);
   assert.match(html, /Quick find/);
-  assert.match(html, /Edit mode/);
-  const editModeLabel =
-    html.match(/<label[^>]*for="edit-mode"[^>]*>([\s\S]*?)<\/label>/)?.[1] ?? "";
+  assert.match(html, /Show canvas/);
+  const showCanvasLabel =
+    html.match(/<label[^>]*for="show-canvas"[^>]*>([\s\S]*?)<\/label>/)?.[1] ?? "";
   // Actions register in effects, but the shortcut must already occupy its
   // space in the server-rendered toolbar.
-  assert.match(editModeLabel, /<kbd/);
-  assert.match(editModeLabel, /class="camox-platform-mac">⌘ ↵/);
-  assert.match(editModeLabel, /class="camox-platform-other">Ctrl ↵/);
+  assert.match(showCanvasLabel, /<kbd/);
+  assert.match(showCanvasLabel, /class="camox-platform-mac">⌘ ↵/);
+  assert.match(showCanvasLabel, /class="camox-platform-other">Ctrl ↵/);
   assert.match(html, /class="camox-platform-mac">⌘ K/);
   assert.match(html, /class="camox-platform-other">Ctrl K/);
   assert.match(html, /Viewing Live/);
@@ -138,9 +138,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.doesNotMatch(studioHtml, /camox-loading/);
   assert.match(studioHtml, /data-chat-sidebar/);
 
-  // In edit mode, a page location is the Canvas, which has the chat too.
+  // With the Canvas shown, a page location has the chat too.
   const { previewStore } = await import("../preview/previewStore");
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     const canvasPageHtml = renderToString(
       createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
@@ -195,7 +195,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       // Navbar and command actions share the same ungated navigation.
       assert.deepEqual(
         getNavbarLinks().map((link) => link.title),
-        ["Preview", "Content"],
+        ["Website", "Content"],
       );
       assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
     }
@@ -214,5 +214,5 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       camoxApp,
     }),
   );
-  assert.doesNotMatch(publicHtml, /Quick find|Edit mode|My actual project|studio.css/);
+  assert.doesNotMatch(publicHtml, /Quick find|Show canvas|My actual project|studio.css/);
 });

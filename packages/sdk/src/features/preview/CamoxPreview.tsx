@@ -32,9 +32,9 @@ import {
   useDerivedPageResult,
   useFollowPageRecord,
 } from "./pageRecord";
-import { EDIT_MODE_SHORTCUT, SHOW_CANVAS_SHORTCUT } from "./previewConstants";
+import { TOGGLE_CANVAS_SHORTCUT, SHOW_WHOLE_CANVAS_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
-import { previewStore, selectIsEditMode, type EditingOwner } from "./previewStore";
+import { previewStore, selectIsCanvasShown, type EditingOwner } from "./previewStore";
 import { usePreviewViewportActions } from "./usePreviewViewportActions";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -321,23 +321,27 @@ export const CamoxPreview = ({
 };
 
 /**
- * A Canvas-only location only exists on the Canvas, in Edit Mode. Opening one
- * enters Edit Mode, while leaving Edit Mode, or a Studio without the Canvas,
+ * A Canvas-only location only exists on the Canvas. Opening one
+ * shows the Canvas, while hiding the Canvas, or a Studio without the Canvas,
  * goes home instead, so Preview always shows a real Page.
  */
-function useCanvasOnlyEditMode(canvasOnly: boolean, isEditMode: boolean, isMobileStudio: boolean) {
+function useCanvasOnlyLocation(
+  canvasOnly: boolean,
+  isCanvasShown: boolean,
+  isMobileStudio: boolean,
+) {
   const navigate = useNavigate();
-  const wasEditMode = React.useRef(isEditMode);
+  const wasCanvasShown = React.useRef(isCanvasShown);
   React.useEffect(() => {
-    const left = wasEditMode.current && !isEditMode;
-    wasEditMode.current = isEditMode;
-    if (!canvasOnly || isEditMode) return;
+    const left = wasCanvasShown.current && !isCanvasShown;
+    wasCanvasShown.current = isCanvasShown;
+    if (!canvasOnly || isCanvasShown) return;
     if (isMobileStudio || left) {
       void navigate({ to: "/", replace: true });
       return;
     }
-    previewStore.send({ type: "enterEditMode" });
-  }, [canvasOnly, isEditMode, isMobileStudio, navigate]);
+    previewStore.send({ type: "showCanvas" });
+  }, [canvasOnly, isCanvasShown, isMobileStudio, navigate]);
 }
 
 /** Studio chrome is shared; only curated previews require a Camox page record. */
@@ -360,9 +364,9 @@ export const PreviewShell = ({
   const isAuthenticated = useIsAuthenticated();
   const projectSlug = useProjectSlug();
   const isMobileStudio = useIsMobileStudio();
-  const isEditMode = useSelector(previewStore, selectIsEditMode);
+  const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
   usePreviewViewportActions();
-  const showCanvas = !isMobileStudio && isEditMode;
+  const isCanvasEnabled = !isMobileStudio && isCanvasShown;
   const { pathname } = useLocation();
 
   // A Canvas-only location edits no page, even while the Preview still shows the last one.
@@ -385,37 +389,37 @@ export const PreviewShell = ({
 
   React.useEffect(() => {
     if (!isMobileStudio) return;
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     previewStore.send({ type: "closeAddBlockDialog" });
   }, [isMobileStudio]);
 
-  useCanvasOnlyEditMode(!!canvasOnly && isAuthenticated, isEditMode, isMobileStudio);
+  useCanvasOnlyLocation(!!canvasOnly && isAuthenticated, isCanvasShown, isMobileStudio);
 
   React.useEffect(() => {
     const actions = [
       {
-        id: "exit-edit-mode",
-        label: "Exit edit mode",
-        aliases: ["Hide Camox Studio", "Hide studio", "Preview only", "View mode"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => isAuthenticated && isEditMode,
-        execute: () => previewStore.send({ type: "exitEditMode" }),
-        shortcut: EDIT_MODE_SHORTCUT,
+        id: "hide-canvas",
+        label: "Hide canvas",
+        aliases: ["Preview", "Exit edit mode", "Hide Camox Studio", "Hide studio"],
+        groupLabel: "Website",
+        checkIfAvailable: () => isAuthenticated && isCanvasShown,
+        execute: () => previewStore.send({ type: "hideCanvas" }),
+        shortcut: TOGGLE_CANVAS_SHORTCUT,
       },
       {
-        id: "enter-edit-mode",
-        label: "Enter edit mode",
-        aliases: ["Show Camox Studio", "Show studio", "Edit mode"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => isAuthenticated && !isEditMode && !isMobileStudio,
-        execute: () => previewStore.send({ type: "enterEditMode" }),
-        shortcut: EDIT_MODE_SHORTCUT,
+        id: "show-canvas",
+        label: "Show canvas",
+        aliases: ["Edit mode", "Show Camox Studio", "Show studio"],
+        groupLabel: "Website",
+        checkIfAvailable: () => isAuthenticated && !isCanvasShown && !isMobileStudio,
+        execute: () => previewStore.send({ type: "showCanvas" }),
+        shortcut: TOGGLE_CANVAS_SHORTCUT,
       },
       {
         id: "clear-selection",
         label: "Clear selection",
         aliases: ["Deselect", "Unselect"],
-        groupLabel: "Preview",
+        groupLabel: "Website",
         checkIfAvailable: () => true,
         execute: () => previewStore.send({ type: "clearSelection" }),
         shortcut: { key: "Escape" },
@@ -433,7 +437,7 @@ export const PreviewShell = ({
         ids: actions.map((a) => a.id),
       });
     };
-  }, [isEditMode, isAuthenticated, isMobileStudio]);
+  }, [isCanvasShown, isAuthenticated, isMobileStudio]);
 
   if (!isAuthenticated) {
     return <>{children}</>;
@@ -445,11 +449,11 @@ export const PreviewShell = ({
         <div
           className={cn(
             "bg-background relative flex h-full min-h-0 flex-1 flex-col overflow-hidden",
-            !isEditMode && "bg-black",
+            !isCanvasShown && "bg-black",
           )}
         >
           <CanvasPreview
-            enabled={showCanvas}
+            enabled={isCanvasEnabled}
             pathname={pathname}
             pagePathname={pageLocation?.pathname}
             runtimeBasePath={runtimeBasePath}
@@ -459,7 +463,7 @@ export const PreviewShell = ({
           >
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel
-                active={!showCanvas}
+                active={!isCanvasEnabled}
                 isMobileExperience={isMobileStudio}
                 page={pageData?.page}
                 layoutId={derivedLayout?.layoutId}
@@ -470,7 +474,7 @@ export const PreviewShell = ({
               </PreviewPanel>
             </div>
           </CanvasPreview>
-          {!showCanvas && (
+          {!isCanvasEnabled && (
             <>
               <CreatePageModal />
               {pageData && <AddBlockDialog />}
@@ -492,18 +496,18 @@ export function useShowCanvasAction() {
   React.useEffect(() => {
     const actions = [
       {
-        id: "show-canvas",
+        id: "show-whole-canvas",
         label: "Show whole canvas",
-        aliases: ["Canvas", "Show canvas", "Zoom out", "Canvas overview", "Back to the canvas"],
+        aliases: ["Canvas", "Zoom out", "Canvas overview", "Back to the canvas"],
         groupLabel: "Navigation",
         // The Canvas needs room the mobile Studio doesn't have.
         checkIfAvailable: () => !isMobileStudio,
         execute: () => {
-          previewStore.send({ type: "enterEditMode" });
+          previewStore.send({ type: "showCanvas" });
           if (pathname !== STUDIO_CANVAS_PATH) void navigate({ to: STUDIO_CANVAS_PATH });
           canvasStore.send({ type: "requestOverview" });
         },
-        shortcut: SHOW_CANVAS_SHORTCUT,
+        shortcut: SHOW_WHOLE_CANVAS_SHORTCUT,
       },
     ] satisfies Action[];
 
@@ -528,7 +532,7 @@ export function usePreviewPagesActions() {
         id: "create-page",
         label: "Create page",
         aliases: ["New page", "Add page"],
-        groupLabel: "Preview",
+        groupLabel: "Website",
         checkIfAvailable: () => true,
         execute: () => previewStore.send({ type: "openCreatePageModal" }),
       },
@@ -536,7 +540,7 @@ export function usePreviewPagesActions() {
         id: "edit-current-page",
         label: "Edit current page",
         aliases: ["Page settings", "Edit page settings", "Page metadata"],
-        groupLabel: "Preview",
+        groupLabel: "Website",
         checkIfAvailable: () => currentPage?.kind === "curated",
         execute: () => {
           if (currentPage?.kind !== "curated") return;
@@ -550,7 +554,7 @@ export function usePreviewPagesActions() {
         id: GO_TO_PAGE_ID,
         label: "Go to page",
         aliases: ["Open page", "Navigate page", "Switch page"],
-        groupLabel: "Preview",
+        groupLabel: "Website",
         checkIfAvailable: () => pages.length > 0,
         hasChildren: true,
         execute: () => {},
@@ -561,7 +565,7 @@ export function usePreviewPagesActions() {
         parentActionId: GO_TO_PAGE_ID,
         label: `Go to "${page.title}"`,
         aliases: [page.fullPath],
-        groupLabel: "Preview",
+        groupLabel: "Website",
         checkIfAvailable: () => true,
         execute: () => navigate({ to: page.fullPath }),
       })),

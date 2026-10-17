@@ -155,7 +155,7 @@ void test("the Preview and the Canvas slot share one frame, each releasing only 
     await studio.claim("slot");
     studio.previewStore.send({ type: "setFocusedBlock", ...page("1"), blockId: "42" });
 
-    // Leaving Edit Mode: the Preview claims its frame back again before the slot unmounts.
+    // Hiding the Canvas: the Preview claims its frame back again before the slot unmounts.
     await studio.claim("preview");
     assert.deepEqual(
       studio.previewStore.getSnapshot().context.editingContext?.selection,

@@ -298,7 +298,7 @@ void test("clicks inside a placed record select its record field or the record f
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const placement = (blockId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer"]`)!;
@@ -391,7 +391,7 @@ void test("clicks inside a placed record select its record field or the record f
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });
@@ -463,7 +463,7 @@ void test("record images and files select their record field for that placement 
   document.body.appendChild(host);
   const root = createRoot(host);
   const writesBefore = requests.length;
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const field = (blockId: string, name: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__${name}"]`);
@@ -540,7 +540,7 @@ void test("record images and files select their record field for that placement 
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });
@@ -583,7 +583,7 @@ void test("record embeds select their record field for that placement only", asy
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const video = (blockId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__video"]`);
@@ -632,7 +632,7 @@ void test("record embeds select their record field for that placement only", asy
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });
@@ -794,14 +794,14 @@ void test("editable query-backed lists render resolved records with the same sco
   assert.match(html, /data-camox-field-id="7__customers__beta-id__name"/);
   assert.match(html, /data-camox-field-id="7__70__customers__acme-id"/);
   assert.match(html, /data-camox-overlay-mode="reference"/);
-  // An empty result renders nothing, even in edit mode: there is nothing to add.
+  // An empty result renders nothing, even on the Canvas: there is nothing to add.
   const empty = render("site", []);
   assert.doesNotMatch(empty, /<li|data-camox-reference-placeholder/);
   assert.match(empty, /<ul><\/ul>/);
   assert.deepEqual(labels(render("peek", [records[0]]), "ul"), ["Acme label"]);
 });
 
-void test("an empty reference list shows an add placeholder in edit mode that focuses the sidebar picker", async () => {
+void test("an empty reference list shows an add placeholder on the Canvas that focuses the sidebar picker", async () => {
   const customers = createCollection({
     id: "customers",
     title: "Customers",
@@ -925,7 +925,7 @@ void test("clicks inside a listed record select its record field or the record f
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const entry = (blockId: string, recordId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__logos__${recordId}"]`)!;
@@ -1027,7 +1027,7 @@ void test("clicks inside a listed record select its record field or the record f
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });
@@ -1178,7 +1178,7 @@ void test("images and files of listed records select their record field for that
   document.body.appendChild(host);
   const root = createRoot(host);
   const writesBefore = requests.length;
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const field = (blockId: string, recordId: string, name: string) =>
     host.querySelector<HTMLElement>(
@@ -1247,7 +1247,7 @@ void test("images and files of listed records select their record field for that
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });
@@ -1330,7 +1330,7 @@ void test("repeatable items place records of their own, selected and linked per 
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const byId = (fieldId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${fieldId}"]`);
@@ -1411,7 +1411,7 @@ void test("repeatable items place records of their own, selected and linked per 
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });
@@ -1493,7 +1493,7 @@ void test("records placed by a block render the records they link, one hop furth
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const byId = (fieldId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${fieldId}"]`);
@@ -1566,7 +1566,7 @@ void test("records placed by a block render the records they link, one hop furth
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });

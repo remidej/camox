@@ -122,7 +122,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       blocks?: { _internal: { id: string } }[];
       projectId?: number;
     };
-    onShowCanvas?: () => void;
+    onShowWholeCanvas?: () => void;
   };
   const sidebars = new Map<string, SidebarProps>();
   const flyTo = (key: string) => flights.push(key);
@@ -644,7 +644,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
 
           // The back button leaves the selection from the Canvas, then zooms out to all of it.
           actions.length = 0;
-          await React.act(async () => sidebars.get("Canvas")!.onShowCanvas!());
+          await React.act(async () => sidebars.get("Canvas")!.onShowWholeCanvas!());
           assert.deepEqual(navigations.splice(0), [{ to: "/camox/canvas", source: "canvas" }]);
           assert.deepEqual(actions, ["cancel", "fit all"]);
 

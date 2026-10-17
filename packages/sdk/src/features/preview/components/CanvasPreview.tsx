@@ -38,8 +38,8 @@ type Preparation = {
   /** The Canvas mounted for this preparation. A new one replaces a failed Canvas. */
   instance: number;
   /**
-   * Whether this Canvas was ready once. It then stays mounted, hidden, outside Edit Mode,
-   * so turning Edit Mode back on shows it without loading it again.
+   * Whether this Canvas was ready once. It then stays mounted while hidden,
+   * so showing the Canvas again shows it without loading it again.
    */
   warm: boolean;
 };
@@ -69,7 +69,7 @@ class ViewportHandoff extends React.Component<{
   }
 }
 
-/** A failed preparation offers to retry, until it is retried or Edit Mode turns off. */
+/** A failed preparation offers to retry, until it is retried or the Canvas is hidden. */
 function useFailureToast(failed: boolean, retry: () => void) {
   React.useEffect(() => {
     if (!failed) return;
@@ -185,7 +185,7 @@ export function CanvasPreview({
   const onFatalError = React.useCallback(
     (_error: Error) => {
       setPreparation((current) => {
-        // A hidden warm Canvas that fails is dropped, and loads again in Edit Mode.
+        // A hidden warm Canvas that fails is dropped, and loads again when shown.
         if (!current.enabled) return current.warm ? { ...current, warm: false } : current;
         if (current.attempt !== attempt) return current;
         return {

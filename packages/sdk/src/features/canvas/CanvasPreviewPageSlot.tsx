@@ -13,7 +13,7 @@ import { CanvasWorkspaceContext } from "./canvasZoom";
 
 /**
  * The selected Page's place in the Canvas row, where the Preview's own page
- * frame shows instead of a frame of the Canvas. Edit Mode then never remounts
+ * frame shows instead of a frame of the Canvas. Toggling the Canvas then never remounts
  * the page, and neither does deselecting it, which keeps it in the frame. The slot takes the frame's height, and draws the Canvas overlays
  * over it.
  */

@@ -83,7 +83,7 @@ export interface PageRenderInput extends DraftRead {
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
   /**
-   * A location only the Canvas shows, in Edit Mode, instead of a Page: the Canvas
+   * A location only the Canvas shows, instead of a Page: the Canvas
    * with nothing selected, or with a block of the Block Catalog selected.
    */
   canvasOnly?: { blockId?: string };
@@ -1035,7 +1035,7 @@ async function createCanvasOnlyResponse({
     dehydratedState: dehydrate(new QueryClient()),
     canvasOnly: blockId ? { blockId } : {},
     // Nothing here reads the draft, but it is the one the Page left was in: client
-    // navigation remounts the studio, leaving Edit Mode, when the draft changes.
+    // navigation remounts the studio, hiding the Canvas, when the draft changes.
     draftId: studio ? getRequestDraftId(request, options) : undefined,
   };
   // Block frames build their documents from the site head; there is no page content.

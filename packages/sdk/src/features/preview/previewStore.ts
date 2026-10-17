@@ -174,15 +174,15 @@ export function selectionField(
   return null;
 }
 
-export type PreviewMode = "editing-draft" | "previewing-draft";
+export type WebsiteView = "canvas" | "preview";
 
-export const selectIsEditMode = (state: { context: { mode: PreviewMode } }) =>
-  state.context.mode === "editing-draft";
+export const selectIsCanvasShown = (state: { context: { view: WebsiteView } }) =>
+  state.context.view === "canvas";
 
 export type ViewportMode = "full" | "tablet" | "mobile";
 
 interface PreviewContext {
-  mode: PreviewMode;
+  view: WebsiteView;
   isToolbarHidden: boolean;
   addBlockDialog: { afterPosition?: string | null } | null;
   isCreatePageModalOpen: boolean;
@@ -192,7 +192,7 @@ interface PreviewContext {
 }
 
 const initialPreviewContext: PreviewContext = {
-  mode: "previewing-draft",
+  view: "preview",
   isToolbarHidden: false,
   addBlockDialog: null,
   isCreatePageModalOpen: false,
@@ -206,18 +206,18 @@ export const previewStore = createStore({
   on: {
     /** Leaving the preview discards its session; returning starts fresh. */
     reset: () => initialPreviewContext,
-    exitEditMode: (context) => {
-      if (!selectIsEditMode({ context })) return context;
+    hideCanvas: (context) => {
+      if (!selectIsCanvasShown({ context })) return context;
       return {
         ...context,
-        mode: "previewing-draft" as const,
+        view: "preview" as const,
       };
     },
-    enterEditMode: (context) => {
-      if (selectIsEditMode({ context })) return context;
+    showCanvas: (context) => {
+      if (selectIsCanvasShown({ context })) return context;
       return {
         ...context,
-        mode: "editing-draft" as const,
+        view: "canvas" as const,
         isToolbarHidden: false,
       };
     },

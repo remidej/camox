@@ -154,8 +154,8 @@ void test("a frame sized to its content gets the height its artifact reports", a
 });
 
 void test("artifacts rendered as on the website see the studio they're placed in", async () => {
-  assert.deepEqual(await mountedStudio({ editMode: false, canvas: true }), {
-    editMode: false,
+  assert.deepEqual(await mountedStudio({ editing: false, canvas: true }), {
+    editing: false,
     canvas: true,
   });
   assert.equal(await mountedStudio(null), null);

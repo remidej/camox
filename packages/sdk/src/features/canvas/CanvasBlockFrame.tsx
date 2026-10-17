@@ -16,7 +16,7 @@ import { useCanvasNearness } from "./useCanvasNearness";
 /** World-space height reserved for a frame until it mounts and measures its block. */
 const PLACEHOLDER_HEIGHT = 400;
 /** Block Catalog blocks render as on the website, but on the Canvas and never editable. */
-const CATALOG_ARTIFACT_STUDIO = { editMode: false, canvas: true };
+const CATALOG_ARTIFACT_STUDIO = { editing: false, canvas: true };
 
 export interface CanvasBlockFrameProps {
   block: Block;

@@ -91,7 +91,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
       </CanvasOverlays>
     </CanvasOverlaysShownContext>
   );
-  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "showCanvas" });
   try {
     await React.act(async () => {
       root.render(overlays(true));
@@ -159,13 +159,13 @@ void test("outlines and interactive controls live above the frame, not in the pa
       "none",
       "without a selection, the Canvas shows no overlays",
     );
-    await React.act(async () => previewStore.send({ type: "exitEditMode" }));
+    await React.act(async () => previewStore.send({ type: "hideCanvas" }));
     assert.equal(layer.querySelector("button"), null);
     assert.equal((layer as unknown as HTMLElement).style.display, "none");
 
     // Derived/layout-owned pages do not offer page insertion.
     await React.act(async () => {
-      previewStore.send({ type: "enterEditMode" });
+      previewStore.send({ type: "showCanvas" });
       root.render(
         <CanvasOverlaysShownContext value={true}>
           <CanvasOverlays document={page.document as unknown as Document} activate={() => {}}>
@@ -271,7 +271,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
   } finally {
     await React.act(async () => root.unmount());
     await studio.close();
-    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "hideCanvas" });
     await page.happyDOM.close();
     await host.happyDOM.close();
     for (const [key, descriptor] of previous) {

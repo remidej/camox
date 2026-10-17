@@ -115,7 +115,7 @@ export function CanvasSidebar({
   page,
   catalog,
   navigator,
-  onShowCanvas,
+  onShowWholeCanvas,
   owner = null,
   pageRecord,
 }: {
@@ -125,7 +125,7 @@ export function CanvasSidebar({
   /** Shown without a selection, on the Canvas itself. */
   navigator: React.ComponentProps<typeof CanvasNavigatorSidebar>;
   /** Leaves the selection for the whole Canvas, where the navigator shows. */
-  onShowCanvas: () => void;
+  onShowWholeCanvas: () => void;
   owner?: EditingOwner | null;
   /** The record of the selected record page, if any. */
   pageRecord?: PageRecordId;
@@ -133,7 +133,7 @@ export function CanvasSidebar({
   const { pathname } = useLocation();
   if (catalog) {
     return (
-      <CanvasItemSidebar title={catalog.block._internal.title} onBack={onShowCanvas}>
+      <CanvasItemSidebar title={catalog.block._internal.title} onBack={onShowWholeCanvas}>
         <BlockPlacementSidebar block={catalog.block} projectId={catalog.projectId} />
       </CanvasItemSidebar>
     );
@@ -148,7 +148,7 @@ export function CanvasSidebar({
   }
 
   return (
-    <CanvasItemSidebar title={page.title} onBack={onShowCanvas}>
+    <CanvasItemSidebar title={page.title} onBack={onShowWholeCanvas}>
       <PreviewEditingOwnerContext value={owner}>
         <SidebarBoundary key={`${page.key}:${pathname}`}>
           <React.Suspense
