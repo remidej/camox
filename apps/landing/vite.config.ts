@@ -1,6 +1,5 @@
-import babelPlugin from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
-import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react";
 import { camox } from "camox/vite";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite-plus";
@@ -22,8 +21,7 @@ const config = defineConfig({
     camox({
       projectSlug: "camox-landing",
     }),
-    react(),
-    babelPlugin({ presets: [reactCompilerPreset()] }),
+    react({ compiler: true }),
   ],
   optimizeDeps: {
     include: ["@paper-design/shaders-react"],

@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 
-import babelPlugin from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
-import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite-plus";
 
@@ -91,8 +90,7 @@ const config = defineConfig({
         },
       },
     }),
-    react(),
-    babelPlugin({ presets: [reactCompilerPreset()] }),
+    react({ compiler: true }),
   ],
   optimizeDeps: {
     exclude: ["camox"],
