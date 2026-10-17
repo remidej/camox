@@ -1,19 +1,17 @@
 import { isQueryBacked } from "@camox/api-contract";
 import { Type as TypeBoxType } from "@sinclair/typebox";
-import { useQuery } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "../features/navigation/navigation";
 import { useOptionalCamoxApp } from "../features/provider/components/CamoxAppContext";
-import { useProjectSlug } from "../lib/auth";
 import {
   isItemMarker,
   queryResultIds,
   resolveAssetValue,
   useNormalizedData,
 } from "../lib/normalized-data";
-import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
+import { useViewPages } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
   ArtifactStudioContext,
@@ -235,17 +233,12 @@ function createViewBlock(options: EditableOptions) {
       });
     }
     const value = useValue(name);
-    const projectSlug = useProjectSlug();
-    const { data: project } = useQuery(viewProjectQueries.getBySlug(projectSlug));
-    const { data: pages } = useQuery({
-      ...viewPageQueries.list(project?.id ?? 0),
-      enabled: !!project,
-    });
+    const pages = useViewPages();
     const pathname = useLocation({ select: (location) => location.pathname });
     return children(
       {
         children: markdownToReactNodes(value, {
-          pages: pages as Page[] | undefined,
+          pages,
           fallbackHref: pathname,
           textStyle,
           linkStyle,
@@ -296,12 +289,7 @@ function createViewBlock(options: EditableOptions) {
     const block = React.use(Context);
     const item = React.use(RepeaterContext);
     const { filesMap } = useNormalizedData();
-    const projectSlug = useProjectSlug();
-    const { data: project } = useQuery(viewProjectQueries.getBySlug(projectSlug));
-    const { data: pages } = useQuery({
-      ...viewPageQueries.list(project?.id ?? 0),
-      enabled: !!project,
-    });
+    const pages = useViewPages();
     const pathname = useLocation({ select: (location) => location.pathname });
     if (!block) throw new Error("Artifact must be used within a Block Component");
     const field = item ? item.itemSchema?.[name] : typeboxSchema.properties[name];
@@ -309,9 +297,7 @@ function createViewBlock(options: EditableOptions) {
       ? { content: item.itemContent, settings: item.itemSettings }
       : { content: block.content, settings: block.settings };
     return artifactData(field, owner, {
-      linkHref: (link) =>
-        resolveLinkHref(normalizeLinkValue(link), pages as Page[] | undefined, pathname) ??
-        pathname,
+      linkHref: (link) => resolveLinkHref(normalizeLinkValue(link), pages, pathname) ?? pathname,
       asset: (value) => resolveAssetValue(value, filesMap) as Record<string, unknown> | null,
     });
   }
@@ -320,14 +306,9 @@ function createViewBlock(options: EditableOptions) {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) return editingRuntime.renderPrimitive(options, "Link", { name, children });
     const value = normalizeLinkValue((useValue(name) ?? {}) as Record<string, unknown>);
-    const projectSlug = useProjectSlug();
-    const { data: project } = useQuery(viewProjectQueries.getBySlug(projectSlug));
-    const { data: pages } = useQuery({
-      ...viewPageQueries.list(project?.id ?? 0),
-      enabled: !!project,
-    });
+    const pages = useViewPages();
     const pathname = useLocation({ select: (location) => location.pathname });
-    const href = resolveLinkHref(value, pages as Page[] | undefined, pathname);
+    const href = resolveLinkHref(value, pages, pathname);
     if (href == null) return value.text;
     return children(
       {

@@ -7,6 +7,7 @@ import { readHydrationData } from "./hydrationData";
 import { PageApp } from "./pageApp";
 import { getPageBlockTypes } from "./pageBlockTypes";
 import type { PageRenderInput } from "./runtime";
+import { loadRuntimeChrome } from "./runtimeChromeLoader";
 
 export async function hydratePageWithApp(camoxApp: CamoxApp) {
   const root = document.getElementById("root");
@@ -20,9 +21,13 @@ export async function hydratePageWithApp(camoxApp: CamoxApp) {
   };
   // The server preloads these modules, so this rarely waits on the network. A block that
   // failed to load retries as it renders, and its error boundary contains a second failure.
-  await camoxApp
-    .loadBlocks(getPageBlockTypes(input.dehydratedState))
-    .catch((error) => console.error("Camox: a block of this page failed to load.", error));
+  // A member's document was rendered with the Studio chrome: hydrate it in place.
+  await Promise.all([
+    camoxApp
+      .loadBlocks(getPageBlockTypes(input.dehydratedState))
+      .catch((error) => console.error("Camox: a block of this page failed to load.", error)),
+    input.presentation === "studio" ? loadRuntimeChrome() : undefined,
+  ]);
 
   hydrateRoot(root, <PageApp camoxApp={camoxApp} input={input} queryClient={queryClient} />);
 }

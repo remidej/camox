@@ -1,10 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import { useLocation } from "../../features/navigation/navigation";
-import { useProjectSlug } from "../../lib/auth";
 import { resolveAssetValue, useNormalizedData } from "../../lib/normalized-data";
-import { type Page, viewPageQueries, viewProjectQueries } from "../../lib/view-queries";
+import { useViewPages } from "../../lib/view-queries";
 import { fieldPlainText } from "../recordItem";
 import type { FileValue, ImageValue } from "./contentType";
 import { renderImagePlaceholder } from "./imagePlaceholder";
@@ -36,17 +34,12 @@ function useFieldValue(name: string) {
 
 const Field = ({ name, textStyle, linkStyle, children }: any) => {
   const value = useFieldValue(name);
-  const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(viewProjectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...viewPageQueries.list(project?.id ?? 0),
-    enabled: !!project,
-  });
+  const pages = useViewPages();
   const pathname = useLocation({ select: (location) => location.pathname });
   return children(
     {
       children: markdownToReactNodes(value, {
-        pages: pages as Page[] | undefined,
+        pages: pages,
         fallbackHref: pathname,
         textStyle,
         linkStyle,

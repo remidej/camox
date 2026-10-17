@@ -366,14 +366,39 @@ export function useProjectSlug() {
 
 const subscribeToHydration = () => () => {};
 
+function hasStoredAuthCookie() {
+  return getCookie(localStorage.getItem("better-auth_cookie") || "{}") !== "";
+}
+
+const noSubscription = () => () => {};
+
+/**
+ * The session, from the client's session store. Listening to the store fetches the session from
+ * the API, so an untracked session stays unfetched.
+ */
+function useSessionState(authClient: CamoxAuthClient, track: boolean) {
+  const sessionAtom = authClient.$store.atoms.session;
+  // `value`, unlike `get()`, reads the store without mounting it, which would fetch.
+  const getSnapshot = () => sessionAtom.value as { data: unknown; isPending: boolean };
+  const subscribe = React.useCallback(
+    (onChange: () => void) => sessionAtom.listen(onChange),
+    [sessionAtom],
+  );
+  return React.useSyncExternalStore(track ? subscribe : noSubscription, getSnapshot, getSnapshot);
+}
+
 export function useAuthState() {
   const { authClient, initialAuthenticated = false } = useAuthContext();
-  const { data: session, isPending } = authClient.useSession();
   const hydrated = React.useSyncExternalStore(
     subscribeToHydration,
     () => true,
     () => false,
   );
+  // Sessions live in localStorage, or the server saw one. Without either the visitor is
+  // anonymous: don't ask the API.
+  const tracksSession = initialAuthenticated || (hydrated && hasStoredAuthCookie());
+  const { data: session, isPending } = useSessionState(authClient, tracksSession);
+  if (!tracksSession) return { isAuthenticated: false, isLoading: !hydrated };
   // Presentation only: every API operation still validates the actual session.
   const useInitial = !hydrated || isPending;
   return {

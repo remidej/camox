@@ -17,7 +17,7 @@ import { PreviewSignInPage } from "../provider/PreviewSignInPage";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
-import { RuntimeChrome } from "./RuntimeChrome";
+import { RuntimeChromeSlot } from "./runtimeChromeLoader";
 
 export function PageApp({
   camoxApp,
@@ -139,7 +139,7 @@ function PageExperience({
     ) : null;
 
     return (
-      <RuntimeChrome input={input}>
+      <RuntimeChromeSlot input={input} fallback={input.routeKind ? loading : isolatedPage}>
         <EditingActivationBoundary fallback={fallback}>
           {input.routeKind ? (
             <React.Suspense fallback={loading}>{editor ?? loading}</React.Suspense>
@@ -151,7 +151,7 @@ function PageExperience({
             </PreviewActivation>
           )}
         </EditingActivationBoundary>
-      </RuntimeChrome>
+      </RuntimeChromeSlot>
     );
   }
   if (studioOnly) return null;

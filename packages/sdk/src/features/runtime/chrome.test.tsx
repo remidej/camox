@@ -85,6 +85,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     loaderData: null,
     dehydratedState: dehydrate(queryClient),
   };
+  // Like the server renderer, load the members-only chrome before rendering a member's document.
+  const { loadRuntimeChrome } = await import("./runtimeChromeLoader");
+  await loadRuntimeChrome();
   const html = renderToString(createElement(PageApp, { input, queryClient, camoxApp }));
   assert.match(html, /My actual project/);
   assert.match(html, /Quick find/);
