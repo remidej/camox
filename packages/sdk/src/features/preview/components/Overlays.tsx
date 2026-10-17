@@ -4,12 +4,8 @@ import * as React from "react";
 import { usePageBlocks } from "@/lib/normalized-data";
 
 import { usePreviewedPage } from "../CamoxPreview";
-import {
-  isOverlayMessage,
-  overlayFieldId,
-  recordFieldId,
-  type OverlayMessage,
-} from "../overlayMessages";
+import { useEditingFrame, type EditingFrameElement } from "../editingFrame";
+import { isOverlayMessage, overlayFieldId, recordFieldId } from "../overlayMessages";
 import {
   previewStore,
   selectIsEditMode,
@@ -20,13 +16,16 @@ import {
 
 interface OverlaysProps {
   owner: EditingOwner | null;
-  iframeElement: HTMLIFrameElement | null;
+  iframeElement: EditingFrameElement | null;
   canAddBlocks?: boolean;
 }
 
-function CuratedAddBlockListener({ iframeElement }: { iframeElement: HTMLIFrameElement | null }) {
+function CuratedAddBlockListener({ iframeElement }: { iframeElement: EditingFrameElement | null }) {
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
+  // Canvas mounts one listener per page; only the editing frame's may answer.
+  const { document: editingDocument } = useEditingFrame();
+  const isEditingFrame = !!editingDocument && editingDocument === iframeElement?.contentDocument;
 
   // Listen for messages from iframe
   React.useEffect(() => {
@@ -40,9 +39,7 @@ function CuratedAddBlockListener({ iframeElement }: { iframeElement: HTMLIFrameE
         // Ignore stale iframe messages after leaving edit mode.
         const snapshot = previewStore.getSnapshot();
         if (!selectIsEditMode(snapshot)) return;
-        // Canvas mounts one listener per page. Only the active frame may
-        // resolve insertion positions and open the shared picker.
-        if (!iframeElement || snapshot.context.iframeElement !== iframeElement) return;
+        if (!isEditingFrame) return;
         const owner = snapshot.context.editingContext;
         if (owner?.kind !== "page" || owner.pageId !== page.page.id) return;
 
@@ -72,7 +69,7 @@ function CuratedAddBlockListener({ iframeElement }: { iframeElement: HTMLIFrameE
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [pageBlocks, page.page.id, iframeElement]);
+  }, [pageBlocks, page.page.id, isEditingFrame]);
   return null;
 }
 
@@ -99,19 +96,15 @@ function stringFieldId(selection: Selection | null): string | null {
 
 export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: OverlaysProps) => {
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
+  const { document: editingDocument, send } = useEditingFrame();
+  const isEditingFrame = !!editingDocument && editingDocument === iframeElement?.contentDocument;
 
-  // Send focus command to iframe when selection changes externally
+  // Focus a field in the page when the Studio selects it, if the page is being edited.
   React.useEffect(() => {
     const fieldId = stringFieldId(selection);
-    if (!fieldId) return;
-
-    // Send focus command to iframe
-    const message: OverlayMessage = {
-      type: "CAMOX_FOCUS_FIELD",
-      fieldId,
-    };
-    iframeElement?.contentWindow?.postMessage(message, "*");
-  }, [selection, iframeElement]);
+    if (!fieldId || !isEditingFrame) return;
+    send({ type: "CAMOX_FOCUS_FIELD", fieldId });
+  }, [selection, isEditingFrame, send]);
 
   return canAddBlocks ? <CuratedAddBlockListener iframeElement={iframeElement} /> : null;
 };

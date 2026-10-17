@@ -15,6 +15,7 @@ import {
   NavigationLocation,
 } from "../../navigation/navigation";
 import { actionsStore } from "../../provider/actionsStore";
+import { useEditingFrameClaim, useEditingOwner } from "../editingFrame";
 import {
   PREVIEW_PAGE_Z_INDEX,
   previewPageIframeProps,
@@ -270,37 +271,14 @@ const PreviewPanel = ({
   pageLocation,
   projectName = "Project",
 }: PreviewPanelProps) => {
-  const pageId = page?.id;
-  const owner = React.useMemo<EditingOwner | null>(() => {
-    if (pageId != null) return { kind: "page", pageId };
-    if (layoutId != null) return { kind: "layout", layoutId };
-    return null;
-  }, [pageId, layoutId]);
-  const activeRef = React.useRef(active);
-  const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
+  // The Preview gets either a curated Page or a derived layout, never both.
+  const owner = useEditingOwner({ pageId: page?.id, layoutId });
+  const [iframe, setIframe] = React.useState<HTMLIFrameElement | null>(null);
+  const claim = useEditingFrameClaim(iframe, owner);
+  // Under the Canvas, its frames claim instead, and the Preview claims again once shown.
   React.useLayoutEffect(() => {
-    activeRef.current = active;
-    return () => {
-      activeRef.current = false;
-    };
-  }, [active]);
-  React.useLayoutEffect(() => {
-    if (!active) return;
-    if (iframeRef.current) {
-      previewStore.send({ type: "setIframeElement", element: iframeRef.current });
-    }
-    if (owner?.kind === "layout") {
-      previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
-      return;
-    }
-    previewStore.send({ type: "activatePage", pageId: owner?.pageId ?? null });
-  }, [active, owner]);
-  const handleIframeReady = React.useCallback((element: HTMLIFrameElement) => {
-    iframeRef.current = element;
-    // A retained frame can finish loading after Canvas has taken ownership.
-    if (!activeRef.current) return;
-    previewStore.send({ type: "setIframeElement", element });
-  }, []);
+    if (active) claim();
+  }, [active, owner, claim]);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const { frame, slot, inCanvas, revealed } = usePreviewPageFrame();
@@ -334,7 +312,7 @@ const PreviewPanel = ({
       <PreviewEditingOwnerContext value={owner}>
         <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
           <div className="relative min-h-0 flex-1">
-            <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
+            <PreviewFrame className="h-full w-full" onIframeReady={setIframe}>
               {pageContent}
             </PreviewFrame>
           </div>
@@ -385,7 +363,7 @@ const PreviewPanel = ({
               )}
               iframeProps={previewPageIframeProps}
               inCanvas={!!placed}
-              onIframeReady={handleIframeReady}
+              onIframeReady={setIframe}
             >
               {pageContent}
             </PreviewFrame>

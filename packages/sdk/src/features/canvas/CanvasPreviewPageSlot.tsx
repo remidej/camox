@@ -2,12 +2,13 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
 
+import { useEditingFrameClaim, useEditingOwner } from "../preview/editingFrame";
 import { usePreviewPageFrame } from "../preview/previewPageFrame";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
-import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { ViewportContinuityContext } from "../preview/viewportContinuity";
 import { useCanvasFrameMode } from "./canvasFrameMode";
 import { CanvasOverlays } from "./CanvasOverlays";
+import type { CanvasFrameActivate } from "./CanvasPageFrame";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 
 /**
@@ -32,26 +33,21 @@ export function CanvasPreviewPageSlot({
   /** Whether the Page is selected. Once deselected, it keeps the frame, like a frame of the Canvas. */
   selected: boolean;
   hovered: boolean;
-  onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
+  onActivate: CanvasFrameActivate;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   // Like a Canvas frame, it edits its derived layout, or the Page itself.
-  const owner = React.useMemo<EditingOwner | null>(() => {
-    if (derivedLayoutId != null) return { kind: "layout", layoutId: derivedLayoutId };
-    if (pageId != null) return { kind: "page", pageId };
-    return null;
-  }, [derivedLayoutId, pageId]);
+  const owner = useEditingOwner({ pageId, layoutId: derivedLayoutId });
   const workspace = React.use(CanvasWorkspaceContext);
   const preparation = React.use(PreviewPreparationContext);
   const continuity = React.use(ViewportContinuityContext);
   const { frame, slot, inCanvas, height, overlays, iframe } = usePreviewPageFrame();
   const mode = useCanvasFrameMode({ near: true, selected });
+  // It claims the frame for the Canvas, apart from the Preview's own claim on it.
+  const claim = useEditingFrameClaim(iframe, owner);
   const activateOwner = React.useEffectEvent((source: "selection" | "interaction") => {
     if (!owner) return;
-    if (owner.kind === "page") previewStore.send({ type: "activatePage", pageId: owner.pageId });
-    else previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
-    previewStore.send({ type: "setIframeElement", element: iframe });
-    onActivate(owner, source);
+    onActivate(owner, source, claim());
   });
   // A stable handler: the slot effect below compares it to skip redundant updates.
   // oxlint-disable-next-line react/preserve-manual-memoization -- wraps an effect event, which has no dependency
@@ -101,14 +97,6 @@ export function CanvasPreviewPageSlot({
     // Only becoming placed or selected takes ownership, as with a frame of the Canvas.
     activateOwner("selection");
   }, [placed, owner, selected]);
-  React.useEffect(() => {
-    if (!iframe) return;
-    return () => {
-      if (previewStore.getSnapshot().context.iframeElement !== iframe) return;
-      previewStore.send({ type: "clearSelection" });
-    };
-  }, [iframe]);
-
   const document = placed ? (iframe?.contentDocument ?? null) : null;
   return (
     <div

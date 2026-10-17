@@ -42,17 +42,19 @@ void test("only the active page resolves add requests, including layout boundari
   const { createRoot } = await import("react-dom/client");
   const { Overlays } = await import("./Overlays");
   const { previewStore } = await import("../previewStore");
+  const { EditingFrameClaimant, fakeEditingFrame } = await import("../editingFrame.fixtures");
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const frames = [document.createElement("iframe"), document.createElement("iframe")];
+  const frames = [0, 1].map(
+    () => fakeEditingFrame(document.implementation.createHTMLDocument()).frame,
+  );
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "activatePage", pageId: "2" });
-  previewStore.send({ type: "setIframeElement", element: frames[1] });
   try {
     await React.act(async () => {
       root.render(
         <>
+          <EditingFrameClaimant frame={frames[1]!} owner={{ kind: "page", pageId: "2" }} />
           {frames.map((frame, index) => (
             <TestPageContext
               key={index}
@@ -111,7 +113,6 @@ void test("only the active page resolves add requests, including layout boundari
   } finally {
     await React.act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "setIframeElement", element: null });
     previewStore.send({ type: "closeAddBlockDialog" });
     previewStore.send({ type: "exitEditMode" });
     await dom.happyDOM.close();
@@ -132,16 +133,23 @@ void test("selecting a record text field focuses it in the selected placement", 
   const { createRoot } = await import("react-dom/client");
   const { Overlays } = await import("./Overlays");
   const { previewStore } = await import("../previewStore");
+  const { EditingFrameClaimant, fakeEditingFrame } = await import("../editingFrame.fixtures");
   const root = createRoot(document.createElement("div"));
-  const messages: unknown[] = [];
-  const iframe = {
-    contentWindow: { postMessage: (message: unknown) => messages.push(message) },
-  } as unknown as HTMLIFrameElement;
+  const { frame, sent: messages } = fakeEditingFrame(document.implementation.createHTMLDocument());
+  // Another Canvas frame of the same derived layout, which is not being edited.
+  const other = fakeEditingFrame(document.implementation.createHTMLDocument());
   const owner = { kind: "page", pageId: "1" } as const;
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "activatePage", pageId: "1" });
   try {
-    await React.act(async () => root.render(<Overlays owner={owner} iframeElement={iframe} />));
+    await React.act(async () =>
+      root.render(
+        <>
+          <EditingFrameClaimant frame={frame} owner={owner} />
+          <Overlays owner={owner} iframeElement={frame} />
+          <Overlays owner={owner} iframeElement={other.frame} />
+        </>,
+      ),
+    );
     await React.act(async () =>
       previewStore.send({
         type: "selectRecordField",
@@ -157,6 +165,7 @@ void test("selecting a record text field focuses it in the selected placement", 
       type: "CAMOX_FOCUS_FIELD",
       fieldId: "2__customer__acme__quote",
     });
+    assert.deepEqual(other.sent, [], "only the editing frame focuses the field");
   } finally {
     await React.act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });

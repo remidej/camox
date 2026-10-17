@@ -1,4 +1,3 @@
-import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
@@ -6,7 +5,7 @@ import type { Block } from "@/core/createBlock";
 import { NormalizedDataProvider } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 
-import { previewStore } from "../previewStore";
+import { useEditingFrame } from "../editingFrame";
 import { BlockErrorBoundary } from "./BlockErrorBoundary";
 import { FrameContext } from "./Frame";
 import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
@@ -15,7 +14,8 @@ const VIEWPORT_WIDTH = 1200;
 const VIEWPORT_HEIGHT = 800;
 
 const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
-  const sourceFrame = useSelector(previewStore, (state) => state.context.iframeElement);
+  // The site's styles, from the page being edited, or else the Studio's document.
+  const sourceDocument = useEditingFrame().document;
   const [frame, setFrame] = React.useState<HTMLIFrameElement | null>(null);
   const [root, setRoot] = React.useState<HTMLElement | null>(null);
   const [content, setContent] = React.useState<HTMLDivElement | null>(null);
@@ -27,7 +27,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
     const mount = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
     if (!doc || !mount) return;
 
-    const source = sourceFrame?.contentDocument ?? document;
+    const source = sourceDocument ?? document;
     // Copy only site styles, never scripts or the studio's styles and theme.
     doc.head.replaceChildren();
     const base = doc.createElement("base");
@@ -60,7 +60,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
     doc.head.appendChild(reset);
     doc.body.setAttribute("inert", "");
     setRoot(mount);
-  }, [frame, sourceFrame]);
+  }, [frame, sourceDocument]);
 
   React.useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- the iframe may already have loaded before its source frame changed

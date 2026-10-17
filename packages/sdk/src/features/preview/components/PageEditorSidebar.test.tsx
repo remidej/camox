@@ -1038,12 +1038,11 @@ void test("reordering a list keeps the selected record", async (t) => {
 
 void test("hovering a listed record card or its record field rows highlights that entry in the preview", async (t) => {
   const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
-  const messages: unknown[] = [];
-  const iframe = {
-    contentWindow: { postMessage: (message: unknown) => messages.push(message) },
-  } as unknown as HTMLIFrameElement;
-  await act(async () => sidebar.previewStore.send({ type: "setIframeElement", element: iframe }));
-  t.after(() => sidebar.previewStore.send({ type: "setIframeElement", element: null }));
+  const { editingFrameHarness } = await import("../editingFrame.fixtures");
+  const studio = await editingFrameHarness(document);
+  t.after(() => studio.close());
+  // The page's frame is the editing frame, for the sidebar's own owner.
+  const { sent: messages } = await studio.claimElsewhere(pageOwner);
   const hover = async (element: Element, type: "mouseover" | "mouseout") => {
     await act(async () => {
       element.dispatchEvent(new window.MouseEvent(type, { bubbles: true }) as unknown as Event);

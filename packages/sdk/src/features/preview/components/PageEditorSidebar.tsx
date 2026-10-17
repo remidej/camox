@@ -16,7 +16,8 @@ import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } fr
 import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
+import { useEditingFrame } from "../editingFrame";
+import { selectionHoverMessage } from "../overlayMessages";
 import { usePageRecordPlacer } from "../pageRecord";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
@@ -155,15 +156,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   // Get state from store
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
-  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
-
-  const postToIframe = React.useCallback(
-    (message: OverlayMessage) => {
-      if (!iframeElement?.contentWindow) return;
-      iframeElement.contentWindow.postMessage(message, "*");
-    },
-    [iframeElement],
-  );
+  const { send: postToIframe } = useEditingFrame();
 
   const [hoveredBreadcrumb, setHoveredBreadcrumb] = React.useState<{
     target: Selection | null;

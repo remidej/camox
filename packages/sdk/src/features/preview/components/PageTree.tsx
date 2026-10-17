@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
-import type { OverlayMessage } from "../overlayMessages";
+import { useEditingFrame } from "../editingFrame";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, selectionBlockId, selectionForOwner } from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
@@ -45,29 +45,14 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
   const owner = React.useContext(PreviewEditingOwnerContext);
   const [ellipsisPopoverOpen, setEllipsisPopoverOpen] = React.useState(false);
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
-  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
+  const { send } = useEditingFrame();
   const isBlockActive = selectionBlockId(selection) === block.id;
   const isBlockSelected = selection?.type === "block" && selection.blockId === block.id;
   const shouldShowHover = !isDragging && !isBlockActive;
   const shouldShowActive = isDragging || isBlockActive;
 
-  const handleBlockMouseEnter = () => {
-    if (!iframeElement?.contentWindow) return;
-    const message: OverlayMessage = {
-      type: "CAMOX_HOVER_BLOCK",
-      blockId: block.id,
-    };
-    iframeElement.contentWindow.postMessage(message, "*");
-  };
-
-  const handleBlockMouseLeave = () => {
-    if (!iframeElement?.contentWindow) return;
-    const message: OverlayMessage = {
-      type: "CAMOX_HOVER_BLOCK_END",
-      blockId: block.id,
-    };
-    iframeElement.contentWindow.postMessage(message, "*");
-  };
+  const handleBlockMouseEnter = () => send({ type: "CAMOX_HOVER_BLOCK", blockId: block.id });
+  const handleBlockMouseLeave = () => send({ type: "CAMOX_HOVER_BLOCK_END", blockId: block.id });
 
   const toggleSelection = () => {
     if (!owner) return;
