@@ -1,9 +1,8 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import type { Journal } from "../../lib/journal";
 import { blocks, repeatableItems, sharedContentId, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
@@ -182,30 +181,6 @@ const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends 
   return { blocks: projectedBlocks, items };
 });
 
-/** Invalidates every read showing a definition's shared content, in the scope it changed in. */
-export function broadcastSharedContentChange(
-  ctx: ServiceContext,
-  scope: DraftScope,
-  projectId: number,
-  type: string,
-) {
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId,
-    targets: [
-      queryKeys.blocks.getSyncedContent(type),
-      queryKeys.pages.getByPathAll,
-      queryKeys.pages.list,
-      queryKeys.layouts.all,
-      ["camox", "blocks", "get"],
-      ["camox", "blocks", "getPageMarkdown"],
-      ["camox", "repeatableItems", "get"],
-    ],
-  });
-}
-
 /** A placement holding nothing of its own: its content lives in the shared content. */
 const clearedPlacement = { content: {}, settings: null };
 
@@ -238,7 +213,7 @@ const copyItemTree = Effect.fn("copyItemTree")(function* (
   const copyChildren = (
     parentId: string | null,
     copiedParentId: string | null,
-  ): Effect.Effect<void> =>
+  ): Effect.Effect<void, never, Journal> =>
     Effect.gen(function* () {
       for (const item of items.filter((candidate) => candidate.parentItemId === parentId)) {
         const copiedId = yield* insertItem(
@@ -429,7 +404,7 @@ const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
  */
 const alignSharedContent = Effect.fn("alignSharedContent")(function* (
   ctx: ServiceContext,
-  { target, projectId, key, synced, seedFromDefaults }: SyncedFlag & { seedFromDefaults: boolean },
+  { target, key, synced, seedFromDefaults }: SyncedFlag & { seedFromDefaults: boolean },
 ) {
   const scope = readScopeOf(target);
   const shared = yield* findSharedContent(ctx.db, scope, key);
@@ -438,7 +413,6 @@ const alignSharedContent = Effect.fn("alignSharedContent")(function* (
     const placed = (yield* placementsOf(ctx.db, scope, key)).length > 0;
     if (placed || seedFromDefaults) yield* becomeSynced(ctx.db, target, key);
   }
-  broadcastSharedContentChange(ctx, scope, projectId, key.type);
 });
 
 /**

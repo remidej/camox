@@ -1,11 +1,9 @@
 import { generateUuidv7, uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertSyncAccess } from "../../authorization";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
 import {
   ConflictError,
   decodeInput,
@@ -13,6 +11,7 @@ import {
   NotFoundError,
   type ServiceError,
 } from "../../lib/errors";
+import type { Journal } from "../../lib/journal";
 import { stableStringify } from "../../lib/stable-stringify";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { fieldOf } from "../_shared/fields";
@@ -116,19 +115,7 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
       ),
     ] as const;
     yield* Effect.promise(() => ctx.db.batch(statements));
-    broadcastInvalidation({
-      waitUntil: ctx.waitUntil,
-      projectRoomNamespace: ctx.env.ProjectRoom,
-      draftId: target.scope?.id ?? null,
-      projectId: project.id,
-      targets: [
-        ["camox", "collections"],
-        ["camox", "blocks"],
-        queryKeys.pages.getByPathAll,
-        queryKeys.pages.list,
-        queryKeys.layouts.all,
-      ],
-    });
+    yield* recordDefinitionsSynced(ctx.db, target);
     return {
       count: input.definitions.length,
       retired: existing
@@ -349,7 +336,7 @@ const inCollection = <A, M extends AccessMode>(
   run: (collection: {
     definition: Definition & { draft: ContentAccess<{ projectSlug: string }, M>["scope"] };
     reader: ContentReader;
-  }) => Effect.Effect<A, ServiceError>,
+  }) => Effect.Effect<A, ServiceError, Journal>,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -391,35 +378,10 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
         updatedAt: now,
       });
       if (!record) return yield* new ConflictError({ message: "This record id is already taken" });
-      invalidateRecord(ctx, definition, input, record.id);
       return yield* recordRead(ctx, collection, record);
     }),
   );
 });
-
-function invalidateRecord(
-  ctx: ServiceContext,
-  definition: { projectId: number; draft: DraftScope },
-  scope: z.infer<typeof scopeInput>,
-  id: string,
-) {
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: definition.draft?.id ?? null,
-    projectId: definition.projectId,
-    targets: [
-      // Every record list, reference and usage count can change with one record.
-      ["camox", "collections"],
-      queryKeys.collections.records(scope.projectSlug, scope.collectionId),
-      queryKeys.collections.record(scope.projectSlug, scope.collectionId, id),
-      ["camox", "blocks"],
-      queryKeys.pages.getByPathAll,
-      queryKeys.pages.list,
-      queryKeys.layouts.all,
-    ],
-  });
-}
 
 export const listRecordPageValuesInput = scopeInput.extend({ field: z.string() });
 export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value: z.string() });
@@ -541,7 +503,6 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
         },
       );
       if (!updated) return yield* new NotFoundError();
-      invalidateRecord(ctx, definition, input, record.id);
       return yield* recordRead(ctx, collection, updated);
     }),
   );
@@ -561,7 +522,6 @@ export const deleteRecord = Effect.fn("collections.deleteRecord")(function* (
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
       yield* overlay.remove(ctx.db, definition.draft, collectionRecords, record.id);
-      invalidateRecord(ctx, definition, input, record.id);
       return { id: record.id };
     }),
   );

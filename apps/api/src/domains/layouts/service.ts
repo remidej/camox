@@ -1,11 +1,9 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
-import { assertSyncAccess } from "../../authorization";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
@@ -497,13 +495,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     );
   }
 
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId,
-    targets: [queryKeys.layouts.all, queryKeys.pages.getByPathAll],
-  });
+  yield* recordDefinitionsSynced(ctx.db, { project, scope });
 
   return {
     layouts: results,

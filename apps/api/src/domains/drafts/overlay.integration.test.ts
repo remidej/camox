@@ -1,14 +1,14 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { blocks, drafts } from "../../schema";
 import * as overlay from "./overlay";
 import { RELEASE, type Draft } from "./scope";
 
-const run = <A>(effect: Effect.Effect<A>) => Effect.runPromise(effect);
+const run = runService;
 
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);

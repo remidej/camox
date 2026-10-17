@@ -10,6 +10,8 @@ import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import type { ServiceError } from "./errors";
+import { announce } from "./invalidation";
+import { journaled, type Journal } from "./journal";
 
 /** Translate a typed service failure into its wire representation. */
 export function toORPCError(error: ServiceError) {
@@ -52,12 +54,15 @@ export function toORPCError(error: ServiceError) {
 
 /**
  * Run a service effect at a Promise boundary (oRPC handlers, Hono routes,
- * durable objects, AI tools). Expected failures reject with the matching
- * `ORPCError`; defects reject with the original thrown value so the
- * transport logs them and answers with a 500.
+ * durable objects, AI tools): one unit of work. Expected failures reject with
+ * the matching `ORPCError`; defects reject with the original thrown value so
+ * the transport logs them and answers with a 500.
+ *
+ * The effect writes into a fresh journal. Once it succeeded, what it changed is
+ * sent to the project rooms before the promise resolves; a failure sends nothing.
  */
-export async function runService<A>(effect: Effect.Effect<A, ServiceError>): Promise<A> {
-  const exit = await Effect.runPromiseExit(effect);
+export async function runService<A>(effect: Effect.Effect<A, ServiceError, Journal>): Promise<A> {
+  const exit = await Effect.runPromiseExit(journaled(effect, announce));
   if (Exit.isSuccess(exit)) return exit.value;
 
   const error = Cause.findErrorOption(exit.cause);

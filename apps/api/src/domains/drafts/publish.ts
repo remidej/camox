@@ -1,17 +1,16 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { requireUser } from "../../authorization";
-import { broadcastDraftEnded, broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import {
   ConflictsChangedError,
   decodeInput,
   InvalidInputError,
   PublishBlockedError,
 } from "../../lib/errors";
+import { record } from "../../lib/journal";
 import {
   blockDefinitions,
   blocks,
@@ -394,42 +393,9 @@ const draftOrEnded = (ctx: ServiceContext, projectId: number) =>
     Effect.catchTag("DraftEndedError", ({ ended }) => Effect.succeed({ draft: null, ended })),
   );
 
-const roomOf = (ctx: ServiceContext, projectId: number) => ({
-  waitUntil: ctx.waitUntil,
-  projectRoomNamespace: ctx.env.ProjectRoom,
-  projectId,
-});
-
-/** Refreshes every viewer of Live, which the publish changed. */
-const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
-  broadcastInvalidation({
-    ...roomOf(ctx, projectId),
-    draftId: null,
-    targets: [
-      queryKeys.pages.getByPathAll,
-      queryKeys.pages.list,
-      queryKeys.layouts.all,
-      ["camox", "files"],
-      ["camox", "blocks"],
-      ["camox", "repeatableItems"],
-      ["camox", "collections"],
-      // Every draft's conflicts, and the list's latest publish and change counts.
-      queryKeys.drafts.all,
-    ],
-  });
-
-/** Switches the ended draft's viewers to Live, saying who ended it and how. */
-const broadcastEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft | null) => {
-  if (ended) broadcastDraftEnded({ ...roomOf(ctx, projectId), ended });
-};
-
-/** Refreshes every viewer's drafts list, which a discard changed. */
-const broadcastDiscarded = (ctx: ServiceContext, projectId: number) =>
-  broadcastInvalidation({
-    ...roomOf(ctx, projectId),
-    draftId: null,
-    targets: [queryKeys.drafts.list],
-  });
+/** Tells the ended draft's viewers who ended it and how, so they go back to Live. */
+const recordEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft | null) =>
+  ended ? record(ctx.db, { kind: "ended", projectId, ended }) : Effect.void;
 
 /**
  * What publishing did: nothing, for an empty draft, which publishing leaves as is; or how the
@@ -489,9 +455,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   yield* deleteUnreferencedBlobs(ctx, blobs);
   yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
   yield* requestLiveGeneration(ctx, scope, stored);
-  broadcastPublished(ctx, projectId);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
-  broadcastEnded(ctx, projectId, ended);
+  yield* recordEnded(ctx, projectId, ended);
   return endedAs(ended);
 });
 
@@ -523,8 +488,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   if (result._tag === "Success") {
     yield* deleteUnreferencedBlobs(ctx, blobs);
     yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
-    broadcastDiscarded(ctx, projectId);
-    broadcastEnded(ctx, projectId, ended);
+    yield* recordEnded(ctx, projectId, ended);
   }
   return { ended };
 });

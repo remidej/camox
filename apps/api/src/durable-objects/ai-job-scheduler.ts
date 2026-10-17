@@ -1,20 +1,16 @@
-import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { DurableObject } from "cloudflare:workers";
-import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createDb } from "../db";
 import { requestBlockSummary, runBlockSummaryJob } from "../domains/blocks/service";
-import { storedIn, storedInLiveOrDraft } from "../domains/drafts/overlay";
 import { runFileMetadataJob } from "../domains/files/service";
 import { runPageSeoJob } from "../domains/pages/ai";
 import { requestPageSeo } from "../domains/pages/service";
-import { rootOfItem } from "../domains/repeatable-items/roots";
 import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
-import { broadcastInvalidation } from "../lib/broadcast-invalidation";
+import { announce } from "../lib/invalidation";
+import { journaled } from "../lib/journal";
 import { retryAiCall } from "../lib/retry-ai-call";
 import { aiJobKey } from "../lib/schedule-ai-job";
-import { blocks, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
 type JobParams = {
@@ -54,7 +50,8 @@ export class AiJobScheduler extends DurableObject<Bindings> {
 
     // Only clear the job once it succeeded. If it fails, the job stays stored
     // and Cloudflare retries the alarm with backoff.
-    await Effect.runPromise(this.runJob(job));
+    // What the job generated reaches the project's viewers like any write (ADR 0012).
+    await Effect.runPromise(journaled(this.runJob(job), announce));
 
     // A newer job may have been scheduled while this one ran — keep it.
     const current = await this.ctx.storage.get<StoredJob>("job");
@@ -74,19 +71,6 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const { entityTable, entityId, type } = job;
     const draftId = job.draftId ?? null;
     const label = aiJobKey(job);
-    const refresh = (projectId: number, targets: QueryKey[]) =>
-      broadcastInvalidation({
-        waitUntil: deps.waitUntil,
-        projectRoomNamespace: this.env.ProjectRoom,
-        draftId,
-        projectId,
-        targets,
-      });
-    const summaryTargets = [
-      queryKeys.pages.getByPathAll,
-      ["camox", "blocks"] as QueryKey,
-      queryKeys.blocks.getUsageCounts,
-    ];
 
     if (entityTable === "blocks" && type === "summary") {
       const stale = yield* retryAiCall(label, (abortController) =>
@@ -94,8 +78,6 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       );
       // A changed summary changes its page's SEO.
       if (stale) yield* requestPageSeo(deps, stale.scope, stale.page, 15000);
-      const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, entityId));
-      if (projectId) refresh(projectId, summaryTargets);
     } else if (entityTable === "repeatableItems" && type === "summary") {
       const cascade = yield* retryAiCall(label, (abortController) =>
         runRepeatableItemSummaryJob(db, apiKey, { entityId, draftId }, abortController),
@@ -104,59 +86,14 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       if (cascade) {
         yield* requestBlockSummary(deps, cascade.scope, cascade.projectId, cascade.blockId, 5000);
       }
-      const item = yield* Effect.promise(() =>
-        db
-          .select()
-          .from(repeatableItems)
-          .where(
-            and(
-              eq(repeatableItems.id, entityId),
-              draftId
-                ? storedInLiveOrDraft(repeatableItems, draftId)
-                : storedIn(repeatableItems, null),
-            ),
-          )
-          .get(),
-      );
-      if (item) {
-        // A shared content's item names its project instead of a block.
-        const root = rootOfItem(item);
-        const projectId =
-          "blockId" in root
-            ? yield* Effect.promise(() => this.getBlockProjectId(db, root.blockId))
-            : root.sharedContent.projectId;
-        if (projectId) refresh(projectId, summaryTargets);
-      }
     } else if (entityTable === "files" && type === "fileMetadata") {
-      const projectId = yield* retryAiCall(label, (abortController) =>
+      yield* retryAiCall(label, (abortController) =>
         runFileMetadataJob(db, apiKey, { entityId, draftId }, abortController),
       );
-      if (projectId) refresh(projectId, [queryKeys.files.list, queryKeys.files.get(entityId)]);
     } else if (entityTable === "pages" && type === "seo") {
-      const done = yield* retryAiCall(label, (abortController) =>
+      yield* retryAiCall(label, (abortController) =>
         runPageSeoJob(db, apiKey, { entityId, draftId }, abortController),
       );
-      if (done) {
-        refresh(done.projectId, [
-          queryKeys.pages.list,
-          queryKeys.pages.getById(entityId),
-          queryKeys.pages.getByPathAll,
-          // A pending meta title is a publish warning, a missing one a blocker.
-          queryKeys.drafts.all,
-        ]);
-      }
     }
   });
-
-  private async getBlockProjectId(
-    db: ReturnType<typeof createDb>,
-    blockId: string,
-  ): Promise<number | null> {
-    const result = await db
-      .select({ projectId: blocks.projectId })
-      .from(blocks)
-      .where(eq(blocks.id, blockId))
-      .get();
-    return result?.projectId ?? null;
-  }
 }

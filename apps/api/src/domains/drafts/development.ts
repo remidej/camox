@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { record } from "../../lib/journal";
 import { drafts } from "./schema";
 
 // Each member has one development draft per project, holding the definitions synced from their
@@ -46,7 +47,10 @@ export const ensureDevelopmentDraft = Effect.fn("ensureDevelopmentDraft")(functi
       .returning()
       .get(),
   );
-  if (inserted) return { draft: inserted, created: true };
+  if (inserted) {
+    yield* record(db, { kind: "drafts", projectId });
+    return { draft: inserted, created: true };
+  }
   const existing = yield* findDevelopmentDraft(db, projectId, userId);
   return { draft: existing!, created: false };
 });

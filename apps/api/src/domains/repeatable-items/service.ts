@@ -1,5 +1,4 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq } from "drizzle-orm";
@@ -9,7 +8,6 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
@@ -23,18 +21,13 @@ import {
 } from "../blocks/normalize-content";
 import { contentWithSeeds } from "../blocks/prepare-content";
 import { requestBlockSummary } from "../blocks/service";
-import {
-  broadcastSharedContentChange,
-  contentOwnerOf,
-  definitionOf,
-  sharedPlacementId,
-} from "../blocks/shared-content";
+import { contentOwnerOf, definitionOf, sharedPlacementId } from "../blocks/shared-content";
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
 import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import type { Draft, DraftScope } from "../drafts/scope";
+import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import {
   copyValue,
@@ -223,47 +216,6 @@ const treeSchema = Effect.fn("treeSchema")(function* (
 ) {
   return (yield* loadDefinitionSchemas(db, tree.definition, scope))?.contentSchema;
 });
-
-/** The block bundle an item edit refreshes: its block's, or the shared content's. */
-function treeBundleKey({ root, definition }: ItemTree) {
-  return "blockId" in root
-    ? queryKeys.blocks.get(root.blockId)
-    : queryKeys.blocks.getSyncedContent(definition.type);
-}
-
-/** Refreshes every read showing a shared content whose items changed in a draft. */
-const broadcastSharedTreeChange = (
-  ctx: ServiceContext,
-  scope: Draft,
-  { root, definition }: ItemTree,
-  projectId: number,
-) => {
-  if ("blockId" in root) return;
-  broadcastSharedContentChange(ctx, scope, projectId, definition.type);
-};
-
-/** Refreshes the reads showing a tree, in the scope it changed in. */
-function invalidateTree(
-  ctx: ServiceContext,
-  scope: DraftScope,
-  projectId: number,
-  tree: ItemTree,
-  pagePath: string | null,
-  extra: QueryKey[] = [],
-) {
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId,
-    targets: [
-      treeBundleKey(tree),
-      ...(pagePath ? [queryKeys.pages.getByPath(pagePath)] : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      ...extra,
-    ],
-  });
-}
 
 /** Find the last index where item.position <= target in a sorted array. */
 function findLastIndexLe<T extends { position: string }>(items: T[], target: string): number {
@@ -618,10 +570,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
       tempIdToRealId.set(seed.tempId, inserted!.id);
     }
   }
-
-  broadcastSharedTreeChange(ctx, scope, tree, project.id);
   yield* requestSummary(ctx, scope, project.id, result.id, 0);
-  invalidateTree(ctx, scope, project.id, tree, access.pagePath, [queryKeys.blocks.getUsageCounts]);
 
   return yield* shownItem(ctx, project.id, scope, result);
 }, Effect.scoped);
@@ -664,10 +613,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       content: merged,
       updatedAt: Date.now(),
     });
-
-    broadcastSharedTreeChange(ctx, scope, tree, project.id);
     yield* requestSummary(ctx, scope, project.id, id, 5000);
-    invalidateTree(ctx, scope, project.id, tree, access.pagePath);
 
     return result && (yield* shownItem(ctx, project.id, scope, result));
   },
@@ -704,9 +650,6 @@ export const updateRepeatableItemSettings = Effect.fn(
     settings: merged,
     updatedAt: Date.now(),
   });
-
-  broadcastSharedTreeChange(ctx, scope, tree, project.id);
-  invalidateTree(ctx, scope, project.id, tree, access.pagePath);
 
   return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);
@@ -751,8 +694,6 @@ export const updateRepeatableItemPosition = Effect.fn(
     position,
     updatedAt: Date.now(),
   });
-  broadcastSharedTreeChange(ctx, scope, tree, project.id);
-  invalidateTree(ctx, scope, project.id, tree, access.pagePath);
   return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);
 
@@ -805,10 +746,6 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
       itemSummaryKey(original.id),
       result.id,
     );
-    broadcastSharedTreeChange(ctx, scope, tree, project.id);
-    invalidateTree(ctx, scope, project.id, tree, access.pagePath, [
-      queryKeys.blocks.getUsageCounts,
-    ]);
     return yield* shownItem(ctx, project.id, scope, result);
   },
   Effect.scoped,
@@ -818,7 +755,7 @@ export const generateRepeatableItemSummary = Effect.fn(
   "repeatableItems.generateRepeatableItemSummary",
 )(function* (ctx: ServiceContext, rawInput: z.input<typeof generateRepeatableItemSummaryInput>) {
   const { id } = yield* decodeInput(generateRepeatableItemSummaryInput, rawInput);
-  const { scope, project, entity: access } = yield* accessTo(ctx, { item: id }, "member");
+  const { scope, project } = yield* accessTo(ctx, { item: id }, "member");
 
   const cascade = yield* executeRepeatableItemSummary(
     ctx.db,
@@ -829,17 +766,6 @@ export const generateRepeatableItemSummary = Effect.fn(
   if (cascade) {
     yield* requestBlockSummary(ctx, scope, cascade.projectId, cascade.blockId, 5000);
   }
-  // Granular invalidation: refetch the parent block bundle (includes updated summary)
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: project.id,
-    targets: [
-      treeBundleKey(yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item))),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
   const stored = yield* overlay.get(ctx.db, scope, repeatableItems, id);
   return stored && (yield* shownItem(ctx, project.id, scope, stored));
 }, Effect.scoped);
@@ -874,7 +800,5 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   );
   yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
   const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);
-  broadcastSharedTreeChange(ctx, scope, tree, project.id);
-  invalidateTree(ctx, scope, project.id, tree, access.pagePath, [queryKeys.blocks.getUsageCounts]);
   return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);

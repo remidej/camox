@@ -24,6 +24,7 @@ import {
   bumpsForRepeatableItems,
   bumpsForSharedContents,
 } from "../../lib/bump-content-updated-at";
+import { record, type Change } from "../../lib/journal";
 import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
 import { files } from "../files/schema";
@@ -134,6 +135,14 @@ const registrations = new Map<ContentTable, ContentTableRegistration>();
  */
 export function registerContentTable(table: ContentTable, registration: ContentTableRegistration) {
   registrations.set(table, registration);
+}
+
+/** The registered content table holding an entity kind. */
+export function contentTableOf(entity: EntityKind): ContentTable {
+  for (const [table, registration] of registrations) {
+    if (registration.entity === entity) return table;
+  }
+  throw new Error(`No content table holds ${entity} entities.`);
 }
 
 /** A registered content table's declaration. */
@@ -308,6 +317,45 @@ const followLiveChange = Effect.fn("overlay.followLiveChange")(function* (
   }
 });
 
+/** The project a Live row belongs to: its own, or for an item, its block's. */
+const projectOfLive = Effect.fn("overlay.projectOfLive")(function* (
+  db: Database,
+  row: Record<string, unknown>,
+) {
+  if (typeof row.projectId === "number") return row.projectId;
+  if (typeof row.blockId !== "string") return undefined;
+  const block = yield* getStored(db, null, blocks, row.blockId);
+  return block?.projectId;
+});
+
+/**
+ * Records a write in the journal: the entity as written, or as it was before its deletion. Every
+ * overlay write records itself, so that what changed reaches the project's viewers.
+ */
+const journalWrite = Effect.fn("overlay.journalWrite")(function* (
+  db: Database,
+  target: WriteTarget,
+  table: ContentTable,
+  written: object,
+  change: Extract<Change, { kind: "content" }>["change"],
+  columns?: string[],
+) {
+  const row = written as Record<string, unknown> & { id: string };
+  const projectId = target === RELEASE ? yield* projectOfLive(db, row) : target.projectId;
+  // A Live item whose block is gone shows nowhere: no project's viewers read it.
+  if (projectId === undefined) return;
+  yield* record(db, {
+    kind: "content",
+    entity: registrationOf(table).entity,
+    id: row.id,
+    projectId,
+    draftId: target === RELEASE ? null : target.id,
+    change,
+    row,
+    columns,
+  });
+});
+
 /**
  * Creates an entity in the target. Undefined when the target already reads an entity with this
  * id, or a draft deleted it. A release's entity is published by no member, now.
@@ -336,14 +384,16 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
         .returning()
         .get(),
     )) as Row<T> | undefined;
-    if (row) yield* followLiveChange(db, table, row.id);
+    if (!row) return row;
+    yield* followLiveChange(db, table, row.id);
+    yield* journalWrite(db, target, table, row, "created");
     return row;
   }
   if (values.id !== undefined) {
     const taken = yield* getStored(db, null, table, values.id);
     if (taken) return undefined;
   }
-  return (yield* Effect.promise(() =>
+  const row = (yield* Effect.promise(() =>
     db
       .insert(table as SQLiteTable)
       .values({ ...values, draftId: target.id, baseVersion: null, deleted: false } as Values<T>)
@@ -351,6 +401,8 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
       .returning()
       .get(),
   )) as Row<T> | undefined;
+  if (row) yield* journalWrite(db, target, table, row, "created");
+  return row;
 });
 
 /**
@@ -381,20 +433,35 @@ export const update = Effect.fn("overlay.update")(function* <T extends ContentTa
         .returning()
         .get(),
     )) as Row<T> | undefined;
-    if (row) yield* followLiveChange(db, table, id);
+    if (!row) return row;
+    yield* followLiveChange(db, table, id);
+    yield* journalWrite(db, target, table, row, "changed", Object.keys(patch));
     return row;
   }
-  const stored = yield* getStored(db, target, table, id);
+  const row = yield* updateInDraft(db, target, table, id, patch);
+  if (row) yield* journalWrite(db, target, table, row, "changed", Object.keys(patch));
+  return row;
+});
+
+/** Changes an entity in a draft, copying it from Live on the first write. */
+const updateInDraft = Effect.fn("overlay.updateInDraft")(function* <T extends ContentTable>(
+  db: Database,
+  draft: Draft,
+  table: T,
+  id: string,
+  patch: Patch<T>,
+) {
+  const stored = yield* getStored(db, draft, table, id);
   if (stored?.deleted) return undefined;
   if (!stored) {
-    const copy = yield* copyIntoDraft(db, target, table, id, patch);
+    const copy = yield* copyIntoDraft(db, draft, table, id, patch);
     if (!copy.taken) return copy.row as Row<T> | undefined;
   }
   return (yield* Effect.promise(() =>
     db
       .update(table as SQLiteTable)
       .set(patch as Partial<Values<T>>)
-      .where(and(storedIn(table, target), eq(table.id, id), eq(table.deleted, false)))
+      .where(and(storedIn(table, draft), eq(table.id, id), eq(table.deleted, false)))
       .returning()
       .get(),
   )) as Row<T> | undefined;
@@ -449,10 +516,12 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
     yield* Effect.promise(() =>
       db.delete(table as SQLiteTable).where(and(storedIn(table, null), eq(table.id, id))),
     );
+    yield* journalWrite(db, target, table, shown, "deleted");
     return shown;
   }
   const shown = yield* get(db, target, table, id);
   if (!shown) return undefined;
+  yield* journalWrite(db, target, table, shown, "deleted");
   if (shown.draftId === target.id && shown.baseVersion == null) {
     yield* Effect.promise(() =>
       db.delete(table as SQLiteTable).where(and(storedIn(table, target), eq(table.id, id))),
@@ -1069,8 +1138,40 @@ export const publish = (
     ...after,
     ...endStatements(db, scope, "published", publishedBy, now),
   ];
-  return Effect.tryPromise(() => runBatch(db, statements));
+  return endingBatch(db, scope, statements, "live");
 };
+
+/**
+ * Runs a batch ending what a draft stores, then records each entity it stored as changed where
+ * the batch changed it: Live for a publish, or for a discard the draft itself, when it stays as
+ * a development draft does. A regular draft that ended has no readers left to refresh: they are
+ * told it ended. Fails when the batch aborted, recording nothing.
+ */
+const endingBatch = Effect.fnUntraced(function* (
+  db: Database,
+  scope: Draft,
+  statements: BatchItem[],
+  changed: "live" | "draft",
+) {
+  const readersLeft = changed === "live" || scope.kind === "development";
+  // Read before the batch drops the draft's rows.
+  const stored = readersLeft ? yield* changesOf(db, scope) : [];
+  yield* Effect.tryPromise(() => runBatch(db, statements));
+  // The draft is gone from the drafts list, or listed empty.
+  yield* record(db, { kind: "drafts", projectId: scope.projectId });
+  for (const { table, row, change } of stored) {
+    yield* record(db, {
+      kind: "content",
+      entity: registrationOf(table).entity,
+      id: row.id,
+      projectId: scope.projectId,
+      draftId: changed === "live" ? null : scope.id,
+      change,
+      // As the draft had it: what Live holds now, or what the draft no longer shows.
+      row,
+    });
+  }
+});
 
 /** Discards a draft in one batch: one cascading delete, or emptying a development draft. */
 export const discard = (
@@ -1083,5 +1184,5 @@ export const discard = (
   }: { discardedBy: string; now: number; alongside?: BatchItem[] },
 ) => {
   const statements = [...alongside, ...endStatements(db, scope, "discarded", discardedBy, now)];
-  return Effect.tryPromise(() => runBatch(db, statements));
+  return endingBatch(db, scope, statements, "draft");
 };
