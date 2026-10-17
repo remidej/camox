@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useRef, useState } from "react";
 
 import { getApiUrl } from "@/lib/api-client";
