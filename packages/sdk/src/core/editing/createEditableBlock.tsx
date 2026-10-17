@@ -2086,14 +2086,16 @@ export function createEditableBlock<
     // Items come from either the parent repeater context (nested) or block content (top-level)
     const source = parentRepeaterContext ? parentRepeaterContext.itemContent[name] : content[name];
     const { itemsMap } = useNormalizedData();
-    let arrayValue = (source ?? []) as any[];
+    const storedValue = (source ?? []) as any[];
 
-    if (!Array.isArray(arrayValue)) {
+    if (!Array.isArray(storedValue)) {
       throw new Error(`Field "${String(name)}" is not an array`);
     }
 
-    // Resolve _itemId markers to full item objects from the normalized data
-    arrayValue = arrayValue
+    // Resolve _itemId markers to full item objects from the normalized data.
+    // A separate const, not a reassignment: Oxc's React Compiler would key
+    // the memoized block on the reassigned value and miss its cache.
+    const arrayValue = storedValue
       .map((item: any) => {
         if (isItemMarker(item)) {
           return itemsMap.get(item._itemId) ?? null;
