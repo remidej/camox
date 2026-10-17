@@ -1,24 +1,13 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
+import { answerNext, modelCalls, scheduledFor } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { drafts, pages } from "../../schema";
 import { callTool } from "../agent/service";
-import { executePageSeo } from "./ai";
+import { runGenerationJob } from "../generated-values/generation";
 import { getPage } from "./service";
-
-const { chat, scheduleAiJob } = vi.hoisted(() => {
-  vi.resetModules();
-  return { chat: vi.fn(), scheduleAiJob: vi.fn().mockResolvedValue(undefined) };
-});
-vi.mock("@tanstack/ai", () => ({ chat }));
-vi.mock("../../lib/schedule-ai-job", () => ({ scheduleAiJob }));
-
-afterEach(() => {
-  vi.clearAllMocks();
-  chat.mockReset();
-});
 
 async function fixture() {
   const base = await createProjectFixture(crypto.randomUUID());
@@ -55,8 +44,10 @@ async function fixture() {
     draft: { id: scope.id, create: false },
   };
   const generate = async (seo: { metaTitle: string; metaDescription: string }) => {
-    chat.mockResolvedValueOnce(seo);
-    await runService(executePageSeo(base.db, "test-key", page.id, scope));
+    answerNext("pageSeo", seo);
+    await runService(
+      runGenerationJob(base.db, { entity: "page", entityId: page.id, draftId: scope.id }),
+    );
   };
   const tool = (name: string, arguments_: Record<string, unknown>, context = ctx) =>
     runService(callTool(context, { projectId: base.project.id, name, arguments: arguments_ }));
@@ -95,7 +86,7 @@ describe("setPageSeo", () => {
       ok: true,
       result: { aiSeo: true, metaTitle: null },
     });
-    expect(scheduleAiJob).toHaveBeenCalledOnce();
+    expect(scheduledFor(page.id)).toHaveLength(1);
   });
 
   it("rejects empty or conflicting input, and pages outside the project", async () => {
@@ -136,7 +127,7 @@ describe("page SEO generation", () => {
 
     await generate({ metaTitle: "Generated", metaDescription: "Generated" });
 
-    expect(chat).not.toHaveBeenCalled();
+    expect(modelCalls()).toEqual([]);
     expect(await runService(getPage(inScope(ctx, scope), { id: page.id }))).toMatchObject({
       metaTitle: "Manual",
     });

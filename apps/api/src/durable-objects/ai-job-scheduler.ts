@@ -1,99 +1,82 @@
 import { DurableObject } from "cloudflare:workers";
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { createDb } from "../db";
-import { requestBlockSummary, runBlockSummaryJob } from "../domains/blocks/service";
-import { runFileMetadataJob } from "../domains/files/service";
-import { runPageSeoJob } from "../domains/pages/ai";
-import { requestPageSeo } from "../domains/pages/service";
-import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
+import { runGenerationJob } from "../domains/generated-values/generation";
+import { inline } from "../lib/background";
+import { generationServices } from "../lib/generation-adapters";
+import { entityOfStoredName, type GenerationJob, jobName } from "../lib/generation-scheduler";
 import { announce } from "../lib/invalidation";
 import { journaled } from "../lib/journal";
-import { retryAiCall } from "../lib/retry-ai-call";
-import { aiJobKey } from "../lib/schedule-ai-job";
 import type { Bindings } from "../types";
 
-type JobParams = {
-  entityTable: string;
-  entityId: string;
-  type: string;
-  delayMs: number;
-  /** The draft the job was scheduled from; absent on jobs stored before drafts and on Live's. */
-  draftId?: string | null;
-};
+const JobEntity = Schema.Literals(["block", "repeatableItem", "page", "file"]);
 
-type StoredJob = JobParams & {
-  /** Distinguishes a re-scheduled job from the one an in-flight alarm is running. */
-  id: string;
-};
+const StoredJob = Schema.Union([
+  Schema.Struct({
+    // Tells a re-scheduled job from the one an in-flight alarm is running.
+    id: Schema.String,
+    entity: JobEntity,
+    entityId: Schema.String,
+    draftId: Schema.NullOr(Schema.String),
+  }),
+  // Jobs stored before jobs named their entity; they drain within seconds of a deploy.
+  Schema.Struct({
+    id: Schema.String,
+    entityTable: Schema.String,
+    type: Schema.String,
+    entityId: Schema.String,
+    draftId: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+]);
 
+/** The job stored in a Durable Object, or none when it can't be read. */
+const decodeStoredJob = (stored: unknown) =>
+  Option.flatMap(
+    Schema.decodeUnknownOption(StoredJob)(stored),
+    (job): Option.Option<GenerationJob & { id: string }> => {
+      const draftId = job.draftId ?? null;
+      if ("entity" in job) return Option.some({ ...job, draftId });
+      const entity = entityOfStoredName(job.entityTable, job.type);
+      return entity
+        ? Option.some({ id: job.id, entity, entityId: job.entityId, draftId })
+        : Option.none();
+    },
+  );
+
+/**
+ * Holds one pending generation job, named by its key (`GenerationScheduler`), and runs it when
+ * its alarm fires. Scheduling again replaces the job and restarts the delay.
+ */
 export class AiJobScheduler extends DurableObject<Bindings> {
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === "POST" && url.pathname === "/schedule") {
-      const params: JobParams = await request.json();
-      await this.ctx.storage.put("job", { ...params, id: crypto.randomUUID() } satisfies StoredJob);
-      await this.ctx.storage.setAlarm(Date.now() + params.delayMs);
-      return new Response(JSON.stringify({ scheduled: true }), {
-        status: 202,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    return new Response("Not found", { status: 404 });
+  async schedule(job: GenerationJob, delayMs: number): Promise<void> {
+    await this.ctx.storage.put("job", { ...job, id: crypto.randomUUID() });
+    await this.ctx.storage.setAlarm(Date.now() + delayMs);
   }
 
   async alarm(): Promise<void> {
-    const job = await this.ctx.storage.get<StoredJob>("job");
-    if (!job) return;
+    const stored = await this.ctx.storage.get("job");
+    if (stored === undefined) return;
+    const job = decodeStoredJob(stored);
 
-    // Only clear the job once it succeeded. If it fails, the job stays stored
-    // and Cloudflare retries the alarm with backoff.
-    // What the job generated reaches the project's viewers like any write (ADR 0012).
-    await Effect.runPromise(journaled(this.runJob(job), announce));
+    if (Option.isSome(job)) {
+      // A job that fails settles its value and resolves; only a failure to settle throws, and
+      // Cloudflare retries the alarm with backoff. What the job generated reaches the project's
+      // viewers like any write (ADR 0012).
+      const run = runGenerationJob(createDb(this.env.DB), job.value).pipe(
+        // The alarm waits for what the job schedules: nothing answers sooner for it.
+        Effect.provideContext(generationServices(this.env, inline)),
+        Effect.annotateLogs("job", jobName(job.value)),
+      );
+      await Effect.runPromise(journaled(run, announce));
+    } else {
+      console.error("[generation] unreadable job dropped", stored);
+    }
 
     // A newer job may have been scheduled while this one ran — keep it.
-    const current = await this.ctx.storage.get<StoredJob>("job");
-    if (current?.id === job.id) {
+    const current = await this.ctx.storage.get<{ id?: string }>("job");
+    if (current?.id === (stored as { id?: string }).id) {
       await this.ctx.storage.delete("job");
     }
   }
-
-  private runJob = Effect.fn("AiJobScheduler.runJob")(function* (
-    this: AiJobScheduler,
-    job: StoredJob,
-  ) {
-    const db = createDb(this.env.DB);
-    const apiKey = this.env.OPEN_ROUTER_API_KEY;
-    const deps = { db, env: this.env, waitUntil: (p: Promise<unknown>) => this.ctx.waitUntil(p) };
-
-    const { entityTable, entityId, type } = job;
-    const draftId = job.draftId ?? null;
-    const label = aiJobKey(job);
-
-    if (entityTable === "blocks" && type === "summary") {
-      const stale = yield* retryAiCall(label, (abortController) =>
-        runBlockSummaryJob(db, apiKey, { entityId, draftId }, abortController),
-      );
-      // A changed summary changes its page's SEO.
-      if (stale) yield* requestPageSeo(deps, stale.scope, stale.page, 15000);
-    } else if (entityTable === "repeatableItems" && type === "summary") {
-      const cascade = yield* retryAiCall(label, (abortController) =>
-        runRepeatableItemSummaryJob(db, apiKey, { entityId, draftId }, abortController),
-      );
-      // A changed item summary changes its block's.
-      if (cascade) {
-        yield* requestBlockSummary(deps, cascade.scope, cascade.projectId, cascade.blockId, 5000);
-      }
-    } else if (entityTable === "files" && type === "fileMetadata") {
-      yield* retryAiCall(label, (abortController) =>
-        runFileMetadataJob(db, apiKey, { entityId, draftId }, abortController),
-      );
-    } else if (entityTable === "pages" && type === "seo") {
-      yield* retryAiCall(label, (abortController) =>
-        runPageSeoJob(db, apiKey, { entityId, draftId }, abortController),
-      );
-    }
-  });
 }

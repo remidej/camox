@@ -2,7 +2,7 @@ import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { inArray, isNull, and, eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
@@ -10,27 +10,12 @@ import {
   createServiceContext,
   callSeedingLive,
 } from "../../../test/fixtures";
+import { answerNext, forgetScheduled, modelCalls, scheduledFor } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { drafts, generatedValues, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-import { runBlockSummaryJob } from "../blocks/service";
-import { runPageSeoJob } from "../pages/ai";
-
-const { chat, scheduleAiJob } = vi.hoisted(() => {
-  vi.resetModules();
-  return {
-    chat: vi.fn(),
-    scheduleAiJob: vi.fn().mockResolvedValue(undefined),
-  };
-});
-vi.mock("@tanstack/ai", () => ({ chat }));
-vi.mock("../../lib/schedule-ai-job", () => ({ scheduleAiJob }));
-
-afterEach(() => {
-  vi.clearAllMocks();
-  chat.mockReset();
-});
+import { runGenerationJob } from "./generation";
 
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
@@ -83,16 +68,16 @@ async function fixture() {
   const titleIn = async (id: string, headers: Record<string, string> = {}) =>
     (await call(router.blocks.get, { id }, member(headers))).block.content.title;
   const summarize = (entityId: string, draftId: string | null, summary: string) => {
-    chat.mockResolvedValueOnce(summary);
-    return runService(runBlockSummaryJob(base.db, "key", { entityId, draftId }));
+    answerNext("summarize", summary);
+    return runService(runGenerationJob(base.db, { entity: "block", entityId, draftId }));
   };
   const generateSeo = (
     entityId: string,
     draftId: string | null,
     seo: { metaTitle: string; metaDescription: string },
   ) => {
-    chat.mockResolvedValueOnce(seo);
-    return runService(runPageSeoJob(base.db, "key", { entityId, draftId }));
+    answerNext("pageSeo", seo);
+    return runService(runGenerationJob(base.db, { entity: "page", entityId, draftId }));
   };
   const pageIn = (id: string, headers: Record<string, string> = {}) =>
     call(router.pages.get, { id }, member(headers));
@@ -116,7 +101,6 @@ async function fixture() {
       { projectId, token: (await preview(draftId)).token },
       member(inDraft(draftId)),
     );
-  const scheduled = () => scheduleAiJob.mock.calls.map(([, job]) => job);
 
   return {
     ...base,
@@ -134,23 +118,22 @@ async function fixture() {
     changeCount,
     preview,
     publish,
-    scheduled,
   };
 }
 
 describe("summaries in drafts", () => {
   it("are requested in the draft a block was edited in, and on Live once it's published", async () => {
-    const { createBlock, editTitle, publish, scheduled } = await fixture();
+    const { createBlock, editTitle, publish } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     const published = generateUuidv7();
-    scheduleAiJob.mockClear();
+    forgetScheduled(block.id);
 
     await editTitle(block.id, "Draft", startingDraft(draft));
     await editTitle(block.id, "Live again", startingDraft(published));
     await publish(published);
 
-    expect(scheduled().filter((job) => job.entityTable === "blocks")).toEqual([
+    expect(scheduledFor(block.id)).toEqual([
       expect.objectContaining({ entityId: block.id, draftId: draft }),
       expect.objectContaining({ entityId: block.id, draftId: published }),
       expect.objectContaining({ entityId: block.id, draftId: null }),
@@ -183,7 +166,7 @@ describe("summaries in drafts", () => {
     await summarize(block.id, null, "Live summary");
 
     expect((await editTitle(block.id, "Edited")).summary).toBe("Live summary");
-    chat.mockResolvedValueOnce("Fresh summary");
+    answerNext("summarize", "Fresh summary");
     const generated = await call(router.blocks.generateSummary, { id: block.id }, member());
     expect(generated).toMatchObject({ summary: "Fresh summary", content: { title: "Edited" } });
   });
@@ -210,7 +193,7 @@ describe("summaries in drafts", () => {
       member(),
     );
 
-    chat.mockResolvedValueOnce("Banner summary");
+    answerNext("summarize", "Banner summary");
     const generated = await call(router.blocks.generateSummary, { id: placement.id }, member());
     expect(generated).toMatchObject({ summary: "Banner summary", content: { title: "Shared" } });
   });
@@ -235,44 +218,44 @@ describe("summaries in drafts", () => {
 
     await summarize(block.id, draft, "Too late");
 
-    expect(chat).not.toHaveBeenCalled();
+    expect(modelCalls()).toEqual([]);
     expect(await summaryIn(block.id)).toBe("");
   });
 });
 
 describe("publishing generated values", () => {
   it("copies the draft's values over Live's and requests Live's for what changed and its page", async () => {
-    const { page, createBlock, editTitle, summaryIn, summarize, setSeo, publish, scheduled } =
-      await fixture();
+    const { page, createBlock, editTitle, summaryIn, summarize, setSeo, publish } = await fixture();
     await setSeo({ id: page.id, metaTitle: "Home", metaDescription: "Welcome" });
     const block = await createBlock("Live");
     await summarize(block.id, null, "Live summary");
     const draft = generateUuidv7();
     await editTitle(block.id, "Draft", startingDraft(draft));
     await summarize(block.id, draft, "Draft summary");
-    scheduleAiJob.mockClear();
+    forgetScheduled(block.id, page.id);
 
     await publish(draft);
 
     expect(await summaryIn(block.id)).toBe("Draft summary");
-    expect(scheduled()).toEqual([
-      expect.objectContaining({ entityTable: "blocks", entityId: block.id, draftId: null }),
+    // The page's SEO is manual.
+    expect(scheduledFor(block.id, page.id)).toEqual([
+      expect.objectContaining({ entity: "block", entityId: block.id, draftId: null }),
     ]);
   });
 
   it("requests a changed block's page SEO on Live when it's generated", async () => {
-    const { page, createBlock, editTitle, generateSeo, publish, scheduled } = await fixture();
+    const { page, createBlock, editTitle, generateSeo, publish } = await fixture();
     const block = await createBlock("Live");
     await generateSeo(page.id, null, { metaTitle: "Home", metaDescription: "Welcome" });
     const draft = generateUuidv7();
     await editTitle(block.id, "Draft", startingDraft(draft));
-    scheduleAiJob.mockClear();
+    forgetScheduled(block.id, page.id);
 
     await publish(draft);
 
-    expect(scheduled()).toEqual([
-      expect.objectContaining({ entityTable: "blocks", entityId: block.id, draftId: null }),
-      expect.objectContaining({ entityTable: "pages", entityId: page.id, draftId: null }),
+    expect(scheduledFor(block.id, page.id)).toEqual([
+      expect.objectContaining({ entity: "block", entityId: block.id, draftId: null }),
+      expect.objectContaining({ entity: "page", entityId: page.id, draftId: null }),
     ]);
   });
   it("drops Live's values of what the draft deletes and of the descendants deleted with it", async () => {
@@ -334,11 +317,11 @@ describe("a page's SEO group", () => {
       metaDescription: "Manual text",
       aiSeo: false,
     });
-    expect(chat).toHaveBeenCalledOnce();
+    expect(modelCalls()).toHaveLength(1);
   });
 
   it("shows the generated values again once made generated", async () => {
-    const { page, generateSeo, pageIn, setSeo, scheduled } = await fixture();
+    const { page, generateSeo, pageIn, setSeo } = await fixture();
     await generateSeo(page.id, null, { metaTitle: "Generated", metaDescription: "Generated text" });
     const draft = generateUuidv7();
     await setSeo({ id: page.id, metaTitle: "Manual" }, startingDraft(draft));
@@ -350,8 +333,8 @@ describe("a page's SEO group", () => {
       metaDescription: "Generated text",
       aiSeo: true,
     });
-    expect(scheduled()).toEqual([
-      expect.objectContaining({ entityTable: "pages", entityId: page.id, draftId: draft }),
+    expect(scheduledFor(page.id)).toEqual([
+      expect.objectContaining({ entity: "page", entityId: page.id, draftId: draft }),
     ]);
   });
 });

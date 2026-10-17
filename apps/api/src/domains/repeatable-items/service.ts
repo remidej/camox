@@ -1,13 +1,11 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { chat } from "@tanstack/ai";
-import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
-import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
+import { AiModel } from "../../lib/ai-model";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
@@ -20,7 +18,6 @@ import {
   type FieldSchema,
 } from "../blocks/normalize-content";
 import { contentWithSeeds } from "../blocks/prepare-content";
-import { requestBlockSummary } from "../blocks/service";
 import { contentOwnerOf, definitionOf, sharedPlacementId } from "../blocks/shared-content";
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
@@ -28,14 +25,8 @@ import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { draftScopeOfJob } from "../drafts/service";
-import {
-  copyValue,
-  homeOf,
-  readValue,
-  requestGeneration,
-  saveValue,
-} from "../generated-values/service";
+import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
+import { copyValue, homeOf, readValue, saveValue } from "../generated-values/service";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
 // --- Input Schemas ---
@@ -229,76 +220,6 @@ function findLastIndexLe<T extends { position: string }>(items: T[], target: str
 
 // --- AI Executor ---
 
-const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
-  apiKey: string,
-  options: { type: string; markdown: string; previousSummary?: string },
-  abortController?: AbortController,
-) {
-  const stabilityBlock = options.previousSummary
-    ? outdent`
-
-      <previous_summary>${options.previousSummary}</previous_summary>
-      <stability_instruction>
-        A summary was previously generated for this content.
-        Return the SAME summary unless it is no longer accurate.
-        Only change it if the content has meaningfully changed.
-      </stability_instruction>
-    `
-    : "";
-
-  return yield* Effect.promise(() =>
-    chat({
-      adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
-      stream: false,
-      abortController,
-      messages: [
-        {
-          role: "user",
-          content: outdent`
-            <instruction>
-              Generate a concise summary for a piece of website content.
-            </instruction>
-
-            <constraints>
-              - MAXIMUM 4 WORDS
-              - Capture the main idea or purpose
-              - Be descriptive and specific to the content type
-              - Use sentence case (only capitalize the first word and proper nouns)
-              - Don't use markdown, just plain text
-              - Don't use punctuation
-              - Use abbreviations or acronyms where appropriate
-            </constraints>
-
-            <context>
-              <type>${options.type}</type>
-              <content>${options.markdown}</content>
-            </context>
-            ${stabilityBlock}
-
-            <examples>
-              <example>
-                <type>paragraph</type>
-                <content>{"text": "This is a description of how our service works in detail."}</content>
-                <output>Service explanation details</output>
-              </example>
-
-              <example>
-                <type>button</type>
-                <content>{"text": "Submit Form", "action": "submit"}</content>
-                <output>Submit form button</output>
-              </example>
-            </examples>
-
-            <format>
-              Return only the summary text, nothing else.
-            </format>
-          `,
-        },
-      ],
-    }),
-  );
-});
-
 const itemSummaryKey = (itemId: string) =>
   ({ entity: "repeatableItem", entityId: itemId, type: "summary" }) as const;
 
@@ -310,12 +231,10 @@ const itemSummaryKey = (itemId: string) =>
  */
 export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSummary")(function* (
   db: Database,
-  apiKey: string,
-  itemId: string,
   scope: DraftScope,
-  abortController?: AbortController,
+  itemId: string,
+  startedAt: number,
 ) {
-  const startedAt = Date.now();
   const item = yield* overlay.get(db, scope, repeatableItems, itemId);
   if (!item) return null;
 
@@ -342,15 +261,12 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
   );
 
   const previous = (yield* readValue(db, scope, itemSummaryKey(itemId))).value?.summary ?? "";
-  const summary = yield* generateObjectSummary(
-    apiKey,
-    {
-      type: tree.definition.type,
-      markdown: JSON.stringify(content),
-      previousSummary: previous,
-    },
-    abortController,
-  );
+  const model = yield* AiModel;
+  const summary = yield* model.summarize({
+    type: tree.definition.type,
+    markdown: JSON.stringify(content),
+    previousSummary: previous,
+  });
 
   yield* saveValue(db, homeOf(scope, projectId), itemSummaryKey(itemId), { summary }, startedAt);
 
@@ -360,41 +276,10 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
     "blockId" in tree.root
       ? tree.root.blockId
       : yield* sharedPlacementId(db, scope, tree.definition);
-  return blockId === null ? null : { blockId, projectId };
+  return blockId === null
+    ? null
+    : ({ projectId, target: { entity: "block", row: { id: blockId } } } satisfies Stale);
 });
-
-/** Runs an item summary job in the scope it was scheduled from; nothing once its draft ended. */
-export const runRepeatableItemSummaryJob = Effect.fn("repeatableItems.runSummaryJob")(function* (
-  db: Database,
-  apiKey: string,
-  job: { entityId: string; draftId: string | null },
-  abortController?: AbortController,
-) {
-  const scope = yield* draftScopeOfJob(db, job.draftId);
-  if (scope === undefined) return null;
-  const cascade = yield* executeRepeatableItemSummary(
-    db,
-    apiKey,
-    job.entityId,
-    scope,
-    abortController,
-  );
-  return cascade ? { ...cascade, scope } : null;
-});
-
-/** Requests an item's summary in the scope it was written in (ADR 0012). */
-const requestSummary = (
-  ctx: ServiceContext,
-  scope: DraftScope,
-  projectId: number,
-  entityId: string,
-  delayMs: number,
-) =>
-  requestGeneration(ctx, homeOf(scope, projectId), {
-    entity: "repeatableItem",
-    entityId,
-    delayMs,
-  });
 
 /** The siblings of an item in its repeater, as a scope reads them, in order. */
 const siblingsOf = Effect.fn("repeatableItems.siblingsOf")(function* (
@@ -570,7 +455,12 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
       tempIdToRealId.set(seed.tempId, inserted!.id);
     }
   }
-  yield* requestSummary(ctx, scope, project.id, result.id, 0);
+  yield* requestGeneration(
+    ctx.db,
+    homeOf(scope, project.id),
+    { entity: "repeatableItem", row: result },
+    { immediately: true },
+  );
 
   return yield* shownItem(ctx, project.id, scope, result);
 }, Effect.scoped);
@@ -613,7 +503,10 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       content: merged,
       updatedAt: Date.now(),
     });
-    yield* requestSummary(ctx, scope, project.id, id, 5000);
+    yield* requestGeneration(ctx.db, homeOf(scope, project.id), {
+      entity: "repeatableItem",
+      row: { id },
+    });
 
     return result && (yield* shownItem(ctx, project.id, scope, result));
   },
@@ -757,15 +650,7 @@ export const generateRepeatableItemSummary = Effect.fn(
   const { id } = yield* decodeInput(generateRepeatableItemSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { item: id }, "member");
 
-  const cascade = yield* executeRepeatableItemSummary(
-    ctx.db,
-    ctx.env.OPEN_ROUTER_API_KEY,
-    id,
-    scope,
-  );
-  if (cascade) {
-    yield* requestBlockSummary(ctx, scope, cascade.projectId, cascade.blockId, 5000);
-  }
+  yield* generateNow(ctx.db, scope, "repeatableItem", id).pipe(Effect.orDie);
   const stored = yield* overlay.get(ctx.db, scope, repeatableItems, id);
   return stored && (yield* shownItem(ctx, project.id, scope, stored));
 }, Effect.scoped);

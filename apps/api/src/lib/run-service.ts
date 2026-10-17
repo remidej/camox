@@ -10,6 +10,7 @@ import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import type { ServiceError } from "./errors";
+import { generationServices, type GenerationServices } from "./generation-adapters";
 import { announce } from "./invalidation";
 import { journaled, type Journal } from "./journal";
 
@@ -52,6 +53,9 @@ export function toORPCError(error: ServiceError) {
   }
 }
 
+/** What every unit of work runs with: its journal, and the services that generate values. */
+export type ServiceRequirements = Journal | GenerationServices;
+
 /**
  * Run a service effect at a Promise boundary (oRPC handlers, Hono routes,
  * durable objects, AI tools): one unit of work. Expected failures reject with
@@ -60,9 +64,14 @@ export function toORPCError(error: ServiceError) {
  *
  * The effect writes into a fresh journal. Once it succeeded, what it changed is
  * sent to the project rooms before the promise resolves; a failure sends nothing.
+ * It generates values with the Worker's model and scheduler (`generation-adapters.ts`).
  */
-export async function runService<A>(effect: Effect.Effect<A, ServiceError, Journal>): Promise<A> {
-  const exit = await Effect.runPromiseExit(journaled(effect, announce));
+export async function runService<A>(
+  effect: Effect.Effect<A, ServiceError, ServiceRequirements>,
+): Promise<A> {
+  const exit = await Effect.runPromiseExit(
+    journaled(Effect.provideContext(effect, generationServices()), announce),
+  );
   if (Exit.isSuccess(exit)) return exit.value;
 
   const error = Cause.findErrorOption(exit.cause);

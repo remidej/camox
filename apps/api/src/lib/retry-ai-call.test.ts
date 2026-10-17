@@ -63,7 +63,7 @@ describe("retryAiCall", () => {
 
     await vi.advanceTimersByTimeAsync(5 * 60_000);
 
-    expect(await settled).toMatchObject({ _tag: "TimeoutError" });
+    expect(await settled).toMatchObject({ _tag: "AiCallError", cause: { _tag: "TimeoutError" } });
     expect(signals).toHaveLength(3);
     expect(signals.every((signal) => signal.aborted)).toBe(true);
   });

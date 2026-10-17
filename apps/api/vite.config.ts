@@ -55,7 +55,11 @@ export default defineConfig({
           // Tests seed Live by publishing drafts, which takes a few statements per write; under a
           // full parallel run the default 5s leaves too little room.
           testTimeout: 15_000,
-          setupFiles: ["./test/apply-migrations.ts", "./test/record-project-rooms.ts"],
+          setupFiles: [
+            "./test/apply-migrations.ts",
+            "./test/record-project-rooms.ts",
+            "./test/record-generation.ts",
+          ],
         },
       },
     ],
