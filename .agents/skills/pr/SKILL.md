@@ -11,8 +11,14 @@ metadata:
 
 Use this template for writing the PR body:
 
-```markdown
+````markdown
 ## Summary
+
+```diff
+  <files> files changed (excluding tests)
++ <insertions> insertions
+- <deletions> deletions
+```
 
 <diagram, diff-sketch, or tree>
 
@@ -30,7 +36,7 @@ Use this template for writing the PR body:
 **Blast Radius:** <one-word description>
 
 <optional: potential ramifications of merge>
-```
+````
 
 ## Sections
 
@@ -38,7 +44,17 @@ Skip all preambles and keep prose brief. Use the user's domain language from `GL
 
 ### Summary
 
-Pick the smallest view that makes the key point clear.
+Start with the implementation diff count, leaving out tests so reviewers see the size of the code that changes behavior. Compute it against the PR's base branch (fetch it first, and swap `main` if the base differs), and put it in a `diff` block so GitHub colors the insertions green and the deletions red:
+
+```sh
+git diff --shortstat origin/main...HEAD -- . \
+  ':(exclude,glob)**/*.test.*' \
+  ':(exclude,glob)**/*.type-test.*' \
+  ':(exclude,glob)**/test/**' \
+  ':(exclude,glob)**/__snapshots__/**'
+```
+
+Then pick the smallest view that makes the key point clear.
 
 - Show logic or an algorithm as pseudocode:
 
