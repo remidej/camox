@@ -1240,8 +1240,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   });
   if (!result) return yield* new ConflictError({ message: `Block ${id} already exists` });
 
-  // Insert repeatable item seeds in topological order (parents before children). Items are
-  // stored in Live even for a block created in a draft, until they move into drafts (#238).
+  // Insert repeatable item seeds in topological order (parents before children).
   if (allSeeds.length > 0) {
     const tempIdToRealId = new Map<string, string>();
 
@@ -1249,22 +1248,17 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       const parentItemId = seed.parentTempId
         ? (tempIdToRealId.get(seed.parentTempId) ?? null)
         : null;
-      const inserted = yield* Effect.promise(() =>
-        ctx.db
-          .insert(repeatableItems)
-          .values({
-            blockId: result.id,
-            parentItemId,
-            fieldName: seed.fieldName,
-            content: seed.content,
-            settings: seed.settings,
-            position: seed.position,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get(),
-      );
+      // A fresh id, so the scope can't already hold the item.
+      const inserted = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
+        blockId: result.id,
+        parentItemId,
+        fieldName: seed.fieldName,
+        content: seed.content,
+        settings: seed.settings,
+        position: seed.position,
+        createdAt: now,
+        updatedAt: now,
+      }))!;
       tempIdToRealId.set(seed.tempId, inserted.id);
     }
   }
@@ -1335,8 +1329,6 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
   yield* validateReferenceValues(ctx, blockScope(access.block, scope), contentSchema, patch);
   const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
-  // Repeater patches write the Live repeatable items, even from a draft, until items move into
-  // drafts (#238).
   const merged = yield* applyContentPatch(
     ctx,
     scope,

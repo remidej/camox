@@ -1,11 +1,12 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { drafts, pages } from "../../schema";
+import { drafts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
+import { discardDraft } from "../drafts/publish";
 import type { DraftScope } from "../drafts/scope";
 import { getPageByPath } from "../pages/service";
 import {
@@ -216,6 +217,60 @@ describe("blocks in a draft", () => {
 
     const after = await db.select().from(pages).where(eq(pages.id, page.id)).get();
     expect(after?.contentUpdatedAt).toBe(before?.contentUpdatedAt);
+  });
+
+  it("seeds a block's default repeatable items in the draft only, leaving none on Live once discarded", async () => {
+    const { ctx, db, page, project, openDraft } = await fixture("draft-create-items");
+    await runService(
+      upsertBlockDefinition(createServiceContext(db, null), {
+        projectSlug: project.slug,
+        deployToken: project.deployToken,
+        blockId: "list",
+        title: "List",
+        description: "List",
+        contentSchema: {
+          type: "object",
+          properties: {
+            items: {
+              fieldType: "Repeater",
+              minItems: 2,
+              items: { properties: { title: { default: "Item" } } },
+            },
+          },
+        },
+      }),
+    );
+    const draft = await openDraft();
+
+    const block = await runService(
+      createBlock(ctx, { pageId: page.id, type: "list", content: {} }, draft),
+    );
+
+    const itemsOf = (scope: DraftScope) =>
+      db
+        .select()
+        .from(repeatableItems)
+        .where(
+          and(
+            eq(repeatableItems.blockId, block.id),
+            scope ? eq(repeatableItems.draftId, scope.id) : isNull(repeatableItems.draftId),
+          ),
+        );
+    expect(await itemsOf(draft)).toHaveLength(2);
+    expect(await itemsOf(null)).toEqual([]);
+
+    await runService(
+      discardDraft(
+        { ...ctx, draft: { id: draft!.id, create: false } },
+        {
+          projectId: project.id,
+        },
+      ),
+    );
+
+    expect(
+      await db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
+    ).toEqual([]);
   });
 
   it("finds no block that only another draft created", async () => {
