@@ -49,6 +49,7 @@ import {
 import { selectedCanvasPage } from "./canvasSelection";
 import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
 import { CanvasSidebar } from "./CanvasSidebar";
+import { canvasStore } from "./canvasStore";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
@@ -385,6 +386,16 @@ function CanvasWorkspace({
     setPendingFlight(null);
     flyTo(pendingFlight);
   }, [pendingFlight, pendingFlightPlaced, flyTo]);
+  // A request from outside the Canvas, like the show whole canvas action, zooms out to all of it.
+  React.useEffect(() => {
+    let answered = canvasStore.getSnapshot().context.overviewRequests;
+    const subscription = canvasStore.subscribe(({ context }) => {
+      if (context.overviewRequests === answered) return;
+      answered = context.overviewRequests;
+      fitAll();
+    });
+    return () => subscription.unsubscribe();
+  }, [fitAll]);
   React.useImperativeHandle(ref, () => ({
     showItem(key) {
       const shelf = shelves.find((candidate) => candidate.items.some((item) => item.key === key));

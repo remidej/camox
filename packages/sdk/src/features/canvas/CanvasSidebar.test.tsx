@@ -412,7 +412,7 @@ void test("a selected item's sidebar names it under a back button that shows the
       assert.equal(aside.getAttribute("aria-label"), page.title);
       assert.equal(dom.mount.querySelector("[data-canvas-navigator-sidebar]"), null);
     }
-    const back = dom.mount.querySelector<HTMLButtonElement>('[aria-label="Back to the Canvas"]')!;
+    const back = dom.mount.querySelector<HTMLButtonElement>('[aria-label="Show whole canvas"]')!;
     await React.act(async () => back.click());
     assert.equal(dom.canvasShown, 1);
     assert.deepEqual(dom.navigations, [], "the Canvas, not the sidebar, leaves the selection");
@@ -447,7 +447,7 @@ void test("a selected block shows its description and the Pages using it, which 
       "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the Page",
     );
     await React.act(async () =>
-      dom.mount.querySelector<HTMLButtonElement>('[aria-label="Back to the Canvas"]')!.click(),
+      dom.mount.querySelector<HTMLButtonElement>('[aria-label="Show whole canvas"]')!.click(),
     );
     assert.equal(dom.canvasShown, 1, "a block leads back to the Canvas too");
 
