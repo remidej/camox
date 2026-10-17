@@ -2,6 +2,7 @@
  * Page metadata sidebar pieces
  * -----------------------------------------------------------------------------------------------*/
 
+import { Accordion, AccordionItem, AccordionPanel } from "@camox/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@camox/ui/alert";
 import {
   AlertDialog,
@@ -14,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
+import { Checkbox } from "@camox/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -97,6 +99,31 @@ const usePageMetadataData = (pageId: string) => {
   return { page, project, pages, layouts, pageLayoutRecord, metaTitle, camoxApp };
 };
 
+const PAGE_SETTINGS_ITEM = "page-settings";
+const SHOW_PAGE_SETTINGS_STORAGE_KEY = "camox:studio:showPageSettings";
+
+/** Whether the page sidebar shows its settings, remembered across pages and sessions. */
+const useShowPageSettings = () => {
+  const [show, setShow] = React.useState(() => {
+    try {
+      return localStorage.getItem(SHOW_PAGE_SETTINGS_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const update = React.useCallback((next: boolean) => {
+    setShow(next);
+    try {
+      localStorage.setItem(SHOW_PAGE_SETTINGS_STORAGE_KEY, String(next));
+    } catch {
+      /* optional persistence */
+    }
+  }, []);
+
+  return [show, update] as const;
+};
+
 const PageInfoSidebar = ({
   pageId,
   scrollable = true,
@@ -111,6 +138,9 @@ const PageInfoSidebar = ({
   const [isStructureModalOpen, setIsStructureModalOpen] = React.useState(false);
   const [isSeoModalOpen, setIsSeoModalOpen] = React.useState(false);
   const [isMarkdownModalOpen, setIsMarkdownModalOpen] = React.useState(false);
+  const [showPageSettings, setShowPageSettings] = useShowPageSettings();
+  const showSettingsId = React.useId();
+  const settingsPanelId = React.useId();
 
   if (!page) {
     return (
@@ -120,33 +150,46 @@ const PageInfoSidebar = ({
     );
   }
 
+  const pageSettings = (
+    <>
+      <section className="space-y-4">
+        <PageNicknameSidebarEditor data={data} />
+        <div className="space-y-2">
+          <Label>Page path</Label>
+          <InputGroup className="px-1">
+            <InputGroupText className="min-w-0 flex-1 px-2 py-1.5 font-mono font-normal break-all">
+              {page.fullPath}
+            </InputGroupText>
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setIsStructureModalOpen(true)}
+                aria-label="Edit page structure"
+              >
+                <Pencil />
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
+        <PageLayoutSidebarSelect data={data} />
+      </section>
+      <PageDeleteButton page={page} />
+      <Metadata>
+        <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
+        <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
+        <MetadataRow label="Updated">{formatRelativeTime(page.updatedAt)}</MetadataRow>
+      </Metadata>
+    </>
+  );
+
   return (
     <>
       <div className={cn("space-y-4 p-2 pt-4", scrollable && "flex-1 overflow-auto")}>
-        <section className="space-y-4">
-          <PageNicknameSidebarEditor data={data} />
-          <div className="space-y-2">
-            <Label>Page path</Label>
-            <InputGroup className="px-1">
-              <InputGroupText className="min-w-0 flex-1 px-2 py-1.5 font-mono font-normal break-all">
-                {page.fullPath}
-              </InputGroupText>
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => setIsStructureModalOpen(true)}
-                  aria-label="Edit page structure"
-                >
-                  <Pencil />
-                </InputGroupButton>
-              </InputGroupAddon>
-            </InputGroup>
-          </div>
-          <PageLayoutSidebarSelect data={data} />
-        </section>
-        {!aboutOnly && (
+        {aboutOnly ? (
+          pageSettings
+        ) : (
           <>
             <div className="space-y-2">
               <Label>SEO</Label>
@@ -170,14 +213,26 @@ const PageInfoSidebar = ({
                 View page markdown
               </Button>
             </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={showSettingsId}
+                checked={showPageSettings}
+                onCheckedChange={setShowPageSettings}
+                aria-controls={settingsPanelId}
+              />
+              <Label htmlFor={showSettingsId} className="font-normal">
+                Show page settings
+              </Label>
+            </div>
+            <Accordion value={showPageSettings ? [PAGE_SETTINGS_ITEM] : []}>
+              <AccordionItem value={PAGE_SETTINGS_ITEM}>
+                <AccordionPanel id={settingsPanelId} className="-mx-1 px-1">
+                  <div className="space-y-4">{pageSettings}</div>
+                </AccordionPanel>
+              </AccordionItem>
+            </Accordion>
           </>
         )}
-        <PageDeleteButton page={page} />
-        <Metadata>
-          <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
-          <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
-          <MetadataRow label="Updated">{formatRelativeTime(page.updatedAt)}</MetadataRow>
-        </Metadata>
       </div>
       <PageStructureModal
         open={isStructureModalOpen}
