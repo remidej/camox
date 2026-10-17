@@ -241,6 +241,7 @@ function CanvasWorkspace({
   blocks,
   selectedPage,
   selectedBlock,
+  previewedPage,
   intendedItemKey,
   runtimeBasePath,
   viewport,
@@ -252,6 +253,8 @@ function CanvasWorkspace({
   blocks: Block[];
   selectedPage: CanvasPage | undefined;
   selectedBlock: Block | undefined;
+  /** The Page the Preview page frame shows: the selected one, or the last one selected. */
+  previewedPage: CanvasPage | undefined;
   /** The key of the item the Canvas is selecting, even before its location commits. */
   intendedItemKey: string | undefined;
   runtimeBasePath: string;
@@ -277,6 +280,7 @@ function CanvasWorkspace({
   const previewPageFrame = React.use(PreviewPageFrameContext);
   const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
   const selectedPath = location.pathname;
+  const previewedPath = previewPageFrame?.pathname;
   const selectPage = (pathname: string) => {
     onSelectionIntent(pathname);
     cancelFlight();
@@ -313,7 +317,9 @@ function CanvasWorkspace({
         pathname:
           page.key === selectedPage?.key
             ? selectedPath
-            : (previewPathnames[page.key] ?? page.pathname),
+            : previewedPath && page.key === previewedPage?.key
+              ? previewedPath
+              : (previewPathnames[page.key] ?? page.pathname),
       },
     ]),
   );
@@ -481,8 +487,12 @@ function CanvasWorkspace({
                   if (!slot) return null;
                   const { page, pathname } = slot;
                   const selected = page.key === selectedPage?.key;
-                  // The selected Page shows the Preview's own frame, so Edit Mode keeps its state.
-                  const previewed = !!previewPageFrame && selected && pathname === selectedPath;
+                  // The Preview's page shows the Preview's own frame, so Edit Mode keeps its
+                  // state. Deselecting it keeps it there too, rather than remount it.
+                  const previewed =
+                    !!previewPageFrame &&
+                    page.key === previewedPage?.key &&
+                    pathname === previewedPath;
                   const onPageActivate = (
                     owner: EditingOwner,
                     source: "selection" | "interaction",
@@ -512,6 +522,7 @@ function CanvasWorkspace({
                               derivedLayoutId={page.derivedLayoutId}
                               width={viewport.width}
                               viewportHeight={viewport.height}
+                              selected={selected}
                               hovered={hoveredPageKey === page.key}
                               onActivate={onPageActivate}
                             />
@@ -662,6 +673,8 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     return { block: block && !block._internal.layoutOnly ? block : undefined };
   };
   const { page: selectedPage, block: selectedBlock } = selectionAt(location.pathname);
+  const previewedPath = React.use(PreviewPageFrameContext)?.pathname;
+  const previewedPage = previewedPath ? selectionAt(previewedPath).page : undefined;
   // A Canvas selection commits once its route payload loads. Until then, the
   // Canvas sidebar and the camera already follow it, so they move as the camera snaps.
   const [intent, setIntent] = React.useState<{ from: string; to: typeof location } | null>(null);
@@ -772,6 +785,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         blocks={blockCatalog}
         selectedPage={selectedPage}
         selectedBlock={selectedBlock}
+        previewedPage={previewedPage}
         intendedItemKey={intendedItemKey}
         runtimeBasePath={runtimeBasePath}
         viewport={viewport}

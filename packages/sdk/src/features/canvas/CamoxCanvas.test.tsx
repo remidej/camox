@@ -717,7 +717,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       }
     });
     await t.test(
-      "the selected Page shows the Preview's own frame, following the selection",
+      "the Preview's Page shows the Preview's own frame, following the selection",
       async () => {
         scenario = "";
         includeNewPage = false;
@@ -730,14 +730,15 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         });
         const { PreviewPageFrame, PreviewPageFrameContext } =
           await import("../preview/previewPageFrame");
-        const pageFrame = { frame: new PreviewPageFrame(), revealed: true };
+        const frame = new PreviewPageFrame();
         const host = dom.document.createElement("div");
         dom.document.body.append(host);
         const root = createRoot(host as unknown as HTMLElement);
-        const render = () =>
+        // The Preview names the page its frame shows.
+        const render = (pathname = globals.CanvasLocation.pathname) =>
           React.act(async () =>
             root.render(
-              <PreviewPageFrameContext value={pageFrame}>
+              <PreviewPageFrameContext value={{ frame, revealed: true, pathname }}>
                 <PreviewPreparationContext value={{ ready: () => {}, fail: () => {} }}>
                   <CamoxCanvas runtimeBasePath="" />
                 </PreviewPreparationContext>
@@ -754,6 +755,13 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.ok(slots.length > 0, "its slot takes the Preview page frame");
           assert.equal(frames.has("/about"), false, "the Canvas renders no second frame of it");
           assert.ok(frames.has("/contact"), "other Pages keep frames of their own");
+
+          // Zooming out deselects the Page, but the Preview still shows it.
+          globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/camox/canvas" };
+          Object.assign(globalThis, globals);
+          await render("/about");
+          assert.deepEqual(previewed(), ["/about"], "the deselected Page keeps the Preview frame");
+          assert.equal(frames.has("/about"), false, "and never remounts in a frame of its own");
 
           globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
           Object.assign(globalThis, globals);

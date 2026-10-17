@@ -55,7 +55,7 @@ void test("the selected Page's slot hands its place to the Preview page frame an
   dom.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
   // The Canvas passes new callbacks on every render, as CamoxCanvas does.
-  const render = (revealed: boolean) =>
+  const render = (revealed: boolean, selected = true) =>
     React.act(async () =>
       root.render(
         <PreviewPageFrameContext value={{ frame, revealed }}>
@@ -67,6 +67,7 @@ void test("the selected Page's slot hands its place to the Preview page frame an
                 pageId="page-1"
                 width={1366}
                 viewportHeight={768}
+                selected={selected}
                 hovered={false}
                 onActivate={(owner, source) => activations.push([owner, source])}
               />
@@ -96,6 +97,15 @@ void test("the selected Page's slot hands its place to the Preview page frame an
 
     frame.getSnapshot().slot!.onInteract();
     assert.deepEqual(activations.at(-1), [{ kind: "page", pageId: "page-1" }, "interaction"]);
+
+    const placedSlot = slot();
+    await render(true, false);
+    assert.equal(slot(), placedSlot, "deselected, the Page keeps the frame");
+    assert.equal(frame.getSnapshot().slot?.mode, "paused", "and pauses it, like a Canvas frame");
+    assert.equal(activations.length, 2, "deselecting never takes ownership");
+    await render(true);
+    assert.equal(frame.getSnapshot().slot?.mode, "live");
+    assert.deepEqual(activations.at(-1), [{ kind: "page", pageId: "page-1" }, "selection"]);
 
     await React.act(async () => root.unmount());
     assert.equal(frame.getSnapshot().slot, null, "leaving the slot releases the frame");

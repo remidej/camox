@@ -11,7 +11,7 @@ import { withDraftParam } from "./draftParam";
 
 export type NavigationSource = "canvas";
 
-interface LocationState {
+export interface LocationState {
   hash: string;
   href: string;
   pathname: string;
@@ -130,6 +130,26 @@ function NavigationDisabled({
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;
 }
 
+/**
+ * Keeps the surrounding navigation, but reads `location` instead of the
+ * surrounding one when given. It renders the same tree either way, so switching
+ * never remounts children.
+ */
+function NavigationLocation({
+  location,
+  children,
+}: {
+  location?: LocationState;
+  children: React.ReactNode;
+}) {
+  const parent = React.useContext(NavigationContext);
+  const value = React.useMemo(
+    () => (parent && location ? { ...parent, location } : parent),
+    [parent, location],
+  );
+  return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;
+}
+
 function useLocation<T = LocationState>(options?: { select?: (location: LocationState) => T }): T {
   const context = React.useContext(NavigationContext);
   if (context) {
@@ -198,4 +218,12 @@ function Navigate({ replace, to, source }: NavigateOptions) {
   return null;
 }
 
-export { Link, Navigate, NavigationDisabled, NavigationProvider, useLocation, useNavigate };
+export {
+  Link,
+  Navigate,
+  NavigationDisabled,
+  NavigationLocation,
+  NavigationProvider,
+  useLocation,
+  useNavigate,
+};

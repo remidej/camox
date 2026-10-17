@@ -9,7 +9,11 @@ import { EditableSurfaceContext } from "../../../core/hooks/useIsEditable";
 import { adoptCanvasDocument, pauseCanvasDocument } from "../../canvas/canvasFrameDocument";
 import { CanvasWorkspaceContext } from "../../canvas/canvasZoom";
 import { forwardCanvasWheel, useCanvasFrameInput } from "../../canvas/useCanvasFrameInput";
-import { NavigationDisabled } from "../../navigation/navigation";
+import {
+  type LocationState,
+  NavigationDisabled,
+  NavigationLocation,
+} from "../../navigation/navigation";
 import { actionsStore } from "../../provider/actionsStore";
 import {
   PREVIEW_PAGE_Z_INDEX,
@@ -174,6 +178,8 @@ interface PreviewPanelProps {
   isMobileExperience?: boolean;
   page?: PreviewedPage;
   layoutId?: string;
+  /** Where the page renders, when not at the current location. */
+  pageLocation?: LocationState;
   projectName?: string;
 }
 
@@ -261,6 +267,7 @@ const PreviewPanel = ({
   isMobileExperience = false,
   page,
   layoutId,
+  pageLocation,
   projectName = "Project",
 }: PreviewPanelProps) => {
   const pageId = page?.id;
@@ -307,17 +314,19 @@ const PreviewPanel = ({
   // The same tree in every placement, so Edit Mode never remounts the page: the
   // editing runtime stays, and the Canvas placement only makes it editable.
   const pageContent = (
-    <EditableSurfaceContext value={!!placed}>
-      <CanvasWorkspaceContext value={placed?.workspace ?? null}>
-        {/* Like any Canvas frame, it never navigates the Studio from the Canvas. */}
-        <NavigationDisabled disabled={!!placed}>
-          <ArtifactStudioContext value={READ_ONLY_ARTIFACT_STUDIO}>
-            {children}
-          </ArtifactStudioContext>
-          <PreviewPageCanvasEffects owner={owner} />
-        </NavigationDisabled>
-      </CanvasWorkspaceContext>
-    </EditableSurfaceContext>
+    <NavigationLocation location={pageLocation}>
+      <EditableSurfaceContext value={!!placed}>
+        <CanvasWorkspaceContext value={placed?.workspace ?? null}>
+          {/* Like any Canvas frame, it never navigates the Studio from the Canvas. */}
+          <NavigationDisabled disabled={!!placed}>
+            <ArtifactStudioContext value={READ_ONLY_ARTIFACT_STUDIO}>
+              {children}
+            </ArtifactStudioContext>
+            <PreviewPageCanvasEffects owner={owner} />
+          </NavigationDisabled>
+        </CanvasWorkspaceContext>
+      </EditableSurfaceContext>
+    </NavigationLocation>
   );
 
   if (isMobileExperience) {

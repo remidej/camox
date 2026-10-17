@@ -82,10 +82,14 @@ export class PreviewPageFrame {
   }
 }
 
-/** The frame, and whether the Canvas shows, so the frame can take its slot. */
+/**
+ * The frame, whether the Canvas shows, so the frame can take its slot, and the
+ * pathname of the page it shows, which the Canvas gives that slot.
+ */
 export const PreviewPageFrameContext = React.createContext<{
   frame: PreviewPageFrame;
   revealed: boolean;
+  pathname?: string;
 } | null>(null);
 
 const emptySnapshot: Snapshot = { slot: null, height: 0, overlays: null, iframe: null };
