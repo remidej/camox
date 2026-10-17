@@ -6,13 +6,10 @@ import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as overlay from "./overlay";
 import { drafts, endedDrafts } from "./schema";
-import type { Draft, DraftScope } from "./scope";
+import { draftOf, type Draft, type DraftScope } from "./scope";
 
 // Drafts' lifecycle outside a request: starting, dropping and finding how one ended. Requests
 // reach their draft through content access (`access.ts`).
-
-const scopeOf = (draft: typeof drafts.$inferSelect) =>
-  ({ id: draft.id, kind: draft.kind, projectId: draft.projectId }) satisfies DraftScope;
 
 /** How a project's draft ended and who ended it, or undefined while it hasn't ended. */
 export const findEndedDraft = Effect.fn("findEndedDraft")(function* (
@@ -77,5 +74,5 @@ export const draftScopeOfJob = Effect.fn("draftScopeOfJob")(function* (
     db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
   );
   if (!draft) return undefined;
-  return scopeOf(draft);
+  return draftOf(draft);
 });

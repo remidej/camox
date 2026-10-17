@@ -15,7 +15,7 @@ import { blocks, files, member, pages, projects, repeatableItems } from "../../s
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
-import type { Draft, DraftScope } from "./scope";
+import { draftOf, type Draft, type DraftScope } from "./scope";
 import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 
 // Content access (ADR 0011): turns a request into who is asking, the project it acts on, the
@@ -97,7 +97,8 @@ function storedForRequest(table: overlay.ContentTable, ctx: AccessContext): SQL 
   return or(isNull(table.draftId), inArray(table.draftId, developmentDrafts))!;
 }
 
-type Located = { projectId: number; rows: { draftId: string | null; deleted: boolean }[] };
+/** An entity's rows in Live and in the named draft, with the project they belong to. */
+type Candidates = { projectId: number; rows: (PageRow | BlockRow | ItemRow | FileRow)[] };
 
 /**
  * The candidate rows of the entity a reference names, Live's and the named draft's, with the
@@ -106,7 +107,7 @@ type Located = { projectId: number; rows: { draftId: string | null; deleted: boo
 const locate = Effect.fn("access.locate")(function* (
   ctx: AccessContext,
   ref: EntityRef,
-): Effect.fn.Return<(Located & { rows: unknown[] }) | undefined> {
+): Effect.fn.Return<Candidates | undefined> {
   const { db } = ctx;
   if ("item" in ref) {
     // An item's project is its block's, or the project of the shared content at its root.
@@ -148,10 +149,7 @@ const locate = Effect.fn("access.locate")(function* (
 });
 
 /** The row a scope reads among an entity's candidates: the draft's, else Live's; none when deleted. */
-function visibleRow<T extends { draftId: string | null; deleted: boolean }>(
-  rows: T[],
-  scope: DraftScope,
-): T | undefined {
+function visibleRow(rows: Candidates["rows"], scope: DraftScope) {
   const own = scope ? rows.find((row) => row.draftId === scope.id) : undefined;
   if (own) return own.deleted ? undefined : own;
   return rows.find((row) => row.draftId === null);
@@ -188,12 +186,6 @@ const authorize = Effect.fn("access.authorize")(function* (ctx: AccessContext, p
   return { project: row.project, member: row.memberId != null, draft: row.draft };
 });
 
-const scopeOf = (draft: typeof drafts.$inferSelect): Draft => ({
-  id: draft.id,
-  kind: draft.kind,
-  projectId: draft.projectId,
-});
-
 /** Fails with the draft's outcome when it ended, and with 404 when it never existed. */
 const missingDraft = Effect.fn("access.missingDraft")(function* (
   db: Database,
@@ -221,7 +213,7 @@ const resolveScope = Effect.fn("access.resolveScope")(function* (
   if (!requested) return { scope: null, started: false };
   if ("development" in requested) {
     if (!named) return yield* new NoDevelopmentDraftError();
-    return { scope: scopeOf(named), started: false };
+    return { scope: draftOf(named), started: false };
   }
   let draft = named;
   let started = false;
@@ -242,7 +234,24 @@ const resolveScope = Effect.fn("access.resolveScope")(function* (
   if (draft.kind === "development" && draft.createdBy !== ctx.user.id) {
     return yield* new ForbiddenError({ message: "A development draft is open to its owner only" });
   }
-  return { scope: scopeOf(draft), started };
+  return { scope: draftOf(draft), started };
+});
+
+/**
+ * The scope a member's request names. A draft the request started is dropped again, while it
+ * stores nothing, when the scope closes on a failure.
+ */
+const memberScope = Effect.fn("access.memberScope")(function* (
+  ctx: AccessContext & { user: User },
+  project: Project,
+  named: typeof drafts.$inferSelect | null,
+) {
+  const { scope, started } = yield* resolveScope(ctx, project, named);
+  if (!started || !scope) return scope;
+  yield* Effect.addFinalizer((exit) =>
+    Exit.isFailure(exit) ? dropIfEmpty(ctx.db, scope) : Effect.void,
+  );
+  return scope;
 });
 
 /** A block's or item's page path as the scope reads it, for the invalidations writes send. */
@@ -262,12 +271,12 @@ const pagePathOf = Effect.fn("access.pagePathOf")(function* (
 const entityIn = Effect.fn("access.entityIn")(function* (
   db: Database,
   ref: ContentRef,
-  located: (Located & { rows: unknown[] }) | undefined,
+  located: Candidates | undefined,
   project: Project,
   scope: DraftScope,
 ) {
   if (!located) return project;
-  const row = visibleRow(located.rows as Located["rows"], scope);
+  const row = visibleRow(located.rows, scope);
   if (!row) return undefined;
   if ("block" in ref) {
     const block = row as BlockRow;
@@ -293,10 +302,12 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
   mode: M,
 ): Effect.Effect<ContentAccess<R, M>, ServiceError, Scope.Scope> =>
   Effect.gen(function* () {
-    const user = ctx.user;
-    if (!user && (ctx.draft || mode !== "public")) return yield* new UnauthenticatedError();
+    const { user } = ctx;
+    // Live is public; naming a draft, or reading as a member, needs one.
+    const needsMember = ctx.draft !== null || mode !== "public";
+    if (!user && needsMember) return yield* new UnauthenticatedError();
     // A project is read with the membership check; an entity is located first, for its project.
-    let located: (Located & { rows: unknown[] }) | undefined;
+    let located: Candidates | undefined;
     let where: SQL;
     if ("project" in ref) where = eq(projects.id, ref.project);
     else if ("projectSlug" in ref) where = eq(projects.slug, ref.projectSlug);
@@ -312,18 +323,10 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
     }
     const { project } = authorized;
 
-    let scope: DraftScope = null;
-    if (ctx.draft || mode !== "public") {
-      if (!authorized.member) return yield* new ForbiddenError();
-      const resolved = yield* resolveScope({ ...ctx, user: user! }, project, authorized.draft);
-      scope = resolved.scope;
-      if (resolved.started) {
-        const draft = resolved.scope!;
-        yield* Effect.addFinalizer((exit) =>
-          Exit.isFailure(exit) ? dropIfEmpty(ctx.db, draft) : Effect.void,
-        );
-      }
-    }
+    if (needsMember && !authorized.member) return yield* new ForbiddenError();
+    const scope = needsMember
+      ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
+      : null;
 
     const entity = yield* entityIn(ctx.db, ref, located, project, scope);
     if (!entity) return yield* new NotFoundError();

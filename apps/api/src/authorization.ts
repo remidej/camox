@@ -4,7 +4,13 @@ import { Effect } from "effect";
 
 import type { Database } from "./db";
 import { ensureDevelopmentDraft, findDevelopmentDraft } from "./domains/drafts/development";
-import type { DraftRequest, DraftScope } from "./domains/drafts/scope";
+import {
+  draftOf,
+  RELEASE,
+  type DraftRequest,
+  type DraftScope,
+  type WriteTarget,
+} from "./domains/drafts/scope";
 import {
   ForbiddenError,
   NoDevelopmentDraftError,
@@ -26,6 +32,8 @@ type SyncPrincipal = {
 export type SyncTarget = {
   project: typeof projects.$inferSelect;
   scope: DraftScope;
+  /** Where the sync writes content: Live as a release, or the development draft. */
+  writes: WriteTarget;
   /** Whether this sync created the development draft. */
   draftCreated: boolean;
 };
@@ -56,7 +64,7 @@ export const assertSyncAccess = Effect.fn("assertSyncAccess")(function* (
     if (principal.deployToken !== project.deployToken) {
       return yield* new UnauthenticatedError();
     }
-    return { project, scope: null, draftCreated: false };
+    return { project, scope: null, writes: RELEASE, draftCreated: false };
   }
 
   if (!principal.user) {
@@ -72,14 +80,15 @@ export const assertSyncAccess = Effect.fn("assertSyncAccess")(function* (
   yield* assertProjectMembership(db, project.id, principal.user.id);
 
   const existing = yield* findDevelopmentDraft(db, project.id, principal.user.id);
-  if (existing) return { project, scope: developmentScope(existing), draftCreated: false };
+  if (existing) {
+    const scope = draftOf(existing);
+    return { project, scope, writes: scope, draftCreated: false };
+  }
   if (!create) return yield* new NoDevelopmentDraftError();
   const { draft, created } = yield* ensureDevelopmentDraft(db, project.id, principal.user.id);
-  return { project, scope: developmentScope(draft), draftCreated: created };
+  const scope = draftOf(draft);
+  return { project, scope, writes: scope, draftCreated: created };
 });
-
-const developmentScope = (draft: { id: string; projectId: number }) =>
-  ({ id: draft.id, kind: "development", projectId: draft.projectId }) satisfies DraftScope;
 
 // --- Session Helpers ---
 

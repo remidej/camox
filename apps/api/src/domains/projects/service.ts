@@ -36,7 +36,7 @@ import {
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
-import { RELEASE, type DraftScope } from "../drafts/scope";
+import type { WriteTarget } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { homeOf, requestGeneration } from "../generated-values/service";
 import { requestPageSeo } from "../pages/service";
@@ -334,12 +334,12 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
  */
 const seed = Effect.fn("projects.seed")(function* <T extends overlay.ContentTable>(
   ctx: ServiceContext,
-  draft: DraftScope,
+  target: WriteTarget,
   table: T,
   values: Omit<T["$inferInsert"], "id" | "draftId">,
 ) {
   // A fresh id, so the target can't already hold the entity.
-  const inserted = yield* overlay.insert(ctx.db, draft ?? RELEASE, table, values as never);
+  const inserted = yield* overlay.insert(ctx.db, target, table, values as never);
   return inserted! as T["$inferSelect"];
 });
 
@@ -350,7 +350,11 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   const input = yield* decodeInput(initializeProjectContentInput, rawInput);
   // A release seeds Live; dev mode seeds the caller's development draft, as draft rows
   // (ADR 0006).
-  const { project, scope: draft } = yield* assertSyncAccess(
+  const {
+    project,
+    scope: draft,
+    writes,
+  } = yield* assertSyncAccess(
     ctx.db,
     input.projectSlug,
     { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
@@ -432,7 +436,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   }
 
   // Create homepage
-  const homepage = yield* seed(ctx, draft, pages, {
+  const homepage = yield* seed(ctx, writes, pages, {
     projectId: project.id,
 
     pathSegment: "",
@@ -452,7 +456,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     const position = generateKeyBetween(prevPosition, null);
     prevPosition = position;
 
-    const block = yield* seed(ctx, draft, blocks, {
+    const block = yield* seed(ctx, writes, blocks, {
       projectId: project.id,
       pageId: homepage.id,
       type: blockDef.type,
@@ -472,7 +476,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
         const parentItemId = itemSeed.parentTempId
           ? (tempIdToRealId.get(itemSeed.parentTempId) ?? null)
           : null;
-        const inserted = yield* seed(ctx, draft, repeatableItems, {
+        const inserted = yield* seed(ctx, writes, repeatableItems, {
           blockId: block.id,
           parentItemId,
           fieldName: itemSeed.fieldName,
@@ -491,7 +495,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       }
     }
 
-    yield* adoptSharedContent(ctx, draft ?? RELEASE, block);
+    yield* adoptSharedContent(ctx, writes, block);
     blockCount++;
   }
 

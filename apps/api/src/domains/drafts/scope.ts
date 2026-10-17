@@ -3,6 +3,11 @@ import type { DraftKind } from "@camox/api-contract/drafts";
 /** A draft a request or job resolved to, checked against its project. */
 export type Draft = { id: string; kind: DraftKind; projectId: number };
 
+/** The draft a drafts row, or anything shaped like one, is. */
+export function draftOf(row: Draft): Draft {
+  return { id: row.id, kind: row.kind, projectId: row.projectId };
+}
+
 /** What a read sees: a draft over Live, or Live itself (`null`). */
 export type DraftScope = Draft | null;
 

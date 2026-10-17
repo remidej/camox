@@ -233,7 +233,7 @@ function treeBundleKey({ root, definition }: ItemTree) {
 }
 
 /** Refreshes every read showing a shared content whose items changed in a draft. */
-const touchTree = (
+const broadcastSharedTreeChange = (
   ctx: ServiceContext,
   scope: Draft,
   { root, definition }: ItemTree,
@@ -633,7 +633,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     }
   }
 
-  touchTree(ctx, scope, tree, project.id);
+  broadcastSharedTreeChange(ctx, scope, tree, project.id);
   yield* requestSummary(ctx, scope, project.id, result.id, 0);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath, [queryKeys.blocks.getUsageCounts]);
 
@@ -679,7 +679,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       updatedAt: Date.now(),
     });
 
-    touchTree(ctx, scope, tree, project.id);
+    broadcastSharedTreeChange(ctx, scope, tree, project.id);
     yield* requestSummary(ctx, scope, project.id, id, 5000);
     invalidateTree(ctx, scope, project.id, tree, access.pagePath);
 
@@ -719,7 +719,7 @@ export const updateRepeatableItemSettings = Effect.fn(
     updatedAt: Date.now(),
   });
 
-  touchTree(ctx, scope, tree, project.id);
+  broadcastSharedTreeChange(ctx, scope, tree, project.id);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath);
 
   return result;
@@ -765,7 +765,7 @@ export const updateRepeatableItemPosition = Effect.fn(
     position,
     updatedAt: Date.now(),
   });
-  touchTree(ctx, scope, tree, project.id);
+  broadcastSharedTreeChange(ctx, scope, tree, project.id);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath);
   return result;
 }, Effect.scoped);
@@ -819,7 +819,7 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
       itemSummaryKey(original.id),
       result.id,
     );
-    touchTree(ctx, scope, tree, project.id);
+    broadcastSharedTreeChange(ctx, scope, tree, project.id);
     invalidateTree(ctx, scope, project.id, tree, access.pagePath, [
       queryKeys.blocks.getUsageCounts,
     ]);
@@ -887,7 +887,7 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   );
   yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
   const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);
-  touchTree(ctx, scope, tree, project.id);
+  broadcastSharedTreeChange(ctx, scope, tree, project.id);
   invalidateTree(ctx, scope, project.id, tree, access.pagePath, [queryKeys.blocks.getUsageCounts]);
   return result;
 }, Effect.scoped);

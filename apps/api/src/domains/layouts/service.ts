@@ -269,14 +269,17 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   const input = yield* decodeInput(syncLayoutsInput, rawInput);
   const { projectSlug, layouts: layoutDefs, autoCreate } = input;
   // A release writes Live; dev mode writes the caller's development draft (ADR 0006).
-  const { project, scope } = yield* assertSyncAccess(
+  const {
+    project,
+    scope,
+    writes: target,
+  } = yield* assertSyncAccess(
     ctx.db,
     projectSlug,
     { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
     { create: autoCreate },
   );
   const projectId = project.id;
-  const target: WriteTarget = scope ?? RELEASE;
   const inTarget = and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope));
   const existingLayouts = yield* Effect.promise(() =>
     ctx.db.select().from(layouts).where(inTarget),

@@ -174,7 +174,10 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   Scope.Scope
 > {
   const input = yield* decodeInput(resolveBlockPositionInput, rawInput);
-  const ref = input.blockId ? { block: input.blockId } : { page: input.pageId ?? "" };
+  if (!input.blockId && !input.pageId) {
+    return yield* new InvalidInputError({ message: "Pass the block or the page to position in." });
+  }
+  const ref = input.blockId ? { block: input.blockId } : { page: input.pageId! };
   const { scope } = yield* accessTo(ctx, ref, "write");
   const passed = [
     input.afterPosition !== undefined ? "afterPosition" : null,

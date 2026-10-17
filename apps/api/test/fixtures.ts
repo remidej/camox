@@ -9,7 +9,7 @@ import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
 import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
-import { RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
+import { draftOf, RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
 import type { ServiceError } from "../src/lib/errors";
 import { runService } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
@@ -207,7 +207,7 @@ export async function seedLiveThrough<A>(
     .values({ projectId, kind: "regular", createdBy: ctx.user!.id, createdAt: Date.now() })
     .returning()
     .get();
-  const scope = { id: draft.id, kind: draft.kind, projectId };
+  const scope = draftOf(draft);
   const result = await runService(run(scope, { ...ctx, draft: { id: draft.id, create: false } }));
   await publishThrowaway(ctx.db, draft.id);
   return result;
