@@ -55,6 +55,7 @@ import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 import { PageLocationFieldset } from "./PageLocationFieldset";
 import { PAGE_NICKNAME_MAX_LENGTH, PageNicknameField } from "./PageNicknameField";
+import { PageInfoSidebarSkeleton } from "./PageSidebarSkeleton";
 import { ShikiMarkdown } from "./ShikiMarkdown";
 
 type PageMetadataData = ReturnType<typeof usePageMetadataData>;
@@ -136,6 +137,7 @@ const PageInfoSidebar = ({
   const settingsPanelId = React.useId();
 
   if (!page) {
+    if (!aboutOnly) return <PageInfoSidebarSkeleton scrollable={scrollable} />;
     return (
       <div className="text-muted-foreground flex flex-1 items-center justify-center px-2 text-sm">
         <Spinner className="mr-2 size-3.5" /> Loading page info...

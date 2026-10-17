@@ -182,9 +182,22 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
         assert.ok(canvasImports > 0);
 
         await React.act(async () => store.send({ type: "exitEditMode" }));
-        assertPreview();
+        assert.equal(count("[data-preview]"), 1);
+        assert.equal(count("[data-content]"), 1);
+        const kept = dom.host.querySelector("[data-canvas]");
+        assert.ok(kept, "the ready Canvas is kept, so Edit Mode shows it again without loading");
+        assert.equal(
+          (kept.closest("[data-canvas-preparation]") as HTMLElement | null)?.style.display,
+          "none",
+          "the kept Canvas is hidden",
+        );
         assertSameContent();
-        assert.ok(canvasImports > 0);
+        const imports = canvasImports;
+
+        await React.act(async () => store.send({ type: "enterEditMode" }));
+        assert.equal(dom.host.querySelector("[data-canvas]"), kept, "the kept Canvas shows again");
+        assert.equal(canvasImports, imports);
+        assertSameContent();
       });
     }
 

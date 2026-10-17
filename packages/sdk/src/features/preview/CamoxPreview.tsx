@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 import { useCurrentDraftId } from "../../lib/draft-scope";
 import { reads, type Read, useRead, useStudioCache } from "../../lib/studio-reads";
+import { CanvasSidebarSkeleton } from "../canvas/CanvasSidebarSkeleton";
 import { canvasStore } from "../canvas/canvasStore";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
@@ -451,6 +452,9 @@ export const PreviewShell = ({
             pathname={pathname}
             pagePathname={pageLocation?.pathname}
             runtimeBasePath={runtimeBasePath}
+            placeholder={
+              canvasOnly ? undefined : <CanvasSidebarSkeleton derived={!!derivedLayout} />
+            }
           >
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel

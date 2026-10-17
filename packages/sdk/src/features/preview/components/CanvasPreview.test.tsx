@@ -115,21 +115,26 @@ void test("Canvas handoff never remounts the original preview through loading, r
   const canvas = () => window.document.querySelector("[data-canvas]");
   const preparation = () =>
     window.document.querySelector<HappyHTMLElement>("[data-canvas-preparation]");
-  const assertToast = (type: "loading" | "error") => {
+  const placeholder = () => window.document.querySelector("[data-sidebar-placeholder]");
+  const loading = () => window.document.querySelector("[data-canvas-loading]");
+  const spinner = () => loading()?.querySelector('[role="status"]') ?? null;
+  /** Loading shows in the Canvas's place, never as a toast. */
+  const assertLoading = (message = "a spinner shows the Canvas loading") => {
+    assert.ok(spinner(), message);
+    assert.equal(toast.getToasts().length, 0, "loading shows no toast");
+  };
+  const assertFailureToast = () => {
     const toasts = toast.getToasts();
     assert.equal(toasts.length, 1);
     const notification = toasts[0];
     assert.ok("type" in notification);
-    assert.equal(notification.type, type);
-    assert.equal(
-      notification.title,
-      type === "loading" ? "Loading Studio..." : "Could not load studio.",
-    );
+    assert.equal(notification.type, "error");
+    assert.equal(notification.title, "Could not load studio.");
     assert.equal(window.document.querySelector('[role="alert"]'), null, "no inline error panel");
     return notification;
   };
   const retryToast = async () => {
-    const { action } = assertToast("error");
+    const { action } = assertFailureToast();
     assert.ok(action && typeof action === "object" && "onClick" in action);
     assert.equal(action.label, "Retry");
     await React.act(async () => action.onClick({} as React.MouseEvent<HTMLButtonElement>));
@@ -137,7 +142,12 @@ void test("Canvas handoff never remounts the original preview through loading, r
   const render = async (enabled: boolean, pathname = "/") => {
     await React.act(async () => {
       root.render(
-        <CanvasPreview enabled={enabled} pathname={pathname} runtimeBasePath="/mounted">
+        <CanvasPreview
+          enabled={enabled}
+          pathname={pathname}
+          runtimeBasePath="/mounted"
+          placeholder={<aside data-sidebar-placeholder />}
+        >
           <PreviewProbe />
         </CanvasPreview>,
       );
@@ -148,14 +158,27 @@ void test("Canvas handoff never remounts the original preview through loading, r
     const original = preview()!;
     original.value = "Keep this value";
     assert.equal(imports, 0, "read-only preview never imports Canvas");
+    assert.equal(placeholder(), null, "the read-only preview makes no room for a sidebar");
+    assert.equal(loading(), null, "the read-only preview shows the page");
     assert.equal(toast.getToasts().length, 0);
 
     await render(true);
     assert.deepEqual(viewportEvents[0], ["preview-capture", true], "capture precedes DOM changes");
-    assertToast("loading");
+    assertLoading();
     assert.equal(preview(), original, "the original DOM survives module suspension");
     assert.equal(preview()?.value, "Keep this value");
     assert.equal(canvas(), null);
+    assert.ok(placeholder(), "the preview makes room for the Canvas sidebar while it prepares");
+    assert.equal(
+      placeholder()?.nextElementSibling,
+      preview()?.closest("[data-read-only-preview]"),
+      "the placeholder stands beside the preview, where the Canvas sidebar shows",
+    );
+    assert.equal(
+      loading()?.parentElement,
+      preview()?.closest("[data-read-only-preview]"),
+      "a loading screen covers the page, where the Canvas will show",
+    );
     assert.equal(preparation()?.style.opacity, "0");
     assert.ok(preparation()?.hasAttribute("inert"));
     assert.equal(preparation()?.getAttribute("aria-hidden"), "true");
@@ -168,7 +191,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
     });
     assert.ok(canvas());
     assert.equal(preview(), original, "module loading alone does not reveal Canvas");
-    assertToast("loading");
+    assertLoading();
     const firstSignals = signals.at(-1)!;
     const firstCanvas = canvas();
     await React.act(async () => firstSignals.ready());
@@ -182,7 +205,9 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(canvas(), firstCanvas, "revealing does not remount the prepared workspace");
     assert.equal(preparation()?.style.opacity, "1");
     assert.equal(preparation()?.hasAttribute("inert"), false);
-    assert.equal(toast.getToasts().length, 0, "readiness silently dismisses the promise toast");
+    assert.ok(placeholder(), "the preview keeps its room under the revealed Canvas");
+    assert.equal(loading(), null, "the revealed Canvas ends the loading screen");
+    assert.equal(toast.getToasts().length, 0, "readiness shows no notification");
 
     const beforeSubmode = viewportEvents.length;
     await render(true);
@@ -198,8 +223,15 @@ void test("Canvas handoff never remounts the original preview through loading, r
       ["canvas-capture", true],
       "capture precedes canvas removal",
     );
+    assert.equal(placeholder(), null, "leaving editing gives the preview its room back");
+    assert.equal(canvas(), firstCanvas, "leaving editing keeps the ready Canvas, hidden");
     const outgoing = preview();
+    const importsBeforeWarm = imports;
     await render(true);
+    assert.equal(canvas(), firstCanvas, "a warm Canvas shows again without remounting");
+    assert.equal(imports, importsBeforeWarm, "a warm Canvas never loads again");
+    assert.ok(loading(), "the page stays covered until the warm Canvas shows");
+    assert.equal(spinner(), null, "a warm Canvas shows no spinner");
     const cancelled = signals.at(-1)!;
     const beforeCancel = viewportEvents.length;
     await render(false);
@@ -208,7 +240,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
       beforeCancel,
       "cancellation does not capture an unrevealed camera",
     );
-    assert.equal(toast.getToasts().length, 0, "cancelling dismisses the loading toast");
+    assert.equal(toast.getToasts().length, 0, "cancelling shows no notification");
     await render(true);
     const current = signals.at(-1)!;
     await React.act(async () => {
@@ -222,14 +254,16 @@ void test("Canvas handoff never remounts the original preview through loading, r
       "cancelled callbacks cannot reveal a new attempt",
     );
     assert.equal(window.document.querySelector('[role="alert"]'), null);
-    assertToast("loading");
+    assert.equal(toast.getToasts().length, 0);
 
     await React.act(async () => current.fail(new Error("Page data unavailable")));
     assert.equal(preview(), outgoing);
     assert.equal(canvas(), null);
-    assertToast("error");
+    assert.equal(placeholder(), null, "a failed Canvas gives the preview its room back");
+    assert.equal(loading(), null, "a failed Canvas shows the page again");
+    assertFailureToast();
     await retryToast();
-    assertToast("loading");
+    assertLoading("a retry loads a new Canvas, with a spinner");
     assert.equal(preview(), outgoing, "retry retains the same site DOM");
     const retry = signals.at(-1)!;
     await React.act(async () => current.ready());
@@ -256,25 +290,26 @@ void test("Canvas handoff never remounts the original preview through loading, r
     Object.assign(globalThis, { canvasRenderFails: true });
     await render(true);
     assert.equal(preview(), beforeError, "render/import errors retain the site");
-    assertToast("error");
+    assertFailureToast();
     Object.assign(globalThis, { canvasRenderFails: false });
     await retryToast();
     await React.act(async () => signals.at(-1)!.ready());
     assert.equal(preview(), original);
     assert.ok(canvas());
 
-    await render(false);
-    const beforeImportFailure = preview();
+    // Only a cold Canvas imports: start over without the warm one.
+    await React.act(async () => root.render(null));
     failImport = true;
     await render(true);
-    assert.equal(preview(), beforeImportFailure);
-    assertToast("error");
+    const beforeImportFailure = preview();
+    assert.ok(beforeImportFailure);
+    assertFailureToast();
     failImport = false;
     await retryToast();
     assert.equal(preview(), beforeImportFailure);
     await React.act(async () => signals.at(-1)!.ready());
     assert.ok(canvas(), "retry uses a fresh lazy component after a rejected import");
-    assert.equal(preview(), original);
+    assert.equal(preview(), beforeImportFailure);
     assert.equal(toast.getToasts().length, 0);
     assert.equal(
       toast
@@ -284,11 +319,10 @@ void test("Canvas handoff never remounts the original preview through loading, r
       "successful startup never creates a success notification",
     );
 
-    // A fatal render after readiness still offers a retry, even though the
-    // original preparation promise has already resolved.
+    // A fatal render after readiness still offers a retry.
     Object.assign(globalThis, { canvasRenderFails: true });
     await render(true);
-    assertToast("error");
+    assertFailureToast();
     Object.assign(globalThis, { canvasRenderFails: false });
     await render(false);
     assert.equal(toast.getToasts().length, 0, "leaving editing also clears failure toasts");
@@ -303,12 +337,10 @@ void test("Canvas handoff never remounts the original preview through loading, r
         </React.StrictMode>,
       );
     });
-    assertToast("loading");
     const lastSignals = signals.at(-1)!;
     await React.act(async () => root.render(null));
-    assert.equal(toast.getToasts().length, 0, "unmount cancels a pending promise toast");
     await React.act(async () => lastSignals.fail(new Error("Late failure after unmount")));
-    assert.equal(toast.getToasts().length, 0, "late failures cannot resurrect a cancelled toast");
+    assert.equal(toast.getToasts().length, 0, "late failures cannot raise a notification");
   } finally {
     failImport = false;
     await React.act(async () => root.unmount());
