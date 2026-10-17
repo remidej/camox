@@ -1,11 +1,18 @@
 import { z } from "zod";
 
 /** The id of a content entity: one UUIDv7, kept in Live and every draft (ADR 0004). */
-export const uuidv7Schema = z.uuidv7();
+export const uuidv7Schema = /* @__PURE__ */ z.uuidv7();
 
-const { $schema: _, ...jsonSchema } = z.toJSONSchema(uuidv7Schema);
-/** `uuidv7Schema` as JSON Schema, for content schemas. */
-export const uuidv7JsonSchema = jsonSchema;
+/**
+ * `uuidv7Schema` as JSON Schema, for content schemas. Written out rather than derived, so site
+ * bundles, which need only this, leave zod out.
+ */
+export const uuidv7JsonSchema = {
+  type: "string",
+  format: "uuid",
+  pattern:
+    "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+};
 
 /** A text link to a page: this prefix, then the page's UUIDv7. */
 export const PAGE_TEXT_LINK_PREFIX = "camox:page:";

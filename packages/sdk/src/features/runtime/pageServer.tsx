@@ -6,15 +6,15 @@ import { prefetchIcons } from "../../core/lib/icons";
 import { renderInDraft } from "../../lib/studio-draft";
 import { PageApp } from "./pageApp";
 import type { PageRenderInput } from "./runtime";
+import { loadRuntimeChrome } from "./runtimeChromeLoader";
 
 export async function renderPageWithApp(input: PageRenderInput & { camoxApp: CamoxApp }) {
   const queryClient = new QueryClient();
   hydrate(queryClient, input.dehydratedState as DehydratedState);
-  await prefetchIcons(
-    queryClient,
-    input.dehydratedState,
-    input.camoxApp.getSerializableDefinitions(),
-  );
+  await Promise.all([
+    prefetchIcons(queryClient, input.dehydratedState, input.camoxApp.getSerializableDefinitions()),
+    input.presentation === "studio" ? loadRuntimeChrome() : undefined,
+  ]);
   // The runtime wrapper shallow-copies input. Preserve the shared state object
   // so the document serializer includes the SVGs fetched for this render.
   Object.assign(input.dehydratedState as object, dehydrate(queryClient));
