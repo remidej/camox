@@ -1,20 +1,12 @@
-import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { files } from "../../schema";
-import { fieldsOf, isAsset, pointersOf } from "../_shared/fields";
+import { assetFileId, fieldsOf, isAsset, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { withFileMetadata } from "../files/generated-metadata";
-
-/** The `_fileId` of an asset value, as stored or as resolved on read. */
-export function assetFileId(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const id = uuidv7Schema.safeParse((value as Record<string, unknown>)._fileId);
-  return id.success ? id.data : undefined;
-}
 
 /** An asset as reads return it: its file reference and the file's current metadata. */
 export type ResolvedAsset = {

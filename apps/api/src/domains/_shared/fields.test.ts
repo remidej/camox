@@ -47,10 +47,11 @@ describe("fieldsOf on stored schemas that outlived their shape (ADR 0007)", () =
     ]);
   });
 
-  it("reads a reference that names no collection as Unknown, since it points nowhere", () => {
-    expect(fieldsOf({ properties: { author: { fieldType: "Reference" } } })[0].kind).toBe(
-      "Unknown",
-    );
+  it("reads a reference that names no collection as pointing into no collection", () => {
+    expect(fieldsOf({ properties: { author: { fieldType: "Reference" } } })[0]).toMatchObject({
+      kind: "Reference",
+      collectionId: "",
+    });
   });
 });
 
@@ -244,6 +245,8 @@ describe("pointersOf", () => {
       { to: "file", id: FILE },
     ]);
     expect(pointersOf(field({ fieldType: "File" }), { url: "placeholder.pdf" })).toEqual([]);
+    // Reads resolve files by UUIDv7 only: anything else reads as no file.
+    expect(pointersOf(field({ fieldType: "File" }), { _fileId: "hero.pdf" })).toEqual([]);
     expect(
       pointersOf(field({ fieldType: "ImageList" }), [
         { _fileId: FILE },
@@ -335,8 +338,10 @@ describe("collectFileIds", () => {
     );
   });
 
-  it("ignores markers that hold no id", () => {
-    expect(collect({ a: { _fileId: "" }, b: { _fileId: 5 }, c: { url: "/x.png" } })).toEqual([]);
+  it("ignores markers that hold no file id, as reads do", () => {
+    expect(
+      collect({ a: { _fileId: "" }, b: { _fileId: 5 }, c: { _fileId: "abc" }, d: { url: "/x" } }),
+    ).toEqual([]);
   });
 
   it("finds at least every file the content's fields point at", () => {
@@ -390,16 +395,8 @@ describe("itemSchemas", () => {
       item("card", "cards", "section"),
       item("section", "sections"),
     ]);
-    expect(schemas.get("section")).toMatchObject({
-      repeater: { name: "sections", kind: "Repeater" },
-      content: sectionContent,
-      settings: undefined,
-    });
-    expect(schemas.get("card")).toMatchObject({
-      repeater: { name: "cards" },
-      content: cardContent,
-      settings: cardSettings,
-    });
+    expect(schemas.get("section")).toEqual({ content: sectionContent, settings: undefined });
+    expect(schemas.get("card")).toEqual({ content: cardContent, settings: cardSettings });
   });
 
   it("leaves out items whose repeater, or whose parent, is gone", () => {
@@ -444,6 +441,16 @@ describe("accepts", () => {
   it("takes any file when the field names no accepted types", () => {
     expect(accepts(fileField(undefined), pdf)).toBe(true);
     expect(accepts(fileField([]), pdf)).toBe(true);
+  });
+
+  it("takes only images in an image field, whatever it accepts", () => {
+    const image = fieldsOf({ properties: { f: { fieldType: "Image" } } })[0];
+    expect(accepts(image, pdf)).toBe(false);
+    expect(accepts(image, png)).toBe(true);
+    const anything = fieldsOf({
+      properties: { f: { fieldType: "ImageList", items: { accept: ["*"] } } },
+    })[0];
+    expect(accepts(anything, pdf)).toBe(false);
   });
 
   it("reads an asset list's accepted types from its single asset", () => {

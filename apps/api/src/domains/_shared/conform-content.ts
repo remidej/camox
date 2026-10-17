@@ -6,10 +6,9 @@ import { isLexicalState, lexicalStateToPlainText } from "../../lib/lexical-state
 import { blockDefinitions } from "../block-definitions/schema";
 import { normalizeFieldValue } from "../blocks/asset-value";
 import { validateContent } from "../blocks/validate-content";
-import { assetFileId } from "../collections/record-files";
 import type { DraftScope } from "../drafts/scope";
 import { definitionsIn } from "./definitions";
-import { defaultOf, type Field, fieldsOf, itemSchemas } from "./fields";
+import { assetFileId, defaultOf, type Field, fieldsOf, itemSchemas } from "./fields";
 import type { ServiceContext } from "./service-context";
 
 /**
@@ -123,7 +122,7 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
 ): { blocks: B[]; items: I[] } {
   const blockById = new Map(blocks.map((block) => [block.id, block]));
   const itemsByBlock = Map.groupBy(items, (item) => item.blockId);
-  const schemasOf = new Map(
+  const itemSchemasById = new Map(
     [...itemsByBlock].flatMap(([blockId, blockItems]) => {
       const block = blockById.get(blockId);
       const root = block ? definitions.get(block.type)?.contentSchema : undefined;
@@ -146,7 +145,7 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
     };
   });
   const conformedItems = items.flatMap((item) => {
-    const schemas = schemasOf.get(item.id);
+    const schemas = itemSchemasById.get(item.id);
     if (!schemas) return [];
     const block = blockById.get(item.blockId)!;
     const root = definitions.get(block.type)?.contentSchema;

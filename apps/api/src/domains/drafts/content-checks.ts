@@ -371,7 +371,7 @@ function checkDanglingPointers(
  */
 function checkEmptyRequiredReferences(holders: Holder[], found: Findings) {
   for (const holder of holders) {
-    const content = isRecord(holder.content) ? holder.content : {};
+    const content = (holder.content ?? {}) as Record<string, unknown>;
     for (const field of fieldsOf(holder.schema)) {
       if (field.kind !== "Reference" || !field.required) continue;
       if (pointersOf(field, content[field.name]).length > 0) continue;
@@ -407,10 +407,6 @@ function checkWrongKinds(holders: Holder[], found: Findings) {
       });
     }
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function keyOf(projectId: number, pointer: ContentPointer) {

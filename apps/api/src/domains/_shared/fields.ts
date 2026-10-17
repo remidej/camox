@@ -1,3 +1,5 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
+
 import { pageTextLinkIds } from "../../lib/lexical-state";
 
 /**
@@ -11,21 +13,24 @@ import { pageTextLinkIds } from "../../lib/lexical-state";
  * as absent.
  */
 
-export type FieldKind =
-  | "String"
-  | "Artifact"
-  | "Embed"
-  | "Icon"
-  | "Link"
-  | "Boolean"
-  | "Enum"
-  | "Image"
-  | "File"
-  | "ImageList"
-  | "FileList"
-  | "Repeater"
-  | "Reference"
-  | "ReferenceList";
+const kinds = [
+  "String",
+  "Artifact",
+  "Embed",
+  "Icon",
+  "Link",
+  "Boolean",
+  "Enum",
+  "Image",
+  "File",
+  "ImageList",
+  "FileList",
+  "Repeater",
+  "Reference",
+  "ReferenceList",
+] as const;
+
+export type FieldKind = (typeof kinds)[number];
 
 type FieldBase = {
   name: string;
@@ -68,23 +73,6 @@ export type Field = FieldBase &
     | { kind: "Unknown" }
   );
 
-const kinds = new Set<string>([
-  "String",
-  "Artifact",
-  "Embed",
-  "Icon",
-  "Link",
-  "Boolean",
-  "Enum",
-  "Image",
-  "File",
-  "ImageList",
-  "FileList",
-  "Repeater",
-  "Reference",
-  "ReferenceList",
-]);
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -102,7 +90,7 @@ function numberOf(value: unknown): number | undefined {
 function fieldFrom(name: string, schema: Record<string, unknown>): Field {
   const base = { name, title: typeof schema.title === "string" ? schema.title : name, schema };
   const kind =
-    typeof schema.fieldType === "string" && kinds.has(schema.fieldType)
+    typeof schema.fieldType === "string" && (kinds as readonly string[]).includes(schema.fieldType)
       ? (schema.fieldType as FieldKind)
       : "Unknown";
   const itemSchema = isObject(schema.items) ? schema.items : undefined;
@@ -130,11 +118,9 @@ function fieldFrom(name: string, schema: Record<string, unknown>): Field {
       };
     case "Reference":
     case "ReferenceList": {
-      // A reference that names no collection points nowhere: sync never stores one.
-      if (typeof schema.collectionId !== "string" || schema.collectionId === "") {
-        return { ...base, kind: "Unknown" };
-      }
-      const reference = { collectionId: schema.collectionId, recordSchema: schema.referenceSchema };
+      // Sync never stores a reference without a collection; one would point at no record.
+      const collectionId = typeof schema.collectionId === "string" ? schema.collectionId : "";
+      const reference = { collectionId, recordSchema: schema.referenceSchema };
       if (kind === "Reference") {
         return { ...base, ...reference, kind, required: schema.required === true };
       }
@@ -214,7 +200,7 @@ function emptyRecordValue(field: Field): unknown {
  * The value content gets for a field it doesn't hold, as a fresh copy.
  * - `block`: block, shared content and repeatable item content and settings. A field without
  *   a default gets nothing, and neither do assets, whose defaults are placeholders that only
- *   render, and repeaters, whose items are rows of their own.
+ *   render, and repeaters, whose repeatable items hold their own content.
  * - `record`: collection records hold every field. Asset placeholders never become record
  *   content, and a field without a default gets the empty value of its kind.
  */
@@ -240,8 +226,14 @@ function idOf(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-function fileIdOf(value: unknown) {
-  return isObject(value) ? idOf(value._fileId) : undefined;
+/**
+ * The file an image or file value holds: its `_fileId`, as stored or as resolved on read. Reads
+ * resolve files by UUIDv7 only, so any other value holds no file.
+ */
+export function assetFileId(value: unknown): string | undefined {
+  if (!isObject(value)) return undefined;
+  const id = uuidv7Schema.safeParse(value._fileId);
+  return id.success ? id.data : undefined;
 }
 
 function idsOf(field: Field, value: unknown): string[] {
@@ -249,7 +241,7 @@ function idsOf(field: Field, value: unknown): string[] {
     case "Reference":
     case "Image":
     case "File":
-      return [(field.kind === "Reference" ? idOf : fileIdOf)(value)].filter(
+      return [(field.kind === "Reference" ? idOf : assetFileId)(value)].filter(
         (id) => id !== undefined,
       );
     case "ReferenceList":
@@ -257,7 +249,7 @@ function idsOf(field: Field, value: unknown): string[] {
       return value.map(idOf).filter((id) => id !== undefined);
     case "ImageList":
     case "FileList":
-      return Array.isArray(value) ? value.map(fileIdOf).filter((id) => id !== undefined) : [];
+      return Array.isArray(value) ? value.map(assetFileId).filter((id) => id !== undefined) : [];
     case "Link": {
       if (!isObject(value) || value.type !== "page") return [];
       const pageId = idOf(value.pageId);
@@ -273,9 +265,9 @@ function idsOf(field: Field, value: unknown): string[] {
 /**
  * What a field's value points at, each once, in stored order. Only values in a place that
  * points count: a reference or a manual reference list's entries, a link to a page, page
- * links in rich text, and the `_fileId` of images and files. An id that doesn't exist, or
- * isn't a valid id at all, is still a pointer: checks report it as dangling. Repeatable items
- * hold their own content, so a repeater points at nothing itself.
+ * links in rich text, and the `assetFileId` of images and files. A record or page id that
+ * doesn't exist, or isn't a valid id at all, is still a pointer: checks report it as dangling.
+ * Repeatable items hold their own content, so a repeater points at nothing itself.
  */
 export function pointersOf(field: Field, value: unknown): Pointer[] {
   const ids = [...new Set(idsOf(field, value))];
@@ -310,17 +302,15 @@ export function collectFileIds(value: unknown, into: Set<string>) {
     for (const entry of value) collectFileIds(entry, into);
     return;
   }
-  const id = fileIdOf(value);
+  const id = assetFileId(value);
   if (id !== undefined) into.add(id);
   for (const [key, entry] of Object.entries(value)) {
     if (key !== "_fileId") collectFileIds(entry, into);
   }
 }
 
-type RepeaterField = Extract<Field, { kind: "Repeater" }>;
-
-/** The schemas a repeatable item is read by, from the repeater holding it. */
-export type ItemSchemas = { repeater: RepeaterField; content: unknown; settings: unknown };
+/** The content and settings schemas a repeatable item is read by, from its repeater. */
+export type ItemSchemas = { content: unknown; settings: unknown };
 
 /**
  * Each repeatable item's schemas, found by walking its repeater path from its block's content
@@ -333,39 +323,41 @@ export function itemSchemas(
 ): Map<string, ItemSchemas> {
   const byId = new Map(items.map((item) => [item.id, item]));
   const found = new Map<string, ItemSchemas | null>();
-  const schemasOf = (item: (typeof items)[number], seen: Set<string>): ItemSchemas | null => {
+  const resolve = (item: (typeof items)[number], seen: Set<string>): ItemSchemas | null => {
     const known = found.get(item.id);
     if (known !== undefined) return known;
     if (seen.has(item.id)) return null;
     seen.add(item.id);
     const parent = item.parentItemId === null ? undefined : byId.get(item.parentItemId);
     const container =
-      item.parentItemId === null ? rootSchema : parent && schemasOf(parent, seen)?.content;
+      item.parentItemId === null ? rootSchema : parent && resolve(parent, seen)?.content;
     const field = fieldsOf(container).find((f) => f.name === item.fieldName);
     const schemas =
       field?.kind === "Repeater"
-        ? { repeater: field, content: field.itemContentSchema, settings: field.itemSettingsSchema }
+        ? { content: field.itemContentSchema, settings: field.itemSettingsSchema }
         : null;
     found.set(item.id, schemas);
     return schemas;
   };
   const result = new Map<string, ItemSchemas>();
   for (const item of items) {
-    const schemas = schemasOf(item, new Set());
+    const schemas = resolve(item, new Set());
     if (schemas) result.set(item.id, schemas);
   }
   return result;
 }
 
 /**
- * Whether a field takes a file: one of its `accept` entries matches the file's MIME type
- * (exactly, or `type/*`) or its extension (`.ext`), ignoring case. A field naming no accepted
- * types takes any file.
+ * Whether a field takes a file. Image fields take images only. Then one of the field's `accept`
+ * entries must match the file's MIME type (exactly, or `type/*`) or its extension (`.ext`),
+ * ignoring case; a field naming no accepted types takes any file.
  */
 export function accepts(field: Field, file: { mimeType: string; filename: string }) {
+  const mimeType = file.mimeType.toLowerCase();
+  const isImageField = field.kind === "Image" || field.kind === "ImageList";
+  if (isImageField && !mimeType.startsWith("image/")) return false;
   const accept = isAsset(field) ? field.accept : undefined;
   if (!accept?.length) return true;
-  const mimeType = file.mimeType.toLowerCase();
   const filename = file.filename.toLowerCase();
   return accept.some((raw) => {
     const entry = raw.trim().toLowerCase();

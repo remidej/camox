@@ -1,6 +1,6 @@
 import { artifactTitle } from "@camox/api-contract";
 
-import { pointersOf, readField } from "../domains/_shared/fields";
+import { assetShape, fieldsOf, pointersOf, readField } from "../domains/_shared/fields";
 import type { ResolvedReferences } from "../domains/collections/references";
 import { transformImageUrl } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
@@ -83,7 +83,7 @@ function resolveLine(
 
   const resolve = (key: string) => {
     const [root, ...path] = key.split(".");
-    if (!path.length && schemaProperties[root]?.fieldType === "ReferenceList") {
+    if (!path.length && readField(schemaProperties[root])?.kind === "ReferenceList") {
       return resolveReferenceList(schemaProperties[root], ctx.references?.[root], ctx);
     }
     if (!path.length) return resolveField(schemaProperties[root], content[root], ctx);
@@ -96,8 +96,8 @@ function resolveLine(
         record = record.references?.[field];
         continue;
       }
-      if (properties?.[field]?.fieldType === "ReferenceList") {
-        return resolveReferenceList(properties[field], record.references?.[field], ctx);
+      if (readField(properties?.[field])?.kind === "ReferenceList") {
+        return resolveReferenceList(properties![field], record.references?.[field], ctx);
       }
       return resolveField(properties?.[field], record.content[field], ctx);
     }
@@ -160,15 +160,16 @@ export function stripArtifactSources(
 ): Record<string, unknown> {
   if (!schemaProperties) return content;
   const result = { ...content };
-  for (const [key, schema] of Object.entries(schemaProperties)) {
-    const value = content[key];
-    if (schema?.fieldType === "Artifact") {
-      if (typeof value === "string") result[key] = artifactMarkdown(value) ?? "";
+  for (const field of fieldsOf({ properties: schemaProperties })) {
+    const value = content[field.name];
+    if (field.kind === "Artifact") {
+      if (typeof value === "string") result[field.name] = artifactMarkdown(value) ?? "";
       continue;
     }
-    if (schema?.fieldType !== "Repeater" || !Array.isArray(value)) continue;
-    const itemProperties = schema.items?.properties;
-    result[key] = value.map((item) => stripItemArtifactSources(itemProperties, item));
+    if (field.kind !== "Repeater" || !Array.isArray(value)) continue;
+    const itemProperties = (field.itemContentSchema as { properties?: Record<string, any> })
+      ?.properties;
+    result[field.name] = value.map((item) => stripItemArtifactSources(itemProperties, item));
   }
   return result;
 }
@@ -215,43 +216,44 @@ function resolveAsset(value: unknown, files: SettingsContext["files"]): Resolved
 
 function resolveField(schema: any, value: unknown, ctx: SettingsContext): string | undefined {
   if (value == null) return undefined;
-  const fieldType: string | undefined = schema?.fieldType;
+  const field = readField(schema);
+  const kind = field?.kind;
 
-  if (fieldType === "String") {
+  if (kind === "String") {
     const text = lexicalStateToPlainText(value as string | Record<string, unknown>);
     if (!text) return undefined;
     return text;
   }
 
-  if (fieldType === "Link") {
+  if (kind === "Link") {
     const link = value as Record<string, unknown>;
     const text = asString(link.text);
-    const [page] = pointersOf(readField(schema)!, value);
+    const [page] = pointersOf(field!, value);
     const href = page ? `camox:page:${page.id}` : asString(link.href);
     if (!text && !href) return undefined;
     return `[${text}](${href})`;
   }
 
-  if (fieldType === "Image") {
+  if (kind === "Image") {
     const { url, alt, mimeType } = resolveAsset(value, ctx.files);
     if (!url) return undefined;
     return `![${alt}](${transformImageUrl(url, { mimeType })})`;
   }
 
-  if (fieldType === "File") {
+  if (kind === "File") {
     const { url, filename } = resolveAsset(value, ctx.files);
     if (!url && !filename) return undefined;
     return `[${filename}](${url})`;
   }
 
-  if (fieldType === "Embed") {
+  if (kind === "Embed") {
     const url = asString(value);
     return url || undefined;
   }
 
-  if (fieldType === "Artifact") return artifactMarkdown(value);
+  if (kind === "Artifact") return artifactMarkdown(value);
 
-  if (fieldType === "ImageList" || fieldType === "FileList") {
+  if (field && assetShape(kind) === "list") {
     if (!Array.isArray(value)) return undefined;
     const leafSchema = schema?.items;
     if (!leafSchema) return undefined;
@@ -267,7 +269,7 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
     return itemParts.length > 0 ? itemParts.join("\n") : undefined;
   }
 
-  if (fieldType === "Repeater") {
+  if (kind === "Repeater") {
     if (!Array.isArray(value)) return undefined;
     const itemSchema = schema?.items?.properties;
     if (!itemSchema) return undefined;
@@ -315,7 +317,7 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
     return itemParts.length > 0 ? itemParts.join("\n") : undefined;
   }
 
-  if (fieldType === "Boolean" || fieldType === "Enum") {
+  if (kind === "Boolean" || kind === "Enum") {
     if (typeof value === "boolean" || typeof value === "string" || typeof value === "number") {
       return String(value);
     }

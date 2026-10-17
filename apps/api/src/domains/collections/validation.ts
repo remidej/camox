@@ -6,13 +6,12 @@ import { z } from "zod";
 
 import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
-import { accepts, type Field, fieldOf } from "../_shared/fields";
+import { accepts, assetFileId, type Field, fieldOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { fileView } from "../files/generated-metadata";
 import type { ContentScope } from "./identity";
-import { assetFileId } from "./record-files";
 import { missingReference, recordInScope } from "./references";
 import { decodeContent, validateText } from "./text-content";
 
@@ -179,9 +178,6 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
       message: "Asset is outside this project or missing",
     });
   const { filename } = yield* fileView(ctx.db, draft, file);
-  if (field.kind.startsWith("Image") && !file.mimeType.startsWith("image/")) {
-    return yield* new InvalidInputError({ message: "Image requires an image asset" });
-  }
   if (!accepts(field, { mimeType: file.mimeType, filename })) {
     return yield* new InvalidInputError({ message: "Asset MIME type is not accepted" });
   }
