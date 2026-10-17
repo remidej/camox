@@ -105,6 +105,7 @@ export type {
   TextStyleData,
   TextLinkStyleData,
 } from "../lib/lexicalReact";
+import { useDraftScope } from "../../lib/draft-scope";
 
 /** Normalize legacy links (no `type` field) to the new union shape */
 const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
@@ -852,6 +853,7 @@ export function createEditableBlock<
     name: K;
     children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
   }): React.ReactNode => {
+    const draftScope = useDraftScope();
     const selectTarget = usePreviewSelection();
     const blockContext = React.use(Context);
     if (!blockContext) {
@@ -865,7 +867,7 @@ export function createEditableBlock<
     const projectSlug = useProjectSlug();
     const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
     const { data: pages } = useQuery({
-      ...pageQueries.list(project?.id ?? 0),
+      ...pageQueries.list(draftScope, project?.id ?? 0),
       enabled: !!project,
     });
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -1200,6 +1202,7 @@ export function createEditableBlock<
     name: K;
     children: (props: ArtifactRenderProps) => React.ReactNode;
   }): React.ReactNode => {
+    const draftScope = useDraftScope();
     const selectTarget = usePreviewSelection();
     const blockContext = React.use(Context);
     if (!blockContext) {
@@ -1236,7 +1239,7 @@ export function createEditableBlock<
     const projectSlug = useProjectSlug();
     const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
     const { data: pages } = useQuery({
-      ...pageQueries.list(project?.id ?? 0),
+      ...pageQueries.list(draftScope, project?.id ?? 0),
       enabled: !!project,
     });
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -1302,6 +1305,7 @@ export function createEditableBlock<
     name: K;
     children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
   }): React.ReactNode => {
+    const draftScope = useDraftScope();
     const selectTarget = usePreviewSelection();
     const blockContext = React.use(Context);
     if (!blockContext) {
@@ -1322,7 +1326,7 @@ export function createEditableBlock<
     const projectSlug = useProjectSlug();
     const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
     const { data: pages } = useQuery({
-      ...pageQueries.list(project?.id ?? 0),
+      ...pageQueries.list(draftScope, project?.id ?? 0),
       enabled: !!project,
     });
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -2423,6 +2427,7 @@ export function createEditableBlock<
     fieldName: string,
     record: ReferenceRecord | null,
   ) => {
+    const draftScope = useDraftScope();
     const selectTarget = usePreviewSelection();
     const projectSlug = useProjectSlug();
     const queryClient = useQueryClient();
@@ -2458,7 +2463,8 @@ export function createEditableBlock<
         .save(record, field, value, async (input) => {
           const saved = await mutation.mutateAsync({ ...input, projectSlug });
           queryClient.setQueryData(
-            collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+            collectionQueries.record(draftScope, projectSlug, record.collectionId, record.id)
+              .queryKey,
             saved,
           );
           // Shared source changes must refresh every placement, not only this block.

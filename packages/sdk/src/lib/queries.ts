@@ -1,8 +1,8 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 
-import { type ApiClient, getApiUrl, getOrpc } from "./api-client";
+import { type ApiClient, getApiUrl, getContentWriteHeaders, getOrpc } from "./api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
-import { getUploadDraftHeaders, scopedKey } from "./studio-draft";
+import type { DraftScope } from "./draft-scope";
 
 // --- Inferred API response types ---
 
@@ -30,41 +30,41 @@ export type DraftSummary = DraftList["drafts"][number];
 // --- Query factories ---
 
 export const collectionQueries = {
-  list: (projectSlug: string) => ({
+  list: (scope: DraftScope, projectSlug: string) => ({
     ...getOrpc().collectionDefinitions.list.queryOptions({
       input: { projectSlug },
     }),
-    queryKey: scopedKey(queryKeys.collections.list(projectSlug)),
+    queryKey: scope.keyFor(queryKeys.collections.list(projectSlug)),
   }),
 
-  get: (projectSlug: string, collectionId: string) => ({
+  get: (scope: DraftScope, projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.get.queryOptions({
       input: { projectSlug, collectionId },
     }),
-    queryKey: scopedKey(queryKeys.collections.get(projectSlug, collectionId)),
+    queryKey: scope.keyFor(queryKeys.collections.get(projectSlug, collectionId)),
   }),
 
-  record: (projectSlug: string, collectionId: string, id: string) => ({
+  record: (scope: DraftScope, projectSlug: string, collectionId: string, id: string) => ({
     ...getOrpc().collectionDefinitions.getRecord.queryOptions({
       input: { projectSlug, collectionId, id },
     }),
-    queryKey: scopedKey(queryKeys.collections.record(projectSlug, collectionId, id)),
+    queryKey: scope.keyFor(queryKeys.collections.record(projectSlug, collectionId, id)),
   }),
 
   /** How many blocks, repeatable items and records reference a record. */
-  recordUsageCount: (projectSlug: string, collectionId: string, id: string) => ({
+  recordUsageCount: (scope: DraftScope, projectSlug: string, collectionId: string, id: string) => ({
     ...getOrpc().collectionDefinitions.getRecordUsageCount.queryOptions({
       input: { projectSlug, collectionId, id },
     }),
-    queryKey: scopedKey(queryKeys.collections.recordUsageCount(projectSlug, collectionId, id)),
+    queryKey: scope.keyFor(queryKeys.collections.recordUsageCount(projectSlug, collectionId, id)),
     select: (data: { count: number }) => data.count,
   }),
 
-  records: (projectSlug: string, collectionId: string) => ({
+  records: (scope: DraftScope, projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.listRecords.queryOptions({
       input: { projectSlug, collectionId },
     }),
-    queryKey: scopedKey(queryKeys.collections.records(projectSlug, collectionId)),
+    queryKey: scope.keyFor(queryKeys.collections.records(projectSlug, collectionId)),
   }),
 };
 
@@ -77,40 +77,40 @@ export const collectionMutations = {
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 
 export const pageQueries = {
-  list: (projectId: number) => ({
+  list: (scope: DraftScope, projectId: number) => ({
     ...getOrpc().pages.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: scopedKey(queryKeys.pages.list),
+    queryKey: scope.keyFor(queryKeys.pages.list),
   }),
 
-  getByPath: (fullPath: string, projectSlug: string) => ({
+  getByPath: (scope: DraftScope, fullPath: string, projectSlug: string) => ({
     ...getOrpc().pages.getByPath.queryOptions({
       input: { path: fullPath, projectSlug },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.pages.getByPath(fullPath)),
+    queryKey: scope.keyFor(queryKeys.pages.getByPath(fullPath)),
   }),
 
-  getById: (id: string) => ({
+  getById: (scope: DraftScope, id: string) => ({
     ...getOrpc().pages.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.pages.getById(id)),
+    queryKey: scope.keyFor(queryKeys.pages.getById(id)),
   }),
 };
 
 export const fileQueries = {
-  list: (projectId: number) => ({
+  list: (scope: DraftScope, projectId: number) => ({
     ...getOrpc().files.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: scopedKey(queryKeys.files.list),
+    queryKey: scope.keyFor(queryKeys.files.list),
   }),
 
-  get: (id: string) => ({
+  get: (scope: DraftScope, id: string) => ({
     ...getOrpc().files.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.files.get(id)),
+    queryKey: scope.keyFor(queryKeys.files.get(id)),
   }),
 
   getUsageCount: (id: string) => ({
@@ -167,30 +167,30 @@ export const projectMutations = {
 };
 
 export const layoutQueries = {
-  list: (projectId: number) => ({
+  list: (scope: DraftScope, projectId: number) => ({
     ...getOrpc().layouts.list.queryOptions({
       input: { projectId },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.layouts.all),
+    queryKey: scope.keyFor(queryKeys.layouts.all),
   }),
 };
 
 export const blockQueries = {
-  get: (id: string) => ({
+  get: (scope: DraftScope, id: string) => ({
     ...getOrpc().blocks.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.blocks.get(id)),
+    queryKey: scope.keyFor(queryKeys.blocks.get(id)),
   }),
 
-  getUsageCounts: (projectId: number) => ({
+  getUsageCounts: (scope: DraftScope, projectId: number) => ({
     ...getOrpc().blocks.getUsageCounts.queryOptions({
       input: { projectId },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.blocks.getUsageCounts),
+    queryKey: scope.keyFor(queryKeys.blocks.getUsageCounts),
     select: (data: BlockUsageCounts) => {
       const counts: Record<string, number> = {};
       for (const { type, count } of data) {
@@ -201,29 +201,29 @@ export const blockQueries = {
   }),
 
   // The distinct Pages placing a Block Definition, unlike usage counts.
-  getPagesUsing: (projectId: number, type: string) => ({
+  getPagesUsing: (scope: DraftScope, projectId: number, type: string) => ({
     ...getOrpc().blocks.getPagesUsing.queryOptions({
       input: { projectId, type },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.blocks.getPagesUsing(type)),
+    queryKey: scope.keyFor(queryKeys.blocks.getPagesUsing(type)),
   }),
 
   // A Synced Block's shared content, or null when it has none yet.
-  getSyncedContent: (projectId: number, type: string) => ({
+  getSyncedContent: (scope: DraftScope, projectId: number, type: string) => ({
     ...getOrpc().blocks.getSyncedContent.queryOptions({
       input: { projectId, type },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.blocks.getSyncedContent(type)),
+    queryKey: scope.keyFor(queryKeys.blocks.getSyncedContent(type)),
   }),
 
-  getPageMarkdown: (pageId: string) => ({
+  getPageMarkdown: (scope: DraftScope, pageId: string) => ({
     ...getOrpc().blocks.getPageMarkdown.queryOptions({
       input: { pageId },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.blocks.getPageMarkdown(pageId)),
+    queryKey: scope.keyFor(queryKeys.blocks.getPageMarkdown(pageId)),
     select: (data: { markdown: string }) => data.markdown,
   }),
 };
@@ -255,12 +255,12 @@ export const draftMutations = {
 };
 
 export const repeatableItemQueries = {
-  get: (id: string) => ({
+  get: (scope: DraftScope, id: string) => ({
     ...getOrpc().repeatableItems.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: scopedKey(queryKeys.repeatableItems.get(id)),
+    queryKey: scope.keyFor(queryKeys.repeatableItems.get(id)),
   }),
 };
 
@@ -289,7 +289,7 @@ export const repeatableItemMutations = {
  */
 async function sendOgImageChange(pageId: string, init: { method: string; body?: FormData }) {
   const authCookieHeader = getAuthCookieHeader();
-  const draft = getUploadDraftHeaders();
+  const draft = getContentWriteHeaders();
   try {
     const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
       ...init,

@@ -28,6 +28,7 @@ import {
   type CollectionRecord,
 } from "@/lib/queries";
 
+import { useDraftScope } from "../../lib/draft-scope";
 import {
   collectionFormFields,
   collectionFormDefaults,
@@ -44,13 +45,14 @@ export const ContentCollection = ({
   projectSlug: string;
   collection: CollectionDefinition;
 }) => {
+  const draftScope = useDraftScope();
   const itemModal = useCollectionItemModal();
   const {
     data: records,
     isPending,
     isError,
     refetch,
-  } = useQuery(collectionQueries.records(projectSlug, collection.collectionId));
+  } = useQuery(collectionQueries.records(draftScope, projectSlug, collection.collectionId));
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -168,6 +170,7 @@ function CollectionItemForm({
   initialContent?: Record<string, unknown>;
   onSaved: (record: CollectionRecord) => void | Promise<void>;
 }) {
+  const draftScope = useDraftScope();
   const fields = collectionFormFields(contentSchema, label);
   // Background refetches must not replace edits.
   const [savedRecord, setSavedRecord] = useState(record);
@@ -195,7 +198,7 @@ function CollectionItemForm({
         // Advance only after our own successful save, never from a refetch.
         setSavedRecord(saved);
         queryClient.setQueryData(
-          collectionQueries.record(projectSlug, collectionId, saved.id).queryKey,
+          collectionQueries.record(draftScope, projectSlug, collectionId, saved.id).queryKey,
           saved,
         );
         await invalidateCollectionRecordViews(queryClient, projectSlug, collectionId);
@@ -204,7 +207,7 @@ function CollectionItemForm({
         const message = error instanceof Error ? error.message : "Please try again.";
         setError(`Could not save item. ${message}`);
         await queryClient.invalidateQueries({
-          queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
+          queryKey: collectionQueries.records(draftScope, projectSlug, collectionId).queryKey,
         });
       } finally {
         setSubmitting(false);
@@ -360,8 +363,9 @@ export const ContentCollectionItemEditor = ({
   onSaved: (record: CollectionRecord) => void | Promise<void>;
   projectSlug: string;
 }) => {
+  const draftScope = useDraftScope();
   const recordQuery = useQuery({
-    ...collectionQueries.record(projectSlug, collectionId, itemId ?? ""),
+    ...collectionQueries.record(draftScope, projectSlug, collectionId, itemId ?? ""),
     enabled: !!itemId,
   });
   const {
@@ -370,7 +374,7 @@ export const ContentCollectionItemEditor = ({
     isError,
     refetch,
   } = useQuery({
-    ...collectionQueries.get(projectSlug, collectionId),
+    ...collectionQueries.get(draftScope, projectSlug, collectionId),
   });
 
   return (
@@ -455,8 +459,9 @@ function RecordUsage({
   collectionId: string;
   id: string;
 }) {
+  const draftScope = useDraftScope();
   const { data: count } = useQuery(
-    collectionQueries.recordUsageCount(projectSlug, collectionId, id),
+    collectionQueries.recordUsageCount(draftScope, projectSlug, collectionId, id),
   );
   if (count === undefined) return null;
   return (

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -11,6 +11,7 @@ import { previewStore, type Selection } from "../../features/preview/previewStor
 import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
 import { AuthContext } from "../../lib/auth";
+import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import { createApp } from "../createApp";
 import { createCollection } from "../createCollection";
@@ -48,7 +49,7 @@ Object.assign(globalThis, {
     return { id: article.id, content: article.content, createdAt: 1, updatedAt: article.updatedAt };
   },
 });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 const previewSelectionUrl = new URL("../../features/preview/previewSelection.ts", import.meta.url);
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -194,7 +195,7 @@ function setup() {
     pageTitleClicks = [];
     const Component = ArticlePage._internal.component;
     return renderToStaticMarkup(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
         >
@@ -225,7 +226,7 @@ function setup() {
             </CamoxAppProvider>
           </NavigationProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   };
   return { render, client };

@@ -12,16 +12,18 @@ import { useProjectSlug } from "@/lib/auth";
 import { fileMutations, fileQueries, projectQueries } from "@/lib/queries";
 import { checkIfInputFocused } from "@/lib/utils";
 
+import { useDraftScope } from "../../lib/draft-scope";
 import { AssetCard } from "./components/AssetCard";
 import { AssetCardSkeleton } from "./components/AssetCardSkeleton";
 import { UploadDropZone } from "./components/UploadDropZone";
 import { UploadProgressDrawer } from "./components/UploadProgressDrawer";
 
 export const ContentAssets = () => {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: files } = useQuery({
-    ...fileQueries.list(project?.id ?? 0),
+    ...fileQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

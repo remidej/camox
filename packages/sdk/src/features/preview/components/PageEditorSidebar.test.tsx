@@ -3,7 +3,7 @@ import { registerHooks } from "node:module";
 import { test, type TestContext } from "node:test";
 
 import type { TSchema } from "@sinclair/typebox";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -13,8 +13,12 @@ import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import { blockQueries, collectionQueries, fileQueries, projectQueries } from "@/lib/queries";
 
+import { StudioQueryClientProvider, testDraftScope } from "../../../lib/draft-scope.fixtures";
 import type { EditingOwner, Selection } from "../previewStore";
 import { referencePickerFocus } from "../referencePickerFocus";
+
+/** Live, like the scope the rendered studio views. */
+const draftScope = testDraftScope();
 
 // Render the real sidebar; only replace leaves that need a rich-text engine.
 // The String editor stub types plain text into the field.
@@ -67,7 +71,7 @@ registerHooks({
 });
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 
 const pageOwner: EditingOwner = { kind: "page", pageId: "1" };
 const BLOCK_ID = "7";
@@ -261,7 +265,7 @@ async function renderSidebar(
   const partners = options.partners ?? [];
   const linked = (ids: string[]) =>
     ids.flatMap((id) => listedRecords.filter((record) => record.id === id));
-  client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, {
+  client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, {
     block: {
       id: BLOCK_ID,
       type: "testimonial",
@@ -298,7 +302,7 @@ async function renderSidebar(
     ],
     files: [file],
   } as never);
-  client.setQueryData(fileQueries.get(FILE_ID).queryKey, file as never);
+  client.setQueryData(fileQueries.get(draftScope, FILE_ID).queryKey, file as never);
   client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: "1" } as never);
   // By default every file is used elsewhere, so unlinking never offers to delete it.
   for (const id of [FILE_ID, OTHER_FILE_ID, THIRD_FILE_ID]) {
@@ -311,11 +315,14 @@ async function renderSidebar(
     { id: GLOBEX, label: "Globex" },
     { id: INITECH, label: "Initech" },
   ];
-  client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
-  client.setQueryData(collectionQueries.records("site", "people").queryKey, [
+  client.setQueryData(
+    collectionQueries.records(draftScope, "site", "customers").queryKey,
+    records as never,
+  );
+  client.setQueryData(collectionQueries.records(draftScope, "site", "people").queryKey, [
     { id: ADA, label: "Ada Lovelace" },
   ] as never);
-  client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
+  client.setQueryData(collectionQueries.get(draftScope, "site", "customers").queryKey, {
     collectionId: "customers",
     title: "Customers",
     description: "",
@@ -329,7 +336,9 @@ async function renderSidebar(
     const { json } = (await request.json()) as { json: Write["input"] };
     // Record saves refetch the block and record list; answer from the seeded cache.
     if (procedure === "blocks/get") {
-      return Response.json({ json: client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) });
+      return Response.json({
+        json: client.getQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey),
+      });
     }
     if (procedure === "collectionDefinitions/listRecords") return Response.json({ json: records });
     if (procedure === "collectionDefinitions/getRecord") {
@@ -363,7 +372,7 @@ async function renderSidebar(
   }
   await act(async () => {
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
             projectSlug: "site",
@@ -386,7 +395,7 @@ async function renderSidebar(
             </CollectionItemModalProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   });
 
@@ -423,13 +432,13 @@ async function renderSidebar(
     /** The labels of the records the preview renders for the item's partner list. */
     previewPartners: () =>
       (
-        client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) as {
+        client.getQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey) as {
           repeatableItems: { references: { partners: { label: string }[] } }[];
         }
       ).repeatableItems[0]!.references.partners.map((record) => record.label),
     previewLogos: () =>
       (
-        client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) as {
+        client.getQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey) as {
           block: { references: { logos: { label: string; content: { name: string } }[] } };
         }
       ).block.references.logos.map((record) => `${record.label}: ${record.content.name}`),
@@ -745,7 +754,7 @@ void test("a record selection falls back to the reference field view once the re
   });
   assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme"]);
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: {
         ...bundle.block,
@@ -959,7 +968,7 @@ void test("a selection on a record no longer in the list falls back to the refer
   );
   assert.ok(sidebar.host.querySelector("[data-shared-record]"));
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: {
         ...bundle.block,
@@ -987,7 +996,7 @@ void test("a selected record still in the list but not yet loaded keeps its sele
   const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX] });
   // The list links the record before the block's hydrated records include it.
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: { ...bundle.block, content: { ...bundle.block.content, logos: [GLOBEX, INITECH] } },
     }));
@@ -997,7 +1006,7 @@ void test("a selected record still in the list but not yet loaded keeps its sele
   assert.deepEqual(sidebar.selection(), selection, "the selection is not bounced to the list");
 
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: {
         ...bundle.block,
@@ -1019,7 +1028,7 @@ void test("reordering a list keeps the selected record", async (t) => {
   } as const;
   const sidebar = await renderSidebar(t, selection, { logos: [GLOBEX, ACME] });
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: {
         ...bundle.block,
@@ -1103,7 +1112,7 @@ void test("the picker explains when every record is already linked", async (t) =
   const sidebar = await renderSidebar(t, logosField, { logos: [ACME, GLOBEX] });
   await act(async () => {
     sidebar.client.setQueryData(
-      collectionQueries.records("site", "customers").queryKey,
+      collectionQueries.records(draftScope, "site", "customers").queryKey,
       (records: any) => records.slice(0, 2),
     );
   });
@@ -1282,7 +1291,7 @@ void test("an item's record selection falls back to the item's reference field o
     { sponsor: ACME },
   );
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       repeatableItems: bundle.repeatableItems.map((item: any) => ({
         ...item,
@@ -1413,7 +1422,7 @@ void test("linking a record from a placed record writes the placed record", asyn
 void test("a linked record's selection falls back to the placed record's field once unlinked", async (t) => {
   const sidebar = await renderSidebar(t, contactRecord);
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: {
         ...bundle.block,
@@ -1530,7 +1539,7 @@ void test("a selection on a record that left the query's results falls back to t
   );
   assert.ok(sidebar.host.querySelector("[data-shared-record]"));
   await act(async () => {
-    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+    sidebar.client.setQueryData(blockQueries.get(draftScope, BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
       block: {
         ...bundle.block,

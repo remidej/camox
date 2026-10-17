@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -23,8 +23,8 @@ import {
   projectQueries,
   type CollectionDefinition,
 } from "@/lib/queries";
-import { readDraftFromUrl } from "@/lib/studio-draft";
 
+import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import {
   collectionFormContent,
   collectionFormDefaults,
@@ -35,9 +35,12 @@ import { CollectionItemModalProvider, useCollectionItemModal } from "./Collectio
 import { ContentSidebar } from "./components/ContentSidebar";
 import { ContentCollection, ContentCollectionItemEditor } from "./ContentCollection";
 
+/** Live, like the scope the rendered studio views. */
+const draftScope = testDraftScope();
+
 // tsx loads workspace UI sources with the classic JSX transform, unlike Vite.
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 
 const collections: CollectionDefinition[] = [
   { collectionId: "articles", title: "Articles", description: "News and updates", label: "title" },
@@ -59,7 +62,7 @@ async function renderContentPage(client: QueryClient, pathname: string) {
   const { CamoxContent } = await import("./CamoxContent");
   return renderToStaticMarkup(
     withNavigation(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
             projectSlug: "site",
@@ -70,7 +73,7 @@ async function renderContentPage(client: QueryClient, pathname: string) {
         >
           <CamoxContent />
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
       pathname,
     ),
   );
@@ -100,7 +103,7 @@ void test("collections are hidden and not queried when experimental UI is unset 
           false,
         );
         // Cached collection data must not bypass the feature gate either.
-        client.setQueryData(collectionQueries.list("site").queryKey, collections);
+        client.setQueryData(collectionQueries.list(draftScope, "site").queryKey, collections);
         assert.doesNotMatch(await renderContentPage(client, pathname), /Collections|Articles/);
         client.clear();
       }
@@ -134,7 +137,7 @@ void test("the assets empty view offers a multi-file upload control", async () =
       createdAt: 0,
       updatedAt: 0,
     });
-    client.setQueryData(fileQueries.list(1).queryKey, []);
+    client.setQueryData(fileQueries.list(draftScope, 1).queryKey, []);
     const html = await renderContentPage(client, STUDIO_ASSETS_PATH);
     assert.match(html, /No assets yet/);
     assert.match(html, /Upload images, videos, and files to use in your content/);
@@ -151,9 +154,9 @@ void test("experimental UI enables collection browsing and the new-item form", a
   const client = new QueryClient();
   try {
     Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
-    client.setQueryData(collectionQueries.list("site").queryKey, collections);
-    client.setQueryData(collectionQueries.records("site", "articles").queryKey, []);
-    client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+    client.setQueryData(collectionQueries.list(draftScope, "site").queryKey, collections);
+    client.setQueryData(collectionQueries.records(draftScope, "site", "articles").queryKey, []);
+    client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
       ...collections[0],
       contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
     });
@@ -203,11 +206,11 @@ void test("Collections group lists every collection in API order with one select
 function renderCollection(collection: CollectionDefinition, client: QueryClient) {
   return renderToStaticMarkup(
     withNavigation(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <CollectionItemModalProvider onRouteTargetClose={() => {}}>
           <ContentCollection projectSlug="site" collection={collection} />
         </CollectionItemModalProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     ),
   );
 }
@@ -215,7 +218,10 @@ function renderCollection(collection: CollectionDefinition, client: QueryClient)
 void test("each empty collection has its own title and empty view", () => {
   const client = new QueryClient();
   for (const collection of collections) {
-    client.setQueryData(collectionQueries.records("site", collection.collectionId).queryKey, []);
+    client.setQueryData(
+      collectionQueries.records(draftScope, "site", collection.collectionId).queryKey,
+      [],
+    );
     const html = renderCollection(collection, client);
     assert.ok(html.includes(collection.title));
     assert.match(html, /No items yet/);
@@ -228,7 +234,7 @@ void test("each empty collection has its own title and empty view", () => {
 
 void test("nonempty collections render record labels rather than an empty state", () => {
   const client = new QueryClient();
-  client.setQueryData(collectionQueries.records("site", "articles").queryKey, [
+  client.setQueryData(collectionQueries.records(draftScope, "site", "articles").queryKey, [
     { id: "one", label: "First article" },
     { id: "two", label: "" },
     { id: "three", label: "Edited article" },
@@ -254,7 +260,7 @@ void test("loading and failures are not presented as an empty collection", async
   assert.match(renderCollection(collections[0], client), /Loading items/);
   await assert.rejects(
     client.fetchQuery({
-      queryKey: collectionQueries.records("site", "articles").queryKey,
+      queryKey: collectionQueries.records(draftScope, "site", "articles").queryKey,
       queryFn: () => Promise.reject(new Error("Offline")),
     }),
   );
@@ -266,14 +272,26 @@ void test("loading and failures are not presented as an empty collection", async
 });
 
 void test("collection query keys isolate projects and collections", () => {
-  const first = collectionQueries.records("site", "articles").queryKey;
-  assert.notDeepEqual(first, collectionQueries.records("other-site", "articles").queryKey);
-  assert.notDeepEqual(first, collectionQueries.records("site", "authors").queryKey);
-  assert.notDeepEqual(collectionQueries.get("site", "articles").queryKey, first);
-  const record = collectionQueries.record("site", "articles", "one").queryKey;
-  assert.notDeepEqual(record, collectionQueries.record("site", "articles", "two").queryKey);
-  assert.notDeepEqual(record, collectionQueries.record("other-site", "articles", "one").queryKey);
-  assert.notDeepEqual(record, collectionQueries.record("site", "authors", "one").queryKey);
+  const first = collectionQueries.records(draftScope, "site", "articles").queryKey;
+  assert.notDeepEqual(
+    first,
+    collectionQueries.records(draftScope, "other-site", "articles").queryKey,
+  );
+  assert.notDeepEqual(first, collectionQueries.records(draftScope, "site", "authors").queryKey);
+  assert.notDeepEqual(collectionQueries.get(draftScope, "site", "articles").queryKey, first);
+  const record = collectionQueries.record(draftScope, "site", "articles", "one").queryKey;
+  assert.notDeepEqual(
+    record,
+    collectionQueries.record(draftScope, "site", "articles", "two").queryKey,
+  );
+  assert.notDeepEqual(
+    record,
+    collectionQueries.record(draftScope, "other-site", "articles", "one").queryKey,
+  );
+  assert.notDeepEqual(
+    record,
+    collectionQueries.record(draftScope, "site", "authors", "one").queryKey,
+  );
 });
 
 void test("collection paths identify list and new routes, including encoded IDs", () => {
@@ -297,7 +315,7 @@ void test("collection paths identify list and new routes, including encoded IDs"
 
 void test("the new item route builds editable fields and media editors from the collection schema", () => {
   const client = new QueryClient();
-  client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+  client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
     ...collections[0],
     contentSchema: {
       properties: {
@@ -318,7 +336,7 @@ void test("the new item route builds editable fields and media editors from the 
   });
   const html = renderToStaticMarkup(
     withNavigation(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
             projectSlug: "site",
@@ -333,7 +351,7 @@ void test("the new item route builds editable fields and media editors from the 
             onSaved={() => {}}
           />
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
       newCollectionItemPath("articles"),
     ),
   );
@@ -373,14 +391,14 @@ void test("collection item controls open the shared create and edit modal", asyn
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+  client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
     ...collections[0],
     contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
   });
-  client.setQueryData(collectionQueries.records("site", "articles").queryKey, [
+  client.setQueryData(collectionQueries.records(draftScope, "site", "articles").queryKey, [
     { id: "one", label: "First article" },
   ]);
-  client.setQueryData(collectionQueries.record("site", "articles", "one").queryKey, {
+  client.setQueryData(collectionQueries.record(draftScope, "site", "articles", "one").queryKey, {
     id: "one",
     content: { title: "Existing article" },
     createdAt: 1,
@@ -404,12 +422,12 @@ void test("collection item controls open the shared create and edit modal", asyn
   try {
     await act(async () => {
       root.render(
-        <QueryClientProvider client={client}>
+        <StudioQueryClientProvider client={client}>
           <CollectionItemModalProvider onRouteTargetClose={() => {}}>
             <ContentCollection projectSlug="site" collection={collections[0]} />
             <ModalTargetProbe />
           </CollectionItemModalProvider>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       );
     });
     const createButton = [...host.querySelectorAll("button")].find(
@@ -535,10 +553,7 @@ void test("collection form values round-trip assets and preserve unchanged rich 
 void test("collection forms create and edit records, invalidate lists, and retain values on failure", async (t) => {
   const { Window } = await import("happy-dom");
   const { act } = await import("react");
-  // In a draft already, so writes don't start one and switch the cached queries' keys.
-  const window = new Window({
-    url: "http://localhost:3000/?camox-draft=019a0000-0000-7000-8000-000000000001",
-  });
+  const window = new Window({ url: "http://localhost:3000/" });
   Object.assign(globalThis, {
     window,
     document: window.document,
@@ -549,11 +564,11 @@ void test("collection forms create and edit records, invalidate lists, and retai
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
-  readDraftFromUrl();
-  t.after(() => {
-    window.history.replaceState(null, "", "/");
-    readDraftFromUrl();
-  });
+  // In a draft already, so writes don't start one and switch the cached queries' keys.
+  const inDraft = testDraftScope();
+  inDraft.adopt({ draftId: "019a0000-0000-7000-8000-000000000001" });
+  initApiClient("http://localhost:8788", inDraft);
+  t.after(() => initApiClient("http://localhost:8788", testDraftScope()));
   const { createRoot } = await import("react-dom/client");
   const id = "a6479288-341f-4008-b118-dea6d8dd9158";
   const calls: { path: string; input: Record<string, unknown> }[] = [];
@@ -582,13 +597,13 @@ void test("collection forms create and edit records, invalidate lists, and retai
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
-    client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+    client.setQueryData(collectionQueries.get(inDraft, "site", "articles").queryKey, {
       ...collections[0],
       contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
     });
-    client.setQueryData(collectionQueries.records("site", "articles").queryKey, []);
+    client.setQueryData(collectionQueries.records(inDraft, "site", "articles").queryKey, []);
     if (editing)
-      client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
+      client.setQueryData(collectionQueries.record(inDraft, "site", "articles", id).queryKey, {
         id,
         content: { title: "Existing article" },
         createdAt: 1,
@@ -605,7 +620,7 @@ void test("collection forms create and edit records, invalidate lists, and retai
               navigations.push(to);
             }}
           >
-            <QueryClientProvider client={client}>
+            <StudioQueryClientProvider client={client} draftScope={inDraft}>
               <ContentCollectionItemEditor
                 projectSlug="site"
                 collectionId="articles"
@@ -614,7 +629,7 @@ void test("collection forms create and edit records, invalidate lists, and retai
                   navigations.push(collectionContentPath("articles"));
                 }}
               />
-            </QueryClientProvider>
+            </StudioQueryClientProvider>
           </NavigationProvider>,
         );
       });
@@ -648,7 +663,8 @@ void test("collection forms create and edit records, invalidate lists, and retai
       });
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
       assert.equal(
-        client.getQueryState(collectionQueries.records("site", "articles").queryKey)?.isInvalidated,
+        client.getQueryState(collectionQueries.records(inDraft, "site", "articles").queryKey)
+          ?.isInvalidated,
         true,
       );
     } finally {
@@ -702,12 +718,12 @@ void test("forms save the record without publishing, and refetches never replace
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
-    client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+    client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
       ...collections[0],
       contentSchema: { properties: { title: { fieldType: "String", default: "Article" } } },
     });
     if (editing)
-      client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
+      client.setQueryData(collectionQueries.record(draftScope, "site", "articles", id).queryKey, {
         id,
         content: { title: "Article" },
         createdAt: 1,
@@ -734,7 +750,7 @@ void test("forms save the record without publishing, and refetches never replace
               navigations.push(to);
             }}
           >
-            <QueryClientProvider client={client}>
+            <StudioQueryClientProvider client={client}>
               <ContentCollectionItemEditor
                 projectSlug="site"
                 collectionId="articles"
@@ -743,7 +759,7 @@ void test("forms save the record without publishing, and refetches never replace
                   navigations.push(collectionContentPath("articles"));
                 }}
               />
-            </QueryClientProvider>
+            </StudioQueryClientProvider>
           </NavigationProvider>,
         ),
       );
@@ -757,7 +773,7 @@ void test("forms save the record without publishing, and refetches never replace
       assert.deepEqual(navigations, []);
       // A refetch must not replace what the form is about to save.
       await act(async () =>
-        client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
+        client.setQueryData(collectionQueries.record(draftScope, "site", "articles", id).queryKey, {
           id,
           content: { title: "Someone else's edit" },
           createdAt: 1,
@@ -775,7 +791,7 @@ void test("forms save the record without publishing, and refetches never replace
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
       assert.deepEqual(
         client.getQueryData<{ content: unknown }>(
-          collectionQueries.record("site", "articles", id).queryKey,
+          collectionQueries.record(draftScope, "site", "articles", id).queryKey,
         )?.content,
         { title: "Article" },
       );

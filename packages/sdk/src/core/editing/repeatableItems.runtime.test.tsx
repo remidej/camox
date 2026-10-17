@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -12,6 +12,7 @@ import {
   type CanvasOverlayTarget,
 } from "../../features/canvas/canvasOverlayGeometry";
 import { initApiClient } from "../../lib/api-client";
+import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 
 // Exercise the real editable repeater against React's Fragment refs. The harness
@@ -21,7 +22,7 @@ Object.assign(globalThis, {
   React,
   __CAMOX_TELEMETRY_DISABLED__: true,
 });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
@@ -109,7 +110,7 @@ void test("editable repeatable items render the author's elements as-is and stay
   try {
     await act(async () =>
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
+        <StudioQueryClientProvider client={new QueryClient()}>
           <NormalizedDataProvider
             files={[]}
             blocks={[]}
@@ -125,7 +126,7 @@ void test("editable repeatable items render the author's elements as-is and stay
               }}
             />
           </NormalizedDataProvider>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       ),
     );
     await window.happyDOM.waitUntilComplete();

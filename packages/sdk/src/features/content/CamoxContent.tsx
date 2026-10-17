@@ -11,6 +11,7 @@ import {
 import { useProjectSlug } from "@/lib/auth";
 import { collectionQueries } from "@/lib/queries";
 
+import { useDraftScope } from "../../lib/draft-scope";
 import {
   CollectionItemModalProvider,
   type CollectionItemModalTarget,
@@ -41,6 +42,7 @@ export const CamoxContent = () => {
 };
 
 const ExperimentalContent = () => {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -49,7 +51,7 @@ const ExperimentalContent = () => {
     data: collections = [],
     isError,
     isPending,
-  } = useQuery(collectionQueries.list(projectSlug));
+  } = useQuery(collectionQueries.list(draftScope, projectSlug));
   const collection = collections.find((entry) => entry.collectionId === route?.collectionId);
   const routeTarget =
     route && (route.isNew || route.itemId)

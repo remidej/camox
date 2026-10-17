@@ -4,14 +4,16 @@ import { useMemo } from "react";
 import { getPageDestinations } from "../core/pageDestinations";
 import { useCamoxApp } from "../features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "../lib/auth";
+import { useDraftScope } from "../lib/draft-scope";
 import { pageQueries, projectQueries } from "../lib/queries";
 
 export function usePageDestinations() {
+  const draftScope = useDraftScope();
   const app = useCamoxApp();
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
+    ...pageQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   return useMemo(() => getPageDestinations(pages ?? [], app.getLayouts()), [app, pages]);

@@ -5,9 +5,9 @@ import * as React from "react";
 import type { Block } from "../../core/createBlock";
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
+import { useDraftScope } from "../../lib/draft-scope";
 import { seedBlockCaches } from "../../lib/normalized-data";
 import { blockQueries } from "../../lib/queries";
-import { getCurrentDraftId, scopedKey } from "../../lib/studio-draft";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { AddBlockDialog } from "../preview/components/AddBlockDialog";
 import { CreatePageModal } from "../preview/components/CreatePageModal";
@@ -41,12 +41,13 @@ class SidebarBoundary extends React.Component<{ children: React.ReactNode }, { f
 }
 
 function CuratedSidebar() {
+  const draftScope = useDraftScope();
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
   const owner = React.useContext(PreviewEditingOwnerContext);
   const { data: structure } = useSuspenseQuery({
     // PageTree reads this same query through usePreviewedPage.
-    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
+    queryKey: draftScope.keyFor(queryKeys.pages.getByPath(pathname)),
     queryFn: () => getApiClient().pages.getStructure({ path: pathname, projectSlug }),
     staleTime: Infinity,
   });
@@ -61,13 +62,14 @@ function CuratedSidebar() {
 }
 
 function LayoutSidebar({ layoutId, pageRecord }: { layoutId: string; pageRecord?: PageRecordId }) {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const queryClient = useQueryClient();
   const { data: layout } = useSuspenseQuery({
-    queryKey: scopedKey([...queryKeys.layouts.all, "get", projectSlug, layoutId]),
+    queryKey: draftScope.keyFor([...queryKeys.layouts.all, "get", projectSlug, layoutId]),
     queryFn: async () => {
       const result = await getApiClient().layouts.get({ projectSlug, layoutId });
-      seedBlockCaches(queryClient, result, getCurrentDraftId());
+      seedBlockCaches(queryClient, result, draftScope.current());
       return result.layout;
     },
     staleTime: Infinity,
@@ -88,9 +90,10 @@ function PagesMessage({ role, children }: { role?: "status" | "alert"; children:
  * regular navigation, so the camera flies to it.
  */
 function PlacementPages({ block, projectId }: { block: Block; projectId: number }) {
+  const draftScope = useDraftScope();
   const { search, hash } = useLocation();
   const navigate = useNavigate();
-  const pages = useQuery(blockQueries.getPagesUsing(projectId, block._internal.id));
+  const pages = useQuery(blockQueries.getPagesUsing(draftScope, projectId, block._internal.id));
   if (pages.isPending) return <PagesMessage role="status">Loading pages…</PagesMessage>;
   if (pages.error)
     return <PagesMessage role="alert">Could not load the pages using this block.</PagesMessage>;

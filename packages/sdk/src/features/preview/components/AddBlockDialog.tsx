@@ -34,7 +34,7 @@ import {
   projectQueries,
 } from "@/lib/queries";
 
-import { scopedKey } from "../../../lib/studio-draft";
+import { useDraftScope } from "../../../lib/draft-scope";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -42,6 +42,7 @@ import { getGridNavigationIndex } from "./blockGridNavigation";
 import { BlockThumbnail } from "./BlockThumbnail";
 
 const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boolean }) => {
+  const draftScope = useDraftScope();
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
   const [search, setSearch] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -62,7 +63,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     ...blockMutations.create(),
     onMutate: (variables) => {
       // Optimistic insert, like useUpdateBlockPosition.
-      const pageQueryKey = scopedKey(queryKeys.pages.getByPath(pathname));
+      const pageQueryKey = draftScope.keyFor(queryKeys.pages.getByPath(pathname));
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return { pageQueryKey };
 
@@ -70,7 +71,9 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       const blockIds = previousPage.page.blockIds;
       const pageBlocks = blockIds
         .map(
-          (id) => queryClient.getQueryData<BlockBundle>(scopedKey(queryKeys.blocks.get(id)))?.block,
+          (id) =>
+            queryClient.getQueryData<BlockBundle>(draftScope.keyFor(queryKeys.blocks.get(id)))
+              ?.block,
         )
         .filter((b) => b != null);
       const { afterPosition } = variables;
@@ -115,7 +118,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       };
 
       // Seed the optimistic block's individual cache
-      queryClient.setQueryData(scopedKey(queryKeys.blocks.get(optimisticId)), {
+      queryClient.setQueryData(draftScope.keyFor(queryKeys.blocks.get(optimisticId)), {
         block: optimisticBlock,
         repeatableItems: [],
         files: [],
@@ -144,7 +147,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       }
       if (context?.optimisticId) {
         queryClient.removeQueries({
-          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
+          queryKey: draftScope.keyFor(queryKeys.blocks.get(context.optimisticId)),
         });
       }
     },
@@ -156,7 +159,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       // The optimistic bundle lacks the block's repeatable items; refetch the created block.
       if (context.optimisticId) {
         void queryClient.invalidateQueries({
-          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
+          queryKey: draftScope.keyFor(queryKeys.blocks.get(context.optimisticId)),
         });
       }
     },
@@ -170,7 +173,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
   const { data: totalCounts = {} } = useQuery({
-    ...blockQueries.getUsageCounts(project?.id ?? 0),
+    ...blockQueries.getUsageCounts(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   // Keep ordering in React rather than letting cmdk reorder the thumbnail DOM.

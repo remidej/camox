@@ -1,14 +1,12 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { Toaster, toast } from "@camox/ui/toaster";
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import studioCssUrl from "virtual:camox-studio-css";
 
 import { AuthContext, useAuthActions } from "../../lib/auth";
-import { draftQueries, projectQueries } from "../../lib/queries";
-import { getCurrentDraftId, onDraftNotice, reportDraftNotice } from "../../lib/studio-draft";
+import { useDraftScope } from "../../lib/draft-scope";
+import { projectQueries } from "../../lib/queries";
 import { useProjectRoom } from "../../lib/use-project-room";
-import { useNavigate } from "../navigation/navigation";
 import { usePreviewPagesActions } from "../preview/CamoxPreview";
 import { useNavbarActions } from "../studio/components/Navbar";
 import { draftNoticeMessage } from "../studio/draftNotice";
@@ -26,21 +24,16 @@ export function AuthenticatedCamoxProvider({ children }: { children: React.React
 
   const { apiUrl, projectSlug } = React.useContext(AuthContext)!;
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  // Dev mode's invalidations name its development draft by id; its queries are keyed
-  // `development`.
-  const developmentDraft = useQuery({
-    ...draftQueries.get(project?.id ?? 0, DEVELOPMENT_DRAFT),
-    enabled: !!project && getCurrentDraftId() === DEVELOPMENT_DRAFT,
-  });
-  const navigate = useNavigate();
+  const draftScope = useDraftScope();
   // Say why the studio shows Live when the draft a member opened, or was in, can't be shown.
-  React.useEffect(() => onDraftNotice((notice) => void toast(draftNoticeMessage(notice))), []);
-  useProjectRoom(apiUrl, project?.id, {
-    developmentDraftId: developmentDraft.data?.id,
+  React.useEffect(
+    () => draftScope.onNotice((notice) => void toast(draftNoticeMessage(notice))),
+    [draftScope],
+  );
+  useProjectRoom(apiUrl, project?.id, draftScope, {
     onDraftEnded(ended) {
-      if (ended.draftId !== getCurrentDraftId()) return;
-      reportDraftNotice({ reason: "ended", ...ended });
-      void navigate({ to: window.location.href, draft: null, replace: true });
+      if (ended.draftId !== draftScope.current()) return;
+      draftScope.leave(ended, { notice: true });
     },
   });
 

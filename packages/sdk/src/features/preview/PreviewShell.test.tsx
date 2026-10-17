@@ -3,8 +3,10 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 import { inScope, queryKeys } from "@camox/api-contract/query-keys";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
+
+import { StudioQueryClientProvider } from "../../lib/draft-scope.fixtures";
 
 Object.assign(globalThis, { React });
 
@@ -271,11 +273,11 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <CamoxPreview derived={derived} canvasOnly={canvasOnly}>
           <p data-content>Site content</p>
         </CamoxPreview>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   try {
     previewStore.send({ type: "enterEditMode" });
@@ -309,11 +311,11 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <CamoxPreview canvasOnly={canvasOnly}>
           <p data-content>Site content</p>
         </CamoxPreview>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   try {
     previewStore.send({ type: "enterEditMode" });

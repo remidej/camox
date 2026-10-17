@@ -2,7 +2,6 @@ import type { Router } from "@camox/api-contract";
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
-  DRAFT_SEARCH_PARAM,
   NO_DEVELOPMENT_DRAFT_ERROR,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
@@ -14,6 +13,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
+import { withoutDraft } from "../../lib/draft-scope";
 import { seedBlockCaches } from "../../lib/normalized-data";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -217,10 +217,7 @@ export async function readDraftOrLive<T>(
 
 /** The URL a render shows: without the draft param when the draft couldn't be read. */
 export function renderedHref(url: string, read: DraftRead): string {
-  if (!read.refusedDraft) return url;
-  const href = new URL(url);
-  href.searchParams.delete(DRAFT_SEARCH_PARAM);
-  return href.href;
+  return read.refusedDraft ? withoutDraft(url) : url;
 }
 
 export async function loadCamoxPage({

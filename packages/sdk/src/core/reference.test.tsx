@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -9,6 +9,7 @@ import { NavigationProvider } from "../features/navigation/navigation";
 import { recordPlacementId } from "../features/preview/overlayMessages";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
+import { StudioQueryClientProvider, testDraftScope } from "../lib/draft-scope.fixtures";
 import { NormalizedDataProvider, type NormalizedFile } from "../lib/normalized-data";
 import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
@@ -17,7 +18,7 @@ import { contentFieldBuilder } from "./lib/contentType";
 import { resolveReference, type ReferenceRecord } from "./lib/reference";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("https://api.example.test");
+initApiClient("https://api.example.test", testDraftScope());
 const customers = createCollection({
   id: "customers",
   title: "Customers",
@@ -92,7 +93,7 @@ void test("public scopes render source fields and labels, never fabricate missin
   });
   const render = (value: string | null, source?: ReferenceRecord, files: NormalizedFile[] = []) =>
     renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider
           value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
         >
@@ -114,7 +115,7 @@ void test("public scopes render source fields and labels, never fabricate missin
             </NormalizedDataProvider>
           </NavigationProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   assert.match(render(id, record), /aria-label="Source label"><h2><span>Acme<\/span><\/h2>/);
   assert.doesNotMatch(render(id, record), /<img|Never fabricate/);
@@ -238,7 +239,7 @@ void test("reference lists render each resolved record in stored order and nothi
   });
   const render = (value: unknown, references: ReferenceRecord[]) =>
     renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider
           value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
         >
@@ -260,7 +261,7 @@ void test("reference lists render each resolved record in stored order and nothi
             </NormalizedDataProvider>
           </NavigationProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   const missing = "9b0c6d55-1d2e-4f57-9a43-3c1b4c1f8f00";
   const html = render([second.id, missing, id], [record, second]);
@@ -343,7 +344,7 @@ void test("query-backed lists store nothing and render their resolved records in
   assert.deepEqual(block._internal.getInitialContent(), {});
   assert.deepEqual(block._internal.getInitialBundle().content, {});
   const html = renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
+    <StudioQueryClientProvider client={new QueryClient()}>
       <NormalizedDataProvider
         files={[]}
         repeatableItems={[
@@ -373,7 +374,7 @@ void test("query-backed lists store nothing and render their resolved records in
           }}
         />
       </NormalizedDataProvider>
-    </QueryClientProvider>,
+    </StudioQueryClientProvider>,
   );
   assert.match(
     html,
@@ -441,7 +442,7 @@ void test("repeatable items render the records they link, at any repeater depth"
     references,
   });
   const html = renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
+    <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
         value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
       >
@@ -467,7 +468,7 @@ void test("repeatable items render the records they link, at any repeater depth"
           </NormalizedDataProvider>
         </NavigationProvider>
       </AuthContext.Provider>
-    </QueryClientProvider>,
+    </StudioQueryClientProvider>,
   );
   assert.match(
     html,
@@ -516,7 +517,7 @@ void test("placed records render the records they link, and nothing a hop furthe
     ),
   });
   const html = renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
+    <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
         value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
       >
@@ -550,7 +551,7 @@ void test("placed records render the records they link, and nothing a hop furthe
           </NormalizedDataProvider>
         </NavigationProvider>
       </AuthContext.Provider>
-    </QueryClientProvider>,
+    </StudioQueryClientProvider>,
   );
   assert.match(html, /<i>Jane<\/i>/);
 });

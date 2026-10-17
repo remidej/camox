@@ -1,8 +1,10 @@
+import { queryKeys } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { collectionQueries } from "./queries";
-
-/** Refresh a collection's records in every placement, even without a realtime connection. */
+/**
+ * Refresh a collection's records in every placement, even without a realtime connection. Every
+ * scope's list refetches: other drafts read the records Live shows wherever they change none.
+ */
 export async function invalidateCollectionRecordViews(
   queryClient: QueryClient,
   projectSlug: string,
@@ -10,7 +12,7 @@ export async function invalidateCollectionRecordViews(
 ) {
   await Promise.all([
     queryClient.invalidateQueries({
-      queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
+      queryKey: queryKeys.collections.records(projectSlug, collectionId),
     }),
     queryClient.invalidateQueries({
       predicate: ({ queryKey }) =>

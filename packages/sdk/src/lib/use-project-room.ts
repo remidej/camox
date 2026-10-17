@@ -1,10 +1,11 @@
-import { DEVELOPMENT_DRAFT, type EndedDraft } from "@camox/api-contract/drafts";
+import type { EndedDraft } from "@camox/api-contract/drafts";
 import { scopeOfKey, type ProjectRoomMessage, type QueryKey } from "@camox/api-contract/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePartySocket } from "partysocket/react";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 
 import { getAuthCookieHeader } from "./auth";
+import type { DraftScope } from "./draft-scope";
 
 const DEBOUNCE_MS = 300;
 
@@ -13,27 +14,18 @@ type PendingInvalidation = { draftId: string | null; queryKey: QueryKey };
 /**
  * Follows the project's realtime room (ADR 0011). An invalidation from a draft refetches only
  * that draft's queries; one from Live refetches every draft's too, since drafts read Live
- * wherever they change nothing. Dev mode keys its queries `development` rather than by its
- * development draft's id, so `developmentDraftId` says which invalidations are that draft's.
+ * wherever they change nothing. The draft scope says which queries a draft's invalidation
+ * reaches: dev mode keys them `development` rather than by its development draft's id.
  */
 export function useProjectRoom(
   apiUrl: string,
   projectId: number | undefined,
-  {
-    onDraftEnded,
-    developmentDraftId,
-  }: { onDraftEnded?: (ended: EndedDraft) => void; developmentDraftId?: string } = {},
+  draftScope: DraftScope,
+  { onDraftEnded }: { onDraftEnded?: (ended: EndedDraft) => void } = {},
 ) {
   const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pendingRef = useRef<PendingInvalidation[]>([]);
-  const developmentDraftIdRef = useRef(developmentDraftId);
-  useEffect(() => {
-    developmentDraftIdRef.current = developmentDraftId;
-  }, [developmentDraftId]);
-  // The scope of the queries a draft's invalidation refetches.
-  const scopeOf = (draftId: string) =>
-    draftId === developmentDraftIdRef.current ? DEVELOPMENT_DRAFT : draftId;
 
   const host = apiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
@@ -86,13 +78,16 @@ export function useProjectRoom(
         pendingRef.current = [];
 
         for (const { draftId, queryKey } of pending) {
-          void queryClient.invalidateQueries({
-            queryKey,
-            predicate:
-              draftId === null
-                ? undefined
-                : (query) => scopeOfKey(query.queryKey) === scopeOf(draftId),
-          });
+          if (draftId === null) {
+            void queryClient.invalidateQueries({ queryKey });
+            continue;
+          }
+          void draftScope.keyScopeOfDraft(draftId, projectId!).then((keyScope) =>
+            queryClient.invalidateQueries({
+              queryKey,
+              predicate: (query) => scopeOfKey(query.queryKey) === keyScope,
+            }),
+          );
         }
       }, DEBOUNCE_MS);
     },

@@ -18,19 +18,14 @@ import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
+import { useCurrentDraftId, useDraftScope } from "@/lib/draft-scope";
 import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
-import { isDevelopmentMode, onDraftStarted } from "@/lib/studio-draft";
 
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
-import {
-  DiscardDraftDialog,
-  ReviewDraftDialog,
-  useCurrentDraftId,
-  useLeaveDraft,
-} from "./ReviewDraftDialog";
+import { DiscardDraftDialog, ReviewDraftDialog, useLeaveDraft } from "./ReviewDraftDialog";
 
 const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
@@ -48,15 +43,22 @@ const draftClassName =
  * nothing to switch to (ADR 0006). The command palette offers the same actions.
  */
 export function DraftsControl() {
+  const draftScope = useDraftScope();
   const draftId = useCurrentDraftId();
   const authCtx = React.useContext(AuthContext);
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
   const review = useSelector(studioStore, (state) => state.context.reviewDraftDialog);
   const discarding = useSelector(studioStore, (state) => state.context.isDiscardDraftDialogOpen);
-  const developmentMode = isDevelopmentMode();
+  const developmentMode = draftScope.developmentMode;
 
-  React.useEffect(() => onDraftStarted(() => void toast.success("Started a new draft")), []);
+  React.useEffect(
+    () =>
+      draftScope.subscribe(({ move }) => {
+        if (move === "started") toast.success("Started a new draft");
+      }),
+    [draftScope],
+  );
   // The dialogs belong to the draft they were opened in.
   React.useEffect(
     () => () => {

@@ -8,7 +8,7 @@ import { asCollectionItem } from "@/core/recordItem";
 import type { CollectionRecordId } from "@/core/requestContext";
 import { collectionQueries } from "@/lib/queries";
 
-import { scopedKey } from "../../lib/studio-draft";
+import { type DraftScope, useDraftScope } from "../../lib/draft-scope";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
@@ -28,15 +28,29 @@ export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRe
  * A code-owned page's loader result. Its records are what the session may read, so it reloads
  * with record edits and publication.
  */
-export function derivedPageQuery(projectSlug: string, runtimeBasePath: string, pathname: string) {
+export function derivedPageQuery(
+  draftScope: DraftScope,
+  projectSlug: string,
+  runtimeBasePath: string,
+  pathname: string,
+) {
+  const draft = draftScope.current();
   return {
-    queryKey: scopedKey([...queryKeys.layouts.all, "data", projectSlug, runtimeBasePath, pathname]),
+    queryKey: draftScope.keyFor([
+      ...queryKeys.layouts.all,
+      "data",
+      projectSlug,
+      runtimeBasePath,
+      pathname,
+    ]),
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await fetchRuntimeJson(
+        draftScope,
         "/_camox/data",
         runtimeBasePath,
         { path: pathname },
         signal,
+        draft,
       );
       // A record without live content has no page for visitors.
       if (response.status === 404) return null;
@@ -63,8 +77,9 @@ export function useDerivedPageResult({
   pathname: string;
   loaded: { result: AnyLayoutLoaderResult | undefined } | undefined;
 }): AnyLayoutLoaderResult | undefined {
+  const draftScope = useDraftScope();
   const { data } = useQuery({
-    ...derivedPageQuery(projectSlug, runtimeBasePath, pathname),
+    ...derivedPageQuery(draftScope, projectSlug, runtimeBasePath, pathname),
     enabled: loaded != null,
     initialData: loaded ? (loaded.result ?? null) : undefined,
   });
@@ -90,18 +105,26 @@ export function useFollowPageRecord({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const draftScope = useDraftScope();
   const { data: savedAt } = useQuery({
-    ...collectionQueries.record(projectSlug, record?.collectionId ?? "", record?.id ?? ""),
+    ...collectionQueries.record(
+      draftScope,
+      projectSlug,
+      record?.collectionId ?? "",
+      record?.id ?? "",
+    ),
     enabled: false,
     select: (saved) => saved.updatedAt,
   });
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
     if (!layoutId || !record) return;
     const response = await fetchRuntimeJson(
+      draftScope,
       "/_camox/routes",
       runtimeBasePath,
       { layoutId, recordId: record.id },
       signal,
+      draftScope.current(),
     );
     if (!response.ok) return;
     const { path } = (await response.json()) as { path: string | null };

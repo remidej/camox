@@ -28,7 +28,9 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const { ReviewDraftDialog } = await import("./ReviewDraftDialog");
 const { initApiClient } = await import("@/lib/api-client");
-const { getCurrentDraftId } = await import("@/lib/studio-draft");
+const { createDraftScope, DraftScopeContext } = await import("@/lib/draft-scope");
+/** The draft scope the open review runs in. */
+let draftScope: import("@/lib/draft-scope").DraftScope;
 
 const draftId = "019a0000-0000-7000-8000-000000000001";
 const blockId = "019a0000-0000-7000-8000-000000000002";
@@ -122,15 +124,23 @@ const buttonNamed = (name: RegExp) =>
 
 async function openReview() {
   window.history.replaceState(null, "", `/?${DRAFT_SEARCH_PARAM}=${draftId}`);
-  initApiClient("http://api.test");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  draftScope = createDraftScope({
+    queryClient: client,
+    browser: window as never,
+    developmentMode: false,
+  });
+  draftScope.adopt({ draftId });
+  initApiClient("http://api.test", draftScope);
   const host = window.document.createElement("div");
   window.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
   await React.act(async () =>
     root.render(
       <QueryClientProvider client={client}>
-        <ReviewDraftDialog projectId={1} draftId={draftId} open onOpenChange={() => {}} />
+        <DraftScopeContext.Provider value={draftScope}>
+          <ReviewDraftDialog projectId={1} draftId={draftId} open onOpenChange={() => {}} />
+        </DraftScopeContext.Provider>
       </QueryClientProvider>,
     ),
   );
@@ -281,7 +291,7 @@ void test("shows the new conflicts when Live changed since the preview, then pub
       ],
     );
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
-    assert.equal(getCurrentDraftId(), null);
+    assert.equal(draftScope.current(), null);
   } finally {
     await close();
   }
@@ -298,7 +308,7 @@ void test("stays in the draft when publishing finds nothing to publish", async (
 
     assert.equal(calls.filter((call) => call.path === "drafts/publish").length, 1);
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
-    assert.equal(getCurrentDraftId(), draftId);
+    assert.equal(draftScope.current(), draftId);
   } finally {
     await close();
   }

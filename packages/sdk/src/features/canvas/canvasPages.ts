@@ -1,7 +1,7 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { getPageDestinations } from "../../core/pageDestinations";
-import { scopedKey } from "../../lib/studio-draft";
+import type { DraftScope } from "../../lib/draft-scope";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 
@@ -23,14 +23,17 @@ export interface CanvasPage {
  * publication, like other layout reads.
  */
 export function canvasPageQuery(
+  draftScope: DraftScope,
   projectSlug: string,
   runtimeBasePath: string,
   pathname: string,
   derivedLayoutId: string | undefined,
 ) {
+  // The frame reads the draft its key names, even if the studio has moved on by then.
+  const draft = draftScope.current();
   return {
     queryKey: derivedLayoutId
-      ? scopedKey([
+      ? draftScope.keyFor([
           ...queryKeys.layouts.all,
           "canvas",
           projectSlug,
@@ -38,13 +41,15 @@ export function canvasPageQuery(
           pathname,
           derivedLayoutId,
         ])
-      : scopedKey(["camox", "canvas", projectSlug, runtimeBasePath, pathname]),
+      : draftScope.keyFor(["camox", "canvas", projectSlug, runtimeBasePath, pathname]),
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await fetchRuntimeJson(
+        draftScope,
         "/_camox/data",
         runtimeBasePath,
         { path: pathname },
         signal,
+        draft,
       );
       if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
       const input = (await response.json()) as PageRenderInput;

@@ -26,11 +26,13 @@ registerHooks({
         export const pageMutations = {update: () => ({})};
         export const pageQueries = {list: () => ({queryKey: ["pages"]})};
         export const layoutQueries = {list: () => ({queryKey: ["layouts"]})};
-        export const blockQueries = {getPagesUsing: (_, type) => ({queryKey: ["blockPages", type]})};`;
+        export const blockQueries = {getPagesUsing: (_scope, _projectId, type) => ({queryKey: ["blockPages", type]})};`;
     if (specifier.endsWith("/navigation"))
       source = `export const useLocation = () => globalThis.CanvasLocation;
         export const useNavigate = () => globalThis.CanvasNavigate;
         export const NavigationProvider = (props) => globalThis.CanvasNavigationProbe(props);`;
+    if (specifier.endsWith("/draft-scope"))
+      source = `export const useDraftScope = () => ({keyFor: (key) => [...key, "live"], current: () => null});`;
     if (specifier.endsWith("/CamoxAppContext"))
       source =
         "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks, getBlockById: (id) => globalThis.CanvasBlocks.find((block) => block._internal.id === id)})";

@@ -3,11 +3,12 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 import { inScope, queryKeys } from "@camox/api-contract/query-keys";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
+import { StudioQueryClientProvider } from "../../lib/draft-scope.fixtures";
 import { NavigationProvider } from "../navigation/navigation";
 import { getCanvasShelves } from "./canvasItems";
 import type { CanvasPage } from "./canvasPages";
@@ -66,8 +67,8 @@ registerHooks({
             }, pageId ?? derivedLayout?.layoutId);
           }`;
       if (specifier.endsWith("/queries"))
-        source = `export const blockQueries = {getPagesUsing: (projectId, type) => ({
-          queryKey: ["blockPages", projectId, type],
+        source = `export const blockQueries = {getPagesUsing: (scope, projectId, type) => ({
+          queryKey: scope.keyFor(["blockPages", projectId, type]),
           queryFn: () => globalThis.canvasBlockPages[type] ?? [],
         })};`;
     }
@@ -175,7 +176,7 @@ async function setup() {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
         root.render(
-          <QueryClientProvider client={client}>
+          <StudioQueryClientProvider client={client}>
             <NavigationProvider
               location={{ pathname, href: url, search, hash }}
               navigate={(options) => {
@@ -192,7 +193,7 @@ async function setup() {
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
             </NavigationProvider>
-          </QueryClientProvider>,
+          </StudioQueryClientProvider>,
         );
       });
     },

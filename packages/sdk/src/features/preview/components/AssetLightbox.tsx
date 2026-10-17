@@ -12,10 +12,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isRasterImage, transformImageUrl } from "@/core/lib/imageTransform";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { getApiUrl } from "@/lib/api-client";
+import { getContentWriteHeaders } from "@/lib/api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "@/lib/auth";
 import { fileMutations, fileQueries } from "@/lib/queries";
-import { getUploadDraftHeaders } from "@/lib/studio-draft";
 
+import { useDraftScope } from "../../../lib/draft-scope";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 
@@ -130,11 +131,12 @@ interface AssetLightboxProps {
 }
 
 const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
+  const draftScope = useDraftScope();
   const deleteFile = useMutation(fileMutations.delete());
   const setAiMetadata = useMutation(fileMutations.setAiMetadata());
   const setFilename = useMutation(fileMutations.setFilename());
   const setAlt = useMutation(fileMutations.setAlt());
-  const { data: file } = useQuery(fileQueries.get(fileId));
+  const { data: file } = useQuery(fileQueries.get(draftScope, fileId));
   const { data: usageCount } = useQuery(fileQueries.getUsageCount(fileId));
   const [uploadState, setUploadState] = useState<{
     status: "uploading" | "committing" | "complete" | "error";
@@ -234,7 +236,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
 
       // Replacing keeps the file's id, so everything using it shows the new bytes. On Live it
       // starts a draft, and Live keeps the old bytes until that draft is published.
-      const draft = getUploadDraftHeaders();
+      const draft = getContentWriteHeaders();
       try {
         const formData = new FormData();
         formData.append("file", droppedFile);

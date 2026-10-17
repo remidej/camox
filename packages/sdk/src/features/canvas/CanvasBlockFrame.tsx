@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { Block } from "../../core/createBlock";
 import { BlockEditingRuntimeProvider } from "../../core/editing/BlockEditingRuntime";
 import { ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
+import { useDraftScope } from "../../lib/draft-scope";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import { blockQueries } from "../../lib/queries";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
@@ -149,8 +150,9 @@ function DefaultBlockContent({ block }: { block: Block }) {
 
 /** A Synced Block shows the project's shared content, or its defaults until it has some. */
 function SyncedBlockContent({ block, projectId }: { block: Block; projectId: number }) {
+  const draftScope = useDraftScope();
   const { data: shared } = useSuspenseQuery(
-    blockQueries.getSyncedContent(projectId, block._internal.id),
+    blockQueries.getSyncedContent(draftScope, projectId, block._internal.id),
   );
   if (!shared) return <DefaultBlockContent block={block} />;
   return (

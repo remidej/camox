@@ -13,7 +13,7 @@ import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/no
 import { blockQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import { getCurrentDraftId, scopedKey } from "../../lib/studio-draft";
+import { useDraftScope } from "../../lib/draft-scope";
 import { canvasStore } from "../canvas/canvasStore";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
@@ -76,13 +76,14 @@ function pageStructureQueryFn(path: string, projectSlug: string) {
 }
 
 export function usePreviewedPage() {
+  const draftScope = useDraftScope();
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
 
   // Current page: SSR loader seeds block caches on first load. Client-side
   // refetches (after invalidation) use the lightweight endpoint.
   const { data: currentPage } = useSuspenseQuery({
-    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
+    queryKey: draftScope.keyFor(queryKeys.pages.getByPath(pathname)),
     queryFn: pageStructureQueryFn(pathname, projectSlug),
     staleTime: Infinity,
   });
@@ -105,7 +106,8 @@ const BlockRenderer = ({
   showAddBlockTop: boolean;
   showAddBlockBottom: boolean;
 }) => {
-  const { data } = useSuspenseQuery(blockQueries.get(blockId));
+  const draftScope = useDraftScope();
+  const { data } = useSuspenseQuery(blockQueries.get(draftScope, blockId));
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
 
@@ -223,6 +225,7 @@ export const PageContent = () => {
  * -----------------------------------------------------------------------------------------------*/
 
 function useRefreshMemberPage(pathname: string, enabled: boolean) {
+  const draftScope = useDraftScope();
   const isAuthenticated = useIsAuthenticated();
   const queryClient = useQueryClient();
   const projectSlug = useProjectSlug();
@@ -230,12 +233,14 @@ function useRefreshMemberPage(pathname: string, enabled: boolean) {
   React.useEffect(() => {
     if (!isAuthenticated || !enabled) return;
     let cancelled = false;
+    // The read lands in the scope it was made in; a move meanwhile remounts the page anyway.
+    const draft = draftScope.current();
     void getApiClient()
       .pages.getByPath({ path: pathname, projectSlug })
       .then((data) => {
-        if (cancelled) return;
-        seedBlockCaches(queryClient, data, getCurrentDraftId());
-        queryClient.setQueryData(scopedKey(queryKeys.pages.getByPath(pathname)), {
+        if (cancelled || draftScope.current() !== draft) return;
+        seedBlockCaches(queryClient, data, draft);
+        queryClient.setQueryData(draftScope.keyFor(queryKeys.pages.getByPath(pathname)), {
           page: data.page,
           layout: data.layout,
           projectName: data.projectName,
@@ -251,7 +256,7 @@ function useRefreshMemberPage(pathname: string, enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, isAuthenticated, pathname, projectSlug, queryClient]);
+  }, [draftScope, enabled, isAuthenticated, pathname, projectSlug, queryClient]);
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -295,6 +300,7 @@ export const CamoxPreview = ({
   derived?: PageRenderInput["derived"];
   canvasOnly?: PageRenderInput["canvasOnly"];
 }) => {
+  const draftScope = useDraftScope();
   const camoxApp = useCamoxApp();
   const location = useLocation();
   const shown = useShownPage(location, derived, !!canvasOnly);
@@ -309,8 +315,8 @@ export const CamoxPreview = ({
       pathname === undefined
         ? ["camox", "canvas", "canvasOnly"]
         : shownDerived
-          ? scopedKey([...queryKeys.layouts.all, "get", projectSlug, shownDerived.layoutId])
-          : scopedKey(queryKeys.pages.getByPath(pathname)),
+          ? draftScope.keyFor([...queryKeys.layouts.all, "get", projectSlug, shownDerived.layoutId])
+          : draftScope.keyFor(queryKeys.pages.getByPath(pathname)),
     queryFn: async () => {
       // A Canvas-only location, opened first, has no page to show.
       if (pathname === undefined) return null;
@@ -319,7 +325,7 @@ export const CamoxPreview = ({
         projectSlug,
         layoutId: shownDerived.layoutId,
       });
-      seedBlockCaches(queryClient, result, getCurrentDraftId());
+      seedBlockCaches(queryClient, result, draftScope.current());
       return result.layout;
     },
     initialData: pathname === undefined ? null : shownDerived?.layout,

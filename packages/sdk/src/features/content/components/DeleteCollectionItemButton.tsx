@@ -16,6 +16,8 @@ import { useState } from "react";
 
 import { collectionMutations, collectionQueries } from "@/lib/queries";
 
+import { useDraftScope } from "../../../lib/draft-scope";
+
 export function DeleteCollectionItemButton({
   projectSlug,
   collectionId,
@@ -33,6 +35,7 @@ export function DeleteCollectionItemButton({
   disabled?: boolean;
   onDeleted?: () => Promise<void> | void;
 }) {
+  const draftScope = useDraftScope();
   const [target, setTarget] = useState<{ label: string } | null>(null);
   const queryClient = useQueryClient();
   const deletion = useMutation(collectionMutations.delete());
@@ -48,10 +51,10 @@ export function DeleteCollectionItemButton({
     setTarget(null);
     await onDeleted?.();
     queryClient.removeQueries({
-      queryKey: collectionQueries.record(projectSlug, collectionId, id).queryKey,
+      queryKey: collectionQueries.record(draftScope, projectSlug, collectionId, id).queryKey,
     });
     await queryClient.invalidateQueries({
-      queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
+      queryKey: collectionQueries.records(draftScope, projectSlug, collectionId).queryKey,
     });
   };
 

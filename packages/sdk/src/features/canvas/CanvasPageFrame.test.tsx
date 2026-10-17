@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 
+import { StudioQueryClientProvider } from "../../lib/draft-scope.fixtures";
 import type { PageRenderInput } from "../runtime/runtime";
 
 // Exercise the real frame/portal and selection context without loading the RPC
@@ -98,7 +99,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
   try {
     await React.act(async () => {
       root.render(
-        <QueryClientProvider client={client}>
+        <StudioQueryClientProvider client={client}>
           <CanvasPageFrame
             input={input}
             pageId="7"
@@ -106,7 +107,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
             viewportHeight={800}
             onActivate={(owner) => activated.push(owner)}
           />
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       );
     });
     const iframe = host.querySelector("iframe")!;
@@ -125,7 +126,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     );
     await React.act(async () => {
       root.render(
-        <QueryClientProvider client={client}>
+        <StudioQueryClientProvider client={client}>
           <CanvasPageFrame
             input={{
               ...input,
@@ -137,7 +138,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
             viewportHeight={800}
             onActivate={(owner) => activated.push(owner)}
           />
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       );
     });
     assert.equal(host.querySelector("iframe"), iframe, "content updates must retain the iframe");
@@ -281,7 +282,7 @@ void test("selected ready frames own editing without a click and follow URL sele
     const [, setActive] = React.useState<unknown>(null);
     return (
       <PreviewPreparationContext value={preparation}>
-        <QueryClientProvider client={client}>
+        <StudioQueryClientProvider client={client}>
           {paths.map((path, index) => (
             <CanvasPageFrame
               key={path}
@@ -306,7 +307,7 @@ void test("selected ready frames own editing without a click and follow URL sele
               }}
             />
           ))}
-        </QueryClientProvider>
+        </StudioQueryClientProvider>
       </PreviewPreparationContext>
     );
   }

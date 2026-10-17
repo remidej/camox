@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -11,6 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { previewStore, type Selection } from "../../features/preview/previewStore";
 import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
+import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import type { CamoxApp } from "../createApp";
 import { createCollection } from "../createCollection";
@@ -38,7 +39,7 @@ Object.assign(globalThis, {
     return { id: source.id, content: source.content, createdAt: 1, updatedAt: 2 };
   },
 });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
@@ -123,7 +124,7 @@ void test("editable reference placements write one source and retain placement s
   const client = new QueryClient();
   const render = (selected: string | null = source.id) =>
     renderToStaticMarkup(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <NormalizedDataProvider
           files={[]}
           repeatableItems={[]}
@@ -142,7 +143,7 @@ void test("editable reference placements write one source and retain placement s
             />
           ))}
         </NormalizedDataProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   const html = render();
   assert.match(html, /data-camox-field-id="1__customer__source-id__name"/);
@@ -203,7 +204,7 @@ void test("an unset reference placeholder names the collection and selects the r
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
     <CamoxAppProvider app={app as unknown as CamoxApp}>
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
           <block._internal.Component
             mode={mode}
@@ -215,7 +216,7 @@ void test("an unset reference placeholder names the collection and selects the r
             }}
           />
         </NormalizedDataProvider>
-      </QueryClientProvider>
+      </StudioQueryClientProvider>
     </CamoxAppProvider>
   );
 
@@ -308,7 +309,7 @@ void test("clicks inside a placed record select its record field or the record f
   try {
     await act(async () =>
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
+        <StudioQueryClientProvider client={new QueryClient()}>
           <PreviewEditingOwnerContext value={owner}>
             <NormalizedDataProvider
               files={[]}
@@ -329,7 +330,7 @@ void test("clicks inside a placed record select its record field or the record f
               ))}
             </NormalizedDataProvider>
           </PreviewEditingOwnerContext>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       ),
     );
 
@@ -480,7 +481,7 @@ void test("record images and files select their record field for that placement 
   try {
     await act(async () =>
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
+        <StudioQueryClientProvider client={new QueryClient()}>
           <PreviewEditingOwnerContext value={owner}>
             <NormalizedDataProvider
               files={[]}
@@ -504,7 +505,7 @@ void test("record images and files select their record field for that placement 
               ))}
             </NormalizedDataProvider>
           </PreviewEditingOwnerContext>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       ),
     );
 
@@ -590,7 +591,7 @@ void test("record embeds select their record field for that placement only", asy
   try {
     await act(async () =>
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
+        <StudioQueryClientProvider client={new QueryClient()}>
           <PreviewEditingOwnerContext value={owner}>
             <NormalizedDataProvider
               files={[]}
@@ -611,7 +612,7 @@ void test("record embeds select their record field for that placement only", asy
               ))}
             </NormalizedDataProvider>
           </PreviewEditingOwnerContext>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       ),
     );
 
@@ -670,7 +671,7 @@ void test("editable reference lists render their linked records in stored order"
   });
   const render = (customerIds: string[]) =>
     renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <NormalizedDataProvider
           files={[]}
           repeatableItems={[]}
@@ -686,7 +687,7 @@ void test("editable reference lists render their linked records in stored order"
             }}
           />
         </NormalizedDataProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   const writesBefore = requests.length;
   const html = render(["beta-id", "missing-id", "acme-id"]);
@@ -746,7 +747,7 @@ void test("editable query-backed lists render resolved records with the same sco
   });
   const render = (mode: "site" | "peek", resolved: ReferenceRecord[]) =>
     renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <NormalizedDataProvider
           files={[]}
           repeatableItems={[
@@ -777,7 +778,7 @@ void test("editable query-backed lists render resolved records with the same sco
             }}
           />
         </NormalizedDataProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   const html = render("site", [records[1], records[0]]);
   const labels = (markup: string, tag: string) =>
@@ -825,7 +826,7 @@ void test("an empty reference list shows an add placeholder in edit mode that fo
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
     <CamoxAppProvider app={app as unknown as CamoxApp}>
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
           <block._internal.Component
             mode={mode}
@@ -837,7 +838,7 @@ void test("an empty reference list shows an add placeholder in edit mode that fo
             }}
           />
         </NormalizedDataProvider>
-      </QueryClientProvider>
+      </StudioQueryClientProvider>
     </CamoxAppProvider>
   );
 
@@ -936,7 +937,7 @@ void test("clicks inside a listed record select its record field or the record f
   const hovered = (element: Element) => element.hasAttribute("data-camox-hovered");
   const render = (ids: string[]) =>
     root.render(
-      <QueryClientProvider client={new QueryClient()}>
+      <StudioQueryClientProvider client={new QueryClient()}>
         <PreviewEditingOwnerContext value={owner}>
           <NormalizedDataProvider
             files={[]}
@@ -957,7 +958,7 @@ void test("clicks inside a listed record select its record field or the record f
             ))}
           </NormalizedDataProvider>
         </PreviewEditingOwnerContext>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   try {
     await act(async () => render(["acme", "beta"]));
@@ -1072,7 +1073,7 @@ void test("inline edits of a listed record write the shared record and refresh e
   const client = new QueryClient();
   const render = () =>
     renderToStaticMarkup(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <NormalizedDataProvider
           files={[]}
           repeatableItems={[]}
@@ -1093,7 +1094,7 @@ void test("inline edits of a listed record write the shared record and refresh e
             />
           ))}
         </NormalizedDataProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   editors.length = 0;
   const writesBefore = requests.length;
@@ -1200,7 +1201,7 @@ void test("images and files of listed records select their record field for that
   try {
     await act(async () =>
       root.render(
-        <QueryClientProvider client={new QueryClient()}>
+        <StudioQueryClientProvider client={new QueryClient()}>
           <PreviewEditingOwnerContext value={owner}>
             <NormalizedDataProvider
               files={[]}
@@ -1221,7 +1222,7 @@ void test("images and files of listed records select their record field for that
               ))}
             </NormalizedDataProvider>
           </PreviewEditingOwnerContext>
-        </QueryClientProvider>,
+        </StudioQueryClientProvider>,
       ),
     );
 
@@ -1338,7 +1339,7 @@ void test("repeatable items place records of their own, selected and linked per 
     await act(async () =>
       root.render(
         <CamoxAppProvider app={app as unknown as CamoxApp}>
-          <QueryClientProvider client={new QueryClient()}>
+          <StudioQueryClientProvider client={new QueryClient()}>
             <PreviewEditingOwnerContext value={owner}>
               <NormalizedDataProvider files={[]} repeatableItems={items} blocks={[]}>
                 <block._internal.Component
@@ -1353,7 +1354,7 @@ void test("repeatable items place records of their own, selected and linked per 
                 />
               </NormalizedDataProvider>
             </PreviewEditingOwnerContext>
-          </QueryClientProvider>
+          </StudioQueryClientProvider>
         </CamoxAppProvider>,
       ),
     );
@@ -1501,7 +1502,7 @@ void test("records placed by a block render the records they link, one hop furth
     await act(async () =>
       root.render(
         <CamoxAppProvider app={app as unknown as CamoxApp}>
-          <QueryClientProvider client={new QueryClient()}>
+          <StudioQueryClientProvider client={new QueryClient()}>
             <PreviewEditingOwnerContext value={owner}>
               <NormalizedDataProvider
                 files={[]}
@@ -1519,7 +1520,7 @@ void test("records placed by a block render the records they link, one hop furth
                 />
               </NormalizedDataProvider>
             </PreviewEditingOwnerContext>
-          </QueryClientProvider>
+          </StudioQueryClientProvider>
         </CamoxAppProvider>,
       ),
     );

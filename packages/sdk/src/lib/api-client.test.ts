@@ -15,8 +15,9 @@ Object.assign(globalThis, {
   localStorage: window.localStorage,
   __CAMOX_TELEMETRY_DISABLED__: true,
 });
-const { getApiClient, initApiClient } = await import("./api-client");
-const { getUploadDraftHeaders, readDraftFromUrl } = await import("./studio-draft");
+const { QueryClient } = await import("@tanstack/react-query");
+const { getApiClient, getContentWriteHeaders, initApiClient } = await import("./api-client");
+const { createDraftScope } = await import("./draft-scope");
 
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -50,9 +51,19 @@ function okJson(json: unknown) {
   });
 }
 
-function openStudio(url: string) {
+/** Opens the studio at `url`, viewing the draft it names, or in dev mode its development draft. */
+function openStudio(url: string, { developmentMode = false } = {}) {
   window.history.replaceState(null, "", url);
-  initApiClient("http://api.test");
+  const draftScope = createDraftScope({
+    queryClient: new QueryClient(),
+    browser: window as never,
+    developmentMode,
+  });
+  draftScope.adopt({
+    draftId: new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM) ?? undefined,
+  });
+  initApiClient("http://api.test", draftScope);
+  return draftScope;
 }
 
 const blockEdit = () =>
@@ -218,14 +229,14 @@ void test("changing a file on Live starts a draft, and reading or generating met
 
 void test("an upload on Live asks for a new draft, and the studio enters it once it succeeds", async () => {
   openStudio("/about");
-  const upload = getUploadDraftHeaders();
+  const upload = getContentWriteHeaders();
   assert.equal(upload.headers[DRAFT_CREATE_HEADER], "1");
   const draftId = upload.headers[DRAFT_HEADER];
   assert.match(draftId ?? "", UUIDV7);
   upload.settle(true);
 
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
-  assert.deepEqual(getUploadDraftHeaders().headers, { [DRAFT_HEADER]: draftId });
+  assert.deepEqual(getContentWriteHeaders().headers, { [DRAFT_HEADER]: draftId });
 });
 
 void test("a record edit on Live starts a draft, while reading records doesn't", async (t) => {
@@ -252,18 +263,9 @@ void test("a record edit on Live starts a draft, while reading records doesn't",
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), sent[1].draft);
 });
 
-function devMode(t: test.TestContext) {
-  Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: true });
-  t.after(() => {
-    readDraftFromUrl({});
-    Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: false });
-  });
-}
-
 void test("dev mode reads and writes the development draft and ignores the URL's draft", async (t) => {
-  devMode(t);
   const draftId = "01890a5d-ac96-774b-bcce-b302099a8057";
-  openStudio(`/about?${DRAFT_SEARCH_PARAM}=${draftId}`);
+  openStudio(`/about?${DRAFT_SEARCH_PARAM}=${draftId}`, { developmentMode: true });
   const sent = mockApi(t);
 
   await getApiClient().pages.get({ id: "page-1" } as never);
@@ -274,13 +276,12 @@ void test("dev mode reads and writes the development draft and ignores the URL's
     sent.map(({ draft, create }) => ({ draft, create })),
     sent.map(() => ({ draft: DEVELOPMENT_DRAFT, create: null })),
   );
-  assert.deepEqual(getUploadDraftHeaders().headers, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
+  assert.deepEqual(getContentWriteHeaders().headers, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
 });
 
 void test("dev mode never starts a draft or writes one to the URL", async (t) => {
-  devMode(t);
-  openStudio("/about");
+  openStudio("/about", { developmentMode: true });
   const historyLength = window.history.length;
   const sent = mockApi(t);
 
@@ -296,9 +297,8 @@ void test("dev mode never starts a draft or writes one to the URL", async (t) =>
 });
 
 void test("dev mode shows Live where the page couldn't read the development draft, and starts no draft there", async (t) => {
-  devMode(t);
-  openStudio("/about");
-  readDraftFromUrl({ refusedDraft: { notice: null } });
+  const draftScope = openStudio("/about", { developmentMode: true });
+  draftScope.adopt({ refusedDraft: { notice: null } });
   const sent = mockApi(t);
 
   await getApiClient().pages.get({ id: "page-1" } as never);
@@ -313,7 +313,7 @@ void test("dev mode shows Live where the page couldn't read the development draf
   assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
 
   // Once a page reads the development draft again, so does the studio.
-  readDraftFromUrl({ draftId: DEVELOPMENT_DRAFT });
+  draftScope.adopt({ draftId: DEVELOPMENT_DRAFT });
   await getApiClient().pages.get({ id: "page-1" } as never);
   assert.equal(sent[2].draft, DEVELOPMENT_DRAFT);
 });

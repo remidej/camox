@@ -4,6 +4,7 @@ import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
+import { useDraftScope } from "../../lib/draft-scope";
 import { blockQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
@@ -143,9 +144,10 @@ function CanvasPageFrameLoader({
   mode,
   onActivate,
 }: CanvasPagePreviewProps & { mode: CanvasFrameMode }) {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const { data, error, isPending, isFetching, refetch } = useQuery({
-    ...canvasPageQuery(projectSlug, runtimeBasePath, pathname, derivedLayoutId),
+    ...canvasPageQuery(draftScope, projectSlug, runtimeBasePath, pathname, derivedLayoutId),
     retry: false,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
@@ -220,7 +222,8 @@ function CanvasBlockUsageHeader({
   block: Block;
   onSelect: () => void;
 }) {
-  const pages = useQuery(blockQueries.getPagesUsing(projectId, block._internal.id));
+  const draftScope = useDraftScope();
+  const pages = useQuery(blockQueries.getPagesUsing(draftScope, projectId, block._internal.id));
   return <CanvasBlockHeader block={block} pageCount={pages.data?.length} onSelect={onSelect} />;
 }
 
@@ -264,11 +267,12 @@ function CanvasWorkspace({
   onSelectionIntent: (pathname: string) => void;
   ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
+  const draftScope = useDraftScope();
   const { apiUrl, projectSlug } = useAuthContext();
   const queryClient = useQueryClient();
   const updatePage = useMutation(pageMutations.update());
   const renamePage = async (pageId: string, nickname: string) => {
-    const page = await queryClient.fetchQuery(pageQueries.getById(pageId));
+    const page = await queryClient.fetchQuery(pageQueries.getById(draftScope, pageId));
     await updatePage.mutateAsync({
       id: pageId,
       nickname,
@@ -631,6 +635,7 @@ function useDiscoveredPreviewPaths(runtimeBasePath: string) {
 }
 
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
+  const draftScope = useDraftScope();
   const app = useCamoxApp();
   const location = useLocation();
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
@@ -661,7 +666,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const projectSlug = useProjectSlug();
   const project = useQuery(projectQueries.getBySlug(projectSlug));
   const pages = useQuery({
-    ...pageQueries.list(project.data?.id ?? 0),
+    ...pageQueries.list(draftScope, project.data?.id ?? 0),
     enabled: !!project.data,
   });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
@@ -692,6 +697,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   // The intended frame's data names a record page's record. Its frame loads it; only read here.
   const { data: intendedFrameInput } = useQuery({
     ...canvasPageQuery(
+      draftScope,
       projectSlug,
       runtimeBasePath,
       intended.pathname,

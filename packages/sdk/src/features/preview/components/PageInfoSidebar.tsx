@@ -54,6 +54,7 @@ import {
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { useDraftScope } from "../../../lib/draft-scope";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
@@ -65,16 +66,17 @@ import { ShikiMarkdown } from "./ShikiMarkdown";
 type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 
 const usePageMetadataData = (pageId: string) => {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
-  const { data: page } = useQuery(pageQueries.getById(pageId));
+  const { data: page } = useQuery(pageQueries.getById(draftScope, pageId));
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
+    ...pageQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   const { data: allLayouts } = useQuery({
-    ...layoutQueries.list(project?.id ?? 0),
+    ...layoutQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
 
@@ -832,6 +834,7 @@ const SocialPreviewSection = ({
   layoutId?: string;
   projectName?: string;
 }) => {
+  const draftScope = useDraftScope();
   const pageMetaTitle = page.metaTitle ?? page.pathSegment;
   const ogImageParams = new URLSearchParams({
     ...(layoutId && { layoutId }),
@@ -849,7 +852,9 @@ const SocialPreviewSection = ({
   const uploadCustomOgImage = useMutation({
     ...pageMutations.uploadCustomOgImage(),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: pageQueries.getById(page.id).queryKey });
+      void queryClient.invalidateQueries({
+        queryKey: pageQueries.getById(draftScope, page.id).queryKey,
+      });
     },
     onError: (error: Error) => {
       toast.error(error.message || "Could not upload image");
@@ -859,7 +864,9 @@ const SocialPreviewSection = ({
   const deleteCustomOgImage = useMutation({
     ...pageMutations.deleteCustomOgImage(),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: pageQueries.getById(page.id).queryKey });
+      void queryClient.invalidateQueries({
+        queryKey: pageQueries.getById(draftScope, page.id).queryKey,
+      });
     },
     onError: () => {
       toast.error("Could not remove image");
@@ -956,7 +963,8 @@ const PageMarkdownPreview = ({
   metaTitle: string;
   metaDescription: string;
 }) => {
-  const { data: markdown } = useQuery(blockQueries.getPageMarkdown(pageId));
+  const draftScope = useDraftScope();
+  const { data: markdown } = useQuery(blockQueries.getPageMarkdown(draftScope, pageId));
   if (markdown === undefined) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 py-2 text-sm">

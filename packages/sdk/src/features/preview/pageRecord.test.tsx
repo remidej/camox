@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
 
@@ -10,11 +10,15 @@ import { initApiClient } from "@/lib/api-client";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import { collectionQueries } from "@/lib/queries";
 
+import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 
+/** Live, like the scope the rendered studio views. */
+const draftScope = testDraftScope();
+
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 
 const record = (title: string): AnyLayoutLoaderResult => ({
   kind: "collection-item",
@@ -49,9 +53,9 @@ async function renderPreview(t: TestContext, title: string) {
   }
   await act(async () =>
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <Title />
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     ),
   );
   const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -93,7 +97,7 @@ async function renderRecordPage(t: TestContext, pathname: string) {
   }
   await act(async () =>
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <NavigationProvider
           location={{ pathname, href: `${pathname}?zoom=2`, search: "?zoom=2", hash: "" }}
           navigate={(options) => {
@@ -102,7 +106,7 @@ async function renderRecordPage(t: TestContext, pathname: string) {
         >
           <Studio />
         </NavigationProvider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     ),
   );
   const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -116,7 +120,7 @@ async function renderRecordPage(t: TestContext, pathname: string) {
     site.articlePath = `/articles/${slug}`;
     await act(async () =>
       client.setQueryData(
-        collectionQueries.record("site", ARTICLE.collectionId, ARTICLE.id).queryKey,
+        collectionQueries.record(draftScope, "site", ARTICLE.collectionId, ARTICLE.id).queryKey,
         { id: ARTICLE.id, content: { slug }, createdAt: 1000, updatedAt },
       ),
     );

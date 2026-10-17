@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -19,10 +19,14 @@ import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 import { collectionQueries } from "@/lib/queries";
 
+import { StudioQueryClientProvider, testDraftScope } from "../../../lib/draft-scope.fixtures";
 import { referencePickerFocus } from "../referencePickerFocus";
 
+/** Live, like the scope the rendered studio views. */
+const draftScope = testDraftScope();
+
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788");
+initApiClient("http://localhost:8788", testDraftScope());
 
 const customers = createCollection({
   id: "customers",
@@ -106,10 +110,10 @@ async function renderReference(
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
   client.setQueryData(
-    collectionQueries.records("site", "customers").queryKey,
+    collectionQueries.records(draftScope, "site", "customers").queryKey,
     options.records ?? defaultRecords,
   );
-  client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
+  client.setQueryData(collectionQueries.get(draftScope, "site", "customers").queryKey, {
     collectionId: "customers",
     title: "Customers",
     description: "",
@@ -158,7 +162,7 @@ async function renderReference(
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <QueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
             projectSlug: "site",
@@ -175,7 +179,7 @@ async function renderReference(
             </CollectionItemModalProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
-      </QueryClientProvider>,
+      </StudioQueryClientProvider>,
     );
   });
 

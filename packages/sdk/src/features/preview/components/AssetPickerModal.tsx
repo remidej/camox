@@ -16,6 +16,7 @@ import { useProjectSlug } from "@/lib/auth";
 import type { File } from "@/lib/queries";
 import { fileQueries, projectQueries } from "@/lib/queries";
 
+import { useDraftScope } from "../../../lib/draft-scope";
 import { AssetLightbox } from "./AssetLightbox";
 
 interface AssetPickerModalProps {
@@ -35,10 +36,11 @@ const AssetPickerModal = ({
   onSelectSingle,
   onSelectMultiple,
 }: AssetPickerModalProps) => {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: allFiles } = useQuery({
-    ...fileQueries.list(project?.id ?? 0),
+    ...fileQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());

@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
 import { prefetchIcons } from "../../core/lib/icons";
-import { renderInDraft } from "../../lib/studio-draft";
+import { createDraftScope } from "../../lib/draft-scope";
 import { PageApp } from "./pageApp";
 import type { PageRenderInput } from "./runtime";
 import { loadRuntimeChrome } from "./runtimeChromeLoader";
@@ -19,7 +19,14 @@ export async function renderPageWithApp(input: PageRenderInput & { camoxApp: Cam
   // so the document serializer includes the SVGs fetched for this render.
   Object.assign(input.dehydratedState as object, dehydrate(queryClient));
 
-  return renderInDraft(input.draftId, () =>
-    renderToString(<PageApp camoxApp={input.camoxApp} input={input} queryClient={queryClient} />),
+  // Each request renders in its own draft scope, so its queries read the keys it seeded.
+  const draftScope = createDraftScope({ queryClient });
+  return renderToString(
+    <PageApp
+      camoxApp={input.camoxApp}
+      draftScope={draftScope}
+      input={input}
+      queryClient={queryClient}
+    />,
   );
 }

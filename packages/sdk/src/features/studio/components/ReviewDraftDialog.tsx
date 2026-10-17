@@ -18,8 +18,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import * as React from "react";
 
+import { useDraftScope } from "@/lib/draft-scope";
 import { draftMutations, draftQueries, type DraftSummary } from "@/lib/queries";
-import { getCurrentDraftId, isDevelopmentMode, switchToLive } from "@/lib/studio-draft";
 
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 
@@ -148,36 +148,15 @@ function Changes({ changes }: { changes: PublishPreview["changes"] }) {
   );
 }
 
-/** The draft the studio is in, following switches that the studio's navigation announces. */
-export function useCurrentDraftId() {
-  return React.useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener("camox:navigation", onChange);
-      window.addEventListener("popstate", onChange);
-      return () => {
-        window.removeEventListener("camox:navigation", onChange);
-        window.removeEventListener("popstate", onChange);
-      };
-    },
-    getCurrentDraftId,
-    () => null,
-  );
-}
-
 /**
  * Switches the studio to Live once its draft ended here, replacing the draft's URL entry. A
  * development draft never ends: publishing or discarding empties it, and dev mode stays in it.
  */
 export function useLeaveDraft() {
-  const queryClient = useQueryClient();
+  const draftScope = useDraftScope();
   return (ended: EndedDraft | null) => {
-    if (isDevelopmentMode()) {
-      void queryClient.invalidateQueries({ queryKey: ["camox"] });
-      return;
-    }
-    switchToLive();
-    void queryClient.invalidateQueries({ queryKey: ["camox"] });
-    if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
+    const left = draftScope.leave(ended);
+    if (left && ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
   };
 }
 

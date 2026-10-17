@@ -23,6 +23,7 @@ import {
   repeatableItemMutations,
 } from "@/lib/queries";
 
+import { type DraftScope, useDraftScope } from "../../../lib/draft-scope";
 import { contentFieldSchema } from "./contentFieldSchema";
 
 /**
@@ -85,13 +86,14 @@ function withReferenceList(
  */
 function applyReferenceListOptimistically(
   queryClient: QueryClient,
+  draftScope: DraftScope,
   blockId: string,
   owner: ListOwner,
   fieldName: string,
   ids: string[],
   linkRecord: (id: string) => Promise<NormalizedCollectionRecord>,
 ) {
-  const queryKey = blockQueries.get(blockId).queryKey;
+  const queryKey = blockQueries.get(draftScope, blockId).queryKey;
   const previous = queryClient.getQueryData<BlockBundle>(queryKey);
   const previousOwner = previous && listOwnerIn(previous, owner);
   if (!previous || !previousOwner) return () => {};
@@ -136,6 +138,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
   const updateBlockContent = useMutation(blockMutations.updateContent());
   const updateItemContent = useMutation(repeatableItemMutations.updateContent());
   const editRecord = useMutation(collectionMutations.edit());
+  const draftScope = useDraftScope();
 
   return React.useCallback(
     (fieldName: string, value: unknown) => {
@@ -148,7 +151,8 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
           .save(record, fieldName, serializeAssetField(fieldType, value), async (input) => {
             const saved = await editRecord.mutateAsync({ ...input, projectSlug });
             queryClient.setQueryData(
-              collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+              collectionQueries.record(draftScope, projectSlug, record.collectionId, record.id)
+                .queryKey,
               saved,
             );
             // Shared source changes must refresh every placement, not only this block.
@@ -172,7 +176,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         const { collectionId = "" } = field;
         const linkRecord = async (recordId: string): Promise<NormalizedCollectionRecord> => {
           const record = await queryClient.ensureQueryData(
-            collectionQueries.record(projectSlug, collectionId, recordId),
+            collectionQueries.record(draftScope, projectSlug, collectionId, recordId),
           );
           const labelField = camoxApp.getCollectionById(collectionId)?._internal.label;
           const label = labelField ? record.content[labelField] : undefined;
@@ -186,6 +190,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         return (async () => {
           const restore = applyReferenceListOptimistically(
             queryClient,
+            draftScope,
             target.blockId,
             target.kind === "item" ? { kind: "item", itemId: target.itemId } : { kind: "block" },
             fieldName,
@@ -203,7 +208,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
             throw cause;
           }
           void queryClient.invalidateQueries({
-            queryKey: blockQueries.get(target.blockId).queryKey,
+            queryKey: blockQueries.get(draftScope, target.blockId).queryKey,
           });
         })();
       }
@@ -220,6 +225,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       target,
       schema,
       queryClient,
+      draftScope,
       projectSlug,
       camoxApp,
       editRecord,

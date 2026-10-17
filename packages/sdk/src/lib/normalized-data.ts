@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
 
+import { useDraftScope } from "./draft-scope";
 import type { BlockBundle, PageStructure, PageWithBlocks } from "./queries";
 import { viewBlockQueries } from "./view-queries";
 
@@ -208,6 +209,7 @@ export function usePageBlocks(pageStructure: {
   page: Pick<PageStructure["page"], "blockIds">;
   layout: PageStructure["layout"];
 }) {
+  const draftScope = useDraftScope();
   const blockIds = pageStructure.page.blockIds;
   const beforeIds = pageStructure.layout?.beforeBlockIds ?? EMPTY_IDS;
   const afterIds = pageStructure.layout?.afterBlockIds ?? EMPTY_IDS;
@@ -218,7 +220,7 @@ export function usePageBlocks(pageStructure: {
   );
 
   const results = useQueries({
-    queries: allIds.map((id) => viewBlockQueries.get(id)),
+    queries: allIds.map((id) => viewBlockQueries.get(draftScope, id)),
   });
 
   const bundleMap = React.useMemo(() => {

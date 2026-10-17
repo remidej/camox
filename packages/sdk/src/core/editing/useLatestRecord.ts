@@ -4,6 +4,7 @@ import * as React from "react";
 import { useProjectSlug } from "@/lib/auth";
 import { collectionQueries } from "@/lib/queries";
 
+import { useDraftScope } from "../../lib/draft-scope";
 import { latestContent, type ReferenceRecord, type SavedRecord } from "../lib/reference";
 import { fieldPlainText } from "../recordItem";
 import type { LoadedRecord } from "../requestContext";
@@ -23,8 +24,10 @@ export function useLatestRecord({
   loaded: LoadedRecord | undefined;
 }): ReferenceRecord | undefined {
   const projectSlug = useProjectSlug();
+  const draftScope = useDraftScope();
   const { data: saved } = useQuery<SavedRecord>({
-    queryKey: collectionQueries.record(projectSlug, collectionId, loaded?.id ?? "").queryKey,
+    queryKey: collectionQueries.record(draftScope, projectSlug, collectionId, loaded?.id ?? "")
+      .queryKey,
     enabled: false,
   });
   return React.useMemo(() => {

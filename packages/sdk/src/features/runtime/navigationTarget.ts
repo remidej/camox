@@ -1,6 +1,4 @@
-import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
-
-import { getCurrentDraftId, isDevelopmentMode } from "../../lib/studio-draft";
+import type { DraftScope } from "../../lib/draft-scope";
 
 export function runtimePath(pathname: string, basePath: string) {
   const base = basePath.replace(/\/$/, "");
@@ -8,20 +6,21 @@ export function runtimePath(pathname: string, basePath: string) {
   return `${base}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
 
-/** Requests one of the runtime's JSON endpoints (`/_camox/data`, `/_camox/routes`) as the editor. */
+/**
+ * Requests one of the runtime's JSON endpoints (`/_camox/data`, `/_camox/routes`) as the editor,
+ * reading `draft` (null for Live). Dev mode's runtime always reads the development draft.
+ */
 export function fetchRuntimeJson(
+  draftScope: DraftScope,
   endpoint: string,
   runtimeBasePath: string,
   params: Record<string, string>,
   signal: AbortSignal,
+  draft: string | null,
 ) {
   const url = new URL(runtimePath(endpoint, runtimeBasePath), window.location.origin);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-  // The runtime reads the draft the studio is in, like the page around it. Dev mode's runtime
-  // always reads the development draft.
-  const draftId = getCurrentDraftId();
-  if (draftId && !isDevelopmentMode()) url.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
-  return fetch(url, {
+  return fetch(new URL(draftScope.hrefFor(url.href, { draft })), {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     signal,

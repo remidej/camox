@@ -4,8 +4,8 @@ import * as React from "react";
 
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
+import { useDraftScope } from "../../lib/draft-scope";
 import { NormalizedDataProvider, usePageBlocks } from "../../lib/normalized-data";
-import { scopedKey } from "../../lib/studio-draft";
 import { viewBlockQueries } from "../../lib/view-queries";
 import { useLocation } from "../navigation/navigation";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
@@ -17,7 +17,8 @@ function pageStructureQueryFn(path: string, projectSlug: string) {
 }
 
 function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout" }) {
-  const { data } = useSuspenseQuery(viewBlockQueries.get(blockId));
+  const draftScope = useDraftScope();
+  const { data } = useSuspenseQuery(viewBlockQueries.get(draftScope, blockId));
   const camoxApp = useCamoxApp();
   // Hydration and navigation load a page's blocks first; this only waits for one they missed.
   const blockDef =
@@ -49,11 +50,12 @@ function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout"
 
 /** A curated page as visitors see it, without editing. */
 export function CuratedPageContent() {
+  const draftScope = useDraftScope();
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
   const { data: pageData } = useSuspenseQuery({
-    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
+    queryKey: draftScope.keyFor(queryKeys.pages.getByPath(pathname)),
     queryFn: pageStructureQueryFn(pathname, projectSlug),
     staleTime: Infinity,
   });

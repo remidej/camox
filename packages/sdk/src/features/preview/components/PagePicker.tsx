@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 import type { Layout } from "../../../core/createLayout";
 import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
+import { useDraftScope } from "../../../lib/draft-scope";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { DerivedLayoutDialog } from "./DerivedLayoutDialog";
@@ -45,6 +46,7 @@ const CREATE_PAGE_VALUE = "__create_page__";
 const DERIVED_LAYOUT_PREFIX = "__derived_layout__:";
 
 const PagePicker = () => {
+  const draftScope = useDraftScope();
   const [open, setOpen] = React.useState(false);
   const camoxApp = useCamoxApp();
   const derivedLayouts = camoxApp
@@ -57,7 +59,7 @@ const PagePicker = () => {
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const deletePage = useMutation(pageMutations.delete());
   const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
+    ...pageQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   const { pathname } = useLocation();

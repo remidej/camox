@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -10,6 +10,7 @@ import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoute
 import { getPageDestinations } from "../../core/pageDestinations";
 import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
 import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
+import { draftNamedBy } from "../../lib/draft-scope";
 import { seedBlockCaches } from "../../lib/normalized-data";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
@@ -161,7 +162,7 @@ export function getRuntimePathname(
  */
 function getRequestDraftId(request: Request, options: RuntimeOptions): string | undefined {
   if (options.developmentDraft) return DEVELOPMENT_DRAFT;
-  return new URL(request.url).searchParams.get(DRAFT_SEARCH_PARAM) || undefined;
+  return draftNamedBy(request.url) ?? undefined;
 }
 
 /**

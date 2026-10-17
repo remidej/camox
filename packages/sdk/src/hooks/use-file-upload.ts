@@ -1,8 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import { getApiUrl } from "@/lib/api-client";
+import { getContentWriteHeaders } from "@/lib/api-client";
 import { getAuthCookieHeader } from "@/lib/auth";
-import { getUploadDraftHeaders } from "@/lib/studio-draft";
 
 export interface UploadItem {
   id: string;
@@ -44,7 +44,7 @@ export function useFileUpload(options?: UseFileUploadOptions) {
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         // An upload on Live starts a draft, like any other content write.
-        const draft = getUploadDraftHeaders();
+        const draft = getContentWriteHeaders();
 
         xhr.upload.addEventListener("progress", (event) => {
           if (!event.lengthComputable) return;

@@ -8,6 +8,7 @@ import { NavigationProvider } from "../features/navigation/navigation";
 import { CamoxAppProvider } from "../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
+import { testDraftScope } from "../lib/draft-scope.fixtures";
 import {
   chartBlock,
   chartData,
@@ -26,7 +27,7 @@ import { ArtifactStudioContext } from "./hooks/useArtifactHost";
 import type { ArtifactStudio } from "./lib/artifactHost";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("https://api.example.test");
+initApiClient("https://api.example.test", testDraftScope());
 
 const source = `<!doctype html><html><head><title>  Orbiting   moons </title></head><body><svg></svg></body></html>`;
 

@@ -8,6 +8,8 @@ import { renderToString } from "react-dom/server";
 
 import { createApp } from "../../core/createApp";
 import { createLayout, notFound, type LayoutLoaderResult } from "../../core/createLayout";
+import { DraftScopeContext } from "../../lib/draft-scope";
+import { testDraftScope } from "../../lib/draft-scope.fixtures";
 import { useNavigate } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { readHydrationData } from "./hydrationData";
@@ -103,7 +105,9 @@ void test("real rendering, hydration and client navigation preserve loader envel
       try {
         return renderToString(
           <QueryClientProvider client={client}>
-            <DerivedPageContent camoxApp={app} derived={input.derived!} />
+            <DraftScopeContext.Provider value={testDraftScope(client)}>
+              <DerivedPageContent camoxApp={app} derived={input.derived!} />
+            </DraftScopeContext.Provider>
           </QueryClientProvider>,
         );
       } finally {
@@ -176,18 +180,20 @@ void test("real rendering, hydration and client navigation preserve loader envel
       root = hydrateRoot(
         document.getElementById("root")!,
         <QueryClientProvider client={queryClient}>
-          <PageNavigationProvider
-            camoxApp={createApp({ blocks: [] })}
-            initialInput={input}
-            queryClient={queryClient}
-          >
-            {(current) => (
-              <>
-                <CaptureNavigation />
-                <DerivedPageContent camoxApp={app} derived={current.derived!} />
-              </>
-            )}
-          </PageNavigationProvider>
+          <DraftScopeContext.Provider value={testDraftScope(queryClient)}>
+            <PageNavigationProvider
+              camoxApp={createApp({ blocks: [] })}
+              initialInput={input}
+              queryClient={queryClient}
+            >
+              {(current) => (
+                <>
+                  <CaptureNavigation />
+                  <DerivedPageContent camoxApp={app} derived={current.derived!} />
+                </>
+              )}
+            </PageNavigationProvider>
+          </DraftScopeContext.Provider>
         </QueryClientProvider>,
         { onRecoverableError: (error) => errors.push(error) },
       );

@@ -5,6 +5,7 @@ import * as React from "react";
 import type { NormalizedItem } from "@/lib/normalized-data";
 import { blockQueries, repeatableItemMutations } from "@/lib/queries";
 
+import { useDraftScope } from "../../../lib/draft-scope";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -193,9 +194,10 @@ const getArraySchemaForItem = (
  * return disabled actions.
  */
 export const useCurrentItemActions = (blockId: string | null, itemId: string | null) => {
+  const draftScope = useDraftScope();
   const camoxApp = useCamoxApp();
   const { data: blockBundle } = useQuery({
-    ...blockQueries.get(blockId!),
+    ...blockQueries.get(draftScope, blockId!),
     enabled: blockId != null,
   });
 

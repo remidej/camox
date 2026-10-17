@@ -15,6 +15,7 @@ import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
 import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { useDraftScope } from "../../../lib/draft-scope";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
 import { usePageRecordPlacer } from "../pageRecord";
@@ -149,6 +150,7 @@ const PageEditorSidebar = () => {
 };
 
 const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
+  const draftScope = useDraftScope();
   const camoxApp = useCamoxApp();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
@@ -180,7 +182,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   // Look up the actual block data from individual block cache (granular caching)
   const { data: blockBundle } = useQuery({
-    ...blockQueries.get(blockId!),
+    ...blockQueries.get(draftScope, blockId!),
     enabled: blockId != null,
   });
   const block = blockBundle?.block ?? null;
@@ -194,7 +196,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   );
 
   const fileResults = useQueries({
-    queries: fileIds.map((id) => fileQueries.get(id)),
+    queries: fileIds.map((id) => fileQueries.get(draftScope, id)),
   });
 
   const filesMap = React.useMemo(() => {

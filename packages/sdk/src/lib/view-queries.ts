@@ -3,14 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 
 import { type ApiClient, getOrpc } from "./api-client";
 import { useProjectSlug } from "./auth";
-import { scopedKey } from "./studio-draft";
+import { useDraftScope, type DraftScope } from "./draft-scope";
 
 export type Page = Awaited<ReturnType<ApiClient["pages"]["list"]>>[number];
 
 export const viewPageQueries = {
-  list: (projectId: number) => ({
+  list: (scope: DraftScope, projectId: number) => ({
     ...getOrpc().pages.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: scopedKey(queryKeys.pages.list),
+    queryKey: scope.keyFor(queryKeys.pages.list),
   }),
 };
 
@@ -21,9 +21,9 @@ export const viewProjectQueries = {
 };
 
 export const viewBlockQueries = {
-  get: (id: string) => ({
+  get: (scope: DraftScope, id: string) => ({
     ...getOrpc().blocks.get.queryOptions({ input: { id }, staleTime: Infinity }),
-    queryKey: scopedKey(queryKeys.blocks.get(id)),
+    queryKey: scope.keyFor(queryKeys.blocks.get(id)),
   }),
 };
 
@@ -32,6 +32,7 @@ export const viewBlockQueries = {
  * cache. Only a member, whose project the Studio caches, refetches it after a change.
  */
 export function useViewPages() {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   // Cache only: an anonymous visitor may not read the project, so fetching it would fail.
   const { data: project } = useQuery({
@@ -39,7 +40,7 @@ export function useViewPages() {
     enabled: false,
   });
   const { data: pages } = useQuery({
-    ...viewPageQueries.list(project?.id ?? 0),
+    ...viewPageQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   return pages as Page[] | undefined;

@@ -23,6 +23,7 @@ import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { layoutQueries, pageMutations, pageQueries, projectQueries } from "@/lib/queries";
 
+import { useDraftScope } from "../../../lib/draft-scope";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { PageLocationFieldset } from "./PageLocationFieldset";
@@ -41,16 +42,17 @@ const slugifyPathSegment = (nickname: string) => {
 };
 
 const CreatePageModal = () => {
+  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const open = useSelector(previewStore, (state) => state.context.isCreatePageModalOpen);
   const createPage = useMutation(pageMutations.create());
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
+    ...pageQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   const { data: allLayouts } = useQuery({
-    ...layoutQueries.list(project?.id ?? 0),
+    ...layoutQueries.list(draftScope, project?.id ?? 0),
     enabled: !!project,
   });
   const camoxApp = useCamoxApp();
