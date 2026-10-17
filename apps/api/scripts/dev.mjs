@@ -1,14 +1,20 @@
 import { createRequire } from "node:module";
+import path from "node:path";
 
 import { findAvailablePort, runDevCommand } from "../../../scripts/dev.mjs";
 
 const require = createRequire(import.meta.url);
+// Wrangler's exports map hides its bin, so locate it from the exported package.json.
+const wranglerBin = path.join(
+  path.dirname(require.resolve("wrangler/package.json")),
+  "bin/wrangler.js",
+);
 const coordinated = Boolean(process.env.CAMOX_DEV_API_PORT);
 
 for (let attempt = 0; attempt < 3; attempt++) {
   const port = process.env.CAMOX_DEV_API_PORT ?? String(await findAvailablePort(8787));
   const args = [
-    require.resolve("wrangler/bin/wrangler.js"),
+    wranglerBin,
     "dev",
     "--port",
     port,
