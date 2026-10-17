@@ -1,10 +1,9 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { BlockBundle, PageStructure, PageWithBlocks } from "./queries";
-import { scopedKey } from "./studio-draft";
 import { viewBlockQueries } from "./view-queries";
 
 /* -------------------------------------------------------------------------------------------------
@@ -302,9 +301,14 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<st
   }
 }
 
+/**
+ * Caches each block of a page read from Live (`draftId` null) or a draft under that scope's
+ * keys, with the files its content, its items' content, and the records they link reference.
+ */
 export function seedBlockCaches(
   queryClient: QueryClient,
   pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
+  draftId: string | null,
 ) {
   const filesById = new Map(pageData.files.map((f) => [f.id, f]));
 
@@ -325,14 +329,14 @@ export function seedBlockCaches(
     }
     const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
 
-    queryClient.setQueryData(scopedKey(queryKeys.blocks.get(block.id)), {
+    queryClient.setQueryData(inScope(queryKeys.blocks.get(block.id), draftId), {
       block,
       repeatableItems: blockItems,
       files: blockFiles,
     });
 
     for (const file of blockFiles) {
-      queryClient.setQueryData(scopedKey(queryKeys.files.get(file.id)), file);
+      queryClient.setQueryData(inScope(queryKeys.files.get(file.id), draftId), file);
     }
   }
 }

@@ -14,6 +14,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
+import { seedBlockCaches } from "../../lib/normalized-data";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
 
@@ -220,56 +221,6 @@ export function renderedHref(url: string, read: DraftRead): string {
   const href = new URL(url);
   href.searchParams.delete(DRAFT_SEARCH_PARAM);
   return href.href;
-}
-
-function visitForFileIds(value: unknown, ids: Set<string>) {
-  if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "string") {
-    ids.add((value as { _fileId: string })._fileId);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) visitForFileIds(item, ids);
-    return;
-  }
-  for (const child of Object.values(value as Record<string, unknown>)) {
-    visitForFileIds(child, ids);
-  }
-}
-
-function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<string>) {
-  for (const value of Object.values(content)) {
-    visitForFileIds(value, ids);
-  }
-}
-
-/** Caches each block of a read from Live (`draftId` null) or a draft under that scope's keys. */
-export function seedBlockCaches(
-  queryClient: QueryClient,
-  pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-  draftId: string | null,
-) {
-  const filesById = new Map(pageData.files.map((f) => [f.id, f]));
-
-  for (const block of pageData.blocks) {
-    const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
-    const fileIds = new Set<string>();
-    collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
-    for (const item of blockItems) {
-      collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
-    }
-    const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
-
-    queryClient.setQueryData(inScope(queryKeys.blocks.get(block.id), draftId), {
-      block,
-      repeatableItems: blockItems,
-      files: blockFiles,
-    });
-
-    for (const file of blockFiles) {
-      queryClient.setQueryData(inScope(queryKeys.files.get(file.id), draftId), file);
-    }
-  }
 }
 
 export async function loadCamoxPage({

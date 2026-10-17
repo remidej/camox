@@ -7,7 +7,7 @@ import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
 import { seedBlockCaches } from "../../lib/normalized-data";
 import { blockQueries } from "../../lib/queries";
-import { scopedKey } from "../../lib/studio-draft";
+import { getCurrentDraftId, scopedKey } from "../../lib/studio-draft";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { AddBlockDialog } from "../preview/components/AddBlockDialog";
 import { CreatePageModal } from "../preview/components/CreatePageModal";
@@ -67,7 +67,7 @@ function LayoutSidebar({ layoutId, pageRecord }: { layoutId: string; pageRecord?
     queryKey: scopedKey([...queryKeys.layouts.all, "get", projectSlug, layoutId]),
     queryFn: async () => {
       const result = await getApiClient().layouts.get({ projectSlug, layoutId });
-      seedBlockCaches(queryClient, result);
+      seedBlockCaches(queryClient, result, getCurrentDraftId());
       return result.layout;
     },
     staleTime: Infinity,

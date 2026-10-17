@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 
-import { seedBlockCaches } from "../routes/pageRuntime";
+import { seedBlockCaches } from "../../lib/normalized-data";
 import { getPageBlockTypes } from "./pageBlockTypes";
 
 function seededState(types: string[]) {

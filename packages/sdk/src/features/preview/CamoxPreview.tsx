@@ -13,7 +13,7 @@ import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/no
 import { blockQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import { scopedKey } from "../../lib/studio-draft";
+import { getCurrentDraftId, scopedKey } from "../../lib/studio-draft";
 import { canvasStore } from "../canvas/canvasStore";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
@@ -234,7 +234,7 @@ function useRefreshMemberPage(pathname: string, enabled: boolean) {
       .pages.getByPath({ path: pathname, projectSlug })
       .then((data) => {
         if (cancelled) return;
-        seedBlockCaches(queryClient, data);
+        seedBlockCaches(queryClient, data, getCurrentDraftId());
         queryClient.setQueryData(scopedKey(queryKeys.pages.getByPath(pathname)), {
           page: data.page,
           layout: data.layout,
@@ -319,7 +319,7 @@ export const CamoxPreview = ({
         projectSlug,
         layoutId: shownDerived.layoutId,
       });
-      seedBlockCaches(queryClient, result);
+      seedBlockCaches(queryClient, result, getCurrentDraftId());
       return result.layout;
     },
     initialData: pathname === undefined ? null : shownDerived?.layout,

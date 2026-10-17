@@ -10,6 +10,7 @@ import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoute
 import { getPageDestinations } from "../../core/pageDestinations";
 import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
 import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
+import { seedBlockCaches } from "../../lib/normalized-data";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
@@ -23,7 +24,6 @@ import {
   parseMarkdownPath,
   createServerApiClient,
   isNotFoundError,
-  seedBlockCaches,
   loadCamoxPageForRequest,
   prefersMarkdown,
   readDraftOrLive,
