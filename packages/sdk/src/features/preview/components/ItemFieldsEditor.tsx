@@ -53,6 +53,7 @@ export interface SchemaField {
   enumValues?: string[];
   minItems?: number;
   maxItems?: number;
+  maxLength?: number;
   collectionId?: string;
   required?: boolean;
   /** Query-backed reference lists: the query that defines their records. */
@@ -81,6 +82,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       enumValues: prop.enum as string[] | undefined,
       minItems: prop.minItems as number | undefined,
       maxItems: prop.maxItems as number | undefined,
+      maxLength: prop.maxLength as number | undefined,
       collectionId: prop.collectionId as string | undefined,
       required: prop.required === true,
       query: prop.query as ReferenceQuery<any> | undefined,
@@ -466,6 +468,7 @@ const ItemFieldsEditor = ({
                     <SidebarLexicalEditor
                       id={getFieldElementId(field.name)}
                       value={fieldApi.state.value as string | Record<string, unknown>}
+                      maxLength={field.maxLength}
                       onChange={(value) => handleScalarChange(field.name, value, fieldApi)}
                       onFocus={() => handleFieldFocus(field.name, field.fieldType)}
                       onBlur={() => handleFieldBlur(field.name)}

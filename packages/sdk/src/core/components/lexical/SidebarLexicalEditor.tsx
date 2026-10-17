@@ -32,12 +32,15 @@ import { FORMAT_FLAGS } from "../../lib/modifierFormats";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
 import { $selectionHasHighlight, $toggleHighlight } from "./HighlightNode";
 import { InlineStylesPlugin } from "./InlineStylesPlugin";
+import { MaxLengthPlugin } from "./MaxLengthPlugin";
 import { selectTextLink } from "./selectTextLink";
 import { TextLinkPopover } from "./TextLinkPopover";
 
 interface SidebarLexicalEditorProps {
   id?: string;
   value: string | Record<string, unknown>;
+  /** The field's `maxLength`: edits that would store a longer value are rejected. */
+  maxLength?: number;
   onChange: (markdown: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -385,6 +388,7 @@ function PasteUrlAsLinkHandler() {
 export function SidebarLexicalEditor({
   id,
   value,
+  maxLength,
   onChange,
   onFocus,
   onBlur,
@@ -450,6 +454,7 @@ export function SidebarLexicalEditor({
         <OnChangePlugin onChange={handleChange} ignoreSelectionChange />
         <HistoryPlugin />
         <LinkPlugin />
+        <MaxLengthPlugin maxLength={maxLength} />
         <ExternalStateSync value={value} isSyncingRef={isSyncingRef} />
         <EnterAsLineBreakHandler />
         <PasteUrlAsLinkHandler />

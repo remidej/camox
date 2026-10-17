@@ -598,6 +598,9 @@ importers:
       '@lexical/rich-text':
         specifier: ^0.52.0
         version: 0.52.0(typescript@5.9.2)
+      '@lexical/utils':
+        specifier: ^0.52.0
+        version: 0.52.0(typescript@5.9.2)
       '@orpc/client':
         specifier: ^1.15.7
         version: 1.15.7

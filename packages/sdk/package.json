@@ -242,6 +242,7 @@
     "@lexical/markdown": "^0.52.0",
     "@lexical/react": "^0.52.0",
     "@lexical/rich-text": "^0.52.0",
+    "@lexical/utils": "^0.52.0",
     "@orpc/client": "^1.15.7",
     "@orpc/tanstack-query": "^1.15.7",
     "@shikijs/core": "^4.5.0",

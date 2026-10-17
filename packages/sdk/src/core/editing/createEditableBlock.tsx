@@ -983,6 +983,9 @@ export function createEditableBlock<
     };
 
     const fieldData = { text: fieldValue as string } satisfies FieldRenderData;
+    const fieldSchema = repeaterContext
+      ? repeaterContext.itemSchema?.[name]
+      : (blockContext.sourceSchema ?? typeboxSchema.properties)[name];
 
     if (!isContentEditable) {
       return (
@@ -1018,6 +1021,7 @@ export function createEditableBlock<
           fallbackHref={currentPathname}
           initialState={fieldValue}
           externalState={fieldValue}
+          maxLength={fieldSchema?.maxLength}
           onChange={handleChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
