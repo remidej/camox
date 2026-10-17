@@ -195,6 +195,7 @@ export const CAMOX_OPTIMIZED_DEPS = [
   "camox > @lexical/react/LexicalOnChangePlugin",
   "camox > @lexical/react/LexicalRichTextPlugin",
   "camox > @lexical/link",
+  "camox > @lexical/utils",
   "camox > @orpc/client",
   "camox > @orpc/client/fetch",
   "camox > @orpc/tanstack-query",

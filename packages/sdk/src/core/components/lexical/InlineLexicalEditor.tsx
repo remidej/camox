@@ -24,11 +24,14 @@ import { isValidTextLinkTarget } from "../../lib/textLinks";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
 import { InlineContentEditable } from "./InlineContentEditable";
 import { InlineStylesPlugin } from "./InlineStylesPlugin";
+import { MaxLengthPlugin } from "./MaxLengthPlugin";
 import { SelectionBroadcaster } from "./SelectionBroadcaster";
 
 interface InlineLexicalEditorProps extends MarkdownToReactNodesOptions {
   initialState: string | Record<string, unknown>;
   externalState: string | Record<string, unknown>;
+  /** The field's `maxLength`: edits that would store a longer value are rejected. */
+  maxLength?: number;
   onChange: (markdown: string) => void;
   onFocus: () => void;
   /** `wasEdited` is true if the editor's content changed during the focus session that's now ending. */
@@ -154,6 +157,7 @@ function FocusBlurHandler({ onFocus, onBlur }: { onFocus: () => void; onBlur: ()
 export function InlineLexicalEditor({
   initialState,
   externalState,
+  maxLength,
   onChange,
   onFocus,
   onBlur,
@@ -222,6 +226,7 @@ export function InlineLexicalEditor({
       <OnChangePlugin onChange={handleChange} ignoreSelectionChange />
       <HistoryPlugin />
       <LinkPlugin />
+      <MaxLengthPlugin maxLength={maxLength} />
       <ExternalStateSync externalState={externalState} />
       <EscapeHandler />
       <EnterAsLineBreakHandler />
