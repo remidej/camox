@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
