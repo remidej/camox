@@ -26,7 +26,7 @@ Object.assign(globalThis, {
   __CAMOX_TELEMETRY_DISABLED__: true,
 });
 const { createRoot } = await import("react-dom/client");
-const { ReviewDraftDialog } = await import("./ReviewDraftDialog");
+const { ReviewDraftSheet } = await import("./ReviewDraftSheet");
 const { initApiClient } = await import("@/lib/api-client");
 const { createDraftScope } = await import("@/lib/draft-scope");
 const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
@@ -140,7 +140,7 @@ async function openReview() {
     root.render(
       <QueryClientProvider client={client}>
         <StudioScopeProvider client={client} draftScope={draftScope}>
-          <ReviewDraftDialog projectId={1} draftId={draftId} open onOpenChange={() => {}} />
+          <ReviewDraftSheet projectId={1} draftId={draftId} open onOpenChange={() => {}} />
         </StudioScopeProvider>
       </QueryClientProvider>,
     ),
@@ -155,11 +155,21 @@ async function openReview() {
 
 const dialogText = () => window.document.querySelector('[role="dialog"]')?.textContent ?? "";
 
-void test("says nothing on Live changed when there's nothing to warn about, and lists the changes by page", async (t) => {
+/** Opens the list of the draft's changes, which starts collapsed. */
+async function expandChanges() {
+  await click(window.document.querySelector('[role="dialog"] button[aria-expanded="false"]'));
+}
+
+void test("says nothing on Live changed when there's nothing to warn about, and lists the changes by page once expanded", async (t) => {
   mockApi(t, () => json(emptyPreview));
   const close = await openReview();
   try {
+    assert.match(dialogText(), /Ready to publish/);
     assert.match(dialogText(), /Nothing on Live changed since this draft did/);
+    assert.doesNotMatch(dialogText(), /Hero/);
+
+    await expandChanges();
+
     assert.match(dialogText(), /Home/);
     assert.match(dialogText(), /Hero/);
     assert.equal(buttonNamed(/Publish all/)?.disabled, false);
@@ -189,10 +199,17 @@ void test("groups record changes by collection, after the pages", async (t) => {
   );
   const close = await openReview();
   try {
-    const groups = [...window.document.querySelectorAll('[role="dialog"] section')].map(
-      (section) => section.textContent ?? "",
-    );
-    assert.deepEqual(groups, ["HomeHero (changed)", "AuthorsAda (changed)Grace (changed)"]);
+    await expandChanges();
+    const groups = [...window.document.querySelectorAll('[role="dialog"] h4')].map((section) => [
+      section.textContent,
+      ...[...(section.parentElement?.querySelectorAll("[data-change-label]") ?? [])].map(
+        (label) => label.textContent,
+      ),
+    ]);
+    assert.deepEqual(groups, [
+      ["Home", "Hero"],
+      ["Authors", "Ada", "Grace"],
+    ]);
   } finally {
     await close();
   }
@@ -217,6 +234,7 @@ void test("disables Publish all while the draft has blockers", async (t) => {
   );
   const close = await openReview();
   try {
+    assert.match(dialogText(), /Not ready to publish/);
     assert.match(dialogText(), /"Author" is required but empty/);
     assert.equal(buttonNamed(/Publish all/)?.disabled, true);
   } finally {
@@ -243,9 +261,34 @@ void test("names a definition that differs from Live's as a blocker of its own, 
   );
   const close = await openReview();
   try {
-    assert.match(dialogText(), /Hero: its definition differs from Live's/);
+    assert.match(dialogText(), /its definition differs from Live's/);
     assert.doesNotMatch(dialogText(), /Elsewhere/);
     assert.equal(buttonNamed(/Publish all/)?.disabled, true);
+  } finally {
+    await close();
+  }
+});
+
+void test("folds problems sharing a message into one item naming each", async (t) => {
+  const definition = (id: string) => ({
+    entity: "definition",
+    id,
+    label: `Block "${id}"`,
+    owner: null,
+    code: "definitionsDiffer",
+    field: "",
+    message: "Only in your local code: release it before publishing",
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: ["hero", "footer", "quote"].map(definition),
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.equal(dialogText().match(/Only in your local code/g)?.length, 1);
+    assert.match(dialogText(), /Block "hero".*Block "footer".*Block "quote"/);
   } finally {
     await close();
   }
@@ -324,7 +367,8 @@ void test("shows a conflict a release made as changed by a release", async (t) =
   );
   const close = await openReview();
   try {
-    assert.match(dialogText(), /Hero on .*: changed by a release/);
+    assert.match(dialogText(), /Ready, with 1 thing to know/);
+    assert.match(dialogText(), /Hero.*Changed by a release/);
   } finally {
     await close();
   }
@@ -362,7 +406,7 @@ void test("discards only after a second confirmation, then switches to Live", as
 });
 
 const dialogTitle = () =>
-  window.document.querySelector('[role="dialog"] [data-slot="dialog-title"]')?.textContent ?? "";
+  window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
 async function typeName(value: string, key: "Enter" | "Escape") {
   const input = window.document.querySelector('input[aria-label="Draft name"]');
@@ -382,7 +426,7 @@ void test("names an unnamed draft by its creator and creation date, and renames 
   try {
     assert.equal(dialogTitle(), "Ada, Oct 13");
 
-    await click(window.document.querySelector('[data-slot="dialog-title"] button'));
+    await click(window.document.querySelector('[data-slot="sheet-title"] button'));
     await typeName("Spring campaign", "Enter");
     await settle();
 
@@ -400,7 +444,7 @@ void test("leaves the name as it is when editing is cancelled", async (t) => {
   const calls = mockApi(t, () => json(emptyPreview));
   const close = await openReview();
   try {
-    await click(window.document.querySelector('[data-slot="dialog-title"] button'));
+    await click(window.document.querySelector('[data-slot="sheet-title"] button'));
     await typeName("Never mind", "Escape");
 
     assert.equal(calls.filter((call) => call.path === "drafts/rename").length, 0);

@@ -32,6 +32,7 @@ import {
 } from "@camox/ui/input-group";
 import { Label } from "@camox/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@camox/ui/sheet";
 import { Spinner } from "@camox/ui/spinner";
 import { Switch } from "@camox/ui/switch";
 import { toast } from "@camox/ui/toaster";
@@ -129,8 +130,8 @@ const PageInfoSidebar = ({
   const data = usePageMetadataData(pageId);
   const { page, metaTitle } = data;
   const [isStructureModalOpen, setIsStructureModalOpen] = React.useState(false);
-  const [isSeoModalOpen, setIsSeoModalOpen] = React.useState(false);
-  const [isMarkdownModalOpen, setIsMarkdownModalOpen] = React.useState(false);
+  const [isSeoSheetOpen, setIsSeoSheetOpen] = React.useState(false);
+  const [isMarkdownSheetOpen, setIsMarkdownSheetOpen] = React.useState(false);
   const [showPageSettings, setShowPageSettings] = useShowPageSettings();
   const showSettingsId = React.useId();
   const settingsPanelId = React.useId();
@@ -190,7 +191,7 @@ const PageInfoSidebar = ({
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => setIsSeoModalOpen(true)}
+                onClick={() => setIsSeoSheetOpen(true)}
               >
                 Manage SEO metadata
               </Button>
@@ -201,7 +202,7 @@ const PageInfoSidebar = ({
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => setIsMarkdownModalOpen(true)}
+                onClick={() => setIsMarkdownSheetOpen(true)}
               >
                 View page markdown
               </Button>
@@ -234,10 +235,10 @@ const PageInfoSidebar = ({
       />
       {!aboutOnly && (
         <>
-          <PageSeoModal open={isSeoModalOpen} onOpenChange={setIsSeoModalOpen} pageId={page.id} />
-          <PageMarkdownModal
-            open={isMarkdownModalOpen}
-            onOpenChange={setIsMarkdownModalOpen}
+          <PageSeoSheet open={isSeoSheetOpen} onOpenChange={setIsSeoSheetOpen} pageId={page.id} />
+          <PageMarkdownSheet
+            open={isMarkdownSheetOpen}
+            onOpenChange={setIsMarkdownSheetOpen}
             pageId={page.id}
             metaTitle={metaTitle}
             metaDescription={page.metaDescription ?? ""}
@@ -621,7 +622,7 @@ const PageStructureEditor = ({
   );
 };
 
-const PageSeoModal = ({
+const PageSeoSheet = ({
   open,
   onOpenChange,
   pageId,
@@ -631,17 +632,19 @@ const PageSeoModal = ({
   pageId: string;
 }) => {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>SEO metadata</DialogTitle>
-          <DialogDescription>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="gap-0 data-[side=right]:sm:max-w-xl">
+        <SheetHeader className="border-b">
+          <SheetTitle>SEO metadata</SheetTitle>
+          <SheetDescription>
             Control how this page appears in search and social previews.
-          </DialogDescription>
-        </DialogHeader>
-        <PageSeoContent pageId={pageId} />
-      </DialogContent>
-    </Dialog>
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto p-4">
+          <PageSeoContent pageId={pageId} />
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 };
 
@@ -727,7 +730,7 @@ const PageSeoEditor = ({
   );
 };
 
-const PageMarkdownModal = ({
+const PageMarkdownSheet = ({
   open,
   onOpenChange,
   pageId,
@@ -740,19 +743,21 @@ const PageMarkdownModal = ({
   metaTitle: string;
   metaDescription: string;
 }) => (
-  <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
-      <DialogHeader>
-        <DialogTitle>Markdown content</DialogTitle>
-        <DialogDescription>How your content will be served to AI agents.</DialogDescription>
-      </DialogHeader>
-      <PageMarkdownPreview
-        pageId={pageId}
-        metaTitle={metaTitle}
-        metaDescription={metaDescription}
-      />
-    </DialogContent>
-  </Dialog>
+  <Sheet open={open} onOpenChange={onOpenChange}>
+    <SheetContent side="right" className="gap-0 data-[side=right]:sm:max-w-2xl">
+      <SheetHeader className="border-b">
+        <SheetTitle>Markdown content</SheetTitle>
+        <SheetDescription>How your content will be served to AI agents.</SheetDescription>
+      </SheetHeader>
+      <div className="flex-1 overflow-y-auto p-4">
+        <PageMarkdownPreview
+          pageId={pageId}
+          metaTitle={metaTitle}
+          metaDescription={metaDescription}
+        />
+      </div>
+    </SheetContent>
+  </Sheet>
 );
 
 export const PageMarkdownContent = ({ pageId }: { pageId: string }) => {

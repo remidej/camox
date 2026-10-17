@@ -4,7 +4,7 @@ interface StudioContext {
   isCommandPaletteOpen: boolean;
   commandPalettePages: string[];
   /** The current draft's review, opened by the drafts control or the command palette. */
-  reviewDraftDialog: { open: boolean; startRenaming: boolean };
+  reviewDraftSheet: { open: boolean; startRenaming: boolean };
   isDiscardDraftDialogOpen: boolean;
 }
 
@@ -12,7 +12,7 @@ export const studioStore = createStore({
   context: {
     isCommandPaletteOpen: false,
     commandPalettePages: [],
-    reviewDraftDialog: { open: false, startRenaming: false },
+    reviewDraftSheet: { open: false, startRenaming: false },
     isDiscardDraftDialogOpen: false,
   } as StudioContext,
   on: {
@@ -48,14 +48,14 @@ export const studioStore = createStore({
         commandPalettePages: context.commandPalettePages.slice(0, -1),
       };
     },
-    openReviewDraftDialog: (context, event: { startRenaming?: boolean }) => {
+    openReviewDraftSheet: (context, event: { startRenaming?: boolean }) => {
       return {
         ...context,
-        reviewDraftDialog: { open: true, startRenaming: event.startRenaming ?? false },
+        reviewDraftSheet: { open: true, startRenaming: event.startRenaming ?? false },
       };
     },
-    closeReviewDraftDialog: (context) => {
-      return { ...context, reviewDraftDialog: { open: false, startRenaming: false } };
+    closeReviewDraftSheet: (context) => {
+      return { ...context, reviewDraftSheet: { open: false, startRenaming: false } };
     },
     openDiscardDraftDialog: (context) => {
       return { ...context, isDiscardDraftDialogOpen: true };

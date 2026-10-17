@@ -10,6 +10,14 @@ function AccordionItem({ ...props }: AccordionPrimitive.Item.Props) {
   return <AccordionPrimitive.Item data-slot="accordion-item" {...props} />;
 }
 
+function AccordionHeader({ ...props }: AccordionPrimitive.Header.Props) {
+  return <AccordionPrimitive.Header data-slot="accordion-header" {...props} />;
+}
+
+function AccordionTrigger({ ...props }: AccordionPrimitive.Trigger.Props) {
+  return <AccordionPrimitive.Trigger data-slot="accordion-trigger" {...props} />;
+}
+
 /** Animates its height open and closed, from the height Base UI measures. */
 function AccordionPanel({ className, ...props }: AccordionPrimitive.Panel.Props) {
   return (
@@ -24,4 +32,4 @@ function AccordionPanel({ className, ...props }: AccordionPrimitive.Panel.Props)
   );
 }
 
-export { Accordion, AccordionItem, AccordionPanel };
+export { Accordion, AccordionHeader, AccordionItem, AccordionPanel, AccordionTrigger };
