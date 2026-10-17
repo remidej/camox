@@ -65,6 +65,7 @@ export function CommandPalette() {
     if (page) {
       const firstChild = actions.find((a) => a.parentActionId === page && a.checkIfAvailable());
       if (firstChild) {
+        // oxlint-disable-next-line react/set-state-in-effect -- must run after cmdk's own selection effects
         setValue(firstChild.id);
       }
     }

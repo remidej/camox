@@ -153,33 +153,39 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
     measured: boolean;
   } | null>(null);
 
-  useEffect(() => {
+  // Closing the lightbox resets the zoom.
+  const [previousOpen, setPreviousOpen] = useState(open);
+  if (open !== previousOpen) {
+    setPreviousOpen(open);
     if (!open) {
       setZoomed(false);
       setZoomedWidth(null);
     }
-  }, [open]);
+  }
 
   const isImage = file?.mimeType?.startsWith("image/") ?? false;
   const isVideo = file?.mimeType?.startsWith("video/") ?? false;
   const canUseAiMetadata = isRasterImage(file?.mimeType);
   const fileUrl = file?.url;
   const fileMimeType = file?.mimeType;
+  const fileSize = file?.size;
+  const fileProjectId = file?.projectId;
 
   useEffect(() => {
     if (!open || !isImage || !fileUrl) {
+      // oxlint-disable-next-line react/set-state-in-effect -- clears the measurement this effect fetches
       setDeliveredSizes(null);
       return;
     }
     const phoneUrl = transformImageUrl(fileUrl, {
       width: DELIVERED_PHONE_WIDTH,
       mimeType: fileMimeType,
-      size: file?.size,
+      size: fileSize,
     });
     const laptopUrl = transformImageUrl(fileUrl, {
       width: DELIVERED_LAPTOP_WIDTH,
       mimeType: fileMimeType,
-      size: file?.size,
+      size: fileSize,
     });
     // No transform applied (placeholder, localhost, SVG, etc.) — nothing meaningful to show.
     if (phoneUrl === fileUrl && laptopUrl === fileUrl) {
@@ -196,7 +202,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
       setDeliveredSizes({ phone, laptop, measured: true });
     });
     return () => controller.abort();
-  }, [open, isImage, fileUrl, fileMimeType]);
+  }, [open, isImage, fileUrl, fileMimeType, fileSize]);
 
   useEffect(() => {
     if (!zoomed || !zoomedWidth || !containerRef.current || !clickFractionRef.current) return;
@@ -217,7 +223,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
     async (files: FileList) => {
       const droppedFile = files[0];
       if (!droppedFile) return;
-      const warning = replacementTypeWarning(file?.mimeType, droppedFile.type, usageCount ?? 0);
+      const warning = replacementTypeWarning(fileMimeType, droppedFile.type, usageCount ?? 0);
       if (warning && !window.confirm(warning)) return;
 
       setUploadState({
@@ -232,7 +238,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
       try {
         const formData = new FormData();
         formData.append("file", droppedFile);
-        formData.append("projectId", String(file?.projectId ?? 0));
+        formData.append("projectId", String(fileProjectId ?? 0));
 
         const authCookieHeader = getAuthCookieHeader();
         const uploadRes = await fetch(`${getApiUrl()}/files/${fileId}/content`, {
@@ -261,7 +267,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
         setTimeout(() => setUploadState(null), 3000);
       }
     },
-    [file?.projectId, file?.mimeType, usageCount, fileId, onOpenChange],
+    [fileProjectId, fileMimeType, usageCount, fileId, onOpenChange],
   );
 
   const handleCopyUrl = async () => {

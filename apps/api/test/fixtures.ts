@@ -21,6 +21,20 @@ import type { Bindings } from "../src/types";
 
 const now = 1_700_000_000_000;
 
+/**
+ * Stands in for a Durable Object that services reach fire-and-forget (`waitUntil`). A request to
+ * the real one could land after its test file ended. Tests that check those calls mock
+ * `broadcast-invalidation` or `schedule-ai-job` instead.
+ */
+const fireAndForgetDouble = (stub: object) =>
+  ({ idFromName: (name: string) => name, get: () => stub }) as unknown as DurableObjectNamespace;
+
+const testBindings: Bindings = {
+  ...(env as unknown as Bindings),
+  ProjectRoom: fireAndForgetDouble({ broadcastMessage: async () => {} }),
+  AI_JOB_SCHEDULER: fireAndForgetDouble({ fetch: async () => new Response(null) }),
+};
+
 export async function createProjectFixture(suffix: string) {
   const db = createDb(env.DB);
   const memberId = `member-${suffix}`;
@@ -96,7 +110,7 @@ export function createServiceContext(
   return {
     db,
     user: selectedUser,
-    env: env as unknown as Bindings,
+    env: testBindings,
     waitUntil: () => undefined,
     client: "test",
     telemetryDisabled: true,

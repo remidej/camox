@@ -34,7 +34,9 @@ export function CollectionItemModalProvider({
   );
   const target = requestedTarget ?? routeTarget;
   const activeTarget = React.useRef(target);
-  activeTarget.current = target;
+  React.useLayoutEffect(() => {
+    activeTarget.current = target;
+  });
   React.useEffect(
     () => () => {
       activeTarget.current = null;

@@ -68,9 +68,15 @@ const unitless = new Set([
 ]);
 
 /** Only manages appearance attributes; Lexical retains ownership of the editable tree. */
-export function InlineStylesPlugin(options: MarkdownToReactNodesOptions) {
+export function InlineStylesPlugin({
+  textStyle,
+  linkStyle,
+  pages,
+  fallbackHref,
+}: MarkdownToReactNodesOptions) {
   const [editor] = useLexicalComposerContext();
   React.useLayoutEffect(() => {
+    const styles = { textStyle, linkStyle };
     const previous = new Map<HTMLElement, { classes: string[]; properties: string[] }>();
     function apply(dom: HTMLElement, appearance: InlineStyle) {
       const old = previous.get(dom);
@@ -104,13 +110,12 @@ export function InlineStylesPlugin(options: MarkdownToReactNodesOptions) {
       editor.getEditorState().read(() => {
         function visit(node: LexicalNode) {
           const dom = editor.getElementByKey(node.getKey());
-          if (dom && $isTextNode(node)) apply(dom, getTextAppearance(node.getFormat(), options));
-          if (dom && node instanceof HighlightNode) apply(dom, getHighlightStyle(options));
+          if (dom && $isTextNode(node)) apply(dom, getTextAppearance(node.getFormat(), styles));
+          if (dom && node instanceof HighlightNode) apply(dom, getHighlightStyle(styles));
           if (dom && $isLinkNode(node)) {
             const target = node.getURL();
-            const href =
-              resolveTextLinkHref(target, options.pages, options.fallbackHref ?? "#") ?? "#";
-            const appearance = options.linkStyle?.({
+            const href = resolveTextLinkHref(target, pages, fallbackHref ?? "#") ?? "#";
+            const appearance = linkStyle?.({
               target,
               href,
               external: isHttpTextLinkTarget(target),
@@ -148,7 +153,7 @@ export function InlineStylesPlugin(options: MarkdownToReactNodesOptions) {
         old.properties.forEach((name) => dom.style.removeProperty(name));
       }
     };
-  }, [editor, options.textStyle, options.linkStyle, options.pages, options.fallbackHref]);
+  }, [editor, textStyle, linkStyle, pages, fallbackHref]);
 
   // Consume Lexical's built-in underline shortcut without applying the removed format.
   React.useEffect(

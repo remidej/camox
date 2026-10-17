@@ -54,10 +54,23 @@ export function TextLinkPopover({
     setPageValue("");
   }, [target, text, isPageTarget]);
 
-  React.useEffect(() => {
-    if (!open) return;
+  // Reset the form whenever the popover opens or its link changes while open.
+  const [preparedFor, setPreparedFor] = React.useState<{
+    target: string | null;
+    text: string;
+    isPageTarget: boolean;
+  } | null>(null);
+  if (!open && preparedFor) setPreparedFor(null);
+  if (
+    open &&
+    (!preparedFor ||
+      preparedFor.target !== target ||
+      preparedFor.text !== text ||
+      preparedFor.isPageTarget !== isPageTarget)
+  ) {
+    setPreparedFor({ target, text, isPageTarget });
     prepare();
-  }, [open, prepare]);
+  }
 
   const handleOpenChange = (nextOpen: boolean) => {
     onOpenChange(nextOpen);

@@ -8,6 +8,7 @@ import {
   type Logger,
   type Plugin,
   type ResolvedConfig,
+  type UserConfig,
   type ViteDevServer,
   createServer,
 } from "vite-plus";
@@ -31,6 +32,7 @@ import { transformArtifactRuntime } from "./artifactRuntimeMinification";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
 import { collectBlockChunks } from "./blockChunks";
+import { type BundlerOnLog, withoutExpectedCamoxLogs } from "./bundlerLogs";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
@@ -49,6 +51,7 @@ interface CamoxNitro {
   };
   options: {
     noExternals?: boolean | (string | RegExp)[];
+    rolldownConfig?: { onLog?: BundlerOnLog };
     output: {
       publicDir: string;
       serverDir: string;
@@ -63,6 +66,17 @@ type CamoxVitePlugin = Plugin & {
     setup: (nitro: CamoxNitro) => void;
   };
 };
+
+/** The `onLog` the app set for its client build, which Camox wraps rather than replaces. */
+function findClientOnLog(config: UserConfig): BundlerOnLog | undefined {
+  const clientBuild = config.environments?.client?.build;
+  return (
+    clientBuild?.rolldownOptions?.onLog ??
+    clientBuild?.rollupOptions?.onLog ??
+    config.build?.rolldownOptions?.onLog ??
+    config.build?.rollupOptions?.onLog
+  );
+}
 
 type StoredAuth = NonNullable<ReturnType<typeof readAuthTokenForUrl>>;
 
@@ -208,6 +222,8 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           nitro.options.noExternals = [...noExternals, "camox", "tslib"];
         }
         installRuntimeNitroRoutes(nitro, { runtimeBasePath });
+        const rolldownConfig = (nitro.options.rolldownConfig ??= {});
+        rolldownConfig.onLog = withoutExpectedCamoxLogs(rolldownConfig.onLog);
         nitro.hooks.hook("compiled", ({ options }) => {
           const serverAssets = join(options.output.serverDir, "assets");
           if (!existsSync(serverAssets)) return;
@@ -251,6 +267,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           client: {
             build: {
               rollupOptions: {
+                onLog: withoutExpectedCamoxLogs(findClientOnLog(_config)),
                 input: {
                   "camox-page-client": VIRTUAL_PAGE_CLIENT,
                   "camox-studio-client": VIRTUAL_STUDIO_CLIENT,

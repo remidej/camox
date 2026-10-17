@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
-import { drafts, pages } from "../../schema";
+import { drafts } from "../../schema";
 import type { AppEnv } from "../../types";
 import { fileHonoRoutes } from "../files/routes";
 
@@ -23,8 +23,6 @@ const { broadcastInvalidation } = vi.hoisted(() => {
   return { broadcastInvalidation: vi.fn() };
 });
 vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
-
-const now = 1_700_000_000_000;
 
 async function fixture() {
   const base = await createProjectFixture(`live-read-only-${crypto.randomUUID()}`);

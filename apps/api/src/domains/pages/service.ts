@@ -1,6 +1,6 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 

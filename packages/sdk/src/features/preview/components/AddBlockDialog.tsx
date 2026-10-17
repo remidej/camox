@@ -205,11 +205,14 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     return counts;
   }, [page, pageBlocks]);
 
-  React.useEffect(() => {
+  // Each dialog opening starts fresh.
+  const [previousDialog, setPreviousDialog] = React.useState(dialog);
+  if (dialog !== previousDialog) {
+    setPreviousDialog(dialog);
     setHighlightedValue("");
     setSearch("");
     setError(null);
-  }, [dialog]);
+  }
 
   const handleAddBlock = async (block: Block) => {
     if (!page || !dialog || submitting.current) return;

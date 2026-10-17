@@ -194,7 +194,10 @@ function PreviewPageCanvasEffects({ owner }: { owner: EditingOwner | null }) {
   const { window: frameWindow, iframeElement } = useFrame();
   const { frame, slot, inCanvas } = usePreviewPageFrame();
   const iframeRef = React.useRef(iframeElement);
-  iframeRef.current = iframeElement;
+  // Set before the frame input effect below reads it.
+  React.useLayoutEffect(() => {
+    iframeRef.current = iframeElement;
+  });
   const root = frameWindow?.document.querySelector<HTMLElement>("[data-camox-preview-root]");
   const placed = inCanvas && slot && iframeElement && root ? slot : null;
   const viewportHeight = placed?.viewportHeight;

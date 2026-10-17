@@ -1,5 +1,5 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
-import { queryKeys, type ProjectRoomMessage, type QueryKey } from "@camox/api-contract/query-keys";
+import { queryKeys, type ProjectRoomMessage } from "@camox/api-contract/query-keys";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { broadcastDraftEnded, broadcastInvalidation } from "./broadcast-invalidation";

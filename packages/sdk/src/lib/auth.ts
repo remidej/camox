@@ -271,6 +271,7 @@ export function useProcessOtt(
   target: PreviewTarget,
   initialAuthenticated = false,
 ) {
+  const { projectSlug, apiUrl } = target;
   const [error, setError] = React.useState<string | null>(null);
   const processing = React.useRef(false);
   const [ready, setReady] = React.useState(() => {
@@ -280,10 +281,14 @@ export function useProcessOtt(
 
   React.useEffect(() => {
     const url = new URL(window.location.href);
-    const targetError = validatePreviewTarget(url.searchParams.get("camox-preview"), target);
+    const targetError = validatePreviewTarget(url.searchParams.get("camox-preview"), {
+      projectSlug,
+      apiUrl,
+    });
     if (targetError) {
       url.searchParams.delete("ott");
       window.history.replaceState(window.history.state, "", url);
+      // oxlint-disable-next-line react/set-state-in-effect -- result depends on window.location, unknown during SSR
       setError(targetError);
       setReady(true);
       return;
@@ -326,7 +331,7 @@ export function useProcessOtt(
       }
       setReady(true);
     })();
-  }, [authClient, ready, error, initialAuthenticated, target.projectSlug, target.apiUrl]);
+  }, [authClient, ready, error, initialAuthenticated, projectSlug, apiUrl]);
 
   return { ready, error };
 }

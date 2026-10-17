@@ -39,6 +39,9 @@ const footer = createBlock({
   toMarkdown: (c) => [c.title, c.columns],
 });
 
+// Read when the module loads: React components must not read the clock while rendering.
+const currentYear = new Date().getFullYear();
+
 function FooterComponent() {
   return (
     <footer className="dark bg-background py-16">
@@ -50,7 +53,7 @@ function FooterComponent() {
               {(props) => <div {...props} className="text-foreground mb-2 text-2xl font-bold" />}
             </footer.Field>
             <p className="text-muted-foreground text-sm">
-              &copy; {new Date().getFullYear()} All rights reserved.
+              &copy; {currentYear} All rights reserved.
             </p>
           </div>
 

@@ -575,6 +575,7 @@ export function useCanvasCamera(
           : previousSnap;
       },
     };
+    // oxlint-disable-next-line react/immutability -- the continuity store is a mutable object shared outside React
     if (continuity) continuity.canvas = continuityBinding;
     const resize = new ResizeObserver(() => {
       const nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight };

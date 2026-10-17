@@ -46,11 +46,14 @@ export function useCanvasFrame({
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [srcDoc, setSrcDoc] = React.useState<string>();
   const [mount, setMount] = React.useState<HTMLElement | null>(null);
+  // The iframe as of the latest load, for rendering (the ref is for effects and handlers).
+  const [iframe, setIframe] = React.useState<HTMLIFrameElement | null>(null);
   const [failure, setFailure] = React.useState<Error | null>(null);
   const live = mode === "live";
   const resting = mode === "resting";
   React.useEffect(() => {
     try {
+      // oxlint-disable-next-line react/set-state-in-effect -- the document copies host styles, so it is built after mount
       setSrcDoc(createCanvasDocument(previewDocument, href));
     } catch (error) {
       setFailure(toError(error));
@@ -73,19 +76,21 @@ export function useCanvasFrame({
     srcDoc,
     onLoad: () => {
       try {
-        const doc = iframeRef.current?.contentDocument;
+        const loaded = iframeRef.current;
+        const doc = loaded?.contentDocument;
         const root = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
         if (!root) throw new Error(`The ${subject} preview document has no content root.`);
         if (root === mount) return;
         root.replaceChildren();
         setMount(root);
+        setIframe(loaded);
       } catch (error) {
         setFailure(toError(error));
       }
     },
     onError: () => setFailure(new Error(`The ${subject} preview document could not load.`)),
   } satisfies React.ComponentProps<"iframe">;
-  return { iframeRef, mount, iframeProps };
+  return { iframeRef, iframe, mount, iframeProps };
 }
 
 const noNavigation = () => {};

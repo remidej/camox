@@ -77,7 +77,7 @@ function BlockFrame({
   const [href] = React.useState(() =>
     canvasPageHref({ runtimeBasePath, pathname: "/", href: window.location.href }),
   );
-  const { iframeRef, mount, iframeProps } = useCanvasFrame({
+  const { iframe, mount, iframeProps } = useCanvasFrame({
     previewDocument: initialPreviewDocument,
     href,
     width,
@@ -103,12 +103,7 @@ function BlockFrame({
           // as on the live website instead, with no editing affordances.
           <BlockEditingRuntimeProvider runtime={null}>
             <ArtifactStudioContext value={CATALOG_ARTIFACT_STUDIO}>
-              <CanvasFrameProviders
-                pathname="/"
-                href={href}
-                mount={mount}
-                iframe={iframeRef.current}
-              >
+              <CanvasFrameProviders pathname="/" href={href} mount={mount} iframe={iframe}>
                 <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
                   <div
                     style={{ display: "flow-root" }}

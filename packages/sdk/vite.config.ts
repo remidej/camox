@@ -47,6 +47,10 @@ export default defineConfig({
         // `camox/_internal/imageResponse` so the consuming app's bundler picks the
         // workerd or node variant via this package's exports conditions.
         "camox/_internal/imageResponse",
+        // Inferred API types reach into the unpublished api app through
+        // @camox/api-contract. Declaration emit can't follow them there, and
+        // no public type keeps them, so leave them unresolved.
+        /\/apps\/api\/src\//,
       ],
     },
     plugins: [

@@ -35,3 +35,27 @@ for (const noExternals of externalOptions) {
     ]);
   });
 }
+
+void test("Camox filters the warnings every Camox app produces from the server bundle", () => {
+  const nitro: Nitro = {
+    hooks: { hook: () => {} },
+    options: {
+      output: { publicDir: "/public", serverDir: "/server" },
+      routes: {},
+      virtual: {},
+    },
+  };
+  camox({ projectSlug: "smoke" }).nitro!.setup(nitro);
+  const logged: unknown[] = [];
+
+  nitro.options.rolldownConfig!.onLog!(
+    "warn",
+    {
+      code: "MODULE_LEVEL_DIRECTIVE",
+      message: 'The module level directive "use client" in "x.js" may not be preserved.',
+    },
+    (_level, log) => logged.push(log),
+  );
+
+  assert.deepEqual(logged, []);
+});

@@ -72,7 +72,6 @@ export const Frame = ({
   inCanvas = false,
 }: FrameProps) => {
   const inCanvasRef = React.useRef(inCanvas);
-  inCanvasRef.current = inCanvas;
   const navigate = useNavigate();
   const { pathname, hash, href } = useLocation();
   const previewDocument = React.useContext(PreviewDocumentContext);
@@ -83,7 +82,11 @@ export const Frame = ({
   const [serverNodes, setServerNodes] = React.useState<ChildNode[]>([]);
   const initializedDocument = React.useRef<Document | null>(null);
   const navigateRef = React.useRef(navigate);
-  navigateRef.current = navigate;
+  // The iframe's click listener reads the latest props through these refs.
+  React.useLayoutEffect(() => {
+    inCanvasRef.current = inCanvas;
+    navigateRef.current = navigate;
+  });
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [iframeWindow, setIframeWindow] = React.useState<Window | null>(null);
   const [iframeElement, setIframeElement] = React.useState<HTMLIFrameElement | null>(null);
@@ -180,7 +183,10 @@ export const Frame = ({
       positionedLocation.current.href === href
     )
       return;
-    if (positionedLocation.current && continuity?.checkpoint) continuity.checkpoint.moved = true;
+    if (positionedLocation.current && continuity?.checkpoint) {
+      // oxlint-disable-next-line react/immutability -- the continuity store is a mutable object shared outside React
+      continuity.checkpoint.moved = true;
+    }
     positionedLocation.current = { doc: iframeWindow.document, href };
     let base = iframeWindow.document.querySelector("base");
     if (!base) {
@@ -223,6 +229,7 @@ export const Frame = ({
     const pending = continuity.pendingPreview;
     if (pending?.pathname === pathname) {
       restorePreviewAnchor(doc, scroll, pending.anchor);
+      // oxlint-disable-next-line react/immutability -- the continuity store is a mutable object shared outside React
       continuity.pendingPreview = null;
     }
     let previousTop = scroll.scrollTop;

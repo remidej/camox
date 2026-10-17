@@ -42,6 +42,8 @@ import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
 import { type RecordPlacer, useRecordView, type SelectionCrumb } from "./useRecordView";
 import { type RepeatableArraySchema, useRepeatableItemActions } from "./useRepeatableItemActions";
 
+const EMPTY_CONTENT: Record<string, unknown> = {};
+
 /* -------------------------------------------------------------------------------------------------
  * Helper: Get settings fields from schema
  * -----------------------------------------------------------------------------------------------*/
@@ -292,7 +294,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const recordContent = recordView?.record.content;
   const rawCurrentData: Record<string, unknown> = currentItem
     ? (currentItem.content as Record<string, unknown>)
-    : (block?.content ?? {});
+    : (block?.content ?? EMPTY_CONTENT);
 
   // Resolve _fileId markers in data for asset field editors (recursive for inline arrays)
   const currentData = React.useMemo(() => {
@@ -361,11 +363,11 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const assetFieldName = imageFieldName ?? fileFieldName;
   const assetType: "Image" | "File" = isViewingImage ? "Image" : "File";
 
-  const isMultipleAsset = React.useMemo(() => {
-    if (!isViewingAsset || !assetFieldName) return false;
-    const prop = contentFieldSchema(currentSchema, assetFieldName);
-    return prop?.fieldType === "ImageList" || prop?.fieldType === "FileList";
-  }, [isViewingAsset, assetFieldName, currentSchema]);
+  const multipleAssetType =
+    isViewingAsset && assetFieldName
+      ? contentFieldSchema(currentSchema, assetFieldName)?.fieldType
+      : undefined;
+  const isMultipleAsset = multipleAssetType === "ImageList" || multipleAssetType === "FileList";
   // Record asset views match the collection form, which restricts uploads to the field's accept list.
   const assetProperty =
     recordView && assetFieldName ? contentFieldSchema(currentSchema, assetFieldName) : undefined;

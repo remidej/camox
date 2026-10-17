@@ -50,6 +50,8 @@ export function CanvasPreviewPageSlot({
     previewStore.send({ type: "setIframeElement", element: iframe });
     onActivate(owner, source);
   });
+  // A stable handler: the slot effect below compares it to skip redundant updates.
+  // oxlint-disable-next-line react/preserve-manual-memoization -- wraps an effect event, which has no dependency
   const onInteract = React.useCallback(() => activateOwner("interaction"), []);
 
   // The slot's place in the row: the Canvas items lay out without transforms, but

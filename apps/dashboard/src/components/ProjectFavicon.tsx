@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { getFaviconUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -24,26 +24,23 @@ export function ProjectFavicon({
   size?: number;
   className?: string;
 }) {
-  const [errored, setErrored] = useState(false);
-
-  // Reset error state when the URL changes (new upload after a previous 404).
-  useEffect(() => {
-    setErrored(false);
-  }, [project.id, project.updatedAt]);
+  const src = getFaviconUrl(project);
+  // Tracking the failed URL resets the error when the URL changes (new upload after a 404).
+  const [erroredSrc, setErroredSrc] = useState<string | null>(null);
 
   const sizeStyle = { width: size, height: size };
 
-  if (errored) {
+  if (erroredSrc === src) {
     return <FaviconFallback name={project.name} size={size} className={className} />;
   }
 
   return (
     <img
-      src={getFaviconUrl(project)}
+      src={src}
       alt=""
       style={sizeStyle}
       className={cn("rounded-sm object-cover", className)}
-      onError={() => setErrored(true)}
+      onError={() => setErroredSrc(src)}
     />
   );
 }

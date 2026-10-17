@@ -1,5 +1,3 @@
-"use client";
-
 import { toast } from "@camox/ui/toaster";
 import { CopyIcon, TerminalIcon } from "lucide-react";
 import { useCallback } from "react";
