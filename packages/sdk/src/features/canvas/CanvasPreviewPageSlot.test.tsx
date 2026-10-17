@@ -55,7 +55,7 @@ void test("the selected Page's slot hands its place to the Preview page frame an
   dom.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
   // The Canvas passes new callbacks on every render, as CamoxCanvas does.
-  const render = (revealed: boolean, selected = true) =>
+  const render = (revealed: boolean, selected = true, hidden = false) =>
     React.act(async () =>
       root.render(
         <PreviewPageFrameContext value={{ frame, revealed }}>
@@ -69,6 +69,7 @@ void test("the selected Page's slot hands its place to the Preview page frame an
                 viewportHeight={768}
                 selected={selected}
                 hovered={false}
+                hidden={hidden}
                 onActivate={(owner, source) => activations.push([owner, source])}
               />
             </PreviewPreparationContext>
@@ -106,6 +107,12 @@ void test("the selected Page's slot hands its place to the Preview page frame an
     await render(true);
     assert.equal(frame.getSnapshot().slot?.mode, "live");
     assert.deepEqual(activations.at(-1), [{ kind: "page", pageId: "page-1" }, "selection"]);
+
+    await render(true, true, true);
+    assert.equal(frame.getSnapshot().slot?.hidden, true, "a collapsed shelf hides the frame");
+    assert.equal(slot(), placedSlot, "without leaving its slot");
+    await render(true);
+    assert.equal(frame.getSnapshot().slot?.hidden, false);
 
     await React.act(async () => root.unmount());
     assert.equal(frame.getSnapshot().slot, null, "leaving the slot releases the frame");

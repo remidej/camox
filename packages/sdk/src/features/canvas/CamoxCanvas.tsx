@@ -533,6 +533,7 @@ function CanvasWorkspace({
                                 viewportHeight={viewport.height}
                                 selected={selected}
                                 hovered={hoveredPageKey === page.key}
+                                hidden={collapsed}
                                 onActivate={onPageActivate}
                               />
                             ) : pathname ? (

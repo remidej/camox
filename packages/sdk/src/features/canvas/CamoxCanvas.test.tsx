@@ -735,9 +735,10 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
         Object.assign(globalThis, globals);
         frames.clear();
-        const slots: { pageId?: string }[] = [];
+        const slots: { pageId?: string; hidden?: boolean }[] = [];
         Object.assign(globalThis, {
-          CanvasPreviewSlotProbe: (props: { pageId?: string }) => slots.push(props),
+          CanvasPreviewSlotProbe: (props: { pageId?: string; hidden?: boolean }) =>
+            slots.push(props),
         });
         const { PreviewPageFrame, PreviewPageFrameContext } =
           await import("../preview/previewPageFrame");
@@ -766,6 +767,18 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.ok(slots.length > 0, "its slot takes the Preview page frame");
           assert.equal(frames.has("/about"), false, "the Canvas renders no second frame of it");
           assert.ok(frames.has("/contact"), "other Pages keep frames of their own");
+          assert.equal(slots.at(-1)?.hidden, false);
+
+          // The Preview's frame isn't inside its shelf, so collapsing the shelf hides it.
+          const marker = () =>
+            host.querySelector(
+              '[data-canvas-shelf-marker="shelf:pages"]',
+            ) as unknown as HTMLElement;
+          await React.act(async () => marker().click());
+          assert.equal(slots.at(-1)?.hidden, true, "collapsing its shelf hides the frame");
+          await React.act(async () => marker().click());
+          assert.equal(slots.at(-1)?.hidden, false, "expanding shows it again");
+          keptInView.length = 0;
 
           // Zooming out deselects the Page, but the Preview still shows it.
           globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/camox/canvas" };
