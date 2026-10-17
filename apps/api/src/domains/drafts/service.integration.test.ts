@@ -11,31 +11,39 @@ import { InvalidInputError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
 import { blocks, drafts, member } from "../../schema";
+import { accessTo } from "./access";
 import * as overlay from "./overlay";
-import { inDraftScope, requireDraftScope } from "./service";
 
-// A procedure that only resolves the request's draft scope, so the tests run the real
-// middleware the way block procedures will.
+// A procedure that only resolves the request's draft scope through content access, so the tests
+// run the real middleware that reads the draft headers.
 const draftScopeProbe = pub
   .input(z.object({ projectId: z.number() }))
-  .handler(({ context, input }) => requireDraftScope(context, input.projectId));
+  .handler(({ context, input }) =>
+    runService(
+      Effect.scoped(
+        Effect.map(accessTo(context, { project: input.projectId }, "public"), (a) => a.scope),
+      ),
+    ),
+  );
 
 // A write that stores a block in the draft, as a concurrent first edit would, and then fails.
 const storeThenFailProbe = pub
   .input(z.object({ projectId: z.number() }))
   .handler(({ context, input }) =>
     runService(
-      inDraftScope(context, input.projectId, (scope) =>
-        overlay
-          .insert(context.db, scope, blocks, {
-            projectId: input.projectId,
-            type: "hero",
-            content: {},
-            position: "a0",
-            createdAt: 1,
-            updatedAt: 1,
-          })
-          .pipe(Effect.andThen(new InvalidInputError({ message: "Failed after storing" }))),
+      Effect.scoped(
+        Effect.flatMap(accessTo(context, { project: input.projectId }, "write"), ({ scope }) =>
+          overlay
+            .insert(context.db, scope, blocks, {
+              projectId: input.projectId,
+              type: "hero",
+              content: {},
+              position: "a0",
+              createdAt: 1,
+              updatedAt: 1,
+            })
+            .pipe(Effect.andThen(new InvalidInputError({ message: "Failed after storing" }))),
+        ),
       ),
     ),
   );

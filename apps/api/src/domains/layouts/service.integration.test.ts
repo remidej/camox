@@ -5,6 +5,7 @@ import {
   createProjectFixture,
   createServiceContext,
   openDevelopmentDraft,
+  inScope,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, files, layouts, pages, repeatableItems } from "../../schema";
@@ -138,8 +139,8 @@ describe("standalone shared layout reads", () => {
       .where(eq(blocks.id, navbar.id));
 
     // Visitors, members and tools all read the current rows.
-    const view = await runService(getLayout(createServiceContext(db, null), input, null));
-    expect(await runService(getLayout(ctx, input, null))).toEqual(view);
+    const view = await runService(getLayout(inScope(createServiceContext(db, null), null), input));
+    expect(await runService(getLayout(inScope(ctx, null), input))).toEqual(view);
     expect(await readTool()).toEqual({ ok: true, result: view });
     expect(view.layout.beforeBlockIds).toEqual([navbar.id]);
     expect(view.layout.afterBlockIds).toEqual([footer.id]);
@@ -211,12 +212,12 @@ describe("standalone shared layout reads", () => {
     const input = { projectSlug: project.slug, layoutId: layout.layoutId };
     const ctx = createServiceContext(db, memberUser);
     await expect(
-      runService(getLayout(ctx, { ...input, layoutId: "missing" }, null)),
+      runService(getLayout(inScope(ctx, null), { ...input, layoutId: "missing" })),
     ).rejects.toMatchObject({
       status: 404,
     });
     await expect(
-      runService(getLayout(ctx, { ...input, projectSlug: "missing" }, null)),
+      runService(getLayout(inScope(ctx, null), { ...input, projectSlug: "missing" })),
     ).rejects.toMatchObject({
       status: 404,
     });

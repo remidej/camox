@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, pages } from "../../schema";
 import { getBlocksUsageCounts, getPagesUsingBlock } from "./service";
@@ -48,7 +48,7 @@ describe("getPagesUsingBlock", () => {
     await place("faq", { projectId: project.id, pageId: pricing.id });
 
     const result = await runService(
-      getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }, null),
+      getPagesUsingBlock(inScope(ctx, null), { projectId: project.id, type: "hero" }),
     );
 
     expect(result).toEqual([
@@ -56,7 +56,9 @@ describe("getPagesUsingBlock", () => {
       { id: home.id, nickname: "Home", fullPath: "/home" },
     ]);
     // Usage counts count placements, which is why Pages need their own query.
-    const counts = await runService(getBlocksUsageCounts(ctx, { projectId: project.id }, null));
+    const counts = await runService(
+      getBlocksUsageCounts(inScope(ctx, null), { projectId: project.id }),
+    );
     expect(counts.find(({ type }) => type === "hero")?.count).toBe(3);
   });
 
@@ -68,11 +70,13 @@ describe("getPagesUsingBlock", () => {
     await place("hero", { projectId: layout.projectId, layoutId: layout.layoutId });
 
     expect(
-      await runService(getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }, null)),
+      await runService(
+        getPagesUsingBlock(inScope(ctx, null), { projectId: project.id, type: "hero" }),
+      ),
     ).toEqual([]);
     expect(
       await runService(
-        getPagesUsingBlock(other.ctx, { projectId: other.project.id, type: "hero" }, null),
+        getPagesUsingBlock(inScope(other.ctx, null), { projectId: other.project.id, type: "hero" }),
       ),
     ).toEqual([{ id: elsewhere.id, nickname: "Elsewhere", fullPath: "/elsewhere" }]);
   });

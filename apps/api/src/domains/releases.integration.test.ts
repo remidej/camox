@@ -13,6 +13,8 @@ import { runService } from "../lib/run-service";
 import { router } from "../router";
 import { pages } from "../schema";
 import { syncBlockDefinitions } from "./block-definitions/service";
+import * as overlay from "./drafts/overlay";
+import { RELEASE } from "./drafts/scope";
 import { syncLayouts } from "./layouts/service";
 
 // A release: the website's build syncing its definitions to Live with the deploy token
@@ -223,8 +225,7 @@ describe("a release", () => {
   });
 
   it("never fails because of content, such as a declared block linking a page Live deleted", async () => {
-    const { createPage, member, releaseDefinitions, releaseLayouts, layoutBlocks } =
-      await fixture();
+    const { db, createPage, releaseDefinitions, releaseLayouts, layoutBlocks } = await fixture();
     const about = await createPage("/about");
     await releaseDefinitions([{ blockId: "navbar", layoutOnly: true }]);
     const declared = {
@@ -237,7 +238,9 @@ describe("a release", () => {
       ],
     };
     await releaseLayouts(declared);
-    await callSeedingLive(router.pages.delete, { id: about.id }, member());
+    // Publishing refuses to delete a page Live content links to, so Live loses it as a release
+    // would write it.
+    await runService(overlay.remove(db, RELEASE, pages, about.id));
 
     await releaseLayouts(declared);
 

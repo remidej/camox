@@ -142,18 +142,21 @@ async function fixture() {
 }
 
 describe("summaries in drafts", () => {
-  it("are requested in the draft a block was edited in", async () => {
-    const { createBlock, editTitle, scheduled } = await fixture();
+  it("are requested in the draft a block was edited in, and on Live once it's published", async () => {
+    const { createBlock, editTitle, publish, scheduled } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
+    const published = generateUuidv7();
     scheduleAiJob.mockClear();
 
     await editTitle(block.id, "Draft", startingDraft(draft));
-    await editTitle(block.id, "Live again");
+    await editTitle(block.id, "Live again", startingDraft(published));
+    await publish(published);
 
-    expect(scheduled()).toEqual([
-      expect.objectContaining({ entityTable: "blocks", entityId: block.id, draftId: draft }),
-      expect.objectContaining({ entityTable: "blocks", entityId: block.id, draftId: null }),
+    expect(scheduled().filter((job) => job.entityTable === "blocks")).toEqual([
+      expect.objectContaining({ entityId: block.id, draftId: draft }),
+      expect.objectContaining({ entityId: block.id, draftId: published }),
+      expect.objectContaining({ entityId: block.id, draftId: null }),
     ]);
   });
 

@@ -3,7 +3,11 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { collection as articles } from "../../../../playground/src/collections/articles";
 import { collection as authors } from "../../../../playground/src/collections/authors";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
 import { plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
 import {
@@ -50,17 +54,22 @@ async function fixture(suffix: string) {
       definitions: [definition, authorsDefinition],
     }),
   );
+  // Record writes reach Live by publishing a throwaway draft (ADR 0009).
+  const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
+    seedLiveThrough(ctx, base.project.id, run);
   const create = (content: Record<string, unknown>) =>
-    runService(createRecord(ctx, { ...scope, content: { ...article, ...content } }));
+    live((_draft, c) => createRecord(c, { ...scope, content: { ...article, ...content } }));
   const edit = (record: { id: string }, content: Record<string, unknown>) =>
-    runService(editRecord(ctx, { ...scope, id: record.id, content: { ...article, ...content } }));
+    live((_draft, c) =>
+      editRecord(c, { ...scope, id: record.id, content: { ...article, ...content } }),
+    );
   const find = (value: string, context = publicCtx) =>
     runService(findRecordsByField(context, { ...scope, field: "slug", value }));
   const list = (context = publicCtx) =>
     runService(listRecordPageValues(context, { ...scope, field: "slug" }));
   const createAuthor = (content: Record<string, unknown>) =>
-    runService(
-      createRecord(ctx, { ...scope, collectionId: "authors", content: { ...author, ...content } }),
+    live((_draft, c) =>
+      createRecord(c, { ...scope, collectionId: "authors", content: { ...author, ...content } }),
     );
   return { ...base, ctx, publicCtx, scope, create, edit, find, list, createAuthor };
 }

@@ -11,8 +11,8 @@ import { blockSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import { applyNewDefinitionSyncedFlag, applySyncedFlagChange } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
-import type { DraftScope } from "../drafts/scope";
-import { resolveDraftScope } from "../drafts/service";
+import { accessTo } from "../drafts/access";
+import type { DraftScope, WriteTarget } from "../drafts/scope";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -100,7 +100,7 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
   rawInput: z.input<typeof listBlockDefinitionsInput>,
 ) {
   const { projectId } = yield* decodeInput(listBlockDefinitionsInput, rawInput);
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   return yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -109,7 +109,7 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
         and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
-});
+}, Effect.scoped);
 
 // --- Writes ---
 
@@ -119,11 +119,11 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
  */
 const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* (
   ctx: ServiceContext,
-  target: { projectId: number; scope: DraftScope },
+  target: { projectId: number; scope: DraftScope; writes: WriteTarget },
   def: DefinitionFields,
   now: number,
 ) {
-  const { projectId, scope } = target;
+  const { projectId, scope, writes } = target;
   const key = { projectId, type: def.blockId };
   const fields = yield* Effect.promise(() => definitionColumns(def));
   const existing = yield* Effect.promise(() =>
@@ -147,7 +147,12 @@ const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* 
         .get(),
     );
     if (updated.synced !== existing.synced) {
-      yield* applySyncedFlagChange(ctx, { scope, projectId, key, synced: updated.synced });
+      yield* applySyncedFlagChange(ctx, {
+        target: writes,
+        projectId,
+        key,
+        synced: updated.synced,
+      });
     }
     return { row: updated, action: "updated" as const };
   }
@@ -167,7 +172,12 @@ const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* 
       .get(),
   );
   // A definition that comes back finds its stored shared content, synced or not.
-  yield* applyNewDefinitionSyncedFlag(ctx, { scope, projectId, key, synced: created.synced });
+  yield* applyNewDefinitionSyncedFlag(ctx, {
+    target: writes,
+    projectId,
+    key,
+    synced: created.synced,
+  });
   return { row: created, action: "created" as const };
 });
 
@@ -193,12 +203,12 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
     { create: autoCreate },
   );
   const projectId = target.project.id;
-  const { scope } = target;
+  const { scope, writes } = target;
   const now = Date.now();
   const results = [];
 
   for (const def of definitions) {
-    const written = yield* writeDefinition(ctx, { projectId, scope }, def, now);
+    const written = yield* writeDefinition(ctx, { projectId, scope, writes }, def, now);
     results.push(written.row);
   }
 
@@ -254,7 +264,12 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
     { create: true },
   );
   const projectId = target.project.id;
-  const written = yield* writeDefinition(ctx, { projectId, scope: target.scope }, body, Date.now());
+  const written = yield* writeDefinition(
+    ctx,
+    { projectId, scope: target.scope, writes: target.writes },
+    body,
+    Date.now(),
+  );
   const action = written.action === "created" ? "created" : "updated";
   return { ...written.row, action: action as "created" | "updated" };
 });

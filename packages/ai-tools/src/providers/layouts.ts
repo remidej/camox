@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { resolveDraftScope } from "../../../../apps/api/src/domains/drafts/service";
 import { getLayout, listLayouts } from "../../../../apps/api/src/domains/layouts/service";
 import { NotFoundError } from "../../../../apps/api/src/lib/errors";
 import { runService } from "../../../../apps/api/src/lib/run-service";
@@ -45,8 +44,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
               .get(),
           );
           if (!project) return yield* new NotFoundError();
-          const scope = yield* resolveDraftScope(ctx, ctx.projectId);
-          return yield* getLayout(ctx, { projectSlug: project.slug, layoutId }, scope);
+          return yield* getLayout(ctx, { projectSlug: project.slug, layoutId });
         }),
       );
     },

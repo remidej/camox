@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+  inScope,
+} from "../../../test/fixtures";
 import { assertSyncAccess, getAuthorizedProject } from "../../authorization";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, pages } from "../../schema";
@@ -84,13 +89,15 @@ describe("page persistence", () => {
       .returning()
       .get();
     const read = (ctx: typeof memberCtx) =>
-      runService(getPageByPath(ctx, { projectSlug: project.slug, path: page.fullPath }, null));
+      runService(
+        getPageByPath(inScope(ctx, null), { projectSlug: project.slug, path: page.fullPath }),
+      );
 
     expect((await read(visitorCtx)).blocks[0].content).toEqual({ title: "First title" });
 
-    // An edit is visible right away, whoever reads.
-    await runService(
-      updateBlockContent(memberCtx, { id: block.id, content: { title: "Edited" } }, null),
+    // A published edit is visible right away, whoever reads.
+    await seedLiveThrough(memberCtx, project.id, (draft) =>
+      updateBlockContent(inScope(memberCtx, draft), { id: block.id, content: { title: "Edited" } }),
     );
 
     for (const ctx of [visitorCtx, memberCtx]) {

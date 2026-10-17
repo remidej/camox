@@ -1,103 +1,53 @@
-import { and, eq, inArray } from "drizzle-orm";
-import { Effect } from "effect";
+import { sql, type SQL } from "drizzle-orm";
 
-import type { Database } from "../db";
-import { storedIn } from "../domains/drafts/overlay";
-import { layoutNamed } from "../domains/layouts/identity";
-import { blocks, layouts, pages } from "../schema";
+import { blocks } from "../domains/blocks/schema";
+import { layouts } from "../domains/layouts/schema";
+import { pages } from "../domains/pages/schema";
 
-/** A block's owner: a page, or a layout named within the block's project. */
-type BlockParent = { projectId?: number; pageId?: string | null; layoutId?: string | null };
+// A Live page or layout's `content_updated_at` tells readers when its blocks last changed: the
+// SDK keeps a layout's cached blocks across navigations while it stays the same. Live's writers,
+// publishing and releases, bump it through the drafts overlay whenever Live changes a block, a
+// repeatable item, or a synced block's shared content. Drafts never bump it.
+//
+// Each builder takes `changed`, a select of the changed rows of one content table (any rows:
+// Live's or a draft's, before or after the change) and returns statements bumping the owners
+// of the Live blocks they concern.
 
 /**
- * Bumps `content_updated_at` on the Live parent page or layout that owns these
- * Live blocks. Called by every block / repeatable-item mutation, so readers can
- * tell when a page or layout's content last changed. One extra UPDATE per
- * mutation on the hot edit path.
+ * Bumps the Live pages, and the layouts, owning the Live blocks `where` matches on the alias
+ * "b". A layout is bumped in Live and in development drafts, which show Live's blocks too.
  */
-export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* (
-  db: Database,
-  parent: BlockParent,
-) {
-  const now = Date.now();
-  const { projectId, pageId, layoutId } = parent;
-  if (pageId != null) {
-    yield* Effect.promise(() =>
-      db
-        .update(pages)
-        .set({ contentUpdatedAt: now })
-        .where(and(eq(pages.id, pageId), storedIn(pages, null))),
-    );
-    return;
-  }
-  if (layoutId != null && projectId != null) {
-    yield* Effect.promise(() =>
-      db.update(layouts).set({ contentUpdatedAt: now }).where(layoutNamed(projectId, layoutId)),
-    );
-  }
-});
+function bumpOwnersOfBlocks(where: SQL, now: number): SQL[] {
+  const liveBlocks = sql`from ${blocks} as "b" where "b"."draft_id" is null and ${where}`;
+  return [
+    sql`update ${pages} set "content_updated_at" = ${now}
+      where ${pages.draftId} is null and ${pages.id} in (select "b"."page_id" ${liveBlocks})`,
+    sql`update ${layouts} set "content_updated_at" = ${now}
+      where exists (select 1 ${liveBlocks}
+        and "b"."layout_id" = ${layouts.layoutId} and "b"."project_id" = ${layouts.projectId})`,
+  ];
+}
 
-/** Looks up a single block's parent and bumps it. */
-export const bumpContentUpdatedAtForBlock = Effect.fn("bumpContentUpdatedAtForBlock")(function* (
-  db: Database,
-  blockId: string,
-) {
-  const row = yield* Effect.promise(() =>
-    db
-      .select({
-        projectId: blocks.projectId,
-        pageId: blocks.pageId,
-        layoutId: blocks.layoutId,
-      })
-      .from(blocks)
-      .where(and(eq(blocks.id, blockId), storedIn(blocks, null)))
-      .get(),
-  );
-  if (!row) return;
-  yield* bumpContentUpdatedAt(db, row);
-});
+/** Bumps the owners of the changed blocks themselves. */
+export const bumpsForBlocks = (changed: SQL, now: number) =>
+  bumpOwnersOfBlocks(sql`"b"."id" in (select "c"."id" from (${changed}) as "c")`, now);
 
-/** Variant for batch mutations — looks up parents for several block ids. */
-export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForBlocks")(function* (
-  db: Database,
-  blockIds: string[],
-) {
-  if (blockIds.length === 0) return;
-  const rows = yield* Effect.promise(() =>
-    db
-      .select({
-        projectId: blocks.projectId,
-        pageId: blocks.pageId,
-        layoutId: blocks.layoutId,
-      })
-      .from(blocks)
-      .where(and(inArray(blocks.id, blockIds), storedIn(blocks, null))),
+/** Bumps the owners of the placements of the changed shared contents' definitions. */
+export const bumpsForSharedContents = (changed: SQL, now: number) =>
+  bumpOwnersOfBlocks(
+    sql`exists (select 1 from (${changed}) as "c"
+      where "c"."project_id" = "b"."project_id" and "c"."type" = "b"."type")`,
+    now,
   );
-  const pageIds = new Set<string>();
-  const layoutKeys = new Map<string, { projectId: number; layoutId: string }>();
-  for (const row of rows) {
-    if (row.pageId != null) pageIds.add(row.pageId);
-    else if (row.layoutId != null)
-      layoutKeys.set(`${row.projectId}:${row.layoutId}`, {
-        projectId: row.projectId,
-        layoutId: row.layoutId,
-      });
-  }
-  const now = Date.now();
-  if (pageIds.size > 0) {
-    yield* Effect.promise(() =>
-      db
-        .update(pages)
-        .set({ contentUpdatedAt: now })
-        .where(and(inArray(pages.id, [...pageIds]), storedIn(pages, null))),
-    );
-  }
-  for (const layout of layoutKeys.values()) {
-    yield* Effect.promise(() =>
-      db
-        .update(layouts)
-        .set({ contentUpdatedAt: now })
-        .where(layoutNamed(layout.projectId, layout.layoutId)),
-    );
-  }
-});
+
+/**
+ * Bumps the owners of the changed items' root: their block, or every placement of the synced
+ * definition whose shared content holds them.
+ */
+export const bumpsForRepeatableItems = (changed: SQL, now: number) =>
+  bumpOwnersOfBlocks(
+    sql`("b"."id" in (select "c"."block_id" from (${changed}) as "c")
+      or exists (select 1 from (${changed}) as "c"
+        where "c"."project_id" = "b"."project_id" and "c"."shared_content_type" = "b"."type"))`,
+    now,
+  );

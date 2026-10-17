@@ -11,10 +11,11 @@ import {
   createRpcContext,
   createServiceContext,
   callSeedingLive,
+  seedLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { drafts, files, pages } from "../../schema";
+import { blocks, drafts, files, pages } from "../../schema";
 import type { AppEnv } from "../../types";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { fileHonoRoutes } from "./routes";
@@ -162,6 +163,21 @@ async function fixture() {
       { pageId: page.id, type: "hero", content },
       member(headers),
     );
+  /**
+   * A Live block holding `content` as a release would write it: for problems publish refuses to
+   * put on Live, which reach it only through releases changing definitions (ADR 0009).
+   */
+  let seeded = 0;
+  const seedBlock = (content: Record<string, unknown>) =>
+    seedLive(base.db, blocks, {
+      projectId,
+      pageId: page.id,
+      type: "hero",
+      content,
+      position: `a${seeded++}`,
+      createdAt: now,
+      updatedAt: now,
+    });
   const editBlock = (id: string, content: Record<string, unknown>, headers: Headers) =>
     callSeedingLive(router.blocks.updateContent, { id, content }, member(headers));
 
@@ -190,6 +206,7 @@ async function fixture() {
     bytesAt,
     blobExists,
     createBlock,
+    seedBlock,
     editBlock,
     preview,
     publish,
@@ -338,7 +355,7 @@ describe("files in drafts", () => {
     const image = await f.upload();
     const missing = generateUuidv7();
     const onLive = await f.createBlock({ title: "Live", image: { _fileId: image.id } });
-    await f.createBlock({
+    await f.seedBlock({
       title: "Broken on Live",
       image: { _fileId: image.id },
       datasheet: { _fileId: missing },
@@ -387,7 +404,7 @@ describe("files in drafts", () => {
 
     // The same mismatch already on Live is a warning.
     const other = generateUuidv7();
-    await f.createBlock({ title: "Wrong on Live", image: { _fileId: pdf.id } }, {});
+    await f.seedBlock({ title: "Wrong on Live", image: { _fileId: pdf.id } });
     await f.upload(startingDraft(other));
     const { blockers, warnings } = await f.preview(other);
     expect(blockers).toEqual([]);
@@ -397,7 +414,7 @@ describe("files in drafts", () => {
   it("an empty required image blocks publishing in changed content, and is a warning on Live", async () => {
     const f = await fixture();
     const image = await f.upload();
-    const emptyOnLive = await f.createBlock({ title: "Empty on Live", image: null });
+    const emptyOnLive = await f.seedBlock({ title: "Empty on Live", image: null });
     const draftId = generateUuidv7();
     const empty = await f.createBlock({ title: "Empty", image: null }, startingDraft(draftId));
     await f.createBlock({ title: "Filled", image: { _fileId: image.id } }, inDraft(draftId));
