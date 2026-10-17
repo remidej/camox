@@ -16,27 +16,28 @@ import {
 
 interface OverlaysProps {
   owner: EditingOwner | null;
-  iframeElement: EditingFrameElement | null;
+  /** The frame showing the Page these overlays edit. */
+  frame: EditingFrameElement | null;
   canAddBlocks?: boolean;
 }
 
-function CuratedAddBlockListener({ iframeElement }: { iframeElement: EditingFrameElement | null }) {
+function CuratedAddBlockListener({ frame }: { frame: EditingFrameElement | null }) {
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
   // Canvas mounts one listener per page; only the editing frame's may answer.
   const { document: editingDocument } = useEditingFrame();
-  const isEditingFrame = !!editingDocument && editingDocument === iframeElement?.contentDocument;
+  const isEditingFrame = !!editingDocument && editingDocument === frame?.contentDocument;
 
-  // Listen for messages from iframe
+  // Listen for messages from the page
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (!isOverlayMessage(event.data)) return;
 
       const message = event.data;
 
-      // Handle add block request from iframe
+      // Handle add block request from the page
       if (message.type === "CAMOX_ADD_BLOCK_REQUEST") {
-        // Ignore stale iframe messages after leaving edit mode.
+        // Ignore stale page messages after leaving Edit Mode.
         const snapshot = previewStore.getSnapshot();
         if (!selectIsEditMode(snapshot)) return;
         if (!isEditingFrame) return;
@@ -73,7 +74,7 @@ function CuratedAddBlockListener({ iframeElement }: { iframeElement: EditingFram
   return null;
 }
 
-/** The iframe field ID of a selected String field; only those are focused in the iframe. */
+/** The field ID of a selected String field; only those are focused in the page. */
 function stringFieldId(selection: Selection | null): string | null {
   if (!selection) return null;
   switch (selection.type) {
@@ -94,10 +95,10 @@ function stringFieldId(selection: Selection | null): string | null {
   }
 }
 
-export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: OverlaysProps) => {
+export const Overlays = ({ frame, canAddBlocks = false, owner }: OverlaysProps) => {
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const { document: editingDocument, send } = useEditingFrame();
-  const isEditingFrame = !!editingDocument && editingDocument === iframeElement?.contentDocument;
+  const isEditingFrame = !!editingDocument && editingDocument === frame?.contentDocument;
 
   // Focus a field in the page when the Studio selects it, if the page is being edited.
   React.useEffect(() => {
@@ -106,5 +107,5 @@ export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: Overlay
     send({ type: "CAMOX_FOCUS_FIELD", fieldId });
   }, [selection, isEditingFrame, send]);
 
-  return canAddBlocks ? <CuratedAddBlockListener iframeElement={iframeElement} /> : null;
+  return canAddBlocks ? <CuratedAddBlockListener frame={frame} /> : null;
 };

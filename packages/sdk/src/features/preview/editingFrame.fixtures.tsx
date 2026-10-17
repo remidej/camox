@@ -40,7 +40,9 @@ export function EditingFrameClaimant({
   onClaim?: (claim: () => ReleaseEditingFrame) => void;
 }) {
   const claim = useEditingFrameClaim(frame, owner);
-  onClaim?.(claim);
+  React.useLayoutEffect(() => {
+    onClaim?.(claim);
+  }, [onClaim, claim]);
   React.useLayoutEffect(() => {
     if (claimed) claim();
   }, [claimed, claim, frame, owner]);

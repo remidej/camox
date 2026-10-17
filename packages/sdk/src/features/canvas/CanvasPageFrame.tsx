@@ -43,13 +43,16 @@ function PageContentCommitted({
   return null;
 }
 
+/** Why a Canvas Page's frame became the editing frame: its Page was selected, or used. */
+export type CanvasFrameActivation = "selection" | "interaction";
+
 /**
- * A Canvas Page's frame became the editing frame, because its Page was selected
- * or used. The Canvas keeps the release, to let the frame go once it moves on.
+ * A Canvas Page's frame became the editing frame. The Canvas keeps the release,
+ * to let the frame go once it moves on.
  */
 export type CanvasFrameActivate = (
   owner: EditingOwner,
-  source: "selection" | "interaction",
+  source: CanvasFrameActivation,
   release: ReleaseEditingFrame,
 ) => void;
 
@@ -100,7 +103,7 @@ function PageFrame({
     mode,
   });
   const claim = useEditingFrameClaim(iframe, owner);
-  const activateOwner = (source: "selection" | "interaction") => {
+  const activateOwner = (source: CanvasFrameActivation) => {
     if (!owner) return;
     onActivate(owner, source, claim());
   };
@@ -151,7 +154,7 @@ function PageFrame({
                         )}
                         <PreviewFrameEffects />
                         <Overlays
-                          iframeElement={iframe}
+                          frame={iframe}
                           owner={owner}
                           canAddBlocks={owner?.kind === "page"}
                         />

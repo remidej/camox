@@ -8,7 +8,7 @@ import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { ViewportContinuityContext } from "../preview/viewportContinuity";
 import { useCanvasFrameMode } from "./canvasFrameMode";
 import { CanvasOverlays } from "./CanvasOverlays";
-import type { CanvasFrameActivate } from "./CanvasPageFrame";
+import type { CanvasFrameActivate, CanvasFrameActivation } from "./CanvasPageFrame";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 
 /**
@@ -45,7 +45,7 @@ export function CanvasPreviewPageSlot({
   const mode = useCanvasFrameMode({ near: true, selected });
   // It claims the frame for the Canvas, apart from the Preview's own claim on it.
   const claim = useEditingFrameClaim(iframe, owner);
-  const activateOwner = React.useEffectEvent((source: "selection" | "interaction") => {
+  const activateOwner = React.useEffectEvent((source: CanvasFrameActivation) => {
     if (!owner) return;
     onActivate(owner, source, claim());
   });

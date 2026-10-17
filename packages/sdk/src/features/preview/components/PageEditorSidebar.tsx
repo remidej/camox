@@ -156,7 +156,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   // Get state from store
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
-  const { send: postToIframe } = useEditingFrame();
+  const { send } = useEditingFrame();
 
   const [hoveredBreadcrumb, setHoveredBreadcrumb] = React.useState<{
     target: Selection | null;
@@ -164,9 +164,9 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   } | null>(null);
   React.useEffect(() => {
     if (!hoveredBreadcrumb || hoveredBreadcrumb.selection !== selection) return;
-    postToIframe(selectionHoverMessage(hoveredBreadcrumb.target, true));
-    return () => postToIframe(selectionHoverMessage(hoveredBreadcrumb.target, false));
-  }, [hoveredBreadcrumb, postToIframe, selection]);
+    send(selectionHoverMessage(hoveredBreadcrumb.target, true));
+    return () => send(selectionHoverMessage(hoveredBreadcrumb.target, false));
+  }, [hoveredBreadcrumb, send, selection]);
 
   const blockId = selectionBlockId(selection);
   const currentItemId = selectionItemId(selection);
@@ -835,7 +835,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   blockId={block?.id ?? NO_BLOCK_ID}
                   itemId={currentItemId ?? undefined}
                   onFieldChange={writeField}
-                  postToIframe={postToIframe}
+                  postToIframe={send}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
                   references={

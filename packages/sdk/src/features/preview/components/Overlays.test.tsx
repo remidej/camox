@@ -65,7 +65,7 @@ void test("only the active page resolves add requests, including layout boundari
             >
               <Overlays
                 owner={{ kind: "page", pageId: String(index + 1) }}
-                iframeElement={frame}
+                frame={frame}
                 canAddBlocks
               />
             </TestPageContext>
@@ -145,8 +145,8 @@ void test("selecting a record text field focuses it in the selected placement", 
       root.render(
         <>
           <EditingFrameClaimant frame={frame} owner={owner} />
-          <Overlays owner={owner} iframeElement={frame} />
-          <Overlays owner={owner} iframeElement={other.frame} />
+          <Overlays owner={owner} frame={frame} />
+          <Overlays owner={owner} frame={other.frame} />
         </>,
       ),
     );

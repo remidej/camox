@@ -257,7 +257,7 @@ function PreviewPageCanvasEffects({ owner }: { owner: EditingOwner | null }) {
     <>
       <FieldOverlayStyles />
       <OverlayTracker />
-      <Overlays iframeElement={iframeElement} owner={owner} canAddBlocks={owner?.kind === "page"} />
+      <Overlays frame={iframeElement} owner={owner} canAddBlocks={owner?.kind === "page"} />
     </>
   );
 }
