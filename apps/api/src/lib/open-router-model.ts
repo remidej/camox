@@ -9,6 +9,12 @@ import { AiModel } from "./ai-model";
 import { transformImageUrl } from "./image-transform";
 import { retryAiCall } from "./retry-ai-call";
 
+/**
+ * Writes every generated value. Chosen in October 2026 after running these prompts
+ * across 17 models: it followed every format rule on all three jobs.
+ */
+const MODEL = "google/gemini-3.1-flash-lite";
+
 /** The model that writes generated values, through OpenRouter. */
 export const openRouterModel = (apiKey: string) =>
   AiModel.of({
@@ -16,7 +22,7 @@ export const openRouterModel = (apiKey: string) =>
       retryAiCall("summary", (abortController) =>
         Effect.promise(() =>
           chat({
-            adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
+            adapter: createOpenRouterText(MODEL, apiKey),
             stream: false,
             abortController,
             messages: [{ role: "user", content: summaryPrompt(request) }],
@@ -28,7 +34,7 @@ export const openRouterModel = (apiKey: string) =>
       retryAiCall("seo", (abortController) =>
         Effect.promise(() =>
           chat({
-            adapter: createOpenRouterText("google/gemini-3-flash-preview", apiKey),
+            adapter: createOpenRouterText(MODEL, apiKey),
             abortController,
             outputSchema: z.object({ metaTitle: z.string(), metaDescription: z.string() }),
             messages: [{ role: "user", content: pageSeoPrompt(request) }],
@@ -39,9 +45,8 @@ export const openRouterModel = (apiKey: string) =>
     imageMetadata: (request) =>
       retryAiCall("fileMetadata", (abortController) =>
         Effect.gen(function* () {
-          // Gemini 2.5 Flash Lite processes images in 768×768 tiles — larger sizes are
-          // downsampled by the model and just inflate tokens. Bound BOTH dimensions so
-          // very tall or very wide images fit inside one tile instead of being split.
+          // Larger images only add input tokens: alt text and a filename don't need the
+          // detail. Bound BOTH dimensions so very tall or very wide images shrink too.
           // Force WebP so the payload is small and the format is accepted across vision
           // models (AVIF support is inconsistent). SVG passes through unchanged.
           const optimizedUrl = transformImageUrl(request.url, {
@@ -62,7 +67,7 @@ export const openRouterModel = (apiKey: string) =>
 
           return yield* Effect.promise(() =>
             chat({
-              adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
+              adapter: createOpenRouterText(MODEL, apiKey),
               abortController,
               outputSchema: z.object({ filename: z.string(), alt: z.string() }),
               messages: [
