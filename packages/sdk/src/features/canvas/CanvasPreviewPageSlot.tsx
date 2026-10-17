@@ -24,6 +24,7 @@ export function CanvasPreviewPageSlot({
   viewportHeight,
   selected,
   hovered,
+  hidden = false,
   onActivate,
 }: {
   pageId?: string;
@@ -33,6 +34,8 @@ export function CanvasPreviewPageSlot({
   /** Whether the Page is selected. Once deselected, it keeps the frame, like a frame of the Canvas. */
   selected: boolean;
   hovered: boolean;
+  /** Whether the Page's shelf is collapsed. The frame isn't in the shelf, so it hides itself. */
+  hidden?: boolean;
   onActivate: CanvasFrameActivate;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
@@ -66,6 +69,7 @@ export function CanvasPreviewPageSlot({
       width,
       viewportHeight,
       mode,
+      hidden,
       workspace,
       onInteract,
     };
