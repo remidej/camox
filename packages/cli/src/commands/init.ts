@@ -180,7 +180,7 @@ async function promptCreateOrganization(token: string): Promise<string> {
     message: "Organization name",
     placeholder: "My Company",
     validate: (value) => {
-      if (!value.trim()) return "Organization name is required";
+      if (!value?.trim()) return "Organization name is required";
     },
   });
   if (p.isCancel(orgName)) return onCancel() as never;
@@ -204,7 +204,7 @@ export async function init() {
     message: "Project display name",
     placeholder: "My Website",
     validate: (value) => {
-      if (!value.trim()) return "Project name is required";
+      if (!value?.trim()) return "Project name is required";
     },
   });
   if (p.isCancel(name)) return onCancel();
@@ -222,7 +222,7 @@ export async function init() {
       message: "Project slug",
       initialValue: slugify(name, { lower: true, strict: true }) || "my-site",
       validate: (value) => {
-        if (!value.trim()) return "Slug is required";
+        if (!value?.trim()) return "Slug is required";
         if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
           return "Slug must be lowercase alphanumeric with hyphens";
         }
@@ -246,7 +246,7 @@ export async function init() {
     message: "Project path",
     initialValue: `./${projectSlug}`,
     validate: (value) => {
-      if (!value.trim()) return "Path is required";
+      if (!value?.trim()) return "Path is required";
       const resolved = path.resolve(value);
       if (fs.existsSync(resolved) && fs.readdirSync(resolved).length > 0) {
         return "Directory is not empty";
@@ -266,7 +266,7 @@ export async function init() {
     project = await createProject(auth.token, name, projectSlug, orgId);
     s0.stop(`Project created with slug: ${project.slug}`);
   } catch (err) {
-    s0.stop("Failed to create project.");
+    s0.error("Failed to create project.");
     p.log.error(err instanceof Error ? err.message : "Unknown error");
     process.exit(1);
   }
@@ -358,7 +358,7 @@ src/routeTree.gen.ts
     await runPackageManagerCommand(installCmd, targetDir);
     s2.stop("Dependencies installed!");
   } catch (err) {
-    s2.stop("Install failed.");
+    s2.error("Install failed.");
     p.log.error(getCommandFailureMessage(pm, err));
     p.outro(`To finish setup:\n  cd ${resolvedPath}\n  ${installCmd.display}\n  ${devCmd.display}`);
     process.exit(1);
