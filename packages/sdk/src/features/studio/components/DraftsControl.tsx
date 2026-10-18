@@ -98,10 +98,12 @@ export function DraftsControl() {
 
   useDraftsActions({ enabled: !!projectId, draftId, developmentMode, regular, switchTo });
 
-  if (!projectId) return null;
   // Without its development draft, the localhost studio has nothing to show or switch to.
   if (developmentMode && !draftId) return null;
   const current = draftId ? draft.data : undefined;
+  // Live and the development draft read the same however their data loads, so they show at
+  // once. A regular draft's label needs its name, so it waits rather than flash a placeholder.
+  if (draftId && !developmentMode && !current) return null;
 
   return (
     <>
@@ -116,12 +118,12 @@ export function DraftsControl() {
           }
         >
           {draftId ? (
-            <>
-              <span className="max-w-48 truncate">{current ? draftLabel(current) : "Draft"}</span>
-              {current && (
-                <span className="opacity-70"> · {plural(current.changeCount, "change")}</span>
-              )}
-            </>
+            // A named draft shows its name; an unnamed one, what it would publish.
+            <span className="max-w-48 truncate">
+              {developmentMode
+                ? "Development draft"
+                : current?.name || plural(current?.changeCount ?? 0, "pending change")}
+            </span>
           ) : (
             "Viewing Live"
           )}
@@ -132,7 +134,9 @@ export function DraftsControl() {
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}>
                 <Eye />
-                Review and publish
+                {current
+                  ? `Review ${plural(current.changeCount, "change")} and publish`
+                  : "Review and publish"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
@@ -161,7 +165,9 @@ export function DraftsControl() {
                   <DropdownMenuRadioItem value={LIVE} closeOnClick>
                     <div className="flex flex-col">
                       <span>Live</span>
-                      <span className="text-muted-foreground text-xs">{liveLine(live)}</span>
+                      {list.data && (
+                        <span className="text-muted-foreground text-xs">{liveLine(live)}</span>
+                      )}
                     </div>
                   </DropdownMenuRadioItem>
                   {regular.map((listed) => (
@@ -174,7 +180,7 @@ export function DraftsControl() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {draftId && (
+      {draftId && projectId && (
         <>
           <ReviewDraftSheet
             projectId={projectId}
