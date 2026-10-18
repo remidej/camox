@@ -16,6 +16,11 @@ interface SyncDefinitionsOptions {
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
+  /**
+   * A deploy token that releases the local definitions to Live before the first sync, when Live
+   * has no pages yet, so content seeded in dev can be published over it.
+   */
+  releaseToEmptyLive?: string;
 }
 
 /**
@@ -286,12 +291,21 @@ async function ssrLoadModule(
   }
 }
 
-/** Resolves once the initial sync settles: `true` if definitions reached the API. */
+/** Whether a project's Live has no pages, as on a fresh database. */
+async function liveHasNoPages(apiUrl: string, projectSlug: string): Promise<boolean> {
+  const pages = await createServerApiClient(apiUrl).pages.listBySlug({ projectSlug });
+  return pages.length === 0;
+}
+
+/**
+ * Resolves once the initial sync settles: `synced` if definitions reached the API, and
+ * `releasedToLive` if it first released them to an empty Live (`releaseToEmptyLive`).
+ */
 export async function syncDefinitions(
   server: ViteDevServer,
   options: SyncDefinitionsOptions,
-): Promise<boolean> {
-  const { projectSlug, apiUrl, autoCreate, authToken, deployToken } = options;
+): Promise<{ synced: boolean; releasedToLive: boolean }> {
+  const { projectSlug, apiUrl, autoCreate, authToken, deployToken, releaseToEmptyLive } = options;
   const client = createSyncClient(options);
   const blocksDirs = [
     path.resolve(server.config.root, "src/blocks"),
@@ -302,7 +316,9 @@ export async function syncDefinitions(
     path.resolve(server.config.root, "src/camox/layouts"),
   ];
 
-  async function performInitialSync(): Promise<boolean> {
+  let releasedToLive = false;
+
+  async function performInitialSync({ initial = false } = {}): Promise<boolean> {
     // The SSR runner caches the resolved `camoxApp`. Without invalidation,
     // re-importing returns the stale object with pre-change layout/block
     // references, so layout reconciliation would be a no-op until the dev
@@ -324,6 +340,23 @@ export async function syncDefinitions(
         timestamp: true,
       });
       return false;
+    }
+
+    // Release before the dev sync: the development draft then sees Live's layout blocks and
+    // homepage, instead of seeding its own copies that publishing would duplicate.
+    if (initial && releaseToEmptyLive && (await liveHasNoPages(apiUrl, projectSlug))) {
+      server.config.logger.info("[camox] Live is empty: releasing your definitions to it", {
+        timestamp: true,
+      });
+      await syncDefinitionsToApi({
+        camoxApp: camoxModule.camoxApp,
+        projectSlug,
+        apiUrl,
+        autoCreate: false,
+        deployToken: releaseToEmptyLive,
+        logger: server.config.logger,
+      });
+      releasedToLive = true;
     }
 
     await syncDefinitionsToApi({
@@ -416,7 +449,7 @@ export async function syncDefinitions(
   // Initial sync from files to API
   let synced = false;
   try {
-    synced = await performInitialSync();
+    synced = await performInitialSync({ initial: true });
   } catch (error) {
     server.config.logger.error(`[camox] Failed to sync block definitions: ${String(error)}`, {
       timestamp: true,
@@ -515,5 +548,5 @@ export async function syncDefinitions(
   server.watcher.on("add", handleLayoutFileChange);
   server.watcher.on("unlink", handleBlockFileDelete);
   server.watcher.on("unlink", handleLayoutFileChange);
-  return synced;
+  return { synced, releasedToLive };
 }

@@ -218,7 +218,9 @@ async function main() {
   console.info("Seeded successfully!");
   console.info("Credentials: dev@camox.dev / camox-dev-123");
   console.info("Project IDs:", projectIds.join(", "));
-  console.info("Site content will be initialized on first 'pnpm dev' via Vite plugin sync.");
+  console.info(
+    "Site content will be initialized and published to Live on first 'pnpm dev' via Vite plugin sync.",
+  );
 }
 
 main().catch((err) => {

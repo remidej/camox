@@ -88,6 +88,8 @@ const config = defineConfig({
           await seedDemoArticles(context);
           await seedHeroGlobe(context);
         },
+        // The deploy token apps/api's dev seed gives every project.
+        seedLiveDeployToken: "camox-dev-deploy-token",
       },
     }),
     react({ compiler: true }),

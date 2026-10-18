@@ -24,7 +24,12 @@ const AUTHENTICATION_URL = "http://dashboard.test";
  */
 async function devCheckout(
   t: TestContext,
-  { failCollectionSync = false, draftCreated = false } = {},
+  {
+    failCollectionSync = false,
+    draftCreated = false,
+    livePages = 0,
+    blockers = [] as string[],
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "camox-after-sync-"));
   await mkdir(join(root, ".git"));
@@ -66,6 +71,29 @@ async function devCheckout(
         return [];
       }),
     },
+    pages: {
+      listBySlug: base.handler(({ context }) => {
+        requests.push({ path: "pages.listBySlug", headers: context.headers });
+        return Array.from({ length: livePages }, (_, id) => ({ id }));
+      }),
+    },
+    projects: {
+      getBySlug: base.handler(() => ({ id: 1 })),
+    },
+    drafts: {
+      previewPublish: base.handler(({ context }) => {
+        requests.push({ path: "drafts.previewPublish", headers: context.headers });
+        return {
+          blockers: blockers.map((message) => ({ message })),
+          changes: [{ id: "seeded" }],
+          token: "preview-token",
+        };
+      }),
+      publish: base.handler(({ context }) => {
+        requests.push({ path: "drafts.publish", headers: context.headers });
+        return { empty: false, ended: null };
+      }),
+    },
   };
   const handler = new RPCHandler(router);
   const api = createHttpServer(async (req, res) => {
@@ -96,6 +124,7 @@ async function startDevServer(
   t: TestContext,
   checkout: { root: string; apiUrl: string },
   afterSync: AfterSync,
+  seedLiveDeployToken?: string,
 ) {
   const logs: string[] = [];
   const logger = createLogger("silent");
@@ -117,6 +146,7 @@ async function startDevServer(
           authenticationUrl: AUTHENTICATION_URL,
           disableCodeGen: true,
           afterSync,
+          seedLiveDeployToken,
         },
       }),
     ],
@@ -218,4 +248,63 @@ void test("an afterSync failure is contained as a warning instead of rejecting",
   await waitFor(() => logs.some((line) => line.includes("seeding exploded")), logs);
   const warning = logs.find((line) => line.includes("seeding exploded"))!;
   assert.match(warning, /\[camox\] afterSync failed/);
+});
+
+/** Each request's path and the draft it named, or Live when it named none. */
+function requestLog(requests: { path: string; headers: IncomingHttpHeaders }[]) {
+  return requests.map(({ path, headers }) => `${path} ${String(headers[DRAFT_HEADER] ?? "live")}`);
+}
+
+void test("on an empty Live, the dev server releases first and publishes what afterSync seeded", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(
+    t,
+    checkout,
+    async (context) => {
+      await context.client.collectionDefinitions.list({ projectSlug: context.projectSlug });
+    },
+    "deploy-token",
+  );
+
+  await waitFor(() => checkout.requests.some((r) => r.path === "drafts.publish"), logs);
+  assert.deepEqual(requestLog(checkout.requests), [
+    "pages.listBySlug live",
+    "blockDefinitions.sync live",
+    "collectionDefinitions.sync live",
+    `blockDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    `collectionDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    `collectionDefinitions.list ${DEVELOPMENT_DRAFT}`,
+    `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
+    `drafts.publish ${DEVELOPMENT_DRAFT}`,
+  ]);
+});
+
+void test("when Live has pages, the dev server neither releases nor publishes", async (t) => {
+  const checkout = await devCheckout(t, { livePages: 1 });
+  let ran = false;
+  const { logs } = await startDevServer(
+    t,
+    checkout,
+    () => {
+      ran = true;
+    },
+    "deploy-token",
+  );
+
+  await waitFor(() => ran, logs);
+  await setTimeout(100);
+  assert.deepEqual(requestLog(checkout.requests), [
+    "pages.listBySlug live",
+    `blockDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    `collectionDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+  ]);
+});
+
+void test("seeded content stays in the development draft when publishing it is blocked", async (t) => {
+  const checkout = await devCheckout(t, { blockers: ["The page needs a meta title"] });
+  const { logs } = await startDevServer(t, checkout, () => {}, "deploy-token");
+
+  await waitFor(() => logs.some((line) => line.includes("publishing is blocked")), logs);
+  assert.ok(logs.some((line) => line.includes("The page needs a meta title")));
+  assert.ok(!checkout.requests.some((r) => r.path === "drafts.publish"));
 });
