@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -27,7 +28,7 @@ import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
-import { CanvasPreview } from "./components/CanvasPreview";
+import { CanvasPreview, prefetchCanvas } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
@@ -349,6 +350,30 @@ function useCanvasOnlyLocation(
   }, [canvasOnly, isCanvasShown, isMobileStudio, navigate]);
 }
 
+/**
+ * Once the signed-in Studio is idle, loads what showing the Canvas waits for: its code, and
+ * the project and page list it lays out. The first show then skips most of its loading.
+ */
+function usePrefetchCanvas(enabled: boolean, projectSlug: string) {
+  const queryClient = useQueryClient();
+  const studioCache = useStudioCache();
+  React.useEffect(() => {
+    if (!enabled) return;
+    const prefetch = async () => {
+      prefetchCanvas();
+      // Failures go unreported here: the Canvas loads these again when shown, and reports them.
+      await queryClient.prefetchQuery(studioCache.options(reads.project({ slug: projectSlug })));
+      await queryClient.prefetchQuery(studioCache.options(reads.pageList({ projectSlug })));
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(() => void prefetch(), { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(() => void prefetch(), 2000);
+    return () => window.clearTimeout(id);
+  }, [enabled, projectSlug, queryClient, studioCache]);
+}
+
 /** Studio chrome is shared; only curated previews require a Camox page record. */
 export const PreviewShell = ({
   children,
@@ -372,6 +397,7 @@ export const PreviewShell = ({
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
   usePreviewViewportActions();
   const isCanvasEnabled = !isMobileStudio && isCanvasShown;
+  usePrefetchCanvas(isAuthenticated && !isMobileStudio, projectSlug);
   const { pathname } = useLocation();
 
   // A Canvas-only location edits no page, even while the Preview still shows the last one.

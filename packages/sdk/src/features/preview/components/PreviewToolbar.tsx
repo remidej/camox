@@ -11,6 +11,7 @@ import { formatShortcut } from "@/lib/utils";
 
 import { TOGGLE_CANVAS_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCanvasShown } from "../previewStore";
+import { prefetchCanvas } from "./CanvasPreview";
 
 interface PreviewToolbarProps {
   onCanvasShownChange?: (checked: boolean) => void;
@@ -26,7 +27,12 @@ export const PreviewToolbar = ({ onCanvasShownChange }: PreviewToolbarProps) => 
   return (
     // Fixed, so it centers on the viewport rather than on the column beside the sidebars.
     <FloatingToolbar className="fixed bottom-2 w-max justify-between gap-6 transition-none">
-      <div className="flex shrink-0 items-center gap-2 px-2">
+      {/* Reaching for the toggle loads the Canvas, in case the idle prefetch hasn't yet. */}
+      <div
+        className="flex shrink-0 items-center gap-2 px-2"
+        onPointerEnter={prefetchCanvas}
+        onFocus={prefetchCanvas}
+      >
         <Switch
           id="show-canvas"
           checked={isCanvasShown}
