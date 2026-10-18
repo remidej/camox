@@ -182,7 +182,7 @@ async function renderSidebar(
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const { createRoot } = await import("react-dom/client");
-  const { PageEditorSidebar } = await import("./PageEditorSidebar");
+  const { SelectionEditor } = await import("./SelectionEditor");
   const { PreviewEditingOwnerContext } = await import("../previewSelection");
   const { PageRecordContext } = await import("../pageRecord");
   const { previewStore } = await import("../previewStore");
@@ -389,7 +389,7 @@ async function renderSidebar(
             <CollectionItemModalProvider onRouteTargetClose={() => {}}>
               <PreviewEditingOwnerContext.Provider value={owner}>
                 <PageRecordContext value={options.recordPage?.result}>
-                  <PageEditorSidebar />
+                  <SelectionEditor />
                 </PageRecordContext>
               </PreviewEditingOwnerContext.Provider>
               <ModalProbe />

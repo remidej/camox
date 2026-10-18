@@ -14,20 +14,21 @@ void test("canvas contains curated pages, singleton pages, and one frame per der
     ],
   );
   assert.deepEqual(pages, [
-    { key: "page:7", title: "Home", pathname: "/", pageId: "7" },
+    { kind: "curated", key: "page:7", title: "Home", pathname: "/", pageId: "7" },
     {
+      kind: "singleton",
       key: "singleton:about",
       title: "About",
       pathname: "/about",
       layoutId: "about",
     },
     {
+      kind: "derived",
       key: "derived:articles.$slug",
       title: "Article",
       pathname: null,
-      derivedLayoutId: "articles.$slug",
-      pattern: "/articles/:slug",
       layoutId: "articles.$slug",
+      pattern: "/articles/:slug",
     },
   ]);
 });

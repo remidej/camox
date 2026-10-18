@@ -38,7 +38,14 @@ import {
 import { CanvasOverlaysShownContext } from "./CanvasOverlays";
 import { CanvasPageFrame, type CanvasFrameActivate } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
-import { CANVAS_DEVICES, getCanvasPages, type CanvasPage } from "./canvasPages";
+import {
+  CANVAS_DEVICES,
+  canvasLayoutId,
+  canvasPageId,
+  derivedLayoutIdOf,
+  getCanvasPages,
+  type CanvasPage,
+} from "./canvasPages";
 import { CanvasPreviewPageSlot } from "./CanvasPreviewPageSlot";
 import {
   CANVAS_WORLD_TRANSFORM,
@@ -48,9 +55,9 @@ import {
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
 import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
-import { CanvasSidebar } from "./CanvasSidebar";
 import { canvasStore } from "./canvasStore";
 import { CanvasWorkspaceContext } from "./canvasZoom";
+import { CanvasSidebar } from "./sidebar/CanvasSidebar";
 import { useCanvasCamera } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
 
@@ -532,8 +539,8 @@ function CanvasWorkspace({
                           <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
                             {previewed ? (
                               <CanvasPreviewPageSlot
-                                pageId={page.pageId}
-                                derivedLayoutId={page.derivedLayoutId}
+                                pageId={canvasPageId(page)}
+                                layoutId={canvasLayoutId(page)}
                                 width={viewport.width}
                                 viewportHeight={viewport.height}
                                 selected={selected}
@@ -546,8 +553,8 @@ function CanvasWorkspace({
                                 hovered={hoveredPageKey === page.key}
                                 pathname={pathname}
                                 runtimeBasePath={runtimeBasePath}
-                                derivedLayoutId={page.derivedLayoutId}
-                                pageId={page.pageId}
+                                derivedLayoutId={derivedLayoutIdOf(page)}
+                                pageId={canvasPageId(page)}
                                 viewport={viewport}
                                 selected={selected}
                                 onActivate={onPageActivate}
@@ -582,7 +589,9 @@ function CanvasWorkspace({
               page={page}
               pathname={pathname}
               onRename={
-                page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
+                page.kind === "curated"
+                  ? (nickname) => renamePage(page.pageId, nickname)
+                  : undefined
               }
               selected={page.key === selectedPage?.key}
               onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
@@ -697,11 +706,11 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       projectSlug,
       runtimeBasePath,
       pathname: intended.pathname,
-      derivedLayoutId: intendedSelection.page?.derivedLayoutId,
+      derivedLayoutId: derivedLayoutIdOf(intendedSelection.page),
     }),
     { enabled: false },
   );
-  const recordResult = intendedSelection.page?.derivedLayoutId
+  const recordResult = derivedLayoutIdOf(intendedSelection.page)
     ? intendedFrameInput?.derived?.result
     : undefined;
   const pageRecord = getPageRecord(recordResult);
@@ -759,7 +768,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     (intendedSelection.block && canvasBlockKey(intendedSelection.block._internal.id));
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      {selectedPage?.pageId != null && <CuratedBlockShortcuts />}
+      {selectedPage?.kind === "curated" && <CuratedBlockShortcuts />}
       {/* The Canvas sidebar stays mounted and routes to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>
         {/* The record page's record, which its sidebar edits. */}

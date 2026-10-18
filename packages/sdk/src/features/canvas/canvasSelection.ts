@@ -7,8 +7,8 @@ export function selectedCanvasPage(
   pathname: string,
 ) {
   // Concrete pages take precedence over derived layouts, as they do in the runtime.
-  const concrete = pages.find((page) => !page.derivedLayoutId && page.pathname === pathname);
+  const concrete = pages.find((page) => page.kind !== "derived" && page.pathname === pathname);
   if (concrete) return concrete;
   const derivedLayoutId = matchDerivedLayout(layouts, pathname)?.layout._internal.id;
-  return pages.find((page) => page.derivedLayoutId && page.derivedLayoutId === derivedLayoutId);
+  return pages.find((page) => page.kind === "derived" && page.layoutId === derivedLayoutId);
 }

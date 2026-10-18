@@ -32,13 +32,13 @@ void test("the Canvas, shown before the editor loads, shows the Canvas sidebar p
         <EditingFallbackContext
           value={
             chrome
-              ? ({ derived, children }) => (
-                  <StudioEditingFallback derived={derived}>{children}</StudioEditingFallback>
+              ? ({ layoutPage, children }) => (
+                  <StudioEditingFallback layoutPage={layoutPage}>{children}</StudioEditingFallback>
                 )
               : null
           }
         >
-          <EditingFallbackSlot derived={false}>
+          <EditingFallbackSlot layoutPage={false}>
             <div data-read-only-page />
           </EditingFallbackSlot>
         </EditingFallbackContext>,

@@ -11,12 +11,12 @@ import { EditingFallbackContext } from "./editingFallback";
 import type { PageRenderInput } from "./runtime";
 
 const renderEditingFallback = ({
-  derived,
+  layoutPage,
   children,
 }: {
-  derived: boolean;
+  layoutPage: boolean;
   children: ReactNode;
-}) => <StudioEditingFallback derived={derived}>{children}</StudioEditingFallback>;
+}) => <StudioEditingFallback layoutPage={layoutPage}>{children}</StudioEditingFallback>;
 
 export function RuntimeChrome({
   input,

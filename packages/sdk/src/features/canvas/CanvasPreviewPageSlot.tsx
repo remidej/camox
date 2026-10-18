@@ -19,7 +19,7 @@ import { CanvasWorkspaceContext } from "./canvasZoom";
  */
 export function CanvasPreviewPageSlot({
   pageId,
-  derivedLayoutId,
+  layoutId,
   width,
   viewportHeight,
   selected,
@@ -28,7 +28,8 @@ export function CanvasPreviewPageSlot({
   onActivate,
 }: {
   pageId?: string;
-  derivedLayoutId?: string;
+  /** The layout of a layout page, singleton or derived, which has no page row. */
+  layoutId?: string;
   width: number;
   viewportHeight: number;
   /** Whether the Page is selected. Once deselected, it keeps the frame, like a frame of the Canvas. */
@@ -39,8 +40,8 @@ export function CanvasPreviewPageSlot({
   onActivate: CanvasFrameActivate;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
-  // Like a Canvas frame, it edits its derived layout, or the Page itself.
-  const owner = useEditingOwner({ pageId, layoutId: derivedLayoutId });
+  // Like a Canvas frame and the Preview inside it, it edits a layout page's layout, or the Page itself.
+  const owner = useEditingOwner({ pageId, layoutId });
   const workspace = React.use(CanvasWorkspaceContext);
   const preparation = React.use(PreviewPreparationContext);
   const continuity = React.use(ViewportContinuityContext);

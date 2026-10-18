@@ -54,9 +54,9 @@ import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
+import { PageInfoSkeleton } from "./PageInfoSkeleton";
 import { PageLocationFieldset } from "./PageLocationFieldset";
 import { PAGE_NICKNAME_MAX_LENGTH, PageNicknameField } from "./PageNicknameField";
-import { PageInfoSidebarSkeleton } from "./PageSidebarSkeleton";
 import { ShikiMarkdown } from "./ShikiMarkdown";
 
 type PageMetadataData = ReturnType<typeof usePageMetadataData>;
@@ -97,7 +97,7 @@ const usePageMetadataData = (pageId: string) => {
 const PAGE_SETTINGS_ITEM = "page-settings";
 const SHOW_PAGE_SETTINGS_STORAGE_KEY = "camox:studio:showPageSettings";
 
-/** Whether the page sidebar shows its settings, remembered across pages and sessions. */
+/** Whether the page info shows its settings, remembered across pages and sessions. */
 const useShowPageSettings = () => {
   const [show, setShow] = React.useState(() => {
     try {
@@ -119,7 +119,7 @@ const useShowPageSettings = () => {
   return [show, update] as const;
 };
 
-const PageInfoSidebar = ({
+const PageInfo = ({
   pageId,
   scrollable = true,
   aboutOnly = false,
@@ -138,7 +138,7 @@ const PageInfoSidebar = ({
   const settingsPanelId = React.useId();
 
   if (!page) {
-    if (!aboutOnly) return <PageInfoSidebarSkeleton scrollable={scrollable} />;
+    if (!aboutOnly) return <PageInfoSkeleton scrollable={scrollable} />;
     return (
       <div className="text-muted-foreground flex flex-1 items-center justify-center px-2 text-sm">
         <Spinner className="mr-2 size-3.5" /> Loading page info...
@@ -149,7 +149,7 @@ const PageInfoSidebar = ({
   const pageSettings = (
     <>
       <section className="space-y-4">
-        <PageNicknameSidebarEditor data={data} />
+        <PageNicknameEditor data={data} />
         <div className="space-y-2">
           <Label>Page path</Label>
           <InputGroup className="px-1">
@@ -169,7 +169,7 @@ const PageInfoSidebar = ({
             </InputGroupAddon>
           </InputGroup>
         </div>
-        <PageLayoutSidebarSelect data={data} />
+        <PageLayoutSelect data={data} />
       </section>
       <PageDeleteButton page={page} />
       <Metadata>
@@ -314,7 +314,7 @@ const PageDeleteButton = ({ page }: { page: Pick<Page, "id" | "nickname" | "full
   );
 };
 
-const PageNicknameSidebarEditor = ({ data }: { data: PageMetadataData }) => {
+const PageNicknameEditor = ({ data }: { data: PageMetadataData }) => {
   const { page } = data;
   const updatePage = useMutation(pageMutations.update());
   const inputId = React.useId();
@@ -376,7 +376,7 @@ const PageNicknameSidebarEditor = ({ data }: { data: PageMetadataData }) => {
   );
 };
 
-const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
+const PageLayoutSelect = ({ data }: { data: PageMetadataData }) => {
   const { page, layouts, camoxApp } = data;
   const setLayout = useMutation(pageMutations.setLayout());
 
@@ -974,4 +974,4 @@ const PageMarkdownPreview = ({
   return <ShikiMarkdown code={fullMarkdown} />;
 };
 
-export { PageInfoSidebar };
+export { PageInfo };

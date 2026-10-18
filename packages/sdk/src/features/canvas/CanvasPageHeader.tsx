@@ -54,7 +54,7 @@ export function CanvasPageHeader({
       setSaving(false);
     }
   };
-  const path = pathname ?? page.pattern;
+  const path = pathname ?? (page.kind === "derived" ? page.pattern : undefined);
   const pathClassName =
     "text-muted-foreground w-full min-w-0 truncate text-left text-xs font-normal";
   const focusClassName = "focus-visible:ring-ring outline-none focus-visible:ring-2";
@@ -109,7 +109,7 @@ export function CanvasPageHeader({
   );
   const headerClassName =
     "text-foreground flex h-10 w-full min-w-0 flex-col items-start justify-center gap-1 text-left";
-  if (!page.derivedLayoutId)
+  if (page.kind !== "derived")
     return (
       <h2 className={headerClassName}>
         <span data-canvas-path className={pathClassName} title={path}>

@@ -106,6 +106,10 @@ _Avoid_: Root layout, shell, head
 A routable piece of the website, belonging to one layout and holding an ordered list of blocks.
 _Avoid_: Route, screen, URL
 
+**Layout Page**:
+A page of a singleton or derived layout, whose blocks all belong to its layout, as opposed to a page of a curated layout. A contributors' term: editors only ever see pages.
+_Avoid_: Code-owned page, static page, generated page
+
 **Record Page**:
 A page of a derived layout that renders one collection record, found by one of its fields.
 _Avoid_: Item page, detail page, collection page
@@ -221,6 +225,14 @@ _Avoid_: Separator, section header
 **Block Catalog**:
 The area of the canvas showing every page-content block definition as live blocks to the right of all pages: each with its default content, or for a Synced Block placed on the website, its shared content.
 _Avoid_: Block library, component gallery, storybook
+
+**Canvas Navigator**:
+The Canvas sidebar while nothing is selected: every page and block of the canvas, to search and pick from.
+_Avoid_: Canvas sidebar, outline, page list
+
+**Canvas Inspector**:
+The Canvas sidebar while a page or a Block Catalog block is selected: that item's name and its content to edit.
+_Avoid_: Item sidebar, page sidebar, properties panel
 
 **Dashboard**:
 The hosted interface for managing organizations, projects, and members, outside any one website.

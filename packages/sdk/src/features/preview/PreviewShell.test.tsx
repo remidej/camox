@@ -278,7 +278,7 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   // What the server filled in for each page it rendered.
   const cache = testStudioCache(client);
   cache.set(reads.pageStructure({ path: "/", projectSlug: "test" }), { page: { id: 3 } });
-  cache.set(reads.derivedLayout({ projectSlug: "test", layoutId: "article" }), layout);
+  cache.set(reads.layoutStructure({ projectSlug: "test", layoutId: "article" }), layout);
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(

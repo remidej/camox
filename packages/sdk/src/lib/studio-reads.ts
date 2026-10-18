@@ -112,15 +112,16 @@ function entry<P, T, R = T>(definition: EntryDefinition<P, T, R>): ReadEntry<P, 
 }
 
 type LayoutRead = Awaited<ReturnType<ApiClient["layouts"]["get"]>>;
-export type DerivedLayoutStructure = LayoutRead["layout"];
+/** A layout's structure: its blocks before and after the content of its pages. */
+export type LayoutStructure = LayoutRead["layout"];
 
 const usageCountsPrefix = queryKeys.blocks.getUsageCounts;
 const collectionsPrefix = ["camox", "collections"] satisfies QueryKey;
 
-type DerivedLayoutParams = { projectSlug: string; layoutId: string };
+type LayoutStructureParams = { projectSlug: string; layoutId: string };
 const loadLayout = (
   { api, signal }: FetchContext,
-  { projectSlug, layoutId }: DerivedLayoutParams,
+  { projectSlug, layoutId }: LayoutStructureParams,
 ) => api.layouts.get({ projectSlug, layoutId }, { signal });
 const landLayout = (layout: LayoutRead, fill: FetchContext["fill"]) => {
   fillBlocks(layout, fill);
@@ -172,8 +173,8 @@ export const reads = {
     staleTime: Infinity,
   }),
 
-  /** A derived layout's structure; its blocks fill in their own reads. */
-  derivedLayout: entry<DerivedLayoutParams, DerivedLayoutStructure, LayoutRead>({
+  /** A layout's structure, for any layout page; its blocks fill in their own reads. */
+  layoutStructure: entry<LayoutStructureParams, LayoutStructure, LayoutRead>({
     key: ({ projectSlug, layoutId }) => [...queryKeys.layouts.all, "get", projectSlug, layoutId],
     fetch: async (context, params) => landLayout(await loadLayout(context, params), context.fill),
     full: { load: loadLayout, land: landLayout },

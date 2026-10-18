@@ -11,10 +11,10 @@ import {
 import { ChevronsUpDown, Plus } from "lucide-react";
 import * as React from "react";
 
-import { cn } from "../../lib/utils";
-import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
-import { previewStore } from "../preview/previewStore";
-import type { CanvasItem, CanvasPageItem, CanvasShelf } from "./canvasItems";
+import { cn } from "../../../lib/utils";
+import { previewStore } from "../../preview/previewStore";
+import type { CanvasItem, CanvasShelf } from "../canvasItems";
+import { canvasPagePath } from "../canvasPages";
 
 /** Blocks behind a bordered toggle, collapsed until opened. */
 function CollapsedBlocks({ label, children }: { label: string; children: React.ReactNode }) {
@@ -44,25 +44,20 @@ function canvasItemLabel(item: CanvasItem) {
   return item.kind === "page" ? item.page.title : item.block._internal.title;
 }
 
-/** A Page's path, or its layout's pattern while a derived page has no path yet. */
-function canvasPagePath({ page }: CanvasPageItem) {
-  return page.pathname ?? page.pattern ?? null;
-}
-
 /** Search an item by its label, and a Page by its path too, never by its key. */
 function canvasItemKeywords(item: CanvasItem) {
   const label = canvasItemLabel(item);
-  const path = item.kind === "page" ? canvasPagePath(item) : null;
+  const path = item.kind === "page" ? canvasPagePath(item.page) : null;
   return path ? [label, path] : [label];
 }
 
 /**
- * Every item of the Canvas, in Canvas order, grouped under its shelf with its
- * count, and a search that takes focus. Pages show with their path; blocks
- * start collapsed, though a search still finds them. Picking an item shows it:
- * the camera goes to it.
+ * The Canvas Navigator, shown while nothing is selected: every item of the Canvas,
+ * in Canvas order, grouped under its shelf with its count, and a search that takes
+ * focus. Pages show with their path; blocks start collapsed, though a search still
+ * finds them. Picking an item shows it: the camera goes to it.
  */
-export function CanvasNavigatorSidebar({
+export function CanvasNavigator({
   shelves,
   selectedKey,
   onShowItem,
@@ -77,7 +72,7 @@ export function CanvasNavigatorSidebar({
 
   const renderItem = (item: CanvasItem) => {
     const selected = item.key === selectedKey;
-    const path = item.kind === "page" ? canvasPagePath(item) : null;
+    const path = item.kind === "page" ? canvasPagePath(item.page) : null;
     return (
       <CommandItem
         key={item.key}
@@ -102,12 +97,7 @@ export function CanvasNavigatorSidebar({
   };
 
   return (
-    <aside
-      aria-label="Canvas navigator"
-      data-canvas-navigator-sidebar
-      className="flex shrink-0 flex-col border-r-2"
-      style={{ width: CMS_SIDEBAR_WIDTH }}
-    >
+    <div data-canvas-navigator className="flex min-h-0 flex-1 flex-col">
       <Command
         className="rounded-none! bg-transparent"
         filter={(_value, search, keywords) => commandFilter(keywords?.join(" ") ?? "", search)}
@@ -160,6 +150,6 @@ export function CanvasNavigatorSidebar({
           })}
         </CommandList>
       </Command>
-    </aside>
+    </div>
   );
 }

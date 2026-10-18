@@ -9,19 +9,17 @@ import * as React from "react";
 
 import { matchDerivedLayout, routeSegments } from "../../core/derivedRoutes";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
-import type { CanvasPage } from "./canvasPages";
+import type { DerivedCanvasPage } from "./canvasPages";
 
 type Props = {
-  page: CanvasPage;
+  page: DerivedCanvasPage;
   pathname: string | null;
   onChange: (pathname: string) => void;
 };
 
 export function DerivedPagePathInput(props: Props) {
   // A newly selected page path starts a fresh draft, including externally selected paths.
-  return (
-    <PagePathForm key={JSON.stringify([props.page.derivedLayoutId, props.pathname])} {...props} />
-  );
+  return <PagePathForm key={JSON.stringify([props.page.layoutId, props.pathname])} {...props} />;
 }
 
 function PagePathForm({ page, pathname, onChange }: Props) {
@@ -29,11 +27,11 @@ function PagePathForm({ page, pathname, onChange }: Props) {
   const [values, setValues] = React.useState<Record<string, string>>(() => {
     if (!pathname || /[?#]/.test(pathname)) return {};
     const match = matchDerivedLayout(app.getLayouts(), pathname);
-    return match && match.layout._internal.id === page.derivedLayoutId ? match.params : {};
+    return match && match.layout._internal.id === page.layoutId ? match.params : {};
   });
   const [invalid, setInvalid] = React.useState(false);
   const errorId = React.useId();
-  const segments = routeSegments(page.derivedLayoutId ?? "");
+  const segments = routeSegments(page.layoutId);
   const params = [
     ...new Set(
       segments.filter((segment) => segment.startsWith("$")).map((segment) => segment.slice(1)),
@@ -50,10 +48,9 @@ function PagePathForm({ page, pathname, onChange }: Props) {
     return value && !value.includes("/") && value !== "." && value !== "..";
   });
   const matches =
-    Boolean(page.derivedLayoutId) &&
     validParams &&
     !/[?#]/.test(path) &&
-    matchDerivedLayout(app.getLayouts(), path)?.layout._internal.id === page.derivedLayoutId;
+    matchDerivedLayout(app.getLayouts(), path)?.layout._internal.id === page.layoutId;
 
   return (
     <form
@@ -113,7 +110,7 @@ function PagePathForm({ page, pathname, onChange }: Props) {
       </Button>
       {invalid && (
         <span id={errorId} role="alert" className="text-destructive basis-full text-xs">
-          Enter values matching {page.pattern ?? page.derivedLayoutId}.
+          Enter values matching {page.pattern}.
         </span>
       )}
     </form>

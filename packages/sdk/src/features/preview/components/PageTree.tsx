@@ -221,10 +221,15 @@ const SortableBlock = ({ block }: SortableBlockProps) => {
 interface LayoutBlockItemProps {
   block: NormalizedBlock;
   layoutName: string;
-  derived?: boolean;
+  /** Whether it offers adding page blocks beside it, which a layout page, having no page content, never does. */
+  withActions?: boolean;
 }
 
-export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBlockItemProps) => {
+export const LayoutBlockItem = ({
+  block,
+  layoutName,
+  withActions = true,
+}: LayoutBlockItemProps) => {
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(block.type);
   const ctx = useBlockTreeItem(block);
@@ -253,7 +258,7 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
         </Tooltip>
       </div>
       <BlockTreeItemTrigger displayText={displayText} onClick={ctx.toggleSelection} />
-      {!derived && (
+      {withActions && (
         <BlockActionsPopover
           block={block}
           open={ctx.ellipsisPopoverOpen}

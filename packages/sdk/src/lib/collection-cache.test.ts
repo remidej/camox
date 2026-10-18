@@ -14,7 +14,7 @@ void test("record edits refresh the collection's placements and lists in every s
     reads.blockBundle("1"),
     reads.blockBundle("2"),
     reads.pageStructure({ path: "/", projectSlug: "site" }),
-    reads.derivedLayout({ projectSlug: "site", layoutId: "layout" }),
+    reads.layoutStructure({ projectSlug: "site", layoutId: "layout" }),
     reads.pageList({ projectSlug: "site" }),
     reads.records({ projectSlug: "site", collectionId: "customers" }),
   ];

@@ -10,9 +10,15 @@ import { NormalizedDataProvider, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 
 import { useCurrentDraftId } from "../../lib/draft-scope";
-import { reads, type Read, useRead, useStudioCache } from "../../lib/studio-reads";
-import { CanvasSidebarSkeleton } from "../canvas/CanvasSidebarSkeleton";
+import {
+  reads,
+  type LayoutStructure,
+  type Read,
+  useRead,
+  useStudioCache,
+} from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
+import { CanvasSidebarSkeleton } from "../canvas/sidebar/CanvasSidebarSkeleton";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
@@ -23,7 +29,6 @@ import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
-import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
 import {
@@ -192,21 +197,21 @@ export const PageContent = () => {
  * The server may have rendered the page before the studio authenticated, so
  * linked collection records show their published content. Project members
  * read their saved drafts instead: after the initial paint, load the page or
- * derived layout again with the session, filling its blocks' reads. From there, every block
+ * layout page's layout again with the session, filling its blocks' reads. From there, every block
  * invalidation keeps them in sync. Only runs for authenticated users.
  * -----------------------------------------------------------------------------------------------*/
 
 /**
- * The read of the page the Preview shows: a curated page's structure, or a derived layout's. A
+ * The read of the page the Preview shows: a curated page's structure, or a layout page's layout. A
  * Canvas-only location, opened first, has no page to show.
  */
 function pageRead(
   projectSlug: string,
   pathname: string | undefined,
   derived: PageRenderInput["derived"] | undefined,
-): Read<PageStructure | DerivedLayoutStructure, unknown> | null {
+): Read<PageStructure | LayoutStructure, unknown> | null {
   if (pathname === undefined) return null;
-  if (derived) return reads.derivedLayout({ projectSlug, layoutId: derived.layoutId });
+  if (derived) return reads.layoutStructure({ projectSlug, layoutId: derived.layoutId });
   return reads.pageStructure({ path: pathname, projectSlug });
 }
 
@@ -355,7 +360,7 @@ export const PreviewShell = ({
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
-  derivedLayout?: DerivedLayoutStructure;
+  derivedLayout?: LayoutStructure;
   /** Where the shown page renders, when not at the current location. */
   pageLocation?: LocationState;
   canvasOnly?: PageRenderInput["canvasOnly"];
@@ -457,7 +462,7 @@ export const PreviewShell = ({
             pathname={pathname}
             pagePathname={pageLocation?.pathname}
             runtimeBasePath={runtimeBasePath}
-            placeholder={<CanvasSidebarSkeleton page={!canvasOnly} derived={!!derivedLayout} />}
+            placeholder={<CanvasSidebarSkeleton page={!canvasOnly} layoutPage={!!derivedLayout} />}
           >
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel

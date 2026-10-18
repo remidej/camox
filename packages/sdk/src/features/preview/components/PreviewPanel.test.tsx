@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import * as React from "react";
 
-import type { PreviewedPage } from "./PageNavigatorSidebar";
+import type { PreviewedPage } from "./PageNavigatorHeader";
 
 Object.assign(globalThis, { React });
 

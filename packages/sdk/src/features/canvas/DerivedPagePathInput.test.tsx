@@ -41,7 +41,14 @@ void test("derived layout parameters submit encoded page paths, reject invalid p
       root.render(
         <CamoxAppProvider app={app}>
           <DerivedPagePathInput
-            page={{ key: "derived", title: "Members", pathname: null, derivedLayoutId }}
+            page={{
+              kind: "derived",
+              key: "derived",
+              title: "Members",
+              pathname: null,
+              layoutId: derivedLayoutId,
+              pattern: "/teams/:team/members/:member/details",
+            }}
             pathname={pathname}
             onChange={(path) => changes.push(path)}
           />
