@@ -64,11 +64,11 @@ importers:
         specifier: ^1.15.7
         version: 1.15.7(ws@8.22.0)
       '@tanstack/ai':
-        specifier: 0.21.3
-        version: 0.21.3
+        specifier: ^0.69.0
+        version: 0.69.0(zod@4.6.7)
       '@tanstack/ai-openrouter':
-        specifier: ^0.9.7
-        version: 0.9.7(@tanstack/ai@0.21.3)
+        specifier: ^0.22.0
+        version: 0.22.0(@tanstack/ai@0.69.0(zod@4.6.7))
       better-auth:
         specifier: ~1.6.33
         version: 1.6.33(@tanstack/react-start@1.169.2(@voidzero-dev/vite-plus-core@1.3.0(@types/node@22.19.19)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(typescript@5.9.2)(yaml@2.9.0))(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@cloudflare/workers-types@4.20260519.1)(@libsql/client@0.18.0)(kysely@0.28.17))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(solid-js@1.9.17)(vitest@5.0.5)
@@ -747,8 +747,13 @@ importers:
 
 packages:
 
-  '@ag-ui/core@0.0.52':
-    resolution: {integrity: sha512-Xo0bUaNV56EqylzcrAuhUkQX7et7+SZIrqZZtEByGwEq/I1EHny6ZMkWHLkKR7UNi0FJZwJyhKYmKJS3B2SEgA==}
+  '@ag-ui/core@1.0.0':
+    resolution: {integrity: sha512-yCRhsQvb4+lmGMrDsi4TOJxqKpm/kb3H64wwL+Z90jNVrkhy17RErfzsNgybfbjNKLM0nenEDYDVJsZHJJSigQ==}
+    peerDependencies:
+      zod: ^3.25.18 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
 
   '@antfu/install-pkg@2.1.0':
     resolution: {integrity: sha512-sdg9NxU3zR4Mnawfbc/x6GB5Wf17WYud5qOuEuxXjaKpYpMkISSJEjItGebXJ2bQ4DIcly4NYH23mtkGJjvKUw==}
@@ -2431,8 +2436,8 @@ packages:
     resolution: {integrity: sha512-hAX0pT/73190NLqBPPWSdBVGtbY6VOhWYK3qqHqtXQ1gK7kS2yz4+ivsN07hpJ6I3aeMtKP6J6npsEKOAzuTLA==}
     engines: {node: '>=20.0'}
 
-  '@openrouter/sdk@0.12.35':
-    resolution: {integrity: sha512-s4QVLLnG1AmfW3TjnnHUqGfsCkzwVK+kboGcZmKbde09m1DPqgzl4RUFt/HJ5v97MX8aEaN0UG3mKv2S+qj2Gw==}
+  '@openrouter/sdk@0.13.20':
+    resolution: {integrity: sha512-fx4o19FHgadEldfrSOgSbXAi32hCE3O708q1nxcoxYrW6fP6/WggX3o5PmnlnObzmxrqLMkZpqg188K+Twguhg==}
 
   '@opentelemetry/semantic-conventions@1.41.1':
     resolution: {integrity: sha512-/UhIkaZgPutTFmQ7RnIJGgDXZmtEJ7Dvi86xNTFWcnRxVRNk/aotsqDJYeEvDP+FSMB2SdW+pQzNMcWP0rwuNA==}
@@ -4050,21 +4055,19 @@ packages:
       csstype:
         optional: true
 
-  '@tanstack/ai-event-client@0.3.10':
-    resolution: {integrity: sha512-i8Qe88sVDYswMyXGnhM2lZWCTwUP12WCShl8Pfm+n5Bo+RaoMaxFvtuJ9R+ba4hnGJ3kiWk9yPAr5xQ8A+2w6A==}
+  '@tanstack/ai-event-client@0.13.1':
+    resolution: {integrity: sha512-lCPcshu6Sd4tFNeMSr+HXgdqCGupYU2cpJZVUent4GkFx41dXzrBaKkwOgkji6olDBT99OBagWCce1NZ15XeJA==}
+
+  '@tanstack/ai-openrouter@0.22.0':
+    resolution: {integrity: sha512-2mxpmeq3m42tzHvQ3OetUhezLtRcNvDq4b88zHIHAOudDZVnzmb7Eped7wr7RKRNrGcdAsQPKfNDgP/Md1FrOA==}
     peerDependencies:
-      '@tanstack/ai': 0.21.3
+      '@tanstack/ai': ^0.69.0
 
-  '@tanstack/ai-openrouter@0.9.7':
-    resolution: {integrity: sha512-gEdu5BkGX7vW7wDC+1qkSa+YvaNpr1+02Sy7TW5QZc4mn4tFLQ3XwcLihJKFmNIkeqb5pS/XucO8qj8VPZtVmw==}
-    peerDependencies:
-      '@tanstack/ai': ^0.21.2
+  '@tanstack/ai-utils@0.4.2':
+    resolution: {integrity: sha512-ucSgSK9kLloInqr/7s0VZlp1IFtbpgPnskISvnLXti/hc8koqXc4Zv9pfTTc8V80WzIKYWMf+ZgSIDeFM50eCw==}
 
-  '@tanstack/ai-utils@0.2.1':
-    resolution: {integrity: sha512-cFsSeaiAOOEtAOWvFWD0jHiLlFSYi+FYmbEPeD70zHntM8ws2YFb4Dgz94+J8rsoffLXIFTkKswTowx5QlTsWg==}
-
-  '@tanstack/ai@0.21.3':
-    resolution: {integrity: sha512-3Noje5zMAluJW/htpTGN3WrrFRFYPOBg0XcnCRg+T4SRcxK5b6KTfJEZneEjkLWTN9Hp24r/sNM/rNbIxl2MpQ==}
+  '@tanstack/ai@0.69.0':
+    resolution: {integrity: sha512-Y018M4Cg3LPr1meRoVG/ePDB1mdazL9cPBA7bnm8WJm2LT0cN2LoUEXRimKSZjyYY7G+9BtQeNiKlaLJkbqHKQ==}
     engines: {node: '>=18'}
     peerDependencies:
       '@opentelemetry/api': '>=1.9.0'
@@ -5539,6 +5542,9 @@ packages:
   fast-glob@3.3.3:
     resolution: {integrity: sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg==}
     engines: {node: '>=8.6.0'}
+
+  fast-json-patch@3.1.1:
+    resolution: {integrity: sha512-vf6IHUX2SBcA+5/+4883dsIjpBTqmfBjmYiWK1savxQmFk4JfBMLa7ynTYOs1Rolp/T1betJxHiGD3g1Mn8lUQ==}
 
   fast-string-truncated-width@3.0.3:
     resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
@@ -7562,9 +7568,9 @@ packages:
 
 snapshots:
 
-  '@ag-ui/core@0.0.52':
-    dependencies:
-      zod: 3.25.76
+  '@ag-ui/core@1.0.0(zod@4.6.7)':
+    optionalDependencies:
+      zod: 4.6.7
 
   '@antfu/install-pkg@2.1.0':
     dependencies:
@@ -9122,7 +9128,7 @@ snapshots:
 
   '@oozcitak/util@10.0.0': {}
 
-  '@openrouter/sdk@0.12.35':
+  '@openrouter/sdk@0.13.20':
     dependencies:
       zod: 4.6.7
 
@@ -10502,25 +10508,28 @@ snapshots:
       - preact
       - react
 
-  '@tanstack/ai-event-client@0.3.10(@tanstack/ai@0.21.3)':
+  '@tanstack/ai-event-client@0.13.1':
     dependencies:
-      '@tanstack/ai': 0.21.3
       '@tanstack/devtools-event-client': 0.4.3
 
-  '@tanstack/ai-openrouter@0.9.7(@tanstack/ai@0.21.3)':
+  '@tanstack/ai-openrouter@0.22.0(@tanstack/ai@0.69.0(zod@4.6.7))':
     dependencies:
-      '@openrouter/sdk': 0.12.35
-      '@tanstack/ai': 0.21.3
-      '@tanstack/ai-utils': 0.2.1
+      '@openrouter/sdk': 0.13.20
+      '@tanstack/ai': 0.69.0(zod@4.6.7)
+      '@tanstack/ai-utils': 0.4.2
 
-  '@tanstack/ai-utils@0.2.1': {}
+  '@tanstack/ai-utils@0.4.2': {}
 
-  '@tanstack/ai@0.21.3':
+  '@tanstack/ai@0.69.0(zod@4.6.7)':
     dependencies:
-      '@ag-ui/core': 0.0.52
+      '@ag-ui/core': 1.0.0(zod@4.6.7)
       '@standard-schema/spec': 1.1.0
-      '@tanstack/ai-event-client': 0.3.10(@tanstack/ai@0.21.3)
+      '@tanstack/ai-event-client': 0.13.1
+      '@tanstack/ai-utils': 0.4.2
+      fast-json-patch: 3.1.1
       partial-json: 0.1.7
+    transitivePeerDependencies:
+      - zod
 
   '@tanstack/devtools-event-client@0.4.3': {}
 
@@ -12166,6 +12175,8 @@ snapshots:
       glob-parent: 5.1.2
       merge2: 1.4.1
       micromatch: 4.0.8
+
+  fast-json-patch@3.1.1: {}
 
   fast-string-truncated-width@3.0.3: {}
 

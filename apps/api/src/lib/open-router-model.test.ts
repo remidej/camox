@@ -40,6 +40,19 @@ afterEach(() => {
   chat.mockReset();
 });
 
+describe("summary", () => {
+  it("returns the text of the model's reply", async () => {
+    chat.mockResolvedValue({ text: "Pricing table", chunks: [] });
+
+    const summary = await Effect.runPromise(
+      openRouterModel("test-api-key").summarize({ type: "pricing", markdown: "| Plan | Price |" }),
+    );
+
+    expect(summary).toBe("Pricing table");
+    expect(chat).toHaveBeenCalledWith(expect.objectContaining({ stream: false }));
+  });
+});
+
 describe("image metadata", () => {
   const failures = [
     { name: "network failure", response: () => Promise.reject(new Error("Network failure")) },
