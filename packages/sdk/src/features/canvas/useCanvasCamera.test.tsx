@@ -1632,3 +1632,135 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     }
   }
 });
+
+void test("a snapped page stays snapped as the viewport resizes", async () => {
+  const dom = new Window({ url: "http://localhost/about" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  let time = 1000;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  // Flights arrive at once, so the camera starts snapped to their destination.
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: true }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 1600, height: 900 };
+  const pages = [
+    { key: "first", left: 0, width: 1366 },
+    { key: "middle", left: 1606, width: 1366 },
+    { key: "last", left: 3212, width: 1366 },
+  ];
+  const content = { width: 4578, height: 20000 };
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("snapped-resize", pages[1], {
+      targets: pages,
+      onSelect: () => {},
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => content.width },
+      offsetHeight: { get: () => content.height },
+    });
+    resize();
+    const read = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      y: parseFloat(viewport.style.getPropertyValue("--canvas-y")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    const flush = () => {
+      for (let count = 0; callbacks.size && count < 100; count++) {
+        const batch = [...callbacks.values()];
+        callbacks.clear();
+        batch.forEach((callback) => callback(time));
+      }
+      assert.equal(callbacks.size, 0);
+    };
+    const wheel = (dx: number, dy: number) => {
+      const event = new dom.MouseEvent("wheel", { clientX: 800, clientY: 300 });
+      time += 16;
+      Object.defineProperties(event, {
+        deltaX: { value: dx },
+        deltaY: { value: dy },
+        deltaMode: { value: 0 },
+        timeStamp: { value: time },
+      });
+      viewport.dispatchEvent(event);
+      flush();
+    };
+    const assertNear = (actual: number, expected: number, message: string) =>
+      assert.ok(Math.abs(actual - expected) < 1e-6, `${message}: ${actual} != ${expected}`);
+    const last = pages[2]!;
+
+    controls.flyTo(last.key);
+    wheel(0, 600);
+    const scrolled = read();
+    assert.ok(scrolled.y < 0, "the page is scrolled down its document");
+
+    size.width = 1100;
+    resize();
+    const fit = fitCanvasPage(size, last);
+    assertNear(read().scale, fit.scale, "the page is refitted to the narrower viewport");
+    assertNear(read().x, fit.x, "the page stays centered");
+    assertNear(
+      read().y,
+      (scrolled.y * fit.scale) / scrolled.scale,
+      "the same document point stays at the viewport top",
+    );
+
+    size.width = 1400;
+    resize();
+    assertNear(read().scale, fitCanvasPage(size, last).scale, "it keeps following the viewport");
+    assertNear(read().x, fitCanvasPage(size, last).x, "and keeps the page centered");
+
+    wheel(-400, 0);
+    const released = read();
+    assert.ok(released.x > fitCanvasPage(size, last).x, "panning away releases the snap");
+    size.width = 1000;
+    resize();
+    assertNear(read().scale, released.scale, "an unsnapped camera keeps its zoom on resize");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
