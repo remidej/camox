@@ -107,11 +107,51 @@ Fill-in jobs run constantly, so listing every run would bury users. Show the val
 - **Slack**: where proactive work gets noticed. The DM with the Camox bot is the Live conversation, and each draft is a thread in a channel. Small changes could be approved from Slack.
 - **MCP**: if it exposes raw edit tools, Camox becomes a backend for someone else's agent. If it exposes Camox's own agent and company memory, it brings people back to Camox. The second fits the product better.
 
+## Branding
+
+Camox means chamois in Latin, and the logo loosely shows the animal's head. The landing page's footer already draws a mountain ridgeline. The agent feature builds on that.
+
+### Nimble and sure-footed
+
+A chamois moves fast on steep ground without falling. The feature's story pairs both traits:
+
+- **Nimble**: the site keeps up with a product that ships every week.
+- **Sure-footed**: nothing goes live by surprise. Changes arrive as drafts to review, and generated values are marked as written by Camox.
+
+Speed alone wouldn't answer the main worry about agents, "does it change my site without asking?". Sure footing does.
+
+Candidate lines:
+
+- "Keep your site as nimble as your product."
+- "Your product moves fast. Your site keeps its footing."
+
+In copy and motion, the chamois **leaps**.
+
+### Names
+
+- **Camox** is the agent's name. Users ask Camox, and Camox opens drafts. This matches having one agent rather than a roster.
+- **Reflexes** are what this note calls jobs. The name says what sets them apart: they react to Camox events ("when a page is published…").
+- **Instincts** is the studio page for what Camox knows and does on its own, with a brain icon. It holds:
+  - **Memory**: brand voice, positioning, product facts.
+  - **Rules**: things Camox always follows ("never name competitor X"). Kept beside memory, separate from reflexes.
+  - **Reflexes**: each one's trigger, scope, trust level, on/off switch, spend, and recent runs written as results.
+  - **Connections**: GitHub, Slack, email.
+
+  Subtitle: "What Camox knows, and what it does on its own." When someone adds to memory: "Sharpen Camox's instincts."
+
+- **From the Lookout** is the weekly digest by Slack or email. A chamois herd keeps a lookout that whistles at danger.
+
+### Guardrails
+
+- At most one mountain touch per surface. Errors, billing, permissions and publishing stay plain.
+- Avoid overused mountain words: summit, peak, base camp.
+- No mascot character. Personas are hard to take away once users are attached to them.
+
 ## Vocabulary to settle
 
-- **Agent** in the glossary means a coding agent working through the CLI or AI tools. The chief of staff and internal specialists need a different term or a wider definition.
+- **Agent** in the glossary means a coding agent working through the CLI or AI tools. The agent users talk to is named Camox; internal specialists still need a term.
 - **Draft** needs redefining once named drafts replace per-entity drafts.
-- **Job**, **company memory** and **Live conversation** are new and unnamed in the glossary. Their names aren't settled.
+- **Reflex** (called job above), **company memory**, **Instincts** and **Live conversation** are new to the glossary. The branding above proposes names but nothing is settled.
 
 ## Open questions
 
