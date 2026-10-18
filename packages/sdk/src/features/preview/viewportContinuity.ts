@@ -64,7 +64,6 @@ export function restorePreviewAnchor(doc: Document, scroll: HTMLElement, anchor:
 
 export interface CanvasViewportCheckpoint {
   camera: CanvasCamera;
-  snappedKey?: string;
   pathname?: string;
   anchor?: ViewportAnchor;
 }
@@ -75,21 +74,11 @@ export class ViewportContinuity {
   preview: { capture: () => ViewportAnchor } | null = null;
   canvas: {
     capture: () => CanvasViewportCheckpoint;
-    restore: (
-      anchor: ViewportAnchor | undefined,
-      camera: CanvasCamera | undefined,
-      snappedKey?: string,
-    ) => void;
+    restore: (anchor: ViewportAnchor | undefined, camera: CanvasCamera | undefined) => void;
   } | null = null;
   pendingPreview: { pathname: string; anchor: ViewportAnchor } | null = null;
-  pendingCanvas: { anchor?: ViewportAnchor; camera?: CanvasCamera; snappedKey?: string } | null =
-    null;
-  checkpoint: {
-    pathname: string;
-    camera: CanvasCamera;
-    snappedKey?: string;
-    moved: boolean;
-  } | null = null;
+  pendingCanvas: { anchor?: ViewportAnchor; camera?: CanvasCamera } | null = null;
+  checkpoint: { pathname: string; camera: CanvasCamera; moved: boolean } | null = null;
 
   transition(enabled: boolean, pathname: string) {
     if (enabled) {
@@ -99,13 +88,12 @@ export class ViewportContinuity {
       this.pendingCanvas = {
         anchor: exact ? undefined : anchor,
         camera: this.checkpoint?.camera,
-        snappedKey: exact ? this.checkpoint?.snappedKey : undefined,
       };
       return;
     }
     const view = this.canvas?.capture();
     if (!view) return;
-    this.checkpoint = { pathname, camera: view.camera, snappedKey: view.snappedKey, moved: false };
+    this.checkpoint = { pathname, camera: view.camera, moved: false };
     this.pendingPreview = {
       pathname,
       anchor: (view.pathname === pathname ? view.anchor : undefined) ??
@@ -127,8 +115,8 @@ export class ViewportContinuity {
 
   restoreCanvas() {
     if (!this.canvas || !this.pendingCanvas) return;
-    const { anchor, camera, snappedKey } = this.pendingCanvas;
-    this.canvas.restore(anchor, camera, snappedKey);
+    const { anchor, camera } = this.pendingCanvas;
+    this.canvas.restore(anchor, camera);
     this.pendingCanvas = null;
   }
 }
