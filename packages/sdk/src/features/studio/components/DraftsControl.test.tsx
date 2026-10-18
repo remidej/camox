@@ -254,6 +254,46 @@ async function render(t: test.TestContext, at: string | null) {
   return { navigations };
 }
 
+/** An API whose answers to these paths never arrive, to see the control while they load. */
+function stallingApi(t: test.TestContext, stalled: string[]) {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
+    if (stalled.includes(path)) return new Promise<Response>(() => {});
+    if (path === "projects/getBySlug") return json(project);
+    if (path === "drafts/list") return json(list);
+    if (path === "drafts/get") {
+      const id = request.headers.get("x-camox-draft");
+      return json(drafts.find((draft) => draft.id === id));
+    }
+    return json({});
+  });
+}
+
+void test("on Live, reads Viewing Live before anything loads", async (t) => {
+  stallingApi(t, ["projects/getBySlug"]);
+  await render(t, null);
+
+  assert.equal(trigger()?.textContent, "Viewing Live");
+});
+
+void test("in a regular draft, shows nothing until the draft loads rather than a placeholder", async (t) => {
+  stallingApi(t, ["drafts/get"]);
+  await render(t, spring);
+
+  assert.equal(trigger()?.textContent, undefined);
+});
+
+void test("the localhost studio reads Development draft before anything loads", async (t) => {
+  developmentMode = true;
+  t.after(() => {
+    developmentMode = false;
+  });
+  stallingApi(t, ["projects/getBySlug", "drafts/get"]);
+  await render(t, development);
+
+  assert.equal(trigger()?.textContent, "Development draft");
+});
+
 void test("on Live, reads Viewing Live and says the first edit starts a draft", async (t) => {
   mockApi(t);
   await render(t, null);
@@ -266,27 +306,27 @@ void test("on Live, reads Viewing Live and says the first edit starts a draft", 
   assert.equal(itemNamed(/Review and publish/), undefined);
 });
 
-void test("in a draft, reads its label and the change count its publish preview lists", async (t) => {
+void test("in a named draft, reads only its name", async (t) => {
   mockApi(t);
   await render(t, spring);
 
-  assert.equal(trigger().textContent, "Spring campaign · 4 changes");
+  assert.equal(trigger().textContent, "Spring campaign");
 });
 
-void test("labels an unnamed draft with its creator and creation date", async (t) => {
+void test("in an unnamed draft, reads only its pending change count", async (t) => {
   mockApi(t);
   await render(t, adas);
 
-  assert.equal(trigger().textContent, "Ada, Oct 13 · 1 change");
+  assert.equal(trigger().textContent, "1 pending change");
 });
 
-void test("in a draft, the menu starts with Review and publish and Discard draft, without repeating the name", async (t) => {
+void test("in a draft, the menu starts with Review and publish, counting the changes, and Discard draft, without repeating the name", async (t) => {
   mockApi(t);
   await render(t, spring);
   await click(trigger());
 
   const [first, second] = menuItems();
-  assert.match(first?.textContent ?? "", /Review and publish/);
+  assert.equal(first?.textContent, "Review 4 changes and publish");
   assert.match(second?.textContent ?? "", /Discard draft…/);
   const beforeSwitch = (menu()?.textContent ?? "").split("Switch to")[0];
   assert.doesNotMatch(beforeSwitch, /Spring campaign/);
@@ -366,12 +406,12 @@ void test("the localhost studio shows only its development draft, with nothing t
   const calls = devMode(t);
   await render(t, spring);
 
-  assert.equal(trigger().textContent, "Development draft · 2 changes");
+  assert.equal(trigger().textContent, "Development draft");
   await click(trigger());
 
   assert.deepEqual(
     menuItems().map((item) => item.textContent),
-    ["Review and publish", "Discard draft…"],
+    ["Review 2 changes and publish", "Discard draft…"],
   );
   assert.doesNotMatch(menu()?.textContent ?? "", /Switch to|Live|Spring campaign/);
   assert.equal(calls.filter((call) => call.path === "drafts/list").length, 0);
