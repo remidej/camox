@@ -32,7 +32,7 @@ const PageSidebar = ({
   if (pageId != null) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-        <div className="px-2 pt-4">
+        <div className="px-2 pt-5">
           <PageTree collapsible />
         </div>
         <PageInfoSidebar pageId={pageId} scrollable={false} />

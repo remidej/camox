@@ -485,7 +485,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   ];
   return (
     <>
-      <SidebarSection divider="bottom">
+      <SidebarSection divider="bottom" className="pt-3">
         <nav aria-label="Selection path" className="text-muted-foreground text-sm">
           <ol className="flex flex-col">
             {navigationItems.map((item, index) => {

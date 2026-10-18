@@ -33,7 +33,7 @@ export function DerivedLayoutSidebar({
   const singleton = definition?._internal.kind === "singleton";
 
   return (
-    <div className="flex flex-col gap-4 px-2 pt-4">
+    <div className="flex flex-col gap-4 px-2 pt-5">
       <BlocksGroup>
         <CollapsedPageTree blockCount={beforeBlocks.length + afterBlocks.length}>
           <div className="flex flex-col gap-4 py-1">

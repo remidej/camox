@@ -29,7 +29,8 @@ const probeImports = `
 registerHooks({
   resolve(specifier, context, nextResolve) {
     let source: string | undefined;
-    if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
+    if (specifier === "@camox/ui/toaster")
+      source = "export const toast = Object.assign(() => {}, { error: () => {} })";
     if (context.parentURL?.endsWith("/CanvasSidebar.tsx")) {
       if (specifier.endsWith("/auth"))
         source = 'export const useProjectSlug = () => "test-project"';
@@ -155,9 +156,11 @@ async function setup() {
   });
   const navigations: { to: string; replace?: boolean }[] = [];
   let canvasShown = 0;
+  const renames: [pageId: string, nickname: string][] = [];
   return {
     api,
     calls,
+    renames,
     client,
     mount,
     navigations,
@@ -187,6 +190,9 @@ async function setup() {
                   catalog={catalog}
                   navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
                   onShowWholeCanvas={() => canvasShown++}
+                  onRenamePage={async (pageId, nickname) => {
+                    renames.push([pageId, nickname]);
+                  }}
                 />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
@@ -440,7 +446,10 @@ void test("a selected item's sidebar names it under a back button that shows the
       await dom.render(url, page);
       await dom.settle();
       const aside = dom.mount.querySelector("aside")!;
-      assert.equal(aside.querySelector("h2")?.textContent, page.title);
+      const heading = aside.querySelector("h2")!;
+      const nickname = heading.querySelector("input");
+      assert.equal(nickname?.value ?? heading.textContent, page.title);
+      assert.equal(!!nickname, page.pageId != null, "only a Page's nickname can be edited");
       assert.equal(aside.getAttribute("aria-label"), page.title);
       assert.equal(dom.mount.querySelector("[data-canvas-navigator-sidebar]"), null);
     }
@@ -448,6 +457,37 @@ void test("a selected item's sidebar names it under a back button that shows the
     await React.act(async () => back.click());
     assert.equal(dom.canvasShown, 1);
     assert.deepEqual(dom.navigations, [], "the Canvas, not the sidebar, leaves the selection");
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("a Page's nickname is renamed from the sidebar's header", async () => {
+  const dom = await setup();
+  try {
+    await dom.render("/", home);
+    await dom.settle();
+    const input = dom.mount.querySelector(
+      'aside h2 input[aria-label="Page nickname"]',
+    ) as unknown as HTMLInputElement;
+    const type = async (value: string, key: string) => {
+      await React.act(async () => {
+        input.focus();
+        input.value = value;
+        input.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+      await dom.settle();
+    };
+
+    await type("  Landing  ", "Enter");
+    assert.deepEqual(dom.renames, [["7", "Landing"]], "Enter saves the trimmed nickname");
+
+    await type("Draft", "Escape");
+    assert.equal(input.value, "Home", "Escape puts the nickname back");
+    await type("", "Enter");
+    assert.equal(input.value, "Home", "an empty nickname is refused");
+    await type("Home", "Enter");
+    assert.deepEqual(dom.renames, [["7", "Landing"]], "nothing else saves");
   } finally {
     await dom.close();
   }
