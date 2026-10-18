@@ -579,8 +579,42 @@ export function useCanvasCamera(
         return;
       const wasFitted = Math.abs(target.scale - minimumScale) < 1e-8;
       gesture = undefined;
-      if (nextViewport.width !== viewportSize.width) snappedKey = undefined;
+      const widthChanged = nextViewport.width !== viewportSize.width;
+      // A page held by a detent stays held as the window resizes: re-fit its
+      // width if it was at page fit, otherwise keep the zoom and stay centered.
+      const snapped = widthChanged
+        ? targets().find((candidate) => candidate.key === snappedKey)
+        : undefined;
+      const held =
+        snapped &&
+        Math.abs(
+          target.x + (snapped.left + snapped.width / 2) * target.scale - viewportSize.width / 2,
+        ) < 1 &&
+        isNearCanvasPageScale(target.scale, fitCanvasPage(viewportSize, snapped).scale)
+          ? {
+              page: snapped,
+              fitted: isCanvasPageScale(target.scale, fitCanvasPage(viewportSize, snapped).scale),
+            }
+          : undefined;
+      if (widthChanged) snappedKey = undefined;
       updateGeometry(nextViewport, nextContent);
+      if (held && !flight && !fittingInitialPage) {
+        const { page: heldPage, fitted } = held;
+        const scale = fitted ? fitCanvasPage(viewportSize, heldPage).scale : target.scale;
+        // Keep the document point at the viewport's top edge; above the page
+        // top, the unscaled chrome keeps its screen position.
+        const y = target.y > 0 ? target.y : (target.y * scale) / target.scale;
+        const next = {
+          x: viewportSize.width / 2 - (heldPage.left + heldPage.width / 2) * scale,
+          y,
+          scale,
+        };
+        if (restoredCamera) restoredCamera = next;
+        camera = constrainCanvasCamera(camera, viewportSize, contentSize);
+        applyCamera(next, true);
+        snappedKey = heldPage.key;
+        return;
+      }
       if (flight) {
         // Iframe sizing and window resizes must not jump to the old destination.
         camera = constrainCanvasCamera(camera, viewportSize, contentSize);

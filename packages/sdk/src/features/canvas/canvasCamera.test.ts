@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  canvasBounds,
+  CANVAS_OVERSCROLL,
   canvasInsets,
+  canvasMinimumScale,
   canvasOverview,
   findCanvasSnapTarget,
   canvasVerticalRail,
@@ -14,6 +15,7 @@ import {
   isCanvasPageScale,
   isNearCanvasPageScale,
   MAX_CANVAS_ZOOM,
+  MIN_CANVAS_ZOOM,
   snapCanvasZoom,
   ZOOM_SNAP_CAPTURE,
   ZOOM_SNAP_RELEASE,
@@ -231,55 +233,99 @@ void test("empty content and a tiny viewport still produce a finite positive cam
   assert.ok(camera.scale > 0);
 });
 
-void test("panning stops at the same four world edges at every zoom level", () => {
+const assertNear = (actual: number, expected: number, message?: string) =>
+  assert.ok(Math.abs(actual - expected) < 1e-8, message ?? `${actual} != ${expected}`);
+
+// Screen-space empty canvas allowed beside the content, per side.
+const gap = (viewport: { width: number; height: number }) => ({
+  x: viewport.width * CANVAS_OVERSCROLL,
+  y: viewport.height * CANVAS_OVERSCROLL,
+});
+
+void test("panning stops with the same empty canvas beside the content at every zoom level", () => {
   const viewport = { width: 1440, height: 900 };
   const content = { width: 6000, height: 3000 };
-  const bounds = canvasBounds(viewport, content);
-  for (const scale of [bounds.minimumScale, 0.5, 1, MAX_CANVAS_ZOOM]) {
+  for (const scale of [canvasMinimumScale(viewport, content), 0.5, 1, MAX_CANVAS_ZOOM]) {
     const start = constrainCanvasCamera({ x: 1e6, y: 1e6, scale }, viewport, content);
     const end = constrainCanvasCamera({ x: -1e6, y: -1e6, scale }, viewport, content);
-    assert.ok(Math.abs(-start.x / scale - bounds.left) < 1e-8);
-    assert.ok(Math.abs(-start.y / scale - bounds.top) < 1e-8);
-    assert.ok(Math.abs((viewport.width - end.x) / scale - bounds.right) < 1e-8);
-    assert.ok(Math.abs((viewport.height - end.y) / scale - bounds.bottom) < 1e-8);
-  }
-});
-
-void test("zooming out stops at the complete overview and cannot pan it out of view", () => {
-  const viewport = { width: 1440, height: 900 };
-  const content = { width: 6000, height: 3000 };
-  const fit = fitCanvas(viewport, content);
-  for (const scale of [fit.scale, fit.scale / 10]) {
-    const camera = constrainCanvasCamera({ x: -1e6, y: 1e6, scale }, viewport, content);
-    assert.ok(Math.abs(camera.x - fit.x) < 1e-8);
-    assert.ok(Math.abs(camera.y - fit.y) < 1e-8);
-    assert.equal(camera.scale, fit.scale);
-  }
-});
-
-void test("zooming into an overview preserves off-center anchors on both axes", () => {
-  const viewport = { width: 1280, height: 523 };
-  for (const content of [
-    { width: 6184, height: 5058 },
-    { width: 390, height: 6000 },
-    { width: 12000, height: 300 },
-  ]) {
-    const fit = fitCanvas(viewport, content);
-    for (const pointer of [
-      { x: 250, y: 230 },
-      { x: 1000, y: 450 },
-    ]) {
-      const zoomed = zoomCanvasAt(fit, pointer, fit.scale * 2, fit.scale);
-      assert.deepEqual(constrainCanvasCamera(zoomed, viewport, content), zoomed);
+    if (content.width * scale > viewport.width - gap(viewport).x) {
+      assertNear(start.x, gap(viewport).x, "the content's left edge stops at its gap");
+      assertNear(viewport.width - (end.x + content.width * scale), gap(viewport).x);
+    }
+    if (content.height * scale > viewport.height - gap(viewport).y) {
+      assertNear(start.y, gap(viewport).y, "the content's top edge stops at its gap");
+      assertNear(viewport.height - (end.y + content.height * scale), gap(viewport).y);
     }
   }
 });
 
-void test("the shorter axis can pan inside the overview's spare space after zooming in", () => {
+void test("content smaller than the empty canvas can sit anywhere fully in view", () => {
+  const viewport = { width: 1440, height: 900 };
+  const content = { width: 390, height: 300 };
+  const start = constrainCanvasCamera({ x: 1e6, y: 1e6, scale: 1 }, viewport, content);
+  const end = constrainCanvasCamera({ x: -1e6, y: -1e6, scale: 1 }, viewport, content);
+  assert.deepEqual(start, {
+    x: viewport.width - content.width,
+    y: viewport.height - content.height,
+    scale: 1,
+  });
+  assert.deepEqual(end, { x: 0, y: 0, scale: 1 });
+});
+
+void test("zooming in cannot pan narrow content out of view", () => {
   const viewport = { width: 1440, height: 900 };
   const content = { width: 390, height: 6000 };
-  const camera = { x: -200, y: -400, scale: 1 };
-  assert.deepEqual(constrainCanvasCamera(camera, viewport, content), camera);
+  for (const x of [-1e6, 1e6]) {
+    const camera = constrainCanvasCamera({ x, y: -400, scale: 1 }, viewport, content);
+    assert.ok(camera.x < viewport.width && camera.x + content.width > 0);
+  }
+});
+
+void test("zooming out stops at the zoom floor, which leaves large sites in view", () => {
+  const viewport = { width: 1440, height: 900 };
+  for (const content of [
+    { width: 6000, height: 3000 },
+    { width: 100000, height: 2000 },
+  ]) {
+    const floor = canvasMinimumScale(viewport, content);
+    assert.equal(floor, Math.max(MIN_CANVAS_ZOOM, fitCanvas(viewport, content).scale));
+    for (const corner of [-1e6, 1e6]) {
+      const camera = constrainCanvasCamera(
+        { x: corner, y: corner, scale: floor / 10 },
+        viewport,
+        content,
+      );
+      assert.equal(camera.scale, floor);
+      assert.ok(camera.x < viewport.width && camera.x + content.width * floor > 0);
+      assert.ok(camera.y < viewport.height && camera.y + content.height * floor > 0);
+    }
+  }
+});
+
+void test("zooming out from an edge page keeps the anchor instead of pulling the view", () => {
+  const viewport = { width: 1440, height: 900 };
+  const content = { width: 100000, height: 2000 };
+  const floor = canvasMinimumScale(viewport, content);
+  for (const page of [
+    { left: 0, width: 1366 },
+    { left: content.width - 1366, width: 1366 },
+  ]) {
+    const fitted = fitCanvasPage(viewport, page);
+    // The viewport's center, and the edge page's own side of it.
+    const side = page.left === 0 ? 0.25 : 0.75;
+    for (const pointer of [
+      { x: viewport.width / 2, y: viewport.height / 2 },
+      { x: viewport.width * side, y: 200 },
+    ]) {
+      for (const scale of [fitted.scale / 2, floor]) {
+        const zoomed = zoomCanvasAt(fitted, pointer, scale, floor);
+        const constrained = constrainCanvasCamera(zoomed, viewport, content);
+        assertNear(constrained.x, zoomed.x, `x at ${JSON.stringify({ page, pointer, scale })}`);
+        assertNear(constrained.y, zoomed.y, `y at ${JSON.stringify({ page, pointer, scale })}`);
+        assert.equal(constrained.scale, zoomed.scale);
+      }
+    }
+  }
 });
 
 void test("animation between valid cameras never needs intermediate clamping", () => {
@@ -307,7 +353,11 @@ void test("a viewport or document size change restores valid bounds without need
   const camera = { x: -500, y: -600, scale: 1 };
   assert.deepEqual(constrainCanvasCamera(camera, viewport, { width: 6000, height: 4000 }), camera);
   const small = { width: 390, height: 300 };
-  assert.deepEqual(constrainCanvasCamera(camera, viewport, small), fitCanvas(viewport, small));
+  assert.deepEqual(
+    constrainCanvasCamera(camera, viewport, small),
+    { x: 0, y: 0, scale: 1 },
+    "a shrunken document comes back into view at the same zoom",
+  );
 });
 
 void test("wheel input normalizes pixel, line, and page deltas", () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  canvasBounds,
+  canvasMinimumScale,
   canvasOverview,
   constrainCanvasCamera,
   fitCanvas,
@@ -121,8 +121,7 @@ void test("stationary-center zoom is monotonic and never overshoots endpoints", 
   }
 });
 
-void test("all intermediate cameras respect overview bounds and maximum zoom", () => {
-  const bounds = canvasBounds(viewport, content);
+void test("all intermediate cameras respect the canvas bounds and zoom limits", () => {
   const overview = canvasOverview(viewport, content);
   for (const [from, to] of [
     [start, end],
@@ -133,12 +132,11 @@ void test("all intermediate cameras respect overview bounds and maximum zoom", (
     const flight = createCanvasFlight(from!, to!, viewport, content);
     for (let i = 0; i <= 100; i++) {
       const camera = flight.at(i / 100);
-      assert.ok(camera.scale >= bounds.minimumScale - 1e-12);
+      assert.ok(camera.scale >= canvasMinimumScale(viewport, content) - 1e-12);
       assert.ok(camera.scale <= MAX_CANVAS_ZOOM);
-      assert.ok(camera.x <= -bounds.left * camera.scale + 1e-8);
-      assert.ok(camera.x >= viewport.width - bounds.right * camera.scale - 1e-8);
-      assert.ok(camera.y <= -bounds.top * camera.scale + 1e-8);
-      assert.ok(camera.y >= viewport.height - bounds.bottom * camera.scale - 1e-8);
+      const constrained = constrainCanvasCamera(camera, viewport, content);
+      assert.ok(Math.abs(constrained.x - camera.x) < 1e-8);
+      assert.ok(Math.abs(constrained.y - camera.y) < 1e-8);
     }
   }
 });
