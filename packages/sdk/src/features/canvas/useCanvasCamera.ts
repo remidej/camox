@@ -36,8 +36,8 @@ import { createCanvasFlight } from "./canvasFlight";
 import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
-/** A zoom that stretched past a limit springs back once its input pauses this long. */
-const STRETCH_RELEASE_MS = 120;
+/** A zoom ends once its input pauses this long; a stretch past a limit then springs back. */
+const ZOOM_END_MS = 120;
 const CAMERA_PROPERTIES = ["--canvas-x", "--canvas-y", "--canvas-zoom"];
 /** The camera counts as moving until it has been still this long. */
 const CAMERA_SETTLE_MS = 150;
@@ -75,6 +75,13 @@ export interface CanvasCameraRow {
   width?: number;
   /** The camera snapped to an item. */
   onSelect: (key: string) => void;
+  /**
+   * The camera snapped onto an item from a scroll, swipe or zoom. A zoom that
+   * stretches past the snap reports it as it springs back.
+   */
+  onSnap?: () => void;
+  /** A zoom kept going past the snap it reported, which it reports again as it springs back. */
+  onSnapStretched?: () => void;
   /**
    * The key of the selected item, if any. A selection is a snapped camera: the
    * camera flies to an item selected from anywhere else.
@@ -178,7 +185,12 @@ export function useCanvasCamera(
     const targetOf = (key: string | null | undefined) =>
       key == null ? undefined : targets().find((candidate) => candidate.key === key);
     // A zoom past a limit, which springs back at the end of its input.
-    let stretch: { point: CanvasPoint; timer: number } | undefined;
+    let stretch: { point: CanvasPoint } | undefined;
+    // Pinches end when their pointers lift, other zooms when their input pauses.
+    let zoomEnd = 0;
+    // The item a zoom snapped onto, until the zoom ends: a stretch past it
+    // defers its report to the spring-back.
+    let landing: { key: string; stretched: boolean } | undefined;
     // Page fit is the zoom ceiling: the camera can't zoom in past where it snaps.
     // Zooming past a limit only stretches the view, as long as its input lasts.
     const constrain = (next: CanvasCamera, stretched = !!stretch) =>
@@ -296,14 +308,9 @@ export function useCanvasCamera(
       const nextScale = stretched
         ? stretchCanvasZoom(intendedScale, minimumScale, maximumScale)
         : snapped;
-      if (stretch) ownerWindow.clearTimeout(stretch.timer);
-      stretch = stretched
-        ? {
-            point,
-            // Pinches end when their pointers lift, other zooms when their input pauses.
-            timer: pointers.size ? 0 : ownerWindow.setTimeout(springBack, STRETCH_RELEASE_MS),
-          }
-        : undefined;
+      ownerWindow.clearTimeout(zoomEnd);
+      if (!pointers.size) zoomEnd = ownerWindow.setTimeout(endZoom, ZOOM_END_MS);
+      stretch = stretched ? { point } : undefined;
       const anchored = zoomCanvasAt(
         base,
         point,
@@ -317,6 +324,13 @@ export function useCanvasCamera(
         y: anchored.y + translation.y,
       };
       if (!candidate || !fit || !isCanvasPageScale(snapped, fit.scale)) return next;
+      const entered = selection !== candidate.key;
+      if (entered) landing = { key: candidate.key, stretched: stretched };
+      else if (stretched && landing && !landing.stretched) {
+        landing.stretched = true;
+        rowRef.current?.onSnapStretched?.();
+      }
+      if (entered && !stretched) rowRef.current?.onSnap?.();
       select(candidate.key);
       // Keep the zoom anchor vertically, rather than jumping back to page top.
       // A stretch stays centered on the page it springs back to.
@@ -350,18 +364,22 @@ export function useCanvasCamera(
       const held = Math.abs(base.x - fit.x) < 1e-8;
       const band = viewportSize.width * (held ? PAN_SNAP_RELEASE : PAN_SNAP_CAPTURE);
       if (Math.abs(intended.x - fit.x) > band) return intended;
+      if (selection !== candidate.key) rowRef.current?.onSnap?.();
       select(candidate.key);
       return { ...intended, x: fit.x };
     };
-    // The end of a zoom past a limit: spring back to it.
-    const springBack = () => {
-      if (!stretch) return;
-      const next = rest(target);
-      ownerWindow.clearTimeout(stretch.timer);
-      stretch = undefined;
-      gesture = undefined;
-      markMoving();
-      applyCamera(next);
+    // The end of a zoom: a stretch past a limit springs back to it.
+    const endZoom = () => {
+      ownerWindow.clearTimeout(zoomEnd);
+      if (stretch) {
+        const next = rest(target);
+        stretch = undefined;
+        gesture = undefined;
+        markMoving();
+        applyCamera(next);
+      }
+      if (landing?.stretched && landing.key === selection) rowRef.current?.onSnap?.();
+      landing = undefined;
     };
     const pointers = new Map<number, CanvasPoint>();
     // Like Figma, holding Space arms the hand tool; the background is otherwise
@@ -486,8 +504,9 @@ export function useCanvasCamera(
       restoredCamera = undefined;
       fittingInitialPage = false;
       gesture = undefined;
-      if (stretch) ownerWindow.clearTimeout(stretch.timer);
+      ownerWindow.clearTimeout(zoomEnd);
       stretch = undefined;
+      landing = undefined;
       // Navigation can commit new slots before ResizeObserver runs. Measure the
       // committed DOM now so even reduced-motion arrivals use the new bounds.
       updateGeometry();
@@ -676,7 +695,7 @@ export function useCanvasCamera(
         move(zoom(target, point, Math.exp(-dy * CANVAS_WHEEL_ZOOM_RATE), event.timeStamp));
         return;
       }
-      springBack();
+      endZoom();
       const previous =
         gesture?.kind === "pan" &&
         gesture.source === "wheel" &&
@@ -748,7 +767,7 @@ export function useCanvasCamera(
       gesture = undefined;
       pointers.delete(event.pointerId);
       // A pinch ends as soon as it has fewer than two pointers.
-      if (pointers.size < 2) springBack();
+      if (pointers.size < 2) endZoom();
       if (pointers.size) return;
       paintPanState();
     };
@@ -819,7 +838,7 @@ export function useCanvasCamera(
         return;
       }
       if (event.key === "Home" || (event.shiftKey && event.code === "Digit1")) {
-        springBack();
+        endZoom();
         gesture = undefined;
         event.preventDefault();
         move(canvasOverview(viewportSize, contentSize));
@@ -834,7 +853,7 @@ export function useCanvasCamera(
       const direction = directions[event.key];
       if (!direction) return;
       event.preventDefault();
-      springBack();
+      endZoom();
       move(pan(target, direction, event.timeStamp, "keyboard"));
     };
 
@@ -860,7 +879,7 @@ export function useCanvasCamera(
       remember();
       cancelAnimationFrame(animation);
       ownerWindow.clearTimeout(settle);
-      if (stretch) ownerWindow.clearTimeout(stretch.timer);
+      ownerWindow.clearTimeout(zoomEnd);
       setMoving(false);
       resize.disconnect();
       viewport.removeEventListener("wheel", onWheel);

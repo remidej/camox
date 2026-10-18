@@ -813,6 +813,8 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
   let selected = "middle";
   let ordered = pages;
   const events: string[] = [];
+  let snaps = 0;
+  let stretches = 0;
   let controls!: ReturnType<typeof useCanvasCamera>;
   function Fixture() {
     controls = useCanvasCamera("deselect", pages[1], {
@@ -827,6 +829,8 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
         events.push("deselect");
         selected = "";
       },
+      onSnap: () => snaps++,
+      onSnapStretched: () => stretches++,
     });
     return (
       <div ref={controls.viewportRef}>
@@ -903,12 +907,65 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
     assert.deepEqual(events, [], "zooming out further doesn't deselect again");
     await rerender();
 
+    // A zoom that jumps past a snap reports it as it springs back.
+    time += 200;
+    wheel(0, -1000, true);
+    assert.deepEqual(events.splice(0), ["select middle"], "zooming in past a page snaps to it");
+    assert.equal(snaps, 0, "a stretch past the snap defers its report");
+    await rerender();
+    await dom.happyDOM.waitUntilComplete();
+    assert.equal(snaps, 1, "to the spring-back");
+    flush();
+    assert.ok(snappedTo(pages[1]!));
+    assert.equal(stretches, 0, "nothing was reported before the stretch");
+    // A zoom the detent captures reports the snap at once.
+    const fitScale = read().scale;
+    const leave = () => {
+      time += 200;
+      wheel(0, (ZOOM_SNAP_RELEASE + 0.05) / CANVAS_WHEEL_ZOOM_RATE, true);
+      assert.deepEqual(events.splice(0), ["deselect"]);
+    };
+    leave();
+    await rerender();
+    time += 200;
+    wheel(0, -0.1 / CANVAS_WHEEL_ZOOM_RATE, true);
+    assert.equal(read().scale, fitScale, "the detent captures the zoom");
+    assert.deepEqual(events.splice(0), ["select middle"]);
+    assert.equal(snaps, 2, "and reports the snap at once");
+    await rerender();
+    await dom.happyDOM.waitUntilComplete();
+    flush();
+    assert.equal(snaps, 2, "only once");
+    // Zooming on past the captured snap takes the report back until the spring-back.
+    leave();
+    await rerender();
+    time += 200;
+    wheel(0, -0.1 / CANVAS_WHEEL_ZOOM_RATE, true);
+    assert.equal(snaps, 3);
+    assert.deepEqual(events.splice(0), ["select middle"]);
+    await rerender();
+    wheel(0, -100, true);
+    wheel(0, -100, true);
+    assert.ok(read().scale > fitScale);
+    assert.equal(stretches, 1, "the stretch past the reported snap takes it back once");
+    await dom.happyDOM.waitUntilComplete();
+    flush();
+    assert.equal(snaps, 4, "and reports it again as it springs back");
+    assert.ok(snappedTo(pages[1]!));
+    time += 200;
+    wheel(0, 1000, true);
+    assert.deepEqual(events.splice(0), ["deselect"]);
+    await rerender();
+
     // A selection from elsewhere, like a header click, flies to it without reselecting.
     selected = "last";
     await rerender();
     flush();
     assert.ok(snappedTo(pages[2]!), "the camera snaps to an item selected elsewhere");
     assert.deepEqual(events, []);
+    await dom.happyDOM.waitUntilComplete();
+    flush();
+    assert.equal(snaps, 4, "a flight to a selection never reports a snap");
     await rerender();
     assert.ok(snappedTo(pages[2]!));
 
@@ -917,9 +974,11 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
     assert.deepEqual(events.splice(0), ["deselect"], "panning out of the snap deselects");
     await rerender();
     time += 200;
+    const panSnaps = snaps;
     wheel(-size.width / 4 + 10, 0);
     assert.ok(snappedTo(pages[2]!));
     assert.deepEqual(events.splice(0), ["select last"], "panning into a snap selects");
+    assert.equal(snaps, panSnaps + 1, "and lands at once");
     const snapped = read();
     await rerender();
     assert.deepEqual(read(), snapped, "the camera's own selection doesn't fly");

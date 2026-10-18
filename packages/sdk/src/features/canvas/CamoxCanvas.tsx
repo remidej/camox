@@ -189,6 +189,14 @@ function CanvasPageFrameLoader({
   );
 }
 
+// Quick to appear, slower to fade, so it reads as one pulse.
+const SNAP_FLASH_KEYFRAMES: Keyframe[] = [
+  { opacity: 0 },
+  { opacity: 1, offset: 0.15 },
+  { opacity: 0 },
+];
+const SNAP_FLASH_TIMING: KeyframeAnimationOptions = { duration: 600, easing: "ease-out" };
+
 /** A frame header above an item's slot, at a constant on-screen height. */
 function CanvasHeaderSlot({
   itemKey,
@@ -344,6 +352,8 @@ function CanvasWorkspace({
       collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedItemKey),
   )?.key;
   const snapTargets = canvasSnapTargets(items);
+  const snapRingRef = React.useRef<HTMLDivElement>(null);
+  const snapFlash = React.useRef<Animation>(null);
   const { viewportRef, contentRef, flyTo, mirrorCamera, keepInView, fitAll } = useCanvasCamera(
     workspaceKey,
     snapTargets.find(({ key }) => key === selectedKey),
@@ -358,6 +368,14 @@ function CanvasWorkspace({
       },
       selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
       onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
+      // The camera snapped onto an item from a scroll, swipe or zoom: flash a
+      // ring around the viewport so the snap reads as locking onto it.
+      onSnap: () => {
+        snapFlash.current =
+          snapRingRef.current?.animate(SNAP_FLASH_KEYFRAMES, SNAP_FLASH_TIMING) ?? null;
+      },
+      // The flash returns as the zoom springs back to the snap.
+      onSnapStretched: () => snapFlash.current?.cancel(),
     },
   );
   const workspace = React.useMemo(
@@ -619,6 +637,14 @@ function CanvasWorkspace({
         edit it. Focus the canvas and use plus or minus to zoom, arrow keys to pan, 0 for 100%, or
         Home / Shift+1 to fit all pages.
       </p>
+      {/* Above the Shelf Markers and the Preview frame laid over the Canvas. */}
+      <div
+        ref={snapRingRef}
+        aria-hidden
+        data-canvas-snap-ring
+        className="ring-primary pointer-events-none absolute inset-0 opacity-0 ring-3 ring-inset"
+        style={{ zIndex: CANVAS_CHROME_Z_INDEX }}
+      />
     </div>
   );
 }

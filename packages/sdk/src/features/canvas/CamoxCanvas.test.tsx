@@ -107,6 +107,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let cameraRow!: {
     selected?: string | null;
     onDeselect?: () => void;
+    onSnap?: () => void;
+    onSnapStretched?: () => void;
   };
   let sidebarPathname: string | undefined;
   const blockFrames = new Map<string, { onSelect: () => void }>();
@@ -504,6 +506,14 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(cameraRow.selected, "block:hero");
         assert.equal(flights.length, 0, "mount does not fly");
 
+        let flashes = 0;
+        let cancelled = 0;
+        Object.defineProperty(host.querySelector("[data-canvas-snap-ring]"), "animate", {
+          value: () => {
+            flashes++;
+            return { cancel: () => cancelled++ };
+          },
+        });
         for (const [select, path, key] of [
           [() => blockFrames.get("faq")!.onSelect(), "/camox/blocks/faq", "block:faq"],
           [
@@ -521,12 +531,17 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         ] as const) {
           await React.act(async () => select());
           assert.deepEqual(actions.splice(0), ["navigate"]);
+          assert.equal(flashes, 0, "selecting never flashes the viewport by itself");
           assert.equal(globals.CanvasLocation.pathname, path);
           await render();
           // The camera flies to a selection it didn't snap to itself.
           assert.equal(cameraRow.selected, key, "the camera holds the selection");
           assert.equal(flights.length, 0, "the Canvas leaves flights to the camera");
         }
+        cameraRow.onSnap!();
+        assert.equal(flashes, 1, "the camera snapping flashes the viewport");
+        cameraRow.onSnapStretched!();
+        assert.equal(cancelled, 1, "until a zoom stretches past the snap");
 
         globals.CanvasLocation = {
           pathname: "/camox/blocks/hero",
