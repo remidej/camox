@@ -1,14 +1,14 @@
 /**
- * Decoded default fonts shared by the node and workerd OG image wrappers.
+ * Decoded default fonts for the OG image wrapper.
  *
- * The wasm renderer in `@takumi-rs/wasm` ships with no embedded fonts — calling
- * `new Renderer()` without `fonts` produces zero text runs and OG images come
- * out as featureless rectangles. We always inject Geist Variable so text has
- * something to render with; the user can still pass their own `fonts:` through
- * the ImageResponse constructor and override this default.
+ * Takumi's wasm renderer ships with no embedded fonts — rendering without
+ * `fonts` produces zero text runs and OG images come out as featureless
+ * rectangles. We always inject Geist Variable so text has something to render
+ * with; the user can still pass their own `fonts:` through the ImageResponse
+ * constructor and override this default.
  *
- * Decoded once at module load — both wrappers cache their renderer instances
- * at module scope, so the same bytes are passed to a single Renderer per
+ * Decoded once at module load. Takumi keys registered fonts by their bytes, so
+ * passing the same `data` on every render registers Geist only once per
  * isolate.
  */
 
