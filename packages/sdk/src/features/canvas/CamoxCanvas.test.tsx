@@ -42,7 +42,7 @@ registerHooks({
         "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks, getBlockById: (id) => globalThis.CanvasBlocks.find((block) => block._internal.id === id)})";
     if (specifier === "@xstate/store-react")
       source =
-        "export const useSelector = (_, selector) => selector({context: {viewportMode: 'full'}})";
+        "export const useSelector = (_, selector) => selector({context: {viewportMode: globalThis.CanvasViewportMode ?? 'full'}})";
     if (specifier.endsWith("/previewStore"))
       source = "export const previewStore = {send: () => {}};";
     if (specifier.endsWith("/useCanvasCamera"))
@@ -1017,6 +1017,67 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         await React.act(async () => root.unmount());
         host.remove();
         failingBlock = undefined;
+        globals.CanvasBlocks = [];
+        Object.assign(globalThis, globals);
+      }
+    });
+    await t.test("narrower devices center their frames in shaded areas", async () => {
+      scenario = "";
+      includeNewPage = false;
+      globals.CanvasBlocks = [{ _internal: { id: "hero", title: "Hero", layoutOnly: false } }];
+      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+      Object.assign(globalThis, globals);
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const slots = () =>
+        [...host.querySelectorAll("[data-canvas-slot]")].map(
+          (slot) => slot as unknown as HTMLElement,
+        );
+      const frames = () =>
+        [...host.querySelectorAll("[data-canvas-page], [data-canvas-block]")].map(
+          (frame) => frame as unknown as HTMLElement,
+        );
+      const frameWidths = () => frames().map((frame) => frame.style.width);
+      try {
+        for (const mode of ["full", "desktop"]) {
+          Object.assign(globalThis, { CanvasViewportMode: mode });
+          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+          assert.deepEqual(
+            frameWidths(),
+            slots().map(() => `${CANVAS_SLOT_WIDTH}px`),
+            `${mode} frames fill their areas`,
+          );
+          assert.ok(
+            slots().every((slot) => !slot.hasAttribute("data-canvas-slot-shaded")),
+            `${mode} areas are not shaded`,
+          );
+          assert.ok(
+            slots().every((slot) => !parseFloat(slot.style.paddingBlock)),
+            `${mode} frames touch the top of their areas`,
+          );
+        }
+        for (const mode of ["tablet", "mobile"]) {
+          Object.assign(globalThis, { CanvasViewportMode: mode });
+          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+          assert.equal(slots().length, 3, "Pages and blocks all have an area");
+          assert.ok(
+            frameWidths().every((width) => parseFloat(width) < CANVAS_SLOT_WIDTH),
+            `${mode} frames are narrower than their areas`,
+          );
+          assert.ok(
+            slots().every((slot) => slot.hasAttribute("data-canvas-slot-shaded")),
+            `${mode} areas are shaded`,
+          );
+          assert.ok(
+            slots().every((slot) => parseFloat(slot.style.paddingBlock) > 0),
+            `${mode} frames keep apart from the edges of their areas`,
+          );
+        }
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+        Object.assign(globalThis, { CanvasViewportMode: undefined });
         globals.CanvasBlocks = [];
         Object.assign(globalThis, globals);
       }

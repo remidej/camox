@@ -224,6 +224,38 @@ function CanvasHeaderSlot({
   );
 }
 
+/** World-space room above and below a frame narrower than its area. */
+const CANVAS_FRAMED_PADDING = 40;
+
+/**
+ * An item's area in the Canvas row, which the camera snaps to, with the item's
+ * frame centered in it. A frame narrower than its area shows the area in a
+ * shade of its own, with room above and below the frame.
+ */
+function CanvasSlot({
+  itemKey,
+  framed,
+  children,
+}: {
+  itemKey: string;
+  framed: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-canvas-slot={itemKey}
+      data-canvas-slot-shaded={framed || undefined}
+      className="data-canvas-slot-shaded:bg-foreground/5 flex shrink-0 justify-center"
+      style={{
+        width: CANVAS_SLOT_WIDTH,
+        paddingBlock: framed ? CANVAS_FRAMED_PADDING : 0,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 /** A block header with the number of Pages placing the block. */
 function CanvasBlockUsageHeader({
   projectId,
@@ -351,6 +383,8 @@ function CanvasWorkspace({
     (shelf) =>
       collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedItemKey),
   )?.key;
+  // Narrower devices leave room around frames: their areas are shaded, to explain why frames are centered.
+  const framed = viewport.width < CANVAS_SLOT_WIDTH;
   const snapTargets = canvasSnapTargets(items);
   const snapRingRef = React.useRef<HTMLDivElement>(null);
   const snapFlash = React.useRef<Animation>(null);
@@ -496,12 +530,7 @@ function CanvasWorkspace({
                   {shelf.items.map((item) => {
                     if (item.kind === "block") {
                       return (
-                        <div
-                          key={item.key}
-                          data-canvas-slot={item.key}
-                          className="flex shrink-0 justify-start"
-                          style={{ width: CANVAS_SLOT_WIDTH }}
-                        >
+                        <CanvasSlot key={item.key} itemKey={item.key} framed={framed}>
                           <div
                             data-canvas-block={item.block._internal.id}
                             className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
@@ -519,7 +548,7 @@ function CanvasWorkspace({
                               />
                             </CanvasFrameBoundary>
                           </div>
-                        </div>
+                        </CanvasSlot>
                       );
                     }
                     const slot = pageSlots.get(item.key);
@@ -538,12 +567,7 @@ function CanvasWorkspace({
                       if (source === "interaction") selectPage(pathname);
                     };
                     return (
-                      <div
-                        key={page.key}
-                        data-canvas-slot={page.key}
-                        className="flex shrink-0 justify-start"
-                        style={{ width: CANVAS_SLOT_WIDTH }}
-                      >
+                      <CanvasSlot key={page.key} itemKey={page.key} framed={framed}>
                         <div
                           data-canvas-page={page.key}
                           data-canvas-pathname={pathname}
@@ -581,7 +605,7 @@ function CanvasWorkspace({
                             )}
                           </CanvasFrameBoundary>
                         </div>
-                      </div>
+                      </CanvasSlot>
                     );
                   })}
                 </div>
