@@ -89,10 +89,20 @@ async function setup() {
   const host = window.document.createElement("div");
   window.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
+  // The signed-in Studio always has a studio cache, which the Canvas prefetch reads with.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return {
     host,
     async render(children: React.ReactNode) {
-      await React.act(async () => root.render(children));
+      await React.act(async () =>
+        root.render(
+          <StudioQueryClientProvider client={client}>{children}</StudioQueryClientProvider>,
+        ),
+      );
+    },
+    /** Waits until pending timers, like an idle prefetch, have run. */
+    async settle() {
+      await React.act(async () => window.happyDOM.waitUntilComplete());
     },
     async close() {
       await React.act(async () => root.unmount());
@@ -143,7 +153,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
   };
   try {
     reset();
-    await t.test("plain preview does not even import Canvas", async () => {
+    await t.test("plain preview does not import Canvas while rendering", async () => {
       await dom.render(
         <PreviewShell pageData={pageData}>
           <p data-content>Site content</p>
@@ -151,6 +161,12 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
       );
       assertPreview();
       assert.equal(canvasImports, 0);
+    });
+
+    await t.test("an idle Studio prefetches the Canvas before it shows", async () => {
+      await dom.settle();
+      assertPreview();
+      assert.equal(canvasImports, 1);
     });
 
     for (const [name, props] of [

@@ -88,7 +88,8 @@ void test("Canvas handoff never remounts the original preview through loading, r
   );
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
-  const { CanvasPreview } = await import("./CanvasPreview");
+  const { flushSync } = await import("react-dom");
+  const { CanvasPreview, prefetchCanvas } = await import("./CanvasPreview");
   function PreviewProbe() {
     const continuity = React.useContext(ViewportContinuityContext)!;
     React.useLayoutEffect(() => {
@@ -162,7 +163,22 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(loading(), null, "the read-only preview shows the page");
     assert.equal(toast.getToasts().length, 0);
 
+    // A failed import, prefetched or shown, is retried by the next load.
+    failImport = true;
+    prefetchCanvas();
+    await React.act(async () => {});
+    assert.equal(imports, 1, "prefetching imports Canvas before it shows");
     await render(true);
+    assert.equal(imports, 2, "a failed prefetch leaves the next show to import again");
+    assert.equal(preview(), original, "a failed import retains the site");
+    assertFailureToast();
+    failImport = false;
+    await render(false);
+    assert.equal(toast.getToasts().length, 0);
+    viewportEvents.length = 0;
+
+    await render(true);
+    assert.equal(imports, 3, "showing again after a failed import imports again");
     assert.deepEqual(viewportEvents[0], ["preview-capture", true], "capture precedes DOM changes");
     assertLoading();
     assert.equal(preview(), original, "the original DOM survives module suspension");
@@ -297,19 +313,24 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(preview(), original);
     assert.ok(canvas());
 
-    // Only a cold Canvas imports: start over without the warm one.
+    // Loaded code shows a cold Canvas without suspending: start over without the warm one.
     await React.act(async () => root.render(null));
-    failImport = true;
-    await render(true);
-    const beforeImportFailure = preview();
-    assert.ok(beforeImportFailure);
-    assertFailureToast();
-    failImport = false;
-    await retryToast();
-    assert.equal(preview(), beforeImportFailure);
+    const importsBeforeCold = imports;
+    let renderedInSamePass = false;
+    await React.act(async () => {
+      flushSync(() =>
+        root.render(
+          <CanvasPreview enabled pathname="/" runtimeBasePath="/mounted">
+            <PreviewProbe />
+          </CanvasPreview>,
+        ),
+      );
+      renderedInSamePass = !!canvas();
+    });
+    assert.ok(renderedInSamePass, "loaded Canvas code renders in the same pass");
+    assert.equal(imports, importsBeforeCold, "loaded Canvas code never imports again");
+    assertLoading("a cold Canvas still shows the spinner until it is ready");
     await React.act(async () => signals.at(-1)!.ready());
-    assert.ok(canvas(), "retry uses a fresh lazy component after a rejected import");
-    assert.equal(preview(), beforeImportFailure);
     assert.equal(toast.getToasts().length, 0);
     assert.equal(
       toast

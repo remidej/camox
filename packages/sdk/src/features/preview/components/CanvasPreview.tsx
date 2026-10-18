@@ -7,8 +7,40 @@ import { PreviewPreparationContext } from "../previewPreparation";
 import { ViewportContinuity, ViewportContinuityContext } from "../viewportContinuity";
 import { PreviewActivationContext } from "./PreviewActivation";
 
-const loadCanvas = () =>
-  import("../../canvas/CamoxCanvas").then((module) => ({ default: module.CamoxCanvas }));
+type CanvasModule = { default: typeof import("../../canvas/CamoxCanvas").CamoxCanvas };
+
+let loadedCanvas: CanvasModule | undefined;
+let loadingCanvas: Promise<CanvasModule> | undefined;
+
+function importCanvas() {
+  loadingCanvas ??= import("../../canvas/CamoxCanvas").then(
+    (module) => (loadedCanvas = { default: module.CamoxCanvas }),
+    (error: unknown) => {
+      // A failed import is forgotten, so the next load tries again.
+      loadingCanvas = undefined;
+      throw error;
+    },
+  );
+  return loadingCanvas;
+}
+
+/**
+ * Downloads the Canvas code ahead of showing it, so the first show only waits for its data.
+ * Only call it from the signed-in Studio: visitors must never download editing code.
+ */
+export function prefetchCanvas() {
+  importCanvas().catch(() => {});
+}
+
+const loadCanvas = () => {
+  if (!loadedCanvas) return importCanvas();
+  const module = loadedCanvas;
+  // React reads a thenable that resolves synchronously without suspending. A promise never does.
+  return {
+    // oxlint-disable-next-line unicorn/no-thenable -- React.lazy needs a thenable, see above
+    then: (resolve: (value: CanvasModule) => void) => resolve(module),
+  } as Promise<CanvasModule>;
+};
 
 class CanvasBoundary extends React.Component<
   { children: React.ReactNode; onError: (error: Error) => void },
@@ -135,7 +167,8 @@ export function CanvasPreview({
   }
   const { attempt, phase, instance, warm } = preparation;
   const activeAttempt = React.useRef({ attempt, enabled });
-  React.useLayoutEffect(() => {
+  // Before any layout effect: a Canvas whose code is loaded signals in the same commit.
+  React.useInsertionEffect(() => {
     activeAttempt.current = { attempt, enabled };
   }, [attempt, enabled]);
   const retry = React.useCallback(() => {
