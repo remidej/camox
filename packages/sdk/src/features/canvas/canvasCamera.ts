@@ -223,44 +223,42 @@ export function canvasOverview(viewport: CanvasSize, content: CanvasSize): Canva
   );
 }
 
-/** The complete overview defines a world rectangle, including its shorter-axis spare space. */
-export function canvasBounds(viewport: CanvasSize, content: CanvasSize) {
-  const fit = fitCanvas(viewport, content);
-  return {
-    left: -fit.x / fit.scale,
-    top: -fit.y / fit.scale,
-    right: (viewport.width - fit.x) / fit.scale,
-    bottom: (viewport.height - fit.y) / fit.scale,
-    minimumScale: Math.max(MIN_CANVAS_ZOOM, fit.scale),
-  };
+/**
+ * How much of the viewport may be empty canvas beside the content, per side.
+ * At half, the content's edges can pan up to the viewport's center and no
+ * further, so it never leaves the view at any zoom.
+ */
+export const CANVAS_OVERSCROLL = 0.5;
+
+/**
+ * The limit is in screen space, not world space: zooming out leaves as much
+ * empty canvas around the content as zooming in, so it never pulls the view.
+ * Content smaller than the empty canvas may also sit anywhere fully in view.
+ */
+function constrainAxis(position: number, viewport: number, size: number, scale: number) {
+  const length = size * scale;
+  const gap = viewport * CANVAS_OVERSCROLL;
+  return Math.min(
+    Math.max(gap, viewport - length),
+    Math.max(Math.min(viewport - gap - length, 0), position),
+  );
 }
 
-function constrainAxis(
-  position: number,
-  viewport: number,
-  start: number,
-  end: number,
-  scale: number,
-) {
-  return Math.min(-start * scale, Math.max(viewport - end * scale, position));
-}
-
-/** Project fixed world bounds; zoom must not redefine the padded area or recenter a fitting axis. */
+/** Keep the zoom between its limits, and the content in view with bounded empty canvas around it. */
 export function constrainCanvasCamera(
   camera: CanvasCamera,
   viewport: CanvasSize,
   content: CanvasSize,
 ): CanvasCamera {
-  const bounds = canvasBounds(viewport, content);
   const next = zoomCanvasAt(
     camera,
     { x: viewport.width / 2, y: viewport.height / 2 },
     camera.scale,
-    bounds.minimumScale,
+    canvasMinimumScale(viewport, content),
   );
   return {
-    x: constrainAxis(next.x, viewport.width, bounds.left, bounds.right, next.scale),
-    y: constrainAxis(next.y, viewport.height, bounds.top, bounds.bottom, next.scale),
+    x: constrainAxis(next.x, viewport.width, content.width, next.scale),
+    y: constrainAxis(next.y, viewport.height, content.height, next.scale),
     scale: next.scale,
   };
 }
