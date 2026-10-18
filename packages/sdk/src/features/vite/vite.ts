@@ -40,6 +40,7 @@ import { buildClientThenWorker } from "./workerBuild";
 
 const PRODUCTION_API_URL = "https://api.camox.dev";
 import { syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
+import { publishSeededContent } from "./publishSeededContent";
 import { cleanupGeneratedRouteFiles } from "./routeGeneration";
 import { RESOLVED_VIRTUAL_DEV_HTML, loadRuntimeDevModule, resolveRuntimeDevId } from "./runtimeDev";
 
@@ -130,6 +131,12 @@ export interface CamoxPluginOptions {
      * succeeds. A failure is logged as a warning and never breaks dev.
      */
     afterSync?: (context: CamoxAfterSyncContext) => void | Promise<void>;
+    /**
+     * Dev-only: a deploy token for seeding Live. When Live has no pages yet, the first sync
+     * releases the local definitions to Live, and the development draft is published after
+     * `afterSync`, so seeded content becomes Live instead of the draft's changes.
+     */
+    seedLiveDeployToken?: string;
   };
 }
 
@@ -468,19 +475,25 @@ export function camox(options: CamoxPluginOptions): Plugin {
           apiUrl,
           autoCreate: true,
           authToken,
-        }).then(async (synced) => {
+          releaseToEmptyLive: options._internal?.seedLiveDeployToken,
+        }).then(async ({ synced, releasedToLive }) => {
+          if (!synced) return;
+          const context = {
+            client: createServerApiClient(apiUrl, authToken, DEVELOPMENT_DRAFT),
+            projectSlug: options.projectSlug,
+            logger: server.config.logger,
+          };
           const afterSync = options._internal?.afterSync;
-          if (!synced || !afterSync) return;
-          const logger = server.config.logger;
-          try {
-            await afterSync({
-              client: createServerApiClient(apiUrl, authToken, DEVELOPMENT_DRAFT),
-              projectSlug: options.projectSlug,
-              logger,
-            });
-          } catch (error) {
-            logger.warn(`[camox] afterSync failed: ${String(error)}`, { timestamp: true });
+          if (afterSync) {
+            try {
+              await afterSync(context);
+            } catch (error) {
+              context.logger.warn(`[camox] afterSync failed: ${String(error)}`, {
+                timestamp: true,
+              });
+            }
           }
+          if (releasedToLive) await publishSeededContent(context);
         });
       });
     },
