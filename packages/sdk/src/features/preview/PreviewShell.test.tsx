@@ -293,14 +293,21 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     await render();
     const canvas = dom.host.querySelector("[data-canvas]");
     assert.ok(canvas);
+    // The page frame is placed relative to the room beside the Canvas sidebar, so
+    // that room must not change as the selection does, or the frame jumps.
+    const sidebarRoom = () => dom.host.querySelector("[data-canvas-sidebar-skeleton]");
+    const room = sidebarRoom();
+    assert.ok(room);
     await render({ layoutId: "article", layout });
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
     await render();
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
     await render(undefined, { blockId: "hero" });
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting a block keeps it");
+    assert.equal(sidebarRoom(), room, "selecting a block keeps the sidebar's room");
     await render(undefined, {});
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting nothing keeps it");
+    assert.equal(sidebarRoom(), room, "selecting nothing keeps the sidebar's room");
     await render();
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
   } finally {
