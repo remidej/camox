@@ -53,7 +53,7 @@ void test("canvas names report selection without changing preview state or editi
               onHoverChange={(hovered) => hovers.push(hovered)}
               onChange={(path) => changes.push(path)}
               onRename={
-                page.pageId == null
+                page.kind !== "curated"
                   ? undefined
                   : async (name) => {
                       renames.push(name);
@@ -85,7 +85,7 @@ void test("canvas names report selection without changing preview state or editi
       assert.equal(dom.location.pathname, "/camox/canvas");
       await act(async () => name.dispatchEvent(new dom.MouseEvent("dblclick", { bubbles: true })));
       const input = mount.querySelector('input[aria-label="Page nickname"]');
-      if (page.pageId != null) {
+      if (page.kind === "curated") {
         assert.ok(input);
         assert.equal(dom.document.activeElement, input);
         await act(async () => {
@@ -97,7 +97,7 @@ void test("canvas names report selection without changing preview state or editi
       } else {
         assert.equal(input, null, "code-defined titles cannot be renamed");
       }
-      if (page.derivedLayoutId)
+      if (page.kind === "derived")
         assert.ok(mount.querySelector('button[aria-label="Edit page path for Article"]'));
     }
   } finally {

@@ -2,7 +2,7 @@ import { useSelector } from "@xstate/store-react";
 import type * as React from "react";
 
 import { CanvasLoadingScreen } from "../../canvas/CanvasLoadingScreen";
-import { CanvasSidebarSkeleton } from "../../canvas/CanvasSidebarSkeleton";
+import { CanvasSidebarSkeleton } from "../../canvas/sidebar/CanvasSidebarSkeleton";
 import { previewStore, selectIsCanvasShown } from "../previewStore";
 
 /**
@@ -12,17 +12,17 @@ import { previewStore, selectIsCanvasShown } from "../previewStore";
  * place in the tree underneath, so it never reloads.
  */
 export function StudioEditingFallback({
-  derived,
+  layoutPage,
   children,
 }: {
-  derived: boolean;
+  layoutPage: boolean;
   children: React.ReactNode;
 }) {
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
 
   return (
     <div className="flex h-full min-h-0 flex-1">
-      {isCanvasShown && <CanvasSidebarSkeleton derived={derived} />}
+      {isCanvasShown && <CanvasSidebarSkeleton layoutPage={layoutPage} />}
       <div className="relative min-h-0 min-w-0 flex-1">
         {children}
         {isCanvasShown && <CanvasLoadingScreen />}

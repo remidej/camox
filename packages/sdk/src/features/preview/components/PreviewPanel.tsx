@@ -31,7 +31,7 @@ import { Frame, useFrame } from "./Frame";
 import { MobilePreviewDrawer } from "./MobilePreviewDrawer";
 import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
-import type { PreviewedPage } from "./PageNavigatorSidebar";
+import type { PreviewedPage } from "./PageNavigatorHeader";
 
 /* -------------------------------------------------------------------------------------------------
  * Frame

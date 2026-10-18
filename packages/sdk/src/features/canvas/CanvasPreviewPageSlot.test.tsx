@@ -125,3 +125,61 @@ void test("the selected Page's slot hands its place to the Preview page frame an
     }
   }
 });
+
+void test("a singleton page's slot activates its layout, which owns its blocks", async () => {
+  const dom = new Window();
+  const globals = {
+    window: dom,
+    document: dom.document,
+    HTMLElement: dom.HTMLElement,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const { createRoot } = await import("react-dom/client");
+  const { CanvasPreviewPageSlot } = await import("./CanvasPreviewPageSlot");
+  const { PreviewPageFrame, PreviewPageFrameContext } = await import("../preview/previewPageFrame");
+  const { PreviewPreparationContext } = await import("../preview/previewPreparation");
+  const { ViewportContinuityContext, ViewportContinuity } =
+    await import("../preview/viewportContinuity");
+  const frame = new PreviewPageFrame();
+  const activations: unknown[] = [];
+  const host = dom.document.createElement("div");
+  host.setAttribute("data-camox-canvas", "");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  try {
+    // A singleton has no page row, and no derived layout either: only its layout.
+    await React.act(async () =>
+      root.render(
+        <PreviewPageFrameContext value={{ frame, revealed: true }}>
+          <ViewportContinuityContext value={new ViewportContinuity()}>
+            <PreviewPreparationContext value={{ ready: () => {}, fail: () => {} }}>
+              <CanvasPreviewPageSlot
+                layoutId="about"
+                width={1366}
+                viewportHeight={768}
+                selected
+                hovered={false}
+                onActivate={(owner, source) => activations.push([owner, source])}
+              />
+            </PreviewPreparationContext>
+          </ViewportContinuityContext>
+        </PreviewPageFrameContext>,
+      ),
+    );
+    await React.act(async () => frame.setHeight(2400));
+    assert.deepEqual(activations, [[{ kind: "layout", layoutId: "about" }, "selection"]]);
+    await React.act(async () => root.unmount());
+  } finally {
+    host.remove();
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});

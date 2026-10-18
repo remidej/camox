@@ -2,14 +2,42 @@ import { getPageDestinations } from "../../core/pageDestinations";
 
 type DestinationLayouts = Parameters<typeof getPageDestinations>[1];
 
-export interface CanvasPage {
-  key: string;
-  title: string;
-  pathname: string | null;
-  derivedLayoutId?: string;
-  pattern?: string;
-  pageId?: string;
-  layoutId?: string;
+type CanvasPageBase = { key: string; title: string; pathname: string | null };
+
+/**
+ * A Page on the Canvas. A curated page has its own page row. A layout page, singleton
+ * or derived, has none: its layout owns all its blocks, and its URL comes from code.
+ */
+export type CanvasPage =
+  | (CanvasPageBase & { kind: "curated"; pageId: string })
+  | (CanvasPageBase & { kind: "singleton"; layoutId: string })
+  | (CanvasPageBase & {
+      kind: "derived";
+      layoutId: string;
+      /** The route pattern, shown while no page path is chosen. */
+      pattern: string;
+    });
+
+export type DerivedCanvasPage = Extract<CanvasPage, { kind: "derived" }>;
+
+/** The page row a curated page edits. */
+export function canvasPageId(page: CanvasPage | undefined) {
+  return page?.kind === "curated" ? page.pageId : undefined;
+}
+
+/** The layout a layout page edits, singleton or derived. */
+export function canvasLayoutId(page: CanvasPage | undefined) {
+  return page && page.kind !== "curated" ? page.layoutId : undefined;
+}
+
+/** The derived layout a derived page's frame must render. */
+export function derivedLayoutIdOf(page: CanvasPage | undefined) {
+  return page?.kind === "derived" ? page.layoutId : undefined;
+}
+
+/** A Page's path, or its route pattern while a derived page has no path yet. */
+export function canvasPagePath(page: CanvasPage) {
+  return page.pathname ?? (page.kind === "derived" ? page.pattern : null);
 }
 
 export const CANVAS_DEVICES = {
@@ -27,26 +55,37 @@ export function getCanvasPages(
   layouts: DestinationLayouts,
   discoveredPaths?: ReadonlyMap<string, string>,
 ): CanvasPage[] {
-  const concrete = getPageDestinations(pages, layouts).map((page) => ({
-    key: page.key,
-    title: page.title,
-    pathname: page.fullPath,
-    ...(page.kind === "curated" ? { pageId: page.pageId } : { layoutId: page.layoutId }),
-  }));
+  const concrete = getPageDestinations(pages, layouts).map((page): CanvasPage =>
+    page.kind === "curated"
+      ? {
+          kind: "curated",
+          key: page.key,
+          title: page.title,
+          pathname: page.fullPath,
+          pageId: page.pageId,
+        }
+      : {
+          kind: "singleton",
+          key: page.key,
+          title: page.title,
+          pathname: page.fullPath,
+          layoutId: page.layoutId,
+        },
+  );
   const derivedLayouts = layouts
     .filter((layout) => layout._internal.kind === "derived")
-    .map(({ _internal: layout }) => {
+    .map(({ _internal: layout }): CanvasPage => {
       const segments = layout.id.split(".");
       const pattern = `/${segments.map((part) => (part.startsWith("$") ? `:${part.slice(1)}` : encodeURIComponent(part))).join("/")}`;
       return {
+        kind: "derived",
         key: `derived:${layout.id}`,
         title: layout.title,
         pathname: segments.some((part) => part.startsWith("$"))
           ? (discoveredPaths?.get(layout.id) ?? null)
           : pattern,
-        derivedLayoutId: layout.id,
-        pattern,
         layoutId: layout.id,
+        pattern,
       };
     });
   return [...concrete, ...derivedLayouts];

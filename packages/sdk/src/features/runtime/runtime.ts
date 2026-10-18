@@ -804,7 +804,7 @@ async function createDerivedResponse(
     const projectSlug = options.projectSlug!;
     const shownIn = { in: read.draftId ?? null };
     studioCache.land(
-      reads.derivedLayout({ projectSlug, layoutId: match.layout._internal.id }),
+      reads.layoutStructure({ projectSlug, layoutId: match.layout._internal.id }),
       shared,
       shownIn,
     );

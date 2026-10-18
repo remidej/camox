@@ -157,7 +157,7 @@ function PageExperience({
           ) : (
             <PreviewActivation
               fallback={
-                <EditingFallbackSlot derived={!!input.derived}>
+                <EditingFallbackSlot layoutPage={!!input.derived}>
                   <Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>
                 </EditingFallbackSlot>
               }

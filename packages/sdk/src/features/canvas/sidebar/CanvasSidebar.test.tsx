@@ -6,32 +6,47 @@ import { QueryClient } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
 
-import type { Block } from "../../core/createBlock";
-import { StudioQueryClientProvider, testStudioCache } from "../../lib/draft-scope.fixtures";
-import { reads } from "../../lib/studio-reads";
-import { NavigationProvider } from "../navigation/navigation";
-import { getCanvasShelves } from "./canvasItems";
-import type { CanvasPage } from "./canvasPages";
+import type { Block } from "../../../core/createBlock";
+import { StudioQueryClientProvider, testStudioCache } from "../../../lib/draft-scope.fixtures";
+import { reads } from "../../../lib/studio-reads";
+import { NavigationProvider } from "../../navigation/navigation";
+import type { EditingOwner } from "../../preview/previewStore";
+import { getCanvasShelves } from "../canvasItems";
+import type { CanvasPage } from "../canvasPages";
 
-type CanvasNavigator = React.ComponentProps<
-  typeof import("./CanvasSidebar").CanvasSidebar
->["navigator"];
+type CanvasSidebarProps = React.ComponentProps<typeof import("./CanvasSidebar").CanvasSidebar>;
+type CanvasNavigator = CanvasSidebarProps["navigator"];
 
-const navigationUrl = new URL("../navigation/navigation.tsx", import.meta.url).href;
-const ownerUrl = new URL("../preview/previewSelection.ts", import.meta.url).href;
+const navigationUrl = new URL("../../navigation/navigation.tsx", import.meta.url).href;
+const ownerUrl = new URL("../../preview/previewSelection.ts", import.meta.url).href;
 const probeImports = `
   import {useLocation, useNavigate} from ${JSON.stringify(navigationUrl)};
   import {PreviewEditingOwnerContext} from ${JSON.stringify(ownerUrl)};
 `;
 
-// Keep navigation, queries, cache seeding, and preview ownership real.
-// Replace leaf UI only, so RPC/rendering assertions don't require the entire studio.
+/** A leaf panel standing in for the real one: what it shows, where, and for which owner. */
+const panel = (name: string, id: string) => `${probeImports}
+  export function ${name}(props) {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const owner = React.useContext(PreviewEditingOwnerContext);
+    return React.createElement("button", {
+      "data-panel": "${name}",
+      "data-id": ${id},
+      "data-path": location.pathname,
+      "data-owner": JSON.stringify(owner),
+      onClick: () => navigate({to: "/articles/hello%20world"}),
+    }, "${name}");
+  }`;
+
+// Keep navigation, queries, cache seeding, the choice of inspector, and preview ownership and
+// selection real. Replace leaf UI only, so RPC/rendering assertions don't require the entire studio.
 registerHooks({
   resolve(specifier, context, nextResolve) {
     let source: string | undefined;
     if (specifier === "@camox/ui/toaster")
       source = "export const toast = Object.assign(() => {}, { error: () => {} })";
-    if (context.parentURL?.endsWith("/CanvasSidebar.tsx")) {
+    if (context.parentURL?.includes("/canvas/sidebar/")) {
       if (specifier.endsWith("/auth"))
         source = 'export const useProjectSlug = () => "test-project"';
       if (specifier.endsWith("/CreatePageModal"))
@@ -51,20 +66,11 @@ registerHooks({
               "data-focus-created-block": String(focusCreatedBlock),
             });
           }`;
-      if (specifier.endsWith("/PageSidebar"))
-        source = `${probeImports}
-          export function PageSidebar({pageId, derivedLayout}) {
-            const location = useLocation();
-            const navigate = useNavigate();
-            const owner = React.useContext(PreviewEditingOwnerContext);
-            return React.createElement("button", {
-              "data-sidebar": "PageSidebar",
-              "data-id": pageId ?? derivedLayout?.layoutId,
-              "data-path": location.pathname,
-              "data-owner": JSON.stringify(owner),
-              onClick: () => navigate({to: "/articles/hello%20world"}),
-            }, pageId ?? derivedLayout?.layoutId);
-          }`;
+      if (specifier.endsWith("/PageTree")) source = panel("PageTree", "null");
+      if (specifier.endsWith("/PageInfo")) source = panel("PageInfo", "props.pageId");
+      if (specifier === "./LayoutPageBlocks")
+        source = panel("LayoutPageBlocks", "props.layout.layoutId");
+      if (specifier.endsWith("/SelectionEditor")) source = panel("SelectionEditor", "null");
     }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
@@ -72,17 +78,25 @@ registerHooks({
   },
 });
 
-const home: CanvasPage = { key: "page:7", pageId: "7", title: "Home", pathname: "/" };
+const home: CanvasPage = {
+  kind: "curated",
+  key: "page:7",
+  pageId: "7",
+  title: "Home",
+  pathname: "/",
+};
 const singleton: CanvasPage = {
-  key: "layout:about",
+  kind: "singleton",
+  key: "singleton:about",
   layoutId: "about",
   title: "About",
   pathname: "/about",
 };
 const derivedPage: CanvasPage = {
+  kind: "derived",
   key: "derived:articles.$slug",
   layoutId: "articles.$slug",
-  derivedLayoutId: "articles.$slug",
+  pattern: "/articles/:slug",
   title: "Article",
   pathname: null,
 };
@@ -146,8 +160,8 @@ async function setup() {
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
   const { CanvasSidebar } = await import("./CanvasSidebar");
-  const { PreviewEditingOwnerContext } = await import("../preview/previewSelection");
-  const { previewStore: store } = await import("../preview/previewStore");
+  const { PreviewEditingOwnerContext } = await import("../../preview/previewSelection");
+  const { previewStore: store } = await import("../../preview/previewStore");
   const mount = dom.document.createElement("div");
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement, { onCaughtError() {} });
@@ -173,6 +187,7 @@ async function setup() {
       page: CanvasPage | undefined,
       navigator: Partial<CanvasNavigator> = {},
       catalog?: { block: Block; projectId: number },
+      { owner, pageRecord }: Pick<CanvasSidebarProps, "owner" | "pageRecord"> = {},
     ) {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
@@ -193,6 +208,8 @@ async function setup() {
                   onRenamePage={async (pageId, nickname) => {
                     renames.push([pageId, nickname]);
                   }}
+                  owner={owner}
+                  pageRecord={pageRecord}
                 />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
@@ -200,6 +217,13 @@ async function setup() {
           </StudioQueryClientProvider>,
         );
       });
+    },
+    /** The leaf panels shown, by name and the id each shows. */
+    panels() {
+      return [...mount.querySelectorAll("[data-panel]")].map((panel) => [
+        panel.getAttribute("data-panel"),
+        panel.getAttribute("data-id"),
+      ]);
     },
     async settle() {
       await React.act(async () => {
@@ -228,10 +252,18 @@ void test("curated sidebar shares the selected path cache and forwards sidebar/d
   try {
     await dom.render("/", home);
     await dom.settle();
-    const sidebar = dom.mount.querySelector<HTMLButtonElement>("[data-sidebar]")!;
+    const sidebar = dom.mount.querySelector<HTMLButtonElement>('[data-panel="PageInfo"]')!;
     assert.equal(sidebar.getAttribute("data-path"), "/");
     assert.equal(sidebar.getAttribute("data-owner"), "null");
     assert.equal(sidebar.getAttribute("data-id"), "7");
+    assert.deepEqual(
+      dom.panels(),
+      [
+        ["PageTree", null],
+        ["PageInfo", "7"],
+      ],
+      "a curated page shows its blocks, then what's about it",
+    );
     assert.equal(dom.mount.querySelectorAll("aside").length, 1);
     assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project" }]);
     assert.deepEqual(clientPage(dom.client, "/"), pageStructure("/"));
@@ -256,7 +288,10 @@ void test("curated sidebar shares the selected path cache and forwards sidebar/d
       pageId: "8",
     });
     await dom.settle();
-    assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-path"), "/other");
+    assert.equal(
+      dom.mount.querySelector('[data-panel="PageInfo"]')?.getAttribute("data-path"),
+      "/other",
+    );
     assert.deepEqual(clientPage(dom.client, "/other"), pageStructure("/other"));
     assert.equal(
       dom.store.getSnapshot(),
@@ -276,14 +311,16 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
   const dom = await setup();
   dom.store.send({ type: "showCanvas" });
   try {
-    for (const [path, page] of [
-      ["/about", singleton],
-      ["/articles/hello%20world", derivedPage],
-      ["/articles/another", derivedPage],
+    for (const [path, page, notice] of [
+      ["/about", singleton, /Fixed page structure.*Edit this page’s blocks here/],
+      ["/articles/hello%20world", derivedPage, /Shared layout blocks.*generated page content/],
+      ["/articles/another", derivedPage, /Shared layout blocks.*generated page content/],
     ] as const) {
       await dom.render(path, page);
       await dom.settle();
-      const sidebar = dom.mount.querySelector("[data-sidebar]")!;
+      assert.deepEqual(dom.panels(), [["LayoutPageBlocks", page.layoutId]]);
+      assert.match(dom.mount.textContent, notice);
+      const sidebar = dom.mount.querySelector('[data-panel="LayoutPageBlocks"]')!;
       assert.equal(sidebar.getAttribute("data-id"), page.layoutId);
       assert.equal(sidebar.getAttribute("data-path"), path);
       assert.equal(sidebar.getAttribute("data-owner"), "null");
@@ -301,7 +338,7 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
     });
     await dom.render("/missing", undefined);
     assert.ok(
-      dom.mount.querySelector("[data-canvas-navigator-sidebar]"),
+      dom.mount.querySelector("[data-canvas-navigator]"),
       "without a Page, the Canvas navigator shows",
     );
   } finally {
@@ -312,6 +349,11 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
 void test("loading and failed sidebar requests leave the canvas visible; another URL recovers", async () => {
   const dom = await setup();
   let reject!: (reason: Error) => void;
+  // A layout page's notice is an alert too.
+  const failure = () =>
+    [...dom.mount.querySelectorAll('[role="alert"]')]
+      .map((alert) => alert.textContent)
+      .find((text) => /could not be loaded/.test(text));
   dom.api.pages.getStructure = () =>
     new Promise((_resolve, rejectRequest) => {
       reject = rejectRequest;
@@ -322,12 +364,77 @@ void test("loading and failed sidebar requests leave the canvas visible; another
     assert.equal(dom.mount.querySelector("main")?.textContent, "Canvas stays visible");
     await React.act(async () => reject(new Error("Offline")));
     await dom.settle();
-    assert.ok(dom.mount.querySelector('[role="alert"]'));
+    assert.match(failure() ?? "", /could not be loaded/);
     assert.equal(dom.mount.querySelector("main")?.textContent, "Canvas stays visible");
     await dom.render("/about", singleton);
     await dom.settle();
-    assert.equal(dom.mount.querySelector('[role="alert"]'), null);
-    assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "about");
+    assert.equal(failure(), undefined);
+    assert.equal(
+      dom.mount.querySelector('[data-panel="LayoutPageBlocks"]')?.getAttribute("data-id"),
+      "about",
+    );
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("the active frame owner's selection opens the selection editor in place of every kind of Page's overview", async () => {
+  const dom = await setup();
+  dom.store.send({ type: "showCanvas" });
+  const editing = () => dom.panels().some(([name]) => name === "SelectionEditor");
+  try {
+    for (const [url, page, owner] of [
+      ["/", home, { kind: "page", pageId: "7" }],
+      ["/about", singleton, { kind: "layout", layoutId: "about" }],
+      ["/articles/hello", derivedPage, { kind: "layout", layoutId: "articles.$slug" }],
+    ] as const) {
+      dom.store.send({ type: "setFocusedBlock", ...owner, blockId: "42" });
+      await dom.render(url, page, {}, undefined, { owner });
+      await dom.settle();
+      assert.deepEqual(dom.panels(), [["SelectionEditor", null]], `a ${page.kind} page edits it`);
+      assert.equal(
+        dom.mount.querySelector("[data-panel]")?.getAttribute("data-owner"),
+        JSON.stringify(owner),
+        "for the Page's owner",
+      );
+
+      await dom.render(url, page, {}, undefined, { owner: { kind: "page", pageId: "83" } });
+      assert.equal(editing(), false, "another frame's selection isn't this Page's");
+
+      dom.store.send({ type: "clearSelection" });
+      await dom.render(url, page, {}, undefined, { owner });
+      assert.equal(editing(), false, "without a selection, the overview shows again");
+    }
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("a record page's selected record opens the editor, and its notice says where the record is edited", async () => {
+  const dom = await setup();
+  dom.store.send({ type: "showCanvas" });
+  const owner: EditingOwner = { kind: "layout", layoutId: "articles.$slug" };
+  const pageRecord = { collectionId: "articles", id: "article" };
+  const render = () =>
+    dom.render("/articles/hello", derivedPage, {}, undefined, { owner, pageRecord });
+  try {
+    // No block places a record page's record.
+    dom.store.send({
+      type: "selectTarget",
+      ...owner,
+      selection: { type: "record", layoutId: "articles.$slug", recordId: "article" },
+    });
+    await render();
+    await dom.settle();
+    assert.deepEqual(dom.panels(), [["SelectionEditor", null]]);
+
+    dom.store.send({ type: "clearSelection" });
+    await render();
+    assert.deepEqual(dom.panels(), [["LayoutPageBlocks", "articles.$slug"]]);
+    assert.match(
+      dom.mount.textContent,
+      /Select this page’s content in the preview to edit its record/,
+    );
   } finally {
     await dom.close();
   }
@@ -354,7 +461,7 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
       selectedKey: "block:hero",
       onShowItem: (key) => shown.push(key),
     });
-    assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar on a block");
+    assert.equal(dom.mount.querySelector("[data-panel]"), null, "no Page inspector on a block");
     const blocksToggle = () =>
       dom.mount.querySelector("[cmdk-group] button[aria-expanded]") as unknown as HTMLElement;
     assert.deepEqual(
@@ -426,11 +533,11 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
     await dom.render("/", home);
     await dom.settle();
     assert.equal(
-      dom.mount.querySelector("[data-canvas-navigator-sidebar]"),
+      dom.mount.querySelector("[data-canvas-navigator]"),
       null,
       "a Page restores its sidebar",
     );
-    assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "7");
+    assert.equal(dom.mount.querySelector('[data-panel="PageInfo"]')?.getAttribute("data-id"), "7");
   } finally {
     await dom.close();
   }
@@ -449,9 +556,9 @@ void test("a selected item's sidebar names it under a back button that shows the
       const heading = aside.querySelector("h2")!;
       const nickname = heading.querySelector("input");
       assert.equal(nickname?.value ?? heading.textContent, page.title);
-      assert.equal(!!nickname, page.pageId != null, "only a Page's nickname can be edited");
+      assert.equal(!!nickname, page.kind === "curated", "only a Page's nickname can be edited");
       assert.equal(aside.getAttribute("aria-label"), page.title);
-      assert.equal(dom.mount.querySelector("[data-canvas-navigator-sidebar]"), null);
+      assert.equal(dom.mount.querySelector("[data-canvas-navigator]"), null);
     }
     const back = dom.mount.querySelector<HTMLButtonElement>('[aria-label="Show whole canvas"]')!;
     await React.act(async () => back.click());
@@ -505,8 +612,8 @@ void test("a selected block shows its description and the Pages using it, which 
     await showBlock("hero", undefined, "/camox/blocks/hero?zoom=2#top");
     assert.equal(dom.mount.querySelector("aside h2")?.textContent, "hero");
     assert.match(dom.mount.textContent, /hero description/);
-    assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar");
-    assert.equal(dom.mount.querySelector("[data-canvas-navigator-sidebar]"), null);
+    assert.equal(dom.mount.querySelector("[data-panel]"), null, "no Page inspector");
+    assert.equal(dom.mount.querySelector("[data-canvas-navigator]"), null);
     const pages = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
     assert.deepEqual(
       pages.map((page) => page.textContent),

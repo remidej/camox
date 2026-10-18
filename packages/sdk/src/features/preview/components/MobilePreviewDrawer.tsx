@@ -8,10 +8,10 @@ import { cn } from "@/lib/utils";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { UserButton } from "../../studio/components/UserButton";
 import { previewStore, selectionBlockId, selectionForPage } from "../previewStore";
-import { PageEditorSidebar } from "./PageEditorSidebar";
-import { PageInfoSidebar, PageMarkdownContent, PageSeoContent } from "./PageInfoSidebar";
-import { PageNavigatorHeader, type PreviewedPage } from "./PageNavigatorSidebar";
+import { PageInfo, PageMarkdownContent, PageSeoContent } from "./PageInfo";
+import { PageNavigatorHeader, type PreviewedPage } from "./PageNavigatorHeader";
 import { PageTree } from "./PageTree";
+import { SelectionEditor } from "./SelectionEditor";
 
 const COLLAPSED_HEIGHT = 80;
 const DRAG_THRESHOLD = 4;
@@ -209,7 +209,7 @@ export function MobilePreviewDrawer({
         )}
       >
         {selectedBlockId != null ? (
-          <PageEditorSidebar />
+          <SelectionEditor />
         ) : (
           <div key={screen} className="min-h-0 flex-1 overflow-auto">
             {screen === "root" && (
@@ -254,9 +254,7 @@ export function MobilePreviewDrawer({
                 <PageTree />
               </div>
             )}
-            {screen === "about" && (
-              <PageInfoSidebar pageId={page.id} scrollable={false} aboutOnly />
-            )}
+            {screen === "about" && <PageInfo pageId={page.id} scrollable={false} aboutOnly />}
             {screen === "seo" && (
               <div className="p-3">
                 <PageSeoContent pageId={page.id} />

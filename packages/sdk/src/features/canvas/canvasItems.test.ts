@@ -11,8 +11,8 @@ import {
 import type { CanvasPage } from "./canvasPages";
 
 const pages: CanvasPage[] = [
-  { key: "page:1", title: "Home", pathname: "/", pageId: "1" },
-  { key: "page:2", title: "About", pathname: "/about", pageId: "2" },
+  { kind: "curated", key: "page:1", title: "Home", pathname: "/", pageId: "1" },
+  { kind: "curated", key: "page:2", title: "About", pathname: "/about", pageId: "2" },
 ];
 
 void test("the Pages Shelf Marker spans every Page", () => {

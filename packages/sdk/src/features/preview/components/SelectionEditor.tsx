@@ -141,16 +141,16 @@ const buildAncestorChain = (
 };
 
 /* -------------------------------------------------------------------------------------------------
- * PageEditorSidebar
+ * SelectionEditor
  * -----------------------------------------------------------------------------------------------*/
 
-const PageEditorSidebar = () => {
+const SelectionEditor = () => {
   const owner = React.useContext(PreviewEditingOwnerContext);
   if (owner == null) return null;
-  return <PageEditorSidebarContent owner={owner} />;
+  return <SelectionEditorContent owner={owner} />;
 };
 
-const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
+const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
   const camoxApp = useCamoxApp();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
@@ -851,4 +851,4 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   );
 };
 
-export { PageEditorSidebar };
+export { SelectionEditor };

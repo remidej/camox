@@ -1,7 +1,7 @@
 import * as React from "react";
 
 type RenderEditingFallback = (page: {
-  derived: boolean;
+  layoutPage: boolean;
   children: React.ReactNode;
 }) => React.ReactNode;
 
@@ -13,13 +13,13 @@ export const EditingFallbackContext = React.createContext<RenderEditingFallback 
 
 /** The read-only page shown until the editor activates, laid out for the Canvas when it shows. */
 export function EditingFallbackSlot({
-  derived,
+  layoutPage,
   children,
 }: {
-  derived: boolean;
+  layoutPage: boolean;
   children: React.ReactNode;
 }) {
   const render = React.use(EditingFallbackContext);
   if (!render) return children;
-  return render({ derived, children });
+  return render({ layoutPage, children });
 }
