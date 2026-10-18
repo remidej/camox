@@ -234,6 +234,21 @@ type CanvasWorkspaceHandle = {
   showWholeCanvas: () => void;
 };
 
+/** Gives a Page a new nickname, keeping its path. */
+function useRenamePage() {
+  const studioCache = useStudioCache();
+  const updatePage = useMutation(pageMutations.update());
+  return async (pageId: string, nickname: string) => {
+    const page = await studioCache.ensure(reads.page({ id: pageId }));
+    await updatePage.mutateAsync({
+      id: pageId,
+      nickname,
+      pathSegment: page.pathSegment,
+      parentPageId: page.parentPageId,
+    });
+  };
+}
+
 function CanvasWorkspace({
   ref,
   projectId,
@@ -263,18 +278,8 @@ function CanvasWorkspace({
   onSelectionIntent: (pathname: string) => void;
   ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
-  const studioCache = useStudioCache();
   const { apiUrl, projectSlug } = useAuthContext();
-  const updatePage = useMutation(pageMutations.update());
-  const renamePage = async (pageId: string, nickname: string) => {
-    const page = await studioCache.ensure(reads.page({ id: pageId }));
-    await updatePage.mutateAsync({
-      id: pageId,
-      nickname,
-      pathSegment: page.pathSegment,
-      parentPageId: page.parentPageId,
-    });
-  };
+  const renamePage = useRenamePage();
   const location = useLocation();
   const navigate = useNavigate();
   const previewPageFrame = React.use(PreviewPageFrameContext);
@@ -629,6 +634,7 @@ function useDiscoveredPreviewPaths(runtimeBasePath: string) {
 
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const app = useCamoxApp();
+  const renamePage = useRenamePage();
   const location = useLocation();
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const viewport = CANVAS_DEVICES[viewportMode === "full" ? "desktop" : viewportMode];
@@ -772,6 +778,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
               onShowItem: (key) => workspace.current?.showItem(key),
             }}
             onShowWholeCanvas={() => workspace.current?.showWholeCanvas()}
+            onRenamePage={renamePage}
             owner={editingOwner}
             pageRecord={pageRecord}
           />

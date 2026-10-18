@@ -116,6 +116,7 @@ export function CanvasSidebar({
   catalog,
   navigator,
   onShowWholeCanvas,
+  onRenamePage,
   owner = null,
   pageRecord,
 }: {
@@ -126,6 +127,8 @@ export function CanvasSidebar({
   navigator: React.ComponentProps<typeof CanvasNavigatorSidebar>;
   /** Leaves the selection for the whole Canvas, where the navigator shows. */
   onShowWholeCanvas: () => void;
+  /** Renames a Page from the sidebar's header. */
+  onRenamePage?: (pageId: string, nickname: string) => Promise<void>;
   owner?: EditingOwner | null;
   /** The record of the selected record page, if any. */
   pageRecord?: PageRecordId;
@@ -148,7 +151,15 @@ export function CanvasSidebar({
   }
 
   return (
-    <CanvasItemSidebar title={page.title} onBack={onShowWholeCanvas}>
+    <CanvasItemSidebar
+      title={page.title}
+      onBack={onShowWholeCanvas}
+      onRename={
+        page.pageId != null && onRenamePage
+          ? (nickname) => onRenamePage(page.pageId!, nickname)
+          : undefined
+      }
+    >
       <PreviewEditingOwnerContext value={owner}>
         <SidebarBoundary key={`${page.key}:${pathname}`}>
           <React.Suspense
