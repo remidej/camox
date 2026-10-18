@@ -9,7 +9,7 @@ import { ViewportContinuity, ViewportContinuityContext } from "../preview/viewpo
 import { canvasMinimumScale, fitCanvasPage } from "./canvasCamera";
 import { useCanvasCamera } from "./useCanvasCamera";
 
-void test("real camera handoffs use held snaps, preserve exact overview returns, and accept moved preview anchors", async () => {
+void test("real camera handoffs snap to the selected page at the preview's reading point", async () => {
   const window = new Window();
   const frameWindow = new Window();
   let resize = () => {};
@@ -99,21 +99,18 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
     assert.ok(Math.abs(read().y + 1250 * fit.scale) < 1e-8);
     const captured = continuity.canvas!.capture();
     assert.equal(captured.pathname, "/a");
-    assert.equal(captured.snappedKey, "page");
     assert.equal(captured.anchor?.blockId, "42");
     assert.ok(Math.abs(captured.anchor!.offset - 250) < 1e-8);
 
-    // Being visibly close to a page is not enough: an exact unsnapped camera
-    // checkpoint must not silently acquire a detent during restoration.
-    continuity.canvas!.restore(undefined, read(), undefined);
-    assert.equal(continuity.canvas!.capture().anchor, undefined);
+    // The selected page is always snapped: an exact checkpoint gives only its
+    // reading position, and an anchor wins over it.
     const exact = { x: 15, y: -321.25, scale: 0.5 };
     continuity.canvas!.restore(undefined, exact);
-    assert.deepEqual(read(), exact);
+    assert.deepEqual(read(), { ...fit, y: (exact.y * fit.scale) / exact.scale });
     continuity.canvas!.restore({ blockId: "42", offset: 600, y: 1600 }, exact);
-    assert.equal(read().scale, exact.scale);
-    assert.equal(read().y, -800);
-    assert.equal(read().x, size.width / 2 - (page.width / 2) * exact.scale);
+    assert.equal(read().scale, fit.scale);
+    assert.ok(Math.abs(read().y + 1600 * fit.scale) < 1e-8);
+    assert.equal(read().x, fit.x);
 
     // Iframes can publish their full height synchronously during restoration,
     // before the observer delivers the already-consumed geometry change.
@@ -137,6 +134,9 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
       });
       viewport.dispatchEvent(wheel as unknown as Event);
       animate(16);
+      // Zooming past the floor springs back to it.
+      await window.happyDOM.waitUntilComplete();
+      animate(32);
       assert.equal(
         read().scale,
         canvasMinimumScale(size, contentSize),
@@ -147,6 +147,102 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
     await React.act(async () => root.unmount());
     await window.happyDOM.close();
     await frameWindow.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("showing a warm Canvas lands on the page selected while it was hidden, without a flight", async () => {
+  const window = new Window();
+  let resize = () => {};
+  let animate: FrameRequestCallback | undefined;
+  const globals = {
+    React,
+    window,
+    document: window.document,
+    Element: window.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      animate = callback;
+      return 1;
+    },
+    cancelAnimationFrame: () => {
+      animate = undefined;
+    },
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  Object.defineProperty(window, "matchMedia", { value: () => ({ matches: false }) });
+  const root = createRoot(window.document.body as unknown as HTMLElement);
+  const continuity = new ViewportContinuity();
+  const pages = [
+    { key: "a", left: 0, width: 1366 },
+    { key: "b", left: 1500, width: 1366 },
+  ];
+  const size = { width: 900, height: 700 };
+  function Canvas({ selected }: { selected: string }) {
+    const { viewportRef, contentRef } = useCanvasCamera(
+      "warm-continuity-test",
+      pages.find(({ key }) => key === selected),
+      { targets: pages, width: 2866, onSelect: () => {}, selected },
+    );
+    return (
+      <div ref={viewportRef}>
+        <div ref={contentRef}>
+          <div data-canvas-page="b" data-canvas-pathname="/b" />
+        </div>
+      </div>
+    );
+  }
+  const render = (selected: string) =>
+    React.act(async () =>
+      root.render(
+        <ViewportContinuityContext value={continuity}>
+          <Canvas selected={selected} />
+        </ViewportContinuityContext>,
+      ),
+    );
+  try {
+    await render("a");
+    const viewport = window.document.body.firstElementChild as unknown as HTMLElement;
+    const content = viewport.firstElementChild as HTMLElement;
+    Object.defineProperties(viewport, {
+      clientWidth: { value: size.width },
+      clientHeight: { value: size.height },
+      getBoundingClientRect: { value: () => ({ top: 0, left: 0 }) },
+    });
+    Object.defineProperty(content, "offsetHeight", { value: 4000 });
+    resize();
+    const read = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      y: parseFloat(viewport.style.getPropertyValue("--canvas-y")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    // Navigating while the Canvas is hidden starts a flight that never plays.
+    await render("b");
+    assert.ok(animate, "the hidden Canvas starts a flight to the new selection");
+    const fit = fitCanvasPage(size, pages[1]!);
+    continuity.canvas!.restore(undefined, undefined);
+    assert.deepEqual(read(), fit);
+    // Play whatever frames are still requested.
+    const frame = () => animate;
+    for (let time = 16; time < 5000; time += 16) frame()?.(time);
+    assert.deepEqual(read(), fit, "no flight replays from the previous page");
+    assert.equal(continuity.canvas!.capture().pathname, "/b", "hiding again hands over the page");
+  } finally {
+    await React.act(async () => root.unmount());
+    await window.happyDOM.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else Reflect.deleteProperty(globalThis, key);

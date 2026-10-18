@@ -17,6 +17,7 @@ import {
   PAN_SNAP_RELEASE,
   ZOOM_SNAP_CAPTURE,
   ZOOM_SNAP_RELEASE,
+  ZOOM_STRETCH,
 } from "./canvasCamera";
 import { canvasStore } from "./canvasStore";
 import { useCanvasCamera } from "./useCanvasCamera";
@@ -145,7 +146,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     flush();
     assert.deepEqual(read(), fit({ left: 3212, width: 1366 }));
 
-    for (const input of ["wheel", "keyboard", "pointer", "canvas selection"] as const) {
+    for (const input of ["wheel", "keyboard", "pointer"] as const) {
       controls.flyTo(destination.key);
       tick();
       tick(250);
@@ -190,7 +191,6 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
         assert.equal(viewport.dataset.canvasPan, undefined);
         expected = read();
       }
-      if (input === "canvas selection") controls.cancelFlight();
       flush();
       assert.deepEqual(read(), expected, `${input} interrupts without jumping to the destination`);
       assert.notDeepEqual(read(), fit(destination));
@@ -258,31 +258,6 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     assert.deepEqual(read(), fit(destination), "reduced motion can interrupt an active flight");
     assert.equal(callbacks.size, 0);
     media.matches = false;
-    controls.flyTo(middle.key);
-    flush();
-    const beforeProgrammaticZoom = read();
-    const zoomPoint = { x: 450, y: 400 };
-    const anchoredContentPoint = {
-      x: (zoomPoint.x - beforeProgrammaticZoom.x) / beforeProgrammaticZoom.scale,
-      y: (zoomPoint.y - beforeProgrammaticZoom.y) / beforeProgrammaticZoom.scale,
-    };
-    controls.zoomAt(zoomPoint, 1.25);
-    flush();
-    const afterProgrammaticZoom = read();
-    assert.equal(afterProgrammaticZoom.scale, 1.25);
-    assert.ok(
-      Math.abs(
-        (zoomPoint.x - afterProgrammaticZoom.x) / afterProgrammaticZoom.scale -
-          anchoredContentPoint.x,
-      ) < 1e-8,
-    );
-    assert.ok(
-      Math.abs(
-        (zoomPoint.y - afterProgrammaticZoom.y) / afterProgrammaticZoom.scale -
-          anchoredContentPoint.y,
-      ) < 1e-8,
-    );
-
     controls.flyTo(initial.key);
     assert.equal(callbacks.size, 1);
     await act(async () => root.unmount());
@@ -439,6 +414,20 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     };
     const assertX = (x: number, message: string) =>
       assert.ok(Math.abs(read().x - x) < 1e-8, message);
+    const assertCamera = (expected: { x: number; y: number; scale: number }, message: string) => {
+      const next = read();
+      assert.ok(
+        Math.abs(next.x - expected.x) < 1e-8 &&
+          Math.abs(next.y - expected.y) < 1e-8 &&
+          Math.abs(next.scale - expected.scale) < 1e-12,
+        message,
+      );
+    };
+    // A zoom past a limit springs back once its input pauses.
+    const springBack = async () => {
+      await dom.happyDOM.waitUntilComplete();
+      flush();
+    };
     // Horizontal offsets from a centered page, derived from the tuned bands.
     const capture = size.width * PAN_SNAP_CAPTURE;
     const release = size.width * PAN_SNAP_RELEASE;
@@ -600,20 +589,19 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     assert.deepEqual(selections, []);
     wheel(0, -1, { ctrlKey: true });
     flush();
-    assert.ok(read().scale > partial.scale, "a partial-width page cannot capture the detent");
-    assert.deepEqual(selections, []);
-    // Restore the fit scale without a eligible page, then bring it wholly into view.
-    time += 200;
-    wheel(0, 1, { ctrlKey: true });
-    flush();
-    assert.ok(Math.abs(read().scale - fitted.scale) < 1e-8);
+    assert.ok(read().scale > partial.scale, "zooming past the ceiling stretches the view");
+    await springBack();
+    assertCamera(partial, "page fit is the zoom ceiling, even without a snap");
+    assert.deepEqual(selections, [], "a partial-width page cannot capture the detent");
+    // Bring the page wholly into view, outside the horizontal capture band.
     pointer("pointerdown", 1, 400, 300);
     pointer("pointermove", 1, 400 + fitted.x + capture + margin - read().x, 300);
     pointer("pointerup", 1, 400, 300);
     const beforeSnap = read();
     wheel(0, -1, { ctrlKey: true });
     flush();
-    assert.deepEqual(selections, ["page"]);
+    await springBack();
+    assert.deepEqual(selections, ["page"], "zooming in at the ceiling snaps to the eligible page");
     assert.equal(read().x, fitted.x, "snap entry centers horizontally");
     assert.ok(Math.abs(read().y - beforeSnap.y) < 1e-8, "entry retains vertical reading position");
     const beforeZoom = read();
@@ -626,21 +614,37 @@ void test("page-fit gestures capture horizontal detents during input and retain 
         Math.abs((300 - next.y) / next.scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
       );
     };
+    for (let count = 0; count < 20; count++) wheel(0, -1, { ctrlKey: true });
+    flush();
+    const stretched = read();
+    assert.ok(stretched.scale > beforeZoom.scale, "zooming in past the snap stretches the view");
+    assert.ok(
+      Math.abs(
+        stretched.x - (size.width - page.width * stretched.scale) / 2 + page.left * stretched.scale,
+      ) < 1e-8,
+      "centered on the page it holds",
+    );
+    await springBack();
+    assertCamera(beforeZoom, "then springs back to the snap");
+    assert.deepEqual(selections, ["page"], "a stretch keeps the selection");
     const heldSteps = Math.floor(zoomDelta(ZOOM_SNAP_RELEASE)) - 1;
-    for (let count = 0; count < heldSteps; count++) wheel(0, -1, { ctrlKey: true });
-    flush(checkAnchor);
-    assert.deepEqual(read(), beforeZoom, "small zoom input is held without recentering");
+    for (let count = 0; count < heldSteps; count++) wheel(0, 1, { ctrlKey: true });
+    flush();
+    assert.deepEqual(read(), beforeZoom, "small zoom-out input is held without recentering");
     assert.deepEqual(selections, ["page"], "held snap never repeats selection");
-    for (let count = 0; count < 2; count++) wheel(0, -1, { ctrlKey: true });
+    for (let count = 0; count < 2; count++) wheel(0, 1, { ctrlKey: true });
     flush(checkAnchor);
-    assert.ok(read().scale > fitted.scale, "accumulated gentle input escapes");
+    // Springing back ended the zoom-in above, so it left no intent past the ceiling.
+    assert.ok(read().scale < fitted.scale, "accumulated gentle input escapes");
     pan(10, 90, 10, 90); // Outside snap, even overwhelmingly vertical motion is free.
 
-    // 80% visibility allows capture from above too.
-    const above = Math.log(read().scale / fitted.scale);
-    wheel(0, zoomDelta(above - ZOOM_SNAP_CAPTURE / 2), { ctrlKey: true });
+    time += 200;
+    wheel(0, -zoomDelta(Math.log(fitted.scale / read().scale) - ZOOM_SNAP_CAPTURE / 2), {
+      ctrlKey: true,
+    });
     flush();
-    assert.equal(read().scale, fitted.scale);
+    assert.equal(read().scale, fitted.scale, "capture from below");
+    assert.equal(read().x, fitted.x);
     assert.deepEqual(selections, ["page", "page"]);
     const strongZoom = zoomDelta(ZOOM_SNAP_RELEASE + 0.1);
     wheel(0, strongZoom, { ctrlKey: true });
@@ -649,7 +653,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     time += 200;
     wheel(0, -strongZoom, { ctrlKey: true });
     flush();
-    assert.equal(read().scale, fitted.scale, "capture also works from below");
+    assert.equal(read().scale, fitted.scale, "and strong input in is captured at the ceiling");
     assert.equal(read().x, fitted.x);
     assert.deepEqual(selections, ["page", "page", "page"]);
 
@@ -674,46 +678,41 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     flush();
     assert.equal(selections.length, beforePanSelections + 1, "aligned scrolling does not reselect");
 
-    // Stop outside the horizontal capture band to test pinch entry independently.
+    // Stop outside the horizontal capture band, at page fit, to test pinch entry.
     moveTo(fitted.x + capture + margin);
     const beforeTouchSnap = read();
     pointer("pointerdown", 1, 300, 300);
     pointer("pointerdown", 2, 500, 300);
     pointer("pointermove", 2, 502, 300);
-    assert.equal(read().x, fitted.x, "touch entry centers without the pinch translation offset");
-    assert.equal(read().y, beforeTouchSnap.y);
+    assert.ok(read().scale > fitted.scale, "pinching in at the ceiling stretches the view");
     assert.deepEqual(selections, ["page", "page", "page", "sibling", "page"]);
+    // Lifting a finger ends the pinch, which springs back to the snap.
     pointer("pointerup", 1, 300, 300);
+    flush();
+    assert.ok(Math.abs(read().x - fitted.x) < 1e-8, "touch entry centers without the pinch offset");
+    assert.ok(Math.abs(read().y - beforeTouchSnap.y) < 1e-8);
+    assert.equal(read().scale, fitted.scale);
     pointer("pointerup", 2, 502, 300);
 
     const beforePinch = read();
     pointer("pointerdown", 1, 300, 300);
     pointer("pointerdown", 2, 500, 300);
-    // Fingers start 200px apart; each step spreads them by 2px.
-    const spread = (step: number) => Math.log((200 + step * 2) / 200);
+    // Fingers start 200px apart; each step pinches them 2px closer.
+    const spread = (step: number) => -Math.log((200 - step * 2) / 200);
     let step = 1;
     for (; spread(step - 1) <= ZOOM_SNAP_RELEASE; step++) {
-      pointer("pointermove", 2, 500 + step * 2, 300);
-      if (spread(step) < ZOOM_SNAP_RELEASE - 1e-6) assert.equal(read().scale, fitted.scale);
+      pointer("pointermove", 2, 500 - step * 2, 300);
       const next = read();
-      assert.ok(
-        Math.abs((400 + step - next.x) / next.scale - (400 - beforePinch.x) / beforePinch.scale) <
-          1e-8,
-      );
+      if (spread(step) < ZOOM_SNAP_RELEASE - 1e-6)
+        assert.deepEqual(next, { ...beforePinch, y: next.y }, "the snap holds the pinch");
       assert.ok(
         Math.abs((300 - next.y) / next.scale - (300 - beforePinch.y) / beforePinch.scale) < 1e-8,
       );
     }
-    assert.ok(read().scale > fitted.scale, "touch pinch accumulates small movements too");
+    assert.ok(read().scale < fitted.scale, "touch pinch accumulates small movements too");
     pointer("pointerup", 1, 300, 300);
-    pointer("pointerup", 2, 500 + (step - 1) * 2, 300);
+    pointer("pointerup", 2, 500 - (step - 1) * 2, 300);
 
-    wheel(0, -10000, { ctrlKey: true });
-    flush();
-    assert.equal(read().scale, 2);
-    wheel(0, 1, { ctrlKey: true });
-    flush();
-    assert.ok(read().scale < 2, "zoom limit does not retain excess intended input");
     pan(30, 0, 30, 0);
     const unsnapped = read();
     const selectionCount = selections.length;
@@ -722,12 +721,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     assert.deepEqual(read(), unsnapped, "horizontal snap is disabled away from page-fit zoom");
     assert.equal(selections.length, selectionCount);
 
-    for (const offset of [
-      -(ZOOM_SNAP_CAPTURE - 0.02),
-      ZOOM_SNAP_CAPTURE - 0.02,
-      -(ZOOM_SNAP_CAPTURE + 0.02),
-      ZOOM_SNAP_CAPTURE + 0.02,
-    ]) {
+    for (const offset of [-(ZOOM_SNAP_CAPTURE - 0.02), -(ZOOM_SNAP_CAPTURE + 0.02)]) {
       // Zoom with the page mostly out of view to reach a non-detented scale.
       const centerAt = (scale: number) => size.width / 2 - (page.left + page.width / 2) * scale;
       moveTo(centerAt(read().scale) + 600);
@@ -745,33 +739,21 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       const before = read();
       wheel(outside - capture + margin, 0);
       flush();
-      assert.equal(read().scale, scale, "horizontal snapping must never change zoom");
-      assert.equal(read().y, before.y, "horizontal snapping retains vertical position");
+      assert.equal(read().scale, scale, "horizontal motion must never change zoom");
+      assert.equal(read().y, before.y, "horizontal motion retains vertical position");
+      assertX(centeredX + capture - margin, "below page fit, horizontal motion stays free");
+      assert.deepEqual(selections, [], "only a snapped camera selects");
+      const beforeZoom = read();
+      time += 200;
+      wheel(0, -1, { ctrlKey: true });
+      flush();
       if (Math.abs(offset) > ZOOM_SNAP_CAPTURE) {
-        assertX(
-          centeredX + capture - margin,
-          "outside the zoom capture range horizontal motion stays free",
-        );
-        assert.deepEqual(selections, []);
+        assert.ok(read().scale < fitted.scale, "outside the zoom capture range, zoom stays free");
         continue;
       }
-      assertX(centeredX, "near-fit snapping centers at the actual scale on either side of fit");
+      assert.equal(read().scale, fitted.scale, "the zoom detent captures near the page fit");
+      assertX(fitted.x, "entering the page fit centers the page");
       assert.deepEqual(selections, ["page"]);
-      wheel(-(release - capture), 0);
-      flush();
-      assertX(centeredX, "near-fit detent holds accumulated intent");
-      assert.deepEqual(selections, ["page"], "holding near fit must not repeatedly select");
-      wheel(-2 * margin, 0);
-      flush();
-      assertX(centeredX + release + margin, "near-fit detent can still be escaped");
-      wheel(release - capture + 2 * margin, 0);
-      flush();
-      assertX(centeredX, "reversing into the detent reacquires it");
-      const beforeZoom = read();
-      wheel(0, offset > 0 ? 1 : -1, { ctrlKey: true });
-      flush();
-      assert.equal(read().scale, fitted.scale, "zoom detent still works after horizontal snap");
-      assertX(fitted.x, "entering exact-fit zoom recenters even for the already selected page");
       assert.ok(
         Math.abs((300 - read().y) / read().scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
         "zoom keeps its vertical anchor",
@@ -787,7 +769,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
   }
 });
 
-void test("zooming out past the selected item's page fit deselects it", async () => {
+void test("a selection is a snapped camera: leaving the snap deselects, selecting elsewhere flies there", async () => {
   const dom = new Window({ url: "http://localhost/about" });
   const callbacks = new Map<number, FrameRequestCallback>();
   let resize = () => {};
@@ -829,14 +811,22 @@ void test("zooming out past the selected item's page fit deselects it", async ()
   ];
   const content = { width: 4578, height: 2000 };
   let selected = "middle";
-  let deselections = 0;
+  let ordered = pages;
+  const events: string[] = [];
   let controls!: ReturnType<typeof useCanvasCamera>;
   function Fixture() {
     controls = useCanvasCamera("deselect", pages[1], {
-      targets: pages,
-      onSelect: () => {},
+      targets: ordered,
+      // Like the Canvas, a selection made by the camera comes back as the row's.
+      onSelect: (key) => {
+        events.push(`select ${key}`);
+        selected = key;
+      },
       selected,
-      onDeselect: () => deselections++,
+      onDeselect: () => {
+        events.push("deselect");
+        selected = "";
+      },
     });
     return (
       <div ref={controls.viewportRef}>
@@ -859,6 +849,7 @@ void test("zooming out past the selected item's page fit deselects it", async ()
     resize();
     const read = () => ({
       x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      y: parseFloat(viewport.style.getPropertyValue("--canvas-y")),
       scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
     });
     const flush = () => {
@@ -881,23 +872,73 @@ void test("zooming out past the selected item's page fit deselects it", async ()
       viewport.dispatchEvent(event);
       flush();
     };
-    assert.equal(read().scale, fitCanvasPage(size, pages[1]!).scale, "it opens at page fit");
+    const rerender = () => act(async () => root.render(<Fixture />));
+    const snappedTo = (page: { left: number; width: number }) => {
+      const fit = fitCanvasPage(size, page);
+      const { x, scale } = read();
+      return Math.abs(x - fit.x) < 1e-8 && Math.abs(scale - fit.scale) < 1e-8;
+    };
+    assert.ok(snappedTo(pages[1]!), "it opens snapped to the selection");
 
-    const pageScale = read().scale;
-    wheel(0, -100, true);
-    assert.ok(read().scale > pageScale);
-    assert.equal(deselections, 0, "zooming in from a page fit keeps the selection");
-    wheel(0, 200, true);
-    assert.ok(read().scale < pageScale);
-    assert.equal(deselections, 1, "zooming out past the page fit leaves the selection");
+    const opened = read();
+    wheel(0, -1000, true);
+    const stretched = read();
+    assert.ok(stretched.scale > opened.scale, "zooming in past the snap stretches the view");
+    assert.ok(stretched.scale < opened.scale * Math.exp(ZOOM_STRETCH), "but only so far");
+    await rerender();
+    flush();
+    assert.deepEqual(read(), stretched, "a stretch holds the selection, without flying to it");
+    assert.deepEqual(events, []);
+    await dom.happyDOM.waitUntilComplete();
+    flush();
+    assert.ok(snappedTo(pages[1]!), "then springs back to the snap");
+    assert.ok(Math.abs(read().y - opened.y) < 1e-8);
+    wheel(0, 300);
+    assert.ok(snappedTo(pages[1]!), "reading down the page keeps it snapped");
+    assert.deepEqual(events, []);
+    wheel(0, 300, true);
+    assert.ok(read().scale < opened.scale);
+    assert.deepEqual(events.splice(0), ["deselect"], "zooming out of the snap deselects");
     wheel(0, 50, true);
-    assert.equal(deselections, 1, "zooming out further doesn't leave it again");
+    assert.deepEqual(events, [], "zooming out further doesn't deselect again");
+    await rerender();
+
+    // A selection from elsewhere, like a header click, flies to it without reselecting.
+    selected = "last";
+    await rerender();
+    flush();
+    assert.ok(snappedTo(pages[2]!), "the camera snaps to an item selected elsewhere");
+    assert.deepEqual(events, []);
+    await rerender();
+    assert.ok(snappedTo(pages[2]!));
+
+    time += 200;
+    wheel(size.width / 4, 0);
+    assert.deepEqual(events.splice(0), ["deselect"], "panning out of the snap deselects");
+    await rerender();
+    time += 200;
+    wheel(-size.width / 4 + 10, 0);
+    assert.ok(snappedTo(pages[2]!));
+    assert.deepEqual(events.splice(0), ["select last"], "panning into a snap selects");
+    const snapped = read();
+    await rerender();
+    assert.deepEqual(read(), snapped, "the camera's own selection doesn't fly");
+
+    // Reordering moves the selection away from the camera, which follows it.
+    ordered = [pages[0]!, { ...pages[2]!, left: pages[1]!.left }, { ...pages[1]!, left: 3212 }];
+    await rerender();
+    flush();
+    assert.ok(snappedTo(ordered[1]!), "the camera keeps the selection snapped");
+    assert.deepEqual(events, []);
+
+    controls.keepInView(0, 12);
+    assert.ok(snappedTo(ordered[1]!), "a selection holds the camera against keepInView");
 
     selected = "";
-    await act(async () => root.render(<Fixture />));
-    wheel(0, -1000, true);
+    await rerender();
+    assert.ok(snappedTo(ordered[1]!), "deselecting from elsewhere leaves the camera");
     wheel(0, 1000, true);
-    assert.equal(deselections, 1, "without a selection, there is nothing to leave");
+    assert.deepEqual(events, [], "without a selection, there is nothing to leave");
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();
@@ -1121,8 +1162,8 @@ void test("keepInView pans only to bring a world x to a screen x", async () => {
     controls.keepInView(0, 12);
     assert.deepEqual(camera(), overview, "a visible world x does not pan");
 
-    // Zoom in on the second Page so the row's start is far off-screen.
-    controls.zoomAt({ x: size.width, y: 0 }, 1);
+    // Fly to the second Page so the row's start is far off-screen.
+    controls.flyTo("page:2");
     settle();
     const zoomed = camera();
     assert.ok(zoomed.x < 12, "the row starts off-screen");
@@ -1674,11 +1715,14 @@ void test("a snapped page stays snapped as the viewport resizes", async () => {
     { key: "last", left: 3212, width: 1366 },
   ];
   const content = { width: 4578, height: 20000 };
+  let selected = "middle";
   let controls!: ReturnType<typeof useCanvasCamera>;
   function Fixture() {
     controls = useCanvasCamera("snapped-resize", pages[1], {
       targets: pages,
-      onSelect: () => {},
+      selected,
+      onSelect: (key) => (selected = key),
+      onDeselect: () => (selected = ""),
     });
     return (
       <div ref={controls.viewportRef}>
@@ -1728,7 +1772,8 @@ void test("a snapped page stays snapped as the viewport resizes", async () => {
       assert.ok(Math.abs(actual - expected) < 1e-6, `${message}: ${actual} != ${expected}`);
     const last = pages[2]!;
 
-    controls.flyTo(last.key);
+    selected = last.key;
+    await act(async () => root.render(<Fixture />));
     wheel(0, 600);
     const scrolled = read();
     assert.ok(scrolled.y < 0, "the page is scrolled down its document");
@@ -1752,9 +1797,17 @@ void test("a snapped page stays snapped as the viewport resizes", async () => {
     wheel(-400, 0);
     const released = read();
     assert.ok(released.x > fitCanvasPage(size, last).x, "panning away releases the snap");
-    size.width = 1000;
+    assert.equal(selected, "", "and the selection");
+    size.width = 1600;
     resize();
     assertNear(read().scale, released.scale, "an unsnapped camera keeps its zoom on resize");
+    size.width = 1000;
+    resize();
+    assertNear(
+      read().scale,
+      fitCanvasPage(size, last).scale,
+      "but never zooms in past the page fit",
+    );
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();

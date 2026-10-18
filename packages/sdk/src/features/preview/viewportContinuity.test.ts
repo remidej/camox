@@ -45,7 +45,7 @@ void test("a snapped page supplies a reading position; unsnapped views use only 
   assert.equal(continuity.pendingPreview?.anchor, history);
   continuity.transition(false, "/b");
   assert.deepEqual(continuity.pendingPreview?.anchor, { y: 0, offset: 0 });
-  continuity.canvas.capture = () => ({ camera, pathname: "/a", anchor: visible, snappedKey: "a" });
+  continuity.canvas.capture = () => ({ camera, pathname: "/a", anchor: visible });
   continuity.transition(false, "/a");
   assert.equal(continuity.pendingPreview?.anchor, visible);
   continuity.transition(false, "/b");
@@ -104,28 +104,24 @@ void test("an unchanged preview returns the exact camera, while scrolling or nav
   const anchor = { blockId: "42", offset: 123, y: 900 };
   const restored: unknown[][] = [];
   continuity.canvas = {
-    capture: () => ({ camera, pathname: "/a", anchor, snappedKey: "a" }),
+    capture: () => ({ camera, pathname: "/a", anchor }),
     restore: (...args) => restored.push(args),
   };
   continuity.preview = { capture: () => anchor };
   continuity.transition(false, "/a");
   continuity.transition(true, "/a");
   continuity.restoreCanvas();
-  assert.deepEqual(restored.pop(), [undefined, camera, "a"]);
+  assert.deepEqual(restored.pop(), [undefined, camera]);
   continuity.restoreCanvas();
   assert.equal(restored.length, 0, "readiness is idempotent");
   continuity.previewMoved("/a", anchor);
   continuity.transition(true, "/a");
   continuity.restoreCanvas();
-  assert.deepEqual(restored.pop(), [anchor, camera, undefined]);
+  assert.deepEqual(restored.pop(), [anchor, camera]);
   continuity.transition(false, "/a");
   continuity.transition(true, "/b");
   continuity.restoreCanvas();
-  assert.deepEqual(
-    restored.pop(),
-    [anchor, camera, undefined],
-    "navigation invalidates exact return",
-  );
+  assert.deepEqual(restored.pop(), [anchor, camera], "navigation invalidates exact return");
 });
 
 void test("camera placement preserves zoom and accounts for the iframe offset and header at page top", () => {

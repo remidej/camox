@@ -69,14 +69,34 @@ export function isCanvasPageScale(scale: number, pageScale: number | undefined) 
   return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) < 1e-8;
 }
 
-/** Horizontal attraction shares the zoom capture range without changing scale. */
-export function isNearCanvasPageScale(scale: number, pageScale: number | undefined) {
-  return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) <= ZOOM_SNAP_CAPTURE;
+/** Snapped to a target: at its page fit, centered on it. */
+export function isCanvasCameraSnapped(
+  camera: CanvasCamera,
+  viewport: CanvasSize,
+  target: { left: number; width: number },
+) {
+  const fit = fitCanvasPage(viewport, target);
+  return isCanvasPageScale(camera.scale, fit.scale) && Math.abs(camera.x - fit.x) < 0.5;
+}
+
+/**
+ * The most zoomed-in view: the page fit, where the camera snaps to its targets.
+ * Without targets, the zoom ceiling is MAX_CANVAS_ZOOM.
+ */
+export function canvasMaximumScale(
+  viewport: CanvasSize,
+  targets: readonly { width: number }[],
+  minimumScale: number,
+) {
+  if (!targets.length) return MAX_CANVAS_ZOOM;
+  const width = Math.min(...targets.map((target) => target.width));
+  return Math.max(minimumScale, fitCanvasPage(viewport, { left: 0, width }).scale);
 }
 
 /**
  * intendedScale is accumulated independently of the displayed scale, so gentle
  * input can escape the detent. Large steps outside the band pass straight through.
+ * The page fit is also the zoom ceiling, so only zooming out leaves the detent.
  */
 export function snapCanvasZoom(
   scale: number,
@@ -86,6 +106,36 @@ export function snapCanvasZoom(
   if (pageScale === undefined) return intendedScale;
   const band = isCanvasPageScale(scale, pageScale) ? ZOOM_SNAP_RELEASE : ZOOM_SNAP_CAPTURE;
   return Math.abs(Math.log(intendedScale / pageScale)) <= band ? pageScale : intendedScale;
+}
+
+/** At most, the camera stretches this far past a zoom limit (log scale). */
+export const ZOOM_STRETCH = Math.log(1.2);
+/** How much the first input past a limit still zooms, as in iOS overscroll. */
+const ZOOM_STRETCH_RESISTANCE = 0.55;
+
+/**
+ * Past a zoom limit, intent stretches the view with growing resistance and
+ * never beyond ZOOM_STRETCH. Within the limits it is the intended scale.
+ */
+export function stretchCanvasZoom(
+  intendedScale: number,
+  minimumScale: number,
+  maximumScale: number,
+) {
+  const limit = Math.min(maximumScale, Math.max(minimumScale, intendedScale));
+  const overshoot = Math.log(intendedScale / limit);
+  const distance = Math.abs(overshoot) * ZOOM_STRETCH_RESISTANCE;
+  return (
+    limit * Math.exp(Math.sign(overshoot) * ((ZOOM_STRETCH * distance) / (ZOOM_STRETCH + distance)))
+  );
+}
+
+/** The intended scale that stretches to a displayed scale: the inverse of stretchCanvasZoom. */
+export function unstretchCanvasZoom(scale: number, minimumScale: number, maximumScale: number) {
+  const limit = Math.min(maximumScale, Math.max(minimumScale, scale));
+  const stretch = Math.min(Math.abs(Math.log(scale / limit)), ZOOM_STRETCH * (1 - 1e-9));
+  const overshoot = (ZOOM_STRETCH * stretch) / ((ZOOM_STRETCH - stretch) * ZOOM_STRETCH_RESISTANCE);
+  return limit * Math.exp(Math.sign(Math.log(scale / limit)) * overshoot);
 }
 
 export interface CanvasVerticalRail {
@@ -178,8 +228,9 @@ export function zoomCanvasAt(
   point: CanvasPoint,
   scale: number,
   minimumScale = Number.EPSILON,
+  maximumScale = MAX_CANVAS_ZOOM,
 ): CanvasCamera {
-  const nextScale = Math.min(MAX_CANVAS_ZOOM, Math.max(minimumScale, scale));
+  const nextScale = Math.min(maximumScale, Math.max(minimumScale, scale));
   if (nextScale === camera.scale) return camera;
   const ratio = nextScale / camera.scale;
   return {
@@ -244,17 +295,25 @@ function constrainAxis(position: number, viewport: number, size: number, scale: 
   );
 }
 
-/** Keep the zoom between its limits, and the content in view with bounded empty canvas around it. */
+/**
+ * Keep the zoom between its limits, and the content in view with bounded empty
+ * canvas around it. A stretched camera may zoom up to ZOOM_STRETCH past them.
+ */
 export function constrainCanvasCamera(
   camera: CanvasCamera,
   viewport: CanvasSize,
   content: CanvasSize,
+  maximumScale = MAX_CANVAS_ZOOM,
+  stretched = false,
 ): CanvasCamera {
+  const minimumScale = canvasMinimumScale(viewport, content);
+  const stretch = stretched ? Math.exp(ZOOM_STRETCH) : 1;
   const next = zoomCanvasAt(
     camera,
     { x: viewport.width / 2, y: viewport.height / 2 },
     camera.scale,
-    canvasMinimumScale(viewport, content),
+    minimumScale / stretch,
+    Math.max(minimumScale, maximumScale) * stretch,
   );
   return {
     x: constrainAxis(next.x, viewport.width, content.width, next.scale),

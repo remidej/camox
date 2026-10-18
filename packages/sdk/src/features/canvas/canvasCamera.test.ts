@@ -3,6 +3,10 @@ import { test } from "node:test";
 
 import {
   CANVAS_OVERSCROLL,
+  canvasMaximumScale,
+  stretchCanvasZoom,
+  unstretchCanvasZoom,
+  ZOOM_STRETCH,
   canvasInsets,
   canvasMinimumScale,
   canvasOverview,
@@ -12,8 +16,8 @@ import {
   constrainCanvasCamera,
   fitCanvas,
   fitCanvasPage,
+  isCanvasCameraSnapped,
   isCanvasPageScale,
-  isNearCanvasPageScale,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
   snapCanvasZoom,
@@ -72,22 +76,35 @@ void test("page zoom detent captures from either side with a wider release band"
   assert.equal(snapCanvasZoom(0.4, 0.5, undefined), 0.5);
 });
 
-void test("near-page eligibility shares the zoom capture range, not the wider release range", () => {
-  for (const pageScale of [0.3, 0.8, 1.5]) {
-    assert.equal(isNearCanvasPageScale(pageScale, pageScale), true);
-    for (const direction of [-1, 1]) {
-      for (const [distance, eligible] of [
-        [ZOOM_SNAP_CAPTURE - 0.001, true],
-        [ZOOM_SNAP_CAPTURE + 0.001, false],
-        [ZOOM_SNAP_RELEASE - 0.001, false],
-      ] as const) {
-        const scale = pageScale * Math.exp(direction * distance);
-        assert.equal(isNearCanvasPageScale(scale, pageScale), eligible);
-        assert.equal(snapCanvasZoom(scale, scale, pageScale) === pageScale, eligible);
-      }
-    }
-  }
-  assert.equal(isNearCanvasPageScale(0.5, undefined), false);
+void test("a camera is snapped to a target only at its page fit, centered on it", () => {
+  const viewport = { width: 900, height: 800 };
+  const page = { left: 1606, width: 1366 };
+  const fit = fitCanvasPage(viewport, page);
+  assert.equal(isCanvasCameraSnapped(fit, viewport, page), true);
+  assert.equal(isCanvasCameraSnapped({ ...fit, y: -4000 }, viewport, page), true);
+  assert.equal(isCanvasCameraSnapped({ ...fit, x: fit.x + 2 }, viewport, page), false);
+  const zoomedOut = zoomCanvasAt(fit, { x: viewport.width / 2, y: 0 }, fit.scale * 0.99);
+  assert.equal(isCanvasCameraSnapped(zoomedOut, viewport, page), false);
+  assert.equal(isCanvasCameraSnapped(fit, viewport, { ...page, left: page.left + 10 }), false);
+});
+
+void test("the zoom ceiling is the page fit, or the zoom limit without targets", () => {
+  const viewport = { width: 900, height: 800 };
+  const narrow = { left: 0, width: 600 };
+  const wide = { left: 700, width: 1366 };
+  assert.equal(
+    canvasMaximumScale(viewport, [wide, narrow], 0.1),
+    fitCanvasPage(viewport, narrow).scale,
+    "every target's snap stays reachable",
+  );
+  assert.equal(canvasMaximumScale(viewport, [], 0.1), MAX_CANVAS_ZOOM);
+  assert.equal(canvasMaximumScale(viewport, [wide], 0.9), 0.9, "never below the zoom floor");
+  const content = { width: 3000, height: 9000 };
+  const ceiling = canvasMaximumScale(viewport, [wide], 0.1);
+  assert.equal(
+    constrainCanvasCamera({ x: 0, y: 0, scale: ceiling * 2 }, viewport, content, ceiling).scale,
+    ceiling,
+  );
 });
 
 void test("snapping changes scale at the anchor, not the page position", () => {
@@ -364,4 +381,35 @@ void test("wheel input normalizes pixel, line, and page deltas", () => {
   assert.equal(canvasWheelDelta(2, 0, 800), 2);
   assert.equal(canvasWheelDelta(2, 1, 800), 32);
   assert.equal(canvasWheelDelta(-1, 2, 800), -800);
+});
+
+void test("zoom past a limit stretches with growing resistance, never beyond the stretch, and inverts", () => {
+  const [minimum, maximum] = [0.2, 0.8];
+  for (const scale of [minimum, 0.5, maximum])
+    assert.equal(
+      stretchCanvasZoom(scale, minimum, maximum),
+      scale,
+      "within the limits, intent is exact",
+    );
+  for (const [limit, direction] of [
+    [maximum, 1],
+    [minimum, -1],
+  ] as const) {
+    let previous = limit;
+    let previousGain = Infinity;
+    for (let overshoot = 0.1; overshoot <= 10; overshoot += 0.1) {
+      const intended = limit * Math.exp(direction * overshoot);
+      const stretched = stretchCanvasZoom(intended, minimum, maximum);
+      const distance = Math.abs(Math.log(stretched / limit));
+      const gain = distance - Math.abs(Math.log(previous / limit));
+      assert.ok(gain > 0 && gain < previousGain, "each step past the limit gains less");
+      assert.ok(distance < ZOOM_STRETCH && distance < overshoot, "it resists and stays bounded");
+      assert.ok(
+        Math.abs(Math.log(unstretchCanvasZoom(stretched, minimum, maximum) / intended)) < 1e-9,
+        "the displayed scale gives back its intent",
+      );
+      previous = stretched;
+      previousGain = gain;
+    }
+  }
 });

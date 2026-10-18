@@ -293,9 +293,9 @@ function CanvasWorkspace({
   const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
   const selectedPath = location.pathname;
   const previewedPath = previewPageFrame?.pathname;
+  // The camera flies to the selected item, unless it is already snapped to it.
   const selectPage = (pathname: string) => {
     onSelectionIntent(pathname);
-    cancelFlight();
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
   const selectBlock = (block: Block) => selectPage(blockCatalogPath(block._internal.id));
@@ -344,26 +344,25 @@ function CanvasWorkspace({
       collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedItemKey),
   )?.key;
   const snapTargets = canvasSnapTargets(items);
-  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, mirrorCamera, keepInView, fitAll } =
-    useCanvasCamera(
-      workspaceKey,
-      snapTargets.find(({ key }) => key === selectedKey),
-      {
-        targets: snapTargets,
-        width,
-        onSelect: (key) => {
-          const block = blocksByKey.get(key);
-          if (block) return selectBlock(block);
-          const pathname = pageSlots.get(key)?.pathname;
-          if (pathname) selectPage(pathname);
-        },
-        selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
-        onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
+  const { viewportRef, contentRef, flyTo, mirrorCamera, keepInView, fitAll } = useCanvasCamera(
+    workspaceKey,
+    snapTargets.find(({ key }) => key === selectedKey),
+    {
+      targets: snapTargets,
+      width,
+      onSelect: (key) => {
+        const block = blocksByKey.get(key);
+        if (block) return selectBlock(block);
+        const pathname = pageSlots.get(key)?.pathname;
+        if (pathname) selectPage(pathname);
       },
-    );
+      selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
+      onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
+    },
+  );
   const workspace = React.useMemo(
-    () => ({ workspaceKey, zoomAt, mirrorCamera }),
-    [workspaceKey, zoomAt, mirrorCamera],
+    () => ({ workspaceKey, mirrorCamera }),
+    [workspaceKey, mirrorCamera],
   );
   // A collapsing marker's area may start off-screen. Its vertical bar should take
   // the place of the marker's visible part, so pan before the collapse paints.
@@ -377,7 +376,7 @@ function CanvasWorkspace({
   const previousPath = React.useRef(selectedPath);
   React.useEffect(() => {
     if (previousPath.current === selectedPath) return;
-    // Selecting a hidden Page from outside the Canvas reveals it; the flight follows.
+    // Selecting a hidden Page from outside the Canvas reveals it; the camera then flies to it.
     if (location.source !== "canvas" && hiddenSelectedShelf) {
       // oxlint-disable-next-line react/set-state-in-effect -- reacts to a route change that also drives the camera
       toggleShelf(hiddenSelectedShelf);
@@ -386,9 +385,7 @@ function CanvasWorkspace({
     // A newly created page can arrive in the route before the page list refresh.
     if (location.source !== "canvas" && !selectedKey) return;
     previousPath.current = selectedPath;
-    if (location.source === "canvas" || !selectedKey) return;
-    flyTo(selectedKey);
-  }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf, flyTo]);
+  }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf]);
   // An item to fly to once its shelf is expanded and it has a place in the row.
   const [pendingFlight, setPendingFlight] = React.useState<string | null>(null);
   const pendingFlightPlaced = !!pendingFlight && positions.has(pendingFlight);

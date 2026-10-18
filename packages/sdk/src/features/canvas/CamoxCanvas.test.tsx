@@ -128,7 +128,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const flyTo = (key: string) => flights.push(key);
   const keptInView: [number, number][] = [];
   const keepInView = (worldX: number, screenX: number) => keptInView.push([worldX, screenX]);
-  const cancelFlight = () => actions.push("cancel");
   const fitAll = () => actions.push("fit all");
   const globals = {
     React,
@@ -188,7 +187,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       snap = options.onSelect;
       snapTargets = options.targets;
       cameraWidth = options.width;
-      return { viewportRef: null, contentRef: null, flyTo, cancelFlight, keepInView, fitAll };
+      return { viewportRef: null, contentRef: null, flyTo, keepInView, fitAll };
     },
     CanvasHeaderProbe: (props: {
       page: { key: string };
@@ -502,10 +501,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           headerLeft("block:hero"),
           "a block link opens the Canvas on the block",
         );
+        assert.equal(cameraRow.selected, "block:hero");
         assert.equal(flights.length, 0, "mount does not fly");
 
-        for (const [select, path] of [
-          [() => blockFrames.get("faq")!.onSelect(), "/camox/blocks/faq"],
+        for (const [select, path, key] of [
+          [() => blockFrames.get("faq")!.onSelect(), "/camox/blocks/faq", "block:faq"],
           [
             () =>
               (
@@ -514,15 +514,18 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
                 ) as unknown as HTMLElement
               ).click(),
             "/camox/blocks/hero",
+            "block:hero",
           ],
-          [() => snap("block:faq"), "/camox/blocks/faq"],
-          [() => snap([...headers.keys()][0]!), "/about"],
+          [() => snap("block:faq"), "/camox/blocks/faq", "block:faq"],
+          [() => snap([...headers.keys()][0]!), "/about", [...headers.keys()][0]],
         ] as const) {
           await React.act(async () => select());
-          assert.deepEqual(actions.splice(0), ["cancel", "navigate"]);
+          assert.deepEqual(actions.splice(0), ["navigate"]);
           assert.equal(globals.CanvasLocation.pathname, path);
           await render();
-          assert.equal(flights.length, 0, "canvas selections do not fly");
+          // The camera flies to a selection it didn't snap to itself.
+          assert.equal(cameraRow.selected, key, "the camera holds the selection");
+          assert.equal(flights.length, 0, "the Canvas leaves flights to the camera");
         }
 
         globals.CanvasLocation = {
@@ -532,10 +535,10 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           source: undefined,
         };
         await render();
-        assert.deepEqual(flights, ["block:hero"], "back/forward to a block flies to it");
+        assert.equal(cameraRow.selected, "block:hero", "back/forward to a block selects it");
         globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
         await render();
-        assert.deepEqual(flights, ["block:hero", [...headers.keys()][0]], "and back to a Page");
+        assert.equal(cameraRow.selected, [...headers.keys()][0], "and back to a Page");
 
         signals.length = 0;
         globals.CanvasLocation = {
@@ -624,21 +627,21 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.deepEqual(navigations.splice(0), [{ to: "/camox/blocks/tabs" }]);
           globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/camox/blocks/tabs" };
           await render();
-          assert.deepEqual(flights, ["block:tabs"], "the camera flies to the picked block");
+          assert.equal(cameraRow.selected, "block:tabs", "the camera flies to the picked block");
           assert.equal(navigator().selectedKey, "block:tabs");
           assert.equal(shown("Canvas").block, "tabs");
 
           // Picking the selected item again has nothing to select, but still flies to it.
           await React.act(async () => navigator().onShowItem("block:tabs"));
           assert.deepEqual(navigations, []);
-          assert.deepEqual(flights, ["block:tabs", "block:tabs"]);
+          assert.deepEqual(flights, ["block:tabs"]);
           flights.length = 0;
 
           // Picking a Page in the Canvas sidebar's list of placements selects it the same way.
           globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
           await render();
           const contact = [...headers.keys()][1]!;
-          assert.deepEqual(flights, [contact], "the camera flies to the Page");
+          assert.equal(cameraRow.selected, contact, "the camera flies to the Page");
           assert.equal(shown("Canvas").page, contact, "the Canvas sidebar shows the Page again");
           assert.equal(shown("Canvas").block, undefined);
 
@@ -646,7 +649,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           actions.length = 0;
           await React.act(async () => sidebars.get("Canvas")!.onShowWholeCanvas!());
           assert.deepEqual(navigations.splice(0), [{ to: "/camox/canvas", source: "canvas" }]);
-          assert.deepEqual(actions, ["cancel", "fit all"]);
+          assert.deepEqual(actions, ["fit all"]);
 
           // A request from outside the Canvas, like the show whole canvas action, zooms out too.
           actions.length = 0;
@@ -1054,13 +1057,13 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           "true",
           "selecting a hidden Page from outside the Canvas reveals it",
         );
-        assert.deepEqual(flights, [[...headers.keys()][1]], "and flies to it");
+        assert.equal(cameraRow.selected, [...headers.keys()][1], "and flies to it");
       } finally {
         await React.act(async () => root.unmount());
         host.remove();
       }
     });
-    await t.test("navigation flight wiring", async () => {
+    await t.test("selection wiring", async () => {
       scenario = "";
       includeNewPage = false;
       flights.length = 0;
@@ -1075,7 +1078,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       };
       try {
         await render();
-        assert.equal(flights.length, 0, "mount does not fly");
+        const [about, contact] = [...headers.keys()];
+        assert.equal(cameraRow.selected, about);
         const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
         assert.equal(
           header.style.transform,
@@ -1085,36 +1089,40 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(header.style.willChange, "transform");
         globals.CanvasLocation.pathname = "/contact";
         await render();
-        assert.equal(flights.length, 1, "external navigation flies");
-        assert.equal(flights[0], [...headers.keys()][1], "flight targets the selected page key");
+        assert.equal(cameraRow.selected, contact, "external navigation selects in the camera");
         globals.CanvasLocation.search = "?view=wide";
         globals.CanvasLocation.hash = "#section";
         await render();
-        assert.equal(flights.length, 1, "query/hash changes do not fly");
+        assert.equal(cameraRow.selected, contact, "query/hash changes keep the selection");
         globals.CanvasLocation.search = "";
         globals.CanvasLocation.hash = "";
-        for (const select of [
-          () => frames.get("/about")!.onActivate(null as never, "interaction", () => {}),
-          () => [...headers.values()][1]!.onSelect(),
-          () => [...headers.values()][0]!.onChange("/about"),
-          () => snap([...headers.keys()][1]!),
-        ]) {
+        for (const [select, key] of [
+          [() => frames.get("/about")!.onActivate(null as never, "interaction", () => {}), about],
+          [() => [...headers.values()][1]!.onSelect(), contact],
+          [() => [...headers.values()][0]!.onChange("/about"), about],
+          [() => snap(contact!), contact],
+        ] as const) {
           await React.act(async () => select());
-          assert.deepEqual(actions.splice(0), ["cancel", "navigate"]);
+          assert.deepEqual(actions.splice(0), ["navigate"]);
+          assert.equal(cameraRow.selected, key, "Canvas selections reach the camera at once");
           await render();
-          assert.equal(flights.length, 1, "canvas selections do not fly");
+          assert.equal(cameraRow.selected, key);
         }
         globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
         await render();
-        assert.equal(flights.length, 2, "external navigation after canvas selection flies");
+        assert.equal(cameraRow.selected, about, "external navigation after canvas selection");
         globals.CanvasLocation.pathname = "/new";
         await render();
-        assert.equal(flights.length, 2, "wait for a newly created page to appear in the list");
+        assert.equal(
+          cameraRow.selected,
+          null,
+          "wait for a newly created page to appear in the list",
+        );
         includeNewPage = true;
         await render();
-        assert.equal(flights.length, 3, "fly once the destination geometry is available");
-        await render();
-        assert.equal(flights.length, 3, "refreshing the same destination does not refly");
+        assert.ok(cameraRow.selected, "select once the destination geometry is available");
+        assert.ok(![about, contact].includes(cameraRow.selected));
+        assert.equal(flights.length, 0, "the Canvas leaves flights to the camera");
       } finally {
         await React.act(async () => root.unmount());
         host.remove();
