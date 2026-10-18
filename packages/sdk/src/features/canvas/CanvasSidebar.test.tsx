@@ -349,16 +349,22 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
       onShowItem: (key) => shown.push(key),
     });
     assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar on a block");
+    const blocksToggle = () =>
+      dom.mount.querySelector("[cmdk-group] button[aria-expanded]") as unknown as HTMLElement;
     assert.deepEqual(
       entries(),
       [
-        { text: "Home", current: null, group: "Pages (2)" },
-        { text: "About", current: null, group: "Pages (2)" },
-        { text: "FAQ", current: null, group: "Blocks (3)" },
-        { text: "Hero", current: "true", group: "Blocks (3)" },
-        { text: "Tabs", current: null, group: "Blocks (3)" },
+        { text: "Home/", current: null, group: "Pages (2)" },
+        { text: "About/about", current: null, group: "Pages (2)" },
       ],
-      "every item, in Canvas order, under its shelf and its count, with the selected one marked",
+      "Pages show with their path; blocks start collapsed",
+    );
+    assert.equal(blocksToggle().getAttribute("aria-expanded"), "false");
+    assert.equal(blocksToggle().textContent, "3 blocks");
+    assert.deepEqual(
+      [...dom.mount.querySelectorAll("[cmdk-group-heading]")].map((heading) => heading.textContent),
+      ["Pages (2)"],
+      "the blocks toggle names them, without a shelf heading",
     );
 
     const search = dom.mount.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
@@ -372,12 +378,38 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
     await type("about");
     assert.deepEqual(
       entries().map(({ text }) => text),
-      ["About"],
+      ["About/about"],
       "searching matches labels",
+    );
+    await type("/abo");
+    assert.deepEqual(
+      entries().map(({ text }) => text),
+      ["About/about"],
+      "and Page paths",
+    );
+    await type("hero");
+    assert.deepEqual(
+      entries(),
+      [{ text: "Hero", current: "true", group: "Blocks (3)" }],
+      "searching finds collapsed blocks too, under their shelf's heading",
     );
     await type("block");
     assert.deepEqual(entries(), [], "but never item keys");
     await type("");
+    assert.equal(blocksToggle().getAttribute("aria-expanded"), "false", "blocks collapse again");
+
+    await React.act(async () => blocksToggle().click());
+    assert.deepEqual(
+      entries(),
+      [
+        { text: "Home/", current: null, group: "Pages (2)" },
+        { text: "About/about", current: null, group: "Pages (2)" },
+        { text: "FAQ", current: null, group: undefined },
+        { text: "Hero", current: "true", group: undefined },
+        { text: "Tabs", current: null, group: undefined },
+      ],
+      "expanded, every item, in Canvas order, with the selected one marked; blocks under their toggle alone",
+    );
 
     const tabs = [...dom.mount.querySelectorAll("[cmdk-item]")].find(
       (entry) => entry.textContent === "Tabs",
