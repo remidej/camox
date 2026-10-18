@@ -1,6 +1,7 @@
 import { PanelContent } from "@camox/ui/panel";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
+import { flushSync } from "react-dom";
 
 import { checkIfInputFocused, cn } from "@/lib/utils";
 
@@ -421,7 +422,9 @@ function PreviewPageClip({
       });
     };
     measure();
-    const resize = new ResizeObserver(measure);
+    // Observers run before paint, but a plain state update renders after it, which
+    // would show the frame one frame off wherever the Canvas viewport moved.
+    const resize = new ResizeObserver(() => flushSync(measure));
     resize.observe(viewport);
     resize.observe(parent);
     return () => resize.disconnect();

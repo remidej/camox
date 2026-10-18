@@ -457,9 +457,7 @@ export const PreviewShell = ({
             pathname={pathname}
             pagePathname={pageLocation?.pathname}
             runtimeBasePath={runtimeBasePath}
-            placeholder={
-              canvasOnly ? undefined : <CanvasSidebarSkeleton derived={!!derivedLayout} />
-            }
+            placeholder={<CanvasSidebarSkeleton page={!canvasOnly} derived={!!derivedLayout} />}
           >
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel
