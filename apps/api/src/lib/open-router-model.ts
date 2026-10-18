@@ -26,7 +26,7 @@ export const openRouterModel = (apiKey: string) =>
             stream: false,
             abortController,
             messages: [{ role: "user", content: summaryPrompt(request) }],
-          }),
+          }).then((result) => result.text),
         ),
       ),
 

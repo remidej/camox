@@ -236,8 +236,6 @@ export const CAMOX_WORKER_OPTIMIZED_DEPS = [
   "react-dom/server",
   "react/compiler-runtime",
   "camox > @unhead/react/server",
-  "camox > @takumi-rs/image-response/wasm",
-  "camox > @takumi-rs/wasm/next",
 ];
 
 export function camox(options: CamoxPluginOptions): Plugin {

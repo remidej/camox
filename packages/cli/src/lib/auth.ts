@@ -139,7 +139,7 @@ async function authenticateUser(): Promise<AuthToken> {
     s.stop(`Authenticated as ${authToken.name}`);
     return authToken;
   } catch (err) {
-    s.stop("Authentication failed.");
+    s.error("Authentication failed.");
     throw err;
   } finally {
     close();

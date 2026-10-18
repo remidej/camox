@@ -1,7 +1,7 @@
 /**
  * Geist Variable TTF, encoded as base64.
  *
- * Bundled here so the workerd / worker / deno OG image wrapper can ship
+ * Bundled here so the workerd OG image wrapper can ship
  * a default font (the wasm renderer does not embed any, unlike native
  * `@takumi-rs/core`). Geist mirrors what the native flavor uses, so OG
  * images look the same across runtimes. The variable axis covers weights

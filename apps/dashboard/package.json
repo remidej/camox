@@ -11,8 +11,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
-    "@better-auth/core": "~1.6.33",
-    "@better-auth/passkey": "~1.6.33",
+    "@better-auth/passkey": "^1.7.10",
     "@camox/api-contract": "workspace:*",
     "@camox/ui": "workspace:*",
     "@daveyplate/better-auth-ui": "^3.4.0",
@@ -25,7 +24,7 @@
     "@tanstack/react-router-ssr-query": "^1.167.3",
     "@tanstack/react-start": "^1.169.2",
     "@tanstack/router-plugin": "^1.168.46",
-    "better-auth": "~1.6.33",
+    "better-auth": "^1.7.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
@@ -38,7 +37,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",
-    "@cloudflare/workers-types": "^4.20260519.1",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@types/node": "^24.12.4",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

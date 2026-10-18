@@ -28,7 +28,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260519.1",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "vite-plus": "catalog:"
   },
   "nx": {

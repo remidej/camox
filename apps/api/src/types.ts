@@ -1,4 +1,3 @@
-/// <reference types="@cloudflare/workers-types" />
 import type { Database } from "./db";
 import type { Auth } from "./domains/auth/routes";
 
