@@ -329,25 +329,27 @@ export const CamoxPreview = ({
 /**
  * A Canvas-only location only exists on the Canvas. Opening one
  * shows the Canvas, while hiding the Canvas, or a Studio without the Canvas,
- * goes home instead, so Preview always shows a real Page.
+ * goes back to the last page shown, or home without one, so Preview always shows a real Page.
  */
 function useCanvasOnlyLocation(
   canvasOnly: boolean,
   isCanvasShown: boolean,
   isMobileStudio: boolean,
+  lastPage: LocationState | undefined,
 ) {
   const navigate = useNavigate();
   const wasCanvasShown = React.useRef(isCanvasShown);
+  const lastPageHref = lastPage ? `${lastPage.pathname}${lastPage.search}${lastPage.hash}` : "/";
   React.useEffect(() => {
     const left = wasCanvasShown.current && !isCanvasShown;
     wasCanvasShown.current = isCanvasShown;
     if (!canvasOnly || isCanvasShown) return;
     if (isMobileStudio || left) {
-      void navigate({ to: "/", replace: true });
+      void navigate({ to: lastPageHref, replace: true });
       return;
     }
     previewStore.send({ type: "showCanvas" });
-  }, [canvasOnly, isCanvasShown, isMobileStudio, navigate]);
+  }, [canvasOnly, isCanvasShown, isMobileStudio, navigate, lastPageHref]);
 }
 
 /**
@@ -424,7 +426,12 @@ export const PreviewShell = ({
     previewStore.send({ type: "closeAddBlockDialog" });
   }, [isMobileStudio]);
 
-  useCanvasOnlyLocation(!!canvasOnly && isAuthenticated, isCanvasShown, isMobileStudio);
+  useCanvasOnlyLocation(
+    !!canvasOnly && isAuthenticated,
+    isCanvasShown,
+    isMobileStudio,
+    pageLocation,
+  );
 
   React.useEffect(() => {
     const actions = [
@@ -506,7 +513,8 @@ export const PreviewShell = ({
           {!isCanvasEnabled && (
             <>
               <CreatePageModal />
-              {pageData && <AddBlockDialog />}
+              {/* It adds to the page at the current location, which a Canvas-only one has none of. */}
+              {pageId != null && <AddBlockDialog />}
             </>
           )}
         </div>

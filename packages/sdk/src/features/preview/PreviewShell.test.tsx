@@ -26,7 +26,7 @@ registerHooks({
     if (context.parentURL?.endsWith("/CamoxPreview.tsx")) {
       const stubs: Record<string, string> = {
         "@/features/navigation/navigation":
-          "export const useLocation = () => ({pathname: '/'}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }",
+          "export const useLocation = () => ({pathname: globalThis.testPathname ?? '/', search: '', hash: ''}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }",
         "@/hooks/use-page-destinations": "export const usePageDestinations = () => []",
         "@/lib/auth":
           "export const useIsAuthenticated = () => true; export const useProjectSlug = () => 'test'",
@@ -48,7 +48,14 @@ registerHooks({
         `,
       };
       source = stubs[specifier] ?? source;
-      for (const name of ["AddBlockDialog", "BlockErrorBoundary", "CreatePageModal"]) {
+      // Like the real one, it reads the page at the current location, and
+      // waits forever on a Canvas-only one, which has none.
+      if (specifier === "./components/AddBlockDialog")
+        source = `export const AddBlockDialog = () => {
+          if (globalThis.testPathname === "/camox/canvas") throw new Promise(() => {});
+          return null;
+        }`;
+      for (const name of ["BlockErrorBoundary", "CreatePageModal"]) {
         if (specifier === `./components/${name}`) source = `export const ${name} = () => null`;
       }
       if (specifier.includes("feature-flag")) {
@@ -372,7 +379,43 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   }
 });
 
-void test("a Block Catalog block opens on the Canvas, and goes home without it", async (t) => {
+void test("hiding the Canvas after selecting nothing goes back to the last page", async () => {
+  const dom = await setup();
+  const { CamoxPreview } = await import("./CamoxPreview");
+  const { previewStore } = await import("./previewStore");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  testStudioCache(client).set(reads.pageStructure({ path: "/about", projectSlug: "test" }), {
+    page: { id: 3 },
+  });
+  const navigations: { to: string; replace?: boolean }[] = [];
+  Object.assign(globalThis, { testNavigations: navigations, testPathname: "/about" });
+  type Props = React.ComponentProps<typeof CamoxPreview>;
+  const render = (canvasOnly?: Props["canvasOnly"]) =>
+    dom.render(
+      <StudioQueryClientProvider client={client}>
+        <CamoxPreview canvasOnly={canvasOnly}>
+          <p data-content>Site content</p>
+        </CamoxPreview>
+      </StudioQueryClientProvider>,
+    );
+  try {
+    previewStore.send({ type: "showCanvas" });
+    await render();
+    // Deselecting on the Canvas moves to its Canvas-only location, keeping the last page.
+    Object.assign(globalThis, { testPathname: "/camox/canvas" });
+    await render({});
+    await React.act(async () => previewStore.send({ type: "hideCanvas" }));
+    assert.deepEqual(navigations, [{ to: "/about", replace: true }]);
+  } finally {
+    await dom.close();
+    client.clear();
+    previewStore.send({ type: "hideCanvas" });
+    Reflect.deleteProperty(globalThis, "testNavigations");
+    Reflect.deleteProperty(globalThis, "testPathname");
+  }
+});
+
+void test("a Block Catalog block opened first shows the Canvas, and goes home without it", async (t) => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
