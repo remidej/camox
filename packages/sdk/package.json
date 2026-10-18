@@ -235,7 +235,7 @@
     "@unhead/react": "^3.4.3",
     "@xstate/store": "4.3.0",
     "@xstate/store-react": "^2.1.0",
-    "better-auth": "~1.6.33",
+    "better-auth": "^1.7.10",
     "fractional-indexing": "^4.0.0",
     "hono": "^4.13.13",
     "lexical": "^0.52.0",
