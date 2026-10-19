@@ -140,6 +140,9 @@ export function PageNavigationProvider({
     entry?: ActiveHeadEntry<UseHeadInput>;
   } | null>(null);
 
+  // The server loaded the providers' scripts for a visitor only, and says so in the first input.
+  const { analytics } = initialInput;
+
   const navigate = React.useCallback(
     async ({
       to,
@@ -222,6 +225,7 @@ export function PageNavigationProvider({
               )) as DehydratedState,
         );
         next = { ...next, href: window.location.href };
+        const previous = current.current;
         current.current = next;
 
         if (!headManager.current) {
@@ -236,6 +240,10 @@ export function PageNavigationProvider({
           createPageHeadInput((next.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
         );
         renderDOMHead(manager.head);
+        // The new page's title is in place: count the page the visitor moved to. The URL changed
+        // before the title, so the providers' own history tracking would record the previous one.
+        if (ownsWindow && analytics && next.pathname !== previous.pathname)
+          sendPageView(analytics, window);
         // A visitor's document speaks the page's language. A member's is the Studio's: the page's
         // frame renders with its own `<html lang>`.
         if (ownsWindow) document.documentElement.lang = next.locale.tag;
@@ -254,6 +262,7 @@ export function PageNavigationProvider({
       }
     },
     [
+      analytics,
       draftScope,
       initialInput.runtimeBasePath,
       loadPage,
@@ -319,14 +328,13 @@ export function PageNavigationProvider({
     };
   }, [ownsWindow, restoration]);
 
-  // The server loaded the providers' scripts for a visitor only: count the page they opened.
+  // Count the page the visitor opened.
   const firstPageView = React.useRef(false);
   React.useEffect(() => {
-    const { analytics } = initialInput;
     if (!ownsWindow || !analytics || firstPageView.current) return;
     firstPageView.current = true;
     sendPageView(analytics, window);
-  }, [initialInput, ownsWindow]);
+  }, [analytics, ownsWindow]);
 
   React.useEffect(() => {
     if (!ownsWindow) return;
