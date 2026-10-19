@@ -5,6 +5,9 @@ import { createFileRoute, Link, Outlet, useMatchRoute } from "@tanstack/react-ro
 import { projectQueries } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/_dashboard/$orgSlug/$projectSlug")({
+  loader: async ({ context, params }) => {
+    await context.queryClient.ensureQueryData(projectQueries.getBySlug(params.projectSlug));
+  },
   component: RouteComponent,
 });
 
