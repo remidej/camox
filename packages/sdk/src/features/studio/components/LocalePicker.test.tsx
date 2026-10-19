@@ -108,7 +108,7 @@ const menuItems = () =>
   );
 const itemNamed = (name: RegExp) => menuItems().find((item) => name.test(item.textContent ?? ""));
 
-/** Opens the studio's languages picker at `pathname`, in draft `draft` or on Live. */
+/** Opens the studio's locale picker at `pathname`, in draft `draft` or on Live. */
 async function render(
   t: test.TestContext,
   pathname: string,
@@ -166,7 +166,7 @@ async function render(
   return { navigations };
 }
 
-void test("names the language viewed, and lists the project's languages, the default first", async (t) => {
+void test("names the locale viewed, and lists the project's locales, the default first", async (t) => {
   mockApi(t, [en, de]);
   await render(t, "/de/preise", [en, de]);
 
@@ -178,7 +178,7 @@ void test("names the language viewed, and lists the project's languages, the def
   );
 });
 
-void test("switching languages keeps the page shown, at its path in the other language", async (t) => {
+void test("switching locales keeps the page shown, at its path in the other locale", async (t) => {
   mockApi(t, [en, de]);
   const { navigations } = await render(t, "/pricing", [en, de]);
 
@@ -188,7 +188,7 @@ void test("switching languages keeps the page shown, at its path in the other la
   assert.deepEqual(navigations, ["/de/preise"]);
 });
 
-void test("the default language has nothing to remove", async (t) => {
+void test("the default locale has nothing to remove", async (t) => {
   mockApi(t, [en, de]);
   await render(t, "/pricing", [en, de]);
 
@@ -197,7 +197,7 @@ void test("the default language has nothing to remove", async (t) => {
   assert.equal(itemNamed(/^Remove/), undefined);
 });
 
-void test("removes the viewed language only after a confirmation that its content goes for good once published", async (t) => {
+void test("removes the viewed locale only after a confirmation that its content goes for good once published", async (t) => {
   const calls = mockApi(t, [en, de]);
   const { navigations } = await render(t, "/de/preise", [en, de], "d1");
   await click(trigger());
@@ -217,17 +217,17 @@ void test("removes the viewed language only after a confirmation that its conten
   assert.deepEqual(
     navigations,
     ["/pricing?camox-draft=d1"],
-    "the studio moves to the default language, in the draft",
+    "the studio moves to the default locale, in the draft",
   );
 });
 
-void test("adding a language on Live starts a draft with it, and switches to it on the same page", async (t) => {
+void test("adding a locale on Live starts a draft with it, and switches to it on the same page", async (t) => {
   const calls = mockApi(t, [en]);
   const { navigations } = await render(t, "/pricing", [en]);
   await click(trigger());
   await click(itemNamed(/^Add language/));
 
-  const input = window.document.querySelector("#camox-language-tag") as unknown as HTMLInputElement;
+  const input = window.document.querySelector("#camox-locale-tag") as unknown as HTMLInputElement;
   await React.act(async () => {
     const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
     setValue.set!.call(input, "fr");

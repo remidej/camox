@@ -45,19 +45,15 @@ import { localeMutations } from "@/lib/queries";
 import { reads, useReadQuery, useStudioCache } from "@/lib/studio-reads";
 import { useLocalePath, useViewLocale } from "@/lib/view-locale";
 
-import type { Action } from "../../provider/actionsStore";
-import { actionsStore } from "../../provider/actionsStore";
 import { pathInLocale } from "../localeSwitch";
 import { studioStore } from "../studioStore";
 
-const SWITCH_TO_LANGUAGE_ID = "switch-to-language";
-
-const languageNames = new Intl.DisplayNames(["en"], { type: "language" });
+const localeNames = new Intl.DisplayNames(["en"], { type: "language" });
 
 /** A locale's name as the studio shows it, "German (de)", or its tag alone when unnamed. */
-export function languageLabel(tag: string): string {
+export function localeLabel(tag: string): string {
   try {
-    const name = languageNames.of(tag);
+    const name = localeNames.of(tag);
     return name && name !== tag ? `${name} (${tag})` : tag;
   } catch {
     return tag;
@@ -68,13 +64,12 @@ export function languageLabel(tag: string): string {
  * The studio's languages (GLOSSARY: Locale): the one viewed, the others to switch to, and adding
  * and removing them. Switching keeps the page shown when the other language has it, and goes to
  * that language's home otherwise; the URL names the language by its prefix. Adding and removing
- * languages are content writes, so on Live they start a draft. The command palette offers the
- * same actions.
+ * languages are content writes, so on Live they start a draft.
  */
 export function LocalePicker() {
   const projectSlug = useProjectSlug();
   const view = useViewLocale();
-  const dialog = useSelector(studioStore, (state) => state.context.languageDialog);
+  const dialog = useSelector(studioStore, (state) => state.context.localeDialog);
   const project = useReadQuery(reads.project({ slug: projectSlug }), { enabled: !!projectSlug });
   const projectId = project.data?.id;
   const list = useReadQuery(reads.localeList({ projectId: projectId ?? 0 }), {
@@ -88,17 +83,15 @@ export function LocalePicker() {
     ) ?? view.locale;
   const switchTo = useSwitchLocale();
 
-  // The dialogs belong to the language they were opened in.
-  React.useEffect(() => closeLanguageDialog, [viewed.tag]);
-
-  useLocaleActions({ enabled: !!projectId, locales, viewed, switchTo });
+  // The dialogs belong to the locale they were opened in.
+  React.useEffect(() => closeLocaleDialog, [viewed.tag]);
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button type="button" variant="outline" />}>
           <Languages aria-hidden className="text-muted-foreground size-4" />
-          <span className="max-w-40 truncate">{languageLabel(viewed.tag)}</span>
+          <span className="max-w-40 truncate">{localeLabel(viewed.tag)}</span>
           <ChevronDownIcon aria-hidden className="size-4 opacity-50" />
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-64" align="end">
@@ -114,7 +107,7 @@ export function LocalePicker() {
               {locales.map((locale) => (
                 <DropdownMenuRadioItem key={locale.tag} value={locale.tag} closeOnClick>
                   <div className="flex min-w-0 flex-col">
-                    <span className="truncate">{languageLabel(locale.tag)}</span>
+                    <span className="truncate">{localeLabel(locale.tag)}</span>
                     {locale.isDefault && (
                       <span className="text-muted-foreground text-xs">Default language</span>
                     )}
@@ -127,7 +120,7 @@ export function LocalePicker() {
           <DropdownMenuGroup>
             <DropdownMenuItem
               disabled={!projectId}
-              onClick={() => studioStore.send({ type: "openLanguageDialog", dialog: "add" })}
+              onClick={() => studioStore.send({ type: "openLocaleDialog", dialog: "add" })}
             >
               <Plus />
               Add language…
@@ -136,10 +129,10 @@ export function LocalePicker() {
               <DropdownMenuItem
                 variant="destructive"
                 disabled={!projectId}
-                onClick={() => studioStore.send({ type: "openLanguageDialog", dialog: "remove" })}
+                onClick={() => studioStore.send({ type: "openLocaleDialog", dialog: "remove" })}
               >
                 <Trash2 />
-                Remove {languageLabel(viewed.tag)}…
+                Remove {localeLabel(viewed.tag)}…
               </DropdownMenuItem>
             )}
           </DropdownMenuGroup>
@@ -148,13 +141,13 @@ export function LocalePicker() {
 
       {projectId && (
         <>
-          <AddLanguageDialog
+          <AddLocaleDialog
             projectId={projectId}
             open={dialog === "add"}
             onAdded={(added) => void switchTo(added)}
           />
           {!viewed.isDefault && (
-            <RemoveLanguageDialog
+            <RemoveLocaleDialog
               projectId={projectId}
               locale={viewed}
               open={dialog === "remove"}
@@ -204,12 +197,12 @@ function useSwitchLocale() {
   );
 }
 
-function closeLanguageDialog() {
-  studioStore.send({ type: "closeLanguageDialog" });
+function closeLocaleDialog() {
+  studioStore.send({ type: "closeLocaleDialog" });
 }
 
-/** Asks for a BCP 47 tag, then adds the language, a copy of the default language's content. */
-function AddLanguageDialog({
+/** Asks for a BCP 47 tag, then adds the locale, a copy of the default locale's content. */
+function AddLocaleDialog({
   projectId,
   open,
   onAdded,
@@ -223,9 +216,9 @@ function AddLanguageDialog({
   const add = useMutation({
     ...localeMutations.add(),
     onSuccess: (added) => {
-      closeLanguageDialog();
+      closeLocaleDialog();
       setTag("");
-      toast.success(`Added ${languageLabel(added.tag)}`);
+      toast.success(`Added ${localeLabel(added.tag)}`);
       void cache.invalidate(reads.localeList({ projectId }));
       onAdded(added);
     },
@@ -237,7 +230,7 @@ function AddLanguageDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !add.isPending) closeLanguageDialog();
+        if (!next && !add.isPending) closeLocaleDialog();
       }}
     >
       <DialogContent className="sm:max-w-md">
@@ -256,9 +249,9 @@ function AddLanguageDialog({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="camox-language-tag">Language tag</Label>
+            <Label htmlFor="camox-locale-tag">Language tag</Label>
             <Input
-              id="camox-language-tag"
+              id="camox-locale-tag"
               value={tag}
               onChange={(event) => setTag(event.target.value)}
               placeholder="de, fr or pt-BR"
@@ -267,7 +260,7 @@ function AddLanguageDialog({
             />
             <p className="text-muted-foreground text-xs">
               {trimmed
-                ? languageLabel(trimmed)
+                ? localeLabel(trimmed)
                 : "A BCP 47 language tag. Its pages are served under its own prefix, like /de."}
             </p>
           </div>
@@ -276,7 +269,7 @@ function AddLanguageDialog({
               type="button"
               variant="outline"
               disabled={add.isPending}
-              onClick={closeLanguageDialog}
+              onClick={closeLocaleDialog}
             >
               Cancel
             </Button>
@@ -291,8 +284,8 @@ function AddLanguageDialog({
   );
 }
 
-/** Asks before removing a language with all its content, then removes it in the draft. */
-function RemoveLanguageDialog({
+/** Asks before removing a locale with all its content, then removes it in the draft. */
+function RemoveLocaleDialog({
   projectId,
   locale,
   open,
@@ -304,11 +297,11 @@ function RemoveLanguageDialog({
   onRemoved: () => void;
 }) {
   const cache = useStudioCache();
-  const label = languageLabel(locale.tag);
+  const label = localeLabel(locale.tag);
   const remove = useMutation({
     ...localeMutations.remove(),
     onSuccess: () => {
-      closeLanguageDialog();
+      closeLocaleDialog();
       toast.success(`Removed ${label}`);
       void cache.invalidate(reads.localeList({ projectId }));
       onRemoved();
@@ -320,7 +313,7 @@ function RemoveLanguageDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !remove.isPending) closeLanguageDialog();
+        if (!next && !remove.isPending) closeLocaleDialog();
       }}
     >
       <AlertDialogContent>
@@ -347,62 +340,4 @@ function RemoveLanguageDialog({
       </AlertDialogContent>
     </AlertDialog>
   );
-}
-
-/** The locale picker's actions in the command palette, offered where its menu offers them. */
-function useLocaleActions({
-  enabled,
-  locales,
-  viewed,
-  switchTo,
-}: {
-  enabled: boolean;
-  locales: readonly LocaleView[];
-  viewed: LocaleView;
-  switchTo: (locale: LocaleView) => Promise<void>;
-}) {
-  React.useEffect(() => {
-    const others = locales.filter((locale) => locale.tag !== viewed.tag);
-    const actions = [
-      {
-        id: SWITCH_TO_LANGUAGE_ID,
-        label: "Switch to language…",
-        aliases: ["Change language", "Locale", "Translation"],
-        groupLabel: "Languages",
-        checkIfAvailable: () => others.length > 0,
-        hasChildren: true,
-        execute: () => {},
-      },
-      ...others.map((other): Action => ({
-        id: `${SWITCH_TO_LANGUAGE_ID}-${other.tag}`,
-        parentActionId: SWITCH_TO_LANGUAGE_ID,
-        label: `Switch to ${languageLabel(other.tag)}`,
-        aliases: [other.tag],
-        groupLabel: "Languages",
-        checkIfAvailable: () => true,
-        execute: () => void switchTo(other),
-      })),
-      {
-        id: "add-language",
-        label: "Add language…",
-        aliases: ["New language", "Add locale", "Translate website"],
-        groupLabel: "Languages",
-        checkIfAvailable: () => enabled,
-        execute: () => studioStore.send({ type: "openLanguageDialog", dialog: "add" }),
-      },
-      {
-        id: "remove-language",
-        label: `Remove ${languageLabel(viewed.tag)}…`,
-        aliases: ["Delete language", "Remove locale"],
-        groupLabel: "Languages",
-        checkIfAvailable: () => enabled && !viewed.isDefault,
-        execute: () => studioStore.send({ type: "openLanguageDialog", dialog: "remove" }),
-      },
-    ] satisfies Action[];
-
-    actionsStore.send({ type: "registerManyActions", actions });
-    return () => {
-      actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
-    };
-  }, [enabled, locales, viewed, switchTo]);
 }

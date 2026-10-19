@@ -47,13 +47,7 @@ export function CommandPalette() {
     }
 
     // Define the order of importance for groups
-    const groupOrder: ActionGroupLabel[] = [
-      "Website",
-      "Navigation",
-      "Drafts",
-      "Languages",
-      "Studio",
-    ];
+    const groupOrder: ActionGroupLabel[] = ["Website", "Navigation", "Drafts", "Studio"];
 
     // Sort groups by the defined order
     const sortedGroups = new Map<ActionGroupLabel, typeof availableActions>();

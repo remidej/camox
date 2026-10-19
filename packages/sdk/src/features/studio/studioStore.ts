@@ -6,8 +6,8 @@ interface StudioContext {
   /** The current draft's review, opened by the drafts control or the command palette. */
   reviewDraftSheet: { open: boolean; startRenaming: boolean };
   isDiscardDraftDialogOpen: boolean;
-  /** The languages dialog open, from the locale picker or the command palette. */
-  languageDialog: "add" | "remove" | null;
+  /** The locale picker's dialog open: adding a locale, or removing the one viewed. */
+  localeDialog: "add" | "remove" | null;
 }
 
 export const studioStore = createStore({
@@ -16,7 +16,7 @@ export const studioStore = createStore({
     commandPalettePages: [],
     reviewDraftSheet: { open: false, startRenaming: false },
     isDiscardDraftDialogOpen: false,
-    languageDialog: null,
+    localeDialog: null,
   } as StudioContext,
   on: {
     openCommandPalette: (context) => {
@@ -66,11 +66,11 @@ export const studioStore = createStore({
     closeDiscardDraftDialog: (context) => {
       return { ...context, isDiscardDraftDialogOpen: false };
     },
-    openLanguageDialog: (context, event: { dialog: "add" | "remove" }) => {
-      return { ...context, languageDialog: event.dialog };
+    openLocaleDialog: (context, event: { dialog: "add" | "remove" }) => {
+      return { ...context, localeDialog: event.dialog };
     },
-    closeLanguageDialog: (context) => {
-      return { ...context, languageDialog: null };
+    closeLocaleDialog: (context) => {
+      return { ...context, localeDialog: null };
     },
   },
 });
