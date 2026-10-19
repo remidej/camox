@@ -53,25 +53,33 @@ export type { Owner, Subject, SubjectKind } from "./subjects";
 type Scope = NonNullable<DraftScope>;
 type FileRow = typeof files.$inferSelect;
 
-export type Change = Subject & { change: "created" | "changed" | "deleted" };
+/**
+ * Where an entity stored once per locale sits (ADR 0015): its locale's tag, or null for an entity
+ * stored once, like a file or a locale.
+ */
+type InLocale = { locale: string | null };
 
-export type Conflict = Subject & {
-  /** Live's version now, or null when Live deleted the entity. */
-  liveVersion: number | null;
-  publishedBy: { id: string; name: string } | null;
-  publishedAt: number | null;
-  /** Whether a release made Live's version, which no member published (ADR 0006). */
-  release: boolean;
-};
+export type Change = Subject & InLocale & { change: "created" | "changed" | "deleted" };
 
-export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletion" };
+export type Conflict = Subject &
+  InLocale & {
+    /** Live's version now, or null when Live deleted the entity. */
+    liveVersion: number | null;
+    publishedBy: { id: string; name: string } | null;
+    publishedAt: number | null;
+    /** Whether a release made Live's version, which no member published (ADR 0006). */
+    release: boolean;
+  };
+
+export type LostChange = Subject & InLocale & { reason: "parentGone" | "writtenAfterDeletion" };
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
-export type Problem = Subject & {
-  code: "definitionsDiffer" | FileProblemCode | ContentProblemCode;
-  field: string;
-  message: string;
-};
+export type Problem = Subject &
+  InLocale & {
+    code: "definitionsDiffer" | FileProblemCode | ContentProblemCode;
+    field: string;
+    message: string;
+  };
 
 export type PublishPreview = {
   blockers: Problem[];
@@ -152,6 +160,7 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
       id: `${kind}:${definition}`,
       label: `${label} "${definition}"`,
       owner: null,
+      locale: null,
       code: "definitionsDiffer",
       field: "",
       message,
@@ -225,8 +234,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
       ]),
     },
   );
-  const asProblem = ({ entity, id, code, field, message }: ContentFinding | Finding): Problem => ({
+  const asProblem = ({
+    entity,
+    id,
+    locale,
+    code,
+    field,
+    message,
+  }: ContentFinding | Finding): Problem => ({
     ...describe(entity, id),
+    locale,
     code,
     field,
     message,
@@ -254,6 +271,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
     ...describe(conflict.entity, conflict.id),
+    locale: conflict.locale,
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
@@ -261,11 +279,12 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   }));
   const lost: LostChange[] = losses.map((loss) => {
     if (loss.reason === "parentGone") {
-      return { ...describe(loss.entity, loss.id), reason: loss.reason };
+      return { ...describe(loss.entity, loss.id), locale: loss.locale, reason: loss.reason };
     }
     const parent = describe(loss.parent.entity, loss.parent.id);
     return {
       ...describe(loss.entity, loss.id),
+      locale: loss.locale,
       label: `Added to ${parent.label} after it was deleted`,
       owner: parent.owner,
       reason: loss.reason,
@@ -273,6 +292,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   });
   const changes: Change[] = stored.map(({ entity, row, change }) => ({
     ...describe(entity, row.id),
+    locale: "locale" in row && typeof row.locale === "string" ? row.locale : null,
     change,
   }));
 
@@ -367,12 +387,17 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
   yield* request(fileRows.map((row) => ({ entity: "file", row })));
 });
 
-/** The draft a request names, which publishing and discarding need. */
+/**
+ * The draft a request names, which publishing and discarding need. They act on every locale,
+ * whichever one the request names.
+ */
 const requireDraft = Effect.fn("drafts.requireDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
-  const { scope } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "member"));
+  const { scope } = yield* Effect.scoped(
+    accessTo({ ...ctx, locale: undefined }, { project: projectId }, "member"),
+  );
   if (!scope) {
     return yield* new InvalidInputError({ message: "Live isn't a draft: name one to publish" });
   }

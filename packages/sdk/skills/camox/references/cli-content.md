@@ -150,6 +150,25 @@ The response's `repeatableItems` contains each item's `id`, `fieldName`, `parent
 
 `blocks get-many` returns the same bundle shape as `blocks get`, in requested-id order.
 
+## Locales
+
+```sh
+{{CAMOX_CMD}} locales list
+{{CAMOX_CMD}} locales add --tag de
+{{CAMOX_CMD}} pages get --path /pricing --locale de
+{{CAMOX_CMD}} blocks edit --id <BLOCK_UUID> --content '{"title":"Hallo"}' --locale de
+{{CAMOX_CMD}} locales remove --tag de
+```
+
+Locales are content: adding or removing one changes the development draft, and
+publishing puts the change on Live. Adding a locale gives every Page, Block,
+repeatable item, synced Block and collection record an untranslated copy in it,
+keeping its id. `pages`, `blocks edit/get/create/move/delete` and `layouts get`
+take `--locale <TAG>` to read or write that copy; without it they act on the
+default locale. Removing a locale deletes its content from Live for good once
+published. `locales set-default-tag --tag en-GB` corrects the default locale's
+tag, only while it's the only locale.
+
 ## Review
 
 ```sh

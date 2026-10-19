@@ -1,4 +1,9 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
+import {
+  DRAFT_CREATE_HEADER,
+  DRAFT_HEADER,
+  DEVELOPMENT_DRAFT,
+  LOCALE_HEADER,
+} from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { os, ORPCError } from "@orpc/server";
 
@@ -44,7 +49,8 @@ function draftRequestOf(headers: Headers): DraftRequest | null {
 
 /**
  * Public procedure — available to anyone, no auth required. Every procedure gets the draft
- * its request names as `context.draft`; services check it through content access (`accessTo`).
+ * its request names as `context.draft`, and the locale as `context.locale`; services check both
+ * through content access (`accessTo`).
  */
 export const pub = os
   .$context<BaseContext>()
@@ -59,7 +65,14 @@ export const pub = os
       throw error;
     }
   })
-  .use(({ context, next }) => next({ context: { draft: draftRequestOf(context.headers) } }));
+  .use(({ context, next }) =>
+    next({
+      context: {
+        draft: draftRequestOf(context.headers),
+        locale: context.headers.get(LOCALE_HEADER) ?? undefined,
+      },
+    }),
+  );
 
 /** Authed procedure — requires authenticated user */
 export const authed = pub.use(async ({ context, next }) => {

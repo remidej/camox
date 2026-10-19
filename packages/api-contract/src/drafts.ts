@@ -4,6 +4,12 @@ import type { Router } from "./index.ts";
 export const DRAFT_HEADER = "x-camox-draft";
 
 /**
+ * Request header naming, by its tag, the locale a request reads and writes content in (ADR
+ * 0015). Absent means the project's default locale.
+ */
+export const LOCALE_HEADER = "x-camox-locale";
+
+/**
  * Request header asking the API to create the draft named by `DRAFT_HEADER` if it doesn't
  * exist yet. Its value is `"1"`.
  */
@@ -138,8 +144,17 @@ const ITEM_WRITES: Record<keyof Router["repeatableItems"], boolean> = {
   delete: true,
 };
 
+// Correcting the default locale's tag changes no content, so it needs no draft (ADR 0015).
+const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
+  list: false,
+  add: true,
+  remove: true,
+  setDefaultTag: false,
+};
+
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCK_WRITES,
+  locales: LOCALE_WRITES,
   collectionDefinitions: COLLECTION_WRITES,
   files: FILE_WRITES,
   pages: PAGE_WRITES,

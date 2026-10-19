@@ -8,6 +8,7 @@ import * as discard from "./commands/discard";
 import * as files from "./commands/files";
 import * as init from "./commands/init";
 import * as layouts from "./commands/layouts";
+import * as locales from "./commands/locales";
 import * as login from "./commands/login";
 import * as logout from "./commands/logout";
 import * as pages from "./commands/pages";
@@ -31,6 +32,7 @@ type Result =
   | Parameters<typeof pages.handler>[0]
   | Parameters<typeof blocks.handler>[0]
   | Parameters<typeof layouts.handler>[0]
+  | Parameters<typeof locales.handler>[0]
   | Parameters<typeof publish.handler>[0]
   | Parameters<typeof discard.handler>[0]
   | Parameters<typeof files.handler>[0];
@@ -46,6 +48,7 @@ const program = defineProgram({
     pages.parser,
     blocks.parser,
     layouts.parser,
+    locales.parser,
     publish.parser,
     discard.parser,
     files.parser,
@@ -105,6 +108,12 @@ switch (result.command) {
   case "layouts.list":
   case "layouts.get":
     await layouts.handler(result);
+    break;
+  case "locales.list":
+  case "locales.add":
+  case "locales.remove":
+  case "locales.set-default-tag":
+    await locales.handler(result);
     break;
   case "publish":
     await publish.handler(result);

@@ -96,6 +96,9 @@ describe("Live is read-only", () => {
         "deletePage",
         "publishDraft",
         "discardDraft",
+        "addLocale",
+        "removeLocale",
+        "setDefaultLocaleTag",
       ].sort(),
     );
   });

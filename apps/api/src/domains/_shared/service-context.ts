@@ -27,6 +27,12 @@ export type ServiceContext = {
    */
   draft: DraftRequest | null;
   /**
+   * The locale the request reads and writes content in, by its tag, through `x-camox-locale` or
+   * an AI tool's `locale`. Absent means the default locale (ADR 0015). Content access checks
+   * that the draft has it.
+   */
+  locale?: string;
+  /**
    * The project the request is bound to, such as an AI tool session's: content access reads
    * every other project's content as missing.
    */

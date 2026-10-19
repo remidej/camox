@@ -8,7 +8,7 @@ import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, asCliError, parseJsonFlag, printError } from "../lib/output";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, localeFlag } from "../lib/runtime-options";
 import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
@@ -47,6 +47,7 @@ const get = command(
     id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -58,6 +59,7 @@ const getMany = command(
     id: multiple(option("--id", uuidv7()), { min: 1 }),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -80,6 +82,7 @@ const create = command(
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -94,6 +97,7 @@ const edit = command(
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -112,6 +116,7 @@ const move = command(
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -123,13 +128,14 @@ const del = command(
     id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
 
 export const parser = command("blocks", or(types, describe, get, getMany, create, edit, move, del));
 
-type CommonFlags = { cwd?: string; project?: string; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; locale?: string; json: boolean };
 
 type PositioningFlags = {
   position?: "first" | "last";
@@ -234,6 +240,7 @@ export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
+  const locale = args.locale;
 
   try {
     switch (args.command) {
@@ -243,6 +250,7 @@ export async function handler(args: Args): Promise<never> {
           args: {},
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       case "blocks.describe":
@@ -251,6 +259,7 @@ export async function handler(args: Args): Promise<never> {
           args: { types: [...args.type] },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       case "blocks.get":
@@ -259,6 +268,7 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       case "blocks.get-many":
@@ -267,6 +277,7 @@ export async function handler(args: Args): Promise<never> {
           args: { ids: [...args.id] },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       case "blocks.create": {
@@ -296,6 +307,7 @@ export async function handler(args: Args): Promise<never> {
           },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       }
@@ -308,6 +320,7 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id, content, settings },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       }
@@ -333,6 +346,7 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id, ...toolArgs },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
       }
@@ -342,6 +356,7 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id },
           cwd,
           projectFlag,
+          locale,
           outputMode,
         });
     }
