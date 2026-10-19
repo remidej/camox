@@ -235,6 +235,9 @@ export function PageNavigationProvider({
           createPageHeadInput((next.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
         );
         renderDOMHead(manager.head);
+        // A visitor's document speaks the page's language. A member's is the Studio's: the page's
+        // frame renders with its own `<html lang>`.
+        if (ownsWindow) document.documentElement.lang = next.locale.tag;
         React.startTransition(() =>
           setLocation((location) => ({
             input: next,
@@ -253,6 +256,7 @@ export function PageNavigationProvider({
       draftScope,
       initialInput.runtimeBasePath,
       loadPage,
+      ownsWindow,
       position,
       prefetched,
       queryClient,

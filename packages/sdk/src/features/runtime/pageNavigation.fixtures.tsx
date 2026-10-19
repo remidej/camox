@@ -6,11 +6,18 @@ import * as React from "react";
 
 import { createApp } from "../../core/createApp";
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
+import { type LocaleView, parseLocalePath } from "../../lib/locale-path";
 import { Frame } from "../preview/components/Frame";
 import { PageNavigationProvider } from "./pageNavigation";
 import type { PageRenderInput } from "./runtime";
 
 type HappyWindow = InstanceType<typeof Window>;
+
+/** The website's locales: English, its default, and German under `/de`. */
+const LOCALES: LocaleView[] = [
+  { tag: "en", isDefault: true },
+  { tag: "de", isDefault: false },
+];
 
 /**
  * A website whose pages each link to the others and hold a `#details` section, open in a
@@ -37,8 +44,8 @@ export async function openPage(
   document.body.innerHTML = '<div id="root"></div>';
   const queryClient = new QueryClient();
   const input = (pathname: string): PageRenderInput => ({
-    locale: { tag: "en", isDefault: true },
-    locales: [{ tag: "en", isDefault: true }],
+    locale: parseLocalePath(pathname, LOCALES).locale,
+    locales: LOCALES,
     presentation: studio ? "studio" : "public",
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
@@ -89,6 +96,9 @@ export async function openPage(
 
   const page = (input: PageRenderInput) => (
     <main data-page={input.pathname}>
+      <a id="to-german" href="/de/preise">
+        Preise
+      </a>
       <a id="to-about" href="/about">
         About
       </a>
