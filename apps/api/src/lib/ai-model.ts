@@ -30,9 +30,27 @@ export type ImageMetadataRequest = {
 export type ImageMetadata = { alt: string; filename: string };
 
 /**
- * The model that writes generated values (ADR 0012). Each call is bounded: it times out, retries
- * transient failures, and fails with `AiCallError` once it gives up. Requests and jobs get the
- * OpenRouter adapter (`open-router-model.ts`); tests get a scripted one.
+ * One text to translate, named by a key the answer keeps. `plain` is text as people read it,
+ * `html` an artifact's source whose markup stays as it is, and `slug` a URL path segment.
+ */
+export type TranslationText = { key: string; text: string; format: "plain" | "html" | "slug" };
+
+export type TranslationRequest = {
+  /** The default locale's tag, which every locale is translated from (ADR 0015). */
+  from: string;
+  /** The tag of the locale to translate into. */
+  to: string;
+  texts: readonly TranslationText[];
+};
+
+/** The translations of a request's texts, by key. A missing key keeps its text. */
+export type Translations = Record<string, string>;
+
+/**
+ * The model that writes generated values (ADR 0012) and translations (ADR 0015). Each call is
+ * bounded: it times out, retries transient failures, and fails with `AiCallError` once it gives
+ * up. Requests and jobs get the OpenRouter adapter (`open-router-model.ts`); tests get a scripted
+ * one.
  */
 export class AiModel extends Context.Service<
   AiModel,
@@ -42,5 +60,7 @@ export class AiModel extends Context.Service<
     readonly imageMetadata: (
       request: ImageMetadataRequest,
     ) => Effect.Effect<ImageMetadata, AiCallError>;
+    /** Translates content from the default locale into another locale. */
+    readonly translate: (request: TranslationRequest) => Effect.Effect<Translations, AiCallError>;
   }
 >()("camox/AiModel") {}

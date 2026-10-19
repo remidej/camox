@@ -1,14 +1,9 @@
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { type GenerationJob, AiJobQueue, type JobEntity, jobName } from "../../lib/ai-job-queue";
 import type { AiModel } from "../../lib/ai-model";
 import { Background } from "../../lib/background";
-import {
-  type GenerationJob,
-  GenerationScheduler,
-  type JobEntity,
-  jobName,
-} from "../../lib/generation-scheduler";
 import { isRasterImage } from "../../lib/image-transform";
 import type { Journal } from "../../lib/journal";
 import type { AiCallError } from "../../lib/retry-ai-call";
@@ -129,7 +124,7 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
     entityId: target.row.id,
     draftId: home.draftId,
   };
-  const scheduler = yield* GenerationScheduler;
+  const scheduler = yield* AiJobQueue;
   const background = yield* Background;
   yield* background.run(
     scheduler

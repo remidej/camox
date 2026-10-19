@@ -40,7 +40,7 @@ const add = command(
     json: jsonFlag,
   }),
   {
-    description: message`Add a locale. Every page, block, repeatable item, synced block and collection record of the default locale gets an untranslated copy in it, keeping its id. Publishing puts the locale on Live. Example: camox locales add --tag de.`,
+    description: message`Add a locale. Every page, block, repeatable item, synced block and collection record of the default locale gets a copy in it, keeping its id, which Camox translates in the background. Publishing puts the locale on Live. Example: camox locales add --tag de.`,
   },
 );
 

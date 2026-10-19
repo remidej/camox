@@ -145,9 +145,11 @@ camox locales remove --tag de
 camox locales set-default-tag --tag en-GB
 ```
 
-Locales are added and removed in your development draft, like content. Content
-commands (`pages`, `blocks`, `layouts get`) take `--locale <TAG>` and act on the
-default locale without it. Correcting the default locale's tag applies at once
+Locales are added and removed in your development draft, like content. Camox
+translates the default locale into every other locale of the draft, when a
+locale is added and after every change to the default locale. Content commands
+(`pages`, `blocks`, `layouts get`) take `--locale <TAG>` and act on the default
+locale without it. Correcting the default locale's tag applies at once
 and is only possible while it's the only locale.
 
 ## Media

@@ -53,6 +53,31 @@ describe("summary", () => {
   });
 });
 
+describe("translation", () => {
+  it("returns the translations of the texts asked for, by key", async () => {
+    chat.mockResolvedValue({
+      translations: [
+        { key: "title", text: "Hallo" },
+        { key: "invented", text: "Erfunden" },
+      ],
+    });
+
+    const translations = await Effect.runPromise(
+      openRouterModel("test-api-key").translate({
+        from: "en",
+        to: "de",
+        texts: [
+          { key: "title", text: "Hello", format: "plain" },
+          { key: "pathSegment", text: "pricing", format: "slug" },
+        ],
+      }),
+    );
+
+    // A text the model left out keeps its source; a key nobody asked for is dropped.
+    expect(translations).toEqual({ title: "Hallo" });
+  });
+});
+
 describe("image metadata", () => {
   const failures = [
     { name: "network failure", response: () => Promise.reject(new Error("Network failure")) },

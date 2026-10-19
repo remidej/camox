@@ -36,7 +36,9 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description:
       "Add a locale to the draft, by any BCP 47 tag such as `de`, `pt-BR` or `fr-CA`. Every " +
       "page, block, repeatable item, synced block's shared content and collection record of the " +
-      "default locale gets a localization in it: an untranslated copy keeping its original's id. " +
+      "default locale gets a localization in it, keeping its original's id, which Camox " +
+      "translates in the background. Every later change to the default locale in the draft is " +
+      "translated into it too; changes to a localization aren't translated anywhere. " +
       "Publishing the draft puts the locale on Live. A locale whose prefix (its tag in lowercase) " +
       "is a top-level page path in the default locale blocks publishing.",
     inputSchema: addInput,

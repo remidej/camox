@@ -34,6 +34,7 @@ import * as generatedValueStatements from "../generated-values/service";
 import { homeOf } from "../generated-values/service";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
+import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import {
   checkContentProblems,
@@ -472,7 +473,10 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       shown,
       publishedBy: user.id,
       now: Date.now(),
-      after: generatedValueStatements.publishStatements(ctx.db, scope),
+      after: [
+        ...generatedValueStatements.publishStatements(ctx.db, scope),
+        ...translations.endStatements(ctx.db, scope.id),
+      ],
     }),
   );
   if (applied._tag === "Failure") {
@@ -512,7 +516,10 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
     overlay.discard(ctx.db, scope, {
       discardedBy: user.id,
       now: Date.now(),
-      alongside: generatedValueStatements.discardStatements(ctx.db, scope.id),
+      alongside: [
+        ...generatedValueStatements.discardStatements(ctx.db, scope.id),
+        ...translations.endStatements(ctx.db, scope.id),
+      ],
     }),
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;

@@ -233,6 +233,15 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         if (entity === "page") add(draftId, queryKeys.drafts.all);
         break;
       }
+      case "translations":
+        // The draft's summary, and every listed draft's, says which of its locales are
+        // translating.
+        add(change.draftId, queryKeys.drafts.get);
+        add(null, queryKeys.drafts.list);
+        break;
+      case "localizedWrite":
+        // Its content change says where it shows.
+        break;
       case "definitions":
         // Content conforms to its definitions: everything the scope reads can change.
         add(change.draftId, prefixes.everything);
