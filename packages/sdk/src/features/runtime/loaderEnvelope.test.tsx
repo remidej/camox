@@ -11,7 +11,7 @@ import { createLayout, notFound, type LayoutLoaderResult } from "../../core/crea
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { useNavigate } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
-import { localesResponse } from "./api.fixtures";
+import { localesResponse, markdownBody } from "./api.fixtures";
 import { readHydrationData } from "./hydrationData";
 import { PageNavigationProvider } from "./pageNavigation";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
@@ -333,7 +333,11 @@ function mockCodeOwnedPagesApi(t: { mock: { method: typeof test.mock.method } })
       return Response.json({ json: { markdown: "# Curated", blocks: [] } });
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({
-        json: { before: "<!-- Navbar -->\nNav", after: "<!-- Footer -->\nFooter" },
+        json: {
+          before: "<!-- Navbar -->\nNav",
+          after: "<!-- Footer -->\nFooter",
+          projectName: "Real project",
+        },
       });
     if (url.pathname.endsWith("/layouts/get"))
       return Response.json({
@@ -390,7 +394,7 @@ void test("derived pages get the curated head, built from their loader data", as
   });
 });
 
-void test("code-owned pages answer Markdown between their live layout blocks", async (t) => {
+void test("code-owned pages answer Markdown between their live layout blocks, under the head's title", async (t) => {
   const requested = mockCodeOwnedPagesApi(t);
   const app = codeOwnedPagesApp();
   const markdown = (path: string) =>
@@ -409,19 +413,34 @@ void test("code-owned pages answer Markdown between their live layout blocks", a
   assert.equal(derived?.headers.get("Content-Type"), "text/markdown; charset=utf-8");
   assert.equal(
     await derived!.text(),
-    "<!-- Navbar -->\nNav\n\n# pikachu\n\nElectric mouse\n\n/pikachu\n\n<!-- Footer -->\nFooter",
+    [
+      "---",
+      'title: "pikachu – Pokémon | Real project"',
+      'description: "Electric mouse"',
+      'url: "https://site.test/pokemon/pikachu"',
+      "---",
+      "",
+      "<!-- Navbar -->\nNav\n\n# pikachu\n\nElectric mouse\n\n/pikachu\n\n<!-- Footer -->\nFooter",
+    ].join("\n"),
   );
 
   requested.length = 0;
   const singleton = await markdown("/about");
   assert.equal(
     await singleton!.text(),
-    "<!-- Navbar -->\nNav\n\n# About undefined\n\n<!-- Footer -->\nFooter",
+    [
+      "---",
+      'title: "External data"',
+      'url: "https://site.test/about"',
+      "---",
+      "",
+      "<!-- Navbar -->\nNav\n\n# About undefined\n\n<!-- Footer -->\nFooter",
+    ].join("\n"),
   );
   assert.ok(!requested.some((path) => path.endsWith("/getByPath")), "Singletons skip page lookup");
 
   // A curated page at a derived URL keeps precedence, as for HTML.
-  assert.equal(await (await markdown("/pokemon/curated"))!.text(), "# Curated");
+  assert.equal(markdownBody(await (await markdown("/pokemon/curated"))!.text()), "# Curated");
 
   const missing = await markdown("/pokemon/missingno");
   assert.equal(missing?.status, 404);

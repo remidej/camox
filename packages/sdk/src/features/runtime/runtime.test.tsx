@@ -5,7 +5,7 @@ import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
 import { artifactFrameProps } from "../../core/lib/artifact";
-import { localesResponse, pageListResponse } from "./api.fixtures";
+import { localesResponse, markdownBody, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
@@ -481,7 +481,7 @@ void test("public Markdown responses read the page without a session", async (t)
     }),
     { apiUrl: "https://api.test", projectSlug: "test" },
   );
-  assert.equal(await response?.text(), "# About");
+  assert.equal(markdownBody(await response!.text()), "# About");
   assert.deepEqual(requested, [
     {
       path: "/rpc/pages/getByPath",
@@ -518,10 +518,63 @@ void test("a page's .md URL serves its Markdown whatever the request accepts", a
   for (const path of ["/index.md", "/blog/post.md"]) {
     const response = await request(path);
     assert.equal(response?.headers.get("Content-Type"), "text/markdown; charset=utf-8");
-    assert.equal(await response?.text(), "# Page");
+    assert.equal(markdownBody(await response!.text()), "# Page");
   }
   assert.deepEqual(requestedPaths, ["/", "/blog/post"]);
   assert.equal((await request("/missing.md"))?.status, 404);
+});
+
+void test("a curated page's Markdown opens with its head's title and description, and its URL", async (t) => {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith("/locales/list")) return localesResponse();
+    if (path.endsWith("/pages/getByPath"))
+      return Response.json({
+        json: {
+          page: {
+            id: "7",
+            fullPath: "/blog/post",
+            pathSegment: "post",
+            metaTitle: 'Say "hi"\nto Camox',
+            metaDescription: "A post",
+          },
+          layout: { layoutId: "post" },
+          projectName: "Real project",
+        },
+      });
+    return Response.json({ json: { markdown: "# Post", blocks: [] } });
+  });
+  const postLayout = {
+    _internal: {
+      id: "post",
+      buildMetaTitle: ({ pageMetaTitle, projectName }: Record<string, string>) =>
+        `${pageMetaTitle} | ${projectName}`,
+      buildMetaDescription: ({ pageMetaDescription }: Record<string, string>) =>
+        `${pageMetaDescription}, by us`,
+    },
+  };
+  const response = await handleCamoxRequest(new Request("https://site.test/blog/post.md"), {
+    apiUrl: "https://api.test",
+    projectSlug: "test",
+    getCamoxApp: async () =>
+      ({
+        getLayouts: () => [],
+        getLayoutById: (id: string) => (id === "post" ? postLayout : undefined),
+      }) as unknown as CamoxApp,
+  });
+  assert.equal(
+    await response!.text(),
+    [
+      "---",
+      // Quoted, so any title stays a single YAML value.
+      'title: "Say \\"hi\\"\\nto Camox | Real project"',
+      'description: "A post, by us"',
+      'url: "https://site.test/blog/post"',
+      "---",
+      "",
+      "# Post",
+    ].join("\n"),
+  );
 });
 
 function appWithRoutes(routes: () => unknown) {

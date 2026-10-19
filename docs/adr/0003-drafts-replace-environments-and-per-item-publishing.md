@@ -19,5 +19,4 @@ Pages, layouts, synced blocks, and collection records used to publish independen
 
 ## Research
 
-- [Prior art for parallel content changes](../research/prior-art-parallel-content-changes.md): how Sanity, Contentful, Storyblok and Prismic run parallel sets of changes, which they call releases.
-- [D1 limits for publishing](../research/d1-limits-for-publishing.md): whether a draft can be applied to Live atomically on Cloudflare D1.
+- [D1 limits for publishing (#194)](https://github.com/remidej/camox/issues/194): whether a draft can be applied to Live atomically on Cloudflare D1.

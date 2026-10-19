@@ -388,19 +388,25 @@ export async function loadCamoxPageForRequest({
 
 export async function createMarkdownResponse({
   apiUrl,
+  camoxApp,
   locale,
   pathname,
   projectSlug,
   request,
+  url,
   onNotFound,
 }: {
   apiUrl: string;
+  /** Builds the page's title and description with its layout's callbacks. */
+  camoxApp: CamoxApp | undefined;
   /** The locale of the page. Without it, the default locale. */
   locale?: LocaleView;
   /** The page's path in its locale. Without it, the request's path. */
   pathname?: string;
   projectSlug: string;
   request: Request;
+  /** The page's absolute URL, which the front matter states. */
+  url: string;
   /** Answers for a path without a curated page, such as a derived layout's page. */
   onNotFound?: () => Promise<Response | null>;
 }): Promise<Response | null> {
@@ -411,7 +417,8 @@ export async function createMarkdownResponse({
     const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
     if (!markdown) return null;
 
-    return new Response(markdown, {
+    const meta = buildPageMeta(curatedPageMetaInput(camoxApp, page, locale));
+    return new Response(withFrontMatter(markdown, { ...meta, url }), {
       headers: { "Content-Type": "text/markdown; charset=utf-8" },
     });
   } catch (error) {
@@ -440,13 +447,21 @@ export interface PageHeadInput {
   hasMarkdown: boolean;
 }
 
-export type PageHead = {
-  meta?: Array<Record<string, string>>;
-  links?: Array<Record<string, string>>;
-};
+/** What a page's title and description are built from. */
+export type PageMetaInput = Pick<
+  PageHeadInput,
+  | "layout"
+  | "pageMetaTitle"
+  | "pageMetaDescription"
+  | "data"
+  | "item"
+  | "params"
+  | "projectName"
+  | "pageFullPath"
+>;
 
-/** The head every page gets, whatever its layout kind. */
-export function buildPageHead(input: PageHeadInput): PageHead {
+/** A page's title and description, built by its layout's callbacks. */
+export function buildPageMeta(input: PageMetaInput): { title: string; description?: string } {
   const context = {
     data: input.data,
     ...(input.item && { item: input.item }),
@@ -463,6 +478,50 @@ export function buildPageHead(input: PageHeadInput): PageHead {
         pageMetaDescription: input.pageMetaDescription,
       })
     : input.pageMetaDescription;
+  return { title, ...(description && { description }) };
+}
+
+/** A curated page's meta input: its editor metadata and its layout. */
+/** A curated page's meta input. Its path keeps the prefix of the page's `locale`. */
+function curatedPageMetaInput(
+  camoxApp: CamoxApp | undefined,
+  page: PageStructure,
+  locale?: LocaleView,
+): PageMetaInput {
+  return {
+    layout: page.layout ? camoxApp?.getLayoutById(page.layout.layoutId)?._internal : undefined,
+    pageMetaTitle: page.page.metaTitle ?? page.page.pathSegment,
+    pageMetaDescription: page.page.metaDescription ?? undefined,
+    data: undefined,
+    params: {},
+    projectName: page.projectName,
+    pageFullPath: locale ? localizedPath(page.page.fullPath, locale) : page.page.fullPath,
+  };
+}
+
+/** A Markdown Representation, opened by YAML front matter stating the page's title, description and URL. */
+export function withFrontMatter(
+  markdown: string,
+  meta: { title: string; description?: string; url: string },
+): string {
+  const fields = Object.entries({
+    title: meta.title,
+    description: meta.description,
+    url: meta.url,
+  }).filter((field): field is [string, string] => !!field[1]);
+  // A JSON string is a valid YAML double-quoted scalar, so any text stays a single value.
+  const lines = fields.map(([key, value]) => `${key}: ${JSON.stringify(value)}`);
+  return `---\n${lines.join("\n")}\n---\n\n${markdown}`;
+}
+
+export type PageHead = {
+  meta?: Array<Record<string, string>>;
+  links?: Array<Record<string, string>>;
+};
+
+/** The head every page gets, whatever its layout kind. */
+export function buildPageHead(input: PageHeadInput): PageHead {
+  const { title, description } = buildPageMeta(input);
 
   const meta: Array<Record<string, string>> = [{ title }];
   if (description) meta.push({ name: "description", content: description });
@@ -503,17 +562,11 @@ export function buildCamoxPageHead(
   if (!loaderData) return {};
 
   const { page, origin, faviconUrl } = loaderData;
-  const pageMetaTitle = page.page.metaTitle ?? page.page.pathSegment;
+  const metaInput = curatedPageMetaInput(camoxApp, page, locale);
   return buildPageHead({
-    layout: page.layout ? camoxApp.getLayoutById(page.layout.layoutId)?._internal : undefined,
-    pageMetaTitle,
-    pageMetaDescription: page.page.metaDescription ?? undefined,
-    ogImageTitle: pageMetaTitle,
+    ...metaInput,
+    ogImageTitle: metaInput.pageMetaTitle,
     customOgImageUrl: page.page.customOgImageUrl,
-    data: undefined,
-    params: {},
-    projectName: page.projectName,
-    pageFullPath: locale ? localizedPath(page.page.fullPath, locale) : page.page.fullPath,
     origin,
     faviconUrl,
     hasMarkdown: true,

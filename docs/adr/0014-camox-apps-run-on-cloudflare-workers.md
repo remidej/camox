@@ -1,6 +1,6 @@
 # Camox apps run on Cloudflare Workers
 
-Camox apps used Nitro so they could deploy to any runtime. They now run only on Cloudflare Workers, through `@cloudflare/vite-plugin`, and Nitro is gone. Dev runs the server in workerd like production, so what works locally works deployed, and Camox can build on Workers-only features such as Dynamic Workers for changing blocks without a full build ([research](../research/previewing-code-changes-without-a-dev-server.md)). The Camox API and dashboard already run on Workers, so this is one platform instead of two.
+Camox apps used Nitro so they could deploy to any runtime. They now run only on Cloudflare Workers, through `@cloudflare/vite-plugin`, and Nitro is gone. Dev runs the server in workerd like production, so what works locally works deployed, and Camox can build on Workers-only features such as Dynamic Workers for changing blocks without a full build ([research, #369](https://github.com/remidej/camox/issues/369)). The Camox API and dashboard already run on Workers, so this is one platform instead of two.
 
 ## Considered Options
 

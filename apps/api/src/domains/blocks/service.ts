@@ -693,11 +693,13 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  return layoutSlotsMarkdown(
+  const slots = layoutSlotsMarkdown(
     yield* contentReader(ctx, { projectId: project.id, draft: scope }).markdown([
       { layoutId: layout.layoutId },
     ]),
   );
+  // The page's built title can name the project.
+  return { ...slots, projectName: project.name };
 }, Effect.scoped);
 
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (

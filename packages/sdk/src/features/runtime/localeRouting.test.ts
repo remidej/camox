@@ -270,7 +270,13 @@ void test("a page's Markdown under a locale's prefix is that locale's", async (t
   const reads = mockApi(t);
   const response = await visit("/de/preise.md");
   assert.equal(response?.status, 200);
-  assert.equal(await response!.text(), "# In de");
+  const markdown = await response!.text();
+  assert.ok(markdown.endsWith("\n# In de"), "the body is the locale's");
+  assert.match(
+    markdown,
+    /^url: "https:\/\/site\.test\/de\/preise"$/m,
+    "the front matter links the page under its prefix",
+  );
   assert.deepEqual(
     reads
       .filter((read) => read.procedure === "pages/getByPath")

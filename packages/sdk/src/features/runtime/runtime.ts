@@ -31,6 +31,7 @@ import {
   buildCamoxPageHead,
   buildFaviconUrl,
   buildPageHead,
+  buildPageMeta,
   createMarkdownResponse,
   parseMarkdownPath,
   createServerApiClient,
@@ -38,6 +39,7 @@ import {
   isNotFoundError,
   loadCamoxPageForRequest,
   prefersMarkdown,
+  withFrontMatter,
   readDraftOrLive,
   readScopeLocales,
   renderedHref,
@@ -839,21 +841,23 @@ async function loadLayoutResult(
 }
 
 /**
- * The Markdown of a singleton or derived page: its before blocks, the layout's toMarkdown
- * output, then its after blocks. Without toMarkdown, the page is HTML only.
+ * The Markdown of a singleton or derived page: front matter, its before blocks, the layout's
+ * toMarkdown output, then its after blocks. Without toMarkdown, the page is HTML only.
  */
 async function createLayoutMarkdownResponse(
   options: RuntimeOptions,
   match: DerivedMatch,
   locale: LocaleView,
+  /** The page's full path, with its locale's prefix, and its absolute URL, which the front matter states. */
+  page: { pathname: string; url: string },
 ): Promise<Response | null> {
   const { toMarkdown, id } = match.layout._internal;
   const { apiUrl, projectSlug } = options;
   if (!toMarkdown || !apiUrl || !projectSlug) return null;
   const api = createServerApiClient(apiUrl, { locale });
   const app = await options.getCamoxApp?.();
-  /** The layout's own Markdown, between its before and after blocks. */
-  const layoutMarkdown = async (): Promise<readonly string[]> => {
+  /** The layout's own Markdown, between its before and after blocks, and what built it. */
+  const layoutMarkdown = async () => {
     // Markdown is a public output: it reads published records whoever asks.
     const result = await loadLayoutResult(
       app,
@@ -862,35 +866,46 @@ async function createLayoutMarkdownResponse(
     );
     const record = asCollectionItem(result);
     const collection = record && app?.getCollectionById(record.collectionId);
-    if (!record || !collection) return toMarkdown({ data: result?.data, params: match.params });
+    if (!record || !collection)
+      return { body: toMarkdown({ data: result?.data, params: match.params }), data: result?.data };
     const { data } = record;
     // A record page's fields render like a reference list's records: the API fills them.
     const template = recordMarkdownTemplate(collection, (item) =>
       toMarkdown({ data, params: match.params, item }),
     );
-    return [
-      await api.collectionDefinitions.recordMarkdown({
-        projectSlug,
-        collectionId: record.collectionId,
-        id: data.id,
-        toMarkdown: template,
-      }),
-    ];
+    const body = await api.collectionDefinitions.recordMarkdown({
+      projectSlug,
+      collectionId: record.collectionId,
+      id: data.id,
+      toMarkdown: template,
+    });
+    return { body: [body], data, item: recordPlainText(collection, data.content) };
   };
-  let body: readonly string[];
+  let rendered: Awaited<ReturnType<typeof layoutMarkdown>>;
   try {
-    body = await layoutMarkdown();
+    rendered = await layoutMarkdown();
   } catch (error) {
     if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
   }
   const slots = await api.blocks.getLayoutMarkdown({ projectSlug, layoutId: id }).catch((error) => {
     // A layout that was never synced has no blocks yet.
-    if (isNotFoundError(error)) return { before: "", after: "" };
+    if (isNotFoundError(error)) return { before: "", after: "", projectName: "" };
     throw error;
   });
-  const markdown = [slots.before, ...body, slots.after].filter(Boolean).join("\n\n");
-  return new Response(markdown, {
+  // The same title and description as the page's head.
+  const meta = buildPageMeta({
+    layout: match.layout._internal,
+    pageMetaTitle: match.layout._internal.title,
+    pageMetaDescription: undefined,
+    data: rendered.data,
+    item: rendered.item,
+    params: match.params,
+    projectName: slots.projectName,
+    pageFullPath: page.pathname,
+  });
+  const markdown = [slots.before, ...rendered.body, slots.after].filter(Boolean).join("\n\n");
+  return new Response(withFrontMatter(markdown, { ...meta, url: page.url }), {
     headers: { "Content-Type": "text/markdown; charset=utf-8" },
   });
 }
@@ -1381,7 +1396,7 @@ export async function handleCamoxRequest(
       const markdownResponse = await createPageMarkdownResponse(
         { ...options, apiUrl, projectSlug },
         located,
-        request,
+        { pathname: markdownPathname ?? pathname, request },
       );
       if (markdownResponse) return markdownResponse;
       if (markdownPathname) return new Response("Page not found", { status: 404 });
@@ -1419,20 +1434,25 @@ async function respondInLocale(
 async function createPageMarkdownResponse(
   options: RuntimeOptions & { apiUrl: string; projectSlug: string },
   { locale, path }: RequestLocale,
-  request: Request,
+  /** The page's full path, with its locale's prefix, and the request asking for it. */
+  { pathname, request }: { pathname: string; request: Request },
 ): Promise<Response | null> {
+  // The front matter links the page itself, not its Markdown.
+  const page = { pathname, url: absoluteUrl(request, options)(pathname) };
   const app = await options.getCamoxApp?.();
   const layoutMatch = app && matchDerivedLayout(app.getLayouts(), path);
   if (layoutMatch?.layout._internal.kind === "singleton")
-    return createLayoutMarkdownResponse(options, layoutMatch, locale);
+    return createLayoutMarkdownResponse(options, layoutMatch, locale, page);
   return createMarkdownResponse({
     apiUrl: options.apiUrl,
+    camoxApp: app,
     locale,
     pathname: path,
     projectSlug: options.projectSlug,
     request,
+    url: page.url,
     onNotFound: async () =>
-      layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale) : null,
+      layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale, page) : null,
   });
 }
 
