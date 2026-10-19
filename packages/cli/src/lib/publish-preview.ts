@@ -73,9 +73,19 @@ export function formatPreview(preview: PublishPreview): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** What to do next: fix the blockers, or publish when there is something to publish. */
+/**
+ * What to do next: fix the blockers, or publish when there is something to publish, waiting for
+ * running translations or publishing anyway.
+ */
 function nextStep(preview: PublishPreview): string[] {
   if (preview.blockers.length > 0) return ["Publishing is blocked until the blockers are fixed."];
   if (preview.changes.length === 0) return [];
-  return [`Publish with: camox publish --confirm ${preview.token}`];
+  const publish = `camox publish --confirm ${preview.token}`;
+  if (preview.translating.length > 0) {
+    return [
+      `Translations into ${preview.translating.join(", ")} are still running: publish once they finish, or publish anyway and Camox finishes them in a draft of its own.`,
+      `Publish anyway with: ${publish} --anyway`,
+    ];
+  }
+  return [`Publish with: ${publish}`];
 }

@@ -1,4 +1,4 @@
-import { DRAFT_ENDED_ERROR_CODE } from "@camox/api-contract/drafts";
+import { DRAFT_ENDED_ERROR_CODE, TRANSLATIONS_PENDING_ERROR } from "@camox/api-contract/drafts";
 import { object } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
@@ -11,7 +11,8 @@ import { type PublishPreview, formatPreview } from "../lib/publish-preview";
 import { cwdFlag } from "../lib/runtime-options";
 
 // Publishing the development draft to Live (ADR 0009, ADR 0010): without `--confirm` it prints
-// what publishing would do and a token; with the token it publishes, unless Live changed since.
+// what publishing would do and a token; with the token it publishes, unless Live changed since
+// or translations are still running (`--anyway` publishes regardless, ADR 0015).
 
 export const parser = command(
   "publish",
@@ -22,6 +23,9 @@ export const parser = command(
         description: message`Publish, with the token \`camox publish\` printed with the list you reviewed.`,
       }),
     ),
+    anyway: option("--anyway", {
+      description: message`With --confirm, publish while translations are still running: Camox finishes them in a draft of its own and publishes it once they're done.`,
+    }),
     cwd: cwdFlag,
     project: optional(option("--project", string({ metavar: "SLUG" }))),
     json: option("--json"),
@@ -34,6 +38,7 @@ export const parser = command(
 type Args = {
   command: "publish";
   confirm?: string;
+  anyway: boolean;
   cwd?: string;
   project?: string;
   json: boolean;
@@ -45,7 +50,7 @@ type PublishResult =
   | { published: false; reason: "discarded"; message: string }
   | {
       published: false;
-      reason: "conflictsChanged" | "blocked";
+      reason: "conflictsChanged" | "blocked" | "translating";
       message: string;
       preview: PublishPreview;
     };
@@ -53,6 +58,7 @@ type PublishResult =
 const NOT_PUBLISHED_CODES = {
   conflictsChanged: "CONFLICTS_CHANGED",
   blocked: "PUBLISH_BLOCKED",
+  translating: TRANSLATIONS_PENDING_ERROR,
 };
 
 export async function handler(args: Args): Promise<never> {
@@ -72,7 +78,7 @@ export async function handler(args: Args): Promise<never> {
   const result = (await callToolResult({
     ...target,
     toolName: "publishDraft",
-    args: { token: args.confirm },
+    args: { token: args.confirm, ...(args.anyway && { publishAnyway: true }) },
   })) as PublishResult;
 
   if (result.published !== false) {
