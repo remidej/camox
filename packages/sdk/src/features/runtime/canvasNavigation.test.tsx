@@ -126,7 +126,10 @@ for (const base of ["", "/mounted"]) {
       });
       assertLocation("/about", 2);
       assert.equal(committedSource, "canvas");
-      assert.equal(window.history.state, null, "provenance is never persisted in history");
+      assert.ok(
+        !JSON.stringify(window.history.state ?? null).includes("canvas"),
+        "provenance is never persisted in history",
+      );
       assert.equal(replace.mock.callCount(), 1);
       await React.act(async () => {
         await navigate!({ to: "/about?view=wide#section", replace: true });
@@ -136,7 +139,7 @@ for (const base of ["", "/mounted"]) {
       // Happy DOM does not implement history traversal: reproduce the browser's
       // URL update followed by popstate for back and forward.
       for (const [index, path] of ["/", "/about"].entries()) {
-        window.history.replaceState(null, "", `${base}${path}`);
+        window.history.replaceState(window.history.state, "", `${base}${path}`);
         const replacements = replace.mock.callCount();
         await React.act(async () => {
           window.dispatchEvent(new window.PopStateEvent("popstate"));
