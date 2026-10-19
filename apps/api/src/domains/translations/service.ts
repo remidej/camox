@@ -15,7 +15,12 @@ import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftOf, type Draft } from "../drafts/scope";
 import { locales } from "../locales/schema";
-import { translationClaims, translationRequests, type TranslationRequestSource } from "./schema";
+import {
+  translationBookkeeping,
+  translationClaims,
+  translationRequests,
+  type TranslationRequestSource,
+} from "./schema";
 
 // Camox keeps every locale translated from the default locale (ADR 0015). Every write to a
 // default-locale entity in a draft, whatever wrote it, requests its translation into each of the
@@ -263,7 +268,10 @@ export const translatePlacedDefaults = Effect.fn("translations.translatePlacedDe
   });
 });
 
-/** Statements dropping a draft's pending translations and claims in a locale it removes. */
+/**
+ * Statements dropping a draft's pending translations, claims and bookkeeping in a locale it
+ * removes.
+ */
 export function dropLocaleStatements(db: Database, draft: Draft, tag: string) {
   return [
     db
@@ -272,16 +280,23 @@ export function dropLocaleStatements(db: Database, draft: Draft, tag: string) {
     db
       .delete(translationClaims)
       .where(and(eq(translationClaims.draftId, draft.id), eq(translationClaims.locale, tag))),
+    db
+      .delete(translationBookkeeping)
+      .where(
+        and(eq(translationBookkeeping.draftId, draft.id), eq(translationBookkeeping.locale, tag)),
+      ),
   ];
 }
 
 /**
- * Statements dropping a draft's pending translations and claims when it's published or
- * discarded: its jobs then do nothing, also in a development draft, which stays (ADR 0006).
+ * Statements dropping a draft's pending translations, claims and bookkeeping when it's published
+ * or discarded: its jobs then do nothing, also in a development draft, which stays (ADR 0006).
+ * Publishing copies its bookkeeping to Live first (`bookkeeping.publishStatements`).
  */
 export function endStatements(db: Database, draftId: string) {
   return [
     db.delete(translationRequests).where(eq(translationRequests.draftId, draftId)),
     db.delete(translationClaims).where(eq(translationClaims.draftId, draftId)),
+    db.delete(translationBookkeeping).where(eq(translationBookkeeping.draftId, draftId)),
   ];
 }

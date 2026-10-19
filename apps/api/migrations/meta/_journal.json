@@ -57,6 +57,13 @@
       "when": 1792439762417,
       "tag": "0007_translation_request_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792441331500,
+      "tag": "0008_translation_bookkeeping",
+      "breakpoints": true
     }
   ]
 }

@@ -29,8 +29,11 @@ export function draftIn(scope: ReadScope): Draft | null {
   return scope && "id" in scope ? scope : null;
 }
 
+/** A draft read and written in a locale named by its tag. */
+export type DraftInLocale = Draft & { locale: string };
+
 /** The scope reading what `scope` reads, in another locale named by its tag. */
-export function inLocale(scope: Draft, locale: string): Draft;
+export function inLocale(scope: Draft, locale: string): DraftInLocale;
 export function inLocale(scope: ReadScope, locale: string): Draft | LiveInLocale;
 export function inLocale(scope: ReadScope, locale: string): Draft | LiveInLocale {
   const draft = draftIn(scope);

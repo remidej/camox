@@ -2,11 +2,11 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { AiModel, type TranslationText, type Translations } from "../../lib/ai-model";
-import { inLocale, type Draft } from "../drafts/scope";
+import { type Draft, type DraftInLocale, inLocale } from "../drafts/scope";
 import { draftLocales } from "./service";
 
 /** Where a job reads and writes: its draft in the default locale, and in the job's locale. */
-export type TranslationScope = { draft: Draft; target: Draft; from: string; to: string };
+export type TranslationScope = { draft: Draft; target: DraftInLocale; from: string; to: string };
 
 /**
  * Where a job translating into `locale` reads and writes, unless the draft has no default locale

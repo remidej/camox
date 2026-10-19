@@ -51,6 +51,32 @@ export type TranslationRequest = {
 export type Translations = Record<string, string>;
 
 /**
+ * One text of a localization someone changed by hand while its source changed too, named by a
+ * key the answer keeps: the source and Camox's translation of it when they were last in sync,
+ * then the source and the localization now. Besides the formats of translations, `markdown` is
+ * rich text merged whole, as Markdown.
+ */
+export type MergeText = {
+  key: string;
+  format: TranslationText["format"] | "markdown";
+  previousSource: string;
+  previousTranslation: string;
+  source: string;
+  current: string;
+};
+
+export type MergeRequest = {
+  /** The default locale's tag, the source's locale. */
+  from: string;
+  /** The tag of the localization's locale. */
+  to: string;
+  texts: readonly MergeText[];
+};
+
+/** The merged texts of a request, by key. A missing key keeps the localization's text. */
+export type Merges = Record<string, string>;
+
+/**
  * The model that writes generated values (ADR 0012) and translations (ADR 0015). Each call is
  * bounded: it times out, retries transient failures, and fails with `AiCallError` once it gives
  * up. Requests and jobs get the OpenRouter adapter (`open-router-model.ts`); tests get a scripted
@@ -66,5 +92,7 @@ export class AiModel extends Context.Service<
     ) => Effect.Effect<ImageMetadata, AiCallError>;
     /** Translates content from the default locale into another locale. */
     readonly translate: (request: TranslationRequest) => Effect.Effect<Translations, AiCallError>;
+    /** Merges texts of a localization changed by hand with their changed source, keeping both. */
+    readonly merge: (request: MergeRequest) => Effect.Effect<Merges, AiCallError>;
   }
 >()("camox/AiModel") {}
