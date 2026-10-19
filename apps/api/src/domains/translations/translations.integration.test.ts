@@ -19,6 +19,7 @@ import {
 } from "../../../test/fixtures";
 import {
   answerEvery,
+  forgetAllScheduled,
   forgetScheduled,
   modelCalls,
   scheduled,
@@ -1425,6 +1426,41 @@ describe("localization conflicts", () => {
       subtitle: "Anleitung",
       variant: "light",
     });
+  });
+
+  it("keeps a hand edit on Live's localization that Camox never translated, merging it with the model", async () => {
+    const f = await fixture();
+    translateWithDictionaries();
+    // Published anyway before its translations ran: Live's German copies were never translated,
+    // and their translations wait in Camox's catch-up draft.
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token, publishAnyway: true });
+    forgetAllScheduled();
+    answerEvery("merge", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key, current }) => [key, current])),
+    );
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      first,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, second);
+    await f.runTranslations();
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    const merged = modelCalls()
+      .flatMap((call) => (call.method === "merge" ? call.request.texts : []))
+      .map(({ key, current }) => ({ key, current }));
+    expect(merged).toContainEqual({ key: "subtitle", current: "Handbuch" });
+    const preview = await f.tool("previewPublish", {}, second);
+    expect(preview.conflicts).toEqual([]);
+    await f.tool("publishDraft", { token: preview.token }, second);
+    expect((await f.blockIn("de", {})).block.content.subtitle).toBe("Handbuch");
   });
 
   it("still shows a conflict on a localization the draft only edited by hand", async () => {

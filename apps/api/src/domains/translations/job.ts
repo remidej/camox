@@ -31,7 +31,14 @@ import {
 } from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
 import { translateDefaults } from "./defaults";
-import { keepEdits, type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
+import {
+  asEditedByHand,
+  keepEdits,
+  type Merged,
+  mergeLocalization,
+  type MergeModel,
+  sameValue,
+} from "./merge";
 import { translationScope, type TranslationScope } from "./scope";
 import { pendingRequest, settleTranslation } from "./service";
 import type { Shape } from "./texts";
@@ -118,7 +125,7 @@ const translate = Effect.fn("translation.translate")(function* (
         job.entityId,
       ),
       held: stored,
-      edits: { values: valuesOf(stored), written: written.output },
+      edits: { values: valuesOf(stored), written },
     });
     yield* overlay.rebase(db, scope.target, table, job.entityId, live.version);
     return;
@@ -173,7 +180,9 @@ const liveConflictOf = Effect.fn("translation.liveConflictOf")(function* (
 /**
  * Brings a localization up to date with its source: merges `current` from `bookkeeping`, puts
  * back `edits` made by hand in another copy, and writes the result into the draft unless the
- * draft already holds it (`held`), with its bookkeeping.
+ * draft already holds it (`held`), with its bookkeeping. A `current` without bookkeeping, next to
+ * another copy's, counts as edited by hand wherever it holds something else than Camox wrote
+ * there (ADR 0016).
  */
 const localize = Effect.fn("translation.localize")(function* (
   db: Database,
@@ -184,21 +193,25 @@ const localize = Effect.fn("translation.localize")(function* (
     current: Row | undefined;
     bookkeeping: Bookkeeping | undefined;
     held: Row | undefined;
-    edits?: { values: Values; written: Values };
+    edits?: { values: Values; written: Bookkeeping };
   },
 ) {
   const { draft } = scope;
   const table = overlay.contentTableOf(job.entity);
   const { current, held } = merging;
   const shape = yield* shapeOf(db, scope, job.entity, source);
+  const { edits } = merging;
+  const bookkeeping =
+    merging.bookkeeping ??
+    (current && edits ? asEditedByHand(shape, valuesOf(current), edits.written) : undefined);
   const merged = yield* mergeLocalization(
     shape,
     modelFor(scope),
     valuesOf(source),
     current && valuesOf(current),
-    merging.bookkeeping,
+    bookkeeping,
   );
-  if (merging.edits) keepEdits(shape, merged, merging.edits.values, merging.edits.written);
+  if (edits) keepEdits(shape, merged, edits.values, edits.written.output);
   if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
   if (job.entity === "record") {
     const record = source as typeof collectionRecords.$inferSelect;

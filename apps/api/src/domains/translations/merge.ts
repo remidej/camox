@@ -116,6 +116,20 @@ export function keepEdits(shape: Shape, merged: Merged, edited: Values, written:
 }
 
 /**
+ * The bookkeeping to merge `edited`, a localization with none of its own, from: what Camox wrote
+ * in another copy of it (`written`), with no previous source wherever `edited` holds something
+ * else. Those units count as edited by hand, so the merge keeps them, with the model where the
+ * source holds text, instead of translating over them.
+ */
+export function asEditedByHand(shape: Shape, edited: Values, written: Bookkeeping): Bookkeeping {
+  const source = structuredClone(written.source);
+  for (const unit of mergeUnitsOf(shape, [edited, written.source, written.output])) {
+    if (!sameValue(unit.get(edited), unit.get(written.output))) unit.set(source, undefined);
+  }
+  return { source, output: written.output };
+}
+
+/**
  * What a unit both the source and the localization changed asks the merge, and how its answers
  * make the unit's value; undefined when the current value holds no text, or doesn't line up with
  * the source and isn't rich text, which keeps the current value.
