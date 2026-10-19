@@ -14,9 +14,17 @@ _Avoid_: Team, workspace
 A user who belongs to an organization, with a role in it.
 _Avoid_: Collaborator, seat
 
+**Visitor**:
+Someone viewing Live who isn't a member of the project's organization.
+_Avoid_: Guest, audience, end user
+
 **Project**:
 One website managed by Camox, owned by an organization.
 _Avoid_: Site, app
+
+**Project Setting**:
+A choice that applies to a whole project, the same for Live and every draft, and takes effect without publishing, such as its favicon or analytics providers.
+_Avoid_: Site setting, config
 
 **Release**:
 Building the website and syncing its definitions to Live, adding any content they declare that Live lacks.
@@ -44,12 +52,12 @@ _Avoid_: Fields, model, props
 The typed shape of a block or repeatable item's presentation options, kept separate from its content.
 _Avoid_: Options, config, props
 
-**Setting**:
+**Block Setting**:
 One named entry in a settings schema: a boolean or an enum, edited outside the rendered content.
-_Avoid_: Option, toggle, variant
+_Avoid_: Setting (alone), option, toggle, variant
 
 **Field**:
-One named entry in a content schema, of a kind such as string, image, link, icon, embed, artifact, repeater, or reference. Booleans and enums are settings on blocks and repeatable items, but fields on collection records.
+One named entry in a content schema, of a kind such as string, image, link, icon, embed, artifact, repeater, or reference. Booleans and enums are block settings on blocks and repeatable items, but fields on collection records.
 _Avoid_: Property, attribute
 
 **Artifact**:
@@ -61,7 +69,7 @@ The web page an artifact holds, stored as content.
 _Avoid_: Artifact document, artifact code, artifact HTML
 
 **Artifact Data**:
-The values of sibling fields and settings that a block shares with its artifact, so editors can change what an artifact shows without changing its source.
+The values of sibling fields and block settings that a block shares with its artifact, so editors can change what an artifact shows without changing its source.
 _Avoid_: Artifact props, artifact inputs, parameters
 
 **Layout**:
@@ -115,15 +123,15 @@ A page's editor-facing name, distinct from its path and meta title.
 _Avoid_: Page title, name
 
 **Block**:
-One placement of a block definition, on a page or in a layout, with its own content and settings.
+One placement of a block definition, on a page or in a layout, with its own content and block settings.
 _Avoid_: Section, component, instance
 
 **Synced Block**:
-A block definition whose content and settings are shared by every placement on the website. Like any content, the shared content is changed through drafts, so each draft can hold its own version of it.
+A block definition whose content and block settings are shared by every placement on the website. Like any content, the shared content is changed through drafts, so each draft can hold its own version of it.
 _Avoid_: Global block, shared block, symbol
 
 **Repeatable Item**:
-One entry of a repeater field, owned by its parent block or item and holding its own content and settings.
+One entry of a repeater field, owned by its parent block or item and holding its own content and block settings.
 _Avoid_: Repeater item, child, row
 
 **Collection Record**:
