@@ -449,6 +449,55 @@ describe("the content missing from a locale", () => {
     });
   });
 
+  it("adds back a page's blocks in the order of their originals, though their jobs run at once", async () => {
+    const f = await fixture();
+    const second = await f.tool("createBlock", {
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "One" },
+    });
+    const third = await f.tool("createBlock", {
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "Welcome" },
+    });
+    // Ordered against their ids, which break ties between equal positions.
+    await f.tool("moveBlock", { id: third.id, position: "first" });
+    await f.runTranslations();
+    const order = await f.blocksOn(f.page.id, "en");
+    expect(order).toEqual([third.id, f.block.id, second.id]);
+    await f.tool("deletePage", { id: f.page.id, locale: "de" });
+    await f.publish();
+
+    const later = f.newDraft();
+    await f.tool(
+      "addBackToLocale",
+      { entity: "page", id: f.page.id, locale: "de" },
+      later.starting,
+    );
+    const jobs = scheduled().filter(isTranslationJob);
+    forgetScheduled(...jobs.map((job) => job.entityId));
+    const run = (job: (typeof jobs)[number]) => runService(runAiJob(f.db, job));
+    for (const job of jobs.filter(({ entity }) => entity === "page")) await run(job);
+    // Every block's job waits on the model until all of them do, then they go on together.
+    const blockJobs = jobs.filter(({ entity }) => entity === "block");
+    let waiting = 0;
+    let release!: () => void;
+    const together = new Promise<void>((resolve) => (release = resolve));
+    answerEvery("translate", async ({ texts }) => {
+      if (++waiting === blockJobs.length) release();
+      await together;
+      return Object.fromEntries(texts.map(({ key, text }) => [key, GERMAN[text] ?? text]));
+    });
+    await Promise.all(blockJobs.map(run));
+    for (const job of jobs.filter(({ entity }) => entity !== "page" && entity !== "block")) {
+      await run(job);
+    }
+
+    expect(waiting).toBeGreaterThanOrEqual(blockJobs.length);
+    expect(await f.blocksOn(f.page.id, "de", later.inDraft)).toEqual(order);
+  });
+
   it("refuses to add back what isn't missing from the locale", async () => {
     const f = await fixture();
     await expect(

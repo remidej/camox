@@ -70,9 +70,14 @@ function reordered(ids: readonly string[], written: ReadonlyMap<string, string>)
 
 /**
  * Positions for `ids` in this order, keeping every position it can from `positions`: the
- * longest run already in order keeps its own, the rest get positions between them.
+ * longest run already in order keeps its own, the rest get positions between them, the ones
+ * `preferred` has where they all fit.
  */
-function positionsFor(ids: readonly string[], positions: ReadonlyMap<string, string>) {
+function positionsFor(
+  ids: readonly string[],
+  positions: ReadonlyMap<string, string>,
+  preferred: ReadonlyMap<string, string>,
+) {
   const at = (index: number): Ordered | undefined => {
     const position = positions.get(ids[index]!);
     return position === undefined ? undefined : { id: ids[index]!, position };
@@ -106,7 +111,14 @@ function positionsFor(ids: readonly string[], positions: ReadonlyMap<string, str
   const place = (upper: string | null) => {
     // Kept positions can be equal, ordered by id: no position fits between them.
     if (pending.length > 0 && lower !== null && upper !== null && lower >= upper) return false;
-    const keys = generateNKeysBetween(lower, upper, pending.length);
+    const wanted = pending.map((id) => preferred.get(id));
+    const fits = wanted.every(
+      (key, index): key is string =>
+        key !== undefined &&
+        (index === 0 ? lower === null || lower < key : wanted[index - 1]! < key) &&
+        (upper === null || key < upper),
+    );
+    const keys = fits ? (wanted as string[]) : generateNKeysBetween(lower, upper, pending.length);
     pending.forEach((id, index) => result.set(id, keys[index]!));
     pending = [];
     return true;
@@ -145,9 +157,10 @@ export const placeLocalizedSibling = Effect.fn("translation.placeLocalizedSiblin
   const inSource = siblingsOf(entity, source);
   const inTarget = siblingsOf(entity, merged.values);
   if (!inSource || !inTarget) return;
-  const theirs = overlay
-    .sortByPosition((yield* select(db, scope.draft, inSource)).filter(inSource.matches))
-    .map(({ id }) => id);
+  const sourceSiblings = overlay.sortByPosition(
+    (yield* select(db, scope.draft, inSource)).filter(inSource.matches),
+  );
+  const theirs = sourceSiblings.map(({ id }) => id);
   const fromSource = new Set(theirs);
   const others = (yield* select(db, scope.target, inTarget)).filter(
     (row) => inTarget.matches(row) && row.id !== source.id,
@@ -198,7 +211,12 @@ export const placeLocalizedSibling = Effect.fn("translation.placeLocalizedSiblin
     }
   }
 
-  const placed = positionsFor(order, positions);
+  // Following the source, a sibling the merged order moves takes its original's position where
+  // it fits: jobs placing siblings at once, each before the others land, can't tie.
+  const preferred = follows
+    ? new Map(sourceSiblings.map(({ id, position }) => [id, position]))
+    : new Map<string, string>();
+  const placed = positionsFor(order, positions, preferred);
   for (const row of others) {
     const position = placed.get(row.id)!;
     if (position !== row.position) {
