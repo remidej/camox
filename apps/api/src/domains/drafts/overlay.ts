@@ -770,6 +770,33 @@ export const revert = Effect.fn("overlay.revert")(function* <T extends ContentTa
   return stored;
 });
 
+/**
+ * Moves the copy a draft stores of an entity onto Live's version `liveVersion`, as if it had been
+ * copied then: once a translation job merged a localization with Live's, it's no longer a
+ * conflict (ADR 0016). A later Live change makes it one again.
+ */
+export const rebase = Effect.fn("overlay.rebase")(function* <T extends ContentTable>(
+  db: Database,
+  draft: Draft,
+  table: T,
+  id: string,
+  liveVersion: number,
+) {
+  yield* Effect.promise(() =>
+    db
+      .update(table as SQLiteTable)
+      .set({ baseVersion: liveVersion } as Partial<Values<T>>)
+      .where(
+        and(
+          storedIn(table, draft),
+          eq(table.id, id),
+          inLocaleOf(table, draft),
+          sql`${table.baseVersion} is not null`,
+        ),
+      ),
+  );
+});
+
 // --- Locales (ADR 0015) ---
 //
 // A locale's content is every row of the localized tables naming its tag. These statements act

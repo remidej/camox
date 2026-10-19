@@ -42,6 +42,34 @@ export const readBookkeeping = Effect.fn("translation.readBookkeeping")(function
   return row;
 });
 
+/**
+ * The bookkeeping of a localization in `locale` that a draft stores itself, or Live with a null
+ * `draftId`: unlike `readBookkeeping`, a draft finds none it reads from Live.
+ */
+export const readStoredBookkeeping = Effect.fn("translation.readStoredBookkeeping")(function* (
+  db: Database,
+  stored: { draftId: string | null; locale: string },
+  entity: TranslatedEntity,
+  entityId: string,
+) {
+  return yield* Effect.promise(() =>
+    db
+      .select({ source: translationBookkeeping.source, output: translationBookkeeping.output })
+      .from(translationBookkeeping)
+      .where(
+        and(
+          eq(translationBookkeeping.entity, entity),
+          eq(translationBookkeeping.entityId, entityId),
+          eq(translationBookkeeping.locale, stored.locale),
+          stored.draftId === null
+            ? isNull(translationBookkeeping.draftId)
+            : eq(translationBookkeeping.draftId, stored.draftId),
+        ),
+      )
+      .get(),
+  );
+});
+
 /** Stores a localization's bookkeeping in its draft. */
 export const writeBookkeeping = Effect.fn("translation.writeBookkeeping")(function* (
   db: Database,
