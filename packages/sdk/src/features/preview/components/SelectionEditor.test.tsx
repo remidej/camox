@@ -190,9 +190,9 @@ async function renderSidebar(
   const { createApp } = await import("../../../core/createApp");
   const { createBlock } = await import("../../../core/createBlock");
   const { createCollection } = await import("../../../core/createCollection");
-  const { CollectionItemModalProvider, useCollectionItemModal } =
-    await import("../../content/CollectionItemModalContext");
-  const { ContentCollectionItemModal } = await import("../../content/ContentCollection");
+  const { CollectionItemSheetProvider, useCollectionItemSheet } =
+    await import("../../content/CollectionItemSheetContext");
+  const { ContentCollectionItemSheet } = await import("../../content/ContentCollection");
 
   const people = createCollection({
     id: "people",
@@ -367,9 +367,9 @@ async function renderSidebar(
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  let modal!: ReturnType<typeof useCollectionItemModal>;
-  function ModalProbe() {
-    modal = useCollectionItemModal();
+  let sheet!: ReturnType<typeof useCollectionItemSheet>;
+  function SheetProbe() {
+    sheet = useCollectionItemSheet();
     return null;
   }
   await act(async () => {
@@ -386,15 +386,15 @@ async function renderSidebar(
           <CamoxAppProvider
             app={createApp({ blocks: [definition], collections: [customers, people] })}
           >
-            <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+            <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
               <PreviewEditingOwnerContext.Provider value={owner}>
                 <PageRecordContext value={options.recordPage?.result}>
                   <SelectionEditor />
                 </PageRecordContext>
               </PreviewEditingOwnerContext.Provider>
-              <ModalProbe />
-              <ContentCollectionItemModal projectSlug="site" />
-            </CollectionItemModalProvider>
+              <SheetProbe />
+              <ContentCollectionItemSheet projectSlug="site" />
+            </CollectionItemSheetProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
       </StudioQueryClientProvider>,
@@ -428,7 +428,7 @@ async function renderSidebar(
     previewStore,
     settle,
     crumbs,
-    modalOpened: () => modal.target != null,
+    sheetOpened: () => sheet.target != null,
     selection: () => previewStore.getSnapshot().context.editingContext?.selection ?? null,
     /** The labels and names of the records the preview renders for the logo list. */
     /** The labels of the records the preview renders for the item's partner list. */
@@ -682,7 +682,7 @@ void test("clicking the record card opens the record view with its field rows an
     fieldName: "company",
     recordId: ACME,
   });
-  assert.equal(sidebar.modalOpened(), false, "the page editor no longer opens the edit modal");
+  assert.equal(sidebar.sheetOpened(), false, "the page editor no longer opens the edit sheet");
   assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme"]);
   assert.ok(
     !sidebar.host.querySelector("[data-shared-record]"),
@@ -914,7 +914,7 @@ void test("unlinking a listed record writes the list without it and never offers
       input: { id: BLOCK_ID, content: { logos: [GLOBEX, INITECH] } },
     },
   ]);
-  assert.equal(sidebar.modalOpened(), false);
+  assert.equal(sidebar.sheetOpened(), false);
   assert.ok(!sidebar.hasButton("Delete"), "no deletion is offered");
   assert.deepEqual(
     cards(sidebar.host).map((card) => card.label),
@@ -1140,7 +1140,7 @@ void test("Create item prefills the label, appends the saved record, and cancel 
   const name = document.querySelector<HTMLTextAreaElement>("#collection-name");
   assert.equal(name?.value, "Hooli", "the label is prefilled from the search");
   await sidebar.click("Close");
-  assert.equal(sidebar.modalOpened(), false);
+  assert.equal(sidebar.sheetOpened(), false);
   assert.equal(sidebar.writes.length, 0, "cancel leaves the list unchanged");
 
   await createFromSearch();
@@ -1166,7 +1166,7 @@ void test("Create item prefills the label, appends the saved record, and cancel 
       ["blocks/updateContent", { id: BLOCK_ID, content: { logos: [ACME, CREATED] } }],
     ],
   );
-  assert.equal(sidebar.modalOpened(), false);
+  assert.equal(sidebar.sheetOpened(), false);
   assert.deepEqual(sidebar.selection(), logosField, "the view stays on the list");
   assert.deepEqual(sidebar.previewLogos(), ["Acme: Acme", "Hooli: Hooli"]);
 });

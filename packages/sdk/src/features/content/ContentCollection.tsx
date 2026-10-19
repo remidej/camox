@@ -1,14 +1,8 @@
 import { Button } from "@camox/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@camox/ui/dialog";
 import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
 import { PanelContent, PanelHeader, PanelTitle } from "@camox/ui/panel";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@camox/ui/sheet";
 import { Switch } from "@camox/ui/switch";
 import { Textarea } from "@camox/ui/textarea";
 import { useForm } from "@tanstack/react-form";
@@ -34,7 +28,7 @@ import {
   collectionFormContent,
   type FieldSchema,
 } from "./collection-form";
-import { useCollectionItemModal } from "./CollectionItemModalContext";
+import { useCollectionItemSheet } from "./CollectionItemSheetContext";
 import { DeleteCollectionItemButton } from "./components/DeleteCollectionItemButton";
 
 export const ContentCollection = ({
@@ -44,7 +38,7 @@ export const ContentCollection = ({
   projectSlug: string;
   collection: CollectionDefinition;
 }) => {
-  const itemModal = useCollectionItemModal();
+  const itemSheet = useCollectionItemSheet();
   const {
     data: records,
     isPending,
@@ -63,7 +57,7 @@ export const ContentCollection = ({
         </div>
         <Button
           variant="outline"
-          onClick={() => itemModal.open({ collectionId: collection.collectionId })}
+          onClick={() => itemSheet.open({ collectionId: collection.collectionId })}
         >
           <PlusIcon aria-hidden className="size-4" />
           Create item
@@ -93,7 +87,7 @@ export const ContentCollection = ({
             <Button
               variant="outline"
               className="mt-2"
-              onClick={() => itemModal.open({ collectionId: collection.collectionId })}
+              onClick={() => itemSheet.open({ collectionId: collection.collectionId })}
             >
               <PlusIcon aria-hidden className="size-4" />
               Create item
@@ -107,7 +101,7 @@ export const ContentCollection = ({
                 <button
                   type="button"
                   onClick={() =>
-                    itemModal.open({ collectionId: collection.collectionId, itemId: record.id })
+                    itemSheet.open({ collectionId: collection.collectionId, itemId: record.id })
                   }
                   className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
@@ -135,7 +129,7 @@ export const ContentCollection = ({
                 variant="ghost"
                 size="sm"
                 className="text-muted-foreground hover:text-foreground font-normal"
-                onClick={() => itemModal.open({ collectionId: collection.collectionId })}
+                onClick={() => itemSheet.open({ collectionId: collection.collectionId })}
               >
                 <PlusCircleIcon aria-hidden className="size-3.5" />
                 Add item
@@ -401,15 +395,15 @@ export const ContentCollectionItemEditor = ({
   );
 };
 
-export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: string }) => {
-  const { close, complete, target } = useCollectionItemModal();
+export const ContentCollectionItemSheet = ({ projectSlug }: { projectSlug: string }) => {
+  const { close, complete, target } = useCollectionItemSheet();
 
   return (
-    <Dialog open={!!target} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="flex max-h-[90dvh] flex-col sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{target?.itemId ? "Edit item" : "New item"}</DialogTitle>
-          <DialogDescription>
+    <Sheet open={!!target} onOpenChange={(open) => !open && close()}>
+      <SheetContent side="right" className="gap-0 data-[side=right]:sm:max-w-xl">
+        <SheetHeader className="border-b">
+          <SheetTitle>{target?.itemId ? "Edit item" : "New item"}</SheetTitle>
+          <SheetDescription>
             {target?.itemId ? "Update this collection item." : "Create a new collection item."}
             {target?.itemId && (
               <RecordUsage
@@ -418,9 +412,9 @@ export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: strin
                 id={target.itemId}
               />
             )}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="-mx-1 min-h-0 overflow-y-auto px-1">
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {target && (
             <ContentCollectionItemEditor
               key={`${target.collectionId}:${target.itemId ?? "new"}`}
@@ -432,8 +426,8 @@ export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: strin
             />
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 };
 

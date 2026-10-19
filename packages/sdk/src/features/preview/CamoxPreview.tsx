@@ -2,8 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
-import { CollectionItemModalProvider } from "@/features/content/CollectionItemModalContext";
-import { ContentCollectionItemModal } from "@/features/content/ContentCollection";
+import { CollectionItemSheetProvider } from "@/features/content/CollectionItemSheetContext";
+import { ContentCollectionItemSheet } from "@/features/content/ContentCollection";
 import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
@@ -490,7 +490,7 @@ export const PreviewShell = ({
   }
 
   return (
-    <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+    <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
       <PreviewEditingOwnerContext value={editingOwner}>
         <div
           className={cn(
@@ -527,8 +527,8 @@ export const PreviewShell = ({
           )}
         </div>
       </PreviewEditingOwnerContext>
-      <ContentCollectionItemModal projectSlug={projectSlug} />
-    </CollectionItemModalProvider>
+      <ContentCollectionItemSheet projectSlug={projectSlug} />
+    </CollectionItemSheetProvider>
   );
 };
 
