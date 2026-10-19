@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { jobName, type TranslationJob } from "../../lib/ai-job-queue";
-import { AiModel, type TranslationText, type Translations } from "../../lib/ai-model";
+import type { TranslationText } from "../../lib/ai-model";
 import {
   blocks,
   collectionDefinitions,
@@ -16,12 +16,14 @@ import { itemSchemas } from "../_shared/fields";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
-import { inLocale, type Draft } from "../drafts/scope";
+import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { claimUnique, releaseClaims } from "./claims";
-import { draftLocales, pendingRequest, settleTranslation } from "./service";
+import { translateDefaults } from "./defaults";
+import { translateTexts, translationScope, type TranslationScope } from "./scope";
+import { pendingRequest, settleTranslation } from "./service";
 import { contentTexts, slugOf } from "./texts";
 
 // A translation job (ADR 0015): it writes an entity's localization in one locale of a draft from
@@ -48,9 +50,6 @@ const IDENTITY = new Set([
 const copyOf = (row: Row) =>
   Object.fromEntries(Object.entries(row).filter(([column]) => !IDENTITY.has(column)));
 
-/** Where a job reads and writes: its draft in the default locale, and in the job's locale. */
-type TranslationScope = { draft: Draft; target: Draft; from: string; to: string };
-
 /**
  * Runs a translation job, unless its request is gone because its draft ended, was emptied or
  * dropped the locale since. A job that fails for good leaves the localization as it was and
@@ -64,7 +63,8 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
   const draft = yield* draftScopeOfJob(db, job.draftId);
   const startedAt = Date.now();
   if (draft) {
-    yield* translate(db, draft, job).pipe(
+    const run = job.source === "defaults" ? translateDefaults : translate;
+    yield* run(db, draft, job).pipe(
       Effect.catchCause((cause) => Effect.logError(`[translation] ${jobName(job)} failed`, cause)),
     );
   }
@@ -76,14 +76,8 @@ const translate = Effect.fn("translation.translate")(function* (
   draft: Draft,
   job: TranslationJob,
 ) {
-  const { defaultTag, others } = yield* draftLocales(db, draft);
-  if (defaultTag === undefined || !others.includes(job.locale)) return;
-  const scope: TranslationScope = {
-    draft,
-    target: inLocale(draft, job.locale),
-    from: defaultTag,
-    to: job.locale,
-  };
+  const scope = yield* translationScope(db, draft, job.locale);
+  if (!scope) return;
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
   const current = yield* overlay.get(db, scope.target, table, job.entityId);
@@ -145,16 +139,6 @@ const localize = Effect.fn("translation.localize")(function* (
     case "record":
       return yield* localizeRecord(db, scope, source as typeof collectionRecords.$inferSelect);
   }
-});
-
-/** Asks the model for texts' translations, unless there are none to translate. */
-const translateTexts = Effect.fn("translation.texts")(function* (
-  scope: TranslationScope,
-  texts: TranslationText[],
-) {
-  if (texts.length === 0) return {} as Translations;
-  const model = yield* AiModel;
-  return yield* model.translate({ from: scope.from, to: scope.to, texts });
 });
 
 const translateContent = Effect.fn("translation.content")(function* (

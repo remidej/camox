@@ -50,6 +50,13 @@
       "when": 1792437472146,
       "tag": "0006_generated_values_per_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792439762417,
+      "tag": "0007_translation_request_sources",
+      "breakpoints": true
     }
   ]
 }
