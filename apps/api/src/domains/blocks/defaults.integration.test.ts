@@ -108,6 +108,7 @@ describe("createBlock defaults", () => {
     expect(markdown.before).toContain("# Edited");
     expect(markdown.before).not.toContain("First");
     expect(markdown.after).toBe("");
+    expect(markdown.projectName).toBe(project.name);
   });
 
   it("preserves supplied content but enforces repeater minimums", async () => {

@@ -5,7 +5,7 @@ import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout, type LayoutCollectionItemResult } from "../../core/createLayout";
 import { plainTextToLexicalState } from "../../core/lib/lexicalState";
-import { pageListResponse } from "./api.fixtures";
+import { markdownBody, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const VALID_SESSION = "camox_auth_cookie=valid";
@@ -103,7 +103,9 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
         { status: 404 },
       );
     if (url.pathname.endsWith("/getLayoutMarkdown"))
-      return Response.json({ json: { before: "Navbar", after: "Footer" } });
+      return Response.json({
+        json: { before: "Navbar", after: "Footer", projectName: "Real project" },
+      });
     if (url.pathname.endsWith("/collectionDefinitions/recordMarkdown")) {
       const { json: input } = (await request.json()) as { json: { id: string } };
       markdownRequests.push(input);
@@ -411,7 +413,7 @@ void test("toMarkdown fills the record's fields between the live layout blocks, 
     toMarkdown: ({ item, data }) => [`# ${item.title}`, `By ${item.author.name}`, data.id],
   });
   const response = await request("/articles/first", [layout], VALID_SESSION, "text/markdown");
-  assert.equal(await response!.text(), "Navbar\n\n# First title\n\nFooter");
+  assert.equal(markdownBody(await response!.text()), "Navbar\n\n# First title\n\nFooter");
   assert.deepEqual(lookups.markdownRequests, [
     {
       projectSlug: "test",
@@ -423,7 +425,7 @@ void test("toMarkdown fills the record's fields between the live layout blocks, 
   assertLookupsWithoutSource(lookups, 1);
 });
 
-void test("meta callbacks get the record's fields as plain text", async (t) => {
+void test("meta callbacks get the record's fields as plain text, in the head and the Markdown", async (t) => {
   mockApi(t, withRenderedRecords);
   const layout = createLayout("articles.$slug")({
     ...layoutOptions,
@@ -431,6 +433,7 @@ void test("meta callbacks get the record's fields as plain text", async (t) => {
     ...articles.pages({ by: "slug", param: "slug" }),
     buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
     buildMetaDescription: ({ item }) => `About ${item.slug}`,
+    toMarkdown: ({ item }) => [`# ${item.title}`],
   });
   const response = await request("/_camox/data?path=/articles/rich", [layout]);
   const { head } = (await response!.json()) as PageRenderInput & {
@@ -440,6 +443,12 @@ void test("meta callbacks get the record's fields as plain text", async (t) => {
     { title: "Rich title | Real project" },
     { name: "description", content: "About rich" },
   ]);
+
+  const markdown = await request("/articles/rich", [layout], undefined, "text/markdown");
+  assert.match(
+    await markdown!.text(),
+    /^---\ntitle: "Rich title \| Real project"\ndescription: "About rich"\nurl: "https:\/\/site.test\/articles\/rich"\n---\n\n/,
+  );
 });
 
 void test("a record page layout syncs the collection and field its pages are found by", () => {

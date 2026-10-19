@@ -54,10 +54,13 @@ function throwNotFoundOrRethrow(error: unknown): never {
 export function createMarkdownMiddleware(apiUrl: string, projectSlug: string) {
   return createMiddleware().server(async ({ next, request }) => {
     if (!prefersMarkdown(request.headers.get("Accept") ?? "")) return next();
+    const { origin, pathname } = new URL(request.url);
     const response = await createMarkdownResponse({
       apiUrl,
+      camoxApp: undefined,
       projectSlug,
       request,
+      url: `${origin}${pathname}`,
     });
     if (response) throw response;
 

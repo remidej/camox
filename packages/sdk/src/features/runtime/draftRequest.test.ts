@@ -10,7 +10,7 @@ import {
 } from "@camox/api-contract/drafts";
 
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
-import { pageListResponse } from "./api.fixtures";
+import { markdownBody, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
@@ -217,7 +217,7 @@ void test("Markdown and the sitemap read Live, even for a member naming a draft"
     cookie: MEMBER_SESSION,
     accept: "text/markdown",
   });
-  assert.equal(await markdown!.text(), "# Live");
+  assert.equal(markdownBody(await markdown!.text()), "# Live");
   await request("/pokedex?camox-draft=d1", { cookie: MEMBER_SESSION, accept: "text/markdown" });
   await request("/sitemap.xml?camox-draft=d1", { cookie: MEMBER_SESSION });
   assert.ok(requests.length > 0);
