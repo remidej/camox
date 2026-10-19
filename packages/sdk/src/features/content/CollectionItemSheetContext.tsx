@@ -1,6 +1,6 @@
 import * as React from "react";
 
-export interface CollectionItemModalTarget {
+export interface CollectionItemSheetTarget {
   collectionId: string;
   itemId?: string;
   /** Prefilled content for a new item, e.g. the label typed into a reference picker. */
@@ -9,27 +9,27 @@ export interface CollectionItemModalTarget {
   onSaved?: (item: { id: string }) => void | Promise<void>;
 }
 
-interface CollectionItemModalContextValue {
+interface CollectionItemSheetContextValue {
   close: () => void;
-  open: (target: CollectionItemModalTarget) => void;
-  complete: (target: CollectionItemModalTarget, item: { id: string }) => Promise<void>;
-  target: CollectionItemModalTarget | null;
+  open: (target: CollectionItemSheetTarget) => void;
+  complete: (target: CollectionItemSheetTarget, item: { id: string }) => Promise<void>;
+  target: CollectionItemSheetTarget | null;
 }
 
-const CollectionItemModalContext = React.createContext<CollectionItemModalContextValue | null>(
+const CollectionItemSheetContext = React.createContext<CollectionItemSheetContextValue | null>(
   null,
 );
 
-export function CollectionItemModalProvider({
+export function CollectionItemSheetProvider({
   children,
   onRouteTargetClose,
   routeTarget = null,
 }: {
   children: React.ReactNode;
-  onRouteTargetClose: (target: CollectionItemModalTarget) => void;
-  routeTarget?: CollectionItemModalTarget | null;
+  onRouteTargetClose: (target: CollectionItemSheetTarget) => void;
+  routeTarget?: CollectionItemSheetTarget | null;
 }) {
-  const [requestedTarget, setRequestedTarget] = React.useState<CollectionItemModalTarget | null>(
+  const [requestedTarget, setRequestedTarget] = React.useState<CollectionItemSheetTarget | null>(
     null,
   );
   const target = requestedTarget ?? routeTarget;
@@ -52,14 +52,14 @@ export function CollectionItemModalProvider({
 
     if (routeTarget) onRouteTargetClose(routeTarget);
   }, [onRouteTargetClose, requestedTarget, routeTarget]);
-  const open = React.useCallback((next: CollectionItemModalTarget) => {
+  const open = React.useCallback((next: CollectionItemSheetTarget) => {
     activeTarget.current = next;
     setRequestedTarget(next);
   }, []);
   const complete = React.useCallback(
-    async (savedTarget: CollectionItemModalTarget, item: { id: string }) => {
-      // A dismissed/replaced modal may still have a draft save in flight.
-      // It must not attach an item or close a newer modal when that save returns.
+    async (savedTarget: CollectionItemSheetTarget, item: { id: string }) => {
+      // A dismissed/replaced sheet may still have a draft save in flight.
+      // It must not attach an item or close a newer sheet when that save returns.
       if (activeTarget.current !== savedTarget) return;
       await savedTarget.onSaved?.(item);
       if (activeTarget.current === savedTarget) close();
@@ -72,16 +72,16 @@ export function CollectionItemModalProvider({
   );
 
   return (
-    <CollectionItemModalContext.Provider value={value}>
+    <CollectionItemSheetContext.Provider value={value}>
       {children}
-    </CollectionItemModalContext.Provider>
+    </CollectionItemSheetContext.Provider>
   );
 }
 
-export function useCollectionItemModal() {
-  const context = React.useContext(CollectionItemModalContext);
+export function useCollectionItemSheet() {
+  const context = React.useContext(CollectionItemSheetContext);
   if (!context) {
-    throw new Error("useCollectionItemModal must be used within CollectionItemModalProvider");
+    throw new Error("useCollectionItemSheet must be used within CollectionItemSheetProvider");
   }
   return context;
 }

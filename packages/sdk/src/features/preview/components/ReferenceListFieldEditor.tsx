@@ -23,7 +23,7 @@ import * as React from "react";
 
 import { collectionField, type ReferenceQuery } from "@/core/lib/contentType";
 import { referenceListIds } from "@/core/lib/reference";
-import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
+import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
@@ -207,13 +207,13 @@ export function ReferenceListFieldEditor({
     onClick: () => void;
     postToIframe: (message: OverlayMessage) => void;
   };
-  /** Offer Create item in the picker; off where the create modal would replace a form. */
+  /** Offer Create item in the picker; off where the create sheet would replace a form. */
   allowCreate?: boolean;
 }) {
   const projectSlug = useProjectSlug();
   const collection = useCamoxApp().getCollectionById(collectionId);
   const collectionTitle = collection?._internal.title ?? collectionId;
-  const modal = useCollectionItemModal();
+  const sheet = useCollectionItemSheet();
   const records = useReadQuery(reads.records({ projectSlug, collectionId }), { enabled: !drill });
   const storedIds = referenceListIds(value);
   // The order shown while a write is in flight, so dragged cards don't snap back.
@@ -369,7 +369,7 @@ export function ReferenceListFieldEditor({
               ? {
                   label: "Create item",
                   onSelect: (search) =>
-                    modal.open({
+                    sheet.open({
                       collectionId,
                       initialContent:
                         collection && search.trim()

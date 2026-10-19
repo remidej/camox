@@ -32,7 +32,7 @@ import {
   collectionFormFields,
   type FieldSchema,
 } from "./collection-form";
-import { CollectionItemModalProvider, useCollectionItemModal } from "./CollectionItemModalContext";
+import { CollectionItemSheetProvider, useCollectionItemSheet } from "./CollectionItemSheetContext";
 import { ContentSidebar } from "./components/ContentSidebar";
 import { ContentCollection, ContentCollectionItemEditor } from "./ContentCollection";
 
@@ -167,9 +167,9 @@ void test("experimental UI enables collection browsing and the new-item form", a
     const list = await renderContentPage(client, collectionContentPath("articles"));
     assert.match(list, /Collections/);
     assert.match(list, /Create item/);
-    const modalRoute = await renderContentPage(client, newCollectionItemPath("articles"));
-    assert.match(modalRoute, /Articles/);
-    assert.match(modalRoute, /No items yet/);
+    const sheetRoute = await renderContentPage(client, newCollectionItemPath("articles"));
+    assert.match(sheetRoute, /Articles/);
+    assert.match(sheetRoute, /No items yet/);
   } finally {
     client.clear();
     if (previous === undefined)
@@ -211,9 +211,9 @@ function renderCollection(collection: CollectionDefinition, client: QueryClient)
   return renderToStaticMarkup(
     withNavigation(
       <StudioQueryClientProvider client={client}>
-        <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+        <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
           <ContentCollection projectSlug="site" collection={collection} />
-        </CollectionItemModalProvider>
+        </CollectionItemSheetProvider>
       </StudioQueryClientProvider>,
     ),
   );
@@ -389,7 +389,7 @@ void test("the new item route builds editable fields and media editors from the 
   client.clear();
 });
 
-void test("collection item controls open the shared create and edit modal", async () => {
+void test("collection item controls open the shared create and edit sheet", async () => {
   const { Window } = await import("happy-dom");
   const { act } = await import("react");
   const window = new Window();
@@ -425,15 +425,15 @@ void test("collection item controls open the shared create and edit modal", asyn
   );
   const host = document.createElement("div");
   const root = createRoot(host);
-  function ModalTargetProbe() {
-    const modal = useCollectionItemModal();
+  function SheetTargetProbe() {
+    const sheet = useCollectionItemSheet();
     return (
       <div>
-        <output data-modal-target>
-          {modal.target ? `${modal.target.collectionId}:${modal.target.itemId ?? "new"}` : "closed"}
+        <output data-sheet-target>
+          {sheet.target ? `${sheet.target.collectionId}:${sheet.target.itemId ?? "new"}` : "closed"}
         </output>
-        <button type="button" onClick={modal.close}>
-          Close modal
+        <button type="button" onClick={sheet.close}>
+          Close sheet
         </button>
       </div>
     );
@@ -442,10 +442,10 @@ void test("collection item controls open the shared create and edit modal", asyn
     await act(async () => {
       root.render(
         <StudioQueryClientProvider client={client}>
-          <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+          <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
             <ContentCollection projectSlug="site" collection={collections[0]} />
-            <ModalTargetProbe />
-          </CollectionItemModalProvider>
+            <SheetTargetProbe />
+          </CollectionItemSheetProvider>
         </StudioQueryClientProvider>,
       );
     });
@@ -454,10 +454,10 @@ void test("collection item controls open the shared create and edit modal", asyn
     );
     assert.ok(createButton);
     await act(async () => createButton.click());
-    assert.equal(host.querySelector("[data-modal-target]")?.textContent, "articles:new");
+    assert.equal(host.querySelector("[data-sheet-target]")?.textContent, "articles:new");
 
     const closeButton = [...host.querySelectorAll("button")].find(
-      (button) => button.textContent === "Close modal",
+      (button) => button.textContent === "Close sheet",
     );
     assert.ok(closeButton);
     await act(async () => closeButton.click());
@@ -466,7 +466,7 @@ void test("collection item controls open the shared create and edit modal", asyn
     );
     assert.ok(editButton);
     await act(async () => editButton.click());
-    assert.equal(host.querySelector("[data-modal-target]")?.textContent, "articles:one");
+    assert.equal(host.querySelector("[data-sheet-target]")?.textContent, "articles:one");
   } finally {
     await act(async () => root.unmount());
     host.remove();

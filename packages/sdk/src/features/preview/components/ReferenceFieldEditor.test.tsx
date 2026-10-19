@@ -10,9 +10,9 @@ import { createApp } from "@/core/createApp";
 import { createCollection } from "@/core/createCollection";
 import type { ReferenceQuery } from "@/core/lib/contentType";
 import {
-  CollectionItemModalProvider,
-  useCollectionItemModal,
-} from "@/features/content/CollectionItemModalContext";
+  CollectionItemSheetProvider,
+  useCollectionItemSheet,
+} from "@/features/content/CollectionItemSheetContext";
 import { CamoxAppProvider } from "@/features/provider/components/CamoxAppContext";
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
@@ -77,7 +77,7 @@ async function renderReference(
     required?: boolean;
     records?: RecordSummary[];
     record?: NormalizedCollectionRecord | null;
-    modal?: React.ReactNode;
+    sheet?: React.ReactNode;
     fieldId?: string;
     /** Renders a query-backed reference list resolved to `record` instead of a reference. */
     query?: ReferenceQuery<any>;
@@ -127,7 +127,7 @@ async function renderReference(
   const changes: (string | null)[] = [];
   const opened: string[] = [];
   const control = { reject: false };
-  let modal!: ReturnType<typeof useCollectionItemModal>;
+  let sheet!: ReturnType<typeof useCollectionItemSheet>;
   function Editor() {
     const [value, setValue] = React.useState<string | null>(options.value ?? null);
     if (options.query) {
@@ -157,8 +157,8 @@ async function renderReference(
       />
     );
   }
-  function ModalProbe() {
-    modal = useCollectionItemModal();
+  function SheetProbe() {
+    sheet = useCollectionItemSheet();
     return null;
   }
   const host = document.createElement("div");
@@ -176,11 +176,11 @@ async function renderReference(
           }}
         >
           <CamoxAppProvider app={app}>
-            <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+            <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
               <Editor />
-              <ModalProbe />
-              {options.modal}
-            </CollectionItemModalProvider>
+              <SheetProbe />
+              {options.sheet}
+            </CollectionItemSheetProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
       </StudioQueryClientProvider>,
@@ -228,8 +228,8 @@ async function renderReference(
     changes,
     opened,
     control,
-    get modal() {
-      return modal;
+    get sheet() {
+      return sheet;
     },
     find,
     click,
@@ -255,7 +255,7 @@ void test("a linked record shows a card with its label and collection", async ()
     assert.ok(!view.host.querySelector('[role="combobox"]'), "no picker while linked");
     await view.click("Open Ada");
     assert.deepEqual(view.opened, [ADA], "the card opens the record view");
-    assert.ok(!view.modal.target, "not the edit modal");
+    assert.ok(!view.sheet.target, "not the edit sheet");
     assert.deepEqual(view.changes, []);
   } finally {
     await view.cleanup();
@@ -267,7 +267,7 @@ void test("unlinking clears the reference immediately and restores the picker", 
   try {
     await view.click("Unlink");
     assert.deepEqual(view.changes, [null]);
-    assert.equal(view.modal.target, null, "no confirmation or delete dialog opens");
+    assert.equal(view.sheet.target, null, "no confirmation or delete dialog opens");
     assert.ok(!view.host.querySelector("[data-record-card]"));
     assert.ok(view.host.querySelector('[role="combobox"]'), "unlinking restores the picker");
   } finally {
@@ -324,8 +324,8 @@ void test("Create item prefills the label from the search, links the saved recor
     if (path.endsWith("/listRecords")) return Response.json({ json: records });
     return Response.json({ json: null });
   });
-  const { ContentCollectionItemModal } = await import("@/features/content/ContentCollection");
-  const view = await renderReference({ modal: <ContentCollectionItemModal projectSlug="site" /> });
+  const { ContentCollectionItemSheet } = await import("@/features/content/ContentCollection");
+  const view = await renderReference({ sheet: <ContentCollectionItemSheet projectSlug="site" /> });
   const nameField = () => document.querySelector<HTMLTextAreaElement>("#collection-name");
   const createFromSearch = async (search: string) => {
     await view.click("Select item");
@@ -336,7 +336,7 @@ void test("Create item prefills the label from the search, links the saved recor
     await createFromSearch("Acme");
     assert.equal(nameField()?.value, "Acme", "the label field is prefilled from the search");
     await view.click("Close");
-    assert.ok(!view.modal.target, "cancel closes the modal");
+    assert.ok(!view.sheet.target, "cancel closes the sheet");
     assert.deepEqual(view.changes, [], "cancel leaves the link unchanged");
     assert.deepEqual(created, []);
 
@@ -360,7 +360,7 @@ void test("Create item prefills the label from the search, links the saved recor
       },
     ]);
     assert.deepEqual(view.changes, [CREATED], "the saved record is linked");
-    assert.ok(!view.modal.target, "the modal closes after linking");
+    assert.ok(!view.sheet.target, "the sheet closes after linking");
     const card = view.host.querySelector<HTMLElement>("[data-record-card]");
     assert.ok(card, "the view stays on the reference and shows the new card");
     assert.match(card.textContent ?? "", /Acme/);
@@ -392,18 +392,18 @@ void test("a hint flags only an unlinked required reference", async () => {
   }
 });
 
-void test("a failed link keeps the create modal open and reports the error", async () => {
+void test("a failed link keeps the create sheet open and reports the error", async () => {
   const view = await renderReference();
   try {
     await view.click("Select item");
     await view.click("Create item");
-    const target = view.modal.target;
+    const target = view.sheet.target;
     assert.ok(target);
     view.control.reject = true;
     await act(async () => {
-      await assert.rejects(view.modal.complete(target, { id: CREATED }), /Link failed/);
+      await assert.rejects(view.sheet.complete(target, { id: CREATED }), /Link failed/);
     });
-    assert.equal(view.modal.target, target, "the modal stays open to retry");
+    assert.equal(view.sheet.target, target, "the sheet stays open to retry");
     assert.match(view.host.querySelector('[role="alert"]')?.textContent ?? "", /Link failed/);
     assert.deepEqual(view.changes, []);
   } finally {
