@@ -104,6 +104,8 @@ export type PublishPreview = {
    * waits for them unless it's asked to publish anyway (ADR 0017).
    */
   translating: string[];
+  /** The tag of the default locale, which the others are translated from (null: none yet). */
+  defaultLocale: string | null;
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
   token: string;
 };
@@ -325,6 +327,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     warnings,
     changes,
     translating: translating.get(scope.id) ?? [],
+    defaultLocale: (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null,
     token: encodeToken(storedConflicts),
   } satisfies PublishPreview;
 });

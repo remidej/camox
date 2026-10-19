@@ -129,6 +129,7 @@ function mockApi(
         warnings: [],
         changes: [],
         translating: [],
+        defaultLocale: "en",
         token: "t",
       });
     }

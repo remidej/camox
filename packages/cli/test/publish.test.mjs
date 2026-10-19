@@ -70,6 +70,7 @@ function preview() {
     ],
     changes: api.changes,
     translating: api.translating,
+    defaultLocale: "en",
     token: `token-${api.liveConflicts}`,
   };
 }

@@ -14,15 +14,16 @@ const preview = (changes) => ({
   warnings: [],
   changes,
   translating: [],
+  defaultLocale: "en",
   token: "token-0",
 });
 
-void test("prints the locale of each change", () => {
-  const hero = { entity: "block", id: "block-1", label: "Hero", owner: PAGE, change: "changed" };
+const hero = { entity: "block", id: "block-1", label: "Hero", owner: PAGE, change: "changed" };
 
+void test("groups changes under their locale, the default locale first", () => {
   const printed = formatPreview(
     preview([
-      { ...hero, locale: "en" },
+      { ...hero, locale: "fr" },
       { ...hero, locale: "de" },
       {
         entity: "locale",
@@ -32,10 +33,31 @@ void test("prints the locale of each change", () => {
         locale: null,
         change: "created",
       },
+      { ...hero, id: "block-2", label: "Quote", locale: "en" },
     ]),
   );
 
-  assert.match(printed, /- changed block "Hero" on page \/about \[en\]\n/);
-  assert.match(printed, /- changed block "Hero" on page \/about \[de\]\n/);
-  assert.match(printed, /- created locale "de"\n/);
+  const changes = printed.slice(printed.indexOf("Changes (4)"), printed.indexOf("Token:"));
+  assert.equal(
+    changes,
+    [
+      "Changes (4)",
+      "  en",
+      '    - changed block "Quote" on page /about',
+      "  de",
+      '    - changed block "Hero" on page /about',
+      "  fr",
+      '    - changed block "Hero" on page /about',
+      "  Every locale",
+      '    - created locale "de"',
+      "",
+      "",
+    ].join("\n"),
+  );
+});
+
+void test("names no locale for a draft changing only its default locale", () => {
+  const printed = formatPreview(preview([{ ...hero, locale: "en" }]));
+
+  assert.match(printed, /Changes \(1\)\n {2}- changed block "Hero" on page \/about\n/);
 });

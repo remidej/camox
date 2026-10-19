@@ -18,6 +18,7 @@ void test("publishes seeded content while its translations still run", async () 
     warnings: [],
     changes: [{ entity: "block", id: "block-1", change: "created" }],
     translating: ["de"],
+    defaultLocale: "en",
     token: "token",
   };
   const client = {

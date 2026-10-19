@@ -24,9 +24,6 @@ function where(owner: Owner): string {
 
 const subject = (item: Subject) => `${item.entity} "${item.label}"${where(item.owner)}`;
 
-/** The locale an entity stored per locale is in, after it; none for an entity stored once. */
-const inLocale = (locale: string | null) => (locale === null ? "" : ` [${locale}]`);
-
 const when = (at: number | null) => (at === null ? "" : ` on ${new Date(at).toLocaleString()}`);
 
 function conflictLine(conflict: PublishPreview["conflicts"][number]): string {
@@ -45,6 +42,34 @@ const LOST_REASONS = {
 function section(title: string, lines: string[]): string[] {
   if (lines.length === 0) return [];
   return [`${title} (${lines.length})`, ...lines.map((line) => `  - ${line}`), ""];
+}
+
+type Changed = PublishPreview["changes"][number];
+
+const changeLine = (change: Changed) => `${change.change} ${subject(change)}`;
+
+/**
+ * The draft's changes, under the locale each is in once the draft changes more than its default
+ * locale: the default locale first, then the others, then what every locale shares, like files.
+ */
+function changesSection(preview: PublishPreview): string[] {
+  const { changes, defaultLocale } = preview;
+  const tags = new Set(changes.map((change) => change.locale));
+  if ([...tags].every((tag) => tag === null || tag === defaultLocale)) {
+    return section("Changes", changes.map(changeLine));
+  }
+  const rank = (tag: string | null) => (tag === defaultLocale ? 0 : tag === null ? 2 : 1);
+  const ordered = [...tags].sort((a, b) => rank(a) - rank(b) || (a ?? "").localeCompare(b ?? ""));
+  return [
+    `Changes (${changes.length})`,
+    ...ordered.flatMap((tag) => [
+      `  ${tag ?? "Every locale"}`,
+      ...changes
+        .filter((change) => change.locale === tag)
+        .map((change) => `    - ${changeLine(change)}`),
+    ]),
+    "",
+  ];
 }
 
 /** The preview as text, in the order ADR 0009 lists it, ending with the token. */
@@ -66,12 +91,7 @@ export function formatPreview(preview: PublishPreview): string {
       "Warnings: already on Live, not blocking",
       preview.warnings.map((problem) => `${subject(problem)}: ${problem.message}`),
     ),
-    ...section(
-      "Changes",
-      preview.changes.map(
-        (change) => `${change.change} ${subject(change)}${inLocale(change.locale)}`,
-      ),
-    ),
+    ...changesSection(preview),
   ];
   if (preview.changes.length === 0) lines.push("Your development draft has no changes.", "");
   lines.push(`Token: ${preview.token}`, ...nextStep(preview));
