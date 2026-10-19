@@ -2,7 +2,6 @@ import type { Router } from "@camox/api-contract";
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
-  LOCALE_HEADER,
   NO_DEVELOPMENT_DRAFT_ERROR,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
@@ -14,7 +13,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
-import { localizedPath, type LocaleView } from "../../lib/locale-path";
+import { localeHeaders, localizedPath, type LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -132,11 +131,9 @@ export function createServerApiClient(
   apiUrl: string,
   options?: { authCookieHeader?: string; draftId?: string; locale?: LocaleView },
 ): RouterClient<Router> {
-  const headers: Record<string, string> = {};
+  const headers = localeHeaders(options?.locale);
   // Only a session can read a draft, so a draft is only ever named along with one.
   if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
-  // The default locale is the API's own default, so only another locale is named.
-  if (options?.locale && !options.locale.isDefault) headers[LOCALE_HEADER] = options.locale.tag;
   return createORPCClient<RouterClient<Router>>(
     new RPCLink({
       url: `${apiUrl}/rpc`,

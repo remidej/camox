@@ -1,5 +1,5 @@
 import { getPageDestinations } from "../../core/pageDestinations";
-import { type LocaleView, localizedPath } from "../../lib/locale-path";
+import { type LocaleView, localizedPath, UNNAMED_DEFAULT_LOCALE } from "../../lib/locale-path";
 
 type DestinationLayouts = Parameters<typeof getPageDestinations>[1];
 
@@ -56,7 +56,7 @@ export function getCanvasPages(
   pages: Parameters<typeof getPageDestinations>[0],
   layouts: DestinationLayouts,
   discoveredPaths?: ReadonlyMap<string, string>,
-  locale: LocaleView = { tag: "und", isDefault: true },
+  locale: LocaleView = UNNAMED_DEFAULT_LOCALE,
 ): CanvasPage[] {
   const inLocale = (path: string) => localizedPath(path, locale);
   // Route discovery finds the default locale's records, whose paths another locale lacks.

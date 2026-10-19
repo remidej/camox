@@ -96,7 +96,10 @@ interface EntryDefinition<P, T, R> {
     load: (context: FetchContext, params: P) => Promise<R>;
     land: (response: R, fill: FetchContext["fill"], params: P) => T;
   };
-  /** Decodes the params from a key, for reads matched in a dehydrated cache. */
+  /**
+   * Decodes the params from a key as `key` builds it, without its locale and scope, for reads
+   * matched in a dehydrated cache.
+   */
   parse?: (key: readonly unknown[]) => P | null;
   staleTime?: number;
   retry?: boolean;
@@ -113,7 +116,8 @@ function entry<P, T, R = T>(definition: EntryDefinition<P, T, R>): ReadEntry<P, 
   const make = ((params: P) => ({ entry: make, params })) as ReadEntry<P, T, R>;
   Object.assign(make, {
     definition,
-    paramsOf: (key: readonly unknown[]) => definition.parse?.(key) ?? null,
+    paramsOf: (key: readonly unknown[]) =>
+      definition.parse?.(key.slice(0, key.length - keySuffixLength(definition))) ?? null,
   });
   return make;
 }
@@ -210,15 +214,11 @@ export const reads = {
   blockBundle: entry<string, BlockBundle>({
     key: (id) => queryKeys.blocks.get(id),
     fetch: ({ api, signal }, id) => api.blocks.get({ id }, { signal }),
-    // A block bundle's key is its block's prefix, a locale and a scope; decoding rebuilds it to
-    // check.
+    // A block bundle's key is its block's prefix; decoding rebuilds it to check.
     parse: (key) => {
       const id = key[3];
       if (typeof id !== "string") return null;
-      const rebuilt = inScope(
-        [...queryKeys.blocks.get(id), String(key.at(-2))],
-        scopeOfKey(key) as string,
-      );
+      const rebuilt = queryKeys.blocks.get(id);
       return rebuilt.length === key.length && rebuilt.every((part, index) => part === key[index])
         ? id
         : null;
@@ -518,6 +518,20 @@ type Target = { draft: string | null; locale: LocaleView };
  */
 const localeKey = (locale: LocaleView) => (locale.isDefault ? "" : locale.tag);
 
+/** A read's key in `target`: its own key, then its locale unless it has none, then its scope. */
+function keyIn(definition: EntryDefinition<any, any, any>, params: unknown, target: Target) {
+  const key = definition.key(params);
+  if (definition.shared) return key;
+  // The scope stays last: moving between drafts reads and rewrites it there.
+  return inScope(definition.everyLocale ? key : [...key, localeKey(target.locale)], target.draft);
+}
+
+/** How many segments `keyIn` appends to a read's own key: its locale and scope. */
+function keySuffixLength(definition: EntryDefinition<any, any, any>) {
+  if (definition.shared) return 0;
+  return definition.everyLocale ? 1 : 2;
+}
+
 /**
  * The studio's reads, cached for one draft scope: one per browser window and per server request.
  * Every operation acts in the scope's current draft unless `in` names another.
@@ -587,13 +601,8 @@ export function createStudioCache({
     draft: options && "in" in options ? (options.in ?? null) : scope.current(),
     locale: options?.locale ?? viewedLocale(),
   });
-  const keyOf = (read: Read<any, any>, { draft, locale }: Target): QueryKey => {
-    const definition = read.entry.definition;
-    const key = definition.key(read.params);
-    if (definition.shared) return key;
-    // The scope stays last: moving between drafts reads and rewrites it there.
-    return inScope(definition.everyLocale ? key : [...key, localeKey(locale)], draft);
-  };
+  const keyOf = (read: Read<any, any>, target: Target): QueryKey =>
+    keyIn(read.entry.definition, read.params, target);
   const contextFor = (target: Target, signal: AbortSignal): FetchContext => ({
     draft: target.draft,
     // Only fetches need a client: landing a response doesn't.
@@ -720,6 +729,14 @@ export function useStudioCache(): StudioCache {
   return cache;
 }
 
+/**
+ * The draft and locale the caller's render shows, which its reads name: the read hooks re-render
+ * after a move to another draft, and a locale switch mounts the page afresh.
+ */
+function useShownTarget(): InDraft {
+  return { in: useCurrentDraftId(), locale: React.useContext(ViewLocaleContext)?.locale };
+}
+
 const NO_READ: ReadQueryOptions<null> = {
   queryKey: ["camox", "noRead"],
   queryFn: async () => null,
@@ -733,7 +750,7 @@ const NO_READ: ReadQueryOptions<null> = {
 export function useRead<T>(read: Read<T, any>): T;
 export function useRead<T>(read: Read<T, any> | null): T | null;
 export function useRead<T>(read: Read<T, any> | null): T | null {
-  const inDraft = { in: useCurrentDraftId(), locale: React.useContext(ViewLocaleContext)?.locale };
+  const inDraft = useShownTarget();
   const cache = useStudioCache();
   const { data } = useSuspenseQuery<T | null, Error, T | null, QueryKey>(
     read ? cache.options(read, inDraft) : NO_READ,
@@ -746,7 +763,7 @@ export function useReadQuery<T, S = T>(
   read: Read<T, any>,
   { enabled, select }: { enabled?: boolean; select?: (value: T) => S } = {},
 ): UseQueryResult<S> {
-  const inDraft = { in: useCurrentDraftId(), locale: React.useContext(ViewLocaleContext)?.locale };
+  const inDraft = useShownTarget();
   const cache = useStudioCache();
   return useQuery({ ...cache.options(read, inDraft), enabled, select });
 }
@@ -762,7 +779,7 @@ export function useReadQueries<T, C>(
   list: Read<T, any>[],
   combine?: (results: UseQueryResult<T>[]) => C,
 ) {
-  const inDraft = { in: useCurrentDraftId(), locale: React.useContext(ViewLocaleContext)?.locale };
+  const inDraft = useShownTarget();
   const cache = useStudioCache();
   return useQueries({ queries: list.map((read) => cache.options(read, inDraft)), combine });
 }

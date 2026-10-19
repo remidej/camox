@@ -4,8 +4,24 @@
  * Pure, so the runtime and the browser share it.
  */
 
+import { LOCALE_HEADER } from "@camox/api-contract/drafts";
+
 /** A locale of a project, as `locales.list` returns it. */
 export type LocaleView = { tag: string; isDefault: boolean };
+
+/**
+ * The default locale where nothing says its tag yet: before a render shows a locale, outside the
+ * page runtime, or without an API to read the project's locales from.
+ */
+export const UNNAMED_DEFAULT_LOCALE: LocaleView = { tag: "und", isDefault: true };
+
+/**
+ * The headers naming `locale` in a request (`LOCALE_HEADER`). The default locale is the API's own
+ * default, so only another locale is named.
+ */
+export function localeHeaders(locale: LocaleView | undefined): Record<string, string> {
+  return locale && !locale.isDefault ? { [LOCALE_HEADER]: locale.tag } : {};
+}
 
 /** A runtime path split into the locale it names and the locale-relative path after its prefix. */
 export type LocalePath = { locale: LocaleView; path: string };

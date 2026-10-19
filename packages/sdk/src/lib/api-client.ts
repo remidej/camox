@@ -1,5 +1,5 @@
 import type { Router } from "@camox/api-contract";
-import { DRAFT_HEADER, isContentWrite, LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER, isContentWrite } from "@camox/api-contract/drafts";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
@@ -7,7 +7,7 @@ import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
 import type { DraftRequestHeaders, DraftScope } from "./draft-scope";
-import type { LocaleView } from "./locale-path";
+import { localeHeaders, type LocaleView } from "./locale-path";
 
 declare const __CAMOX_TELEMETRY_DISABLED__: boolean;
 
@@ -35,13 +35,13 @@ export function initApiClient(apiUrl: string, draftScope: DraftScope): ApiClient
  * reads fetch through it, so a read caches only the draft and locale its key names.
  */
 export function getDraftReadClient(draft: string | null, locale?: LocaleView): ApiClient {
-  const named = locale && !locale.isDefault ? locale.tag : null;
-  const cacheKey = JSON.stringify([draft, named]);
+  const headers: Record<string, string> = {
+    ...(draft && { [DRAFT_HEADER]: draft }),
+    ...localeHeaders(locale),
+  };
+  const cacheKey = JSON.stringify(headers);
   let client = _readClients.get(cacheKey);
   if (client) return client;
-  const headers: Record<string, string> = draft ? { [DRAFT_HEADER]: draft } : {};
-  // The default locale is the API's own default, so only another locale is named.
-  if (named) headers[LOCALE_HEADER] = named;
   client = createStudioClient(getApiUrl(), () => ({ headers, settle: () => {} }));
   _readClients.set(cacheKey, client);
   return client;

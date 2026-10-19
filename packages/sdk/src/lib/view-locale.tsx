@@ -1,7 +1,12 @@
 import * as React from "react";
 
 import { useLocation } from "../features/navigation/navigation";
-import { type LocaleView, localizedPath, parseLocalePath } from "./locale-path";
+import {
+  type LocaleView,
+  localizedPath,
+  parseLocalePath,
+  UNNAMED_DEFAULT_LOCALE,
+} from "./locale-path";
 
 /**
  * The locale a render shows and the locales of the scope it reads, as the page runtime rendered
@@ -12,8 +17,7 @@ export type ViewLocale = { locale: LocaleView; locales: readonly LocaleView[] };
 
 export const ViewLocaleContext = React.createContext<ViewLocale | null>(null);
 
-/** The default locale, whose tag nothing names, for a studio mounted outside the page runtime. */
-const UNNAMED_DEFAULT_LOCALE: LocaleView = { tag: "und", isDefault: true };
+/** The view of a studio mounted outside the page runtime: the default locale alone. */
 const DEFAULT_VIEW: ViewLocale = {
   locale: UNNAMED_DEFAULT_LOCALE,
   locales: [UNNAMED_DEFAULT_LOCALE],

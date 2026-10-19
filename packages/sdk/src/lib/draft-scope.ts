@@ -4,7 +4,6 @@ import {
   DRAFT_HEADER,
   DRAFT_SEARCH_PARAM,
   type EndedDraft,
-  LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { LIVE_KEY_SCOPE, scopeOfKey } from "@camox/api-contract/query-keys";
@@ -13,7 +12,7 @@ import * as React from "react";
 
 import type { DraftNotice, DraftRead } from "../features/routes/pageRuntime";
 import { getApiClient } from "./api-client";
-import type { LocaleView } from "./locale-path";
+import { localeHeaders, type LocaleView, UNNAMED_DEFAULT_LOCALE } from "./locale-path";
 
 /**
  * Which draft the studio is viewing (ADR 0011): a draft's id, or Live. There is one per server
@@ -115,9 +114,6 @@ export function withoutDraft(href: string): string {
   return url.href;
 }
 
-/** The locale viewed before any render says which: the default one, whose tag requests never name. */
-const UNNAMED_DEFAULT_LOCALE: LocaleView = { tag: "und", isDefault: true };
-
 function buildIsDevelopmentMode(): boolean {
   return typeof __CAMOX_DEVELOPMENT_DRAFT__ !== "undefined" && __CAMOX_DEVELOPMENT_DRAFT__;
 }
@@ -130,6 +126,7 @@ export function createDraftScope({
     (await getApiClient().drafts.get({ projectId }))?.id,
 }: DraftScopeOptions): DraftScope {
   let current: string | null = developmentMode ? DEVELOPMENT_DRAFT : null;
+  // Before any render says which locale it shows, the default one.
   let locale = UNNAMED_DEFAULT_LOCALE;
   /** The id the first content writes on Live share, and how many of them are still in flight. */
   let pending: { id: string; inFlight: number } | null = null;
@@ -183,10 +180,7 @@ export function createDraftScope({
 
   const headersFor = (contentWrite: boolean): DraftRequestHeaders => {
     const noop = () => {};
-    // The default locale is the API's own default, so only another locale is named.
-    const inLocale: Record<string, string> = locale.isDefault
-      ? {}
-      : { [LOCALE_HEADER]: locale.tag };
+    const inLocale = localeHeaders(locale);
     if (current) return { headers: { [DRAFT_HEADER]: current, ...inLocale }, settle: noop };
     // Dev mode never starts a draft: without the development draft, it can't write.
     if (!contentWrite || developmentMode) return { headers: inLocale, settle: noop };

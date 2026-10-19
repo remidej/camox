@@ -285,11 +285,11 @@ export const CamoxPreview = ({
   const pathname = shown?.location.pathname;
   const shownDerived = shown?.derived;
   const projectSlug = useProjectSlug();
-  // All route kinds resolve through one component so selecting a layout frame, a
-  // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
   const { locales } = useViewLocale();
   // The API reads a page by its path in the locale shown, after the locale's prefix.
   const shownPath = pathname === undefined ? undefined : parseLocalePath(pathname, locales).path;
+  // All route kinds resolve through one component so selecting a layout frame, a
+  // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
   const shownRead = pageRead(projectSlug, shownPath, shownDerived);
   const data = useRead(shownRead);
   useRefreshMemberRead(shownRead);
