@@ -24,6 +24,9 @@ function where(owner: Owner): string {
 
 const subject = (item: Subject) => `${item.entity} "${item.label}"${where(item.owner)}`;
 
+/** The locale an entity stored per locale is in, after it; none for an entity stored once. */
+const inLocale = (locale: string | null) => (locale === null ? "" : ` [${locale}]`);
+
 const when = (at: number | null) => (at === null ? "" : ` on ${new Date(at).toLocaleString()}`);
 
 function conflictLine(conflict: PublishPreview["conflicts"][number]): string {
@@ -65,7 +68,9 @@ export function formatPreview(preview: PublishPreview): string {
     ),
     ...section(
       "Changes",
-      preview.changes.map((change) => `${change.change} ${subject(change)}`),
+      preview.changes.map(
+        (change) => `${change.change} ${subject(change)}${inLocale(change.locale)}`,
+      ),
     ),
   ];
   if (preview.changes.length === 0) lines.push("Your development draft has no changes.", "");

@@ -43,6 +43,7 @@ import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
 import * as translationBookkeeping from "../translations/bookkeeping";
+import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import {
@@ -219,7 +220,8 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   ctx: ServiceContext,
   scope: Scope,
 ) {
-  const stored = yield* overlay.changesOf(ctx.db, scope);
+  // Localizations still holding what Camox wrote aren't listed (ADR 0015).
+  const stored = yield* listedChanges(ctx.db, scope, yield* overlay.changesOf(ctx.db, scope));
   const storedConflicts = yield* overlay.conflictsOf(ctx.db, scope);
   const losses = yield* overlay.lostOf(ctx.db, scope);
   const checked = yield* checkContentProblems(ctx, scope);
@@ -317,6 +319,8 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   });
   const changes: Change[] = stored.map(({ entity, row, change }) => ({
     ...describe(entity, row.id),
+    // A locale added or removed is named by its tag.
+    ...(entity === "locale" && { label: (row as typeof locales.$inferSelect).tag }),
     locale: "locale" in row && typeof row.locale === "string" ? row.locale : null,
     change,
   }));

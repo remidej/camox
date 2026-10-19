@@ -937,14 +937,166 @@ describe("a localization's bookkeeping", () => {
 
     const preview = await f.tool("previewPublish", {}, { [DRAFT_HEADER]: draft });
     expect(preview.conflicts).toEqual([]);
-    expect(preview.changes.map(({ locale }: { locale: string | null }) => locale).sort()).toEqual([
-      "de",
-      "en",
-    ]);
+    // German follows the source as Camox wrote it, so only the source change is listed.
+    expect(preview.changes.map(({ locale }: { locale: string | null }) => locale)).toEqual(["en"]);
     expect((await f.blockIn("fr", { [DRAFT_HEADER]: draft })).block).toMatchObject({
       settings: { size: "small" },
       content: { subtitle: "Mode d'emploi" },
     });
+  });
+});
+
+describe("the review and the change count", () => {
+  type Listed = { entity: string; id: string; locale: string | null; change: string };
+
+  /** What `f`'s draft lists for review, and the count its summary shows. */
+  async function review(f: Awaited<ReturnType<typeof fixture>>, headers: Headers = f.inDraft) {
+    const { changes } = await f.tool("previewPublish", {}, headers);
+    const { changeCount } = await call(
+      router.drafts.get,
+      { projectId: f.projectId },
+      f.member(headers),
+    );
+    return {
+      changes: (changes as Listed[]).map(({ entity, id, locale, change }) => ({
+        entity,
+        id,
+        locale,
+        change,
+      })),
+      changeCount,
+    };
+  }
+
+  /** `f` with German and French on Live, and a new draft opened. */
+  async function translatedLive(f: Awaited<ReturnType<typeof fixture>>) {
+    await translatedDraft(f);
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token });
+    const draft = generateUuidv7();
+    return {
+      starting: { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" },
+      inDraft: { [DRAFT_HEADER]: draft },
+    };
+  }
+
+  it("counts a change to one source block as one change, in a draft with three locales", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, next.starting);
+    await f.runTranslations();
+
+    expect(await f.blockIn("de", next.inDraft)).toMatchObject({
+      block: { content: { title: "Willkommen" } },
+    });
+    expect(await review(f, next.inDraft)).toEqual({
+      changes: [{ entity: "block", id: f.block.id, locale: "en", change: "changed" }],
+      changeCount: 1,
+    });
+  });
+
+  it("lists a hand edit to a localization under its locale", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { title: "Grüß Gott" }, locale: "de" },
+      next.starting,
+    );
+    await f.runTranslations();
+
+    expect(await review(f, next.inDraft)).toEqual({
+      changes: [{ entity: "block", id: f.block.id, locale: "de", change: "changed" }],
+      changeCount: 1,
+    });
+  });
+
+  it("keeps listing a hand edit to a localization after its source changes", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      next.starting,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, next.inDraft);
+    await f.runTranslations();
+
+    const { changes, changeCount } = await review(f, next.inDraft);
+    expect(changes.map(({ locale }) => locale).sort((a, b) => a!.localeCompare(b!))).toEqual([
+      "de",
+      "en",
+    ]);
+    expect(changeCount).toBe(2);
+  });
+
+  it("lists adding a locale as one change, before and after Camox translates into it", async () => {
+    const f = await fixture();
+    translateWithDictionaries();
+
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    const added = [{ entity: "locale", id: expect.any(String), locale: null, change: "created" }];
+    expect(await review(f)).toEqual({ changes: added, changeCount: 1 });
+    // The locale is named by its tag.
+    expect((await f.tool("previewPublish")).changes).toEqual([
+      expect.objectContaining({ entity: "locale", label: "de" }),
+    ]);
+
+    await f.runTranslations();
+    expect(await f.blockIn("de")).toMatchObject({ block: { content: { title: "Hallo" } } });
+    expect(await review(f)).toEqual({ changes: added, changeCount: 1 });
+  });
+
+  it("lists removing a locale as one change", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool("removeLocale", { tag: "fr" }, next.starting);
+
+    expect(await review(f, next.inDraft)).toEqual({
+      changes: [{ entity: "locale", id: expect.any(String), locale: null, change: "deleted" }],
+      changeCount: 1,
+    });
+  });
+
+  it("leaves out the localizations Camox deletes with their source", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool("deleteBlock", { id: f.block.id }, next.starting);
+    await f.runTranslations();
+
+    const { changes, changeCount } = await review(f, next.inDraft);
+    expect(changes).toContainEqual({
+      entity: "block",
+      id: f.block.id,
+      locale: "en",
+      change: "deleted",
+    });
+    expect(changes.filter(({ locale }) => locale !== "en")).toEqual([]);
+    expect(changeCount).toBe(changes.length);
+  });
+
+  it("lists content placed in one locale only under that locale", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    const placed = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Nur auf Deutsch" } },
+      f.member({ ...next.starting, [LOCALE_HEADER]: "de" }),
+    );
+    await f.runTranslations();
+
+    const { changes, changeCount } = await review(f, next.inDraft);
+    expect(changes).toContainEqual(
+      expect.objectContaining({ entity: "block", id: placed.id, locale: "de" }),
+    );
+    expect(changes.every(({ locale }) => locale === "de")).toBe(true);
+    expect(changeCount).toBe(changes.length);
   });
 });
 
