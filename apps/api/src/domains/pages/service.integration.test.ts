@@ -143,7 +143,7 @@ describe("page persistence", () => {
       }),
     );
 
-    expect(list.projectName).toBe("Test project");
+    expect(list.projectName).toBe(project.name);
     expect(list.pages.map(({ id, fullPath }) => ({ id, fullPath }))).toEqual([
       { id: page.id, fullPath: "/about" },
     ]);
