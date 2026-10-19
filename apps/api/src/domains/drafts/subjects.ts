@@ -227,6 +227,10 @@ export const describeSubjects = Effect.fn("drafts.describeSubjects")(function* (
     if (entity === "file") return describeFile(id, known.files.get(id));
     // The studio calls locales languages.
     if (entity === "locale") return { entity, id, label: "Language", owner: null };
+    // A localization deleted from its locale, which its original's changes don't bring back.
+    if (entity === "exclusion") {
+      return { entity, id, label: "Removal from a language", owner: null };
+    }
     return describeContent(entity, id);
   };
 });

@@ -24,9 +24,11 @@ import { homeOf } from "../generated-values/service";
 import { readBookkeeping, type Values, writeBookkeeping } from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
 import { translateDefaults } from "./defaults";
+import { isLeftOut } from "./exclusions";
 import { type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
 import { translationScope, type TranslationScope } from "./scope";
 import { pendingRequest, settleTranslation } from "./service";
+import { dropDescendants } from "./subtree";
 import type { Shape } from "./texts";
 
 // A translation job (ADR 0015): it brings an entity's localization in one locale of a draft up
@@ -95,12 +97,16 @@ const translate = Effect.fn("translation.translate")(function* (
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
   const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
 
-  // A source deleted from the default locale takes its localizations along.
+  // A source deleted from the default locale takes its localizations along, with what's
+  // beneath them in their locale.
   if (!source) {
     if (current) yield* overlay.remove(db, scope.target, table, job.entityId);
+    yield* dropDescendants(db, scope.target, { entity: job.entity, id: job.entityId });
     yield* releaseClaims(db, draft, job.locale, job.entityId);
     return;
   }
+  // A localization deleted from the locale stays deleted, and so does what's beneath it.
+  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return;
 
   const bookkeeping = current
     ? yield* readBookkeeping(db, scope.target, job.entity, job.entityId)

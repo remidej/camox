@@ -22,6 +22,7 @@ import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type AccessMode, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { ReadScope } from "../drafts/scope";
+import { excludeLocalization } from "../translations/exclusions";
 import { recordsOf } from "./identity";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
 import { collectionDefinitions, collectionRecords } from "./schema";
@@ -527,6 +528,7 @@ export const deleteRecord = Effect.fn("collections.deleteRecord")(function* (
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
       yield* overlay.remove(ctx.db, definition.draft, collectionRecords, record.id);
+      yield* excludeLocalization(ctx.db, definition.draft, "record", record.id);
       return { id: record.id };
     }),
   );

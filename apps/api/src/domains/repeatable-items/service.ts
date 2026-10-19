@@ -27,6 +27,7 @@ import * as overlay from "../drafts/overlay";
 import { type DraftScope, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
 import { copyValue, homeOf, readValue, saveValue } from "../generated-values/service";
+import { excludeLocalization } from "../translations/exclusions";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
 // --- Input Schemas ---
@@ -685,5 +686,6 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   );
   yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
   const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);
+  if (result) yield* excludeLocalization(ctx.db, scope, "repeatableItem", id);
   return result && (yield* shownItem(ctx, project.id, scope, result));
 }, Effect.scoped);

@@ -192,6 +192,10 @@ _Avoid_: Translation, variant, localized page
 A localization's invisible record of the source it was last translated from and what Camox wrote from that source. Comparing it with the source and the localization now tells a source change from a hand edit. Writing it is never a change or a conflict.
 _Avoid_: Translation memory, sync state, baseline
 
+**Exclusion**:
+The record that a localization was deleted from its locale on purpose, so translation leaves it, and everything beneath it, out of that locale through later changes to its original. Content created in a locale other than the default one exists only there and is never excluded. Exclusions are changes that publishing keeps on Live; adding the localization back deletes its exclusion.
+_Avoid_: Tombstone, opt-out, removal
+
 ### Publishing
 
 **Live**:
