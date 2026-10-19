@@ -131,7 +131,8 @@ const lineageOf = Effect.fn("translations.lineageOf")(function* (
 /**
  * Adds a deleted localization back to the locale `scope` writes: deletes its exclusion, and
  * requests the translation of the entity and of everything beneath it, which its exclusion kept
- * out of the locale. Exclusions of entities beneath it stay.
+ * out of the locale. Exclusions of entities beneath it stay. Localizations the draft itself
+ * deleted from the locale get Live's back, which their translation then updates.
  */
 export const addLocalizationBack = Effect.fn("translations.addBack")(function* (
   db: Database,
@@ -143,5 +144,16 @@ export const addLocalizationBack = Effect.fn("translations.addBack")(function* (
   const draft = draftOf(scope);
   const beneath = yield* descendantsOf(db, draft, { entity, id });
   const subtree = [{ entity, id }, ...beneath.map(({ entity, id }) => ({ entity, id }))];
+  const stillExcluded = yield* excludedAmong(
+    db,
+    scope,
+    beneath.map(({ id }) => id),
+  );
+  for (const member of subtree) {
+    if (stillExcluded.has(member.id)) continue;
+    const table = overlay.contentTableOf(member.entity);
+    const stored = yield* overlay.getStored(db, scope, table, member.id);
+    if (stored?.deleted) yield* overlay.revert(db, scope, table, member.id);
+  }
   yield* requestTranslations(db, draft, subtree, [scope.locale], { immediately: true });
 });

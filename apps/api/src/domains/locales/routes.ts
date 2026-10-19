@@ -1,5 +1,6 @@
 import { runService } from "../../lib/run-service";
 import { authed, contentWrite, pub } from "../../orpc";
+import * as missing from "./missing";
 import * as service from "./service";
 
 // Locales are added and removed in the draft the request names, like content (ADR 0015).
@@ -21,4 +22,20 @@ const setDefaultTag = authed
   .input(service.setDefaultLocaleTagInput)
   .handler(({ context, input }) => runService(service.setDefaultLocaleTag(context, input)));
 
-export const localeProcedures = { list, add, remove, setDefaultTag };
+// The pages and records deleted from the request's locale, which members add back.
+const listMissing = authed
+  .input(missing.listMissingFromLocaleInput)
+  .handler(({ context, input }) => runService(missing.listMissingFromLocale(context, input)));
+
+const addBack = contentWrite
+  .input(missing.addBackToLocaleInput)
+  .handler(({ context, input }) => runService(missing.addBackToLocale(context, input)));
+
+export const localeProcedures = {
+  list,
+  add,
+  remove,
+  setDefaultTag,
+  missing: listMissing,
+  addBack,
+};

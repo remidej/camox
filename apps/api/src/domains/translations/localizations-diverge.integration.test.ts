@@ -330,6 +330,110 @@ describe("adding a deleted localization back", () => {
   });
 });
 
+describe("the content missing from a locale", () => {
+  it("lists a page deleted from a locale, without what's beneath it, and adds it back translated", async () => {
+    const f = await fixture();
+    const { page: child } = await f.tool("createPage", {
+      pathSegment: "team",
+      parentPageId: f.page.id,
+      layoutId: f.layout.layoutId,
+    });
+    await f.runTranslations();
+    await f.tool("deletePage", { id: child.id, locale: "de" });
+    await f.tool("deletePage", { id: f.page.id, locale: "de" });
+    await f.publish();
+
+    const later = f.newDraft();
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, later.starting);
+    await f.runTranslations();
+    expect(await f.tool("listMissingFromLocale", { locale: "de" }, later.inDraft)).toEqual({
+      pages: [expect.objectContaining({ id: f.page.id, fullPath: "/pricing" })],
+      records: [],
+    });
+    expect(await f.tool("listMissingFromLocale", { locale: "fr" }, later.inDraft)).toEqual({
+      pages: [],
+      records: [],
+    });
+
+    await f.tool("addBackToLocale", { entity: "page", id: f.page.id, locale: "de" }, later.inDraft);
+    await f.runTranslations();
+    expect(await f.titleIn("de", later.inDraft)).toBe("Willkommen");
+    // The child page was deleted from the locale on its own: it's missing now.
+    expect(await f.pagesIn("de", later.inDraft)).toEqual([f.page.id]);
+    expect(await f.tool("listMissingFromLocale", { locale: "de" }, later.inDraft)).toEqual({
+      pages: [expect.objectContaining({ id: child.id })],
+      records: [],
+    });
+  });
+
+  it("adds back a page deleted from a locale in the same draft", async () => {
+    const f = await fixture();
+    await f.publish();
+
+    const later = f.newDraft();
+    await f.tool("deletePage", { id: f.page.id, locale: "de" }, later.starting);
+    await f.tool("addBackToLocale", { entity: "page", id: f.page.id, locale: "de" }, later.inDraft);
+    await f.runTranslations();
+
+    expect(await f.pagesIn("de", later.inDraft)).toEqual([f.page.id]);
+    expect(await f.blocksOn(f.page.id, "de", later.inDraft)).toEqual([f.block.id]);
+    expect(await f.tool("listMissingFromLocale", { locale: "de" }, later.inDraft)).toEqual({
+      pages: [],
+      records: [],
+    });
+    // Live's localization is back: the draft holds no change in the locale.
+    const preview = await f.tool("previewPublish", {}, later.inDraft);
+    expect(preview.changes.filter(({ locale }: { locale: string }) => locale === "de")).toEqual([]);
+  });
+
+  it("lists a record deleted from the locale the studio views, and adds it back translated", async () => {
+    const f = await fixture();
+    await f.tool("deleteCollectionRecord", {
+      collectionId: "articles",
+      id: f.record.id,
+      locale: "de",
+    });
+    const inGerman = f.member({ ...f.inDraft, [LOCALE_HEADER]: "de" });
+
+    expect(await call(router.locales.missing, { projectId: f.projectId }, inGerman)).toEqual({
+      pages: [],
+      records: [{ id: f.record.id, collectionId: "articles", label: "Hello" }],
+    });
+    await call(
+      router.locales.addBack,
+      { projectId: f.projectId, entity: "record", id: f.record.id },
+      inGerman,
+    );
+    await f.runTranslations();
+
+    expect(await f.recordsIn("de")).toEqual([f.record.id]);
+    const record = await f.tool("getCollectionRecord", {
+      collectionId: "articles",
+      id: f.record.id,
+      locale: "de",
+    });
+    expect(record.content).toMatchObject({ title: "Hallo" });
+    expect(await call(router.locales.missing, { projectId: f.projectId }, inGerman)).toEqual({
+      pages: [],
+      records: [],
+    });
+  });
+
+  it("refuses to add back what isn't missing from the locale", async () => {
+    const f = await fixture();
+    await expect(
+      f.tool("addBackToLocale", { entity: "page", id: f.page.id, locale: "de" }),
+    ).rejects.toThrow(/NOT_FOUND/);
+    await f.tool("deletePage", { id: f.page.id, locale: "de" });
+    await expect(f.tool("addBackToLocale", { entity: "page", id: f.page.id })).rejects.toThrow(
+      /NOT_FOUND/,
+    );
+    await expect(
+      f.tool("addBackToLocale", { entity: "record", id: f.page.id, locale: "de" }),
+    ).rejects.toThrow(/NOT_FOUND/);
+  });
+});
+
 describe("content created in a locale", () => {
   it("keeps a block added to a localized page there, and only there, through source changes", async () => {
     const f = await fixture();

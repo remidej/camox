@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import {
+  addBackToLocale,
+  addBackToLocaleInput,
+  listMissingFromLocale,
+} from "../../../../apps/api/src/domains/locales/missing";
+import {
   addLocale,
   addLocaleInput,
   listLocales,
@@ -19,6 +24,8 @@ const listInput = z.object({});
 const addInput = addLocaleInput.omit({ projectId: true });
 const removeInput = removeLocaleInput.omit({ projectId: true });
 const setDefaultTagInput = setDefaultLocaleTagInput.omit({ projectId: true });
+const listMissingInput = z.object({});
+const addBackInput = addBackToLocaleInput.omit({ projectId: true });
 
 export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -56,6 +63,30 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) =>
       runService(removeLocale(ctx, { ...removeInput.parse(input), projectId: ctx.projectId })),
+  },
+  {
+    name: "listMissingFromLocale",
+    description:
+      "List the pages and collection records deleted from a locale, which Camox no longer " +
+      "translates into it: `pages` with their `id`, `fullPath` and `nickname`, `records` with " +
+      "their `id`, `collectionId` and `label`, as the default locale shows them. A page deleted " +
+      "beneath another deleted page isn't listed: adding back the page above brings it back. " +
+      "The default locale misses nothing.",
+    inputSchema: listMissingInput,
+    meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
+    handler: async () => runService(listMissingFromLocale(ctx, { projectId: ctx.projectId })),
+  },
+  {
+    name: "addBackToLocale",
+    description:
+      "Add a page or collection record deleted from a locale back to it, with everything beneath " +
+      "it, in the draft. Camox translates it from the default locale again in the background, " +
+      "and keeps translating its changes. Pages and records deleted from the locale on their " +
+      "own stay deleted. listMissingFromLocale lists what can be added back.",
+    inputSchema: addBackInput,
+    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    handler: async (input) =>
+      runService(addBackToLocale(ctx, { ...addBackInput.parse(input), projectId: ctx.projectId })),
   },
   {
     name: "setDefaultLocaleTag",
