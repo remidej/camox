@@ -101,7 +101,7 @@ void test("editor and public output share text, highlight, and link appearance",
       const text = $getRoot()
         .getAllTextNodes()
         .find((node) => node.getTextContent() === "nimble")!;
-      text.select(0, text.getTextContentSize()).formatText("bold");
+      text.toggleFormat("bold");
     });
   });
   const italic = host.querySelector<HTMLElement>("em")!;

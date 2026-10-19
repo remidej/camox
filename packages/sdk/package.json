@@ -203,6 +203,7 @@
     "dev": "mkdir -p .dev && cp ./src/features/preview/studio-overlays.css ./.dev/studio-overlays.css && tailwindcss -i ./src/studio.css -o ./.dev/studio.css --watch",
     "build": "vp pack && tailwindcss -i ./src/studio.css -o ./dist/studio.css --minify && cp ./src/features/preview/studio-overlays.css ./dist/studio-overlays.css",
     "build:watch": "vp pack --watch",
+    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "test:inline": "tsx --test src/core/lib/inlineText.test.tsx src/core/components/lexical/inlineEditing.test.tsx",
     "test:images": "tsx --test src/core/lib/imagePlaceholder.test.tsx src/core/createBlock.test.tsx",
     "test:content": "tsx --test src/features/content/content.test.tsx src/features/content/delete-collection-item.test.tsx"
@@ -274,6 +275,13 @@
   "nx": {
     "tags": [
       "type:pkg"
-    ]
+    ],
+    "targets": {
+      "test": {
+        "dependsOn": [
+          "^build"
+        ]
+      }
+    }
   }
 }

@@ -206,8 +206,8 @@ async function search(text: string) {
   });
 }
 
-const dialogTitle = () =>
-  window.document.querySelector('[role="dialog"] [data-slot="dialog-title"]')?.textContent ?? "";
+const sheetTitle = () =>
+  window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
 const nameInput = () =>
   window.document.querySelector('[role="dialog"] input[aria-label="Draft name"]') as unknown as
@@ -460,7 +460,7 @@ void test("the palette's Review and publish opens the draft's review", async (t)
   await runCommand("Review and publish");
 
   assert.equal(palette(), null);
-  assert.equal(dialogTitle(), "Spring campaign");
+  assert.equal(sheetTitle(), "Spring campaign");
   assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Publish all/);
   assert.equal(window.document.querySelector('input[aria-label="Draft name"]'), null);
 });
