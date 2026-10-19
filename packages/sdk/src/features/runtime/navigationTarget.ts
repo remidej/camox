@@ -1,4 +1,5 @@
 import type { DraftScope } from "../../lib/draft-scope";
+import { localeHeaders, type LocaleView } from "../../lib/locale-path";
 import { matchRuntimeOwnedRoute } from "./runtimeRoutes";
 
 export function runtimePath(pathname: string, basePath: string) {
@@ -9,7 +10,9 @@ export function runtimePath(pathname: string, basePath: string) {
 
 /**
  * Requests one of the runtime's JSON endpoints (`/_camox/data`, `/_camox/routes`) as the editor,
- * reading `draft` (null for Live). Dev mode's runtime always reads the development draft.
+ * reading `draft` (null for Live) in `locale` (the default locale without it). Dev mode's runtime
+ * always reads the development draft. A path the endpoint takes names its own locale by its
+ * prefix; route discovery, which takes none, reads the locale the request names.
  */
 export function fetchRuntimeJson(
   draftScope: DraftScope,
@@ -18,12 +21,13 @@ export function fetchRuntimeJson(
   params: Record<string, string>,
   draft: string | null,
   signal: AbortSignal,
+  locale?: LocaleView,
 ) {
   const url = new URL(runtimePath(endpoint, runtimeBasePath), window.location.origin);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
   return fetch(new URL(draftScope.hrefFor(url.href, { draft })), {
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...localeHeaders(locale) },
     signal,
   });
 }

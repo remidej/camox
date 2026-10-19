@@ -65,18 +65,29 @@ interface FetchContext {
   /** A client whose reads name another draft, for shared reads about one draft. */
   apiIn: (draft: string | null) => ApiClient;
   signal: AbortSignal;
-  runtimeJson: RuntimeJson;
+  /** Reads the runtime's JSON endpoints, in the locale the key names. */
+  runtimeJson: (
+    endpoint: string,
+    runtimeBasePath: string,
+    params: Record<string, string>,
+    draft: string | null,
+    signal: AbortSignal,
+  ) => Promise<Response>;
   /** Stores what a response says about other reads, in the same draft. */
   fill: <V>(read: Read<V>, value: V) => void;
 }
 
-/** Reads one of the runtime's JSON endpoints in `draft`, relative to `runtimeBasePath`. */
+/**
+ * Reads one of the runtime's JSON endpoints in `draft` and `locale` (the default locale without
+ * it), relative to `runtimeBasePath`.
+ */
 export type RuntimeJson = (
   endpoint: string,
   runtimeBasePath: string,
   params: Record<string, string>,
   draft: string | null,
   signal: AbortSignal,
+  locale?: LocaleView,
 ) => Promise<Response>;
 
 interface EntryDefinition<P, T, R> {
@@ -388,23 +399,28 @@ export const reads = {
     staleTime: Infinity,
   }),
 
-  /** The first page a derived layout's route discovery lists, or null without one. */
+  /**
+   * The first page a derived layout's route discovery lists in the read's locale, or with
+   * `recordId` the page of that record; null without one. The path is the locale's, after its
+   * prefix.
+   */
   discoveredPath: entry<
-    { projectSlug: string; runtimeBasePath: string; layoutId: string },
+    { projectSlug: string; runtimeBasePath: string; layoutId: string; recordId?: string },
     string | null
   >({
-    key: ({ projectSlug, runtimeBasePath, layoutId }) => [
+    key: ({ projectSlug, runtimeBasePath, layoutId, recordId }) => [
       ...queryKeys.layouts.all,
       "routes",
       projectSlug,
       runtimeBasePath,
       layoutId,
+      ...(recordId ? [recordId] : []),
     ],
-    fetch: async ({ runtimeJson, draft, signal }, { runtimeBasePath, layoutId }) => {
+    fetch: async ({ runtimeJson, draft, signal }, { runtimeBasePath, layoutId, recordId }) => {
       const response = await runtimeJson(
         "/_camox/routes",
         runtimeBasePath,
-        { layoutId },
+        { layoutId, ...(recordId && { recordId }) },
         draft,
         signal,
       );
@@ -593,8 +609,8 @@ export function createStudioCache({
   queryClient,
   scope,
   api,
-  runtimeJson = (endpoint, base, params, draft, signal) =>
-    fetchRuntimeJson(scope, endpoint, base, params, draft, signal),
+  runtimeJson = (endpoint, base, params, draft, signal, locale) =>
+    fetchRuntimeJson(scope, endpoint, base, params, draft, signal, locale),
   locale: viewedLocale = scope.locale,
 }: StudioCacheOptions): StudioCache {
   const targetOf = (options?: InDraft): Target => ({
@@ -611,7 +627,8 @@ export function createStudioCache({
     },
     apiIn: (draft) => api(draft, target.locale),
     signal,
-    runtimeJson,
+    runtimeJson: (endpoint, base, params, draft, signal) =>
+      runtimeJson(endpoint, base, params, draft, signal, target.locale),
     fill: (read, value) => queryClient.setQueryData(keyOf(read, target), value),
   });
   const neverAborted = () => new AbortController().signal;

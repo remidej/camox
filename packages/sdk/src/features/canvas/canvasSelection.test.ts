@@ -38,15 +38,15 @@ void test("in a non-default locale, pages sit under its prefix and derived route
       { id: "9", nickname: "Pricing", fullPath: "/preise" },
     ],
     layouts,
-    new Map([["articles.$slug", "/articles/hello"]]),
+    // Route discovery in German finds the record's German path, after the prefix.
+    new Map([["articles.$slug", "/articles/hallo"]]),
     de,
   );
   const select = (pathname: string) => selectedCanvasPage(pages, layouts, pathname, locales);
 
   assert.deepEqual(
     pages.map((page) => page.pathname),
-    ["/de", "/de/preise", "/de/about", null],
-    "a default-locale record's discovered path isn't the locale's",
+    ["/de", "/de/preise", "/de/about", "/de/articles/hallo"],
   );
   assert.equal(select("/de")?.key, "page:7");
   assert.equal(select("/de/preise")?.key, "page:9");

@@ -4,6 +4,7 @@ import studioCssUrl from "virtual:camox-studio-css";
 
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
 import { StudioEditingFallback } from "../preview/components/StudioEditingFallback";
+import { shownRecordPage } from "../preview/pageRecord";
 import { previewStore, selectIsCanvasShown } from "../preview/previewStore";
 import { ChatSidebar } from "../studio/components/ChatSidebar";
 import { Navbar } from "../studio/components/Navbar";
@@ -36,7 +37,7 @@ export function RuntimeChrome({
       <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       <div className="bg-background flex h-screen flex-col overflow-hidden">
         <div className={website ? "max-md:hidden" : undefined} hidden={website && hidden}>
-          <Navbar isWebsite={website} />
+          <Navbar isWebsite={website} recordPage={shownRecordPage(input)} />
         </div>
         <div className="flex min-h-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">

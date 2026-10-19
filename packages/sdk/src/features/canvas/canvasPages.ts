@@ -50,7 +50,8 @@ export const CANVAS_DEVICES = {
 /**
  * Concrete pages plus one frame per derived layout, never every generated URL.
  * A derived frame previews its layout's first discovered page until a path is chosen.
- * Paths are runtime paths in `locale`, under its prefix; `pages` are its localizations.
+ * Paths are runtime paths in `locale`, under its prefix; `pages` are its localizations, and
+ * `discoveredPaths` the paths route discovery found in it, after its prefix.
  */
 export function getCanvasPages(
   pages: Parameters<typeof getPageDestinations>[0],
@@ -59,8 +60,10 @@ export function getCanvasPages(
   locale: LocaleView = UNNAMED_DEFAULT_LOCALE,
 ): CanvasPage[] {
   const inLocale = (path: string) => localizedPath(path, locale);
-  // Route discovery finds the default locale's records, whose paths another locale lacks.
-  const discovered = locale.isDefault ? discoveredPaths : undefined;
+  const discoveredPathIn = (layoutId: string) => {
+    const path = discoveredPaths?.get(layoutId);
+    return path ? inLocale(path) : null;
+  };
   const concrete = getPageDestinations(pages, layouts).map((page): CanvasPage =>
     page.kind === "curated"
       ? {
@@ -88,7 +91,7 @@ export function getCanvasPages(
         key: `derived:${layout.id}`,
         title: layout.title,
         pathname: segments.some((part) => part.startsWith("$"))
-          ? (discovered?.get(layout.id) ?? null)
+          ? discoveredPathIn(layout.id)
           : inLocale(pattern),
         layoutId: layout.id,
         pattern,

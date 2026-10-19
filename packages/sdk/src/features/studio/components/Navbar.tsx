@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import { PlatformLabel } from "../../../components/PlatformLabel";
+import type { ShownRecordPage } from "../../preview/pageRecord";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
@@ -57,7 +58,14 @@ export const getNavbarLinks = () => links;
 export const isContentNavbarPath = (pathname: string) =>
   pathname === STUDIO_CONTENT_PATH || pathname.startsWith(`${STUDIO_CONTENT_PATH}/`);
 
-const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
+const Navbar = ({
+  isWebsite = false,
+  recordPage,
+}: {
+  isWebsite?: boolean;
+  /** The record page the website shows, which switching locales keeps. */
+  recordPage?: ShownRecordPage;
+}) => {
   const pages = usePageDestinations();
 
   const pathname = useLocalePath();
@@ -100,7 +108,7 @@ const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
         </ul>
       </div>
       <div className="flex items-center gap-2">
-        <LocalePicker />
+        <LocalePicker recordPage={recordPage} />
         <DraftsControl />
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />

@@ -59,6 +59,10 @@ const pagesIn: Record<string, { id: string; nickname: string; fullPath: string }
   ],
 };
 
+/** An article's record page in each locale: a derived layout's, found by the record's slug. */
+const articlePathIn: Record<string, string> = { en: "/articles/hello", de: "/articles/hallo" };
+const article = { layoutId: "articles.$slug", recordId: "article-1", runtimeBasePath: "" };
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify({ json: body }), {
     status,
@@ -70,7 +74,13 @@ type Call = { path: string; input: unknown; draft: string | null };
 /** An API reading each request's locale, whose project has `locales`. */
 function mockApi(t: test.TestContext, locales: { tag: string; isDefault: boolean }[]) {
   const calls: Call[] = [];
-  t.mock.method(globalThis, "fetch", async (request: Request) => {
+  t.mock.method(globalThis, "fetch", async (request: Request | URL, init?: RequestInit) => {
+    // The runtime's route discovery finds the article's page by its slug in each locale.
+    if (request instanceof URL) {
+      const locale = new Headers(init?.headers).get(LOCALE_HEADER) ?? "en";
+      calls.push({ path: request.pathname, input: locale, draft: null });
+      return Response.json({ path: articlePathIn[locale] ?? null });
+    }
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const body = request.method === "GET" ? null : ((await request.json()) as { json: unknown });
     const input = body?.json as { tag?: string } | undefined;
@@ -108,12 +118,16 @@ const menuItems = () =>
   );
 const itemNamed = (name: RegExp) => menuItems().find((item) => name.test(item.textContent ?? ""));
 
-/** Opens the studio's locale picker at `pathname`, in draft `draft` or on Live. */
+/**
+ * Opens the studio's locale picker at `pathname`, in draft `draft` or on Live, on the record page
+ * `recordPage` names, if any.
+ */
 async function render(
   t: test.TestContext,
   pathname: string,
   locales: { tag: string; isDefault: boolean }[],
   draft: string | null = null,
+  recordPage?: typeof article,
 ) {
   const search = draft ? `?${DRAFT_SEARCH_PARAM}=${draft}` : "";
   window.history.replaceState(null, "", `${pathname}${search}`);
@@ -148,7 +162,7 @@ async function render(
                   }}
                   navigate={(options) => void navigations.push(options.to)}
                 >
-                  <LocalePicker />
+                  <LocalePicker recordPage={recordPage} />
                 </NavigationProvider>
               </ViewLocaleContext>
             </CamoxAppProvider>
@@ -186,6 +200,16 @@ void test("switching locales keeps the page shown, at its path in the other loca
   await click(itemNamed(/^German/));
 
   assert.deepEqual(navigations, ["/de/preise"]);
+});
+
+void test("switching locales on a record page keeps the record, at its path in the other locale", async (t) => {
+  mockApi(t, [en, de]);
+  const { navigations } = await render(t, "/articles/hello", [en, de], null, article);
+
+  await click(trigger());
+  await click(itemNamed(/^German/));
+
+  assert.deepEqual(navigations, ["/de/articles/hallo"]);
 });
 
 void test("the default locale has nothing to remove", async (t) => {

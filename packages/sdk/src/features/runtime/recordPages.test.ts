@@ -172,6 +172,7 @@ function request(
   ],
   cookie?: string,
   accept?: string,
+  extraHeaders: Record<string, string> = {},
 ) {
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
@@ -184,6 +185,7 @@ function request(
   const headers: Record<string, string> = {
     ...(cookie ? { Cookie: cookie } : {}),
     ...(accept ? { Accept: accept } : {}),
+    ...extraHeaders,
   };
   return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), options);
 }
@@ -424,6 +426,34 @@ void test("the routes endpoint finds the page of a record", async (t) => {
   assert.equal(await pathOf(SECOND_ID), "/articles/second");
   assert.equal(await pathOf(UNKNOWN_ID, VALID_SESSION), null);
   assertLookupsWithoutSource(lookups, 3);
+});
+
+void test("route discovery finds a record's page by its value in the locale the request names", async (t) => {
+  // The record's slug in each locale: the route's pattern stays, its value is localized.
+  const slugs: Record<string, string> = { en: "first", de: "erster" };
+  mockApi(t);
+  const api = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/locales/list")) return localesResponse(["en", "de"]);
+    if (!url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) return api(request);
+    const slug = slugs[request.headers.get(LOCALE_HEADER) ?? "en"];
+    return Response.json({ json: [{ id: FIRST_ID, value: slug, label: "First title" }] });
+  });
+  const pathIn = async (locale?: string) => {
+    const response = await request(
+      `/_camox/routes?layoutId=articles.$slug&recordId=${FIRST_ID}`,
+      undefined,
+      VALID_SESSION,
+      undefined,
+      locale ? { [LOCALE_HEADER]: locale } : {},
+    );
+    assert.equal(response!.status, 200);
+    return ((await response!.json()) as { path: string | null }).path;
+  };
+  // The path is the locale's: its prefix is the caller's to add.
+  assert.equal(await pathIn("de"), "/articles/erster");
+  assert.equal(await pathIn(), "/articles/first");
 });
 
 void test("records sharing a value fail discovery, naming the layout and the records", async (t) => {

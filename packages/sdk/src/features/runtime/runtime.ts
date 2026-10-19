@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -379,6 +379,8 @@ async function resolveRequestMember(
 /**
  * The first discovered page of a derived layout, which the Canvas previews by default. With
  * `recordId`, the page rendering that record, which the Studio follows when its slug changes.
+ * Records are found by their values in the locale `LOCALE_HEADER` names, the default locale
+ * without it, and the path is that locale's, without its prefix: route patterns aren't localized.
  */
 async function createRoutesResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
@@ -393,14 +395,17 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   const { project, clearAuthCookie } = await resolveRequestMember(request, options);
   const headers = {
     "Cache-Control": "private, no-store",
-    Vary: "Cookie",
+    Vary: `Cookie, ${LOCALE_HEADER}`,
     ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
   };
+  // Only a non-default locale is named; the API refuses a tag the scope doesn't have.
+  const tag = request.headers.get(LOCALE_HEADER);
   try {
     const pages = await discoverLayoutPages(
       layout,
       createLayoutRequestContext(options, project ? "draft" : "live", {
         authCookieHeader: getServerAuthCookieHeader(request.headers),
+        locale: tag ? { tag, isDefault: false } : undefined,
       }),
     );
     const page = recordId ? pages.find((entry) => entry.recordId === recordId) : pages[0];

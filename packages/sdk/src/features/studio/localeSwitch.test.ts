@@ -24,6 +24,16 @@ void test("switching to a locale missing the page goes to that locale's home", (
   assert.equal(pathInLocale("/articles/hello", { shown: english, target: german, singleton }), "/");
 });
 
+void test("switching locales on a record page goes to the record's page in the other locale", () => {
+  const options = { shown: english, target: german, singleton };
+  assert.equal(
+    pathInLocale("/articles/hello", { ...options, recordPath: "/articles/hallo" }),
+    "/articles/hallo",
+  );
+  // A curated page on the record page's path is the page shown.
+  assert.equal(pathInLocale("/pricing", { ...options, recordPath: "/articles/hallo" }), "/preise");
+});
+
 void test("studio routes and singleton pages keep their code-owned path in every locale", () => {
   for (const path of ["/camox/content/assets", "/camox/canvas", "/search"])
     assert.equal(pathInLocale(path, { shown: english, target: german, singleton }), path);

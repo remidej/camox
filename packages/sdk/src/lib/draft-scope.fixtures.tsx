@@ -3,6 +3,7 @@ import * as React from "react";
 
 import { type ApiClient, getDraftReadClient } from "./api-client";
 import { createDraftScope, type DraftScope, DraftScopeContext } from "./draft-scope";
+import type { LocaleView } from "./locale-path";
 import { createStudioCache, type Read, type StudioCache, StudioCacheContext } from "./studio-reads";
 
 /** A draft scope on Live, outside any window, for tests that don't follow drafts. */
@@ -17,7 +18,11 @@ const unreachableApi = (() => {
 
 /** A studio cache whose `set` takes partial fixtures: tests seed only what they render. */
 export type TestStudioCache = Omit<StudioCache, "set"> & {
-  set: (read: Read<any, any>, value: unknown, options?: { in?: string | null }) => void;
+  set: (
+    read: Read<any, any>,
+    value: unknown,
+    options?: { in?: string | null; locale?: LocaleView },
+  ) => void;
 };
 
 /** The studio cache over `queryClient`, for tests seeding and reading through the catalog. */

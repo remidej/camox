@@ -45,6 +45,7 @@ import { localeMutations } from "@/lib/queries";
 import { reads, useReadQuery, useStudioCache } from "@/lib/studio-reads";
 import { useLocalePath, useViewLocale } from "@/lib/view-locale";
 
+import type { ShownRecordPage } from "../../preview/pageRecord";
 import { pathInLocale } from "../localeSwitch";
 import { studioStore } from "../studioStore";
 
@@ -66,7 +67,7 @@ export function localeLabel(tag: string): string {
  * that language's home otherwise; the URL names the language by its prefix. Adding and removing
  * languages are content writes, so on Live they start a draft.
  */
-export function LocalePicker() {
+export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   const projectSlug = useProjectSlug();
   const view = useViewLocale();
   const dialog = useSelector(studioStore, (state) => state.context.localeDialog);
@@ -81,7 +82,7 @@ export function LocalePicker() {
     locales.find((locale) =>
       view.locale.isDefault ? locale.isDefault : locale.tag === view.locale.tag,
     ) ?? view.locale;
-  const switchTo = useSwitchLocale();
+  const switchTo = useSwitchLocale(recordPage);
 
   // The dialogs belong to the locale they were opened in.
   React.useEffect(() => closeLocaleDialog, [viewed.tag]);
@@ -165,9 +166,10 @@ export function LocalePicker() {
 
 /**
  * Switches the studio to another locale, on the same page when that locale has it (ADR 0015:
- * localizations share their original's id), or on its home.
+ * localizations share their original's id) or the same record when it shows a record page, or on
+ * its home.
  */
-function useSwitchLocale() {
+function useSwitchLocale(recordPage: ShownRecordPage | undefined) {
   const navigate = useNavigate();
   const cache = useStudioCache();
   const projectSlug = useProjectSlug();
@@ -182,6 +184,12 @@ function useSwitchLocale() {
       // A locale whose pages can't be read leaves nothing to match: the switch goes home.
       const pagesIn = (locale: LocaleView) =>
         cache.ensure(reads.pageList({ projectSlug }), { locale }).catch(() => []);
+      // The record's slug may have changed since: its page is found again, not from the cache.
+      const recordPath = recordPage
+        ? cache
+            .reload(reads.discoveredPath({ projectSlug, ...recordPage }), { locale: target })
+            .catch(() => null)
+        : null;
       const [shown, other] = await Promise.all([pagesIn(view.locale), pagesIn(target)]);
       const next = pathInLocale(path, {
         shown,
@@ -190,10 +198,11 @@ function useSwitchLocale() {
           destinations.some(
             (destination) => destination.kind === "singleton" && destination.fullPath === candidate,
           ),
+        recordPath: await recordPath,
       });
       await navigate({ to: `${localizedPath(next, target)}${search}` });
     },
-    [cache, destinations, navigate, path, projectSlug, search, view.locale],
+    [cache, destinations, navigate, path, projectSlug, recordPage, search, view.locale],
   );
 }
 

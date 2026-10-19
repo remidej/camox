@@ -168,6 +168,31 @@ void test("a read fetches in the locale its key names, even once the studio move
   assert.deepEqual(locales, ["de"]);
 });
 
+void test("route discovery reads the locale its key names, which only a non-default locale names", async () => {
+  const queryClient = new QueryClient();
+  const scope = createDraftScope({ queryClient, developmentMode: false });
+  const named: Array<string | undefined> = [];
+  const cache = createStudioCache({
+    queryClient,
+    scope,
+    api: fakeApi().api,
+    runtimeJson: async (_endpoint, _base, _params, _draft, _signal, locale) => {
+      named.push(locale && !locale.isDefault ? locale.tag : undefined);
+      return Response.json({ path: "/articles/hallo" });
+    },
+  });
+  const discovery = reads.discoveredPath({
+    projectSlug: "site",
+    runtimeBasePath: "",
+    layoutId: "articles.$slug",
+  });
+
+  assert.equal(await cache.ensure(discovery, { locale: de }), "/articles/hallo");
+  await cache.ensure(discovery, { locale: en });
+
+  assert.deepEqual(named, ["de", undefined]);
+});
+
 void test("a server render keys its reads in the locale it renders, as the browser showing it does", () => {
   const server = openCache();
   const serverCache = createStudioCache({
