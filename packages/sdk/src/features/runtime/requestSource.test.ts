@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { createApp } from "../../core/createApp";
 import { createLayout } from "../../core/createLayout";
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
-import { pageListResponse } from "./api.fixtures";
+import { markdownBody, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 /** The source the context's record lookup names, as the API receives it ("none" if absent). */
@@ -138,9 +138,9 @@ void test("Markdown and the sitemap look up records without a source, even for a
     cookie: VALID_SESSION,
     accept: "text/markdown",
   });
-  assert.equal(await derived!.text(), "# pikachu read none");
+  assert.equal(markdownBody(await derived!.text()), "# pikachu read none");
   const singleton = await request("/pokedex", { cookie: VALID_SESSION, accept: "text/markdown" });
-  assert.equal(await singleton!.text(), "# Pokédex read none");
+  assert.equal(markdownBody(await singleton!.text()), "# Pokédex read none");
   const sitemap = await request("/sitemap.xml", { cookie: VALID_SESSION });
   assert.match(await sitemap!.text(), /<loc>https:\/\/site.test\/pokemon\/none<\/loc>/);
 });
