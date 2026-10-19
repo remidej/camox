@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
@@ -40,6 +40,47 @@ export const readBookkeeping = Effect.fn("translation.readBookkeeping")(function
       .get(),
   );
   return row;
+});
+
+/** Ids per query, under D1's limit of bound parameters. */
+const IDS_PER_READ = 90;
+
+/** The bookkeeping of several localizations of one kind, by id, as `readBookkeeping` reads each. */
+export const readBookkeepings = Effect.fn("translation.readBookkeepings")(function* (
+  db: Database,
+  target: DraftInLocale,
+  entity: TranslatedEntity,
+  entityIds: readonly string[],
+) {
+  const found = new Map<string, Bookkeeping>();
+  for (let start = 0; start < entityIds.length; start += IDS_PER_READ) {
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({
+          entityId: translationBookkeeping.entityId,
+          draftId: translationBookkeeping.draftId,
+          source: translationBookkeeping.source,
+          output: translationBookkeeping.output,
+        })
+        .from(translationBookkeeping)
+        .where(
+          and(
+            eq(translationBookkeeping.entity, entity),
+            inArray(translationBookkeeping.entityId, entityIds.slice(start, start + IDS_PER_READ)),
+            eq(translationBookkeeping.locale, target.locale),
+            or(
+              eq(translationBookkeeping.draftId, target.id),
+              isNull(translationBookkeeping.draftId),
+            ),
+          ),
+        ),
+    );
+    // The draft's own over Live's.
+    for (const { entityId, draftId, source, output } of rows) {
+      if (draftId !== null || !found.has(entityId)) found.set(entityId, { source, output });
+    }
+  }
+  return found;
 });
 
 /** Stores a localization's bookkeeping in its draft. */
