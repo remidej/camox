@@ -443,7 +443,8 @@ export const applyNewDefinitionSyncedFlag = Effect.fn("blocks.applyNewDefinition
 /**
  * Makes a new placement, written to `target`, show its definition's shared content as that
  * target reads it. The placement's own content seeds the shared content when a synced definition
- * has none yet, and is dropped otherwise.
+ * has none yet, and is dropped otherwise. Tells which happened: the placement keeps its `own`
+ * content, `seeded` the shared content, or `adopted` existing shared content.
  */
 export const adoptSharedContent = Effect.fn("blocks.adoptSharedContent")(function* (
   ctx: ServiceContext,
@@ -455,11 +456,13 @@ export const adoptSharedContent = Effect.fn("blocks.adoptSharedContent")(functio
   const clear = overlay.update(ctx.db, target, blocks, block.id, clearedPlacement);
   if (yield* findSharedContent(ctx.db, scope, key)) {
     yield* removeItems(ctx.db, target, yield* itemsOfPlacements(ctx.db, scope, [block.id]));
-    return void (yield* clear);
+    yield* clear;
+    return "adopted" as const;
   }
-  if (!(yield* findDefinition(ctx.db, key, scope))?.synced) return;
+  if (!(yield* findDefinition(ctx.db, key, scope))?.synced) return "own" as const;
   yield* sharedContentFromPlacement(ctx.db, target, block);
   yield* clear;
+  return "seeded" as const;
 });
 
 /**

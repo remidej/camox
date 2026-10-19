@@ -15,7 +15,12 @@ import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftOf, type Draft } from "../drafts/scope";
 import { locales } from "../locales/schema";
-import { translationBookkeeping, translationClaims, translationRequests } from "./schema";
+import {
+  translationBookkeeping,
+  translationClaims,
+  translationRequests,
+  type TranslationRequestSource,
+} from "./schema";
 
 // Camox keeps every locale translated from the default locale (ADR 0015). Every write to a
 // default-locale entity in a draft, whatever wrote it, requests its translation into each of the
@@ -36,21 +41,24 @@ const isTranslated = (entity: string): entity is TranslatedEntity =>
 const recordPending = (db: Database, draft: Draft) =>
   record(db, { kind: "translations", projectId: draft.projectId, draftId: draft.id });
 
-// D1 binds at most 100 parameters per statement; a request row takes six.
-const ROWS_PER_INSERT = 15;
+// D1 binds at most 100 parameters per statement; a request row takes seven.
+const ROWS_PER_INSERT = 14;
+
+/** What a job translates, as its request stores it: a job's translations settle apart. */
+const sourceOf = (job: TranslationJob): TranslationRequestSource => job.source ?? "defaultLocale";
 
 /**
  * Requests translations of default-locale entities of a draft into locales: marks each pending
  * and schedules its job, after the debounce or `immediately`. A newer request of the same entity,
- * locale and draft replaces a pending job. Scheduling doesn't hold up the request: it runs after
- * it, and a job that can't be scheduled settles its request, leaving nothing pending.
+ * locale, draft and source replaces a pending job. Scheduling doesn't hold up the request: it runs
+ * after it, and a job that can't be scheduled settles its request, leaving nothing pending.
  */
 export const requestTranslations = Effect.fn("translations.request")(function* (
   db: Database,
   draft: Draft,
   entities: readonly Translatable[],
   targets: readonly string[],
-  options: { immediately?: boolean } = {},
+  options: { immediately?: boolean; source?: TranslationJob["source"] } = {},
 ) {
   const jobs: TranslationJob[] = entities.flatMap(({ entity, id }) =>
     targets.map((locale) => ({
@@ -59,6 +67,7 @@ export const requestTranslations = Effect.fn("translations.request")(function* (
       entityId: id,
       locale,
       draftId: draft.id,
+      ...(options.source && { source: options.source }),
     })),
   );
   if (jobs.length === 0) return;
@@ -70,6 +79,7 @@ export const requestTranslations = Effect.fn("translations.request")(function* (
       entity: job.entity,
       entityId: job.entityId,
       locale: job.locale,
+      source: sourceOf(job),
       requestedAt,
     }));
     yield* Effect.promise(() =>
@@ -82,6 +92,7 @@ export const requestTranslations = Effect.fn("translations.request")(function* (
             translationRequests.entity,
             translationRequests.entityId,
             translationRequests.locale,
+            translationRequests.source,
           ],
           set: { requestedAt: sql`excluded.requested_at` },
         }),
@@ -121,6 +132,7 @@ const keyOf = (job: TranslationJob) =>
     eq(translationRequests.entity, job.entity),
     eq(translationRequests.entityId, job.entityId),
     eq(translationRequests.locale, job.locale),
+    eq(translationRequests.source, sourceOf(job)),
   );
 
 /** Settles a job's request unless another was requested after `startedAt`. */
@@ -234,6 +246,26 @@ export const translateIntoLocale = Effect.fn("translations.translateIntoLocale")
     for (const { id } of rows) entities.push({ entity, id });
   }
   yield* requestTranslations(db, draft, entities, [tag], { immediately: true });
+});
+
+/**
+ * Requests the translation of code-owned defaults into the locale a draft placed them in, unless
+ * that's the default locale: nobody chose that content. They're a placed block's, or the shared
+ * content a synced block created. Defaults placed in the default locale are translated like any
+ * other write to it.
+ */
+export const translatePlacedDefaults = Effect.fn("translations.translatePlacedDefaults")(function* (
+  db: Database,
+  scope: Draft,
+  placed: Translatable & { entity: "block" | "sharedContent" },
+) {
+  if (scope.locale === undefined) return;
+  const { defaultTag, others } = yield* draftLocales(db, scope);
+  if (scope.locale === defaultTag || !others.includes(scope.locale)) return;
+  yield* requestTranslations(db, draftOf(scope), [placed], [scope.locale], {
+    immediately: true,
+    source: "defaults",
+  });
 });
 
 /**

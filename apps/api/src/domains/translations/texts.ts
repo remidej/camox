@@ -243,3 +243,23 @@ export function slugOf(translation: string | undefined, source: string) {
   const slug = translation === undefined ? "" : slugify(translation, { lower: true, strict: true });
   return slug || source;
 }
+
+/**
+ * The texts of content its schema calls text, and the content with each replaced by its answer,
+ * as a defaults translation sends them: every merge unit of the content that holds text.
+ */
+export function contentTexts(schema: unknown, content: Record<string, unknown>) {
+  const values: Values = { content };
+  const found = mergeUnitsOf({ contentSchema: schema }, [values]).flatMap((unit) => {
+    const texts = textsOf(unit, unit.get(values));
+    return texts ? [{ unit, texts }] : [];
+  });
+  return {
+    texts: found.flatMap(({ texts }) => texts.texts),
+    translated: (answers: Record<string, string>) => {
+      const into: Values = { content: { ...content } };
+      for (const { unit, texts } of found) unit.set(into, texts.rebuild(answers));
+      return into.content as Record<string, unknown>;
+    },
+  };
+}

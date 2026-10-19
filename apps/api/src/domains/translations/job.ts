@@ -17,14 +17,16 @@ import { itemSchemas } from "../_shared/fields";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
-import { type Draft, type DraftInLocale, inLocale } from "../drafts/scope";
+import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { readBookkeeping, type Values, writeBookkeeping } from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
+import { translateDefaults } from "./defaults";
 import { type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
-import { draftLocales, pendingRequest, settleTranslation } from "./service";
+import { translationScope, type TranslationScope } from "./scope";
+import { pendingRequest, settleTranslation } from "./service";
 import type { Shape } from "./texts";
 
 // A translation job (ADR 0015): it brings an entity's localization in one locale of a draft up
@@ -61,14 +63,6 @@ const valuesOf = (row: Row): Values =>
     Object.entries(row).filter(([column]) => !IDENTITY.has(column) && !TIMESTAMPS.has(column)),
   );
 
-/** Where a job reads and writes: its draft in the default locale, and in the job's locale. */
-type TranslationScope = {
-  draft: Draft;
-  target: DraftInLocale;
-  from: string;
-  to: string;
-};
-
 /**
  * Runs a translation job, unless its request is gone because its draft ended, was emptied or
  * dropped the locale since. A job that fails for good leaves the localization as it was and
@@ -82,7 +76,8 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
   const draft = yield* draftScopeOfJob(db, job.draftId);
   const startedAt = Date.now();
   if (draft) {
-    yield* translate(db, draft, job).pipe(
+    const run = job.source === "defaults" ? translateDefaults : translate;
+    yield* run(db, draft, job).pipe(
       Effect.catchCause((cause) => Effect.logError(`[translation] ${jobName(job)} failed`, cause)),
     );
   }
@@ -94,14 +89,8 @@ const translate = Effect.fn("translation.translate")(function* (
   draft: Draft,
   job: TranslationJob,
 ) {
-  const { defaultTag, others } = yield* draftLocales(db, draft);
-  if (defaultTag === undefined || !others.includes(job.locale)) return;
-  const scope: TranslationScope = {
-    draft,
-    target: inLocale(draft, job.locale),
-    from: defaultTag,
-    to: job.locale,
-  };
+  const scope = yield* translationScope(db, draft, job.locale);
+  if (!scope) return;
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
   const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
