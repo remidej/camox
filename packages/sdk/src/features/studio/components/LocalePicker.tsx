@@ -1,3 +1,4 @@
+import { Combobox } from "@base-ui/react/combobox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,20 +47,9 @@ import { reads, useReadQuery, useStudioCache } from "@/lib/studio-reads";
 import { useLocalePath, useViewLocale } from "@/lib/view-locale";
 
 import type { ShownRecordPage } from "../../preview/pageRecord";
+import { type LocaleOption, localeLabel, localeOptions } from "../localeOptions";
 import { pathInLocale } from "../localeSwitch";
 import { studioStore } from "../studioStore";
-
-const localeNames = new Intl.DisplayNames(["en"], { type: "language" });
-
-/** A locale's name as the studio shows it, "German (de)", or its tag alone when unnamed. */
-export function localeLabel(tag: string): string {
-  try {
-    const name = localeNames.of(tag);
-    return name && name !== tag ? `${name} (${tag})` : tag;
-  } catch {
-    return tag;
-  }
-}
 
 /**
  * The studio's languages (GLOSSARY: Locale): the one viewed, the others to switch to, and adding
@@ -144,6 +134,7 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
         <>
           <AddLocaleDialog
             projectId={projectId}
+            locales={locales}
             open={dialog === "add"}
             onAdded={(added) => void switchTo(added)}
           />
@@ -210,30 +201,32 @@ function closeLocaleDialog() {
   studioStore.send({ type: "closeLocaleDialog" });
 }
 
-/** Asks for a BCP 47 tag, then adds the locale, a copy of the default locale's content. */
+/** Asks which language to add, then adds the locale, a copy of the default locale's content. */
 function AddLocaleDialog({
   projectId,
+  locales,
   open,
   onAdded,
 }: {
   projectId: number;
+  locales: readonly LocaleView[];
   open: boolean;
   onAdded: (added: LocaleView) => void;
 }) {
   const cache = useStudioCache();
-  const [tag, setTag] = React.useState("");
+  const options = React.useMemo(() => localeOptions(locales), [locales]);
+  const [picked, setPicked] = React.useState<LocaleOption | null>(null);
   const add = useMutation({
     ...localeMutations.add(),
     onSuccess: (added) => {
       closeLocaleDialog();
-      setTag("");
+      setPicked(null);
       toast.success(`Added ${localeLabel(added.tag)}`);
       void cache.invalidate(reads.localeList({ projectId }));
       onAdded(added);
     },
     onError: (error) => toast.error(error.message || "Could not add the language"),
   });
-  const trimmed = tag.trim();
 
   return (
     <Dialog
@@ -247,7 +240,7 @@ function AddLocaleDialog({
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (trimmed) add.mutate({ projectId, tag: trimmed });
+            if (picked) add.mutate({ projectId, tag: picked.tag });
           }}
         >
           <DialogHeader>
@@ -258,20 +251,44 @@ function AddLocaleDialog({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="camox-locale-tag">Language tag</Label>
-            <Input
-              id="camox-locale-tag"
-              value={tag}
-              onChange={(event) => setTag(event.target.value)}
-              placeholder="de, fr or pt-BR"
-              autoComplete="off"
-              autoFocus
-            />
-            <p className="text-muted-foreground text-xs">
-              {trimmed
-                ? localeLabel(trimmed)
-                : "A BCP 47 language tag. Its pages are served under its own prefix, like /de."}
-            </p>
+            <Label htmlFor="camox-locale-tag">Language</Label>
+            <Combobox.Root
+              items={options}
+              value={picked}
+              onValueChange={setPicked}
+              itemToStringLabel={(option: LocaleOption) => option.label}
+              itemToStringValue={(option: LocaleOption) => option.tag}
+              isItemEqualToValue={(option: LocaleOption, value: LocaleOption) =>
+                option.tag === value.tag
+              }
+              autoHighlight
+            >
+              <Combobox.Input
+                render={<Input id="camox-locale-tag" />}
+                placeholder="Search languages…"
+                autoFocus
+              />
+              <Combobox.Portal>
+                <Combobox.Positioner sideOffset={4} align="start" className="isolate z-50">
+                  <Combobox.Popup className="bg-popover text-popover-foreground ring-foreground/10 flex max-h-(--available-height) w-(--anchor-width) flex-col rounded-md p-1 shadow-md ring-1">
+                    <Combobox.Empty className="text-muted-foreground text-sm">
+                      <div className="p-2">No languages found.</div>
+                    </Combobox.Empty>
+                    <Combobox.List className="max-h-64 min-h-0 overflow-y-auto">
+                      {(option: LocaleOption) => (
+                        <Combobox.Item
+                          key={option.tag}
+                          value={option}
+                          className="data-highlighted:bg-accent data-highlighted:text-accent-foreground flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none"
+                        >
+                          <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                        </Combobox.Item>
+                      )}
+                    </Combobox.List>
+                  </Combobox.Popup>
+                </Combobox.Positioner>
+              </Combobox.Portal>
+            </Combobox.Root>
           </div>
           <DialogFooter>
             <Button
@@ -282,7 +299,7 @@ function AddLocaleDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!trimmed || add.isPending}>
+            <Button type="submit" disabled={!picked || add.isPending}>
               {add.isPending ? <Spinner /> : null}
               Add language
             </Button>

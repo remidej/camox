@@ -13,6 +13,8 @@ Object.assign(globalThis, {
   window,
   document: window.document,
   HTMLElement: window.HTMLElement,
+  HTMLInputElement: window.HTMLInputElement,
+  NodeFilter: window.NodeFilter,
   Element: window.Element,
   Node: window.Node,
   Event: window.Event,
@@ -251,13 +253,38 @@ void test("adding a locale on Live starts a draft with it, and switches to it on
   await click(trigger());
   await click(itemNamed(/^Add language/));
 
+  const submit = () =>
+    window.document.querySelector(
+      '[role="dialog"] button[type="submit"]',
+    ) as unknown as HTMLButtonElement;
+  assert.ok(submit().disabled, "nothing is added before a language is picked");
+
   const input = window.document.querySelector("#camox-locale-tag") as unknown as HTMLInputElement;
+  const search = (text: string) =>
+    React.act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
+      setValue.set!.call(input, text);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+  const options = () =>
+    [...window.document.querySelectorAll('[role="option"]')].map((option) => option.textContent);
   await React.act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
-    setValue.set!.call(input, "fr");
-    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    input.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }) as unknown as Event,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
   });
-  await click(window.document.querySelector('[role="dialog"] button[type="submit"]'));
+  await search("english");
+  assert.ok(options().includes("British English (en-GB)"), "the search matches languages by name");
+  assert.ok(!options().includes("English (en)"), "the project's languages aren't offered");
+  await search("fren");
+  await click(
+    [...window.document.querySelectorAll('[role="option"]')].find(
+      (option) => option.textContent === "French (fr)",
+    ),
+  );
+  await click(submit());
 
   const added = calls.find((call) => call.path === "locales/add");
   assert.deepEqual(added?.input, { projectId: 1, tag: "fr" });
