@@ -238,6 +238,21 @@ describe("publishing anyway", () => {
     expect(await f.titleIn("de")).toBe("Hallo");
   });
 
+  it("drops a pending merge with Live's localization, which the draft's own replaced", async () => {
+    const f = await fixture();
+    const editDe = (title: string) => (headers: Headers) =>
+      f.tool("editBlock", { id: f.block.id, content: { title }, locale: "de" }, headers);
+    const mine = await f.draft(editDe("Grüß Gott"));
+    const theirs = await f.draft(editDe("Servus"));
+    await f.publish(theirs.headers);
+    expect((await f.tool("previewPublish", {}, mine.headers)).translating).toEqual(["de"]);
+
+    await f.publish(mine.headers, { publishAnyway: true });
+
+    expect(await catchUpDrafts(f)).toEqual([]);
+    expect(await f.titleIn("de")).toBe("Grüß Gott");
+  });
+
   it("leaves no catch-up draft behind when its translations changed nothing", async () => {
     const f = await fixture();
     const edited = await editedDraft(f);
