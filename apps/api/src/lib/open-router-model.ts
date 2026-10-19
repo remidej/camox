@@ -78,7 +78,7 @@ export const openRouterModel = (apiKey: string) =>
                       type: "image" as const,
                       source: { type: "data" as const, value: base64, mimeType },
                     },
-                    { type: "text" as const, content: imageMetadataPrompt(request.filename) },
+                    { type: "text" as const, content: imageMetadataPrompt(request) },
                   ],
                 },
               ],
@@ -143,6 +143,7 @@ function summaryPrompt(request: { type: string; markdown: string; previousSummar
 }
 
 function pageSeoPrompt(request: {
+  locale: string;
   fullPath: string;
   blocks: { type: string; markdown: string }[];
   previousMetaTitle?: string | null;
@@ -174,6 +175,7 @@ function pageSeoPrompt(request: {
       - metaDescription: under 160 characters, compelling summary of the page
       - Be specific to the actual content, not generic
       - Don't use markdown, just plain text
+      - Write both in the language of the locale ${request.locale}, whatever the language of the content
     </constraints>
 
     <page>
@@ -184,10 +186,10 @@ function pageSeoPrompt(request: {
   `;
 }
 
-function imageMetadataPrompt(currentFilename: string) {
+function imageMetadataPrompt(request: { locale: string; filename: string }) {
   return outdent`
     Analyze this image and generate metadata for it:
-    - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
-    - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
+    - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${request.filename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
+    - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max). Write it in the language of the locale ${request.locale}.
   `;
 }

@@ -14,15 +14,17 @@ import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftIn, type Draft, type DraftScope } from "../drafts/scope";
+import { type Draft, draftOf, type DraftScope, inLocale, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
-import { homeOf, saveValue, settleRequest } from "../generated-values/service";
+import { defaultLocaleTag, homeOf, saveValue, settleRequest } from "../generated-values/service";
+import { INITIAL_LOCALE, locales } from "../locales/schema";
 import {
   fileView,
   metadataColumns,
   metadataGenerated,
   metadataKey,
   type MetadataWrite,
+  otherLocaleOf,
   seedMetadata,
   withFileMetadata,
 } from "./generated-metadata";
@@ -92,20 +94,22 @@ export const generateFileMetadataInput = z.object({ id: uuidv7Schema });
 // --- AI Executor ---
 
 /**
- * Generates a file's metadata as the scope reads it, into the scope's generated values: never
- * into the file, so it never copies one into a draft (ADR 0012). Files whose metadata is manual
- * are skipped.
+ * Generates a file's metadata as the scope reads it, in its locale, into the scope's generated
+ * values: never into the file, so it never copies one into a draft (ADR 0012). Files whose
+ * metadata is manual in the locale are skipped. Outside the default locale, only the alt text is
+ * generated: the filename is the default locale's.
  */
 export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   fileId: string,
   startedAt: number,
 ): Effect.fn.Return<Stale | null, AiCallError, AiModel | Journal> {
   const file = yield* overlay.get(db, scope, files, fileId);
   if (!file?.projectId) return null;
   const home = homeOf(scope, file.projectId);
-  if (!metadataGenerated(file) || !isRasterImage(file.mimeType)) {
+  const locale = yield* otherLocaleOf(db, scope, file.projectId);
+  if (!metadataGenerated(file, locale) || !isRasterImage(file.mimeType)) {
     yield* settleRequest(db, home, metadataKey(fileId), startedAt);
     return null;
   }
@@ -113,6 +117,7 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
 
   const model = yield* AiModel;
   const metadata = yield* model.imageMetadata({
+    locale: locale ?? (yield* defaultLocaleTag(db, file.projectId)) ?? INITIAL_LOCALE,
     url: file.url,
     mimeType: file.mimeType,
     filename: shown.filename,
@@ -121,7 +126,9 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
     db,
     home,
     metadataKey(fileId),
-    { alt: metadata.alt, filename: metadata.filename },
+    locale === undefined
+      ? { alt: metadata.alt, filename: metadata.filename }
+      : { alt: metadata.alt },
     startedAt,
   );
   // A file's metadata makes nothing else stale.
@@ -379,7 +386,8 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   rawMetadata: z.input<typeof fileMetadataInput>,
 ) {
   const metadata = yield* decodeInput(fileMetadataInput, rawMetadata);
-  const oldFile = yield* fileView(ctx.db, scope, file);
+  // The metadata the default locale shows, which the new upload's starts from.
+  const oldFile = yield* fileView(ctx.db, draftOf(scope), file);
   const target = { projectId: file.projectId };
   const raster = isRasterImage(asset.mimeType);
   if (metadata.aiMetadata && !raster) {
@@ -404,7 +412,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
 
   yield* deleteUnreferencedBlobs(ctx, [oldFile.blobId]);
   if (generated) {
-    const home = homeOf(scope, target.projectId);
+    const home = homeOf(draftOf(scope), target.projectId);
     yield* saveValue(
       ctx.db,
       home,
@@ -417,7 +425,36 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
     );
     yield* requestGeneration(ctx.db, home, { entity: "file", row: result });
   }
+  if (metadata.aiMetadata !== false) yield* requestInOtherLocales(ctx.db, scope, result);
   return yield* fileView(ctx.db, scope, result);
+});
+
+/**
+ * Requests an uploaded or replaced image's alt text in every locale but the default one, where
+ * the caller requests its metadata: files are shared by every locale, each with its own alt text
+ * (ADR 0015). A locale whose alt text is manual keeps it.
+ */
+const requestInOtherLocales = Effect.fn("files.requestInOtherLocales")(function* (
+  db: Database,
+  scope: Draft,
+  file: FileRow,
+) {
+  const draft = draftOf(scope);
+  const others = yield* overlay.select(
+    db,
+    draft,
+    locales,
+    and(eq(locales.projectId, file.projectId), eq(locales.isDefault, false)),
+  );
+  yield* Effect.forEach(
+    others,
+    ({ tag }) =>
+      requestGeneration(db, homeOf(inLocale(draft, tag), file.projectId), {
+        entity: "file",
+        row: file,
+      }),
+    { concurrency: 8, discard: true },
+  );
 });
 
 /**
@@ -448,7 +485,7 @@ export const createFile = Effect.fn("files.createFile")(function* (
     return yield* new InvalidInputError({ message: "A file with this id already exists" });
   }
   if (generated) {
-    const home = homeOf(scope, values.projectId);
+    const home = homeOf(draftOf(scope), values.projectId);
     yield* saveValue(
       ctx.db,
       home,
@@ -461,6 +498,7 @@ export const createFile = Effect.fn("files.createFile")(function* (
     );
     yield* requestGeneration(ctx.db, home, { entity: "file", row: created });
   }
+  if (aiMetadata !== false) yield* requestInOtherLocales(ctx.db, scope, created);
   return yield* fileView(ctx.db, scope, created);
 });
 
@@ -481,7 +519,7 @@ export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(func
   const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
   const { scope } = yield* accessTo(ctx, { file: id }, "member");
 
-  yield* generateNow(ctx.db, draftIn(scope), "file", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "file", id).pipe(Effect.orDie);
   const shown = yield* overlay.get(ctx.db, scope, files, id);
   return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
 }, Effect.scoped);

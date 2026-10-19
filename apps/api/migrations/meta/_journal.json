@@ -29,6 +29,13 @@
       "when": 1792408874731,
       "tag": "0003_default_locales",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792423145911,
+      "tag": "0004_generated_values_per_locale",
+      "breakpoints": true
     }
   ]
 }

@@ -31,7 +31,8 @@ import { checkFileProblems, type FileProblemCode, type Finding } from "../files/
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import * as generatedValueStatements from "../generated-values/service";
-import { homeOf } from "../generated-values/service";
+import { defaultLocaleTag, homeOf } from "../generated-values/service";
+import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
 import { accessTo } from "./access";
@@ -41,7 +42,7 @@ import {
   type ContentProblemCode,
 } from "./content-checks";
 import * as overlay from "./overlay";
-import { draftIn, type DraftScope } from "./scope";
+import { draftIn, type DraftScope, inLocale, type ReadScope } from "./scope";
 import { findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
@@ -311,9 +312,10 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
 // D1 binds at most 100 parameters per statement.
 const ID_CHUNK = 90;
 
-/** Live's rows with these ids. */
+/** Live's rows with these ids, in the locale a Live scope reads. */
 const liveRows = Effect.fn("drafts.liveRows")(function* <T extends overlay.ContentTable>(
   ctx: ServiceContext,
+  live: ReadScope,
   table: T,
   ids: Iterable<string>,
 ) {
@@ -321,15 +323,21 @@ const liveRows = Effect.fn("drafts.liveRows")(function* <T extends overlay.Conte
   const rows: T["$inferSelect"][] = [];
   for (let start = 0; start < all.length; start += ID_CHUNK) {
     const chunk = all.slice(start, start + ID_CHUNK);
-    rows.push(...(yield* overlay.select(ctx.db, null, table, inArray(table.id, chunk))));
+    rows.push(...(yield* overlay.select(ctx.db, live, table, inArray(table.id, chunk))));
   }
   return rows;
 });
 
+/** The tag of the locale a stored change is in, or null for an entity stored once. */
+const localeOfChange = (change: overlay.StoredChange) =>
+  "locale" in change.row && typeof change.row.locale === "string" ? change.row.locale : null;
+
 /**
  * Requests Live's generated values for everything a publish changed and the parents above it:
  * another draft may have published to the same page since this one generated its values.
- * Children are generated first, so their parents start from the new summaries.
+ * Children are generated first, so their parents start from the new summaries. Each locale's
+ * values are requested in the locales of what changed (ADR 0015): summaries in the default
+ * locale only, a page's SEO in the page's locale, and a file's alt text in every locale.
  */
 const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function* (
   ctx: ServiceContext,
@@ -337,54 +345,92 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
   stored: overlay.StoredChange[],
 ) {
   const kept = stored.filter((change) => change.change !== "deleted");
-  const ids = (table: overlay.ContentTable) =>
-    new Set(kept.filter((change) => change.table === table).map((change) => change.row.id));
-  const itemIds = ids(repeatableItems);
-  const blockIds = ids(blocks);
-  const pageIds = ids(pages);
-  const fileIds = ids(files);
-
-  // Live now holds what the draft published.
-  const items = yield* liveRows(ctx, repeatableItems, itemIds);
-  const placementOf = new Map<string, string | null>();
-  for (const item of items) {
-    const root = rootOfItem(item);
-    if ("blockId" in root) {
-      blockIds.add(root.blockId);
-      continue;
-    }
-    const key = `${root.sharedContent.projectId}:${root.sharedContent.type}`;
-    if (!placementOf.has(key)) {
-      placementOf.set(key, yield* sharedPlacementId(ctx.db, null, root.sharedContent));
-    }
-    const placement = placementOf.get(key);
-    if (placement) blockIds.add(placement);
-  }
-  for (const change of kept.filter((change) => change.table === sharedContents)) {
-    const shared = change.row as typeof sharedContents.$inferSelect;
-    const placement = yield* sharedPlacementId(ctx.db, null, shared);
-    if (placement) blockIds.add(placement);
-  }
-  const blockRows = yield* liveRows(ctx, blocks, blockIds);
-  for (const block of blockRows) if (block.pageId) pageIds.add(block.pageId);
-  const pageRows = yield* liveRows(ctx, pages, pageIds);
-  const fileRows = yield* liveRows(ctx, files, fileIds);
-
-  // Items are summarised right away; their blocks and pages wait for them, as after an edit.
-  const live = homeOf(null, scope.projectId);
+  const defaultTag = yield* defaultLocaleTag(ctx.db, scope.projectId);
+  // Live now holds what the draft published, its locales included.
+  const liveLocales = (yield* overlay.select(
+    ctx.db,
+    null,
+    locales,
+    eq(locales.projectId, scope.projectId),
+  )).map((locale) => locale.tag);
+  /** Live, read in a locale. */
+  const liveIn = (tag: string): ReadScope => (tag === defaultTag ? null : inLocale(null, tag));
   // Each request writes and reaches a Durable Object: a few at a time, not one after another.
-  const request = (targets: GenerationTarget[], options?: { immediately: boolean }) =>
-    Effect.forEach(targets, (target) => requestGeneration(ctx.db, live, target, options), {
-      concurrency: 8,
-      discard: true,
-    });
-  yield* request(
-    items.map((row) => ({ entity: "repeatableItem", row })),
-    { immediately: true },
+  const request = (
+    live: ReadScope,
+    targets: GenerationTarget[],
+    options?: { immediately: boolean },
+  ) =>
+    Effect.forEach(
+      targets,
+      (target) => requestGeneration(ctx.db, homeOf(live, scope.projectId), target, options),
+      { concurrency: 8, discard: true },
+    );
+
+  const tags = new Set(kept.flatMap((change) => localeOfChange(change) ?? []));
+  for (const tag of liveLocales.filter((tag) => tags.has(tag))) {
+    const live = liveIn(tag);
+    const inTag = kept.filter((change) => localeOfChange(change) === tag);
+    const ids = (table: overlay.ContentTable) =>
+      new Set(inTag.filter((change) => change.table === table).map((change) => change.row.id));
+    const itemIds = ids(repeatableItems);
+    const blockIds = ids(blocks);
+    const pageIds = ids(pages);
+
+    const items = yield* liveRows(ctx, live, repeatableItems, itemIds);
+    const placementOf = new Map<string, string | null>();
+    for (const item of items) {
+      const root = rootOfItem(item);
+      if ("blockId" in root) {
+        blockIds.add(root.blockId);
+        continue;
+      }
+      const key = `${root.sharedContent.projectId}:${root.sharedContent.type}`;
+      if (!placementOf.has(key)) {
+        placementOf.set(key, yield* sharedPlacementId(ctx.db, live, root.sharedContent));
+      }
+      const placement = placementOf.get(key);
+      if (placement) blockIds.add(placement);
+    }
+    for (const change of inTag.filter((change) => change.table === sharedContents)) {
+      const shared = change.row as typeof sharedContents.$inferSelect;
+      const placement = yield* sharedPlacementId(ctx.db, live, shared);
+      if (placement) blockIds.add(placement);
+    }
+    const blockRows = yield* liveRows(ctx, live, blocks, blockIds);
+    for (const block of blockRows) if (block.pageId) pageIds.add(block.pageId);
+    const pageRows = yield* liveRows(ctx, live, pages, pageIds);
+
+    // Summaries are the default locale's only. Items are summarised right away; their blocks and
+    // pages wait for them, as after an edit.
+    if (tag === defaultTag) {
+      yield* request(
+        live,
+        items.map((row) => ({ entity: "repeatableItem", row })),
+        { immediately: true },
+      );
+      yield* request(
+        live,
+        blockRows.map((row) => ({ entity: "block", row })),
+      );
+    }
+    yield* request(
+      live,
+      pageRows.map((row) => ({ entity: "page", row })),
+    );
+  }
+
+  // Files are shared by every locale, each with its own alt text.
+  const fileIds = new Set(
+    kept.filter((change) => change.table === files).map((change) => change.row.id),
   );
-  yield* request(blockRows.map((row) => ({ entity: "block", row })));
-  yield* request(pageRows.map((row) => ({ entity: "page", row })));
-  yield* request(fileRows.map((row) => ({ entity: "file", row })));
+  const fileRows = yield* liveRows(ctx, null, files, fileIds);
+  for (const tag of liveLocales) {
+    yield* request(
+      liveIn(tag),
+      fileRows.map((row) => ({ entity: "file", row })),
+    );
+  }
 });
 
 /**

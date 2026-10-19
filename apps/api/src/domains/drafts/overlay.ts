@@ -830,11 +830,15 @@ export function retagStatements(
 export const runStatements = (db: Database, statements: BatchItem[]) =>
   Effect.promise(() => runBatch(db, statements));
 
-/** Per registered entity, the ids Live holds, as a subquery. */
-export function liveIds(): { entity: EntityKind; ids: SQL }[] {
+/**
+ * Per registered entity, the entities Live holds, as a subquery: their ids, with their locales
+ * for a localized entity.
+ */
+export function liveKeys(): { entity: EntityKind; keys: SQL; localized: boolean }[] {
   return tables().map((table) => ({
     entity: registrationOf(table).entity,
-    ids: sql`select ${at("l", table.id)} from ${sql.identifier(getTableName(table))} as "l" where ${at("l", table.draftId)} is null`,
+    keys: sql`select ${keyColumns("l", table)} from ${sql.identifier(getTableName(table))} as "l" where ${at("l", table.draftId)} is null`,
+    localized: localeColumn(table) !== undefined,
   }));
 }
 

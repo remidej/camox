@@ -24,7 +24,7 @@ import { blockScope, validateReferenceValues } from "../collections/references";
 import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftIn, type DraftScope, type ReadScope } from "../drafts/scope";
+import { type DraftScope, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
 import { copyValue, homeOf, readValue, saveValue } from "../generated-values/service";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
@@ -650,7 +650,7 @@ export const generateRepeatableItemSummary = Effect.fn(
   const { id } = yield* decodeInput(generateRepeatableItemSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { item: id }, "member");
 
-  yield* generateNow(ctx.db, draftIn(scope), "repeatableItem", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "repeatableItem", id).pipe(Effect.orDie);
   const stored = yield* overlay.get(ctx.db, scope, repeatableItems, id);
   return stored && (yield* shownItem(ctx, project.id, scope, stored));
 }, Effect.scoped);

@@ -33,9 +33,16 @@ export const files = sqliteTable(
       .notNull()
       .references(() => projects.id),
     url: text().notNull(),
-    // Manual metadata, all null or all set (ADR 0012): null means the generated values apply.
+    // Manual metadata in the default locale, all null or all set (ADR 0012): null means the
+    // generated values apply.
     alt: text(),
     filename: text(),
+    // Manual alt text in locales other than the default one, by tag: a locale missing here gets
+    // generated alt text. Files aren't localized, and the filename is the default locale's.
+    localizedAlts: text("localized_alts", { mode: "json" })
+      .$type<Record<string, string>>()
+      .notNull()
+      .default(sql`'{}'`),
     mimeType: text("mime_type").notNull(),
     size: int().notNull(),
     optimizedSize: int("optimized_size"),

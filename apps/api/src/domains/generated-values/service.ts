@@ -1,11 +1,13 @@
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
-import { draftIn, type DraftScope, type ReadScope } from "../drafts/scope";
+import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
+import { locales } from "../locales/schema";
 import {
   generatedValues,
   type GeneratedEntity,
@@ -14,11 +16,16 @@ import {
 } from "./schema";
 
 // Generated values sit beside content (ADR 0012). A draft reads its own value and falls back to
-// Live's. Jobs are keyed by entity, type, and Live or draft; requesting one marks the value
-// pending until a job of that key finishes.
+// Live's. Values are per locale, like content (ADR 0015), except summaries, which are generated
+// in the default locale only: every locale reads the default locale's. Jobs are keyed by entity,
+// type, locale, and Live or draft; requesting one marks the value pending until a job of that key
+// finishes.
 
-/** Where a value is stored: Live (`draftId` null) or one draft, in a project. */
-export type ValueHome = { projectId: number; draftId: string | null };
+/**
+ * Where a value is stored: Live (`draftId` null) or one draft, in a project, in a locale named by
+ * its tag, or without one in the default locale.
+ */
+export type ValueHome = { projectId: number; draftId: string | null; locale?: string };
 
 export type ValueKey<T extends GeneratedType = GeneratedType> = {
   entity: GeneratedEntity;
@@ -33,10 +40,43 @@ export type ShownValue<T extends GeneratedType> = {
   pending: boolean;
 };
 
-export const homeOf = (scope: DraftScope, projectId: number): ValueHome => ({
-  projectId,
-  draftId: scope?.id ?? null,
+/** Where a scope stores its values: its draft or Live, in its locale. */
+export const homeOf = (scope: ReadScope, projectId: number): ValueHome => {
+  const locale = scope?.locale;
+  return { projectId, draftId: draftIn(scope)?.id ?? null, ...(locale ? { locale } : {}) };
+};
+
+/** The tag of a project's default locale, as a scalar subquery: drafts never change it. */
+export const defaultLocaleOf = (projectId: SQL | AnySQLiteColumn | number): SQL =>
+  sql`(select ${locales.tag} from ${locales} where ${locales.projectId} = ${projectId} and ${locales.isDefault} = 1 and ${locales.draftId} is null)`;
+
+/** The tag of a project's default locale. */
+export const defaultLocaleTag = Effect.fn("generatedValues.defaultLocaleTag")(function* (
+  db: Database,
+  projectId: number,
+) {
+  const row = yield* Effect.promise(() =>
+    db
+      .select({ tag: locales.tag })
+      .from(locales)
+      .where(
+        and(eq(locales.projectId, projectId), eq(locales.isDefault, true), isNull(locales.draftId)),
+      )
+      .get(),
+  );
+  return row?.tag;
 });
+
+/**
+ * The tag of the locale a value of `type` is stored in, as SQL: the locale named, or the
+ * project's default locale. Summaries are only ever in the default locale.
+ */
+const valueLocale = (
+  type: GeneratedType,
+  locale: string | undefined,
+  projectId: SQL | AnySQLiteColumn | number,
+): SQL =>
+  type === "summary" || locale === undefined ? defaultLocaleOf(projectId) : sql`${locale}`;
 
 // D1 binds at most 100 parameters per statement.
 const CHUNK = 90;
@@ -68,8 +108,9 @@ export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T ext
     ([entity, ids]) => [...new Set(ids)].map((id) => ({ entity, id })),
   );
   const keyOf = (entity: string, id: string) => `${entity}\u0000${id}`;
-  // Generated values aren't per locale: a scope reads its draft's, over Live's.
+  // A scope reads its draft's values over Live's, in its locale.
   const draft = draftIn(scope);
+  const locale = sql`${generatedValues.locale} = ${valueLocale(type, scope?.locale, generatedValues.projectId)}`;
   const asked = new Set(wanted.map(({ entity, id }) => keyOf(entity, id)));
   for (let start = 0; start < wanted.length; start += CHUNK) {
     const chunk = wanted.slice(start, start + CHUNK);
@@ -85,6 +126,7 @@ export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T ext
             draft
               ? or(isNull(generatedValues.draftId), eq(generatedValues.draftId, draft.id))
               : isNull(generatedValues.draftId),
+            locale,
           ),
         ),
     );
@@ -123,7 +165,12 @@ export const readValue = Effect.fn("generatedValues.readOne")(function* <T exten
 const conflictTarget = (draftId: string | null) =>
   draftId === null
     ? {
-        target: [generatedValues.entity, generatedValues.entityId, generatedValues.type],
+        target: [
+          generatedValues.entity,
+          generatedValues.entityId,
+          generatedValues.type,
+          generatedValues.locale,
+        ],
         targetWhere: sql`${generatedValues.draftId} is null`,
       }
     : {
@@ -132,6 +179,7 @@ const conflictTarget = (draftId: string | null) =>
           generatedValues.entity,
           generatedValues.entityId,
           generatedValues.type,
+          generatedValues.locale,
         ],
         targetWhere: sql`${generatedValues.draftId} is not null`,
       };
@@ -142,7 +190,13 @@ const settled = (startedAt: number) =>
 
 /** Records that a value, or whether it's pending, changed: it shows with its entity. */
 const recordValue = (db: Database, home: ValueHome, key: ValueKey) =>
-  record(db, { kind: "generated", entity: key.entity, id: key.entityId, ...home });
+  record(db, {
+    kind: "generated",
+    entity: key.entity,
+    id: key.entityId,
+    projectId: home.projectId,
+    draftId: home.draftId,
+  });
 
 /**
  * Upserts a value row. A draft that ended meanwhile has no row to hold it: nothing is written,
@@ -158,7 +212,13 @@ const upsert = (
   Effect.tryPromise(() =>
     db
       .insert(generatedValues)
-      .values({ ...home, ...key, ...insert })
+      .values({
+        projectId: home.projectId,
+        draftId: home.draftId,
+        ...key,
+        locale: valueLocale(key.type, home.locale, home.projectId),
+        ...insert,
+      })
       .onConflictDoUpdate({ ...conflictTarget(home.draftId), set }),
   ).pipe(
     Effect.as(true),
@@ -202,12 +262,13 @@ export const saveValue = <T extends GeneratedType>(
   );
 };
 
-const keyIn = (draftId: string | null, key: ValueKey) =>
+const keyIn = (draftId: string | null, locale: string | undefined, key: ValueKey) =>
   and(
     eq(generatedValues.entity, key.entity),
     eq(generatedValues.entityId, key.entityId),
     eq(generatedValues.type, key.type),
     draftId === null ? isNull(generatedValues.draftId) : eq(generatedValues.draftId, draftId),
+    sql`${generatedValues.locale} = ${valueLocale(key.type, locale, generatedValues.projectId)}`,
   );
 
 /** Settles a job that generated nothing, e.g. because its group is manual. */
@@ -217,7 +278,7 @@ export const settleRequest = (db: Database, home: ValueHome, key: ValueKey, star
       db
         .update(generatedValues)
         .set({ requestedAt: settled(startedAt) })
-        .where(keyIn(home.draftId, key)),
+        .where(keyIn(home.draftId, home.locale, key)),
     ),
     recordValue(db, home, key),
   );
@@ -229,6 +290,7 @@ export const settleRequest = (db: Database, home: ValueHome, key: ValueKey, star
 export const settleFailedRequest = Effect.fn("generatedValues.settleFailed")(function* (
   db: Database,
   draftId: string | null,
+  locale: string | undefined,
   key: ValueKey,
   startedAt: number,
 ) {
@@ -236,7 +298,7 @@ export const settleFailedRequest = Effect.fn("generatedValues.settleFailed")(fun
     db
       .update(generatedValues)
       .set({ requestedAt: settled(startedAt) })
-      .where(keyIn(draftId, key))
+      .where(keyIn(draftId, locale, key))
       .returning({ projectId: generatedValues.projectId }),
   );
   for (const { projectId } of rows) yield* recordValue(db, { projectId, draftId }, key);
@@ -257,7 +319,7 @@ const GENERATED_ENTITIES: GeneratedEntity[] = [
 /** Copies a value to another entity in the same scope, e.g. onto a duplicate. */
 export const copyValue = Effect.fn("generatedValues.copy")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   home: ValueHome,
   from: ValueKey,
   toEntityId: string,
@@ -272,32 +334,53 @@ export const copyValue = Effect.fn("generatedValues.copy")(function* (
 
 /**
  * Run once Live holds what the publish leaves: copies the draft's values over Live's, then drops
- * Live's values of entities Live doesn't hold (what the draft deleted, the descendants deleted
- * with it, and changes dropped as lost), and deletes the draft's own, also when a development
- * draft stays.
+ * Live's values of entities Live doesn't hold in their locale (what the draft deleted, the
+ * descendants deleted with it, changes dropped as lost, and the localizations of a removed
+ * locale) and of files in locales Live doesn't have, and deletes the draft's own, also when a
+ * development draft stays.
  */
-export function publishStatements(
-  db: Database,
-  scope: NonNullable<DraftScope>,
-): overlay.BatchItem[] {
+export function publishStatements(db: Database, scope: Draft): overlay.BatchItem[] {
   const entities = new Set<string>(GENERATED_ENTITIES);
+  const liveLocales = sql`select ${locales.tag} from ${locales} where ${locales.projectId} = ${scope.projectId} and ${locales.draftId} is null`;
   const heldByLive = sql.join(
     overlay
-      .liveIds()
+      .liveKeys()
       .filter(({ entity }) => entities.has(entity))
-      .map(({ entity, ids }) => sql`("v"."entity" = ${entity} and "v"."entity_id" in (${ids}))`),
+      .map(({ entity, keys, localized }) =>
+        localized
+          ? sql`("v"."entity" = ${entity} and ("v"."entity_id", "v"."locale") in (${keys}))`
+          : sql`("v"."entity" = ${entity} and "v"."entity_id" in (${keys}) and "v"."locale" in (${liveLocales}))`,
+      ),
     sql` or `,
   );
   return [
-    sql`insert into ${generatedValues} (project_id, draft_id, entity, entity_id, type, value, requested_at, generated_at)
-      select "d"."project_id", null, "d"."entity", "d"."entity_id", "d"."type", "d"."value", null, "d"."generated_at"
+    sql`insert into ${generatedValues} (project_id, draft_id, entity, entity_id, type, locale, value, requested_at, generated_at)
+      select "d"."project_id", null, "d"."entity", "d"."entity_id", "d"."type", "d"."locale", "d"."value", null, "d"."generated_at"
       from ${generatedValues} as "d"
       where "d"."draft_id" = ${scope.id} and "d"."value" is not null
-      on conflict (entity, entity_id, type) where draft_id is null
+      on conflict (entity, entity_id, type, locale) where draft_id is null
       do update set value = excluded.value, generated_at = excluded.generated_at`,
     sql`delete from ${generatedValues} as "v"
       where "v"."draft_id" is null and "v"."project_id" = ${scope.projectId} and not (${heldByLive})`,
     db.delete(generatedValues).where(eq(generatedValues.draftId, scope.id)),
+  ];
+}
+
+/**
+ * Renames a locale's tag on every value in a project, on Live and in every draft, along with the
+ * content naming it (ADR 0015).
+ */
+export function retagStatements(
+  db: Database,
+  projectId: number,
+  from: string,
+  to: string,
+): overlay.BatchItem[] {
+  return [
+    db
+      .update(generatedValues)
+      .set({ locale: to })
+      .where(and(eq(generatedValues.projectId, projectId), eq(generatedValues.locale, from))),
   ];
 }
 

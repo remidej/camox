@@ -14,6 +14,7 @@ const png = Uint8Array.from(
 );
 
 const request = {
+  locale: "en",
   url: "http://localhost/files/serve/test.png",
   mimeType: "image/png",
   filename: "test.png",

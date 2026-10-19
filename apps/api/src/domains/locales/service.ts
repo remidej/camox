@@ -8,7 +8,11 @@ import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftOf, type Draft, type ReadScope } from "../drafts/scope";
+import { draftOf, inLocale, type Draft, type ReadScope } from "../drafts/scope";
+import { files } from "../files/schema";
+import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
+import { homeOf, retagStatements as retagValueStatements } from "../generated-values/service";
+import { pages } from "../pages/schema";
 import { INITIAL_LOCALE, locales } from "./schema";
 
 // Locales are content (ADR 0015): a draft adds and removes them, and publishing puts them on
@@ -162,9 +166,32 @@ export const addLocale = Effect.fn("locales.add")(function* (
       if (!added) {
         return yield* new ConflictError({ message: `The draft already has the "${tag}" locale` });
       }
+      yield* requestLocaleGeneration(ctx.db, inLocale(draft, tag));
       return view(added);
     }),
   );
+});
+
+/**
+ * Requests the values generated in each locale (ADR 0012) for a locale a draft added: the SEO
+ * of its pages, and the alt text of the project's files.
+ */
+const requestLocaleGeneration = Effect.fn("locales.requestGeneration")(function* (
+  db: Database,
+  scope: Draft,
+) {
+  const home = homeOf(scope, scope.projectId);
+  const localized = yield* overlay.select(db, scope, pages, eq(pages.projectId, scope.projectId));
+  const shared = yield* overlay.select(db, scope, files, eq(files.projectId, scope.projectId));
+  const targets: GenerationTarget[] = [
+    ...localized.map((row) => ({ entity: "page" as const, row })),
+    ...shared.map((row) => ({ entity: "file" as const, row })),
+  ];
+  // Each request writes and reaches a Durable Object: a few at a time, not one after another.
+  yield* Effect.forEach(targets, (target) => requestGeneration(db, home, target), {
+    concurrency: 8,
+    discard: true,
+  });
 });
 
 /** The tombstone a draft stores for a Live locale with this tag, whatever its case. */
@@ -252,10 +279,10 @@ export const setDefaultLocaleTag = Effect.fn("locales.setDefaultTag")(function* 
       message: `The default locale's tag can only change while it's the only locale, and "${others[0]!.tag}" exists`,
     });
   }
-  yield* overlay.runStatements(
-    ctx.db,
-    overlay.retagStatements(ctx.db, projectId, current.tag, tag),
-  );
+  yield* overlay.runStatements(ctx.db, [
+    ...overlay.retagStatements(ctx.db, projectId, current.tag, tag),
+    ...retagValueStatements(ctx.db, projectId, current.tag, tag),
+  ]);
   yield* record(ctx.db, {
     kind: "content",
     entity: "locale",

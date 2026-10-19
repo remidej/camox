@@ -11,6 +11,8 @@ export type SummaryRequest = {
 };
 
 export type PageSeoRequest = {
+  /** The BCP 47 tag of the page's locale: its SEO is written in that language. */
+  locale: string;
   fullPath: string;
   blocks: { type: string; markdown: string }[];
   previousMetaTitle?: string | null;
@@ -20,6 +22,8 @@ export type PageSeoRequest = {
 export type PageSeo = { metaTitle: string; metaDescription: string };
 
 export type ImageMetadataRequest = {
+  /** The BCP 47 tag of the locale the alt text is written in. */
+  locale: string;
   /** Where the file is served from: the model is shown the image found there. */
   url: string;
   mimeType: string;
