@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3cb96107-0158-46d7-b688-6b53e8f151fb",
+  "id": "0e4aae14-3292-4270-829f-4262158818f0",
   "prevId": "5e691c0d-d265-42bb-85fd-e595bf9efaec",
   "tables": {
     "account": {
@@ -575,6 +575,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "ga4_measurement_id": {
+          "name": "ga4_measurement_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -2562,153 +2569,6 @@
           "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "localization_exclusions": {
-      "name": "localization_exclusions",
-      "columns": {
-        "row_id": {
-          "name": "row_id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "draft_id": {
-          "name": "draft_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "base_version": {
-          "name": "base_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "deleted": {
-          "name": "deleted",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "first_published_at": {
-          "name": "first_published_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "published_by": {
-          "name": "published_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "locale": {
-          "name": "locale",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entity": {
-          "name": "entity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "localization_exclusions_live_id_idx": {
-          "name": "localization_exclusions_live_id_idx",
-          "columns": ["id", "locale"],
-          "isUnique": true,
-          "where": "\"localization_exclusions\".\"draft_id\" is null"
-        },
-        "localization_exclusions_draft_id_idx": {
-          "name": "localization_exclusions_draft_id_idx",
-          "columns": ["draft_id", "id", "locale"],
-          "isUnique": true,
-          "where": "\"localization_exclusions\".\"draft_id\" is not null"
-        },
-        "localization_exclusions_project_idx": {
-          "name": "localization_exclusions_project_idx",
-          "columns": ["project_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "localization_exclusions_draft_id_drafts_id_fk": {
-          "name": "localization_exclusions_draft_id_drafts_id_fk",
-          "tableFrom": "localization_exclusions",
-          "tableTo": "drafts",
-          "columnsFrom": ["draft_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "localization_exclusions_project_id_projects_id_fk": {
-          "name": "localization_exclusions_project_id_projects_id_fk",
-          "tableFrom": "localization_exclusions",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

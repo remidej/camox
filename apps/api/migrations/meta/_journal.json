@@ -68,8 +68,15 @@
     {
       "idx": 9,
       "version": "6",
-      "when": 1792443024952,
-      "tag": "0009_localization_exclusions",
+      "when": 1792443117500,
+      "tag": "0009_analytics",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792448414134,
+      "tag": "0010_localization_exclusions",
       "breakpoints": true
     }
   ]

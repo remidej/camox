@@ -49,6 +49,10 @@ const update = authed
   .input(service.updateProjectInput)
   .handler(({ context, input }) => runService(service.updateProject(context, input)));
 
+const updateAnalytics = authed
+  .input(service.updateProjectAnalyticsInput)
+  .handler(({ context, input }) => runService(service.updateProjectAnalytics(context, input)));
+
 const deleteFn = authed
   .input(service.deleteProjectInput)
   .handler(({ context, input }) => runService(service.deleteProject(context, input)));
@@ -61,6 +65,7 @@ export const projectProcedures = {
   checkSlugAvailability,
   create,
   update,
+  updateAnalytics,
   delete: deleteFn,
   initializeContent,
 };
