@@ -11,6 +11,7 @@ import { createLayout, notFound, type LayoutLoaderResult } from "../../core/crea
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { useNavigate } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
+import { localesResponse } from "./api.fixtures";
 import { readHydrationData } from "./hydrationData";
 import { PageNavigationProvider } from "./pageNavigation";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
@@ -118,6 +119,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
     const url = request instanceof URL ? request : new URL(request.url);
     if (url.hostname === "site.test")
       return (await handleCamoxRequest(new Request(url), runtimeOptions))!;
+    if (url.pathname.endsWith("/locales/list")) return localesResponse();
     if (url.pathname.endsWith("/getByPath"))
       return Response.json(
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
@@ -222,7 +224,11 @@ void test("real rendering, hydration and client navigation preserve loader envel
   }
 });
 
-void test("loader notFound stays 404, other errors and invalid envelopes remain server failures", async () => {
+void test("loader notFound stays 404, other errors and invalid envelopes remain server failures", async (t) => {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
+    throw new Error("The API is offline");
+  });
   const failure = new Error("Upstream failed");
   for (const thrown of [notFound(), failure]) {
     const layout = createLayout("failure")({
@@ -312,6 +318,7 @@ function codeOwnedPagesApp() {
 function mockCodeOwnedPagesApi(t: { mock: { method: typeof test.mock.method } }) {
   const requested: string[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const url = new URL(request.url);
     requested.push(url.pathname);
     if (url.pathname.endsWith("/getByPath")) {

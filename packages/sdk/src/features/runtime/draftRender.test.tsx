@@ -7,7 +7,7 @@ import * as React from "react";
 
 import { createApp } from "../../core/createApp";
 import { createBlock, type Block, type ContentFieldBuilder } from "../../core/createBlock";
-import { pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest } from "./runtime";
 
 // The URL is supplied by Vite in applications.
@@ -41,6 +41,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const url = new URL(request.url);
     const source = request.headers.get(DRAFT_HEADER) ? "Draft title" : "Live title";
+    if (url.pathname.endsWith("/locales/list")) return localesResponse();
     if (url.pathname.endsWith("/getBySlug")) return Response.json({ json: project });
     if (url.pathname.endsWith("/listBySlug"))
       return pageListResponse([
