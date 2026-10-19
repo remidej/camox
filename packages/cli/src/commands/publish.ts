@@ -1,4 +1,8 @@
-import { DRAFT_ENDED_ERROR_CODE, TRANSLATIONS_PENDING_ERROR } from "@camox/api-contract/drafts";
+import {
+  DRAFT_ENDED_ERROR_CODE,
+  NOT_PUBLISHED_CODES,
+  type NotPublishedReason,
+} from "@camox/api-contract/drafts";
 import { object } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
@@ -50,16 +54,10 @@ type PublishResult =
   | { published: false; reason: "discarded"; message: string }
   | {
       published: false;
-      reason: "conflictsChanged" | "blocked" | "translating";
+      reason: NotPublishedReason;
       message: string;
       preview: PublishPreview;
     };
-
-const NOT_PUBLISHED_CODES = {
-  conflictsChanged: "CONFLICTS_CHANGED",
-  blocked: "PUBLISH_BLOCKED",
-  translating: TRANSLATIONS_PENDING_ERROR,
-};
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";

@@ -1,3 +1,4 @@
+import type { NotPublishedReason } from "@camox/api-contract/drafts";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -34,7 +35,8 @@ const PREVIEW_SHAPE =
   "`lost` lists changes publishing will drop because their parent is gone; `warnings` are the " +
   "same problems already on Live, which don't block; `changes` lists everything the draft " +
   "creates, changes or deletes; `translating` lists the locales Camox is still translating the " +
-  "draft into, which publishing waits for. `token` records the conflicts shown.";
+  "draft into, which publishing waits for; `defaultLocale` is the tag of the default locale, " +
+  "which the others are translated from. `token` records the conflicts shown.";
 
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
 
@@ -43,7 +45,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "previewPublish",
     description:
       "List what publishing the current draft to Live would do, without publishing. Returns " +
-      "`{ blockers, conflicts, lost, warnings, changes, translating, token }`. " +
+      "`{ blockers, conflicts, lost, warnings, changes, translating, defaultLocale, token }`. " +
       PREVIEW_SHAPE +
       " Show this list to the user, then pass the token to publishDraft once they confirm.",
     inputSchema: previewInput,
@@ -73,10 +75,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const { token, publishAnyway } = publishToolInput.parse(input);
-      const notPublished = (
-        reason: "conflictsChanged" | "blocked" | "translating",
-        message: string,
-      ) =>
+      const notPublished = (reason: NotPublishedReason, message: string) =>
         previewPublish(ctx, { projectId: ctx.projectId }).pipe(
           Effect.map((preview) => ({ published: false as const, reason, message, preview })),
         );
