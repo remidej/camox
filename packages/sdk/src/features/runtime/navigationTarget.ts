@@ -1,4 +1,5 @@
 import type { DraftScope } from "../../lib/draft-scope";
+import { matchRuntimeOwnedRoute } from "./runtimeRoutes";
 
 export function runtimePath(pathname: string, basePath: string) {
   const base = basePath.replace(/\/$/, "");
@@ -44,12 +45,8 @@ export function getNavigationTarget(to: string, currentHref: string, basePath: s
     base && (url.pathname === base || url.pathname.startsWith(`${base}/`))
       ? url.pathname.slice(base.length) || "/"
       : url.pathname;
-  if (
-    pathname === "/_camox" ||
-    pathname.startsWith("/_camox/") ||
-    pathname === "/og" ||
-    pathname === "/sitemap.xml"
-  )
+  // Runtime-owned routes aren't pages: the browser makes a document request for them.
+  if (pathname === "/_camox" || pathname.startsWith("/_camox/") || matchRuntimeOwnedRoute(pathname))
     return null;
   url.pathname = runtimePath(pathname, base);
   return { url, pathname };
