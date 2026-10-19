@@ -1,4 +1,4 @@
-import { ga4MeasurementIdSchema } from "@camox/api-contract/analytics";
+import { ga4MeasurementIdSchema, posthogProjectApiKeySchema } from "@camox/api-contract/analytics";
 import { Alert, AlertDescription } from "@camox/ui/alert";
 import {
   AlertDialog,
@@ -20,6 +20,8 @@ import {
   InputGroupInput,
 } from "@camox/ui/input-group";
 import { Label } from "@camox/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
+import { Separator } from "@camox/ui/separator";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
@@ -352,6 +354,151 @@ function Ga4Row({
   );
 }
 
+type PosthogSettings = NonNullable<ProjectAnalytics["posthog"]>;
+type PosthogRegion = PosthogSettings["region"];
+
+const POSTHOG_REGIONS: { value: PosthogRegion; label: string }[] = [
+  { value: "us", label: "US Cloud" },
+  { value: "eu", label: "EU Cloud" },
+];
+
+function PosthogRow({
+  projectId,
+  saved,
+  onClose,
+}: {
+  projectId: number;
+  /** The saved key and region, if any. */
+  saved: PosthogSettings | undefined;
+  /** Leaves the form, once cancelled or once PostHog is removed. */
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (posthog: PosthogSettings | null) =>
+      api.projects.updateAnalytics({ id: projectId, posthog }),
+    onSuccess: async (_, next) => {
+      await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
+      if (next === null) onClose();
+      toast.success(next === null ? "PostHog removed" : "PostHog saved");
+    },
+    onError: (error) => {
+      console.error("Failed to save PostHog:", error);
+      toast.error("Could not save PostHog");
+    },
+  });
+  const form = useForm({
+    defaultValues: {
+      projectApiKey: saved?.projectApiKey ?? "",
+      region: saved?.region ?? ("us" as PosthogRegion),
+    },
+    onSubmit: async ({ value }) => {
+      await save
+        .mutateAsync({ projectApiKey: value.projectApiKey.trim(), region: value.region })
+        .catch(() => undefined);
+    },
+  });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void form.handleSubmit();
+      }}
+      className="space-y-4"
+    >
+      <p className="text-muted-foreground text-sm">
+        In PostHog, go to Project settings. The project API key starts with phc_, and the region is
+        the cloud your project is hosted in, shown in your PostHog address (us.posthog.com or
+        eu.posthog.com).
+      </p>
+      <div className="flex flex-wrap items-start gap-4">
+        <form.Field
+          name="projectApiKey"
+          validators={{
+            onSubmit: ({ value }) =>
+              posthogProjectApiKeySchema.safeParse(value.trim()).success
+                ? undefined
+                : "Enter a project API key that starts with phc_",
+          }}
+        >
+          {(field) => (
+            <div className="min-w-64 flex-1 space-y-2">
+              <Label htmlFor="posthog-project-api-key">PostHog project API key</Label>
+              <Input
+                id="posthog-project-api-key"
+                className="font-mono"
+                placeholder="phc_XXXXXXXXXX"
+                autoComplete="off"
+                spellCheck={false}
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                aria-invalid={!!field.state.meta.errors.length}
+              />
+              {field.state.meta.errors.length > 0 && (
+                <p className="text-destructive text-xs">{field.state.meta.errors[0]}</p>
+              )}
+            </div>
+          )}
+        </form.Field>
+        <form.Field name="region">
+          {(field) => (
+            <div className="space-y-2">
+              <Label htmlFor="posthog-region">Region</Label>
+              <Select
+                value={field.state.value}
+                onValueChange={(value) => {
+                  if (value != null) field.handleChange(value);
+                }}
+                items={POSTHOG_REGIONS}
+              >
+                <SelectTrigger id="posthog-region">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {POSTHOG_REGIONS.map((region) => (
+                    <SelectItem key={region.value} value={region.value}>
+                      {region.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </form.Field>
+      </div>
+      <form.Subscribe selector={(state) => [state.isDirty, state.isSubmitting]}>
+        {([isDirty, isSubmitting]) => (
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={!isDirty || isSubmitting || save.isPending}>
+              {isSubmitting && <Spinner />}
+              Save changes
+            </Button>
+            {!saved && (
+              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onClose}>
+                Cancel
+              </Button>
+            )}
+            {saved && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="ml-auto"
+                disabled={save.isPending}
+                onClick={() => save.mutate(null)}
+              >
+                <Trash2Icon />
+                Remove PostHog
+              </Button>
+            )}
+          </div>
+        )}
+      </form.Subscribe>
+    </form>
+  );
+}
+
 function AnalyticsSection({
   projectId,
   analytics,
@@ -360,11 +507,31 @@ function AnalyticsSection({
   analytics: ProjectAnalytics;
 }) {
   const [addingGa4, setAddingGa4] = useState(false);
-  const ga4 = analytics.ga4;
+  const [addingPosthog, setAddingPosthog] = useState(false);
+  const { ga4, posthog } = analytics;
+  const showGa4 = !!ga4 || addingGa4;
+  const showPosthog = !!posthog || addingPosthog;
+
+  const addButtons = (
+    <div className="flex flex-wrap justify-center gap-2">
+      {!showGa4 && (
+        <Button type="button" variant="outline" onClick={() => setAddingGa4(true)}>
+          <PlusIcon />
+          Add Google Analytics 4
+        </Button>
+      )}
+      {!showPosthog && (
+        <Button type="button" variant="outline" onClick={() => setAddingPosthog(true)}>
+          <PlusIcon />
+          Add PostHog
+        </Button>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
-      {ga4 || addingGa4 ? (
+      {showGa4 && (
         <Ga4Row
           // A saved ID starts the form afresh.
           key={ga4?.measurementId ?? "new"}
@@ -372,16 +539,26 @@ function AnalyticsSection({
           measurementId={ga4?.measurementId}
           onClose={() => setAddingGa4(false)}
         />
-      ) : (
+      )}
+      {showGa4 && showPosthog && <Separator />}
+      {showPosthog && (
+        <PosthogRow
+          // A saved key and region start the form afresh.
+          key={posthog ? `${posthog.projectApiKey}-${posthog.region}` : "new"}
+          projectId={projectId}
+          saved={posthog ?? undefined}
+          onClose={() => setAddingPosthog(false)}
+        />
+      )}
+      {!showGa4 && !showPosthog ? (
         <div className="space-y-3 rounded-lg border border-dashed p-6 text-center">
           <p className="text-muted-foreground text-sm">
             No analytics yet. Add a provider to count your website's visitors.
           </p>
-          <Button type="button" variant="outline" onClick={() => setAddingGa4(true)}>
-            <PlusIcon />
-            Add Google Analytics 4
-          </Button>
+          {addButtons}
         </div>
+      ) : (
+        (!showGa4 || !showPosthog) && <div className="flex">{addButtons}</div>
       )}
       <Alert>
         <InfoIcon />
