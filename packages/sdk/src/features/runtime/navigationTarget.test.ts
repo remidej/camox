@@ -38,8 +38,8 @@ void test("external origins, protocols, host routes and runtime endpoints are no
   }
 });
 
-void test("every route the runtime owns, including /llms.txt, is a document request", () => {
-  for (const path of [...Object.values(RUNTIME_ROUTE_PATHS), "/llms.txt"]) {
+void test("every route the runtime owns is a document request", () => {
+  for (const path of Object.values(RUNTIME_ROUTE_PATHS)) {
     assert.equal(getNavigationTarget(path, "https://site.test/about", ""), null, path);
     assert.equal(
       getNavigationTarget(`/site${path}`, "https://site.test/site/", "/site"),

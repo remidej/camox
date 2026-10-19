@@ -45,7 +45,7 @@ import {
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
 import { omitArtifactSources } from "./artifactSources";
-import { listLivePages, RouteDiscoveryError } from "./livePages";
+import { type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
 import { formatLlmsTxt } from "./llmsTxt";
 import { getPageBlockTypes } from "./pageBlockTypes";
 import {
@@ -229,11 +229,22 @@ function withRuntimeBasePath(pathname: string, runtimeBasePath?: string): string
   return `${basePath}${pathname}`;
 }
 
+/** The website's Live pages, the project's name and the app, which indexes of it are built from. */
+interface LiveWebsite {
+  app: CamoxApp | undefined;
+  projectName: string;
+  pages: LivePage[];
+}
+
 /**
- * The website's Live pages and the project's name, or the 500 response saying why they can't be
- * listed. Sitemaps and llms.txt read Live whoever asks: crawlers only ever see published content.
+ * Answers with an index of the website's Live pages, or a 500 saying why they can't be listed.
+ * Sitemaps and llms.txt read Live whoever asks: crawlers only ever see published content.
  */
-async function listLiveWebsite(options: RuntimeOptions, name: string) {
+async function respondWithLiveWebsite(
+  options: RuntimeOptions,
+  name: string,
+  respond: (website: LiveWebsite) => Response | Promise<Response>,
+): Promise<Response> {
   const { apiUrl, projectSlug } = options;
   if (!apiUrl || !projectSlug) {
     return Response.json({ message: `Camox ${name} is not configured.` }, { status: 500 });
@@ -241,18 +252,16 @@ async function listLiveWebsite(options: RuntimeOptions, name: string) {
   const api = createServerApiClient(apiUrl);
   const { projectName, pages } = await api.pages.listBySlug({ projectSlug });
   const app = await options.getCamoxApp?.();
+  let livePages: LivePage[];
   try {
-    return {
-      app,
-      projectName,
-      pages: await listLivePages({ pages, app, records: createRecordLookup(options, "live") }),
-    };
+    livePages = await listLivePages({ pages, app, records: createRecordLookup(options, "live") });
   } catch (error) {
     if (!(error instanceof RouteDiscoveryError)) throw error;
     // An index silently missing pages is worse than one that visibly fails.
     console.error(`[camox] Route discovery failed while building the ${name}.`, error.cause);
     return Response.json({ message: `Camox ${name} failed: ${error.message}` }, { status: 500 });
   }
+  return respond({ app, projectName, pages: livePages });
 }
 
 /** A path's absolute URL, with the runtime base path. */
@@ -261,33 +270,43 @@ function absoluteUrl(request: Request, options: RuntimeOptions) {
   return (path: string) => `${origin}${withRuntimeBasePath(path, options.runtimeBasePath)}`;
 }
 
-async function createLlmsTxtResponse(request: Request, options: RuntimeOptions): Promise<Response> {
-  const website = await listLiveWebsite(options, "llms.txt");
-  if (website instanceof Response) return website;
-  const body = formatLlmsTxt({
-    projectName: website.projectName,
-    pages: website.pages,
-    layouts: (website.app?.getLayouts() ?? []).map(({ _internal }) => _internal),
-    url: absoluteUrl(request, options),
-  });
+/** `body` with an ETag derived from it, or a 304 when the request's `If-None-Match` names it. */
+async function withEtag(
+  request: Request,
+  body: string,
+  headers: Record<string, string>,
+): Promise<Response> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const etag = `"${[...new Uint8Array(digest)]
     .slice(0, 16)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")}"`;
-  const headers = {
-    "Content-Type": "text/plain; charset=utf-8",
-    // Short, so a publish shows up within minutes; revalidating is cheap with the ETag.
-    "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
-    ETag: etag,
-  };
-  const ifNoneMatch = request.headers.get("If-None-Match") ?? "";
-  const matches = ifNoneMatch
+  const taggedHeaders = { ...headers, ETag: etag };
+  const matches = (request.headers.get("If-None-Match") ?? "")
     .split(",")
     .map((tag) => tag.trim().replace(/^W\//, ""))
     .some((tag) => tag === etag || tag === "*");
-  if (matches) return new Response(null, { status: 304, headers });
-  return new Response(body, { headers });
+  if (matches) return new Response(null, { status: 304, headers: taggedHeaders });
+  return new Response(body, { headers: taggedHeaders });
+}
+
+function createLlmsTxtResponse(request: Request, options: RuntimeOptions): Promise<Response> {
+  return respondWithLiveWebsite(options, "llms.txt", (website) =>
+    withEtag(
+      request,
+      formatLlmsTxt({
+        projectName: website.projectName,
+        pages: website.pages,
+        layouts: (website.app?.getLayouts() ?? []).map(({ _internal }) => _internal),
+        url: absoluteUrl(request, options),
+      }),
+      {
+        "Content-Type": "text/plain; charset=utf-8",
+        // Short, so a publish shows up within minutes; revalidating is cheap with the ETag.
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+      },
+    ),
+  );
 }
 
 /** Tells LLM tools fetching a page's HTML where the website's llms.txt is. */
@@ -295,29 +314,29 @@ function llmsTxtLinkHeader(options: RuntimeOptions): string {
   return `<${withRuntimeBasePath(RUNTIME_ROUTE_PATHS["llms-txt"], options.runtimeBasePath)}>; rel="llms-txt"`;
 }
 
-async function createSitemapResponse(request: Request, options: RuntimeOptions): Promise<Response> {
-  const website = await listLiveWebsite(options, "sitemap");
-  if (website instanceof Response) return website;
-  const url = absoluteUrl(request, options);
-  const entries = website.pages
-    .map(({ fullPath, updatedAt }) => {
-      const lastmod =
-        updatedAt == null
-          ? ""
-          : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
-      return `  <url>
+function createSitemapResponse(request: Request, options: RuntimeOptions): Promise<Response> {
+  return respondWithLiveWebsite(options, "sitemap", (website) => {
+    const url = absoluteUrl(request, options);
+    const entries = website.pages
+      .map(({ fullPath, updatedAt }) => {
+        const lastmod =
+          updatedAt == null
+            ? ""
+            : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
+        return `  <url>
     <loc>${escapeXml(url(fullPath))}</loc>${lastmod}
   </url>`;
-    })
-    .join("\n");
+      })
+      .join("\n");
 
-  return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>
+    return new Response(
+      `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${entries}
 </urlset>`,
-    { headers: { "Content-Type": "application/xml; charset=utf-8" } },
-  );
+      { headers: { "Content-Type": "application/xml; charset=utf-8" } },
+    );
+  });
 }
 
 /** The request's member project, if its session is valid. Without an API, nobody is a member. */

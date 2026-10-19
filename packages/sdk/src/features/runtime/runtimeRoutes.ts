@@ -1,6 +1,8 @@
 /**
- * The URLs the runtime answers that aren't pages. Worker request filtering, runtime route matching
- * and client navigation all read this list, so a new one can't be forgotten in any of them.
+ * The URLs the runtime answers that aren't pages or the Studio. Worker request filtering, runtime
+ * route matching and client navigation all read this list, so a new one can't be forgotten in any
+ * of them. Prefix rules stay with their readers: the Worker also answers every `/camox/` Studio
+ * path, and client navigation also skips any other `/_camox/` path.
  * No imports: client navigation ships this module in the browser bundle.
  */
 export const RUNTIME_ROUTE_PATHS = {

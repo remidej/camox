@@ -63,19 +63,26 @@ export function derivedLayoutPath(layoutId: string, params: unknown) {
     .join("/")}`;
 }
 
-/** A discovered page: its path, and the record it renders when its entry names one. */
+/**
+ * A discovered page: its path, and the record it renders when its entry names one, with that
+ * record's Label when the entry carries it.
+ */
 export interface DiscoveredPage {
   path: string;
   recordId?: string;
+  label?: string;
 }
 
 /** The record a discovery entry names, if its `target` is a record target. */
-function targetRecordId(entry: unknown) {
+function targetRecord(entry: unknown): Omit<DiscoveredPage, "path"> {
   const target = asCollectionItem(
-    (entry as { target?: { kind?: unknown; id?: unknown } } | null)?.target,
+    (entry as { target?: { kind?: unknown; id?: unknown; label?: unknown } } | null)?.target,
   );
-  if (typeof target?.id !== "string") return undefined;
-  return target.id;
+  if (typeof target?.id !== "string") return {};
+  return {
+    recordId: target.id,
+    ...(typeof target.label === "string" && { label: target.label }),
+  };
 }
 
 /**
@@ -98,9 +105,8 @@ export async function discoverLayoutPages(
   const entries = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(entries))
     throw new Error(`Layout "${id}" routes must return { data: [{ params }] }`);
-  return entries.map((entry) => {
-    const path = derivedLayoutPath(id, (entry as { params?: unknown })?.params);
-    const recordId = targetRecordId(entry);
-    return recordId ? { path, recordId } : { path };
-  });
+  return entries.map((entry) => ({
+    path: derivedLayoutPath(id, (entry as { params?: unknown })?.params),
+    ...targetRecord(entry),
+  }));
 }

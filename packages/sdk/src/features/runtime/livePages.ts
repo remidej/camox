@@ -1,4 +1,5 @@
 import type { CamoxApp } from "../../core/createApp";
+import type { Layout } from "../../core/createLayout";
 import { discoverLayoutPages } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
 import { createRequestContext, type RecordLookup } from "../../core/requestContext";
@@ -8,6 +9,10 @@ export interface LivePage {
   /** Its path, without the runtime base path. */
   fullPath: string;
   layoutId: string;
+  /**
+   * What an index calls the page, by page kind: a curated page's meta title (its nickname while
+   * it has none), a singleton's layout title, a record page's Label, any other derived page's path.
+   */
   title: string;
   description?: string;
   /** Whether `<path>.md` serves its Markdown Representation. */
@@ -52,13 +57,14 @@ export async function listLivePages({
         fullPath: destination.fullPath,
         layoutId: destination.layoutId,
         title: layout._internal.title,
-        hasMarkdown: layout._internal.toMarkdown !== undefined,
+        hasMarkdown: servesMarkdown(layout),
       };
     }
     const page = pagesById.get(destination.pageId)!;
     return {
       fullPath: page.fullPath,
       layoutId: page.layoutId,
+      // A generated meta title is null until generation runs.
       title: page.metaTitle || page.nickname,
       ...(page.metaDescription && { description: page.metaDescription }),
       hasMarkdown: true,
@@ -66,18 +72,7 @@ export async function listLivePages({
     };
   });
 
-  // Record pages are named by their record's Label, which discovery reads along with the records.
-  const labels = new Map<string, string>();
-  const context = createRequestContext({
-    records: records && {
-      ...records,
-      listPageValues: async (input) => {
-        const values = await records.listPageValues(input);
-        for (const value of values) labels.set(value.id, value.label);
-        return values;
-      },
-    },
-  });
+  const context = createRequestContext({ records });
   const discovered = await Promise.all(
     layouts
       .filter((layout) => layout._internal.kind === "derived")
@@ -88,12 +83,17 @@ export async function listLivePages({
         return found.map((page): LivePage => ({
           fullPath: page.path,
           layoutId: layout._internal.id,
-          title: (page.recordId && labels.get(page.recordId)) || page.path,
-          hasMarkdown: layout._internal.toMarkdown !== undefined,
+          title: page.label || page.path,
+          hasMarkdown: servesMarkdown(layout),
         }));
       }),
   );
   return [...destinations, ...discovered.flat()];
+}
+
+/** Whether a layout's pages serve a Markdown Representation. */
+function servesMarkdown(layout: Layout) {
+  return layout._internal.toMarkdown !== undefined;
 }
 
 /** A derived layout's Route Discovery failed, so the Live pages can't all be listed. */

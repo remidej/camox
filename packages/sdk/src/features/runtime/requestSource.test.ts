@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { createApp } from "../../core/createApp";
 import { createLayout } from "../../core/createLayout";
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
+import { pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 /** The source the context's record lookup names, as the API receives it ("none" if absent). */
@@ -64,8 +65,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       );
     if (url.pathname.endsWith("/getBySlug"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
-    if (url.pathname.endsWith("/listBySlug"))
-      return Response.json({ json: { projectName: "Test project", pages: [] } });
+    if (url.pathname.endsWith("/listBySlug")) return pageListResponse();
     if (url.pathname.endsWith("/getByPath"))
       return Response.json(
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
