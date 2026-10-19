@@ -25,6 +25,10 @@ export const drafts = sqliteTable(
     uniqueIndex("drafts_development_idx")
       .on(table.projectId, table.createdBy)
       .where(sql`${table.kind} = 'development'`),
+    // Camox keeps one catch-up draft open per project (ADR 0017): `camox` is `CAMOX_ACTOR`.
+    uniqueIndex("drafts_catch_up_idx")
+      .on(table.projectId)
+      .where(sql`${table.kind} = 'regular' and ${table.createdBy} = 'camox'`),
   ],
 );
 

@@ -4,6 +4,7 @@ import { type AiJob, AiJobQueue, ScheduleError } from "../src/lib/ai-job-queue";
 import { AiModel } from "../src/lib/ai-model";
 import { Background, inline } from "../src/lib/background";
 import { AiCallError } from "../src/lib/retry-ai-call";
+import { withTranslationSettled } from "../src/lib/translation-settled";
 
 // Stands in for the model and the Durable Object scheduler in every integration test
 // (`record-generation.ts`): the model answers what a test scripted, and the scheduler records
@@ -106,10 +107,17 @@ export const failNextSchedule = () => {
   failures++;
 };
 
+/** Makes every scheduling fail until the test ends, as a Durable Object that stays unreachable. */
+export const failEverySchedule = () => {
+  failures = Number.POSITIVE_INFINITY;
+};
+
 /** The services `runService` and the job Durable Object provide, in tests. */
 export const testAiServices = () =>
-  Context.make(AiModel, scriptedModel).pipe(
-    Context.add(AiJobQueue, recordingScheduler),
-    // Scheduling runs before the request answers, so tests see the jobs it scheduled.
-    Context.add(Background, inline),
+  withTranslationSettled(
+    Context.make(AiModel, scriptedModel).pipe(
+      Context.add(AiJobQueue, recordingScheduler),
+      // Scheduling runs before the request answers, so tests see the jobs it scheduled.
+      Context.add(Background, inline),
+    ),
   );

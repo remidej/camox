@@ -3,11 +3,11 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
+import { inChunks, selectInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import { type Draft, inDefaultLocale } from "../drafts/scope";
 import { defaultLocaleTag } from "../locales/default-locale";
-import type { Values } from "./bookkeeping";
-import { valuesOf } from "./job";
+import { type Values, valuesOf } from "./bookkeeping";
 import { sameValue } from "./merge";
 import { translationBookkeeping } from "./schema";
 
@@ -16,15 +16,9 @@ import { translationBookkeeping } from "./schema";
 // out, so changing one source reads as one change whatever the number of locales. Hand edits to
 // localizations, content in one locale only, and locales added or removed are listed.
 
-// D1 binds at most 100 parameters per statement.
-const ID_CHUNK = 90;
-
 const translated = new Set<string>(TRANSLATED_ENTITIES);
 
 const keyOf = (entity: string, id: string, locale: string) => JSON.stringify([entity, id, locale]);
-
-const localeOf = (change: overlay.StoredChange) =>
-  "locale" in change.row && typeof change.row.locale === "string" ? change.row.locale : null;
 
 /**
  * The stored changes of a draft that its review lists, leaving out the localizations Camox wrote:
@@ -39,21 +33,23 @@ export const listedChanges = Effect.fn("translations.listedChanges")(function* (
 ) {
   const defaultTag = yield* defaultLocaleTag(db, scope.projectId);
   const localizations = stored.filter((change) => {
-    const locale = localeOf(change);
+    const locale = overlay.localeOfRow(change.row);
     return locale !== null && locale !== defaultTag && translated.has(change.entity);
   });
   if (localizations.length === 0) return stored;
 
   const deletedSources = new Set(
     stored
-      .filter((change) => change.change === "deleted" && localeOf(change) === defaultTag)
+      .filter(
+        (change) => change.change === "deleted" && overlay.localeOfRow(change.row) === defaultTag,
+      )
       .map((change) => `${change.entity}:${change.row.id}`),
   );
   const outputs = yield* outputsOf(db, scope, localizations);
   const sources = yield* sourcesOf(db, scope, localizations);
 
   const writtenByCamox = (change: overlay.StoredChange) => {
-    const locale = localeOf(change)!;
+    const locale = overlay.localeOfRow(change.row)!;
     if (change.change === "deleted") return deletedSources.has(`${change.entity}:${change.row.id}`);
     const values = valuesOf(change.row as Record<string, unknown> & { id: string });
     const output = outputs.get(keyOf(change.entity, change.row.id, locale));
@@ -76,10 +72,9 @@ const outputsOf = Effect.fn("translations.outputsOf")(function* (
   scope: Draft,
   localizations: overlay.StoredChange[],
 ) {
-  const outputs = new Map<string, Values>();
   const ids = [...new Set(localizations.map((change) => change.row.id))];
-  for (let start = 0; start < ids.length; start += ID_CHUNK) {
-    const rows = yield* Effect.promise(() =>
+  const rows = yield* inChunks(ids, (chunk) =>
+    Effect.promise(() =>
       db
         .select({
           entity: translationBookkeeping.entity,
@@ -92,21 +87,20 @@ const outputsOf = Effect.fn("translations.outputsOf")(function* (
         .where(
           and(
             eq(translationBookkeeping.projectId, scope.projectId),
-            inArray(translationBookkeeping.entityId, ids.slice(start, start + ID_CHUNK)),
+            inArray(translationBookkeeping.entityId, chunk),
             or(
               eq(translationBookkeeping.draftId, scope.id),
               isNull(translationBookkeeping.draftId),
             ),
           ),
         ),
-    );
-    // The draft's own over Live's.
-    rows.sort((a, b) => Number(a.draftId !== null) - Number(b.draftId !== null));
-    for (const row of rows) {
-      outputs.set(keyOf(row.entity, row.entityId, row.locale), row.output);
-    }
-  }
-  return outputs;
+    ),
+  );
+  // The draft's own over Live's.
+  rows.sort((a, b) => Number(a.draftId !== null) - Number(b.draftId !== null));
+  return new Map<string, Values>(
+    rows.map((row) => [keyOf(row.entity, row.entityId, row.locale), row.output]),
+  );
 });
 
 /** The sources of these localizations in the default locale, as the draft reads them. */
@@ -122,23 +116,12 @@ const sourcesOf = Effect.fn("translations.sourcesOf")(function* (
     const entity = change.entity as TranslatedEntity;
     byEntity.set(entity, (byEntity.get(entity) ?? new Set()).add(change.row.id));
   }
-  for (const [entity, idSet] of byEntity) {
+  for (const [entity, ids] of byEntity) {
     const table = overlay.contentTableOf(entity);
-    const ids = [...idSet];
-    for (let start = 0; start < ids.length; start += ID_CHUNK) {
-      const rows = yield* overlay.select(
-        db,
-        inDefaultLocale(scope),
-        table,
-        inArray(table.id, ids.slice(start, start + ID_CHUNK)),
-      );
-      for (const row of rows) {
-        sources.set(
-          `${entity}:${row.id}`,
-          valuesOf(row as Record<string, unknown> & { id: string }),
-        );
-      }
-    }
+    const rows = yield* selectInChunks(db, inDefaultLocale(scope), table, [...ids], (chunk) =>
+      inArray(table.id, chunk),
+    );
+    for (const row of rows) sources.set(`${entity}:${row.id}`, valuesOf(row));
   }
   return sources;
 });

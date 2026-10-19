@@ -9,6 +9,23 @@ import type { ReadScope } from "../drafts/scope";
 const CHUNK = 90;
 
 /**
+ * What `read` returns for each chunk of `values`, together: one read per chunk of `size` values,
+ * none for no values. `size` leaves room for the parameters each value binds.
+ */
+export const inChunks = <V, A, E, R>(
+  values: readonly V[],
+  read: (chunk: V[]) => Effect.Effect<readonly A[], E, R>,
+  size = CHUNK,
+) =>
+  Effect.gen(function* () {
+    const all: A[] = [];
+    for (let start = 0; start < values.length; start += size) {
+      all.push(...(yield* read(values.slice(start, start + size))));
+    }
+    return all;
+  });
+
+/**
  * The rows a scope reads matching `where` for each chunk of `values`: one query per chunk of
  * `size` values, none for no values. `size` leaves room for the parameters each value binds.
  */
@@ -19,12 +36,4 @@ export const selectInChunks = <T extends overlay.ContentTable, V>(
   values: readonly V[],
   where: (chunk: V[]) => SQL | undefined,
   size = CHUNK,
-) =>
-  Effect.gen(function* () {
-    const rows: T["$inferSelect"][] = [];
-    for (let start = 0; start < values.length; start += size) {
-      const chunk = values.slice(start, start + size);
-      rows.push(...(yield* overlay.select(db, scope, table, where(chunk))));
-    }
-    return rows;
-  });
+) => inChunks(values, (chunk) => overlay.select(db, scope, table, where(chunk)), size);

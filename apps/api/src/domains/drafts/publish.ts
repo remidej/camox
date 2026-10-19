@@ -1,4 +1,4 @@
-import { CAMOX_ACTOR, CAMOX_NAME, type EndedDraft } from "@camox/api-contract/drafts";
+import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
 import { env, waitUntil } from "cloudflare:workers";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
@@ -24,10 +24,8 @@ import {
   repeatableItems,
   sharedContents,
 } from "../../schema";
-import type { Bindings } from "../../types";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
-import { user as users } from "../auth/schema";
 import { sharedPlacementId } from "../blocks/shared-content";
 import {
   publishStatements as filePublishStatements,
@@ -46,15 +44,17 @@ import * as translationBookkeeping from "../translations/bookkeeping";
 import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
+import { catchUpPending, isCatchUpDraft } from "./catch-up";
 import {
   checkContentProblems,
   type ContentFinding,
   type ContentProblemCode,
 } from "./content-checks";
 import * as overlay from "./overlay";
+import { peopleNamed } from "./people";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
-import { catchUpPending, dropIfEmpty, findEndedDraft, isCatchUpDraft } from "./service";
+import { dropIfEmpty, findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
 export type { Owner, Subject, SubjectKind } from "./subjects";
@@ -101,7 +101,7 @@ export type PublishPreview = {
   changes: Change[];
   /**
    * The tags of the locales the draft still has pending translations into, sorted. Publishing
-   * waits for them unless it's asked to publish anyway (ADR 0015).
+   * waits for them unless it's asked to publish anyway (ADR 0017).
    */
   translating: string[];
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
@@ -114,7 +114,7 @@ export const publishInput = z.object({
   token: z.string(),
   /**
    * Publishes while translations are pending: Camox finishes them in a draft of its own, which it
-   * publishes once they're done (ADR 0015).
+   * publishes once they're done (ADR 0017).
    */
   publishAnyway: z.boolean().optional(),
 });
@@ -282,25 +282,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   ];
   const warnings = [...fileChecks.warnings.map(asProblem), ...checked.warnings.map(asProblem)];
 
-  const publisherIds = [
-    ...new Set(storedConflicts.flatMap((c) => (c.publishedBy ? [c.publishedBy] : []))),
-  ];
-  const publishers = publisherIds.length
-    ? yield* Effect.promise(() =>
-        ctx.db
-          .select({ id: users.id, name: users.name })
-          .from(users)
-          .where(inArray(users.id, publisherIds)),
-      )
-    : [];
-  const publisherById = new Map(publishers.map((publisher) => [publisher.id, publisher]));
-  publisherById.set(CAMOX_ACTOR, { id: CAMOX_ACTOR, name: CAMOX_NAME });
+  const publishers = yield* peopleNamed(
+    ctx.db,
+    storedConflicts.flatMap((conflict) => conflict.publishedBy ?? []),
+  );
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
     ...describe(conflict.entity, conflict.id),
     locale: conflict.locale,
     liveVersion: conflict.liveVersion,
-    publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
+    publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
     release: conflict.publishedAt !== null && conflict.publishedBy === null,
   }));
@@ -321,7 +312,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     ...describe(entity, row.id),
     // A locale added or removed is named by its tag.
     ...(entity === "locale" && { label: (row as typeof locales.$inferSelect).tag }),
-    locale: "locale" in row && typeof row.locale === "string" ? row.locale : null,
+    locale: overlay.localeOfRow(row),
     change,
   }));
 
@@ -359,10 +350,6 @@ const liveRows = Effect.fn("drafts.liveRows")(function* <T extends overlay.Conte
   return rows;
 });
 
-/** The tag of the locale a stored change is in, or null for an entity stored once. */
-const localeOfChange = (change: overlay.StoredChange) =>
-  "locale" in change.row && typeof change.row.locale === "string" ? change.row.locale : null;
-
 /**
  * Requests Live's generated values for everything a publish changed and the parents above it:
  * another draft may have published to the same page since this one generated its values.
@@ -398,10 +385,10 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
       options,
     );
 
-  const tags = new Set(kept.flatMap((change) => localeOfChange(change) ?? []));
+  const tags = new Set(kept.flatMap((change) => overlay.localeOfRow(change.row) ?? []));
   for (const tag of liveLocales.filter((tag) => tags.has(tag))) {
     const live = liveIn(tag);
-    const inTag = kept.filter((change) => localeOfChange(change) === tag);
+    const inTag = kept.filter((change) => overlay.localeOfRow(change.row) === tag);
     const ids = (table: overlay.ContentTable) =>
       new Set(inTag.filter((change) => change.table === table).map((change) => change.row.id));
     const itemIds = ids(repeatableItems);
@@ -520,13 +507,20 @@ const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, en
 
 /**
  * Publishes a draft whose preview was checked, by `publishedBy`, if Live's conflicts are still
- * those `shown`. Whether it applied, and how the draft ended: when it didn't apply, a concurrent
- * publish or discard may have ended it; otherwise Live changed.
+ * those `shown`, and, when `translated`, while it still has nothing left to translate. Whether it
+ * applied, and how the draft ended: when it didn't apply, a concurrent publish or discard may have
+ * ended it; otherwise Live changed, or a translation was requested.
  */
 const publishChecked = Effect.fn("drafts.publishChecked")(function* (
   ctx: ServiceContext,
   scope: Scope,
-  options: { shown: overlay.ConflictKey[]; publishedBy: string; stored: overlay.StoredChange[] },
+  options: {
+    shown: overlay.ConflictKey[];
+    publishedBy: string;
+    stored: overlay.StoredChange[];
+    /** Whether a translation requested since the check stops publishing, rather than dropping. */
+    translated?: boolean;
+  },
 ) {
   const { projectId } = scope;
   // Collected before the batch drops the draft's rows and replaces Live's.
@@ -538,6 +532,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
       publishedBy: options.publishedBy,
       now: Date.now(),
       after: [
+        ...(options.translated ? [translations.noPendingTranslationsGuard(scope.id)] : []),
         ...generatedValueStatements.publishStatements(ctx.db, scope),
         ...filePublishStatements(scope.projectId),
         ...translationBookkeeping.publishStatements(scope),
@@ -610,7 +605,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
 const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
   db,
   user: null,
-  env: env as unknown as Bindings,
+  env,
   waitUntil,
   client: "camox",
   telemetryDisabled: true,
@@ -618,9 +613,10 @@ const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
 });
 
 /**
- * Publishes a catch-up draft once nothing is left to translate in it, as Camox (ADR 0015). It
+ * Publishes a catch-up draft once nothing is left to translate in it, as Camox (ADR 0017). It
  * stays open, like any other draft, while it has blockers or conflicts, for a member to review;
- * one left empty is dropped. Does nothing for any other draft.
+ * one left empty is dropped. A translation requested in it meanwhile stops publishing, and its
+ * own settling publishes the draft later. Does nothing for any other draft.
  */
 export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(function* (
   db: ServiceContext["db"],
@@ -637,14 +633,19 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
   const scope = draftOf(row);
   const stored = yield* overlay.changesOf(db, scope);
   if (stored.length === 0) {
-    yield* dropIfEmpty(db, scope);
-    yield* record(db, { kind: "drafts", projectId: scope.projectId });
+    if (yield* dropIfEmpty(db, scope)) {
+      yield* record(db, { kind: "drafts", projectId: scope.projectId });
+    }
     return;
   }
   const preview = yield* computePreview(ctx, scope);
   if (preview.blockers.length > 0 || preview.conflicts.length > 0) return;
-  if (preview.translating.length > 0) return;
-  yield* publishChecked(ctx, scope, { shown: [], publishedBy: CAMOX_ACTOR, stored });
+  yield* publishChecked(ctx, scope, {
+    shown: [],
+    publishedBy: CAMOX_ACTOR,
+    stored,
+    translated: true,
+  });
 });
 
 /**

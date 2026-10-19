@@ -17,7 +17,6 @@ import { itemSchemas } from "../_shared/fields";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
-import { publishWhenTranslated } from "../drafts/publish";
 import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
@@ -26,7 +25,9 @@ import {
   type Bookkeeping,
   readBookkeeping,
   readStoredBookkeeping,
+  OVERLAY_COLUMNS,
   type Values,
+  valuesOf,
   writeBookkeeping,
 } from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
@@ -51,31 +52,8 @@ import type { Shape } from "./texts";
 
 type Row = Record<string, unknown> & { id: string };
 
-/** The overlay's own columns, which a localization never copies from its source. */
-const IDENTITY = new Set([
-  "rowId",
-  "id",
-  "locale",
-  "draftId",
-  "version",
-  "baseVersion",
-  "deleted",
-  "firstPublishedAt",
-  "publishedAt",
-  "publishedBy",
-]);
-
-/** Timestamps, which a localization takes from its source and never merges. */
-const TIMESTAMPS = new Set(["createdAt", "updatedAt", "contentUpdatedAt"]);
-
 const copyOf = (row: Row) =>
-  Object.fromEntries(Object.entries(row).filter(([column]) => !IDENTITY.has(column)));
-
-/** What a localization merges: its columns but the overlay's own and its timestamps. */
-export const valuesOf = (row: Row): Values =>
-  Object.fromEntries(
-    Object.entries(row).filter(([column]) => !IDENTITY.has(column) && !TIMESTAMPS.has(column)),
-  );
+  Object.fromEntries(Object.entries(row).filter(([column]) => !OVERLAY_COLUMNS.has(column)));
 
 /**
  * Runs a translation job, unless its request is gone because its draft ended, was emptied or
@@ -96,8 +74,6 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
     );
   }
   yield* settleTranslation(db, job, startedAt);
-  // The last translation of a catch-up draft publishes it.
-  if (draft) yield* publishWhenTranslated(db, draft.id);
 });
 
 const translate = Effect.fn("translation.translate")(function* (

@@ -7,6 +7,7 @@ import {
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -14,14 +15,22 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  seedLive,
 } from "../../../test/fixtures";
-import { answerEvery, forgetScheduled, scheduled } from "../../../test/generation";
+import {
+  answerEvery,
+  failEverySchedule,
+  forgetScheduled,
+  scheduled,
+} from "../../../test/generation";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
+import { createDb, type Database } from "../../db";
 import { isTranslationJob } from "../../lib/ai-job-queue";
 import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
+import { blocks } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
 // Publishing a draft takes every locale live together (ADR 0015): it waits for the draft's
@@ -68,8 +77,9 @@ async function fixture() {
     Object.fromEntries(texts.map(({ key, text }) => [key, GERMAN[text] ?? text])),
   );
 
-  const member = (headers: Headers = {}) => ({
-    context: createRpcContext(db, memberUser, headers),
+  /** A member's request, on `on` or the project's database. */
+  const member = (headers: Headers = {}, on: Database = db) => ({
+    context: createRpcContext(on, memberUser, headers),
   });
   const { page } = await callSeedingLive(
     router.pages.create,
@@ -82,21 +92,24 @@ async function fixture() {
     member(),
   );
 
-  const tool = async (name: string, args: object, headers: Headers) => {
+  const tool = async (name: string, args: object, headers: Headers, on: Database = db) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
-      member(headers),
+      member(headers, on),
     )) as ToolResponse;
     if (!response.ok) throw new Error(`${name} failed: ${JSON.stringify(response.error)}`);
     return response.result;
   };
-  /** Runs every translation job scheduled so far, as their alarms would, and forgets them. */
-  const runTranslations = async () => {
+  /**
+   * Runs every translation job scheduled so far, as their alarms would, and forgets them, on `on`
+   * or the project's database.
+   */
+  const runTranslations = async (on: Database = db) => {
     const jobs = scheduled().filter(isTranslationJob);
     forgetScheduled(...jobs.map((job) => job.entityId));
     const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
-    for (const job of keyed.values()) await runService(runAiJob(db, job));
+    for (const job of keyed.values()) await runService(runAiJob(on, job));
   };
   /** Opens a draft, which `run` writes in, and returns its headers. */
   const draft = async (run: (starting: Headers) => Promise<unknown>) => {
@@ -104,9 +117,12 @@ async function fixture() {
     await run({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
     return { id, headers: { [DRAFT_HEADER]: id } };
   };
-  const publish = async (headers: Headers, options: { publishAnyway?: boolean } = {}) => {
+  const publish = async (
+    headers: Headers,
+    { on = db, ...options }: { publishAnyway?: boolean; on?: Database } = {},
+  ) => {
     const { token } = await tool("previewPublish", {}, headers);
-    return tool("publishDraft", { token, ...options }, headers);
+    return tool("publishDraft", { token, ...options }, headers, on);
   };
 
   // German goes live, translated.
@@ -135,6 +151,60 @@ async function fixture() {
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+/**
+ * The test database, running `meanwhile` once right before the first statement whose SQL
+ * `matches` runs, alone or in a batch: what another request does at that moment.
+ */
+function interrupted(matches: (query: string) => boolean, meanwhile: () => Promise<unknown>) {
+  let pending: (() => Promise<unknown>) | undefined = meanwhile;
+  const interrupt = async (queries: string[]) => {
+    if (!pending || !queries.some(matches)) return;
+    const run = pending;
+    pending = undefined;
+    await run();
+  };
+  // Each statement handed out, with the one it stands for and its SQL.
+  const prepared = new WeakMap<D1PreparedStatement, { real: D1PreparedStatement; query: string }>();
+  const statement = (real: D1PreparedStatement, query: string): D1PreparedStatement => {
+    const handed = new Proxy(real, {
+      get(target, key) {
+        const value = Reflect.get(target, key);
+        if (typeof value !== "function") return value;
+        if (key === "bind")
+          return (...values: unknown[]) => statement(target.bind(...values), query);
+        return async (...args: unknown[]) => {
+          await interrupt([query]);
+          return value.apply(target, args);
+        };
+      },
+    });
+    prepared.set(handed, { real, query });
+    return handed;
+  };
+  const d1 = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") return (query: string) => statement(target.prepare(query), query);
+      if (key === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          const known = statements.map((handed) => prepared.get(handed)!);
+          await interrupt(known.map(({ query }) => query));
+          return target.batch(known.map(({ real }) => real));
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return createDb(d1);
+}
+
+/** Whether a statement starts publishing a draft: the guard on its conflicts (ADR 0009). */
+const publishing = (query: string) => query.startsWith('with "guarded"');
+
+/** Whether a statement requests translations. */
+const requestingTranslations = (query: string) =>
+  query.trimStart().startsWith('insert into "translation_requests"');
 
 /** A draft changing the block's title, with its German translation pending. */
 const editedDraft = (f: Fixture) =>
@@ -263,6 +333,82 @@ describe("publishing anyway", () => {
 
     expect(await catchUpDrafts(f)).toEqual([]);
     expect(await f.titleIn("de")).toBe("Hallo");
+  });
+
+  it("keeps one catch-up draft when two requests catch up at once, as a release's do", async () => {
+    const f = await fixture();
+    const released = (title: string, position: string) =>
+      seedLive(f.db, blocks, {
+        projectId: f.projectId,
+        pageId: f.page.id,
+        type: "hero",
+        content: { title },
+        position,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+    await Promise.all([released("Hello", "b0"), released("Welcome", "c0")]);
+
+    expect(await catchUpDrafts(f)).toEqual([
+      expect.objectContaining({ translatingLocales: ["de"] }),
+    ]);
+  });
+
+  it("loses no translation requested while the catch-up draft publishes", async () => {
+    const f = await fixture();
+    const edited = await editedDraft(f);
+    await f.publish(edited.headers, { publishAnyway: true });
+    const retitled = await f.draft((starting) =>
+      f.tool("setPageSeo", { id: f.page.id, metaTitle: "Prices" }, starting),
+    );
+
+    // The catch-up draft's last translation publishes it, and another draft publishes anyway right
+    // before, requesting the page's translation in it.
+    await f.runTranslations(
+      interrupted(publishing, () => f.publish(retitled.headers, { publishAnyway: true })),
+    );
+    await f.runTranslations();
+
+    expect(await f.titleIn("de")).toBe("Willkommen");
+    const page = await f.tool("getPage", { id: f.page.id, locale: "de" }, {});
+    expect(page.page.metaTitle).toBe("Preise");
+    expect(await catchUpDrafts(f)).toEqual([]);
+  });
+
+  it("catches up in a new draft when Camox published the open one meanwhile", async () => {
+    const f = await fixture();
+    const edited = await editedDraft(f);
+    await f.publish(edited.headers, { publishAnyway: true });
+    const retitled = await f.draft((starting) =>
+      f.tool("setPageSeo", { id: f.page.id, metaTitle: "Prices" }, starting),
+    );
+
+    // Another draft publishing anyway found the catch-up draft open, and Camox publishes it right
+    // before the translations are requested in it.
+    await f.publish(retitled.headers, {
+      publishAnyway: true,
+      on: interrupted(requestingTranslations, () => f.runTranslations()),
+    });
+    expect(await catchUpDrafts(f)).toEqual([
+      expect.objectContaining({ translatingLocales: ["de"] }),
+    ]);
+    await f.runTranslations();
+
+    expect(await f.titleIn("de")).toBe("Willkommen");
+    const page = await f.tool("getPage", { id: f.page.id, locale: "de" }, {});
+    expect(page.page.metaTitle).toBe("Preise");
+    expect(await catchUpDrafts(f)).toEqual([]);
+  });
+
+  it("publishes the catch-up draft when its last translations can't be scheduled", async () => {
+    const f = await fixture();
+    const edited = await editedDraft(f);
+    failEverySchedule();
+
+    await f.publish(edited.headers, { publishAnyway: true });
+
+    expect(await catchUpDrafts(f)).toEqual([]);
   });
 
   it("leaves the catch-up draft open, like any other draft, when it has a blocker", async () => {

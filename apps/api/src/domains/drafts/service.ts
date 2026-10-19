@@ -1,21 +1,12 @@
-import { CAMOX_ACTOR, CAMOX_NAME, type EndedDraft } from "@camox/api-contract/drafts";
-import { generateUuidv7 } from "@camox/api-contract/ids";
-import { and, desc, eq, not, sql } from "drizzle-orm";
+import type { EndedDraft } from "@camox/api-contract/drafts";
+import { and, eq, not, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import type { TranslationJob } from "../../lib/ai-job-queue";
-import { Journal, record } from "../../lib/journal";
+import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
-import { user as users } from "../auth/schema";
-import { defaultLocaleTag } from "../locales/default-locale";
-import { locales } from "../locales/schema";
-import {
-  isTranslated,
-  type PendingTranslation,
-  requestTranslations,
-  type Translatable,
-} from "../translations/service";
+import { hasPendingTranslations } from "../translations/service";
 import * as overlay from "./overlay";
+import { peopleNamed, personOf } from "./people";
 import { drafts, endedDrafts } from "./schema";
 import { draftOf, type Draft, type DraftScope } from "./scope";
 
@@ -28,23 +19,19 @@ export const findEndedDraft = Effect.fn("findEndedDraft")(function* (
   projectId: number,
   draftId: string,
 ) {
-  const row = yield* Effect.promise(() =>
+  const ended = yield* Effect.promise(() =>
     db
-      .select({ ended: endedDrafts, name: users.name })
+      .select()
       .from(endedDrafts)
-      .leftJoin(users, eq(users.id, endedDrafts.endedBy))
       .where(and(eq(endedDrafts.id, draftId), eq(endedDrafts.projectId, projectId)))
       .get(),
   );
-  if (!row) return undefined;
-  const { ended, name } = row;
+  if (!ended) return undefined;
+  const people = yield* peopleNamed(db, [ended.endedBy]);
   return {
     draftId: ended.id,
     outcome: ended.outcome,
-    endedBy: {
-      id: ended.endedBy,
-      name: ended.endedBy === CAMOX_ACTOR ? CAMOX_NAME : (name ?? "A former member"),
-    },
+    endedBy: personOf(people, ended.endedBy),
     endedAt: ended.endedAt,
   } satisfies EndedDraft;
 });
@@ -71,11 +58,23 @@ export const startDraft = Effect.fn("startDraft")(function* (
   return started;
 });
 
-/** Deletes a draft in one statement, only while it stores nothing. */
+/**
+ * Deletes a draft in one statement, only while it stores nothing and has nothing left to
+ * translate. Whether it deleted it.
+ */
 export const dropIfEmpty = (db: ServiceContext["db"], scope: Draft) =>
-  Effect.promise(() =>
-    db.delete(drafts).where(and(eq(drafts.id, scope.id), not(overlay.storesAnything(scope)))),
-  );
+  Effect.promise(async () => {
+    const dropped = await db
+      .delete(drafts)
+      .where(
+        and(
+          eq(drafts.id, scope.id),
+          not(overlay.storesAnything(scope)),
+          not(hasPendingTranslations(scope.id)),
+        ),
+      );
+    return dropped.meta.changes > 0;
+  });
 
 /**
  * The scope a background job scheduled from `draftId` runs in: Live for `null`, or undefined
@@ -91,112 +90,4 @@ export const draftScopeOfJob = Effect.fn("draftScopeOfJob")(function* (
   );
   if (!draft) return undefined;
   return draftOf(draft);
-});
-
-// --- Catch-up drafts (ADR 0015) ---
-//
-// Translations a draft published without carry on in a draft Camox opens: they run against the
-// new Live, and Camox publishes the draft once they're done (`publishWhenTranslated`). One
-// catch-up draft per project is open at a time; later catch-ups join it.
-
-/** Whether Camox opened a draft, to catch translations up. */
-export const isCatchUpDraft = (row: { kind: string; createdBy: string }) =>
-  row.kind === "regular" && row.createdBy === CAMOX_ACTOR;
-
-/** The project's open catch-up draft, opened now when there's none. */
-export const openCatchUpDraft = Effect.fn("drafts.openCatchUpDraft")(function* (
-  db: ServiceContext["db"],
-  projectId: number,
-) {
-  const open = () =>
-    Effect.promise(() =>
-      db
-        .select()
-        .from(drafts)
-        .where(
-          and(
-            eq(drafts.projectId, projectId),
-            eq(drafts.kind, "regular"),
-            eq(drafts.createdBy, CAMOX_ACTOR),
-          ),
-        )
-        .orderBy(desc(drafts.createdAt))
-        .get(),
-    );
-  const existing = yield* open();
-  if (existing) return draftOf(existing);
-  const id = generateUuidv7();
-  yield* startDraft(db, { id, projectId, createdBy: CAMOX_ACTOR, name: "Translations" });
-  return draftOf({ id, projectId, kind: "regular" });
-});
-
-/**
- * Requests the translation of default-locale entities into locales on Live (every one but the
- * default when `locales` is missing) in the project's catch-up draft. Opens no draft when there's
- * nothing to translate; otherwise returns it.
- */
-export const catchUp = Effect.fn("drafts.catchUp")(function* (
-  db: ServiceContext["db"],
-  projectId: number,
-  entities: readonly Translatable[],
-  targets?: readonly string[],
-  options: { source?: TranslationJob["source"] } = {},
-) {
-  const live = yield* overlay.select(db, null, locales, eq(locales.projectId, projectId));
-  const others = live.filter((locale) => !locale.isDefault).map((locale) => locale.tag);
-  const into = targets ? targets.filter((tag) => others.includes(tag)) : others;
-  if (entities.length === 0 || into.length === 0) return undefined;
-  const draft = yield* openCatchUpDraft(db, projectId);
-  yield* requestTranslations(db, draft, entities, into, { immediately: true, ...options });
-  return draft;
-});
-
-/**
- * Requests the translation of every default-locale entity a release wrote on Live into Live's
- * other locales, in the project's catch-up draft. Runs once the work succeeded, with its journal.
- * A release syncs in several requests; each joins the one open catch-up draft.
- */
-export const catchUpReleaseWrites = Effect.fn("drafts.catchUpReleaseWrites")(function* () {
-  const { db, changes } = yield* Journal;
-  if (!db) return;
-  const byProject = new Map<number, Map<string, Translatable & { locale: string }>>();
-  for (const change of changes) {
-    if (change.kind !== "localizedWrite" || change.draftId !== null) continue;
-    if (!isTranslated(change.entity)) continue;
-    const writes = byProject.get(change.projectId) ?? new Map();
-    const { entity, id, locale } = change;
-    writes.set(JSON.stringify([entity, id, locale]), { entity, id, locale });
-    byProject.set(change.projectId, writes);
-  }
-  for (const [projectId, writes] of byProject) {
-    const defaultTag = yield* defaultLocaleTag(db, projectId);
-    const entities = [...writes.values()]
-      .filter(({ locale }) => locale === defaultTag)
-      .map(({ entity, id }) => ({ entity, id }));
-    yield* catchUp(db, projectId, entities);
-  }
-});
-
-/** Carries translations a draft published without over to the project's catch-up draft. */
-export const catchUpPending = Effect.fn("drafts.catchUpPending")(function* (
-  db: ServiceContext["db"],
-  projectId: number,
-  pending: readonly PendingTranslation[],
-) {
-  const groups = new Map<string, PendingTranslation[]>();
-  for (const translation of pending) {
-    // A merge with Live's localization is moot once the draft's localization is Live's.
-    if (translation.source === "live") continue;
-    const key = JSON.stringify([translation.locale, translation.source]);
-    groups.set(key, [...(groups.get(key) ?? []), translation]);
-  }
-  for (const group of groups.values()) {
-    const { locale, source } = group[0]!;
-    const entities = new Map(group.map(({ entity, id }) => [`${entity}:${id}`, { entity, id }]));
-    // Code-owned defaults placed in a locale stay translated as such; anything else is a
-    // translation of the source as Live now has it.
-    yield* catchUp(db, projectId, [...entities.values()], [locale], {
-      ...(source === "defaults" && { source }),
-    });
-  }
 });

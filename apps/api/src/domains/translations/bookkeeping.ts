@@ -16,6 +16,31 @@ export type Values = Record<string, unknown>;
 
 export type Bookkeeping = { source: Values; output: Values };
 
+/** The overlay's own columns, which a localization never copies from its source. */
+export const OVERLAY_COLUMNS = new Set([
+  "rowId",
+  "id",
+  "locale",
+  "draftId",
+  "version",
+  "baseVersion",
+  "deleted",
+  "firstPublishedAt",
+  "publishedAt",
+  "publishedBy",
+]);
+
+/** Timestamps, which a localization takes from its source and never merges. */
+const TIMESTAMPS = new Set(["createdAt", "updatedAt", "contentUpdatedAt"]);
+
+/** What a localization merges, and its bookkeeping holds: its columns but the overlay's own and its timestamps. */
+export const valuesOf = (row: Record<string, unknown>): Values =>
+  Object.fromEntries(
+    Object.entries(row).filter(
+      ([column]) => !OVERLAY_COLUMNS.has(column) && !TIMESTAMPS.has(column),
+    ),
+  );
+
 /** A localization's bookkeeping as a draft in its locale reads it: the draft's own, or Live's. */
 export const readBookkeeping = Effect.fn("translation.readBookkeeping")(function* (
   db: Database,

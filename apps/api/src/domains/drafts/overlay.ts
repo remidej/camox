@@ -1122,6 +1122,13 @@ export type StoredChange = {
   change: "created" | "changed" | "deleted";
 };
 
+/**
+ * The tag of the locale a row is in (ADR 0015), or null for an entity stored once, like a file or
+ * a locale.
+ */
+export const localeOfRow = (row: object): string | null =>
+  "locale" in row && typeof row.locale === "string" ? row.locale : null;
+
 /** Every entity a draft stores, as created, changed or deleted. */
 export const changesOf = Effect.fn("overlay.changesOf")(function* (db: Database, scope: Draft) {
   const changes: StoredChange[] = [];

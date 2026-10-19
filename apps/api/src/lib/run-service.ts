@@ -10,7 +10,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
-import { catchUpReleaseWrites } from "../domains/drafts/service";
+import { catchUpReleaseWrites } from "../domains/drafts/catch-up";
 import { translateWrites } from "../domains/translations/service";
 import { aiServices, type AiServices } from "./ai-adapters";
 import type { ServiceError } from "./errors";

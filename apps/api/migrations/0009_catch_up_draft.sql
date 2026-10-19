@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `drafts_catch_up_idx` ON `drafts` (`project_id`) WHERE "drafts"."kind" = 'regular' and "drafts"."created_by" = 'camox';
