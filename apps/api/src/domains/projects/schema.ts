@@ -1,3 +1,4 @@
+import type { PosthogRegion } from "@camox/api-contract/analytics";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { organizationTable } from "../auth/schema";
@@ -16,7 +17,7 @@ export const projects = sqliteTable(
     ga4MeasurementId: text("ga4_measurement_id"),
     /** The project's PostHog project API key, set together with its region: a Project Setting. */
     posthogProjectApiKey: text("posthog_project_api_key"),
-    posthogRegion: text("posthog_region", { enum: ["us", "eu"] }),
+    posthogRegion: text("posthog_region").$type<PosthogRegion>(),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

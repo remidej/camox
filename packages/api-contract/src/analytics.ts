@@ -18,3 +18,5 @@ export const posthogProjectApiKeySchema = /* @__PURE__ */ z
 
 /** The PostHog Cloud region a project lives in. */
 export const posthogRegionSchema = /* @__PURE__ */ z.enum(["us", "eu"]);
+
+export type PosthogRegion = z.output<typeof posthogRegionSchema>;

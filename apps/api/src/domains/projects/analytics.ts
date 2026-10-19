@@ -1,6 +1,7 @@
 import {
   ga4MeasurementIdSchema,
   posthogProjectApiKeySchema,
+  type PosthogRegion,
   posthogRegionSchema,
 } from "@camox/api-contract/analytics";
 import { z } from "zod";
@@ -13,7 +14,7 @@ import type { projects } from "./schema";
  */
 export interface AnalyticsProviders {
   ga4: { measurementId: string } | null;
-  posthog: { projectApiKey: string; region: z.output<typeof posthogRegionSchema> } | null;
+  posthog: { projectApiKey: string; region: PosthogRegion } | null;
 }
 
 /** Each provider to set, or null to remove it. A provider left out stays as it is. */
