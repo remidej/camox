@@ -96,10 +96,7 @@ Competitor watching was considered and dropped: crowded, and it produces informa
 
 ### Surfacing value without noise
 
-Fill-in jobs run constantly, so listing every run would bury users. Show the value:
-
-- **Where it's used**: a "written by Camox" marker on the generated field, which stays editable.
-- **As a digest**: "This week: alt text for 34 images, SEO for 6 new pages, 12 pages translated to German." It works as a weekly Slack or email message.
+Fill-in jobs run constantly, so listing every run would bury users. Show the value as a digest instead: "This week: alt text for 34 images, SEO for 6 new pages, 12 pages translated to German." It works as a weekly Slack or email message.
 
 ## Surfaces
 
@@ -116,7 +113,7 @@ Camox means chamois in Latin, and the logo loosely shows the animal's head. The 
 A chamois moves fast on steep ground without falling. The feature's story pairs both traits:
 
 - **Nimble**: the site keeps up with a product that ships every week.
-- **Sure-footed**: nothing goes live by surprise. Changes arrive as drafts to review, and generated values are marked as written by Camox.
+- **Sure-footed**: nothing goes live by surprise. Changes arrive as drafts to review.
 
 Speed alone wouldn't answer the main worry about agents, "does it change my site without asking?". Sure footing does.
 

@@ -166,6 +166,20 @@ _Avoid_: AI field, AI metadata, derived content
 The text a block, or a layout rendering loaded data, declares to stand for its content when read by agents.
 _Avoid_: Export, plain text
 
+### Localization
+
+**Locale**:
+A language, optionally narrowed to a region, that the website is published in. Like content, locales are added and removed through drafts, not in code. The studio calls locales "languages".
+_Avoid_: Language, market, region, translation
+
+**Default Locale**:
+The locale every other locale derives from, published at unprefixed paths.
+_Avoid_: Source language, primary language, main locale
+
+**Localization**:
+A content entity's copy in one locale, linked to its original in the default locale: a page, a block (including layout blocks and synced blocks' shared content), a repeatable item, or a collection record. It may diverge from its original wherever someone changed it on purpose.
+_Avoid_: Translation, variant, localized page
+
 ### Publishing
 
 **Live**:
