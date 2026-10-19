@@ -19,6 +19,20 @@ Use the `gh` CLI for tracker operations.
 
 GitHub shares issue and PR numbers. Resolve the object type before acting.
 
+## Research and brainstorms
+
+The repo has no research notes or product docs; they live in issues.
+
+- Research: a `wayfinder:research` issue whose body is the question.
+  Post the findings, with sources, as a comment, then close it. Do
+  not write findings to a file or a `research/*` branch. Research
+  outside a map is the same issue with no parent.
+- Brainstorm: an open `wayfinder:map` issue. Its body is the current
+  thinking, edited as it changes; comments keep the history.
+- Superseded findings: open a new issue linking the old one; never
+  rewrite a closed one.
+- ADRs link the issues behind them with full issue URLs.
+
 ## Wayfinding operations
 
 - Map: one issue labelled `wayfinder:map`, with Notes,

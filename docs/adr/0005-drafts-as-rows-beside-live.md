@@ -22,5 +22,4 @@ A draft stores only what it changes, on top of Live (ADR 0003), and every entity
 
 ## Research
 
-- [D1 limits for publishing](../research/d1-limits-for-publishing.md): why publishing has to be set-based statements in one batch.
-- [Prior art for parallel content changes](../research/prior-art-parallel-content-changes.md): whole-item copies over Live, and recording each copy's base version to detect conflicts.
+- [D1 limits for publishing (#194)](https://github.com/remidej/camox/issues/194): why publishing has to be set-based statements in one batch.

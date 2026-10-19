@@ -14,6 +14,10 @@ If these files are absent, proceed silently. Do not suggest creating
 them upfront; the domain-modeling skill creates them as terms and
 decisions are resolved.
 
+Issues are context, not truth. Where an issue disagrees with the
+code, an ADR, or the glossary, those win. A closed issue describes
+things as of the date it was closed.
+
 ## Use the glossary's vocabulary
 
 Use glossary terms in issue titles, proposals, hypotheses, and test
