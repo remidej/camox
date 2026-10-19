@@ -19,6 +19,7 @@ import { fetchRuntimeJson } from "../features/runtime/navigationTarget";
 import type { PageRenderInput } from "../features/runtime/runtime";
 import type { ApiClient } from "./api-client";
 import { type DraftScope, useCurrentDraftId } from "./draft-scope";
+import type { LocaleView } from "./locale-path";
 import { collectFileIds } from "./normalized-data";
 import type {
   BlockBundle,
@@ -535,6 +536,11 @@ export interface StudioCacheOptions {
   api: (draft: string | null) => ApiClient;
   /** Reads the runtime's JSON endpoints. Defaults to the browser's same-origin fetch. */
   runtimeJson?: RuntimeJson;
+  /**
+   * The locale reads and writes act in, at each operation: the one the studio shows. Without it,
+   * the default locale.
+   */
+  locale?: () => LocaleView;
 }
 
 export function createStudioCache({

@@ -42,6 +42,8 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
   document.body.innerHTML = '<div id="root"></div>';
   const queryClient = new QueryClient();
   const input: PageRenderInput = {
+    locale: { tag: "en", isDefault: true },
+    locales: [{ tag: "en", isDefault: true }],
     presentation: "studio",
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",

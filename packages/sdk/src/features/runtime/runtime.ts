@@ -14,6 +14,7 @@ import {
   type RecordLookup,
 } from "../../core/requestContext";
 import { draftNamedBy } from "../../lib/draft-scope";
+import type { LocaleView } from "../../lib/locale-path";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
@@ -105,10 +106,27 @@ export interface PageRenderInput extends DraftRead {
   href: string;
   layoutIdentity: LayoutIdentity | null;
   loaderData: unknown;
+  /** The locale the render shows, named by the path's prefix. */
+  locale: LocaleView;
+  /** The locales of the scope the render reads: Live's, or its draft's. */
+  locales: LocaleView[];
+  /**
+   * The full runtime path, with the locale's prefix (`/de/preise`). The locale-relative path is
+   * `parseLocalePath(pathname, locales).path`.
+   */
   pathname: string;
   projectSlug: string;
   runtimeBasePath: string;
 }
+
+/**
+ * Stands in for the scope's locales until the runtime reads them: one default locale of
+ * undetermined tag (BCP 47 `und`).
+ */
+const UNREAD_LOCALES: Pick<PageRenderInput, "locale" | "locales"> = (() => {
+  const locale = { tag: "und", isDefault: true };
+  return { locale, locales: [locale] };
+})();
 
 export interface RuntimeOptions {
   apiUrl?: string;
@@ -583,6 +601,7 @@ async function createPageHtmlResponse({
       href: requestUrl.href,
       pathname,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      ...UNREAD_LOCALES,
       head: {},
       loaderData: null,
       layoutIdentity: null,
@@ -648,6 +667,7 @@ async function createPageHtmlResponse({
       pathname,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      ...UNREAD_LOCALES,
     } satisfies PageRenderInput;
     // Public documents only need site head/attributes for possible client-side
     // studio activation; avoid rendering or serializing their page content twice.
@@ -913,6 +933,7 @@ async function createDerivedResponse(
       loaderData: null,
       pathname,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      ...UNREAD_LOCALES,
       derived: {
         layoutId: match.layout._internal.id,
         result: serializedResult,
@@ -994,6 +1015,7 @@ async function createStudioHtmlResponse({
     projectSlug: options.projectSlug,
     routeKind: match.kind as "studio" | "studio-content" | "studio-nested",
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    ...UNREAD_LOCALES,
   } satisfies StudioRenderInput;
   if (dataOnly)
     return Response.json(studioRenderInput, {
@@ -1089,6 +1111,7 @@ async function createCanvasOnlyResponse({
     authenticationUrl: options.authenticationUrl,
     projectSlug: options.projectSlug,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    ...UNREAD_LOCALES,
     href: request.url,
     pathname,
     head: { meta: [{ title }] },
@@ -1169,6 +1192,7 @@ async function createPageDataResponse({
       authenticationUrl: options.authenticationUrl ?? "",
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      ...UNREAD_LOCALES,
       href: renderedHref(request.url, result),
       draftId: result.draftId,
       refusedDraft: result.refusedDraft,

@@ -37,6 +37,8 @@ export async function openPage(
   document.body.innerHTML = '<div id="root"></div>';
   const queryClient = new QueryClient();
   const input = (pathname: string): PageRenderInput => ({
+    locale: { tag: "en", isDefault: true },
+    locales: [{ tag: "en", isDefault: true }],
     presentation: studio ? "studio" : "public",
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",

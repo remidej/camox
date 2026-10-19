@@ -2,6 +2,7 @@ import type { Router } from "@camox/api-contract";
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
+  LOCALE_HEADER,
   NO_DEVELOPMENT_DRAFT_ERROR,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
@@ -13,6 +14,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
+import type { LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -122,11 +124,13 @@ export function parseMarkdownPath(pathname: string): string | null {
 
 export function createServerApiClient(
   apiUrl: string,
-  options?: { authCookieHeader?: string; draftId?: string },
+  options?: { authCookieHeader?: string; draftId?: string; locale?: LocaleView },
 ): RouterClient<Router> {
   const headers: Record<string, string> = {};
   // Only a session can read a draft, so a draft is only ever named along with one.
   if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
+  // The default locale is the API's own default, so only another locale is named.
+  if (options?.locale && !options.locale.isDefault) headers[LOCALE_HEADER] = options.locale.tag;
   return createORPCClient<RouterClient<Router>>(
     new RPCLink({
       url: `${apiUrl}/rpc`,
@@ -244,13 +248,23 @@ export async function loadCamoxPage({
  */
 export function createServerStudioCache(
   queryClient: QueryClient,
-  { apiUrl, authCookieHeader }: { apiUrl: string; authCookieHeader?: string },
+  {
+    apiUrl,
+    authCookieHeader,
+    locale,
+  }: {
+    apiUrl: string;
+    authCookieHeader?: string;
+    /** The locale the request renders. Without it, the default locale. */
+    locale?: LocaleView;
+  },
 ): StudioCache {
   return createStudioCache({
     queryClient,
     scope: createDraftScope({ queryClient }),
     api: (draft) =>
-      createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined }),
+      createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined, locale }),
+    ...(locale && { locale: () => locale }),
   });
 }
 
