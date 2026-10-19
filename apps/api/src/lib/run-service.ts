@@ -9,6 +9,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
+import { translateWrites } from "../domains/translations/service";
 import type { ServiceError } from "./errors";
 import { generationServices, type GenerationServices } from "./generation-adapters";
 import { announce } from "./invalidation";
@@ -63,14 +64,17 @@ export type ServiceRequirements = Journal | GenerationServices;
  * the transport logs them and answers with a 500.
  *
  * The effect writes into a fresh journal. Once it succeeded, what it changed is
- * sent to the project rooms before the promise resolves; a failure sends nothing.
+ * sent to the project rooms before the promise resolves; a failure sends nothing. What it wrote
+ * in a draft's default locale is translated into the draft's other locales.
  * It generates values with the Worker's model and scheduler (`generation-adapters.ts`).
  */
 export async function runService<A>(
   effect: Effect.Effect<A, ServiceError, ServiceRequirements>,
 ): Promise<A> {
+  // What the work wrote to the default locale is translated once it succeeded (ADR 0015).
+  const work = Effect.tap(effect, () => translateWrites());
   const exit = await Effect.runPromiseExit(
-    journaled(Effect.provideContext(effect, generationServices()), announce),
+    journaled(Effect.provideContext(work, generationServices()), announce),
   );
   if (Exit.isSuccess(exit)) return exit.value;
 

@@ -5,7 +5,7 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import { readMetadataImage } from "../domains/files/metadata-image";
-import { AiModel } from "./ai-model";
+import { AiModel, type TranslationRequest } from "./ai-model";
 import { transformImageUrl } from "./image-transform";
 import { retryAiCall } from "./retry-ai-call";
 
@@ -15,7 +15,7 @@ import { retryAiCall } from "./retry-ai-call";
  */
 const MODEL = "google/gemini-3.1-flash-lite";
 
-/** The model that writes generated values, through OpenRouter. */
+/** The model that writes generated values and translations, through OpenRouter. */
 export const openRouterModel = (apiKey: string) =>
   AiModel.of({
     summarize: (request) =>
@@ -86,7 +86,48 @@ export const openRouterModel = (apiKey: string) =>
           );
         }),
       ),
+
+    translate: (request) =>
+      retryAiCall("translation", (abortController) =>
+        Effect.promise(() =>
+          chat({
+            adapter: createOpenRouterText(MODEL, apiKey),
+            abortController,
+            outputSchema: z.object({
+              translations: z.array(z.object({ key: z.string(), text: z.string() })),
+            }),
+            messages: [{ role: "user", content: translationPrompt(request) }],
+          }),
+        ).pipe(
+          // Only keys the request asked for count: a missing key keeps its text.
+          Effect.map(({ translations }) => {
+            const asked = new Set(request.texts.map(({ key }) => key));
+            return Object.fromEntries(
+              translations.filter(({ key }) => asked.has(key)).map(({ key, text }) => [key, text]),
+            );
+          }),
+        ),
+      ),
   });
+
+function translationPrompt(request: TranslationRequest) {
+  return outdent`
+    <instruction>
+      Translate each text of a website from the "${request.from}" locale into the "${request.to}" locale (BCP 47 tags).
+    </instruction>
+
+    <constraints>
+      - Return one translation per text, under the text's key
+      - Translate naturally, as a native speaker would write for this website, keeping its tone
+      - Keep brand and product names, code, URLs and placeholders such as {{name}} as they are
+      - "plain" texts: return plain text, without markdown
+      - "html" texts: an HTML document; translate only the words people read, including titles and attributes such as alt, title and aria-label, and keep every tag, attribute name, script and style as it is
+      - "slug" texts: a URL path segment; return a translated segment in lowercase kebab-case, ASCII only, without slashes
+    </constraints>
+
+    <texts>${JSON.stringify(request.texts)}</texts>
+  `;
+}
 
 function summaryPrompt(request: { type: string; markdown: string; previousSummary?: string }) {
   const stabilityBlock = request.previousSummary

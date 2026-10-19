@@ -501,9 +501,10 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
   const projectId = target === RELEASE ? yield* projectOfLive(db, row) : target.projectId;
   // A Live item whose block is gone shows nowhere: no project's viewers read it.
   if (projectId === undefined) return;
+  const { entity } = registrationOf(table);
   yield* record(db, {
     kind: "content",
-    entity: registrationOf(table).entity,
+    entity,
     id: row.id,
     projectId,
     draftId: target === RELEASE ? null : target.id,
@@ -511,6 +512,18 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
     row,
     columns,
   });
+  // Every write of a localized entity in a draft, whatever wrote it: one in the default locale
+  // is translated into the draft's other locales (ADR 0015).
+  if (target !== RELEASE && typeof row.locale === "string") {
+    yield* record(db, {
+      kind: "localizedWrite",
+      entity,
+      id: row.id,
+      projectId,
+      draftId: target.id,
+      locale: row.locale,
+    });
+  }
 });
 
 /**

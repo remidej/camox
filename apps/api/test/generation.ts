@@ -2,11 +2,7 @@ import { Context, Effect } from "effect";
 
 import { AiModel } from "../src/lib/ai-model";
 import { Background, inline } from "../src/lib/background";
-import {
-  type GenerationJob,
-  GenerationScheduler,
-  ScheduleError,
-} from "../src/lib/generation-scheduler";
+import { type AiJob, GenerationScheduler, ScheduleError } from "../src/lib/generation-scheduler";
 import { AiCallError } from "../src/lib/retry-ai-call";
 
 // Stands in for the model and the Durable Object scheduler in every integration test
@@ -17,11 +13,13 @@ type Model = AiModel["Service"];
 type Method = keyof Model;
 type Request<M extends Method> = Parameters<Model[M]>[0];
 type Answer<M extends Method> = Effect.Success<ReturnType<Model[M]>>;
+type Answerer<M extends Method> = (request: Request<M>) => Answer<M> | AiCallError;
 
 /** What the model was asked, in order. */
 export type ModelCall = { [M in Method]: { method: M; request: Request<M> } }[Method];
 
 const answers = new Map<Method, (Answer<Method> | AiCallError)[]>();
+const standing = new Map<Method, Answerer<Method>>();
 const calls: ModelCall[] = [];
 
 const answer = <M extends Method>(method: M, request: Request<M>) =>
@@ -29,6 +27,10 @@ const answer = <M extends Method>(method: M, request: Request<M>) =>
     calls.push({ method, request } as ModelCall);
     const next = answers.get(method)?.shift();
     if (next === undefined) {
+      const answerer = standing.get(method) as Answerer<M> | undefined;
+      const answered = answerer?.(request);
+      if (answered instanceof AiCallError) return Effect.fail(answered);
+      if (answered !== undefined) return Effect.succeed(answered);
       return Effect.fail(new AiCallError({ cause: `No ${method} answer scripted` }));
     }
     return next instanceof AiCallError ? Effect.fail(next) : Effect.succeed(next as Answer<M>);
@@ -38,6 +40,7 @@ const scriptedModel = AiModel.of({
   summarize: (request) => answer("summarize", request),
   pageSeo: (request) => answer("pageSeo", request),
   imageMetadata: (request) => answer("imageMetadata", request),
+  translate: (request) => answer("translate", request),
 });
 
 /**
@@ -47,16 +50,21 @@ const scriptedModel = AiModel.of({
 export const answerNext = <M extends Method>(method: M, next: Answer<M> | AiCallError) =>
   answers.set(method, [...(answers.get(method) ?? []), next]);
 
+/** Scripts how the model answers every call to `method` that no `answerNext` answers. */
+export const answerEvery = <M extends Method>(method: M, answerer: Answerer<M>) =>
+  standing.set(method, answerer as unknown as Answerer<Method>);
+
 /** Everything the model was asked since the test started. */
 export const modelCalls = (): readonly ModelCall[] => calls;
 
 /** Forgets scripted answers and calls, between tests. */
 export const forgetModel = () => {
   answers.clear();
+  standing.clear();
   calls.length = 0;
 };
 
-export type ScheduledJob = GenerationJob & { delayMs: number };
+export type ScheduledJob = AiJob & { delayMs: number };
 
 const jobs: ScheduledJob[] = [];
 let failures = 0;
@@ -77,10 +85,19 @@ const recordingScheduler = GenerationScheduler.of({
 export const scheduledFor = (...entityIds: string[]): ScheduledJob[] =>
   jobs.filter((job) => entityIds.includes(job.entityId));
 
+/** Every job scheduled and not forgotten, in order. */
+export const scheduled = (): readonly ScheduledJob[] => [...jobs];
+
 /** Forgets the jobs scheduled for these entities, to look at the next ones alone. */
 export const forgetScheduled = (...entityIds: string[]) => {
   const kept = jobs.filter((job) => !entityIds.includes(job.entityId));
   jobs.splice(0, jobs.length, ...kept);
+};
+
+/** Forgets every scheduled job, between tests. */
+export const forgetAllScheduled = () => {
+  jobs.length = 0;
+  failures = 0;
 };
 
 /** Makes the next scheduling fail, as an unreachable Durable Object would. */
