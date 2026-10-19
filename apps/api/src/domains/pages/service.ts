@@ -264,6 +264,7 @@ export const listPages = Effect.fn("pages.listPages")(function* (
   );
 }, Effect.scoped);
 
+/** A project's pages, with the project's name, which websites show alongside them. */
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listPagesBySlugInput>,
@@ -273,12 +274,13 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   const rows = (yield* pagesIn(ctx, scope, project.id)).filter(
     (page) => page.projectId === project.id,
   );
-  return yield* withPageProblems(
+  const pages = yield* withPageProblems(
     ctx,
     project.id,
     scope,
     yield* contentReader(ctx, { projectId: project.id, draft: scope }).shown.pages(rows),
   );
+  return { projectName: project.name, pages };
 }, Effect.scoped);
 
 export const getPage = Effect.fn("pages.getPage")(function* (

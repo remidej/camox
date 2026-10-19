@@ -16,7 +16,7 @@ export async function generateSitemap(origin: string): Promise<SitemapEntry[]> {
     new RPCLink({ url: `${__CAMOX_API_URL__}/rpc` }),
   );
 
-  const pages = await api.pages.listBySlug({ projectSlug: __CAMOX_PROJECT_SLUG__ });
+  const { pages } = await api.pages.listBySlug({ projectSlug: __CAMOX_PROJECT_SLUG__ });
 
   // Pages whose layout is gone, or whose URL a singleton serves, aren't served.
   return pages

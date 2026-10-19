@@ -64,7 +64,8 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       );
     if (url.pathname.endsWith("/getBySlug"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
-    if (url.pathname.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (url.pathname.endsWith("/listBySlug"))
+      return Response.json({ json: { projectName: "Test project", pages: [] } });
     if (url.pathname.endsWith("/getByPath"))
       return Response.json(
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
@@ -74,7 +75,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       // Reports the source each lookup named, so layouts can show it.
       const { json: input } = (await request.json()) as { json: { source?: string } };
       const source = input.source ?? "none";
-      return Response.json({ json: [{ id: source, value: source }] });
+      return Response.json({ json: [{ id: source, value: source, label: source }] });
     }
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });

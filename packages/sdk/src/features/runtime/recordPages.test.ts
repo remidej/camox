@@ -95,7 +95,8 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
       );
     if (url.pathname.endsWith("/getBySlug"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
-    if (url.pathname.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (url.pathname.endsWith("/listBySlug"))
+      return Response.json({ json: { projectName: "Test project", pages: [] } });
     if (url.pathname.endsWith("/getByPath"))
       return Response.json(
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
@@ -139,7 +140,11 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
       assert.equal(input.projectSlug, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
-        json: apiRecords.map((record) => ({ id: record.id, value: record.content[input.field] })),
+        json: apiRecords.map((record) => ({
+          id: record.id,
+          value: record.content[input.field],
+          label: record.content.title,
+        })),
       });
     }
     throw new Error(`Unexpected request: ${url}`);

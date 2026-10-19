@@ -293,7 +293,7 @@ async function ssrLoadModule(
 
 /** Whether a project's Live has no pages, as on a fresh database. */
 async function liveHasNoPages(apiUrl: string, projectSlug: string): Promise<boolean> {
-  const pages = await createServerApiClient(apiUrl).pages.listBySlug({ projectSlug });
+  const { pages } = await createServerApiClient(apiUrl).pages.listBySlug({ projectSlug });
   return pages.length === 0;
 }
 

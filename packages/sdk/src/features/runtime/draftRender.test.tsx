@@ -43,7 +43,10 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     if (url.pathname.endsWith("/getBySlug")) return Response.json({ json: project });
     if (url.pathname.endsWith("/listBySlug"))
       return Response.json({
-        json: [{ id: pageId, fullPath: "/", pathSegment: "", updatedAt: 1, layoutId: null }],
+        json: {
+          projectName: "Test project",
+          pages: [{ id: pageId, fullPath: "/", pathSegment: "", updatedAt: 1, layoutId: null }],
+        },
       });
     if (url.pathname.endsWith("/getByPath"))
       return Response.json({

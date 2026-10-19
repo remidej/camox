@@ -386,7 +386,10 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
 export const listRecordPageValuesInput = scopeInput.extend({ field: z.string() });
 export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value: z.string() });
 
-/** Each record with its String field's plain text, when that text can be a path segment. */
+/**
+ * Each record with its String field's plain text, when that text can be a path segment, and its
+ * Label.
+ */
 const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(function* (
   ctx: ServiceContext,
   input: z.infer<typeof listRecordPageValuesInput>,
@@ -401,8 +404,9 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
   );
   const shown = yield* reader.shown.records(definition.collectionId, rows);
   return rows.flatMap((row, index) => {
-    const value = pageValue(shown[index]!.content, input.field);
-    return value === null ? [] : [{ row, value }];
+    const { content, label } = shown[index]!;
+    const value = pageValue(content, input.field);
+    return value === null ? [] : [{ row, value, label }];
   });
 });
 
@@ -434,7 +438,8 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
 });
 
 /**
- * The records that can have a record page, with the value of their `field`: route discovery.
+ * The records that can have a record page, with the value of their `field` and their Label:
+ * route discovery, and the name of each record page.
  * Records sharing a value are all listed, so the caller can report the ambiguity.
  */
 export const listRecordPageValues = Effect.fn("collections.listRecordPageValues")(function* (
@@ -444,7 +449,7 @@ export const listRecordPageValues = Effect.fn("collections.listRecordPageValues"
   const input = yield* decodeInput(listRecordPageValuesInput, rawInput);
   return yield* inCollection(ctx, input, "public", (collection) =>
     Effect.map(recordsWithPageValues(ctx, input, collection), (records) =>
-      records.map(({ row, value }) => ({ id: row.id, value })),
+      records.map(({ row, value, label }) => ({ id: row.id, value, label })),
     ),
   );
 });

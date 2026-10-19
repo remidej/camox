@@ -170,8 +170,33 @@ describe("listing the records that can have a page", () => {
     const rich = await f.create({ slug: plainTextToLexicalState("rich-slug") });
 
     expect((await f.list()).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
-      { id: record.id, value: "new-slug" },
-      { id: rich.id, value: "rich-slug" },
+      { id: record.id, value: "new-slug", label: "Hello" },
+      { id: rich.id, value: "rich-slug", label: "Hello" },
+    ]);
+  });
+
+  it("names each record by its Label, as Live reads it for visitors", async () => {
+    const f = await fixture("list-label");
+    const record = await f.create({ title: "Live title", slug: "labelled" });
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [definition, authorsDefinition],
+      }),
+    );
+    await runService(
+      editRecord(devCtx, {
+        ...f.scope,
+        id: record.id,
+        content: { ...article, title: "Drafted title", slug: "labelled" },
+      }),
+    );
+
+    expect(await f.list()).toEqual([{ id: record.id, value: "labelled", label: "Live title" }]);
+    expect(await f.list(devCtx)).toEqual([
+      { id: record.id, value: "labelled", label: "Drafted title" },
     ]);
   });
 
@@ -207,10 +232,10 @@ describe("listing the records that can have a page", () => {
       createRecord(devCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
     );
     expect((await f.list(devCtx)).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
-      { id: drafted.id, value: "drafted" },
-      { id: live.id, value: "hello" },
+      { id: drafted.id, value: "drafted", label: "Hello" },
+      { id: live.id, value: "hello", label: "Hello" },
     ]);
-    expect(await f.list()).toEqual([{ id: live.id, value: "hello" }]);
+    expect(await f.list()).toEqual([{ id: live.id, value: "hello", label: "Hello" }]);
     const other = await fixture("list-isolation-other");
     expect(await other.list()).toEqual([]);
   });

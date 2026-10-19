@@ -238,7 +238,7 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
 
   const api = createServerApiClient(options.apiUrl);
   const origin = new URL(request.url).origin;
-  const pages = await api.pages.listBySlug({ projectSlug: options.projectSlug });
+  const { pages } = await api.pages.listBySlug({ projectSlug: options.projectSlug });
   const app = await options.getCamoxApp?.();
   const layouts = app?.getLayouts() ?? [];
   const destinations = getPageDestinations(pages, layouts);
