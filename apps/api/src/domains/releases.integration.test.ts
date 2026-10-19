@@ -1,4 +1,9 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import {
+  CAMOX_ACTOR,
+  DRAFT_CREATE_HEADER,
+  DRAFT_HEADER,
+  LOCALE_HEADER,
+} from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -9,6 +14,9 @@ import {
   createServiceContext,
   callSeedingLive,
 } from "../../test/fixtures";
+import { answerEvery, forgetScheduled, scheduled } from "../../test/generation";
+import { isTranslationJob } from "../lib/ai-job-queue";
+import { runAiJob } from "../lib/ai-jobs";
 import { runService } from "../lib/run-service";
 import { router } from "../router";
 import { pages } from "../schema";
@@ -96,11 +104,11 @@ async function fixture() {
   const member = (headers: Record<string, string> = {}) => ({
     context: createRpcContext(db, base.memberUser, headers),
   });
-  const layoutBlocks = async (layoutId: string) => {
+  const layoutBlocks = async (layoutId: string, headers: Record<string, string> = {}) => {
     const layout = await call(
       router.layouts.get,
       { projectSlug: project.slug, layoutId },
-      member(),
+      member(headers),
     );
     return layout.blocks;
   };
@@ -123,9 +131,39 @@ async function fixture() {
       member(inDraft(draftId)),
     );
 
+  /** Runs every translation job scheduled so far, as their alarms would, and forgets them. */
+  const runTranslations = async () => {
+    const jobs = scheduled().filter(isTranslationJob);
+    forgetScheduled(...jobs.map((job) => job.entityId));
+    const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
+    for (const job of keyed.values()) await runService(runAiJob(db, job));
+  };
+  /** Takes German live, translated: the model says each text "auf Deutsch". */
+  const publishGerman = async () => {
+    answerEvery("translate", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key, text }) => [key, `${text} auf Deutsch`])),
+    );
+    const german = generateUuidv7();
+    await call(
+      router.locales.add,
+      { projectId: project.id, tag: "de" },
+      member(startingDraft(german)),
+    );
+    await runTranslations();
+    await publish(german);
+  };
+  /** Camox's catch-up drafts among the project's open drafts. */
+  const catchUpDrafts = async () =>
+    (await call(router.drafts.list, { projectId: project.id }, member())).drafts.filter(
+      (draft) => draft.createdBy.id === CAMOX_ACTOR,
+    );
+
   return {
     ...base,
     page,
+    runTranslations,
+    publishGerman,
+    catchUpDrafts,
     createPage,
     member,
     releaseDefinitions,
@@ -245,5 +283,87 @@ describe("a release", () => {
     await releaseLayouts(declared);
 
     expect(await layoutBlocks("default")).toHaveLength(1);
+  });
+});
+
+const inGerman = { [LOCALE_HEADER]: "de" };
+
+describe("a release into a project with other locales", () => {
+  it("translates the layout content it seeds into every locale, in a draft Camox publishes once translated", async () => {
+    const f = await fixture();
+    await f.publishGerman();
+    await f.releaseDefinitions([{ blockId: "navbar", layoutOnly: true }]);
+
+    await f.releaseLayouts({ default: [{ type: "navbar", slot: "before" }] });
+    expect(await f.catchUpDrafts()).toHaveLength(1);
+    await f.runTranslations();
+
+    expect(await f.layoutBlocks("default", inGerman)).toEqual([
+      expect.objectContaining({
+        content: expect.objectContaining({ title: "navbar auf Deutsch" }),
+      }),
+    ]);
+    expect(await f.catchUpDrafts()).toEqual([]);
+  });
+
+  it("translates everything its several syncs seed in one draft", async () => {
+    const f = await fixture();
+    await f.publishGerman();
+    await f.releaseDefinitions([{ blockId: "navbar", layoutOnly: true }]);
+
+    await f.releaseLayouts({ default: [{ type: "navbar", slot: "before" }] });
+    await f.releaseLayouts({
+      default: [{ type: "navbar", slot: "before" }],
+      landing: [{ type: "navbar", slot: "after", content: { title: "Landing" } }],
+    });
+    expect(await f.catchUpDrafts()).toHaveLength(1);
+    await f.runTranslations();
+
+    const titles = async (layoutId: string) =>
+      (await f.layoutBlocks(layoutId, inGerman)).map((block) => block.content.title);
+    expect(await titles("default")).toEqual(["navbar auf Deutsch"]);
+    expect(await titles("landing")).toEqual(["Landing auf Deutsch"]);
+    expect(await f.catchUpDrafts()).toEqual([]);
+  });
+
+  it("translates the shared content making a definition synced builds", async () => {
+    const f = await fixture();
+    await f.releaseDefinitions([{ blockId: "hero" }]);
+    const first = await f.createBlock("Hello");
+    await tick();
+    const second = await f.createBlock("Welcome");
+    await f.publishGerman();
+
+    await f.releaseDefinitions([{ blockId: "hero", synced: true }]);
+    await f.runTranslations();
+
+    // Both German placements show the shared content, built from the last published one.
+    expect(await f.titleIn(first.id, inGerman)).toBe("Welcome auf Deutsch");
+    expect(await f.titleIn(second.id, inGerman)).toBe("Welcome auf Deutsch");
+    expect(await f.catchUpDrafts()).toEqual([]);
+  });
+
+  it("takes the localizations of the layout content it deletes along", async () => {
+    const f = await fixture();
+    await f.releaseDefinitions([
+      { blockId: "navbar", layoutOnly: true },
+      { blockId: "banner", layoutOnly: true },
+    ]);
+    await f.releaseLayouts({
+      default: [
+        { type: "navbar", slot: "before" },
+        { type: "banner", slot: "after" },
+      ],
+    });
+    await f.publishGerman();
+    expect(await f.layoutBlocks("default", inGerman)).toHaveLength(2);
+
+    await f.releaseLayouts({ default: [{ type: "navbar", slot: "before" }] });
+    await f.runTranslations();
+
+    expect((await f.layoutBlocks("default", inGerman)).map((block) => block.type)).toEqual([
+      "navbar",
+    ]);
+    expect(await f.catchUpDrafts()).toEqual([]);
   });
 });

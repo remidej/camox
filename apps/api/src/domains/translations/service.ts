@@ -36,7 +36,7 @@ const DEBOUNCE_MS = 5000;
 /** An entity to translate: a localized entity, by kind and id. */
 export type Translatable = { entity: TranslatedEntity; id: string };
 
-const isTranslated = (entity: string): entity is TranslatedEntity =>
+export const isTranslated = (entity: string): entity is TranslatedEntity =>
   (TRANSLATED_ENTITIES as readonly string[]).includes(entity);
 
 /** Records that a draft's pending translations changed: its locales show whether they translate. */
@@ -226,6 +226,8 @@ export const translateWrites = Effect.fn("translations.translateWrites")(functio
   const byDraft = new Map<string, (Translatable & { locale: string })[]>();
   for (const change of journal.changes) {
     if (change.kind !== "localizedWrite" || !isTranslated(change.entity)) continue;
+    // A release's writes are translated in Camox's catch-up draft (`catchUpReleaseWrites`).
+    if (change.draftId === null) continue;
     const write = { entity: change.entity, id: change.id, locale: change.locale };
     byDraft.set(change.draftId, [...(byDraft.get(change.draftId) ?? []), write]);
   }

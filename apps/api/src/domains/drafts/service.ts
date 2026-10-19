@@ -4,11 +4,13 @@ import { and, desc, eq, not, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { TranslationJob } from "../../lib/ai-job-queue";
-import { record } from "../../lib/journal";
+import { Journal, record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import {
+  isTranslated,
   type PendingTranslation,
   requestTranslations,
   type Translatable,
@@ -147,6 +149,32 @@ export const catchUp = Effect.fn("drafts.catchUp")(function* (
   const draft = yield* openCatchUpDraft(db, projectId);
   yield* requestTranslations(db, draft, entities, into, { immediately: true, ...options });
   return draft;
+});
+
+/**
+ * Requests the translation of every default-locale entity a release wrote on Live into Live's
+ * other locales, in the project's catch-up draft. Runs once the work succeeded, with its journal.
+ * A release syncs in several requests; each joins the one open catch-up draft.
+ */
+export const catchUpReleaseWrites = Effect.fn("drafts.catchUpReleaseWrites")(function* () {
+  const { db, changes } = yield* Journal;
+  if (!db) return;
+  const byProject = new Map<number, Map<string, Translatable & { locale: string }>>();
+  for (const change of changes) {
+    if (change.kind !== "localizedWrite" || change.draftId !== null) continue;
+    if (!isTranslated(change.entity)) continue;
+    const writes = byProject.get(change.projectId) ?? new Map();
+    const { entity, id, locale } = change;
+    writes.set(JSON.stringify([entity, id, locale]), { entity, id, locale });
+    byProject.set(change.projectId, writes);
+  }
+  for (const [projectId, writes] of byProject) {
+    const defaultTag = yield* defaultLocaleTag(db, projectId);
+    const entities = [...writes.values()]
+      .filter(({ locale }) => locale === defaultTag)
+      .map(({ entity, id }) => ({ entity, id }));
+    yield* catchUp(db, projectId, entities);
+  }
 });
 
 /** Carries translations a draft published without over to the project's catch-up draft. */

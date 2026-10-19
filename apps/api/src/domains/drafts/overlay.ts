@@ -512,15 +512,15 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
     row,
     columns,
   });
-  // Every write of a localized entity in a draft, whatever wrote it: one in the default locale
-  // is translated into the draft's other locales (ADR 0015).
-  if (target !== RELEASE && typeof row.locale === "string") {
+  // Every write of a localized entity, whatever wrote it: one in the default locale is
+  // translated into the draft's other locales, or a release's into Live's (ADR 0015).
+  if (typeof row.locale === "string") {
     yield* record(db, {
       kind: "localizedWrite",
       entity,
       id: row.id,
       projectId,
-      draftId: target.id,
+      draftId: target === RELEASE ? null : target.id,
       locale: row.locale,
     });
   }
