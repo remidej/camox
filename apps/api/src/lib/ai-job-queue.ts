@@ -31,9 +31,9 @@ export type TranslatedEntity = (typeof TRANSLATED_ENTITIES)[number];
 
 /**
  * A job translating a default-locale entity into one locale of a draft (ADR 0015). Jobs are keyed
- * by entity, locale and draft, and debounced like generation jobs. A job translating `defaults`
- * translates the code-owned defaults of a block placed in that locale instead, which has no
- * default-locale source.
+ * by entity, locale, draft and source, and debounced like generation jobs. A job translating
+ * `defaults` translates the code-owned defaults of a block placed in that locale instead, or of
+ * the shared content a synced block created there, which have no default-locale source.
  */
 export type TranslationJob = {
   kind: "translation";

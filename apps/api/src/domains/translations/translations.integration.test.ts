@@ -7,6 +7,7 @@ import {
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -30,6 +31,9 @@ import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { upsertBlockDefinition } from "../block-definitions/service";
+import { drafts } from "../drafts/schema";
+import { draftOf } from "../drafts/scope";
+import { requestTranslations } from "./service";
 
 // Camox keeps every locale translated from the default locale (ADR 0015): adding a locale
 // translates the website into it, and every write to the default locale in a draft is translated
@@ -732,5 +736,30 @@ describe("placing a block in a locale", () => {
 
     const german = await f.tool("getBlock", { id: copy.id, locale: "de" });
     expect(german.block.content).toMatchObject({ title: "Hallo", subtitle: "Willkommen" });
+  });
+
+  it("settles a translation of a block's defaults apart from a translation of the block", async () => {
+    const f = await fixture();
+    await germanDraft(f);
+    const row = await f.db.select().from(drafts).where(eq(drafts.id, f.draft)).get();
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } });
+    await runService(
+      requestTranslations(f.db, draftOf(row!), [{ entity: "block", id: f.block.id }], ["de"], {
+        source: "defaults",
+      }),
+    );
+
+    const defaults = f
+      .translationJobs()
+      .find((job) => isTranslationJob(job) && job.source === "defaults");
+    await runService(runAiJob(f.db, defaults!));
+
+    // The translation of the block's edit is still pending.
+    const { translatingLocales } = await call(
+      router.drafts.get,
+      { projectId: f.projectId },
+      f.member(f.inDraft),
+    );
+    expect(translatingLocales).toEqual(["de"]);
   });
 });

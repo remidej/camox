@@ -4,11 +4,14 @@ import type { TranslatedEntity } from "../../lib/ai-job-queue";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 
+/** What a translation job translates, as its request stores it. */
+export type TranslationRequestSource = "defaultLocale" | "defaults";
+
 /**
- * A pending translation job (ADR 0015): one per entity, locale and draft, from when the job is
- * requested until a job of that key finishes. A draft's pending translations are what it shows
- * as translating. A job whose row is gone does nothing: its draft ended, emptied or dropped the
- * locale since. Not content: writing it never counts as a change.
+ * A pending translation job (ADR 0015): one per entity, locale, draft and source, from when the
+ * job is requested until a job of that key finishes. A draft's pending translations are what it
+ * shows as translating. A job whose row is gone does nothing: its draft ended, emptied or dropped
+ * the locale since. Not content: writing it never counts as a change.
  */
 export const translationRequests = sqliteTable(
   "translation_requests",
@@ -24,6 +27,9 @@ export const translationRequests = sqliteTable(
     entityId: text("entity_id").notNull(),
     // The tag of the locale to translate into.
     locale: text().notNull(),
+    // What the job translates: the entity in the default locale, or the code-owned defaults it
+    // was placed with in the locale. Each settles apart.
+    source: text().notNull().default("defaultLocale").$type<TranslationRequestSource>(),
     // When a job of this key was last requested.
     requestedAt: int("requested_at").notNull(),
   },
@@ -33,6 +39,7 @@ export const translationRequests = sqliteTable(
       table.entity,
       table.entityId,
       table.locale,
+      table.source,
     ),
     index("translation_requests_project_idx").on(table.projectId),
   ],
