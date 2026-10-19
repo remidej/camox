@@ -73,9 +73,13 @@ const json = (body: unknown, status = 200) =>
 
 type Call = { path: string; input: unknown; draft: string | null };
 
+/** The locales the API says the draft has pending translations into. */
+let translatingLocales: string[] = [];
+
 /** An API reading each request's locale, whose project has `locales`. */
 function mockApi(t: test.TestContext, locales: { tag: string; isDefault: boolean }[]) {
   const calls: Call[] = [];
+  translatingLocales = [];
   t.mock.method(globalThis, "fetch", async (request: Request | URL, init?: RequestInit) => {
     // The runtime's route discovery finds the article's page by its slug in each locale.
     if (request instanceof URL) {
@@ -93,6 +97,10 @@ function mockApi(t: test.TestContext, locales: { tag: string; isDefault: boolean
     if (path === "pages/listBySlug") return json({ pages: pagesIn[locale] ?? [] });
     if (path === "locales/add") return json({ tag: input?.tag, isDefault: false });
     if (path === "locales/remove") return json({ tag: input?.tag, isDefault: false });
+    if (path === "drafts/get") {
+      const id = request.headers.get("x-camox-draft");
+      return json({ id, kind: "regular", name: null, changeCount: 1, translatingLocales });
+    }
     return json({});
   });
   return calls;
@@ -179,7 +187,7 @@ async function render(
     host.remove();
     client.clear();
   });
-  return { navigations };
+  return { navigations, client };
 }
 
 void test("names the locale viewed, and lists the project's locales, the default first", async (t) => {
@@ -192,6 +200,29 @@ void test("names the locale viewed, and lists the project's locales, the default
     menuItems().map((item) => item.textContent),
     ["English (en)Default language", "German (de)", "Add language…", "Remove German (de)…"],
   );
+});
+
+void test("shows the draft translating while it has pending translations, and clears once they finish", async (t) => {
+  mockApi(t, [en, de]);
+  translatingLocales = ["de"];
+  const { client } = await render(t, "/pricing", [en, de], "d1");
+
+  assert.match(trigger().textContent ?? "", /translating…/i);
+
+  // The jobs finish: the API's realtime invalidation refreshes the draft's summary.
+  translatingLocales = [];
+  await React.act(() => client.invalidateQueries());
+  await settle();
+  assert.doesNotMatch(trigger().textContent ?? "", /translating/i);
+});
+
+void test("shows nothing translating on Live", async (t) => {
+  const calls = mockApi(t, [en, de]);
+  translatingLocales = ["de"];
+  await render(t, "/pricing", [en, de]);
+
+  assert.doesNotMatch(trigger().textContent ?? "", /translating/i);
+  assert.equal(calls.filter((call) => call.path === "drafts/get").length, 0);
 });
 
 void test("switching locales keeps the page shown, at its path in the other locale", async (t) => {
