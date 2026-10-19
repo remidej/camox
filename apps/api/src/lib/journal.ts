@@ -32,7 +32,7 @@ export type Change =
    * A localized entity a draft, or a release on Live (`draftId` null), wrote, in the locale it
    * was written in, recorded by the overlay beside its content change. Once the work succeeded,
    * a write in the default locale is translated into the draft's other locales, or a release's
-   * into Live's in Camox's catch-up draft (ADR 0015). It shows nowhere by itself.
+   * into Live's in Camox's catch-up draft (ADR 0017). It shows nowhere by itself.
    */
   | {
       kind: "localizedWrite";

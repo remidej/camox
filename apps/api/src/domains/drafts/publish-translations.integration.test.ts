@@ -33,7 +33,7 @@ import { router } from "../../router";
 import { blocks } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
-// Publishing a draft takes every locale live together (ADR 0015): it waits for the draft's
+// Publishing a draft takes every locale live together (ADR 0017): it waits for the draft's
 // pending translations, unless published anyway. Then Camox opens a draft of its own that
 // finishes the translations against the new Live, and publishes it once they're done.
 

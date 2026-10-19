@@ -16,7 +16,7 @@ import { cwdFlag } from "../lib/runtime-options";
 
 // Publishing the development draft to Live (ADR 0009, ADR 0010): without `--confirm` it prints
 // what publishing would do and a token; with the token it publishes, unless Live changed since
-// or translations are still running (`--anyway` publishes regardless, ADR 0015).
+// or translations are still running (`--anyway` publishes regardless, ADR 0017).
 
 export const parser = command(
   "publish",

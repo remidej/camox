@@ -14,4 +14,6 @@ The merge is a translation job, so it shows as translating and publishing waits 
 - The localization follows the draft's source, also where a default-locale conflict is confirmed: confirming the draft's source gives every locale its translation.
 - Where the draft and Live hand-edited the same field of a localization, the draft's edit wins, as confirming a conflict would.
 - A localization the draft only edited by hand was never translated in the draft, so nothing tells its hand edits from what Live held when the draft copied it. It stays a conflict, confirmed as in ADR 0009, as does a localization Live deleted or the draft deletes.
+- Live's localization without bookkeeping, such as one published before Camox translated it, counts as edited by hand wherever it differs from what Camox wrote in the draft: those fields are kept, merged with the draft's source by the AI merge where it holds text.
 - A merge the model fails leaves the conflict to confirm.
+- Publishing anyway (ADR 0017) drops the draft's pending merges: the draft publishes as it is, and its localizations replace Live's without being merged.

@@ -74,7 +74,7 @@ export type ServiceRequirements = Journal | AiServices;
  * The effect writes into a fresh journal. Once it succeeded, what it wrote in
  * a draft's default locale is translated into the draft's other locales, and
  * what a release wrote on Live into Live's in Camox's catch-up draft (ADR
- * 0015), and what it changed is sent to the project rooms before the promise
+ * 0017), and what it changed is sent to the project rooms before the promise
  * resolves; a failure sends nothing. It generates values and translations with
  * the Worker's model and job queue (`ai-adapters.ts`).
  */
