@@ -699,3 +699,34 @@ void test("a public page's hydration data leaves out the artifact sources its fr
   assert.ok(!head.includes("Orbit diagram"));
   assert.ok(head.includes("camox-artifact-source"));
 });
+
+void test("a runtime without an API or project says which of its routes it can't serve, reading nothing", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("An unconfigured runtime has no API to read");
+  });
+  const unconfigured: RuntimeOptions = {
+    authenticationUrl: "https://auth.test",
+    renderPage: async () => "",
+    renderStudio: async () => "",
+  };
+  const answer = async (url: string) => {
+    const response = await handleCamoxRequest(new Request(url), unconfigured);
+    return { status: response?.status, body: (await response!.json()) as Record<string, string> };
+  };
+
+  for (const url of [
+    "https://site.test/camox/content",
+    "https://site.test/_camox/data?path=/camox/content",
+  ]) {
+    const { status, body } = await answer(url);
+    assert.equal(status, 500);
+    assert.match(body.message!, /Studio renderer is not configured/);
+    assert.equal(body.kind, "studio-content");
+    assert.equal(body.pathname, "/camox/content");
+  }
+  for (const url of ["https://site.test/about", "https://site.test/_camox/data?path=/about"]) {
+    const { status, body } = await answer(url);
+    assert.equal(status, 500);
+    assert.match(body.message!, /page loader is not configured/);
+  }
+});

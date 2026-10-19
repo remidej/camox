@@ -16,6 +16,7 @@ import {
 import { draftNamedBy } from "../../lib/draft-scope";
 import {
   localizedPath,
+  UNNAMED_DEFAULT_LOCALE,
   parseLocalePath,
   type LocalePath,
   type LocaleView,
@@ -131,11 +132,6 @@ export interface PageRenderInput extends DraftRead {
  */
 interface RequestLocale extends LocalePath {
   locales: LocaleView[];
-}
-
-/** What a render input says of the request's locale. */
-function localeFields({ locale, locales }: RequestLocale) {
-  return { locale, locales };
 }
 
 export interface RuntimeOptions {
@@ -403,11 +399,9 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   try {
     const pages = await discoverLayoutPages(
       layout,
-      createLayoutRequestContext(
-        options,
-        project ? "draft" : "live",
-        getServerAuthCookieHeader(request.headers),
-      ),
+      createLayoutRequestContext(options, project ? "draft" : "live", {
+        authCookieHeader: getServerAuthCookieHeader(request.headers),
+      }),
     );
     const page = recordId ? pages.find((entry) => entry.recordId === recordId) : pages[0];
     return Response.json({ path: page?.path ?? null }, { headers });
@@ -613,7 +607,7 @@ async function createPreviewHandoffResponse({
   request: Request;
 }): Promise<Response> {
   // The sign-in page shows no content: the default locale, of a tag unknown yet, stands in.
-  const locale = { tag: "und", isDefault: true };
+  const locale = UNNAMED_DEFAULT_LOCALE;
   const input: PageRenderInput = {
     previewHandoff: true,
     presentation: "public",
@@ -712,7 +706,8 @@ async function createPageHtmlResponse({
       pathname,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      ...localeFields(located),
+      locale: located.locale,
+      locales: located.locales,
     } satisfies PageRenderInput;
     // Public documents only need site head/attributes for possible client-side
     // studio activation; avoid rendering or serializing their page content twice.
@@ -763,13 +758,19 @@ type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 function createLayoutRequestContext(
   options: RuntimeOptions,
   source: RecordSource,
-  authCookieHeader?: string,
-  draftId?: string,
-  locale?: LocaleView,
+  reading?: RecordReading,
 ): LayoutRequestContext {
-  return createRequestContext({
-    records: createRecordLookup(options, source, authCookieHeader, draftId, locale),
-  });
+  return createRequestContext({ records: createRecordLookup(options, source, reading) });
+}
+
+/** Who reads records, in which draft and in which locale. */
+interface RecordReading {
+  /** The editor's session, which only draft reads carry. */
+  authCookieHeader?: string;
+  /** The draft read. Without it, Live. */
+  draftId?: string;
+  /** The locale read. Without it, the default locale. */
+  locale?: LocaleView;
 }
 
 /**
@@ -779,9 +780,7 @@ function createLayoutRequestContext(
 function createRecordLookup(
   options: RuntimeOptions,
   source: RecordSource,
-  authCookieHeader?: string,
-  draftId?: string,
-  locale?: LocaleView,
+  { authCookieHeader, draftId, locale }: RecordReading = {},
 ): RecordLookup | undefined {
   const { apiUrl, projectSlug } = options;
   if (!apiUrl || !projectSlug) return undefined;
@@ -854,7 +853,7 @@ async function createLayoutMarkdownResponse(
     const result = await loadLayoutResult(
       app,
       match,
-      createLayoutRequestContext(options, "live", undefined, undefined, locale),
+      createLayoutRequestContext(options, "live", { locale }),
     );
     const record = asCollectionItem(result);
     const collection = record && app?.getCollectionById(record.collectionId);
@@ -930,13 +929,11 @@ async function createDerivedResponse(
       loadLayoutResult(
         app,
         match,
-        createLayoutRequestContext(
-          options,
-          studio ? "draft" : "live",
+        createLayoutRequestContext(options, studio ? "draft" : "live", {
           authCookieHeader,
           draftId,
-          located.locale,
-        ),
+          locale: located.locale,
+        }),
       );
     // In a draft, the layout read settles which draft the page shows, so the loader then reads
     // records from that draft, or from Live when the draft was refused.
@@ -1001,7 +998,8 @@ async function createDerivedResponse(
       loaderData: null,
       pathname,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      ...localeFields(located),
+      locale: located.locale,
+      locales: located.locales,
       derived: {
         layoutId: match.layout._internal.id,
         result: serializedResult,
@@ -1053,7 +1051,7 @@ async function createStudioHtmlResponse({
   dataOnly = false,
 }: {
   /** The studio route the locale-relative path names. */
-  match: RuntimeRouteMatch;
+  match: RuntimeRouteMatch & { kind: StudioRouteKind };
   options: RuntimeOptions;
   /** The full runtime path, with the locale's prefix. */
   pathname: string;
@@ -1088,9 +1086,10 @@ async function createStudioHtmlResponse({
     href: new URL(request.url).href,
     pathname,
     projectSlug: options.projectSlug,
-    routeKind: match.kind as "studio" | "studio-content" | "studio-nested",
+    routeKind: match.kind,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-    ...localeFields(located),
+    locale: located.locale,
+    locales: located.locales,
   } satisfies StudioRenderInput;
   if (dataOnly)
     return Response.json(studioRenderInput, {
@@ -1192,7 +1191,8 @@ async function createCanvasOnlyResponse({
     authenticationUrl: options.authenticationUrl,
     projectSlug: options.projectSlug,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-    ...localeFields(located),
+    locale: located.locale,
+    locales: located.locales,
     href: request.url,
     pathname,
     head: { meta: [{ title }] },
@@ -1277,7 +1277,8 @@ async function createPageDataResponse({
       authenticationUrl: options.authenticationUrl ?? "",
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      ...localeFields(located),
+      locale: located.locale,
+      locales: located.locales,
       href: renderedHref(request.url, result),
       draftId: result.draftId,
       refusedDraft: result.refusedDraft,
@@ -1349,51 +1350,61 @@ export async function handleCamoxRequest(
   }
 
   if (match.kind === "data") {
-    const url = new URL(request.url);
-    const targetPathname = normalizePagePath(url.searchParams.get("path"));
+    const targetPathname = normalizePagePath(new URL(request.url).searchParams.get("path"));
     if (matchRuntimeOwnedRoute(targetPathname)) return new Response("Not found", { status: 404 });
-    if (!options.apiUrl || !options.projectSlug) return notConfiguredResponse();
-    const configured = { ...options, apiUrl: options.apiUrl, projectSlug: options.projectSlug };
-    const located = await locateRequest(request, configured, targetPathname);
-    const targetMatch = matchLocalizedRoute(located.path);
-    if (!targetMatch) return new Response("Not found", { status: 404 });
-    const target = { options, pathname: targetPathname, located, request };
-    if (targetMatch.kind === "canvas")
-      return createCanvasOnlyResponse({ ...target, dataOnly: true });
-    if (targetMatch.kind !== "page") {
-      return createStudioHtmlResponse({ ...target, match: targetMatch, dataOnly: true });
-    }
-    return createPageDataResponse(target);
+    return respondInLocale(options, request, targetPathname, { dataOnly: true });
   }
 
   // The rest of the runtime's paths sit under the locale's prefix.
   if (isPreviewHandoff(request, options) && match.kind === "page") {
     return createPreviewHandoffResponse({ options, pathname, request });
   }
-  if (!options.apiUrl || !options.projectSlug) return notConfiguredResponse();
-  const configured = { ...options, apiUrl: options.apiUrl, projectSlug: options.projectSlug };
 
   // Agents reach the Markdown Representation by asking for it, or at the page's `.md` URL.
+  const { apiUrl, projectSlug } = options;
   const markdownPathname = parseMarkdownPath(pathname);
-  if (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? "")) {
+  if (
+    apiUrl &&
+    projectSlug &&
+    (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? ""))
+  ) {
     // Markdown is a public output: it reads Live, whoever asks.
-    const located = await locateRequest(request, configured, markdownPathname ?? pathname, {
+    const located = await locateRequest(request, options, markdownPathname ?? pathname, {
       live: true,
     });
     if (markdownPathname || matchLocalizedRoute(located.path)?.kind === "page") {
-      const markdownResponse = await createPageMarkdownResponse(configured, located, request);
+      const markdownResponse = await createPageMarkdownResponse(
+        { ...options, apiUrl, projectSlug },
+        located,
+        request,
+      );
       if (markdownResponse) return markdownResponse;
       if (markdownPathname) return new Response("Page not found", { status: 404 });
     }
   }
 
-  const located = await locateRequest(request, configured, pathname);
+  return respondInLocale(options, request, pathname);
+}
+
+/**
+ * Answers a path under its locale's prefix: the Canvas, a studio route or a page, in that locale.
+ * With `dataOnly`, as the JSON client navigation loads.
+ */
+async function respondInLocale(
+  options: RuntimeOptions,
+  request: Request,
+  /** The full runtime path, with the locale's prefix. */
+  pathname: string,
+  { dataOnly = false }: { dataOnly?: boolean } = {},
+): Promise<Response> {
+  const located = await locateRequest(request, options, pathname);
   const localized = matchLocalizedRoute(located.path);
   if (!localized) return new Response("Not found", { status: 404 });
   const target = { options, pathname, located, request };
-  if (localized.kind === "canvas") return createCanvasOnlyResponse(target);
-  if (localized.kind !== "page") return createStudioHtmlResponse({ ...target, match: localized });
-  return createPageHtmlResponse(target);
+  if (localized.kind === "canvas") return createCanvasOnlyResponse({ ...target, dataOnly });
+  if (isStudioRoute(localized))
+    return createStudioHtmlResponse({ ...target, match: localized, dataOnly });
+  return dataOnly ? createPageDataResponse(target) : createPageHtmlResponse(target);
 }
 
 /**
@@ -1420,11 +1431,14 @@ async function createPageMarkdownResponse(
   });
 }
 
-/** The answer to a path the runtime can't serve without an API and a project. */
-function notConfiguredResponse(): Response {
-  return Response.json(
-    { message: "Camox runtime is not configured: it needs an apiUrl and a projectSlug." },
-    { status: 500 },
+type StudioRouteKind = "studio" | "studio-content" | "studio-nested";
+
+/** Whether a route is one of the studio's own, rather than a page or the Canvas. */
+function isStudioRoute(
+  match: RuntimeRouteMatch,
+): match is RuntimeRouteMatch & { kind: StudioRouteKind } {
+  return (
+    match.kind === "studio" || match.kind === "studio-content" || match.kind === "studio-nested"
   );
 }
 
@@ -1434,32 +1448,32 @@ function notConfiguredResponse(): Response {
  */
 function matchLocalizedRoute(path: string) {
   const match = matchRuntimeRoute(path);
-  return match.kind === "page" ||
-    match.kind === "canvas" ||
-    match.kind === "studio" ||
-    match.kind === "studio-content" ||
-    match.kind === "studio-nested"
-    ? match
-    : null;
+  return match.kind === "page" || match.kind === "canvas" || isStudioRoute(match) ? match : null;
 }
 
 /**
  * The locale a request's path names, among the locales of the scope it reads: the URL's draft's
- * for a session naming one, else Live's. `live` reads Live's whatever the request names.
+ * for a session naming one, else Live's. `live` reads Live's whatever the request names. Without
+ * an API there are none to read: every path is the default locale's, which then says it can't
+ * render.
  */
 async function locateRequest(
   request: Request,
-  options: RuntimeOptions & { apiUrl: string; projectSlug: string },
+  options: RuntimeOptions,
   pathname: string,
   { live = false }: { live?: boolean } = {},
 ): Promise<RequestLocale> {
-  const locales = await readScopeLocales({
-    apiUrl: options.apiUrl,
-    projectSlug: options.projectSlug,
-    ...(!live && {
-      authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: getRequestDraftId(request, options),
-    }),
-  });
+  const { apiUrl, projectSlug } = options;
+  const locales =
+    apiUrl && projectSlug
+      ? await readScopeLocales({
+          apiUrl,
+          projectSlug,
+          ...(!live && {
+            authCookieHeader: getServerAuthCookieHeader(request.headers),
+            draftId: getRequestDraftId(request, options),
+          }),
+        })
+      : [UNNAMED_DEFAULT_LOCALE];
   return { ...parseLocalePath(pathname, locales), locales };
 }
