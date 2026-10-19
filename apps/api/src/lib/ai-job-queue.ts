@@ -18,19 +18,48 @@ export type GenerationJob = {
   locale?: string;
 };
 
+/** The entities a translation job translates: every localized entity (ADR 0015). */
+export const TRANSLATED_ENTITIES = [
+  "page",
+  "block",
+  "sharedContent",
+  "repeatableItem",
+  "record",
+] as const;
+
+export type TranslatedEntity = (typeof TRANSLATED_ENTITIES)[number];
+
+/**
+ * A job translating a default-locale entity into one locale of a draft (ADR 0015). Jobs are keyed
+ * by entity, locale and draft, and debounced like generation jobs.
+ */
+export type TranslationJob = {
+  kind: "translation";
+  entity: TranslatedEntity;
+  entityId: string;
+  locale: string;
+  draftId: string;
+};
+
+/** A job the AI job scheduler runs. */
+export type AiJob = GenerationJob | TranslationJob;
+
+export const isTranslationJob = (job: AiJob): job is TranslationJob =>
+  "kind" in job && job.kind === "translation";
+
 export class ScheduleError extends Data.TaggedError("ScheduleError")<{ readonly cause: unknown }> {}
 
 /**
- * Runs generation jobs later, debounced by key: scheduling a job whose key is pending replaces
- * it and restarts its delay. Requests and jobs get the Durable Object adapter; tests get a
- * recording one.
+ * Runs AI jobs later, debounced by key: scheduling a job whose key is pending replaces it and
+ * restarts its delay. Requests and jobs get the Durable Object adapter; tests get a recording
+ * one.
  */
-export class GenerationScheduler extends Context.Service<
-  GenerationScheduler,
+export class AiJobQueue extends Context.Service<
+  AiJobQueue,
   {
-    readonly schedule: (job: GenerationJob, delayMs: number) => Effect.Effect<void, ScheduleError>;
+    readonly schedule: (job: AiJob, delayMs: number) => Effect.Effect<void, ScheduleError>;
   }
->()("camox/GenerationScheduler") {}
+>()("camox/AiJobQueue") {}
 
 // Durable Object names predate entity names, and stay as they were so a job requested across a
 // deploy still replaces the pending one.
@@ -42,7 +71,10 @@ const NAME_PARTS = {
 } as const satisfies Record<JobEntity, readonly [string, string]>;
 
 /** Names a job: its Durable Object, and its logs. The default locale's jobs keep their names. */
-export const jobName = (job: GenerationJob) => {
+export const jobName = (job: AiJob) => {
+  if (isTranslationJob(job)) {
+    return `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
+  }
   const [table, type] = NAME_PARTS[job.entity];
   const name = `${table}:${job.entityId}:${type}:${job.draftId ?? "live"}`;
   return job.locale === undefined ? name : `${name}:${job.locale}`;
@@ -57,8 +89,8 @@ export const entityOfStoredName = (table: string, type: string) =>
 type SchedulerStub = DurableObjectStub & Pick<AiJobScheduler, "schedule">;
 
 /** One Durable Object per job key, holding the pending job and its alarm. */
-export const durableObjectScheduler = (namespace: DurableObjectNamespace) =>
-  GenerationScheduler.of({
+export const durableObjectQueue = (namespace: DurableObjectNamespace) =>
+  AiJobQueue.of({
     schedule: (job, delayMs) =>
       Effect.tryPromise({
         try: () => {

@@ -7,7 +7,10 @@ import { routeTree } from "./routeTree.gen";
 
 // Create a new router instance
 export function getRouter() {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({
+    // Keeps data the server just loaded from being refetched on hydration.
+    defaultOptions: { queries: { staleTime: 30_000 } },
+  });
 
   const router = createTanstackRouter({
     routeTree,

@@ -1,14 +1,9 @@
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { type GenerationJob, AiJobQueue, type JobEntity, jobName } from "../../lib/ai-job-queue";
 import type { AiModel } from "../../lib/ai-model";
 import { Background } from "../../lib/background";
-import {
-  type GenerationJob,
-  GenerationScheduler,
-  type JobEntity,
-  jobName,
-} from "../../lib/generation-scheduler";
 import { isRasterImage } from "../../lib/image-transform";
 import type { Journal } from "../../lib/journal";
 import type { AiCallError } from "../../lib/retry-ai-call";
@@ -152,7 +147,7 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
   requested: ValueHome,
   target: GenerationTarget,
   options: { immediately?: boolean } = {},
-): Effect.fn.Return<void, never, GenerationScheduler | Background | Journal> {
+): Effect.fn.Return<void, never, AiJobQueue | Background | Journal> {
   const kind = kindOf(target.entity);
   // The default locale is requested without a tag, so its jobs have one key.
   const locale = yield* otherLocale(db, requested.projectId, requested.locale);
@@ -184,7 +179,7 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
     draftId: home.draftId,
     ...(home.locale !== undefined ? { locale: home.locale } : {}),
   };
-  const scheduler = yield* GenerationScheduler;
+  const scheduler = yield* AiJobQueue;
   const background = yield* Background;
   yield* background.run(
     scheduler

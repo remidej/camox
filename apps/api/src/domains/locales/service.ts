@@ -13,6 +13,7 @@ import { files } from "../files/schema";
 import { type GenerationTarget, requestGenerations } from "../generated-values/generation";
 import { homeOf, retagStatements as retagValueStatements } from "../generated-values/service";
 import { pages } from "../pages/schema";
+import * as translations from "../translations/service";
 import { INITIAL_LOCALE, locales } from "./schema";
 
 // Locales are content (ADR 0015): a draft adds and removes them, and publishing puts them on
@@ -166,6 +167,8 @@ export const addLocale = Effect.fn("locales.add")(function* (
       if (!added) {
         return yield* new ConflictError({ message: `The draft already has the "${tag}" locale` });
       }
+      // Camox fills the new locale with a translation of the whole website.
+      yield* translations.translateIntoLocale(ctx.db, draft, tag);
       yield* requestLocaleGeneration(ctx.db, inLocale(draft, tag));
       return view(added);
     }),
@@ -244,7 +247,10 @@ export const removeLocale = Effect.fn("locales.remove")(function* (
           message: `"${locale.tag}" is the default locale, which can't be removed`,
         });
       }
-      yield* overlay.runStatements(ctx.db, overlay.dropLocaleStatements(ctx.db, draft, locale.tag));
+      yield* overlay.runStatements(ctx.db, [
+        ...overlay.dropLocaleStatements(ctx.db, draft, locale.tag),
+        ...translations.dropLocaleStatements(ctx.db, draft, locale.tag),
+      ]);
       yield* overlay.remove(ctx.db, draft, locales, locale.id);
       return view(locale);
     }),

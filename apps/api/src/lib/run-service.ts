@@ -9,8 +9,9 @@ import {
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
+import { translateWrites } from "../domains/translations/service";
+import { aiServices, type AiServices } from "./ai-adapters";
 import type { ServiceError } from "./errors";
-import { generationServices, type GenerationServices } from "./generation-adapters";
 import { announce } from "./invalidation";
 import { journaled, type Journal } from "./journal";
 
@@ -54,7 +55,7 @@ export function toORPCError(error: ServiceError) {
 }
 
 /** What every unit of work runs with: its journal, and the services that generate values. */
-export type ServiceRequirements = Journal | GenerationServices;
+export type ServiceRequirements = Journal | AiServices;
 
 /**
  * Run a service effect at a Promise boundary (oRPC handlers, Hono routes,
@@ -62,15 +63,18 @@ export type ServiceRequirements = Journal | GenerationServices;
  * the matching `ORPCError`; defects reject with the original thrown value so
  * the transport logs them and answers with a 500.
  *
- * The effect writes into a fresh journal. Once it succeeded, what it changed is
- * sent to the project rooms before the promise resolves; a failure sends nothing.
- * It generates values with the Worker's model and scheduler (`generation-adapters.ts`).
+ * The effect writes into a fresh journal. Once it succeeded, what it wrote in
+ * a draft's default locale is translated into the draft's other locales (ADR
+ * 0015), and what it changed is sent to the project rooms before the promise
+ * resolves; a failure sends nothing. It generates values and translations with
+ * the Worker's model and job queue (`ai-adapters.ts`).
  */
 export async function runService<A>(
   effect: Effect.Effect<A, ServiceError, ServiceRequirements>,
 ): Promise<A> {
+  const work = Effect.tap(effect, () => translateWrites());
   const exit = await Effect.runPromiseExit(
-    journaled(Effect.provideContext(effect, generationServices()), announce),
+    journaled(Effect.provideContext(work, aiServices()), announce),
   );
   if (Exit.isSuccess(exit)) return exit.value;
 

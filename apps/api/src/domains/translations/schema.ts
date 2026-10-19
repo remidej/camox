@@ -1,0 +1,72 @@
+import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+import type { TranslatedEntity } from "../../lib/ai-job-queue";
+import { drafts } from "../drafts/schema";
+import { projects } from "../projects/schema";
+
+/**
+ * A pending translation job (ADR 0015): one per entity, locale and draft, from when the job is
+ * requested until a job of that key finishes. A draft's pending translations are what it shows
+ * as translating. A job whose row is gone does nothing: its draft ended, emptied or dropped the
+ * locale since. Not content: writing it never counts as a change.
+ */
+export const translationRequests = sqliteTable(
+  "translation_requests",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    entity: text().notNull().$type<TranslatedEntity>(),
+    entityId: text("entity_id").notNull(),
+    // The tag of the locale to translate into.
+    locale: text().notNull(),
+    // When a job of this key was last requested.
+    requestedAt: int("requested_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("translation_requests_key_idx").on(
+      table.draftId,
+      table.entity,
+      table.entityId,
+      table.locale,
+    ),
+    index("translation_requests_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * A value a translation job gave an entity that must be unique within a locale of a draft, such
+ * as a page's full path or a record page's slug, named with the space it's unique in. Jobs run
+ * concurrently: the unique index lets one job claim a value, so another job translating to the
+ * same value picks the next one. A claim holds only while its entity has a pending translation:
+ * after that, what the job wrote is what keeps the value taken. Claims are dropped when their
+ * entity gets another value, and with the draft's pending translations. Not content.
+ */
+export const translationClaims = sqliteTable(
+  "translation_claims",
+  {
+    rowId: int("row_id").primaryKey(),
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    locale: text().notNull(),
+    // What the value is unique among: `page` for full paths, or a record page's collection and
+    // field.
+    space: text().notNull(),
+    value: text().notNull(),
+    entityId: text("entity_id").notNull(),
+  },
+  (table) => [
+    uniqueIndex("translation_claims_value_idx").on(
+      table.draftId,
+      table.locale,
+      table.space,
+      table.value,
+    ),
+    index("translation_claims_entity_idx").on(table.draftId, table.entityId),
+  ],
+);

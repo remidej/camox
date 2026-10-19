@@ -2,19 +2,28 @@ import { DurableObject } from "cloudflare:workers";
 import { Effect, Option, Schema } from "effect";
 
 import { createDb } from "../db";
-import { runGenerationJob } from "../domains/generated-values/generation";
+import { aiServices } from "../lib/ai-adapters";
+import { type AiJob, entityOfStoredName, jobName, TRANSLATED_ENTITIES } from "../lib/ai-job-queue";
+import { runAiJob } from "../lib/ai-jobs";
 import { inline } from "../lib/background";
-import { generationServices } from "../lib/generation-adapters";
-import { entityOfStoredName, type GenerationJob, jobName } from "../lib/generation-scheduler";
 import { announce } from "../lib/invalidation";
 import { journaled } from "../lib/journal";
 import type { Bindings } from "../types";
 
 const JobEntity = Schema.Literals(["block", "repeatableItem", "page", "file"]);
+const TranslatedEntity = Schema.Literals(TRANSLATED_ENTITIES);
 
 const StoredJob = Schema.Union([
   Schema.Struct({
     // Tells a re-scheduled job from the one an in-flight alarm is running.
+    id: Schema.String,
+    kind: Schema.Literal("translation"),
+    entity: TranslatedEntity,
+    entityId: Schema.String,
+    locale: Schema.String,
+    draftId: Schema.String,
+  }),
+  Schema.Struct({
     id: Schema.String,
     entity: JobEntity,
     entityId: Schema.String,
@@ -36,7 +45,8 @@ const StoredJob = Schema.Union([
 const decodeStoredJob = (stored: unknown) =>
   Option.flatMap(
     Schema.decodeUnknownOption(StoredJob)(stored),
-    (job): Option.Option<GenerationJob & { id: string }> => {
+    (job): Option.Option<AiJob & { id: string }> => {
+      if ("kind" in job) return Option.some(job);
       const draftId = job.draftId ?? null;
       if ("entity" in job) return Option.some({ ...job, draftId });
       const entity = entityOfStoredName(job.entityTable, job.type);
@@ -47,11 +57,11 @@ const decodeStoredJob = (stored: unknown) =>
   );
 
 /**
- * Holds one pending generation job, named by its key (`GenerationScheduler`), and runs it when
- * its alarm fires. Scheduling again replaces the job and restarts the delay.
+ * Holds one pending AI job, named by its key (`AiJobQueue`), and runs it when its alarm
+ * fires. Scheduling again replaces the job and restarts the delay.
  */
 export class AiJobScheduler extends DurableObject<Bindings> {
-  async schedule(job: GenerationJob, delayMs: number): Promise<void> {
+  async schedule(job: AiJob, delayMs: number): Promise<void> {
     await this.ctx.storage.put("job", { ...job, id: crypto.randomUUID() });
     await this.ctx.storage.setAlarm(Date.now() + delayMs);
   }
@@ -62,17 +72,17 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const job = decodeStoredJob(stored);
 
     if (Option.isSome(job)) {
-      // A job that fails settles its value and resolves; only a failure to settle throws, and
-      // Cloudflare retries the alarm with backoff. What the job generated reaches the project's
+      // A job that fails settles its request and resolves; only a failure to settle throws, and
+      // Cloudflare retries the alarm with backoff. What the job wrote reaches the project's
       // viewers like any write (ADR 0012).
-      const run = runGenerationJob(createDb(this.env.DB), job.value).pipe(
+      const run = runAiJob(createDb(this.env.DB), job.value).pipe(
         // The alarm waits for what the job schedules: nothing answers sooner for it.
-        Effect.provideContext(generationServices(this.env, inline)),
+        Effect.provideContext(aiServices(this.env, inline)),
         Effect.annotateLogs("job", jobName(job.value)),
       );
       await Effect.runPromise(journaled(run, announce));
     } else {
-      console.error("[generation] unreadable job dropped", stored);
+      console.error("[ai-job] unreadable job dropped", stored);
     }
 
     // A newer job may have been scheduled while this one ran — keep it.

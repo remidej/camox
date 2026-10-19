@@ -10,3 +10,4 @@ export * from "./domains/collections/schema";
 export * from "./domains/drafts/schema";
 export * from "./domains/generated-values/schema";
 export * from "./domains/locales/schema";
+export * from "./domains/translations/schema";

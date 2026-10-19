@@ -3,7 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { Link2, X } from "lucide-react";
 import * as React from "react";
 
-import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
+import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
@@ -47,13 +47,13 @@ export function ReferenceFieldEditor({
     onClick: () => void;
     postToIframe: (message: OverlayMessage) => void;
   };
-  /** Offer Create item in the picker; off where the create modal would replace a form. */
+  /** Offer Create item in the picker; off where the create sheet would replace a form. */
   allowCreate?: boolean;
 }) {
   const projectSlug = useProjectSlug();
   const collection = useCamoxApp().getCollectionById(collectionId);
   const collectionTitle = collection?._internal.title ?? collectionId;
-  const modal = useCollectionItemModal();
+  const sheet = useCollectionItemSheet();
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const records = useReadQuery(reads.records({ projectSlug, collectionId }));
@@ -147,7 +147,7 @@ export function ReferenceFieldEditor({
               ? {
                   label: "Create item",
                   onSelect: (search) =>
-                    modal.open({
+                    sheet.open({
                       collectionId,
                       initialContent:
                         collection && search.trim()

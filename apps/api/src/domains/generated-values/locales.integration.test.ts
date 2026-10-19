@@ -10,7 +10,7 @@ import {
   createServiceContext,
 } from "../../../test/fixtures";
 import { answerNext, forgetScheduled, modelCalls, scheduledFor } from "../../../test/generation";
-import type { GenerationJob } from "../../lib/generation-scheduler";
+import type { GenerationJob } from "../../lib/ai-job-queue";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { files } from "../../schema";

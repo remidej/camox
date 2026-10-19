@@ -9,6 +9,7 @@ import { decodeInput, InvalidInputError } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { translatingLocales } from "../translations/service";
 import { accessTo } from "./access";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
@@ -30,6 +31,8 @@ export type DraftSummary = {
   lastChangedAt: number | null;
   /** How many entities the draft changes: the length of its publish preview's changes. */
   changeCount: number;
+  /** The tags of the locales the draft has pending translations into (ADR 0015). */
+  translatingLocales: string[];
 };
 
 export type DraftList = {
@@ -77,6 +80,10 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     db,
     rows.map((row) => row.createdBy),
   );
+  const translating = yield* translatingLocales(
+    db,
+    rows.map((row) => row.id),
+  );
   return rows.map((row): DraftSummary => ({
     id: row.id,
     kind: row.kind,
@@ -85,6 +92,7 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     createdAt: row.createdAt,
     lastChangedAt: activity.get(row.id)?.lastChangedAt ?? null,
     changeCount: activity.get(row.id)?.changeCount ?? 0,
+    translatingLocales: translating.get(row.id) ?? [],
   }));
 });
 

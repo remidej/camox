@@ -28,6 +28,21 @@ export type Change =
       /** The columns an update set: a rename moves a page off the path it was read under. */
       columns?: string[];
     }
+  /**
+   * A localized entity a draft wrote, in the locale it was written in, recorded by the overlay
+   * beside its content change. Once the work succeeded, a write in the default locale is
+   * translated into the draft's other locales (ADR 0015). It shows nowhere by itself.
+   */
+  | {
+      kind: "localizedWrite";
+      entity: EntityKind;
+      id: string;
+      projectId: number;
+      draftId: string;
+      locale: string;
+    }
+  /** A draft's pending translations, which its locales show as translating (ADR 0015). */
+  | { kind: "translations"; projectId: number; draftId: string }
   /** A generated value of an entity (ADR 0012): it shows with the entity, but never changes a draft. */
   | { kind: "generated"; entity: EntityKind; id: string; projectId: number; draftId: string | null }
   /** Definitions synced into Live by a release, or into a development draft by dev mode. */
