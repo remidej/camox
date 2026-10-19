@@ -47,7 +47,10 @@ const emptyPreview = {
   conflicts: [],
   lost: [],
   warnings: [],
-  changes: [{ entity: "block", id: blockId, label: "Hero", owner: home, change: "changed" }],
+  changes: [
+    { entity: "block", id: blockId, label: "Hero", owner: home, locale: "en", change: "changed" },
+  ],
+  translating: [] as string[],
   token: "token-1",
 };
 
@@ -84,17 +87,31 @@ const draft = {
   createdAt: new Date(2026, 9, 13, 12).getTime(),
   lastChangedAt: null,
   changeCount: 1,
+  translatingLocales: [] as string[],
 };
 
-/** Answers the draft's own summary and renames; everything else goes to `respond`. */
+/** What the draft's summary says besides its name, as the test sets it. */
+let drafted: Partial<typeof draft> = {};
+
+/**
+ * Answers the draft's own summary, its locales and renames; everything else goes to `respond`.
+ */
 function mockApi(t: test.TestContext, respond: (path: string, calls: Call[]) => Response) {
   const calls: Call[] = [];
   let name: string | null = null;
+  drafted = {};
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const input = ((await request.json()) as { json: unknown }).json;
     calls.push({ path, input });
-    if (path === "drafts/get") return json({ ...draft, name });
+    if (path === "drafts/get") return json({ ...draft, name, ...drafted });
+    if (path === "locales/list") {
+      return json([
+        { tag: "en", isDefault: true },
+        { tag: "de", isDefault: false },
+        { tag: "fr", isDefault: false },
+      ]);
+    }
     if (path === "drafts/rename") {
       name = (input as { name: string }).name.trim() || null;
       return json({ ...draft, name });
@@ -123,9 +140,21 @@ const buttonNamed = (name: RegExp) =>
     name.test(button.textContent ?? ""),
   ) as unknown as HTMLButtonElement | undefined;
 
+/** The open review's query client. */
+let queryClient: QueryClient;
+
+/** Refreshes the draft's summary, as the project room does when its translations settle. */
+async function refreshDraftSummary() {
+  await React.act(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["camox", "drafts", "get"] });
+  });
+  await settle();
+}
+
 async function openReview() {
   window.history.replaceState(null, "", `/?${DRAFT_SEARCH_PARAM}=${draftId}`);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient = client;
   draftScope = createDraftScope({
     queryClient: client,
     browser: window as never,
@@ -210,6 +239,121 @@ void test("groups record changes by collection, after the pages", async (t) => {
       ["Home", "Hero"],
       ["Authors", "Ada", "Grace"],
     ]);
+  } finally {
+    await close();
+  }
+});
+
+/** The locales, places and changes of the expanded list of changes, in order. */
+const listedChanges = () =>
+  [
+    ...window.document.querySelectorAll(
+      '[role="dialog"] [data-change-locale], [role="dialog"] h4, [role="dialog"] [data-change-label]',
+    ),
+  ].map((element) => {
+    if (element.hasAttribute("data-change-locale")) return `locale ${element.textContent}`;
+    return `${element.tagName === "H4" ? "place" : "change"} ${element.textContent}`;
+  });
+
+void test("groups changes by locale, the default locale first, once the draft changes another locale", async (t) => {
+  const block = (locale: string) => ({
+    entity: "block",
+    id: blockId,
+    label: "Hero",
+    owner: home,
+    locale,
+    change: "changed",
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      changes: [
+        block("de"),
+        block("en"),
+        {
+          entity: "locale",
+          id: "locale-fr",
+          label: "fr",
+          owner: null,
+          locale: null,
+          change: "created",
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    await expandChanges();
+    assert.deepEqual(listedChanges(), [
+      "locale English (en)",
+      "place Home",
+      "change Hero",
+      "locale German (de)",
+      "place Home",
+      "change Hero",
+      "place Languages",
+      "change French (fr)",
+    ]);
+  } finally {
+    await close();
+  }
+});
+
+void test("names no locale while every change is in the default locale", async (t) => {
+  mockApi(t, () => json(emptyPreview));
+  const close = await openReview();
+  try {
+    await expandChanges();
+    assert.deepEqual(listedChanges(), ["place Home", "change Hero"]);
+  } finally {
+    await close();
+  }
+});
+
+void test("waits for pending translations, and publishes anyway when asked", async (t) => {
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") return json({ ...emptyPreview, translating: ["de"] });
+    return json({
+      ended: { draftId, outcome: "published", endedBy: { id: "user-1", name: "Me" }, endedAt: 1 },
+    });
+  });
+  drafted = { translatingLocales: ["de"] };
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /Translating into German \(de\)/);
+    assert.equal(buttonNamed(/Publish all/)?.disabled, true);
+
+    await click(buttonNamed(/Publish anyway/));
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/publish").map((call) => call.input),
+      [{ projectId: 1, token: "token-1", publishAnyway: true }],
+    );
+    assert.equal(draftScope.current(), null);
+  } finally {
+    await close();
+  }
+});
+
+void test("offers to publish once the translations finish", async (t) => {
+  let translating = ["de"];
+  mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") return json({ ...emptyPreview, translating });
+    return json({});
+  });
+  drafted = { translatingLocales: translating };
+  const close = await openReview();
+  try {
+    assert.equal(buttonNamed(/Publish all/)?.disabled, true);
+
+    // The jobs settle, and the project room refreshes the draft's summary.
+    translating = [];
+    drafted = { translatingLocales: [] };
+    await refreshDraftSummary();
+
+    assert.doesNotMatch(dialogText(), /Translating/);
+    assert.equal(buttonNamed(/Publish all/)?.disabled, false);
+    assert.equal(buttonNamed(/Publish anyway/), undefined);
   } finally {
     await close();
   }
