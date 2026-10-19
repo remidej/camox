@@ -114,18 +114,20 @@ async function devCheckout(
 
   const previousCwd = process.cwd();
   process.chdir(root);
+  // Run newest first, so the dev server stops writing to root before root is removed.
+  const cleanups: (() => Promise<void>)[] = [];
   t.after(async () => {
+    for (const cleanup of cleanups.reverse()) await cleanup();
     process.chdir(previousCwd);
     await new Promise<void>((resolve) => api.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   });
 
-  return { root, apiUrl: `http://127.0.0.1:${address.port}`, requests };
+  return { root, apiUrl: `http://127.0.0.1:${address.port}`, requests, cleanups };
 }
 
 async function startDevServer(
-  t: TestContext,
-  checkout: { root: string; apiUrl: string },
+  checkout: { root: string; apiUrl: string; cleanups: (() => Promise<void>)[] },
   afterSync: AfterSync,
   seedLiveDeployToken?: string,
 ) {
@@ -154,7 +156,7 @@ async function startDevServer(
       }),
     ],
   });
-  t.after(() => server.close());
+  checkout.cleanups.push(() => server.close());
   await server.listen();
   return { logs };
 }
@@ -167,7 +169,7 @@ async function waitFor(condition: () => boolean, logs: string[]): Promise<void> 
 void test("the dev server syncs definitions and runs afterSync in the dev user's development draft", async (t) => {
   const checkout = await devCheckout(t);
   const calls: Parameters<AfterSync>[0][] = [];
-  const { logs } = await startDevServer(t, checkout, async (context) => {
+  const { logs } = await startDevServer(checkout, async (context) => {
     calls.push(context);
     await context.client.collectionDefinitions.list({ projectSlug: context.projectSlug });
   });
@@ -196,7 +198,7 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
 
 void test("the dev server says when its first sync created the development draft", async (t) => {
   const checkout = await devCheckout(t, { draftCreated: true });
-  const { logs } = await startDevServer(t, checkout, () => {});
+  const { logs } = await startDevServer(checkout, () => {});
 
   await waitFor(() => logs.some((line) => line.includes("Synced 0 collection definitions")), logs);
   assert.ok(logs.some((line) => line.includes("Created your development draft")));
@@ -233,7 +235,7 @@ void test("a release syncs Live's definitions: its requests name no draft", asyn
 void test("the dev server skips afterSync when definition sync fails", async (t) => {
   const checkout = await devCheckout(t, { failCollectionSync: true });
   let calls = 0;
-  const { logs } = await startDevServer(t, checkout, () => {
+  const { logs } = await startDevServer(checkout, () => {
     calls++;
   });
 
@@ -244,7 +246,7 @@ void test("the dev server skips afterSync when definition sync fails", async (t)
 
 void test("an afterSync failure is contained as a warning instead of rejecting", async (t) => {
   const checkout = await devCheckout(t);
-  const { logs } = await startDevServer(t, checkout, () => {
+  const { logs } = await startDevServer(checkout, () => {
     throw new Error("seeding exploded");
   });
 
@@ -261,7 +263,6 @@ function requestLog(requests: { path: string; headers: IncomingHttpHeaders }[]) 
 void test("on an empty Live, the dev server releases first and publishes what afterSync seeded", async (t) => {
   const checkout = await devCheckout(t);
   const { logs } = await startDevServer(
-    t,
     checkout,
     async (context) => {
       await context.client.collectionDefinitions.list({ projectSlug: context.projectSlug });
@@ -286,7 +287,6 @@ void test("when Live has pages, the dev server neither releases nor publishes", 
   const checkout = await devCheckout(t, { livePages: 1 });
   let ran = false;
   const { logs } = await startDevServer(
-    t,
     checkout,
     () => {
       ran = true;
@@ -305,7 +305,7 @@ void test("when Live has pages, the dev server neither releases nor publishes", 
 
 void test("seeded content stays in the development draft when publishing it is blocked", async (t) => {
   const checkout = await devCheckout(t, { blockers: ["The page needs a meta title"] });
-  const { logs } = await startDevServer(t, checkout, () => {}, "deploy-token");
+  const { logs } = await startDevServer(checkout, () => {}, "deploy-token");
 
   await waitFor(() => logs.some((line) => line.includes("publishing is blocked")), logs);
   assert.ok(logs.some((line) => line.includes("The page needs a meta title")));
