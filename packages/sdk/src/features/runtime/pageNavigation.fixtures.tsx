@@ -8,6 +8,7 @@ import { createApp } from "../../core/createApp";
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { type LocaleView, parseLocalePath } from "../../lib/locale-path";
 import { Frame } from "../preview/components/Frame";
+import type { AnalyticsProviders } from "./analytics";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
@@ -20,6 +21,9 @@ const LOCALES: LocaleView[] = [
   { tag: "de", isDefault: false },
 ];
 
+/** The title of the page at `pathname`. */
+export const titleOf = (pathname: string) => `Title of ${pathname}`;
+
 /**
  * A website whose pages each link to the others and hold a `#details` section, open in a
  * visitor's window, or with `studio`, in a member's window, where the page shows in Studio's frame.
@@ -28,7 +32,17 @@ const LOCALES: LocaleView[] = [
 export async function openPage(
   t: test.TestContext,
   url: string,
-  { studio = false }: { studio?: boolean } = {},
+  {
+    studio = false,
+    analytics,
+    strictMode = false,
+  }: {
+    studio?: boolean;
+    /** Renders in React's StrictMode, which runs every effect twice on mount. */
+    strictMode?: boolean;
+    /** The analytics providers the server loaded, which only the document's render input carries. */
+    analytics?: AnalyticsProviders;
+  } = {},
 ) {
   const window = new Window({ url });
   Object.assign(globalThis, {
@@ -43,6 +57,9 @@ export async function openPage(
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   document.body.innerHTML = '<div id="root"></div>';
+  /** Each call to the GA4 global the server's scripts define. */
+  const gtagCalls: unknown[][] = [];
+  Object.assign(window, { gtag: (...args: unknown[]) => gtagCalls.push(args) });
   const queryClient = new QueryClient();
   const input = (pathname: string): PageRenderInput => ({
     // The Studio's frame opens the site's document, in the page's language.
@@ -58,7 +75,7 @@ export async function openPage(
     href: new URL(pathname, url).href,
     pathname,
     runtimeBasePath: "",
-    head: { meta: [{ title: `Title of ${pathname}` }] },
+    head: { meta: [{ title: titleOf(pathname) }] },
     layoutIdentity: null,
     loaderData: null,
     dehydratedState: dehydrate(new QueryClient()),
@@ -125,28 +142,37 @@ export async function openPage(
 
   const { createRoot } = await import("react-dom/client");
   let root: ReturnType<typeof createRoot> | null = null;
+  const Mode = strictMode ? React.StrictMode : React.Fragment;
   const mount = async () => {
     root = createRoot(document.getElementById("root")!);
-    const initial = { ...input(window.location.pathname), href: window.location.href };
+    const initial = {
+      ...input(window.location.pathname),
+      href: window.location.href,
+      ...(analytics && { analytics }),
+    };
+    // The server rendered the page's title.
+    document.title = titleOf(window.location.pathname);
     await React.act(async () => {
       root!.render(
-        <StudioScopeProvider client={queryClient}>
-          <PageNavigationProvider
-            camoxApp={createApp({ blocks: [] })}
-            initialInput={initial}
-            queryClient={queryClient}
-          >
-            {(input) =>
-              studio ? (
-                <PreviewDocumentContext.Provider value={input.previewDocument}>
-                  <Frame>{page(input)}</Frame>
-                </PreviewDocumentContext.Provider>
-              ) : (
-                page(input)
-              )
-            }
-          </PageNavigationProvider>
-        </StudioScopeProvider>,
+        <Mode>
+          <StudioScopeProvider client={queryClient}>
+            <PageNavigationProvider
+              camoxApp={createApp({ blocks: [] })}
+              initialInput={initial}
+              queryClient={queryClient}
+            >
+              {(input) =>
+                studio ? (
+                  <PreviewDocumentContext.Provider value={input.previewDocument}>
+                    <Frame>{page(input)}</Frame>
+                  </PreviewDocumentContext.Provider>
+                ) : (
+                  page(input)
+                )
+              }
+            </PageNavigationProvider>
+          </StudioScopeProvider>
+        </Mode>,
       );
     });
     await loadFrame();
@@ -191,6 +217,7 @@ export async function openPage(
     window,
     viewport: () => viewport() as unknown as Window,
     dataRequests,
+    gtagCalls,
     scrolls,
     fragmentScrolls,
     studioScrolls,

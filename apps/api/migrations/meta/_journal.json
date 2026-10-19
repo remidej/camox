@@ -64,6 +64,13 @@
       "when": 1792441331500,
       "tag": "0008_translation_bookkeeping",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792443117500,
+      "tag": "0009_analytics",
+      "breakpoints": true
     }
   ]
 }

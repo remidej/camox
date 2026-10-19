@@ -27,6 +27,10 @@
     "./icon-catalog": {
       "types": "./src/icon-catalog.ts",
       "default": "./src/icon-catalog.ts"
+    },
+    "./analytics": {
+      "types": "./src/analytics.ts",
+      "default": "./src/analytics.ts"
     }
   },
   "publishConfig": {
@@ -50,6 +54,10 @@
       "./icon-catalog": {
         "types": "./dist/icon-catalog.d.ts",
         "default": "./dist/icon-catalog.js"
+      },
+      "./analytics": {
+        "types": "./dist/analytics.d.ts",
+        "default": "./dist/analytics.js"
       }
     }
   },

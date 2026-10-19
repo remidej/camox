@@ -9,6 +9,7 @@ import type { LocaleView } from "../../lib/locale-path";
 import { reads } from "../../lib/studio-reads";
 import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
+import { sendPageView } from "./analytics";
 import { createPrefetchCache, listenForLinkIntent } from "./linkPrefetch";
 import { createRouteAnnouncer, focusNewPage } from "./navigationAccessibility";
 import { createNavigationRequestTracker } from "./navigationRequest";
@@ -317,6 +318,15 @@ export function PageNavigationProvider({
       scroll.current = null;
     };
   }, [ownsWindow, restoration]);
+
+  // The server loaded the providers' scripts for a visitor only: count the page they opened.
+  const firstPageView = React.useRef(false);
+  React.useEffect(() => {
+    const { analytics } = initialInput;
+    if (!ownsWindow || !analytics || firstPageView.current) return;
+    firstPageView.current = true;
+    sendPageView(analytics, window);
+  }, [initialInput, ownsWindow]);
 
   React.useEffect(() => {
     if (!ownsWindow) return;
