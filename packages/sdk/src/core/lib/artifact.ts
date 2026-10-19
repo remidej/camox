@@ -1,6 +1,7 @@
 import { artifactTitle } from "@camox/api-contract";
 import type * as React from "react";
 
+import { escapeAttribute } from "../../lib/html";
 import type { CamoxDocument } from "../defineDocument";
 import type { ArtifactData } from "./artifactData";
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
@@ -43,10 +44,6 @@ const UNHEAD_TAG_OPTIONS = new Set([
   "innerHTML",
   "textContent",
 ]);
-
-function escapeAttribute(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
-}
 
 function renderLink(link: Record<string, unknown>) {
   let attributes = "";

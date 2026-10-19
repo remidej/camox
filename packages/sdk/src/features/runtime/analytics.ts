@@ -1,3 +1,4 @@
+import { escapeAttribute, serializeJsonForHtml } from "../../lib/html";
 import type { PageStructure } from "../routes/pageRuntime";
 
 /**
@@ -12,14 +13,6 @@ export function configuredProviders(
   return providers?.ga4 ? providers : undefined;
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
-}
-
-function scriptLiteral(value: unknown): string {
-  return JSON.stringify(value).replaceAll("<", "\\u003c");
-}
-
 /**
  * The providers' scripts, loaded without blocking the page. They send no page view of their own:
  * the page client does, once each page's title is in place.
@@ -28,7 +21,7 @@ export function renderAnalyticsScripts(providers: AnalyticsProviders | undefined
   const ga4 = providers?.ga4;
   if (!ga4) return "";
   const src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4.measurementId)}`;
-  return `<script async src="${escapeHtmlAttribute(src)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag("js",new Date());gtag("config",${scriptLiteral(ga4.measurementId)},{send_page_view:false});</script>`;
+  return `<script async src="${escapeAttribute(src)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag("js",new Date());gtag("config",${serializeJsonForHtml(ga4.measurementId)},{send_page_view:false});</script>`;
 }
 
 type AnalyticsWindow = Pick<Window, "location" | "document"> & {

@@ -14,6 +14,7 @@ import {
   type RecordLookup,
 } from "../../core/requestContext";
 import { draftNamedBy } from "../../lib/draft-scope";
+import { serializeJsonForHtml } from "../../lib/html";
 import {
   localizedPath,
   UNNAMED_DEFAULT_LOCALE,
@@ -524,10 +525,6 @@ function renderHead(
   return renderSSRHead(head);
 }
 
-function serializeJsonForHtml(value: unknown): string {
-  return JSON.stringify(value).replaceAll("<", "\\u003c");
-}
-
 /**
  * The browser loads a page's blocks before hydrating it. Preloading them alongside the entry
  * script avoids a request waterfall.
@@ -595,7 +592,7 @@ function renderStudioThemeScript(enabled: boolean) {
 
 /**
  * The analytics providers a render counts its reader with: only a visitor, meaning someone the
- * API didn't confirm as a member, on a Live page. Dev mode never counts anyone.
+ * API didn't confirm as a member, on a Live page. A development draft never counts anyone.
  */
 function visitorAnalytics(
   options: RuntimeOptions,
