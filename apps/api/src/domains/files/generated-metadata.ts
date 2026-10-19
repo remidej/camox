@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import type { DraftScope } from "../drafts/scope";
+import type { DraftScope, ReadScope } from "../drafts/scope";
 import { readValue, readValues, saveValue, type ValueHome } from "../generated-values/service";
 import type { files } from "./schema";
 
@@ -26,7 +26,7 @@ export const metadataGenerated = (file: Pick<FileRow, "alt" | "filename">) =>
 /** Files with the metadata in effect for the scope: manual values, or generated ones. */
 export const withFileMetadata = Effect.fn("files.withFileMetadata")(function* <F extends FileRow>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   rows: readonly F[],
 ) {
   const generated = yield* readValues(
@@ -48,7 +48,7 @@ export const withFileMetadata = Effect.fn("files.withFileMetadata")(function* <F
 /** One file with the metadata in effect for the scope. */
 export const fileView = Effect.fn("files.fileView")(function* <F extends FileRow>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   row: F,
 ) {
   return (yield* withFileMetadata(db, scope, [row]))[0]!;

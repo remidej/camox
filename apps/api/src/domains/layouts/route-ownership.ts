@@ -5,7 +5,7 @@ import { ConflictError, InvalidInputError, NotFoundError } from "../../lib/error
 import { layouts } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 
 export function singletonPath(layoutId: string) {
   if (!/^[\w-]+(?:\.[\w-]+)*$/.test(layoutId))
@@ -29,7 +29,7 @@ export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(func
   ctx: ServiceContext,
   projectId: number,
   layoutId: string,
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   const layout = yield* Effect.promise(() =>
     ctx.db
@@ -55,7 +55,7 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
   ctx: ServiceContext,
   projectId: number,
   paths: string[],
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   const singletons = yield* Effect.promise(() =>
     ctx.db
@@ -92,7 +92,7 @@ export function servesPages(layout: { kind: string } | null | undefined) {
 export const pageServingProblems = Effect.fn("layouts.pageServingProblems")(function* (
   ctx: ServiceContext,
   projectId: number,
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   const rows = yield* Effect.promise(() =>
     ctx.db

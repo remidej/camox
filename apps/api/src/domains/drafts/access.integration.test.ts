@@ -24,7 +24,7 @@ import {
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo, type AccessMode, type ContentRef } from "./access";
 import * as overlay from "./overlay";
-import type { DraftRequest } from "./scope";
+import { draftIn, type DraftRequest } from "./scope";
 
 /** Runs content access alone, in a journal announcing nothing: these tests look at access. */
 const alone = <A, E>(effect: Effect.Effect<A, E, Journal | Scope.Scope>) =>
@@ -136,7 +136,7 @@ async function fixture(suffix: string) {
   ) => {
     const ctx = { ...createServiceContext(db, as), draft: requested };
     const exit = await Effect.runPromiseExit(alone(accessTo(ctx, ref, mode)));
-    if (Exit.isSuccess(exit)) return `ok:${exit.value.scope?.id ?? "live"}`;
+    if (Exit.isSuccess(exit)) return `ok:${draftIn(exit.value.scope)?.id ?? "live"}`;
     const failure = exit.cause.toString();
     return failure.match(/(\w+Error)/)?.[1] ?? failure;
   };

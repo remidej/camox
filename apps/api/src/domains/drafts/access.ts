@@ -5,7 +5,6 @@ import type { Database } from "../../db";
 import {
   DraftEndedError,
   ForbiddenError,
-  InvalidInputError,
   LiveReadOnlyError,
   NoDevelopmentDraftError,
   NotFoundError,
@@ -17,7 +16,7 @@ import { blocks, files, locales, member, pages, projects, repeatableItems } from
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
-import { draftOf, type Draft, type DraftScope } from "./scope";
+import { draftIn, draftOf, type Draft, type DraftScope, type ReadScope } from "./scope";
 import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 
 // Content access (ADR 0011): turns a request into who is asking, the project it acts on, the
@@ -82,7 +81,7 @@ export type EntityOf<R extends ContentRef> = R extends { page: string }
 export type ContentAccess<R extends ContentRef, M extends AccessMode> = {
   user: M extends "public" ? User | null : User;
   project: Project;
-  scope: M extends "write" ? Draft : DraftScope;
+  scope: M extends "write" ? Draft : ReadScope;
   entity: EntityOf<R>;
 };
 
@@ -155,9 +154,10 @@ const locate = Effect.fn("access.locate")(function* (
  * The row a scope reads among an entity's candidates, in `locale` for a localized entity: the
  * draft's, else Live's; none when deleted.
  */
-function visibleRow(rows: Candidates["rows"], scope: DraftScope, locale: string | null) {
+function visibleRow(rows: Candidates["rows"], scope: ReadScope, locale: string | null) {
   const inLocale = rows.filter((row) => !("locale" in row) || row.locale === locale);
-  const own = scope ? inLocale.find((row) => row.draftId === scope.id) : undefined;
+  const draft = draftIn(scope);
+  const own = draft ? inLocale.find((row) => row.draftId === draft.id) : undefined;
   if (own) return own.deleted ? undefined : own;
   return inLocale.find((row) => row.draftId === null);
 }
@@ -280,16 +280,16 @@ const memberScope = Effect.fn("access.memberScope")(function* (
 });
 
 /**
- * The scope reading the locale a request names (ADR 0015): a draft reads it when it has the
- * locale, matched by tag whatever its case. Live reads only its default locale through content
- * access for now. Without a named locale, the scope reads the default locale.
+ * The scope reading the locale a request names (ADR 0015): the draft, or Live, when it has the
+ * locale, matched by tag whatever its case. Without a named locale, the scope reads the default
+ * locale.
  */
 const inRequestedLocale = Effect.fn("access.inRequestedLocale")(function* (
   db: Database,
   projectId: number,
   scope: DraftScope,
   requested: string | undefined,
-): Effect.fn.Return<DraftScope, ServiceError> {
+): Effect.fn.Return<ReadScope, ServiceError> {
   if (requested === undefined) return scope;
   const tags = yield* overlay.select(db, scope, locales, eq(locales.projectId, projectId));
   const locale = tags.find((row) => row.tag.toLowerCase() === requested.toLowerCase());
@@ -300,11 +300,7 @@ const inRequestedLocale = Effect.fn("access.inRequestedLocale")(function* (
     });
   }
   if (scope) return { ...scope, locale: locale.tag };
-  if (locale.isDefault) return null;
-  return yield* new InvalidInputError({
-    message: `Name a draft to read the "${locale.tag}" locale`,
-    data: { locale: locale.tag },
-  });
+  return locale.isDefault ? null : { live: true, locale: locale.tag };
 });
 
 /**
@@ -316,7 +312,7 @@ const entityIn = Effect.fn("access.entityIn")(function* (
   ref: ContentRef,
   located: Candidates | undefined,
   project: Project,
-  scope: DraftScope,
+  scope: ReadScope,
   locale: string | null,
 ) {
   if (!located) return project;
@@ -377,6 +373,6 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
     const locale = scope?.locale ?? authorized.defaultLocale;
     const entity = yield* entityIn(ctx.db, ref, located, project, scope, locale);
     if (!entity) return yield* new NotFoundError();
-    if (mode === "write" && !scope) return yield* new LiveReadOnlyError();
+    if (mode === "write" && !draftIn(scope)) return yield* new LiveReadOnlyError();
     return { user, project, scope, entity } as ContentAccess<R, M>;
   });

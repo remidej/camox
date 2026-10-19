@@ -8,7 +8,7 @@ import { definitionsIn } from "../_shared/definitions";
 import { fieldsOf, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import { collectionOfRecord, type ContentScope } from "./identity";
 import { collectionDefinitions, collectionRecords } from "./schema";
 import { validatePageLink } from "./text-content";
@@ -188,6 +188,6 @@ export function missingReference(name: string) {
 /**
  * The project a block belongs to, whether on a page or in a layout, read as Live or as `draft`.
  */
-export function blockScope(block: { projectId: number }, draft: DraftScope): ContentScope {
+export function blockScope(block: { projectId: number }, draft: ReadScope): ContentScope {
   return { projectId: block.projectId, draft };
 }

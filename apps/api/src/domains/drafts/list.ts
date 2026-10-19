@@ -12,6 +12,7 @@ import { user as users } from "../auth/schema";
 import { accessTo } from "./access";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
+import { draftIn } from "./scope";
 import { startDraft } from "./service";
 
 // The drafts the studio's control lists and switches between (ADR 0011). An unnamed draft is
@@ -152,9 +153,10 @@ const requireDraft = Effect.fn("drafts.requireNamedDraft")(function* (
   projectId: number,
 ) {
   const { scope } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "member"));
-  if (!scope) return yield* new InvalidInputError({ message: "Live isn't a draft: name one" });
+  const draft = draftIn(scope);
+  if (!draft) return yield* new InvalidInputError({ message: "Live isn't a draft: name one" });
   return yield* Effect.promise(() =>
-    ctx.db.select().from(drafts).where(eq(drafts.id, scope.id)).get(),
+    ctx.db.select().from(drafts).where(eq(drafts.id, draft.id)).get(),
   ).pipe(Effect.map((row) => row!));
 });
 

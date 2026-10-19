@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import { readValues } from "../generated-values/service";
 import type { pages } from "./schema";
 
@@ -26,7 +26,7 @@ export const seoGenerated = (page: Pick<PageRow, "metaTitle" | "metaDescription"
  */
 export const withSeo = Effect.fn("pages.withSeo")(function* <P extends PageRow>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   rows: readonly P[],
 ) {
   const generated = yield* readValues(
@@ -49,5 +49,5 @@ export const withSeo = Effect.fn("pages.withSeo")(function* <P extends PageRow>(
 });
 
 /** The generated SEO of pages as the scope reads it, with whether a job is pending. */
-export const generatedSeoOf = (db: Database, scope: DraftScope, pageIds: string[]) =>
+export const generatedSeoOf = (db: Database, scope: ReadScope, pageIds: string[]) =>
   readValues(db, scope, "page", "seo", pageIds);

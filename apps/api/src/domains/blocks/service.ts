@@ -32,7 +32,7 @@ import { blockScope, validateReferenceValues } from "../collections/references";
 import { type BlockMarkdown, contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import type { Draft, DraftScope } from "../drafts/scope";
+import { draftIn, type Draft, type DraftScope, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
 import {
   copyValue,
@@ -768,7 +768,7 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
 const shownBlock = Effect.fn("blocks.shownBlock")(function* (
   ctx: ServiceContext,
   projectId: number,
-  scope: DraftScope,
+  scope: ReadScope,
   block: typeof blocks.$inferSelect,
 ) {
   return (yield* contentReader(ctx, { projectId, draft: scope }).shown.blocks([block]))[0]!;
@@ -1132,7 +1132,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { block: id }, "member");
 
-  yield* generateNow(ctx.db, scope, "block", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, draftIn(scope), "block", id).pipe(Effect.orDie);
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   return stored && (yield* shownBlock(ctx, project.id, scope, stored));
 }, Effect.scoped);

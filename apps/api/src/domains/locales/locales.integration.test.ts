@@ -471,4 +471,77 @@ describe("locales", () => {
     expect(await f.errorOf("setDefaultLocaleTag", { tag: "en-US" })).toBe("BAD_REQUEST");
     expect(await f.tags({})).toEqual(["en-GB"]);
   });
+
+  it("serves Live's content in any of Live's locales to visitors, and nothing in a locale only a draft has", async () => {
+    const f = await fixture();
+    const inGerman = { ...development, [LOCALE_HEADER]: "de" };
+    await f.tool("addLocale", { tag: "de" });
+    await call(router.pages.update, { id: f.page.id, pathSegment: "preise" }, f.member(inGerman));
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Hallo" }, locale: "de" });
+    await f.tool("editBlock", { id: f.navbar.id, content: { brand: "Acme GmbH" }, locale: "de" });
+    await f.tool("editCollectionRecord", {
+      collectionId: "articles",
+      id: f.record.id,
+      content: { title: "Erster" },
+      locale: "de",
+    });
+    await f.publish();
+
+    const visitor = (locale?: string) => ({
+      context: createRpcContext(f.db, null, locale ? { [LOCALE_HEADER]: locale } : {}),
+    });
+    const pageAt = (path: string, locale?: string) =>
+      call(router.pages.getByPath, { projectSlug: f.projectSlug, path }, visitor(locale));
+
+    expect(await call(router.locales.list, { projectSlug: f.projectSlug }, visitor())).toEqual([
+      { tag: "en", isDefault: true },
+      { tag: "de", isDefault: false },
+    ]);
+    const german = await pageAt("/preise", "de");
+    expect(german.page).toMatchObject({ id: f.page.id, locale: "de", fullPath: "/preise" });
+    // The page's blocks, then its layout's.
+    expect(german.blocks.map((block) => block.content)).toEqual([
+      expect.objectContaining({ title: "Hallo" }),
+      { brand: "Acme GmbH" },
+    ]);
+    const original = await pageAt("/pricing");
+    expect(original.blocks.map((block) => block.content)).toEqual([
+      expect.objectContaining({ title: "Hello" }),
+      { brand: "Acme" },
+    ]);
+    // A path names a page in its own locale only.
+    await expect(pageAt("/pricing", "de")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(pageAt("/preise")).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const layout = await call(
+      router.layouts.get,
+      { projectSlug: f.projectSlug, layoutId: f.layout.layoutId },
+      visitor("de"),
+    );
+    expect(layout.blocks.map((block) => block.content)).toEqual([{ brand: "Acme GmbH" }]);
+    const recordsTitled = (value: string, locale?: string) =>
+      call(
+        router.collectionDefinitions.findRecordsByField,
+        { projectSlug: f.projectSlug, collectionId: "articles", field: "title", value },
+        visitor(locale),
+      ).then((records) => records.map(({ id }) => id));
+    expect(await recordsTitled("Erster", "de")).toEqual([f.record.id]);
+    expect(await recordsTitled("First", "de")).toEqual([]);
+    expect(await recordsTitled("First")).toEqual([f.record.id]);
+
+    // A locale a draft adds stays out of Live until it's published.
+    await f.tool("addLocale", { tag: "fr" });
+    await expect(pageAt("/pricing", "fr")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await call(router.locales.list, { projectSlug: f.projectSlug }, visitor())).toEqual([
+      { tag: "en", isDefault: true },
+      { tag: "de", isDefault: false },
+    ]);
+    expect(
+      await call(router.locales.list, { projectSlug: f.projectSlug }, f.member(development)),
+    ).toEqual([
+      { tag: "en", isDefault: true },
+      { tag: "de", isDefault: false },
+      { tag: "fr", isDefault: false },
+    ]);
+  });
 });

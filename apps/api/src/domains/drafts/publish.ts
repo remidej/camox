@@ -41,7 +41,7 @@ import {
   type ContentProblemCode,
 } from "./content-checks";
 import * as overlay from "./overlay";
-import type { DraftScope } from "./scope";
+import { draftIn, type DraftScope } from "./scope";
 import { findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
@@ -398,10 +398,11 @@ const requireDraft = Effect.fn("drafts.requireDraft")(function* (
   const { scope } = yield* Effect.scoped(
     accessTo({ ...ctx, locale: undefined }, { project: projectId }, "member"),
   );
-  if (!scope) {
+  const draft = draftIn(scope);
+  if (!draft) {
     return yield* new InvalidInputError({ message: "Live isn't a draft: name one to publish" });
   }
-  return scope;
+  return draft;
 });
 
 /** What publishing the request's draft will do, with the token to publish it. */
