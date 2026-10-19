@@ -54,6 +54,7 @@ import {
   STUDIO_CONTENT_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
+import { type AnalyticsProviders, configuredProviders, renderAnalyticsScripts } from "./analytics";
 import { omitArtifactSources } from "./artifactSources";
 import { type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
 import { formatLlmsTxt } from "./llmsTxt";
@@ -90,6 +91,11 @@ export interface LayoutIdentity {
 type RecordSource = "draft" | "live";
 
 export interface PageRenderInput extends DraftRead {
+  /**
+   * The analytics providers whose scripts the server added, so the page client sends them page
+   * views. Only a visitor's Live page carries them.
+   */
+  analytics?: AnalyticsProviders;
   /** Authenticate before rendering, to show the Studio around the page. */
   previewHandoff?: boolean;
   previewDocument?: string;
@@ -587,6 +593,19 @@ function renderStudioThemeScript(enabled: boolean) {
     : "";
 }
 
+/**
+ * The analytics providers a render counts its reader with: only a visitor, meaning someone the
+ * API didn't confirm as a member, on a Live page. Dev mode never counts anyone.
+ */
+function visitorAnalytics(
+  options: RuntimeOptions,
+  render: { studio: boolean; draftId?: string },
+  project: { analytics?: AnalyticsProviders },
+): AnalyticsProviders | undefined {
+  if (render.studio || render.draftId || options.developmentDraft) return undefined;
+  return configuredProviders(project.analytics);
+}
+
 /** Whether a request is a preview link's token handoff, which signs in before reading anything. */
 function isPreviewHandoff(request: Request, options: RuntimeOptions): boolean {
   const { searchParams } = new URL(request.url);
@@ -698,9 +717,15 @@ async function createPageHtmlResponse({
     const dehydratedState = dehydrate(queryClient);
     const { project } = result;
     const studio = project !== undefined;
+    const analytics = visitorAnalytics(
+      options,
+      { studio, draftId: result.draftId },
+      result.data.page.project,
+    );
     const pageRenderInput = {
       project,
       presentation: studio ? "studio" : "public",
+      ...(analytics && { analytics }),
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl,
       dehydratedState,
@@ -734,6 +759,7 @@ async function createPageHtmlResponse({
 <head>
 ${renderStudioThemeScript(studio)}
 ${renderedHead.headTags}
+${renderAnalyticsScripts(analytics)}
 ${renderBlockPreloads(options, dehydratedState)}
 <script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(pageRenderInput, appHtml))}</script>
 </head>
@@ -1003,9 +1029,14 @@ async function createDerivedResponse(
       faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
       hasMarkdown: match.layout._internal.toMarkdown !== undefined,
     });
+    // The data route only serves navigation, which never loads the scripts.
+    const analytics = dataOnly
+      ? undefined
+      : visitorAnalytics(options, { studio, draftId: read.draftId }, shared.project);
     const input: PageRenderInput = {
       project,
       presentation: studio ? "studio" : "public",
+      ...(analytics && { analytics }),
       apiUrl: options.apiUrl!,
       authenticationUrl: options.authenticationUrl!,
       projectSlug: options.projectSlug!,
@@ -1045,7 +1076,7 @@ async function createDerivedResponse(
       studio ? undefined : located.locale,
     );
     return new Response(
-      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, html))}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderAnalyticsScripts(analytics)}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, html))}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
       {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
