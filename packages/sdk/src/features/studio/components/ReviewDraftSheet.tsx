@@ -128,6 +128,10 @@ const TONES: Record<Tone, { card: string; icon: string }> = {
   neutral: { card: "bg-muted/40", icon: "bg-muted text-muted-foreground" },
 };
 
+/** A conflict as Live's version of an entity in a locale, to tell a new one from those shown. */
+const conflictKey = (conflict: PublishPreview["conflicts"][number]) =>
+  JSON.stringify([conflict.entity, conflict.id, conflict.locale, conflict.liveVersion]);
+
 /** Who made Live's version of a conflicting entity: a member, a release, or nobody known. */
 function changedBy(conflict: PublishPreview["conflicts"][number]) {
   if (conflict.release) return " by a release";
@@ -596,8 +600,6 @@ export function ReviewDraftSheet({
   const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
   const preview = useReadQuery(reads.publishPreview({ projectId, draftId }), { enabled: open });
   const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
-  const locales = useReadQuery(reads.localeList({ projectId }), { enabled: open });
-  const defaultLocale = locales.data?.find((locale) => locale.isDefault)?.tag;
   const leaveDraft = useLeaveDraft();
 
   // The draft's summary follows its pending translations: the preview is read again as they
@@ -641,9 +643,31 @@ export function ReviewDraftSheet({
   const data = preview.data;
   const busy = publish.isPending;
   const ready = !!data && data.blockers.length === 0 && !busy && !preview.isFetching;
-  // Publishing waits for pending translations, so every locale goes live together (ADR 0015).
+  // Publishing waits for pending translations, so every locale goes live together (ADR 0017).
   const translating = data?.translating ?? [];
-  const canPublish = ready && translating.length === 0;
+
+  // Publish all while translations run waits for them, then publishes the preview as it is by
+  // then. A blocker or a conflict not shown when asked stops waiting: the sheet shows them as
+  // usual, for the member to review before publishing.
+  const [waiting, setWaiting] = React.useState<{ conflicts: Set<string> } | null>(null);
+  const translated = !!data && !preview.isFetching && data.translating.length === 0;
+  if (waiting && translated) {
+    const appeared = data.conflicts.some(
+      (conflict) => !waiting.conflicts.has(conflictKey(conflict)),
+    );
+    if (data.blockers.length > 0 || appeared) setWaiting(null);
+  }
+  const { mutate } = publish;
+  React.useEffect(() => {
+    if (!waiting || !translated || !data || busy) return;
+    mutate({ projectId, token: data.token }, { onSettled: () => setWaiting(null) });
+  }, [waiting, translated, data, busy, mutate, projectId]);
+
+  const publishAll = () => {
+    if (!data) return;
+    if (translating.length === 0) return publish.mutate({ projectId, token: data.token });
+    setWaiting({ conflicts: new Set(data.conflicts.map(conflictKey)) });
+  };
 
   return (
     <>
@@ -667,7 +691,7 @@ export function ReviewDraftSheet({
             <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
               <Verdict preview={data} />
               <Insights preview={data} />
-              <Changes changes={data.changes} defaultLocale={defaultLocale} />
+              <Changes changes={data.changes} defaultLocale={data.defaultLocale ?? undefined} />
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center">
@@ -678,7 +702,8 @@ export function ReviewDraftSheet({
             {translating.length > 0 && (
               <p className="text-muted-foreground flex items-center gap-2 text-sm">
                 <Spinner aria-hidden className="size-3.5 shrink-0" />
-                Translating into {translating.map(localeLabel).join(", ")}… Publishing waits for it.
+                Translating into {translating.map(localeLabel).join(", ")}…{" "}
+                {waiting ? "Publishing once translated." : "Publishing waits for it."}
               </p>
             )}
             {data && data.conflicts.length > 0 && (
@@ -710,10 +735,10 @@ export function ReviewDraftSheet({
               )}
               <Button
                 className={cn(translating.length === 0 && "ml-auto")}
-                disabled={!canPublish}
-                onClick={() => data && publish.mutate({ projectId, token: data.token })}
+                disabled={!ready || !!waiting}
+                onClick={publishAll}
               >
-                {publish.isPending ? <Spinner /> : null}
+                {publish.isPending || waiting ? <Spinner /> : null}
                 Publish all
               </Button>
             </div>
