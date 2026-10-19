@@ -5,7 +5,7 @@ import type { Database } from "../../db";
 import { record } from "../../lib/journal";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
-import type { DraftScope } from "../drafts/scope";
+import { draftIn, type DraftScope, type ReadScope } from "../drafts/scope";
 import {
   generatedValues,
   type GeneratedEntity,
@@ -44,7 +44,7 @@ const CHUNK = 90;
 /** The values of entities as a scope reads them, by entity id. Missing ids have no value. */
 export const readValues = Effect.fn("generatedValues.read")(function* <T extends GeneratedType>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   entity: GeneratedEntity,
   type: T,
   ids: readonly string[],
@@ -59,7 +59,7 @@ export const readValues = Effect.fn("generatedValues.read")(function* <T extends
  */
 export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T extends GeneratedType>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   type: T,
   idsByEntity: Partial<Record<GeneratedEntity, readonly string[]>>,
 ) {
@@ -68,6 +68,8 @@ export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T ext
     ([entity, ids]) => [...new Set(ids)].map((id) => ({ entity, id })),
   );
   const keyOf = (entity: string, id: string) => `${entity}\u0000${id}`;
+  // Generated values aren't per locale: a scope reads its draft's, over Live's.
+  const draft = draftIn(scope);
   const asked = new Set(wanted.map(({ entity, id }) => keyOf(entity, id)));
   for (let start = 0; start < wanted.length; start += CHUNK) {
     const chunk = wanted.slice(start, start + CHUNK);
@@ -80,8 +82,8 @@ export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T ext
             inArray(generatedValues.entity, [...new Set(chunk.map(({ entity }) => entity))]),
             eq(generatedValues.type, type),
             inArray(generatedValues.entityId, [...new Set(chunk.map(({ id }) => id))]),
-            scope
-              ? or(isNull(generatedValues.draftId), eq(generatedValues.draftId, scope.id))
+            draft
+              ? or(isNull(generatedValues.draftId), eq(generatedValues.draftId, draft.id))
               : isNull(generatedValues.draftId),
           ),
         ),
@@ -111,7 +113,7 @@ export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T ext
 /** One entity's value as a scope reads it. */
 export const readValue = Effect.fn("generatedValues.readOne")(function* <T extends GeneratedType>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   key: ValueKey<T>,
 ) {
   const shown = yield* readValues(db, scope, key.entity, key.type, [key.entityId]);

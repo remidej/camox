@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { LOCALE_HEADER } from "@camox/api-contract/drafts";
+
 import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout, type LayoutCollectionItemResult } from "../../core/createLayout";
 import { plainTextToLexicalState } from "../../core/lib/lexicalState";
-import { pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const VALID_SESSION = "camox_auth_cookie=valid";
@@ -94,6 +96,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
         { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Session expired" } },
         { status: 401 },
       );
+    if (url.pathname.endsWith("/locales/list")) return localesResponse();
     if (url.pathname.endsWith("/getBySlug"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
     if (url.pathname.endsWith("/listBySlug")) return pageListResponse();
@@ -209,6 +212,41 @@ void test("editors and visitors read the record's current content, without namin
   const html = await request("/articles/first");
   assert.match(await html!.text(), /<main>[^<]*First title/);
   assertLookupsWithoutSource(lookups, 4);
+});
+
+void test("a record page under a locale's prefix finds the record by its value in that locale", async (t) => {
+  // The record's slug in each locale: the route's pattern stays, its value is localized.
+  const slugs: Record<string, string> = { en: "first", de: "erster" };
+  const lookups: Array<{ value: string; locale: string | null }> = [];
+  mockApi(t);
+  const api = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/locales/list")) return localesResponse(["en", "de"]);
+    if (!url.pathname.endsWith("/collectionDefinitions/findRecordsByField")) return api(request);
+    const { json: input } = (await request.json()) as { json: { value: string } };
+    const locale = request.headers.get(LOCALE_HEADER);
+    lookups.push({ value: input.value, locale });
+    const slug = slugs[locale ?? "en"];
+    return Response.json({
+      json: input.value === slug ? [{ id: FIRST_ID, content: { title: "Erster", slug } }] : [],
+    });
+  });
+  const response = await request("/_camox/data?path=/de/articles/erster");
+  assert.equal(response!.status, 200);
+  const input = (await response!.json()) as PageRenderInput;
+  assert.equal(input.locale.tag, "de");
+  assert.deepEqual(input.derived?.result, {
+    kind: "collection-item",
+    collectionId: "articles",
+    data: { id: FIRST_ID, content: { title: "Erster", slug: "erster" } },
+  });
+  // The default locale's slug names no German record.
+  assert.equal((await request("/de/articles/first"))!.status, 404);
+  assert.deepEqual(lookups, [
+    { value: "erster", locale: "de" },
+    { value: "first", locale: "de" },
+  ]);
 });
 
 void test("the record's resolved references travel in the envelope, for layout.Item", async (t) => {

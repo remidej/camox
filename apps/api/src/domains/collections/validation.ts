@@ -9,7 +9,7 @@ import { files } from "../../schema";
 import { accepts, assetFileId, type Field, fieldOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import { fileView } from "../files/generated-metadata";
 import type { ContentScope } from "./identity";
 import { missingReference, recordInScope } from "./references";
@@ -151,7 +151,7 @@ export type AssetValue = { _fileId: string };
 const validateAsset = Effect.fn("collections.validateAsset")(function* (
   ctx: ServiceContext,
   projectId: number,
-  draft: DraftScope,
+  draft: ReadScope,
   field: Field,
   value: unknown,
   previous: ReadonlySet<string>,

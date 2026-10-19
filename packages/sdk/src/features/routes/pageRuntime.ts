@@ -14,7 +14,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
-import type { LocaleView } from "../../lib/locale-path";
+import { localizedPath, type LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -39,6 +39,9 @@ interface LoadPageOptions {
   authCookieHeader?: string;
   /** The draft to read instead of Live. Only sent along with a session. */
   draftId?: string;
+  /** The locale to read the page in. Without it, the default locale. */
+  locale?: LocaleView;
+  /** The page's path in its locale, after the locale's prefix. */
   pathname: string;
   projectSlug: string;
   queryClient: QueryClient;
@@ -49,7 +52,10 @@ interface LoadPageForRequestOptions {
   authCookieHeader?: string;
   /** The draft the request's URL names. Only a member reads it; anyone else reads Live. */
   draftId?: string;
+  /** The locale to read the page in. Without it, the default locale. */
+  locale?: LocaleView;
   origin: string;
+  /** The page's path in its locale, after the locale's prefix. */
   pathname: string;
   projectSlug: string;
   queryClient: QueryClient;
@@ -227,11 +233,12 @@ export async function loadCamoxPage({
   apiUrl,
   authCookieHeader,
   draftId,
+  locale,
   pathname,
   projectSlug,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
-  const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader });
+  const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader, locale });
   // Only a session names the draft, so without one the read is Live's.
   const inDraft = { in: draftId && authCookieHeader ? draftId : null };
   const [page] = await Promise.all([
@@ -266,6 +273,31 @@ export function createServerStudioCache(
       createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined, locale }),
     ...(locale && { locale: () => locale }),
   });
+}
+
+/**
+ * The locales of the scope a request reads: the URL's draft's for a session naming one, else
+ * Live's. A draft the API refuses reads Live's, as the request's other reads then do.
+ */
+export async function readScopeLocales({
+  apiUrl,
+  authCookieHeader,
+  draftId,
+  projectSlug,
+}: {
+  apiUrl: string;
+  authCookieHeader?: string;
+  draftId?: string;
+  projectSlug: string;
+}): Promise<LocaleView[]> {
+  // The API checks the session is a member's: a refusal reads Live's.
+  const { value } = await readDraftOrLive(draftId, !!authCookieHeader, (readDraftId) =>
+    createServerApiClient(apiUrl, {
+      authCookieHeader: readDraftId ? authCookieHeader : undefined,
+      draftId: readDraftId,
+    }).locales.list({ projectSlug }),
+  );
+  return value;
 }
 
 /**
@@ -324,6 +356,7 @@ export async function loadCamoxPageForRequest({
   apiUrl,
   authCookieHeader,
   draftId,
+  locale,
   origin,
   pathname,
   projectSlug,
@@ -342,6 +375,7 @@ export async function loadCamoxPageForRequest({
       apiUrl,
       authCookieHeader: member.project ? authCookieHeader : undefined,
       draftId: readDraftId,
+      locale,
       pathname,
       projectSlug,
       queryClient,
@@ -357,19 +391,23 @@ export async function loadCamoxPageForRequest({
 
 export async function createMarkdownResponse({
   apiUrl,
+  locale,
   pathname,
   projectSlug,
   request,
   onNotFound,
 }: {
   apiUrl: string;
+  /** The locale of the page. Without it, the default locale. */
+  locale?: LocaleView;
+  /** The page's path in its locale. Without it, the request's path. */
   pathname?: string;
   projectSlug: string;
   request: Request;
   /** Answers for a path without a curated page, such as a derived layout's page. */
   onNotFound?: () => Promise<Response | null>;
 }): Promise<Response | null> {
-  const api = createServerApiClient(apiUrl);
+  const api = createServerApiClient(apiUrl, { locale });
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
     const page = await api.pages.getByPath({ path: requestPathname, projectSlug });
@@ -459,7 +497,12 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   return { meta, links };
 }
 
-export function buildCamoxPageHead(camoxApp: CamoxApp, loaderData?: CamoxPageLoaderData): PageHead {
+/** A curated page's head. Its paths keep the prefix of the page's `locale`. */
+export function buildCamoxPageHead(
+  camoxApp: CamoxApp,
+  loaderData?: CamoxPageLoaderData,
+  locale?: LocaleView,
+): PageHead {
   if (!loaderData) return {};
 
   const { page, origin, faviconUrl } = loaderData;
@@ -473,7 +516,7 @@ export function buildCamoxPageHead(camoxApp: CamoxApp, loaderData?: CamoxPageLoa
     data: undefined,
     params: {},
     projectName: page.projectName,
-    pageFullPath: page.page.fullPath,
+    pageFullPath: locale ? localizedPath(page.page.fullPath, locale) : page.page.fullPath,
     origin,
     faviconUrl,
     hasMarkdown: true,

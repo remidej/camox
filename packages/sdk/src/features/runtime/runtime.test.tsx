@@ -5,7 +5,7 @@ import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
 import { artifactFrameProps } from "../../core/lib/artifact";
-import { pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
@@ -76,6 +76,7 @@ void test("preview authenticates before loading the page", async (t) => {
 void test("runtime returns complete route payloads for curated, singleton, derived and studio navigation", async (t) => {
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     calls.push(path);
     if (path.endsWith("/getBySlug")) return Response.json({ json: project });
@@ -212,6 +213,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
 void test("visitors and members load the same curated page, and only members with native session cookies get the Studio", async (t) => {
   const pageReads: Array<string | null> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/getBySlug")) {
       assert.match(
@@ -302,11 +304,15 @@ void test("sitemaps include curated pages and singleton destinations with the ru
 });
 
 void test("expired studio auth clears the mirrored cookie without granting chrome", async (t) => {
-  t.mock.method(globalThis, "fetch", async () =>
-    Response.json(
-      { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Session expired" } },
-      { status: 401 },
-    ),
+  t.mock.method(globalThis, "fetch", async (request: Request) =>
+    new URL(request.url).pathname.endsWith("/locales/list")
+      ? localesResponse()
+      : Response.json(
+          {
+            json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Session expired" },
+          },
+          { status: 401 },
+        ),
   );
   const response = await handleCamoxRequest(
     new Request("https://site.test/_camox/data?path=/camox/content", {
@@ -324,7 +330,9 @@ void test("expired studio auth clears the mirrored cookie without granting chrom
 });
 
 void test("anonymous studio navigation never validates a missing cookie or grants chrome", async (t) => {
-  t.mock.method(globalThis, "fetch", () => {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    // Live's locales are public.
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     throw new Error("Unexpected auth request");
   });
   const response = await handleCamoxRequest(
@@ -342,6 +350,7 @@ void test("anonymous studio navigation never validates a missing cookie or grant
 
 void test("Canvas-only routes open the page app on the Canvas or a block, or redirect home", async (t) => {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/getBySlug")) return Response.json({ json: project });
     throw new Error(`Unexpected API request ${path}`);
@@ -456,6 +465,7 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
 void test("public Markdown responses read the page without a session", async (t) => {
   const requested: Array<{ path: string; input: unknown; session: string | null }> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     requested.push({
       path,
@@ -485,6 +495,7 @@ void test("public Markdown responses read the page without a session", async (t)
 void test("a page's .md URL serves its Markdown whatever the request accepts", async (t) => {
   const requestedPaths: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/pages/getByPath")) {
       const { json } = (await request.json()) as { json: { path: string } };
@@ -600,6 +611,7 @@ function mockPageWithBlocks(
   types: string[],
 ) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath"))
@@ -653,6 +665,7 @@ void test("in dev, a page preloads its blocks' modules", async (t) => {
 void test("a public page's hydration data leaves out the artifact sources its frames hold", async (t) => {
   const source = "<!doctype html><title>Orbit diagram</title><svg></svg>";
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath"))

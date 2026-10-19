@@ -14,7 +14,7 @@ import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import type { Draft, DraftScope } from "../drafts/scope";
+import { draftIn, type Draft, type DraftScope } from "../drafts/scope";
 import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
 import { homeOf, saveValue, settleRequest } from "../generated-values/service";
 import {
@@ -481,7 +481,7 @@ export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(func
   const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
   const { scope } = yield* accessTo(ctx, { file: id }, "member");
 
-  yield* generateNow(ctx.db, scope, "file", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, draftIn(scope), "file", id).pipe(Effect.orDie);
   const shown = yield* overlay.get(ctx.db, scope, files, id);
   return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
 }, Effect.scoped);

@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { blockDefinitions, blocks } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import type { DefinitionKey } from "../repeatable-items/roots";
 import type { FieldSchema } from "./normalize-content";
 
@@ -17,7 +17,7 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
   db: Database,
   projectId: number | null,
   blockId: string,
-  scope: DraftScope,
+  scope: ReadScope,
 ): Effect.fn.Return<{
   contentSchema: FieldSchema | null;
   settingsSchema: FieldSchema | null;
@@ -55,7 +55,7 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
 export const findDefinition = Effect.fn("findDefinition")(function* (
   db: Database,
   definition: DefinitionKey,
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   return yield* Effect.promise(() =>
     db
@@ -76,7 +76,7 @@ export const findDefinition = Effect.fn("findDefinition")(function* (
 export const loadDefinitionSchemas = Effect.fn("loadDefinitionSchemas")(function* (
   db: Database,
   key: DefinitionKey,
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   const definition = yield* findDefinition(db, key, scope);
   if (!definition) return null;
@@ -90,7 +90,7 @@ export const loadBlockContentSchema = Effect.fn("loadBlockContentSchema")(functi
   db: Database,
   projectId: number,
   blockId: string,
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   return (yield* loadBlockSchemas(db, projectId, blockId, scope))?.contentSchema ?? null;
 });

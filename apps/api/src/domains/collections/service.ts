@@ -21,7 +21,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type AccessMode, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import { recordsOf } from "./identity";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
 import { collectionDefinitions, collectionRecords } from "./schema";
@@ -146,7 +146,7 @@ export const deleteRecordInput = recordInput;
 
 type Definition = typeof collectionDefinitions.$inferSelect;
 /** A collection reader in the draft a request names, or Live: its records are reader there. */
-type ScopedDefinition = Definition & { draft: DraftScope };
+type ScopedDefinition = Definition & { draft: ReadScope };
 type RecordRow = typeof collectionRecords.$inferSelect;
 
 /** The columns reads need of a record. */

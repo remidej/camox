@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 
 // D1 binds at most 100 parameters per statement, so reads naming many ids split them.
 const CHUNK = 90;
@@ -14,7 +14,7 @@ const CHUNK = 90;
  */
 export const selectInChunks = <T extends overlay.ContentTable, V>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   table: T,
   values: readonly V[],
   where: (chunk: V[]) => SQL | undefined,

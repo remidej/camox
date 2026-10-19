@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { createApp } from "../../core/createApp";
 import { createLayout } from "../../core/createLayout";
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
-import { pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 /** The source the context's record lookup names, as the API receives it ("none" if absent). */
@@ -63,6 +63,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Session expired" } },
         { status: 401 },
       );
+    if (url.pathname.endsWith("/locales/list")) return localesResponse();
     if (url.pathname.endsWith("/getBySlug"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
     if (url.pathname.endsWith("/listBySlug")) return pageListResponse();
