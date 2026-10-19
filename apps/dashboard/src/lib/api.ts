@@ -4,11 +4,12 @@ import type { InferClientOutputs } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
 
+import { apiFetch } from "./api-fetch";
 import { apiTransportUrl } from "./api-url";
 
 const link = new RPCLink({
   url: `${apiTransportUrl(import.meta.env.VITE_API_URL!, import.meta.env.DEV && import.meta.env.SSR)}/rpc`,
-  fetch: (request, init) => fetch(request, { ...init, credentials: "include" }),
+  fetch: apiFetch,
 });
 
 export const api = createORPCClient<RouterClient<Router>>(link);
