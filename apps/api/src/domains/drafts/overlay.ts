@@ -29,10 +29,18 @@ import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
 import { files } from "../files/schema";
 import { layouts } from "../layouts/schema";
+import { locales } from "../locales/schema";
 import { pages } from "../pages/schema";
 import { repeatableItems } from "../repeatable-items/schema";
 import { drafts, endedDrafts } from "./schema";
-import { RELEASE, type Draft, type DraftScope, type WriteTarget } from "./scope";
+import {
+  draftIn,
+  RELEASE,
+  type Draft,
+  type DraftScope,
+  type ReadScope,
+  type WriteTarget,
+} from "./scope";
 
 // The draft overlay (ADR 0005) owns every draft-aware data operation on content tables, so
 // domain services never filter on `draft_id` themselves. Live rows have no draft; a draft row
@@ -46,6 +54,12 @@ import { RELEASE, type Draft, type DraftScope, type WriteTarget } from "./scope"
 //
 // Writes target a draft, or Live for a release. Publishing a draft and releases are Live's only
 // writers (ADR 0006, ADR 0009), and both run each table's Live follow-ups.
+//
+// Localized tables, every content table but files and locales, store each entity once per
+// locale (ADR 0015): an entity is its id and its locale on Live, and its draft, id and locale in
+// a draft. The overlay matches on the locale wherever it matches on the id. Reads and writes act
+// in the locale their scope names, or in the project's default locale; publishing, discarding,
+// changes, conflicts and lost changes span every locale.
 
 /** The columns every content table has for living beside Live. */
 type ContentColumns = {
@@ -66,10 +80,14 @@ export type ContentTable = SQLiteTable & ContentColumns;
 
 type Row<T extends ContentTable> = T["$inferSelect"];
 type Values<T extends ContentTable> = T["$inferInsert"];
-/** The overlay's own bookkeeping columns, which publishing sets rather than copies. */
+/**
+ * The overlay's own bookkeeping columns, which publishing sets rather than copies. A localized
+ * table's `locale` is part of the entity's identity, which no write changes.
+ */
 const bookkeeping = [
   "rowId",
   "id",
+  "locale",
   "draftId",
   "version",
   "baseVersion",
@@ -94,6 +112,7 @@ type ParentRelation = {
 
 /** The kinds of entity drafts hold: what changes, conflicts and publish tokens name. */
 export const ENTITY_KINDS = [
+  "locale",
   "page",
   "block",
   "sharedContent",
@@ -125,6 +144,8 @@ export type ContentTableRegistration = {
   afterLiveChange?: (changed: SQL, now: number) => SQL[];
   /** The table's rows in a project, Live's and every draft's, as a condition on the table. */
   inProject: (projectId: number) => SQL;
+  /** The project a row belongs to, as an expression on the table's own columns. */
+  project: SQL | AnySQLiteColumn;
 };
 
 const registrations = new Map<ContentTable, ContentTableRegistration>();
@@ -152,12 +173,21 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
   return registration;
 }
 
+// A locale has no parent. Content names its locale by tag, which publishing doesn't check yet.
+registerContentTable(locales, {
+  entity: "locale",
+  parents: [],
+  inProject: (projectId) => eq(locales.projectId, projectId),
+  project: locales.projectId,
+});
+
 registerContentTable(pages, {
   entity: "page",
   parents: [{ column: pages.parentPageId, key: pages.id }],
   // Bumped by Live's writers whenever the page's blocks change on Live.
   liveColumns: [pages.contentUpdatedAt],
   inProject: (projectId) => eq(pages.projectId, projectId),
+  project: pages.projectId,
 });
 
 registerContentTable(blocks, {
@@ -172,6 +202,7 @@ registerContentTable(blocks, {
   ],
   afterLiveChange: bumpsForBlocks,
   inProject: (projectId) => eq(blocks.projectId, projectId),
+  project: blocks.projectId,
 });
 
 registerContentTable(sharedContents, {
@@ -179,6 +210,7 @@ registerContentTable(sharedContents, {
   parents: [],
   afterLiveChange: bumpsForSharedContents,
   inProject: (projectId) => eq(sharedContents.projectId, projectId),
+  project: sharedContents.projectId,
 });
 
 registerContentTable(repeatableItems, {
@@ -196,6 +228,8 @@ registerContentTable(repeatableItems, {
   // An item's tree is rooted in a shared content of the project, or in a block.
   inProject: (projectId) =>
     sql`(${repeatableItems.projectId} = ${projectId} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."project_id" = ${projectId}))`,
+  // Every row of a block belongs to the same project, whichever scope stores it.
+  project: sql`coalesce(${repeatableItems.projectId}, (select "owner"."project_id" from ${blocks} as "owner" where "owner"."id" = ${repeatableItems.blockId} limit 1))`,
 });
 
 // A file belongs to its project only; content points at it by `_fileId`, which publishing checks.
@@ -203,6 +237,7 @@ registerContentTable(files, {
   entity: "file",
   parents: [],
   inProject: (projectId) => eq(files.projectId, projectId),
+  project: files.projectId,
 });
 
 // A record names its collection, a definition, which no draft deletes: a record has no parent.
@@ -211,9 +246,84 @@ registerContentTable(collectionRecords, {
   entity: "record",
   parents: [],
   inProject: (projectId) => eq(collectionRecords.projectId, projectId),
+  project: collectionRecords.projectId,
 });
 
-/** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */
+/** A localized table's `locale` column; files and locales have none. */
+function localeColumn(table: ContentTable): AnySQLiteColumn | undefined {
+  return (getTableColumns(table) as Record<string, AnySQLiteColumn | undefined>).locale;
+}
+
+/**
+ * The default locale's tag in a project, as a scalar subquery: Live's, or as a draft reads its
+ * locales.
+ */
+function defaultLocaleOf(project: SQL | AnySQLiteColumn | number, draft: Draft | null): SQL {
+  return sql`(select ${locales.tag} from ${locales} where ${locales.projectId} = ${project} and ${locales.isDefault} = 1 and ${visibleIn(locales, draft)})`;
+}
+
+/**
+ * The tag of the locale a scope reads and writes, as a value for rows of `table` in a query on
+ * the table itself: the locale the scope names, or its project's default locale. Live naming no
+ * locale reads each row's project's default locale.
+ */
+function localeOf(table: ContentTable, scope: ReadScope): SQL {
+  if (scope?.locale !== undefined) return sql`${scope.locale}`;
+  const draft = draftIn(scope);
+  return defaultLocaleOf(draft ? draft.projectId : registrationOf(table).project, draft);
+}
+
+/** The rows of a localized table in the locale a scope reads; undefined for other tables. */
+function inLocaleOf(table: ContentTable, scope: ReadScope): SQL | undefined {
+  const column = localeColumn(table);
+  return column ? sql`${column} = ${localeOf(table, scope)}` : undefined;
+}
+
+/**
+ * Conditions that rows at two aliases are in the same locale: one when both tables are
+ * localized, none otherwise.
+ */
+function sameLocale(
+  a: { alias: string; table: ContentTable | undefined },
+  b: { alias: string; table: ContentTable | undefined },
+): SQL[] {
+  const left = a.table && localeColumn(a.table);
+  const right = b.table && localeColumn(b.table);
+  return left && right ? [sql`${at(a.alias, left)} = ${at(b.alias, right)}`] : [];
+}
+
+/** Conditions that rows of one table at two aliases are the same entity: id and locale. */
+function sameEntity(table: ContentTable, a: string, b: string): SQL {
+  return sql.join(
+    [
+      sql`${at(a, table.id)} = ${at(b, table.id)}`,
+      ...sameLocale({ alias: a, table }, { alias: b, table }),
+    ],
+    sql` and `,
+  );
+}
+
+/** The columns identifying a row at an alias, for a select list: its id, and its locale. */
+function keyColumns(alias: string, table: ContentTable): SQL {
+  const locale = localeColumn(table);
+  return locale ? sql`${at(alias, table.id)}, ${at(alias, locale)}` : at(alias, table.id);
+}
+
+/** What identifies a row at an alias, as a value to match with `in`: its id, or a row value. */
+function keyAt(alias: string, table: ContentTable): SQL {
+  return localeColumn(table) ? sql`(${keyColumns(alias, table)})` : at(alias, table.id);
+}
+
+/** A row's locale at an alias, or null for a table without locales. */
+function localeAt(alias: string, table: ContentTable): SQL {
+  const column = localeColumn(table);
+  return column ? at(alias, column) : sql`null`;
+}
+
+/**
+ * The rows stored in a scope itself, in every locale: Live's rows, or one draft's rows including
+ * tombstones.
+ */
 export function storedIn(table: ContentTable, scope: DraftScope): SQL {
   registrationOf(table);
   return scope ? eq(table.draftId, scope.id) : isNull(table.draftId);
@@ -238,22 +348,28 @@ export function storesAnything(scope: Draft): SQL {
 
 /**
  * The rows a scope reads, as a condition usable in any query on the table: Live's rows, or a
- * draft's own rows plus the Live rows it hasn't copied, minus its tombstones.
+ * draft's own rows plus the Live rows it hasn't copied, minus its tombstones. In a localized
+ * table, only the rows in the scope's locale.
  */
-export function visibleIn(table: ContentTable, scope: DraftScope): SQL {
+export function visibleIn(table: ContentTable, scope: ReadScope): SQL {
   registrationOf(table);
-  if (!scope) return isNull(table.draftId);
-  const copied = sql`exists (select 1 from ${table} as "draft_row" where "draft_row"."draft_id" = ${scope.id} and "draft_row"."id" = ${table.id})`;
+  const locale = inLocaleOf(table, scope);
+  const draft = draftIn(scope);
+  if (!draft) return and(isNull(table.draftId), locale)!;
+  const column = localeColumn(table);
+  const copiedLocale = column ? sql` and "draft_row".${ident(column)} = ${column}` : sql``;
+  const copied = sql`exists (select 1 from ${table} as "draft_row" where "draft_row"."draft_id" = ${draft.id} and "draft_row"."id" = ${table.id}${copiedLocale})`;
   return and(
     eq(table.deleted, false),
-    sql`(${table.draftId} = ${scope.id} or (${table.draftId} is null and not ${copied}))`,
+    sql`(${table.draftId} = ${draft.id} or (${table.draftId} is null and not ${copied}))`,
+    locale,
   )!;
 }
 
 /** The rows a scope reads, matching an optional condition. */
 export const select = Effect.fn("overlay.select")(function* <T extends ContentTable>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   table: T,
   where?: SQL,
 ) {
@@ -268,7 +384,7 @@ export const select = Effect.fn("overlay.select")(function* <T extends ContentTa
 /** The entity with this id as the scope reads it, or undefined when it has none. */
 export const get = Effect.fn("overlay.get")(function* <T extends ContentTable>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   table: T,
   id: string,
 ) {
@@ -282,12 +398,21 @@ export const get = Effect.fn("overlay.get")(function* <T extends ContentTable>(
 });
 
 /**
- * The row a scope itself stores for an entity, tombstone included: unlike `get`, a draft finds
- * no row for an entity it reads from Live.
+ * The row a scope itself stores for an entity in its locale, tombstone included: unlike `get`, a
+ * draft finds no row for an entity it reads from Live.
  */
 export const getStored = <T extends ContentTable>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
+  table: T,
+  id: string,
+) => storedRow(db, draftIn(scope), scope, table, id);
+
+/** The row `stored` stores for an entity, in the locale `localeScope` reads. */
+const storedRow = <T extends ContentTable>(
+  db: Database,
+  stored: DraftScope,
+  localeScope: ReadScope,
   table: T,
   id: string,
 ) =>
@@ -296,9 +421,13 @@ export const getStored = <T extends ContentTable>(
       db
         .select()
         .from(table as SQLiteTable)
-        .where(and(storedIn(table, scope), eq(table.id, id)))
+        .where(and(storedIn(table, stored), eq(table.id, id), inLocaleOf(table, localeScope)))
         .get() as Promise<Row<T> | undefined>,
   );
+
+/** The Live row a draft reads for an entity it doesn't store, in the draft's locale. */
+const liveRowFor = <T extends ContentTable>(db: Database, draft: Draft, table: T, id: string) =>
+  storedRow(db, null, draft, table, id);
 
 /**
  * Runs a table's Live follow-ups for one Live entity, as it is now: before a release changes it,
@@ -311,7 +440,8 @@ const followLiveChange = Effect.fn("overlay.followLiveChange")(function* (
 ) {
   const { afterLiveChange } = registrationOf(table);
   if (!afterLiveChange) return;
-  const changed = sql`select * from ${table} where ${table.draftId} is null and ${table.id} = ${id}`;
+  // A release writes in the default locale.
+  const changed = sql`select * from ${table} where ${and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))}`;
   for (const statement of afterLiveChange(changed, Date.now())) {
     yield* Effect.promise(() => db.run(statement));
   }
@@ -357,8 +487,27 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
 });
 
 /**
- * Creates an entity in the target. Undefined when the target already reads an entity with this
- * id, or a draft deleted it. A release's entity is published by no member, now.
+ * The locale a new entity of a localized table is created in, as insert values: the draft's
+ * locale, or the default locale of the entity's project. Empty for other tables.
+ */
+const localeOfWrite = Effect.fn("overlay.localeOfWrite")(function* (
+  db: Database,
+  target: WriteTarget,
+  table: ContentTable,
+  values: Record<string, unknown>,
+) {
+  if (!localeColumn(table)) return {};
+  if (target !== RELEASE) {
+    return { locale: target.locale ?? defaultLocaleOf(target.projectId, target) };
+  }
+  const projectId = yield* projectOfLive(db, values);
+  // An item whose block is gone keeps the column's default.
+  return projectId === undefined ? {} : { locale: defaultLocaleOf(projectId, null) };
+});
+
+/**
+ * Creates an entity in the target, in its locale. Undefined when the target already reads an
+ * entity with this id, or a draft deleted it. A release's entity is published by no member, now.
  */
 export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTable>(
   db: Database,
@@ -366,6 +515,7 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
   table: T,
   values: Patch<T> & { id?: string },
 ) {
+  const locale = yield* localeOfWrite(db, target, table, values);
   if (target === RELEASE) {
     const now = Date.now();
     const row = (yield* Effect.promise(() =>
@@ -373,6 +523,7 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
         .insert(table as SQLiteTable)
         .values({
           ...values,
+          ...locale,
           draftId: null,
           baseVersion: null,
           deleted: false,
@@ -390,13 +541,19 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
     return row;
   }
   if (values.id !== undefined) {
-    const taken = yield* getStored(db, null, table, values.id);
+    const taken = yield* liveRowFor(db, target, table, values.id);
     if (taken) return undefined;
   }
   const row = (yield* Effect.promise(() =>
     db
       .insert(table as SQLiteTable)
-      .values({ ...values, draftId: target.id, baseVersion: null, deleted: false } as Values<T>)
+      .values({
+        ...values,
+        ...locale,
+        draftId: target.id,
+        baseVersion: null,
+        deleted: false,
+      } as Values<T>)
       .onConflictDoNothing()
       .returning()
       .get(),
@@ -429,7 +586,7 @@ export const update = Effect.fn("overlay.update")(function* <T extends ContentTa
           publishedAt: Date.now(),
           publishedBy: null,
         } as Partial<Values<T>>)
-        .where(and(storedIn(table, null), eq(table.id, id)))
+        .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null)))
         .returning()
         .get(),
     )) as Row<T> | undefined;
@@ -461,7 +618,14 @@ const updateInDraft = Effect.fn("overlay.updateInDraft")(function* <T extends Co
     db
       .update(table as SQLiteTable)
       .set(patch as Partial<Values<T>>)
-      .where(and(storedIn(table, draft), eq(table.id, id), eq(table.deleted, false)))
+      .where(
+        and(
+          storedIn(table, draft),
+          eq(table.id, id),
+          inLocaleOf(table, draft),
+          eq(table.deleted, false),
+        ),
+      )
       .returning()
       .get(),
   )) as Row<T> | undefined;
@@ -478,7 +642,7 @@ const copyIntoDraft = Effect.fn("overlay.copyIntoDraft")(function* (
   id: string,
   changes: Record<string, unknown>,
 ): Effect.fn.Return<{ taken: true } | { taken: false; row: Row<ContentTable> | undefined }> {
-  const live = yield* getStored(db, null, table, id);
+  const live = yield* liveRowFor(db, draft, table, id);
   if (!live) return { taken: false, row: undefined };
   const { rowId: _rowId, ...entity } = live as Record<string, unknown>;
   const copy = yield* Effect.promise(() =>
@@ -514,7 +678,9 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
     if (!shown) return undefined;
     yield* followLiveChange(db, table, id);
     yield* Effect.promise(() =>
-      db.delete(table as SQLiteTable).where(and(storedIn(table, null), eq(table.id, id))),
+      db
+        .delete(table as SQLiteTable)
+        .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))),
     );
     yield* journalWrite(db, target, table, shown, "deleted");
     return shown;
@@ -524,7 +690,9 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
   yield* journalWrite(db, target, table, shown, "deleted");
   if (shown.draftId === target.id && shown.baseVersion == null) {
     yield* Effect.promise(() =>
-      db.delete(table as SQLiteTable).where(and(storedIn(table, target), eq(table.id, id))),
+      db
+        .delete(table as SQLiteTable)
+        .where(and(storedIn(table, target), eq(table.id, id), inLocaleOf(table, target))),
     );
     return shown;
   }
@@ -535,7 +703,7 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
     db
       .update(table as SQLiteTable)
       .set({ deleted: true, updatedAt: Date.now() } as Partial<Values<T>>)
-      .where(and(storedIn(table, target), eq(table.id, id))),
+      .where(and(storedIn(table, target), eq(table.id, id), inLocaleOf(table, target))),
   );
   return shown;
 });
@@ -571,8 +739,16 @@ export function sortByPosition<T extends { position: string; id: string }>(rows:
 // A draft's rows are applied to Live with a fixed number of set-based statements per registered
 // table, so one D1 `batch()` publishes a draft of any size atomically.
 
-/** A conflict as shown to the caller and sent back to publish: entity, id, Live version. */
-export type ConflictKey = [entity: EntityKind, id: string, liveVersion: number | null];
+/**
+ * A conflict as shown to the caller and sent back to publish: entity, id, Live version, and the
+ * locale for a localized entity.
+ */
+export type ConflictKey = [
+  entity: EntityKind,
+  id: string,
+  liveVersion: number | null,
+  locale: string | null,
+];
 
 /** A statement of a publish or discard batch: raw SQL or a query builder. */
 export type BatchItem = SQL | { toSQL(): { sql: string; params: unknown[] } };
@@ -621,6 +797,13 @@ function parentRowMatches(
   if (parentTable) {
     matches.push(sql`"parent".${ident(parentTable.deleted)} = 0`);
   }
+  // A localization's parent is the parent's localization in the same locale.
+  matches.push(
+    ...sameLocale(
+      { alias: "parent", table: parentTable },
+      { alias, table: registeredTableOf(column) },
+    ),
+  );
   // A layout lives in Live and in development drafts (ADR 0006), like content: a draft holds
   // Live's layouts and its own.
   const draftColumn = parentTable?.draftId ?? getTableColumns(key.table).draftId;
@@ -633,7 +816,7 @@ function parentRowMatches(
   if (parentTable && holder !== "anywhere") {
     matches.push(sql`not exists (select 1 from ${tableOf(key)} as "tomb"
       where ${at("tomb", parentTable.draftId)} = ${holder.draftId}
-        and ${at("tomb", parentTable.id)} = "parent".${ident(parentTable.id)}
+        and ${sameEntity(parentTable, "tomb", "parent")}
         and ${at("tomb", parentTable.deleted)} = 1)`);
   }
   return sql`exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)})`;
@@ -680,8 +863,9 @@ function goneTable(table: ContentTable, draftId: string): SQL {
       ...(relation.within ?? []).map(
         ([child, parent]) => sql`"p".${ident(parent)} = ${at("x", child)}`,
       ),
+      ...sameLocale({ alias: "p", table: parentTable }, { alias: "x", table }),
     ];
-    return sql`select "x".*, "p"."gone_at", "p"."gone_entity", "p"."gone_id"
+    return sql`select "x".*, "p"."gone_at", "p"."gone_entity", "p"."gone_id", "p"."gone_locale"
       from ${t} as "x" join ${goneName(parentTable)} as "p" on ${sql.join(matches, sql` and `)}
       where ${at("x", table.draftId)} is null`;
   };
@@ -696,7 +880,7 @@ function goneTable(table: ContentTable, draftId: string): SQL {
   ];
   const terms = [
     sql`select "x".*, ${at("x", table.updatedAt)} as "gone_at", ${entity} as "gone_entity",
-        ${at("x", table.id)} as "gone_id"
+        ${at("x", table.id)} as "gone_id", ${localeAt("x", table)} as "gone_locale"
       from ${t} as "x" where ${at("x", table.draftId)} = ${draftId} and ${at("x", table.deleted)} = 1`,
     ...ordered.map(({ relation, parentTable }) => underParent(relation, parentTable)),
   ];
@@ -719,13 +903,13 @@ function descendantsWrittenAfterDeletion(table: ContentTable, draftId: string): 
     lineageOf(table).map((member) => goneTable(member, draftId)),
     sql`, `,
   )}
-    select "g"."id", "g"."version", "g"."published_at", "g"."published_by",
-      "g"."gone_entity", "g"."gone_id"
+    select "g"."id", ${localeAt("g", table)} as "locale", "g"."version", "g"."published_at",
+      "g"."published_by", "g"."gone_entity", "g"."gone_id", "g"."gone_locale"
     from ${goneName(table)} as "g"
     where "g".${ident(table.draftId)} is null
       and max("g".${ident(table.updatedAt)}, coalesce("g".${ident(table.publishedAt)}, 0)) >= "g"."gone_at"
       and not exists (select 1 from ${t} as "h"
-        where ${at("h", table.draftId)} = ${draftId} and ${at("h", table.id)} = "g"."id")`;
+        where ${at("h", table.draftId)} = ${draftId} and ${sameEntity(table, "h", "g")})`;
 }
 
 /**
@@ -738,11 +922,12 @@ function conflictsIn(table: ContentTable, draftId: string): SQL {
   const { entity } = registrationOf(table);
   const t = sql.identifier(getTableName(table));
   const copied = sql`select ${entity} as "entity", ${at("d", table.id)} as "id",
+      ${localeAt("d", table)} as "locale",
       ${at("l", table.version)} as "live_version",
       ${at("l", table.publishedAt)} as "published_at",
       ${at("l", table.publishedBy)} as "published_by"
     from ${t} as "d"
-    left join ${t} as "l" on ${at("l", table.draftId)} is null and ${at("l", table.id)} = ${at("d", table.id)}
+    left join ${t} as "l" on ${at("l", table.draftId)} is null and ${sameEntity(table, "l", "d")}
     where ${at("d", table.draftId)} = ${draftId}
       and ${at("d", table.baseVersion)} is not null
       and ${parentsExist(table, "d", draftId)}
@@ -753,7 +938,8 @@ function conflictsIn(table: ContentTable, draftId: string): SQL {
   // A descendant under several deleted entities is still one conflict.
   return sql`${copied}
     union all
-    select distinct ${entity}, "w"."id", "w"."version", "w"."published_at", "w"."published_by"
+    select distinct ${entity}, "w"."id", "w"."locale", "w"."version", "w"."published_at",
+      "w"."published_by"
     from (${descendants}) as "w"`;
 }
 
@@ -858,6 +1044,8 @@ export const latestLivePublish = Effect.fn("overlay.latestLivePublish")(function
 export type StoredConflict = {
   entity: EntityKind;
   id: string;
+  // A localized entity's locale, or null.
+  locale: string | null;
   liveVersion: number | null;
   publishedAt: number | null;
   publishedBy: string | null;
@@ -871,6 +1059,7 @@ export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (db: Datab
       db.all<{
         entity: EntityKind;
         id: string;
+        locale: string | null;
         live_version: number | null;
         published_at: number | null;
         published_by: string | null;
@@ -880,6 +1069,7 @@ export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (db: Datab
       conflicts.push({
         entity: row.entity,
         id: row.id,
+        locale: row.locale,
         liveVersion: row.live_version,
         publishedAt: row.published_at,
         publishedBy: row.published_by,
@@ -889,14 +1079,12 @@ export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (db: Datab
   return conflicts;
 });
 
+/** An entity a loss names: a localized entity with its locale, any other with null. */
+type LostEntity = { entity: EntityKind; id: string; locale: string | null };
+
 export type StoredLoss =
-  | { reason: "parentGone"; entity: EntityKind; id: string }
-  | {
-      reason: "writtenAfterDeletion";
-      entity: EntityKind;
-      id: string;
-      parent: { entity: EntityKind; id: string };
-    };
+  | ({ reason: "parentGone" } & LostEntity)
+  | ({ reason: "writtenAfterDeletion"; parent: LostEntity } & LostEntity);
 
 /**
  * The changes publishing drops: entities the draft changed whose parent exists neither in Live
@@ -909,27 +1097,37 @@ export const lostOf = Effect.fn("overlay.lostOf")(function* (db: Database, scope
     const { entity } = registrationOf(table);
     const t = sql.identifier(getTableName(table));
     const orphans = yield* Effect.promise(() =>
-      db.all<{ id: string }>(sql`select ${at("d", table.id)} as "id" from ${t} as "d"
+      db.all<{ id: string; locale: string | null }>(sql`select ${at("d", table.id)} as "id",
+          ${localeAt("d", table)} as "locale"
+        from ${t} as "d"
         where ${at("d", table.draftId)} = ${scope.id} and ${at("d", table.deleted)} = 0
           and not (${parentsExist(table, "d", scope.id)})`),
     );
-    for (const { id } of orphans) lost.push({ reason: "parentGone", entity, id });
+    for (const { id, locale } of orphans) lost.push({ reason: "parentGone", entity, id, locale });
 
     const descendants = descendantsWrittenAfterDeletion(table, scope.id);
     if (!descendants) continue;
     const rows = yield* Effect.promise(() =>
-      db.all<{ id: string; gone_entity: EntityKind; gone_id: string }>(descendants),
+      db.all<{
+        id: string;
+        locale: string | null;
+        gone_entity: EntityKind;
+        gone_id: string;
+        gone_locale: string | null;
+      }>(descendants),
     );
     // A descendant under several deleted entities is listed once.
     const listed = new Set<string>();
     for (const row of rows) {
-      if (listed.has(row.id)) continue;
-      listed.add(row.id);
+      const key = JSON.stringify([row.id, row.locale]);
+      if (listed.has(key)) continue;
+      listed.add(key);
       lost.push({
         reason: "writtenAfterDeletion",
         entity,
         id: row.id,
-        parent: { entity: row.gone_entity, id: row.gone_id },
+        locale: row.locale,
+        parent: { entity: row.gone_entity, id: row.gone_id, locale: row.gone_locale },
       });
     }
   }
@@ -955,7 +1153,8 @@ function guardStatement(draftId: string, shown: ConflictKey[]): BatchItem {
           select 1 from (${conflictsIn(table, draftId)}) as "current"
           where "current"."entity" = json_extract("shown"."value", '$[0]')
             and "current"."id" = json_extract("shown"."value", '$[1]')
-            and "current"."live_version" is json_extract("shown"."value", '$[2]'))`,
+            and "current"."live_version" is json_extract("shown"."value", '$[2]')
+            and "current"."locale" is json_extract("shown"."value", '$[3]'))`,
     ),
     sql` or `,
   );
@@ -983,11 +1182,12 @@ function followUpStatements(draftId: string, now: number): BatchItem[] {
   return tables().flatMap((table) => {
     const { afterLiveChange } = registrationOf(table);
     if (!afterLiveChange) return [];
-    const t = sql.identifier(getTableName(table));
+    const name = getTableName(table);
+    const t = sql.identifier(name);
     const changed = sql`select * from ${t} where ${ident(table.draftId)} = ${draftId}
       union all
-      select * from ${t} where ${ident(table.draftId)} is null and ${ident(table.id)} in (
-        select ${ident(table.id)} from ${t} where ${ident(table.draftId)} = ${draftId})`;
+      select * from ${t} where ${ident(table.draftId)} is null and ${keyAt(name, table)} in (
+        select ${keyColumns("d", table)} from ${t} as "d" where ${at("d", table.draftId)} = ${draftId})`;
     return afterLiveChange(changed, now);
   });
 }
@@ -999,7 +1199,11 @@ function applyStatements(
   publishedBy: string,
   now: number,
 ): BatchItem[] {
-  const t = sql.identifier(getTableName(table));
+  const name = getTableName(table);
+  const t = sql.identifier(name);
+  // A localized entity's locale is copied with its id: the rest of its identity.
+  const locale = localeColumn(table);
+  const identity = locale ? [table.id, locale] : [table.id];
   const columns = copiedColumns(table);
   const kept = new Set(registrationOf(table).liveColumns ?? []);
   const overwritten = columns.filter((column) => !kept.has(column));
@@ -1007,8 +1211,6 @@ function applyStatements(
   const live = (column: AnySQLiteColumn) => sql`${t}.${ident(column)}`;
   const applied = () =>
     sql`${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 0 and ${parentsExist(table, "d", draftId)}`;
-  const tombstones = () =>
-    sql`select ${d(table.id)} from ${t} as "d" where ${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 1`;
 
   return [
     // Copies the draft's version over the Live entities it changed.
@@ -1022,21 +1224,23 @@ function applyStatements(
         ${ident(table.publishedBy)} = ${publishedBy},
         ${ident(table.firstPublishedAt)} = coalesce(${live(table.firstPublishedAt)}, ${now})
       from ${t} as "d"
-      where ${applied()} and ${live(table.draftId)} is null and ${live(table.id)} = ${d(table.id)}`,
+      where ${applied()} and ${live(table.draftId)} is null and ${sameEntity(table, name, "d")}`,
     // Adds what the draft created, and brings back what Live deleted after the draft copied it.
     sql`insert into ${t} (
         ${sql.join(columns.map(ident), sql`, `)},
-        ${ident(table.id)}, ${ident(table.draftId)}, ${ident(table.version)},
+        ${sql.join(identity.map(ident), sql`, `)}, ${ident(table.draftId)}, ${ident(table.version)},
         ${ident(table.baseVersion)}, ${ident(table.deleted)}, ${ident(table.firstPublishedAt)},
         ${ident(table.publishedAt)}, ${ident(table.publishedBy)})
       select ${sql.join(columns.map(d), sql`, `)},
-        ${d(table.id)}, null, coalesce(${d(table.baseVersion)}, 0) + 1, null, 0,
+        ${sql.join(identity.map(d), sql`, `)}, null, coalesce(${d(table.baseVersion)}, 0) + 1, null, 0,
         coalesce(${d(table.firstPublishedAt)}, ${now}), ${now}, ${publishedBy}
       from ${t} as "d"
       where ${applied()} and not exists (
-        select 1 from ${t} as "l" where ${at("l", table.draftId)} is null and ${at("l", table.id)} = ${d(table.id)})`,
+        select 1 from ${t} as "l" where ${at("l", table.draftId)} is null and ${sameEntity(table, "l", "d")})`,
     // Deletes what the draft deleted.
-    sql`delete from ${t} where ${live(table.draftId)} is null and ${live(table.id)} in (${tombstones()})`,
+    sql`delete from ${t} where ${live(table.draftId)} is null and ${keyAt(name, table)} in (
+        select ${keyColumns("d", table)} from ${t} as "d"
+        where ${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 1)`,
   ];
 }
 
@@ -1049,7 +1253,8 @@ function applyStatements(
 function descendantsStatement(table: ContentTable): BatchItem | undefined {
   const { parents } = registrationOf(table);
   if (parents.length === 0) return undefined;
-  const t = sql.identifier(getTableName(table));
+  const name = getTableName(table);
+  const t = sql.identifier(name);
   const orphaned = parents.map(
     (relation) =>
       sql`(${at("x", relation.column)} is not null and not ${parentRowMatches(relation, "x", "anywhere")})`,
@@ -1057,19 +1262,26 @@ function descendantsStatement(table: ContentTable): BatchItem | undefined {
   const selfColumns = parents
     .filter((relation) => registeredTableOf(relation.key) === table && !relation.within?.length)
     .map((relation) => relation.column);
+  // A doomed entity's descendants in the same table are in its locale.
+  const locale = localeColumn(table);
+  const inDoomedLocale = (alias: string) =>
+    locale ? sql` and ${at(alias, locale)} = "doomed"."locale"` : sql``;
   const recursive = selfColumns.map(
     (column) => sql`union
-      select ${at("c", table.id)} from ${t} as "c" join "doomed" on ${at("c", column)} = "doomed"."id"
+      select ${at("c", table.id)}, ${localeAt("c", table)} from ${t} as "c"
+        join "doomed" on ${at("c", column)} = "doomed"."id"${inDoomedLocale("c")}
       where ${at("c", table.draftId)} is null and not exists (
         select 1 from ${t} as "h" where ${at("h", table.id)} = ${at("c", column)}
+          ${locale ? sql`and ${at("h", locale)} = ${at("c", locale)}` : sql``}
           and ${at("h", table.draftId)} is not null and ${at("h", table.deleted)} = 0)`,
   );
-  return sql`delete from ${t} where ${t}.${ident(table.draftId)} is null and ${t}.${ident(table.id)} in (
-    with recursive "doomed"("id") as (
-      select ${at("x", table.id)} from ${t} as "x"
+  const doomedKey = locale ? sql`"id", "locale"` : sql`"id"`;
+  return sql`delete from ${t} where ${t}.${ident(table.draftId)} is null and ${keyAt(name, table)} in (
+    with recursive "doomed"("id", "locale") as (
+      select ${at("x", table.id)}, ${localeAt("x", table)} from ${t} as "x"
       where ${at("x", table.draftId)} is null and (${sql.join(orphaned, sql` or `)})
       ${sql.join(recursive, sql` `)}
-    ) select "id" from "doomed")`;
+    ) select ${doomedKey} from "doomed")`;
 }
 
 /** Statements deleting every row a draft stores, keeping the draft. */

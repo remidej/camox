@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
+import { INITIAL_LOCALE } from "../locales/schema";
 import { projects } from "../projects/schema";
 
 /**
@@ -11,7 +12,7 @@ import { projects } from "../projects/schema";
  *
  * Live and every draft store blocks side by side (ADR 0005): a Live row has no draft, a draft
  * row is the draft's copy of a block, a block the draft created, or a tombstone. An id is unique
- * within Live and within each draft, so rows are keyed by `rowId` and no other content table
+ * within each locale of Live and of each draft (ADR 0015), so rows are keyed by `rowId` and no other content table
  * holds a foreign key to blocks. Read and write blocks through the draft overlay.
  */
 export const blocks = sqliteTable(
@@ -29,6 +30,9 @@ export const blocks = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
+    // The tag of the locale this row belongs to: an id is unique per locale (ADR 0015). The overlay
+    // sets it on every write; the default is the locale existing content was migrated to.
+    locale: text().notNull().default(INITIAL_LOCALE),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
@@ -46,10 +50,10 @@ export const blocks = sqliteTable(
   },
   (table) => [
     uniqueIndex("blocks_live_id_idx")
-      .on(table.id)
+      .on(table.id, table.locale)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("blocks_draft_id_idx")
-      .on(table.draftId, table.id)
+      .on(table.draftId, table.id, table.locale)
       .where(sql`${table.draftId} is not null`),
     index("blocks_page_idx").on(table.pageId),
     index("blocks_layout_idx").on(table.projectId, table.layoutId),
@@ -80,6 +84,9 @@ export const sharedContents = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
+    // The tag of the locale this row belongs to: an id is unique per locale (ADR 0015). The overlay
+    // sets it on every write; the default is the locale existing content was migrated to.
+    locale: text().notNull().default(INITIAL_LOCALE),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
@@ -92,10 +99,10 @@ export const sharedContents = sqliteTable(
   },
   (table) => [
     uniqueIndex("shared_contents_live_id_idx")
-      .on(table.id)
+      .on(table.id, table.locale)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("shared_contents_draft_id_idx")
-      .on(table.draftId, table.id)
+      .on(table.draftId, table.id, table.locale)
       .where(sql`${table.draftId} is not null`),
     index("shared_contents_definition_idx").on(table.projectId, table.type),
   ],

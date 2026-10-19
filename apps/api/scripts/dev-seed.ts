@@ -17,8 +17,10 @@ import {
   collectionDefinitions,
   collectionRecords,
   files,
+  INITIAL_LOCALE,
   invitation,
   layouts,
+  locales,
   member,
   organizationTable,
   pages,
@@ -70,6 +72,7 @@ async function clearAll(db: ReturnType<typeof createDrizzle>) {
   await db.delete(collectionRecords).run();
   await db.delete(collectionDefinitions).run();
   await db.delete(files).run();
+  await db.delete(locales).run();
   await db.delete(projects).run();
   await db.run(sql`DELETE FROM member`);
   await db.run(sql`DELETE FROM invitation`);
@@ -170,6 +173,14 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
       })
       .returning()
       .get();
+
+    await db.insert(locales).values({
+      projectId: project.id,
+      tag: INITIAL_LOCALE,
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     return project;
   }

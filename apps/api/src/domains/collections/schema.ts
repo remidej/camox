@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
+import { INITIAL_LOCALE } from "../locales/schema";
 import { projects } from "../projects/schema";
 
 /**
@@ -61,6 +62,9 @@ export const collectionRecords = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
+    // The tag of the locale this row belongs to: an id is unique per locale (ADR 0015). The overlay
+    // sets it on every write; the default is the locale existing content was migrated to.
+    locale: text().notNull().default(INITIAL_LOCALE),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
@@ -72,10 +76,10 @@ export const collectionRecords = sqliteTable(
   },
   (table) => [
     uniqueIndex("collection_records_live_id_idx")
-      .on(table.id)
+      .on(table.id, table.locale)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("collection_records_draft_id_idx")
-      .on(table.draftId, table.id)
+      .on(table.draftId, table.id, table.locale)
       .where(sql`${table.draftId} is not null`),
     index("collection_records_collection").on(table.projectId, table.collectionId),
   ],

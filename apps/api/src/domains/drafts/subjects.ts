@@ -225,6 +225,8 @@ export const describeSubjects = Effect.fn("drafts.describeSubjects")(function* (
   return (entity: SubjectKind, id: string): Subject => {
     if (entity === "record") return describeRecord(id);
     if (entity === "file") return describeFile(id, known.files.get(id));
+    // The studio calls locales languages.
+    if (entity === "locale") return { entity, id, label: "Language", owner: null };
     return describeContent(entity, id);
   };
 });
