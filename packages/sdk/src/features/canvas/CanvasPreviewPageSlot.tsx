@@ -8,6 +8,7 @@ import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { ViewportContinuityContext } from "../preview/viewportContinuity";
 import { useCanvasFrameMode } from "./canvasFrameMode";
 import { CanvasOverlays } from "./CanvasOverlays";
+import { CanvasPageEdge } from "./CanvasPageEdge";
 import type { CanvasFrameActivate, CanvasFrameActivation } from "./CanvasPageFrame";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 
@@ -25,6 +26,7 @@ export function CanvasPreviewPageSlot({
   selected,
   hovered,
   hidden = false,
+  shaded = false,
   onActivate,
 }: {
   pageId?: string;
@@ -37,6 +39,8 @@ export function CanvasPreviewPageSlot({
   hovered: boolean;
   /** Whether the Page's shelf is collapsed. The frame isn't in the shelf, so it hides itself. */
   hidden?: boolean;
+  /** Whether the Canvas shades the slot around the page. */
+  shaded?: boolean;
   onActivate: CanvasFrameActivate;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
@@ -123,6 +127,8 @@ export function CanvasPreviewPageSlot({
           </CanvasOverlays>,
           overlays,
         )}
+      {/* The Preview's frame covers the slot, so its edge is drawn over the frame too. */}
+      {overlays && placed && createPortal(<CanvasPageEdge shaded={shaded} />, overlays)}
     </div>
   );
 }

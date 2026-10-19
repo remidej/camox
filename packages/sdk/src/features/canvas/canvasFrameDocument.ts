@@ -4,6 +4,26 @@ import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "../preview/components/previ
 /** Freezes CSS animations, including ones that start while the frame is paused. */
 const PAUSED_ANIMATIONS_STYLE = `html[${PREVIEW_PAUSED_ATTRIBUTE}] *, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::before, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::after { animation-play-state: paused !important; }`;
 
+/** Set by the camera on elements that hold Canvas frames: see `canvasBlockOverlap`. */
+const BLOCK_OVERLAP_ATTRIBUTE = "data-canvas-block-overlap";
+const BLOCK = "[data-camox-viewport-block]";
+/** Every block after the first, in its container or a later one, covers the end of the one before. */
+const BLOCK_OVERLAP_STYLE = `:is(${BLOCK}, :has(${BLOCK})) ~ ${BLOCK}, :is(${BLOCK}, :has(${BLOCK})) ~ * ${BLOCK} { margin-top: calc(-1 * var(--camox-block-overlap, 0px)); }`;
+
+/**
+ * How far, in CSS pixels, each block in a Canvas frame overlaps the one before it.
+ * Where two blocks meet partway through a screen pixel, each covers only part of
+ * it, and whatever is under both (the site's background, often unlike either
+ * block) shows through as a light seam. Zoomed out, an overlap of at least a
+ * device pixel covers it, at the cost of about as much of a block's bottom edge. From
+ * 100%, where seams are rare, borders stay exact. Powers of two change a page's
+ * height only at a few zooms.
+ */
+export function canvasBlockOverlap(scale: number, pixelRatio: number) {
+  if (scale >= 1) return 0;
+  return 2 ** Math.max(0, Math.ceil(Math.log2(1 / (scale * pixelRatio))));
+}
+
 export function canvasPageHref(input: { runtimeBasePath: string; pathname: string; href: string }) {
   return new URL(
     `${input.runtimeBasePath.replace(/\/$/, "")}/${input.pathname.replace(/^\//, "")}`,
@@ -216,19 +236,29 @@ export function measureCanvasDocument(
   const rootRect = root.getBoundingClientRect();
   if (fit === "content") {
     // The document's own heights are at least the frame's, so only the root's count.
-    const height = Math.max(rootRect.bottom, root.scrollHeight + rootRect.top);
-    iframe.style.height = `${Math.max(1, Math.ceil(height))}px`;
+    const height = exactBottom(rootRect.bottom, root.scrollHeight + rootRect.top);
+    iframe.style.height = `${Math.max(1, height)}px`;
     return;
   }
-  iframe.style.height = `${Math.ceil(
-    Math.max(
-      baseline,
-      doc.body.scrollHeight + bodyRect.top,
-      doc.documentElement.scrollHeight,
-      rootRect.bottom,
-      root.scrollHeight + rootRect.top,
-    ),
-  )}px`;
+  const height = exactBottom(
+    Math.max(rootRect.bottom, bodyRect.bottom),
+    doc.body.scrollHeight + bodyRect.top,
+    doc.documentElement.scrollHeight,
+    root.scrollHeight + rootRect.top,
+  );
+  iframe.style.height = `${Math.max(baseline, height)}px`;
+}
+
+/**
+ * The bottom of a document's content, from its boxes' exact, often fractional,
+ * bottom. A frame any taller shows a sliver of the document's own background
+ * under the last block, which a scaled Canvas can draw as a bright line. Scroll
+ * heights are rounded to whole pixels, so they only count where content
+ * overflows past those boxes.
+ */
+function exactBottom(boxesBottom: number, ...scrollBottoms: number[]) {
+  const scrollBottom = Math.max(...scrollBottoms);
+  return scrollBottom > boxesBottom + 1 ? scrollBottom : boxesBottom;
 }
 
 /**
@@ -246,6 +276,22 @@ export function observeCanvasDocument(
   doc.documentElement.style.setProperty("--camox-viewport-height", `${baseline}px`);
   doc.documentElement.style.setProperty("overflow", "hidden", "important");
   doc.body.style.setProperty("overflow", "hidden", "important");
+  const overlapStyle = doc.createElement("style");
+  overlapStyle.textContent = BLOCK_OVERLAP_STYLE;
+  doc.head.appendChild(overlapStyle);
+  // The camera sets the overlap on an ancestor of the frame, in the host document.
+  const followOverlap = () => {
+    const overlap = iframe.closest<HTMLElement>(`[${BLOCK_OVERLAP_ATTRIBUTE}]`);
+    const pixels = Number(overlap?.getAttribute(BLOCK_OVERLAP_ATTRIBUTE)) || 0;
+    doc.documentElement.style.setProperty("--camox-block-overlap", `${pixels}px`);
+  };
+  followOverlap();
+  const overlapChanges = new MutationObserver(followOverlap);
+  overlapChanges.observe(iframe.ownerDocument.documentElement, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: [BLOCK_OVERLAP_ATTRIBUTE],
+  });
   let frame = 0;
   let disposed = false;
   const sizes = new Map<Element, string>();
@@ -311,6 +357,9 @@ export function observeCanvasDocument(
     cancelAnimationFrame(frame);
     resize.disconnect();
     mutations.disconnect();
+    overlapChanges.disconnect();
+    overlapStyle.remove();
+    doc.documentElement.style.removeProperty("--camox-block-overlap");
     doc.removeEventListener("load", schedule, true);
     doc.removeEventListener("error", schedule, true);
     doc.fonts?.removeEventListener("loadingdone", schedule);

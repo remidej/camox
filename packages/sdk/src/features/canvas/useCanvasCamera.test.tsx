@@ -1691,7 +1691,7 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     });
     resize();
     const camera = (element: { style: { getPropertyValue: (name: string) => string } }) =>
-      ["--canvas-x", "--canvas-y", "--canvas-zoom"].map((name) =>
+      ["--canvas-x", "--canvas-y", "--canvas-zoom", "--canvas-pixel-ratio"].map((name) =>
         element.style.getPropertyValue(name),
       );
     const flush = () => {
@@ -1706,8 +1706,42 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     assert.deepEqual(camera(mirror), camera(viewport), "a mirror starts with the current camera");
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "0" }));
     flush();
-    assert.notDeepEqual(camera(viewport), ["", "", ""]);
+    assert.notDeepEqual(camera(viewport), ["", "", "", ""]);
+    assert.equal(
+      mirror.style.getPropertyValue("--canvas-pixel-ratio"),
+      String(dom.devicePixelRatio),
+      "page edges in the mirror can size a device pixel",
+    );
     assert.deepEqual(camera(mirror), camera(viewport), "camera moves reach the mirror");
+    const promoted = (element: { dataset: object }) => "canvasPromoted" in element.dataset;
+    const overlap = (element: { dataset: { canvasBlockOverlap?: string } }) =>
+      Number(element.dataset.canvasBlockOverlap);
+    const zoomBy = async (key: string, times = 1) => {
+      const overlapBefore = overlap(viewport);
+      for (let count = 0; count < times; count++)
+        viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key }));
+      flush();
+      const scale = Number(viewport.style.getPropertyValue("--canvas-zoom"));
+      assert.equal(promoted(viewport), true, `a moving camera promotes its layers at ${scale}`);
+      assert.equal(promoted(mirror), true, "and the mirror's");
+      assert.equal(overlap(viewport), overlapBefore, "a moving camera never reflows frames");
+      await new Promise((resolve) => dom.setTimeout(resolve, 300));
+      assert.equal(overlap(mirror), overlap(viewport), "frames in the mirror overlap blocks alike");
+      return scale;
+    };
+    // Settled, layers stay promoted only where Chromium rasters them affordably and sharply.
+    assert.equal(await zoomBy("0"), 1);
+    assert.equal(overlap(viewport), 0, "at 100%, blocks keep their exact borders");
+    assert.equal(promoted(viewport), true, "at 100%, a layer stays promoted for the next move");
+    assert.equal(promoted(mirror), true);
+    assert.ok((await zoomBy("+")) > 1);
+    assert.equal(promoted(viewport), false, "zoomed in, settling re-rasters sharper than native");
+    assert.equal(promoted(mirror), false);
+    assert.ok((await zoomBy("-", 8)) < 0.25);
+    assert.equal(promoted(viewport), false, "zoomed far out, settling re-rasters smaller");
+    assert.equal(promoted(mirror), false);
+    assert.ok(overlap(viewport) > 0, "zoomed out, settled blocks overlap to hide seams");
+    await zoomBy("0");
     const space = (type: string) =>
       dom.document.body.dispatchEvent(
         new dom.KeyboardEvent(type, { code: "Space", key: " ", bubbles: true }),
@@ -1719,10 +1753,12 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     assert.equal(mirror.dataset.canvasPan, undefined);
 
     release();
-    assert.deepEqual(camera(mirror), ["", "", ""], "releasing clears the mirrored camera");
+    assert.deepEqual(camera(mirror), ["", "", "", ""], "releasing clears the mirrored camera");
+    assert.equal(promoted(mirror), false, "releasing demotes the mirror");
+    assert.equal(mirror.dataset.canvasBlockOverlap, undefined, "and stops its block overlap");
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
     flush();
-    assert.deepEqual(camera(mirror), ["", "", ""], "a released mirror no longer follows");
+    assert.deepEqual(camera(mirror), ["", "", "", ""], "a released mirror no longer follows");
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();

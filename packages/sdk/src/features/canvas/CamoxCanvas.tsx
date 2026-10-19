@@ -36,6 +36,7 @@ import {
   positionCanvasShelves,
 } from "./canvasItems";
 import { CanvasOverlaysShownContext } from "./CanvasOverlays";
+import { CanvasPageEdge } from "./CanvasPageEdge";
 import { CanvasPageFrame, type CanvasFrameActivate } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
 import {
@@ -504,12 +505,12 @@ function CanvasWorkspace({
           <div
             ref={contentRef}
             data-canvas-items
-            className="absolute top-0 left-0 flex w-max items-start"
+            // The camera decides when the row is promoted; see PROMOTED_ZOOM_RANGE.
+            className="absolute top-0 left-0 flex w-max items-start in-data-[canvas-promoted]:will-change-transform"
             style={{
               gap: CANVAS_SHELF_GAP,
               transform: CANVAS_WORLD_TRANSFORM,
               transformOrigin: "0 0",
-              willChange: "transform",
             }}
           >
             {shelves.map((shelf) => {
@@ -533,7 +534,7 @@ function CanvasWorkspace({
                         <CanvasSlot key={item.key} itemKey={item.key} framed={framed}>
                           <div
                             data-canvas-block={item.block._internal.id}
-                            className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                            className="bg-background relative shrink-0 shadow-xl ring-1 ring-black/10"
                             style={{ width: viewport.width }}
                           >
                             <CanvasFrameBoundary subject="block">
@@ -547,6 +548,7 @@ function CanvasWorkspace({
                                 onSelect={() => selectBlock(item.block)}
                               />
                             </CanvasFrameBoundary>
+                            <CanvasPageEdge shaded={framed} />
                           </div>
                         </CanvasSlot>
                       );
@@ -572,7 +574,7 @@ function CanvasWorkspace({
                           data-canvas-page={page.key}
                           data-canvas-pathname={pathname}
                           {...(previewed ? { [PREVIEW_PAGE_SLOT_ATTRIBUTE]: "" } : {})}
-                          className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                          className="bg-background relative shrink-0 shadow-xl ring-1 ring-black/10"
                           style={{ width: viewport.width, minHeight: viewport.height }}
                         >
                           <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
@@ -585,6 +587,7 @@ function CanvasWorkspace({
                                 selected={selected}
                                 hovered={hoveredPageKey === page.key}
                                 hidden={collapsed}
+                                shaded={framed}
                                 onActivate={onPageActivate}
                               />
                             ) : pathname ? (
@@ -604,6 +607,7 @@ function CanvasWorkspace({
                               </CanvasMessage>
                             )}
                           </CanvasFrameBoundary>
+                          <CanvasPageEdge shaded={framed} />
                         </div>
                       </CanvasSlot>
                     );
