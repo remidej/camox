@@ -17,7 +17,7 @@ import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import { RELEASE, type WriteTarget } from "../drafts/scope";
-import { publicProjectSummary } from "../projects/analytics";
+import { publicProjectSummary } from "../projects/public-summary";
 import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
 

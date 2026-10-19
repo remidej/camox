@@ -1,3 +1,4 @@
+import { ga4MeasurementIdSchema } from "@camox/api-contract/analytics";
 import { Alert, AlertDescription } from "@camox/ui/alert";
 import {
   AlertDialog,
@@ -244,20 +245,16 @@ function FaviconSection({ project }: { project: Project }) {
   );
 }
 
-/** The API's rule for a GA4 measurement ID, checked before saving. */
-const GA4_MEASUREMENT_ID = /^G-[A-Z0-9]+$/;
-
 function Ga4Row({
   projectId,
   measurementId,
-  onCancel,
-  onRemoved,
+  onClose,
 }: {
   projectId: number;
   /** The saved measurement ID, if any. */
   measurementId: string | undefined;
-  onCancel: () => void;
-  onRemoved: () => void;
+  /** Leaves the form, once cancelled or once Google Analytics is removed. */
+  onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -268,7 +265,7 @@ function Ga4Row({
       }),
     onSuccess: async (_, next) => {
       await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
-      if (next === null) onRemoved();
+      if (next === null) onClose();
       toast.success(next === null ? "Google Analytics removed" : "Google Analytics saved");
     },
     onError: (error) => {
@@ -296,7 +293,7 @@ function Ga4Row({
         name="measurementId"
         validators={{
           onSubmit: ({ value }) =>
-            GA4_MEASUREMENT_ID.test(value.trim().toUpperCase())
+            ga4MeasurementIdSchema.safeParse(value.trim().toUpperCase()).success
               ? undefined
               : "Enter a measurement ID that starts with G-, like G-A1B2C3D4E5",
         }}
@@ -332,7 +329,7 @@ function Ga4Row({
               Save changes
             </Button>
             {!measurementId && (
-              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onCancel}>
+              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onClose}>
                 Cancel
               </Button>
             )}
@@ -373,8 +370,7 @@ function AnalyticsSection({
           key={ga4?.measurementId ?? "new"}
           projectId={projectId}
           measurementId={ga4?.measurementId}
-          onCancel={() => setAddingGa4(false)}
-          onRemoved={() => setAddingGa4(false)}
+          onClose={() => setAddingGa4(false)}
         />
       ) : (
         <div className="space-y-3 rounded-lg border border-dashed p-6 text-center">

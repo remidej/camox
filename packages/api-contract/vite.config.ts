@@ -8,6 +8,7 @@ export default defineConfig({
       "src/query-keys.ts",
       "src/drafts.ts",
       "src/icon-catalog.ts",
+      "src/analytics.ts",
     ],
     format: "esm",
     platform: "neutral",

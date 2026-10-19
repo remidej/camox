@@ -116,6 +116,18 @@ export const getFirstProject = Effect.fn("projects.getFirstProject")(function* (
   return result;
 });
 
+/** A project as its organization's members read it. */
+function memberProjectView(result: {
+  project: typeof projects.$inferSelect;
+  organizationSlug: string | null;
+}) {
+  return {
+    ...result.project,
+    organizationSlug: result.organizationSlug,
+    analytics: analyticsOf(result.project),
+  };
+}
+
 export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getProjectBySlugInput>,
@@ -135,11 +147,7 @@ export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function*
   );
   if (!result) return yield* new NotFoundError();
   yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
-  return {
-    ...result.project,
-    organizationSlug: result.organizationSlug,
-    analytics: analyticsOf(result.project),
-  };
+  return memberProjectView(result);
 });
 
 export const getProject = Effect.fn("projects.getProject")(function* (
@@ -161,11 +169,7 @@ export const getProject = Effect.fn("projects.getProject")(function* (
   );
   if (!result) return yield* new NotFoundError();
   yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
-  return {
-    ...result.project,
-    organizationSlug: result.organizationSlug,
-    analytics: analyticsOf(result.project),
-  };
+  return memberProjectView(result);
 });
 
 export const checkProjectSlugAvailability = Effect.fn("projects.checkProjectSlugAvailability")(

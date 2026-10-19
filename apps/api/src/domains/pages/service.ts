@@ -20,7 +20,7 @@ import {
   pageServingProblems,
   servesPages,
 } from "../layouts/route-ownership";
-import { publicProjectSummary } from "../projects/analytics";
+import { publicProjectSummary } from "../projects/public-summary";
 import { duplicatePathIds } from "./duplicate-paths";
 import { type PageView } from "./generated-seo";
 
