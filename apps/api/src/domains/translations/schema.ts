@@ -7,7 +7,7 @@ import { projects } from "../projects/schema";
 import type { Values } from "./bookkeeping";
 
 /** What a translation job translates, as its request stores it. */
-export type TranslationRequestSource = "defaultLocale" | "defaults";
+export type TranslationRequestSource = "defaultLocale" | "defaults" | "live";
 
 /**
  * A pending translation job (ADR 0015): one per entity, locale, draft and source, from when the
@@ -29,8 +29,9 @@ export const translationRequests = sqliteTable(
     entityId: text("entity_id").notNull(),
     // The tag of the locale to translate into.
     locale: text().notNull(),
-    // What the job translates: the entity in the default locale, or the code-owned defaults it
-    // was placed with in the locale. Each settles apart.
+    // What the job translates: the entity in the default locale, the code-owned defaults it
+    // was placed with in the locale, or the entity in the default locale merged with Live's
+    // localization (`live`, ADR 0016). Each settles apart.
     source: text().notNull().default("defaultLocale").$type<TranslationRequestSource>(),
     // When a job of this key was last requested.
     requestedAt: int("requested_at").notNull(),

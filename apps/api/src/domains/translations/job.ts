@@ -21,10 +21,16 @@ import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
-import { readBookkeeping, type Values, writeBookkeeping } from "./bookkeeping";
+import {
+  type Bookkeeping,
+  readBookkeeping,
+  readStoredBookkeeping,
+  type Values,
+  writeBookkeeping,
+} from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
 import { translateDefaults } from "./defaults";
-import { type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
+import { keepEdits, type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
 import { translationScope, type TranslationScope } from "./scope";
 import { pendingRequest, settleTranslation } from "./service";
 import type { Shape } from "./texts";
@@ -93,26 +99,103 @@ const translate = Effect.fn("translation.translate")(function* (
   if (!scope) return;
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
-  const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
 
+  if (job.source === "live") {
+    const conflict = yield* liveConflictOf(db, scope, job);
+    if (!source || !conflict) return;
+    const { live, stored, written } = conflict;
+    yield* localize(db, scope, job, source, {
+      // Live's localization, merged from Live's bookkeeping, keeps what Live changed and follows
+      // what the draft's source changed since; then the draft's own hand edits are put back.
+      current: live,
+      bookkeeping: yield* readStoredBookkeeping(
+        db,
+        { draftId: null, locale: job.locale },
+        job.entity,
+        job.entityId,
+      ),
+      held: stored,
+      edits: { values: valuesOf(stored), written: written.output },
+    });
+    yield* overlay.rebase(db, scope.target, table, job.entityId, live.version);
+    return;
+  }
+
+  const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
   // A source deleted from the default locale takes its localizations along.
   if (!source) {
     if (current) yield* overlay.remove(db, scope.target, table, job.entityId);
     yield* releaseClaims(db, draft, job.locale, job.entityId);
     return;
   }
+  yield* localize(db, scope, job, source, {
+    current,
+    bookkeeping: current
+      ? yield* readBookkeeping(db, scope.target, job.entity, job.entityId)
+      : undefined,
+    held: current,
+  });
+});
 
-  const bookkeeping = current
-    ? yield* readBookkeeping(db, scope.target, job.entity, job.entityId)
-    : undefined;
+/**
+ * A conflict on a localization that a `live` job merges (ADR 0016): the copy the draft stores
+ * (`stored`), Live's localization, which moved past the copy's base, and the draft's bookkeeping
+ * of it (`written`). Undefined when there's nothing to merge: no conflict anymore, a tombstone, or
+ * a copy the draft only edited by hand, which has nothing to tell its hand edits from what Live
+ * held when the draft copied it, and stays a conflict.
+ */
+const liveConflictOf = Effect.fn("translation.liveConflictOf")(function* (
+  db: Database,
+  scope: TranslationScope,
+  job: TranslationJob,
+) {
+  const table = overlay.contentTableOf(job.entity);
+  const stored = (yield* overlay.getStored(db, scope.target, table, job.entityId)) as
+    | (Row & { deleted: boolean; baseVersion: number | null })
+    | undefined;
+  if (!stored || stored.deleted || stored.baseVersion === null) return undefined;
+  const live = (yield* overlay.get(db, { live: true, locale: job.locale }, table, job.entityId)) as
+    | (Row & { version: number })
+    | undefined;
+  if (!live || live.version === stored.baseVersion) return undefined;
+  const written = yield* readStoredBookkeeping(
+    db,
+    { draftId: scope.draft.id, locale: job.locale },
+    job.entity,
+    job.entityId,
+  );
+  return written && { stored, live, written };
+});
+
+/**
+ * Brings a localization up to date with its source: merges `current` from `bookkeeping`, puts
+ * back `edits` made by hand in another copy, and writes the result into the draft unless the
+ * draft already holds it (`held`), with its bookkeeping.
+ */
+const localize = Effect.fn("translation.localize")(function* (
+  db: Database,
+  scope: TranslationScope,
+  job: TranslationJob,
+  source: Row,
+  merging: {
+    current: Row | undefined;
+    bookkeeping: Bookkeeping | undefined;
+    held: Row | undefined;
+    edits?: { values: Values; written: Values };
+  },
+) {
+  const { draft } = scope;
+  const table = overlay.contentTableOf(job.entity);
+  const { current, held } = merging;
   const shape = yield* shapeOf(db, scope, job.entity, source);
   const merged = yield* mergeLocalization(
     shape,
     modelFor(scope),
     valuesOf(source),
     current && valuesOf(current),
-    bookkeeping,
+    merging.bookkeeping,
   );
+  if (merging.edits) keepEdits(shape, merged, merging.edits.values, merging.edits.written);
   if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
   if (job.entity === "record") {
     const record = source as typeof collectionRecords.$inferSelect;
@@ -123,12 +206,12 @@ const translate = Effect.fn("translation.translate")(function* (
   // which sits beside content and is never a change to it (ADR 0012).
   const localized = { ...copyOf(source), ...merged.values };
   let written: Row | undefined;
-  if (!current) {
+  if (!held) {
     written = (yield* overlay.insert(db, scope.target, table, {
       ...localized,
       id: job.entityId,
     })) as Row | undefined;
-  } else if (!sameValue(valuesOf(current), merged.values)) {
+  } else if (!sameValue(valuesOf(held), merged.values)) {
     written = (yield* overlay.update(db, scope.target, table, job.entityId, localized)) as
       | Row
       | undefined;

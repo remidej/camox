@@ -544,6 +544,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   yield* deleteUnreferencedBlobs(ctx, blobs);
   yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
   yield* requestLiveGeneration(ctx, scope, stored);
+  yield* translations.requestLiveMerges(ctx.db, scope, stored);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   yield* recordEnded(ctx, projectId, ended);
   return endedAs(ended);
