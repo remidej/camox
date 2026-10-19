@@ -61,7 +61,7 @@ function mockApi(
     calls.push({ path, input: body?.json, locale: request.headers.get(LOCALE_HEADER) });
     const reply = (value: unknown) => Response.json({ json: value });
     if (path === "projects/getBySlug") return reply(project);
-    if (path === "locales/missing") return reply(current);
+    if (path === "locales/listMissing") return reply(current);
     if (path === "locales/addBack") {
       const { id } = body!.json as { id: string };
       current = {
@@ -151,7 +151,7 @@ void test("lists the pages and records missing from the language viewed, records
   assert.match(section.textContent, /Missing from German \(de\)/);
   assert.match(section.textContent, /Pricing.*\/pricing/);
   assert.match(section.textContent, /Articles.*Hello/);
-  assert.deepEqual(calls.find(({ path }) => path === "locales/missing")?.locale, "de");
+  assert.deepEqual(calls.find(({ path }) => path === "locales/listMissing")?.locale, "de");
 });
 
 void test("adding a page back asks the API in the language viewed, and drops it from the list", async (t) => {
@@ -182,6 +182,34 @@ void test("adding a page back asks the API in the language viewed, and drops it 
   assert.match(section.textContent, /Hello/);
 });
 
+void test("adding a record back asks the API in the language viewed, and drops it from the list", async (t) => {
+  const calls = mockApi(t);
+  const host = await render(t, de);
+
+  const button = host.querySelector('button[aria-label="Add Hello back to German (de)"]');
+  assert.ok(button, "expected an action adding the record back");
+  await React.act(async () => {
+    (button as unknown as { click: () => void }).click();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  await settle();
+
+  assert.deepEqual(
+    calls.filter(({ path }) => path === "locales/addBack"),
+    [
+      {
+        path: "locales/addBack",
+        input: { projectId: 1, entity: "record", id: "hello" },
+        locale: "de",
+      },
+    ],
+  );
+  const section = missingSection(host);
+  assert.ok(section);
+  assert.doesNotMatch(section.textContent, /Hello/);
+  assert.match(section.textContent, /Pricing/);
+});
+
 void test("shows no records while collections aren't shown", async (t) => {
   mockApi(t, { pages: [], records: [{ id: "hello", collectionId: "articles", label: "Hello" }] });
   const host = await render(t, de, []);
@@ -195,5 +223,5 @@ void test("the default language misses nothing, so it lists nothing and asks for
   const host = await render(t, en);
 
   assert.equal(missingSection(host), undefined);
-  assert.equal(calls.filter(({ path }) => path === "locales/missing").length, 0);
+  assert.equal(calls.filter(({ path }) => path === "locales/listMissing").length, 0);
 });

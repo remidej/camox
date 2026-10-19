@@ -425,7 +425,7 @@ describe("the content missing from a locale", () => {
     });
     const inGerman = f.member({ ...f.inDraft, [LOCALE_HEADER]: "de" });
 
-    expect(await call(router.locales.missing, { projectId: f.projectId }, inGerman)).toEqual({
+    expect(await call(router.locales.listMissing, { projectId: f.projectId }, inGerman)).toEqual({
       pages: [],
       records: [{ id: f.record.id, collectionId: "articles", label: "Hello" }],
     });
@@ -443,7 +443,7 @@ describe("the content missing from a locale", () => {
       locale: "de",
     });
     expect(record.content).toMatchObject({ title: "Hallo" });
-    expect(await call(router.locales.missing, { projectId: f.projectId }, inGerman)).toEqual({
+    expect(await call(router.locales.listMissing, { projectId: f.projectId }, inGerman)).toEqual({
       pages: [],
       records: [],
     });

@@ -34,7 +34,7 @@ export const collectionMutations = {
 
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 /** The pages and records deleted from a locale, as the default locale shows them. */
-export type MissingFromLocale = Awaited<ReturnType<ApiClient["locales"]["missing"]>>;
+export type MissingFromLocale = Awaited<ReturnType<ApiClient["locales"]["listMissing"]>>;
 
 /**
  * Sends a change to the project's favicon. Unlike content writes it carries no draft: the favicon

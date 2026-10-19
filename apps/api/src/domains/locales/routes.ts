@@ -36,6 +36,6 @@ export const localeProcedures = {
   add,
   remove,
   setDefaultTag,
-  missing: listMissing,
+  listMissing,
   addBack,
 };

@@ -173,8 +173,8 @@ export const reads = {
 
   /** The pages and records deleted from the locale viewed, which members add back to it. */
   missingFromLocale: entry<{ projectId: number }, MissingFromLocale>({
-    key: ({ projectId }) => ["camox", "locales", "missing", projectId],
-    fetch: ({ api, signal }, { projectId }) => api.locales.missing({ projectId }, { signal }),
+    key: ({ projectId }) => ["camox", "locales", "listMissing", projectId],
+    fetch: ({ api, signal }, { projectId }) => api.locales.listMissing({ projectId }, { signal }),
   }),
 
   pageList: entry<{ projectSlug: string }, Page[]>({

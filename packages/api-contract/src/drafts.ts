@@ -150,7 +150,7 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   add: true,
   remove: true,
   setDefaultTag: false,
-  missing: false,
+  listMissing: false,
   addBack: true,
 };
 
