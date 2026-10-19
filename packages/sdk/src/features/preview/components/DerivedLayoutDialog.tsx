@@ -17,6 +17,7 @@ import { Label } from "@camox/ui/label";
 import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
+import { useLocalizedPath } from "@/lib/view-locale";
 
 import type { Layout } from "../../../core/createLayout";
 import { routeSegments } from "../../../core/derivedRoutes";
@@ -33,6 +34,7 @@ export function DerivedLayoutDialog({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
+  const localized = useLocalizedPath();
   const id = React.useId();
   const storageKey = `camox:derived-preview:${projectSlug}:${layout._internal.id}`;
   const [values, setValues] = React.useState<Record<string, string>>(() => {
@@ -86,7 +88,7 @@ export function DerivedLayoutDialog({
             setPending(true);
             setError(null);
             try {
-              await navigate({ to: path });
+              await navigate({ to: localized(path) });
               onClose();
             } catch {
               setError("Could not open this preview. Check the parameters and try again.");

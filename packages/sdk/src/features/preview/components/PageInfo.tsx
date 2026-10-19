@@ -48,6 +48,7 @@ import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { useLocalizedPath } from "@/lib/view-locale";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
@@ -255,6 +256,7 @@ const PageDeleteButton = ({ page }: { page: Pick<Page, "id" | "nickname" | "full
   const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
   const deletePage = useMutation(pageMutations.delete());
   const navigate = useNavigate();
+  const localized = useLocalizedPath();
 
   // The home page can't be deleted.
   if (page.fullPath === "/") return null;
@@ -263,7 +265,7 @@ const PageDeleteButton = ({ page }: { page: Pick<Page, "id" | "nickname" | "full
     try {
       await deletePage.mutateAsync({ id: page.id });
       toast.success(`Deleted ${page.nickname} page`);
-      await navigate({ to: "/" });
+      await navigate({ to: localized("/") });
     } catch (error) {
       console.error("Failed to delete page:", error);
       toast.error(`Could not delete ${page.nickname} page`);
@@ -484,6 +486,7 @@ const PageStructureEditor = ({
   const updatePage = useMutation(pageMutations.update());
   const setLayout = useMutation(pageMutations.setLayout());
   const navigate = useNavigate();
+  const localized = useLocalizedPath();
 
   const form = useForm({
     defaultValues: {
@@ -515,7 +518,7 @@ const PageStructureEditor = ({
         toast.success(`Updated ${nickname} page`);
         form.reset();
         onSaved?.();
-        await navigate({ to: fullPath });
+        await navigate({ to: localized(fullPath) });
       } catch (error) {
         console.error("Failed to update page:", error);
         toast.error("Could not update page");
@@ -788,8 +791,9 @@ const SearchEnginePreview = ({
   metaTitle: string;
   metaDescription: string;
 }) => {
+  const localized = useLocalizedPath();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}${page.fullPath}`;
+  const url = `${origin}${localized(page.fullPath)}`;
 
   return (
     <div className="space-y-1 pt-2">
@@ -842,8 +846,9 @@ const SocialPreviewSection = ({
   });
   const generatedOgImage = `/og?${ogImageParams.toString()}`;
   const ogImage = page.customOgImageUrl ?? generatedOgImage;
+  const localized = useLocalizedPath();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}${page.fullPath}`;
+  const url = `${origin}${localized(page.fullPath)}`;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const uploadCustomOgImage = useMutation({

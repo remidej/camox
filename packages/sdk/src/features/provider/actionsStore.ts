@@ -1,6 +1,12 @@
 import { createStore } from "@xstate/store-react";
 
-export type ActionGroupLabel = "Website" | "Studio" | "Navigation" | "Drafts" | "Invisible";
+export type ActionGroupLabel =
+  | "Website"
+  | "Studio"
+  | "Navigation"
+  | "Drafts"
+  | "Languages"
+  | "Invisible";
 
 export interface Action {
   id: string;

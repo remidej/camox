@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { Navigate, useLocation, useNavigate } from "@/features/navigation/navigation";
+import { Navigate, useNavigate } from "@/features/navigation/navigation";
 import {
   collectionContentPath,
   matchCollectionContentPath,
@@ -8,6 +8,7 @@ import {
   STUDIO_CONTENT_PATH,
 } from "@/features/studio/routes";
 import { useProjectSlug } from "@/lib/auth";
+import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
 import {
@@ -19,9 +20,10 @@ import { ContentAssets } from "./ContentAssets";
 import { ContentCollection, ContentCollectionItemModal } from "./ContentCollection";
 
 export const CamoxContent = () => {
-  const pathname = useLocation({ select: (location) => location.pathname });
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   if (pathname === STUDIO_CONTENT_PATH || pathname === `${STUDIO_CONTENT_PATH}/`) {
-    return <Navigate to={STUDIO_ASSETS_PATH} replace />;
+    return <Navigate to={localized(STUDIO_ASSETS_PATH)} replace />;
   }
 
   if (
@@ -42,7 +44,8 @@ export const CamoxContent = () => {
 const ExperimentalContent = () => {
   const projectSlug = useProjectSlug();
   const navigate = useNavigate();
-  const pathname = useLocation({ select: (location) => location.pathname });
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   const route = matchCollectionContentPath(pathname);
   const {
     data: collections = [],
@@ -56,9 +59,9 @@ const ExperimentalContent = () => {
       : null;
   const closeRouteTarget = useCallback(
     (target: CollectionItemModalTarget) => {
-      void navigate({ to: collectionContentPath(target.collectionId), replace: true });
+      void navigate({ to: localized(collectionContentPath(target.collectionId)), replace: true });
     },
-    [navigate],
+    [localized, navigate],
   );
 
   return (

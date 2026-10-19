@@ -25,11 +25,12 @@ import { useMutation } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { useLocation, useNavigate } from "@/features/navigation/navigation";
+import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import type { Layout } from "../../../core/createLayout";
 import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
@@ -60,7 +61,8 @@ const PagePicker = () => {
   const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
     enabled: !!project,
   });
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   const navigate = useNavigate();
 
   const closePopover = () => {
@@ -74,7 +76,7 @@ const PagePicker = () => {
       toast.success(`Deleted ${displayName} page`);
 
       if (pathname === page.fullPath) {
-        await navigate({ to: "/" });
+        await navigate({ to: localized("/") });
       }
     } catch (error) {
       console.error("Failed to delete page:", error);
@@ -112,7 +114,7 @@ const PagePicker = () => {
           previewStore.send({ type: "openEditPageModal", pageId: page.id });
           return;
         }
-        void navigate({ to: page.fullPath });
+        void navigate({ to: localized(page.fullPath) });
       }}
     >
       <div className="flex min-w-0 flex-1 items-start gap-2">
@@ -250,7 +252,9 @@ const PagePicker = () => {
                           closePopover();
                           const segments = routeSegments(layout._internal.id);
                           if (!segments.some((segment) => segment.startsWith("$"))) {
-                            void navigate({ to: `/${segments.map(encodeURIComponent).join("/")}` });
+                            void navigate({
+                              to: localized(`/${segments.map(encodeURIComponent).join("/")}`),
+                            });
                             return;
                           }
                           setLayoutToPreview(layout);

@@ -7,6 +7,7 @@ import type { CollectionRecordId } from "@/core/requestContext";
 
 import { useDraftScope } from "../../lib/draft-scope";
 import { reads, useReadQuery } from "../../lib/studio-reads";
+import { useViewLocale } from "../../lib/view-locale";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
@@ -69,8 +70,11 @@ export function useFollowPageRecord({
     reads.record({ projectSlug, collectionId: record?.collectionId ?? "", id: record?.id ?? "" }),
     { enabled: false, select: (saved) => saved.updatedAt },
   );
+  const { locale } = useViewLocale();
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
-    if (!layoutId || !record) return;
+    // Route discovery finds a record's path in the default locale only, so another locale's
+    // record page stays where it is.
+    if (!layoutId || !record || !locale.isDefault) return;
     const response = await fetchRuntimeJson(
       draftScope,
       "/_camox/routes",

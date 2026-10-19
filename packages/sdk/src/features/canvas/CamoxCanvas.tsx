@@ -4,8 +4,10 @@ import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
+import { parseLocalePath } from "../../lib/locale-path";
 import { pageMutations } from "../../lib/queries";
 import { reads, useReadQueries, useReadQuery, useStudioCache } from "../../lib/studio-reads";
+import { useLocalizedPath, useViewLocale } from "../../lib/view-locale";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import type { ReleaseEditingFrame } from "../preview/editingFrame";
@@ -331,6 +333,7 @@ function CanvasWorkspace({
   const location = useLocation();
   const navigate = useNavigate();
   const previewPageFrame = React.use(PreviewPageFrameContext);
+  const localized = useLocalizedPath();
   const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
   const selectedPath = location.pathname;
   const previewedPath = previewPageFrame?.pathname;
@@ -339,7 +342,7 @@ function CanvasWorkspace({
     onSelectionIntent(pathname);
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
-  const selectBlock = (block: Block) => selectPage(blockCatalogPath(block._internal.id));
+  const selectBlock = (block: Block) => selectPage(localized(blockCatalogPath(block._internal.id)));
   const workspaceKey = JSON.stringify([apiUrl, projectSlug, runtimeBasePath]);
   // Keep other derived layout previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
@@ -402,7 +405,7 @@ function CanvasWorkspace({
         if (pathname) selectPage(pathname);
       },
       selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
-      onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
+      onDeselect: () => selectPage(localized(STUDIO_CANVAS_PATH)),
       // The camera snapped onto an item from a scroll, swipe or zoom: flash a
       // ring around the viewport so the snap reads as locking onto it.
       onSnap: () => {
@@ -465,7 +468,7 @@ function CanvasWorkspace({
       if (!shelf || !item) return;
       const pathname =
         item.kind === "block"
-          ? blockCatalogPath(item.block._internal.id)
+          ? localized(blockCatalogPath(item.block._internal.id))
           : pageSlots.get(key)?.pathname;
       if (pathname && pathname !== selectedPath) {
         void navigate({ to: `${pathname}${location.search}${location.hash}` });
@@ -475,7 +478,7 @@ function CanvasWorkspace({
       setPendingFlight(key);
     },
     showWholeCanvas() {
-      selectPage(STUDIO_CANVAS_PATH);
+      selectPage(localized(STUDIO_CANVAS_PATH));
       fitAll();
     },
   }));
@@ -643,8 +646,9 @@ function CanvasWorkspace({
                 selectPage(pathname);
               }}
               onChange={(path) => {
-                setPreviewPathnames((current) => ({ ...current, [page.key]: path }));
-                selectPage(path);
+                const inLocale = localized(path);
+                setPreviewPathnames((current) => ({ ...current, [page.key]: inLocale }));
+                selectPage(inLocale);
               }}
             />
           </CanvasHeaderSlot>
@@ -727,14 +731,19 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     enabled: !!project.data,
   });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
+  const viewLocale = useViewLocale();
   const canvasPages = pages.data
-    ? getCanvasPages(pages.data, app.getLayouts(), discoveredPaths)
+    ? getCanvasPages(pages.data, app.getLayouts(), discoveredPaths, viewLocale.locale)
     : [];
   // The Page or block of the Block Catalog a pathname selects, if any.
-  const selectionAt = (pathname: string) => {
+  const selectionAt = (runtimePath: string) => {
+    const pathname = parseLocalePath(runtimePath, viewLocale.locales).path;
     if (pathname === STUDIO_CANVAS_PATH) return {};
     const blockId = matchBlockCatalogPath(pathname);
-    if (!blockId) return { page: selectedCanvasPage(canvasPages, app.getLayouts(), pathname) };
+    if (!blockId)
+      return {
+        page: selectedCanvasPage(canvasPages, app.getLayouts(), runtimePath, viewLocale.locales),
+      };
     const block = app.getBlockById(blockId);
     return { block: block && !block._internal.layoutOnly ? block : undefined };
   };
@@ -772,7 +781,10 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   React.useEffect(() => {
     if (project.isPending || pages.isPending || project.error || pages.error) return;
     // Without a selected Page, no frame needs to load first: the Canvas is ready once laid out.
-    if (selectedBlock || location.pathname === STUDIO_CANVAS_PATH) {
+    if (
+      selectedBlock ||
+      parseLocalePath(location.pathname, viewLocale.locales).path === STUDIO_CANVAS_PATH
+    ) {
       preparation?.ready();
       return;
     }
@@ -786,6 +798,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     selectedPage,
     selectedBlock,
     location.pathname,
+    viewLocale.locales,
     preparation,
   ]);
   if (project.error || pages.error) {

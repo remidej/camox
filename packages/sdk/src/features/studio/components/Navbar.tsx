@@ -4,9 +4,10 @@ import { Globe, SearchIcon, Database } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
 
-import { Link, useLocation, useNavigate, type LinkProps } from "@/features/navigation/navigation";
+import { Link, useNavigate, type LinkProps } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
+import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import { PlatformLabel } from "../../../components/PlatformLabel";
 import type { Action } from "../../provider/actionsStore";
@@ -14,6 +15,7 @@ import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
 import { studioStore } from "../studioStore";
 import { DraftsControl } from "./DraftsControl";
+import { LocalePicker } from "./LocalePicker";
 import { ProjectMenu } from "./ProjectMenu";
 import { UserButton } from "./UserButton";
 
@@ -58,7 +60,8 @@ export const isContentNavbarPath = (pathname: string) =>
 const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
   const pages = usePageDestinations();
 
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   return (
     <nav className="bg-background relative flex items-center justify-between gap-4 border-b-2 px-2 py-2">
       <div className="flex flex-row gap-2">
@@ -74,7 +77,7 @@ const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
             return (
               <li key={link.to}>
                 <Link
-                  to={link.to}
+                  to={localized(link.to) as LinkProps["to"]}
                   className={cn(
                     // common layout styles
                     "flex gap-2 items-center rounded-md px-4 py-2 text-sm font-medium",
@@ -97,6 +100,7 @@ const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
         </ul>
       </div>
       <div className="flex items-center gap-2">
+        <LocalePicker />
         <DraftsControl />
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />
@@ -113,6 +117,7 @@ const Navbar = ({ isWebsite = false }: { isWebsite?: boolean }) => {
 
 function useNavbarActions() {
   const navigate = useNavigate();
+  const localized = useLocalizedPath();
 
   React.useEffect(() => {
     const actions = getNavbarLinks().map((link, index) => ({
@@ -121,7 +126,7 @@ function useNavbarActions() {
       groupLabel: "Navigation",
       checkIfAvailable: () => true,
       execute: () => {
-        void navigate({ to: link.to });
+        void navigate({ to: localized(link.to) });
       },
       shortcut: { key: String(index + 1) },
       icon: link.icon,
@@ -136,7 +141,7 @@ function useNavbarActions() {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [navigate]);
+  }, [localized, navigate]);
 }
 
 export { Navbar, useNavbarActions };

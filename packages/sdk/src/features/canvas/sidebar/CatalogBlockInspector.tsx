@@ -1,5 +1,6 @@
 import type { Block } from "../../../core/createBlock";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
+import { useLocalizedPath } from "../../../lib/view-locale";
 import { useLocation, useNavigate } from "../../navigation/navigation";
 import {
   CanvasInspectorBody,
@@ -21,6 +22,7 @@ function PagesMessage({ role, children }: { role?: "status" | "alert"; children:
  */
 function PlacementPages({ block, projectId }: { block: Block; projectId: number }) {
   const { search, hash } = useLocation();
+  const localized = useLocalizedPath();
   const navigate = useNavigate();
   const pages = useReadQuery(reads.pagesUsingBlock({ projectId, type: block._internal.id }));
   if (pages.isPending) return <PagesMessage role="status">Loading pages…</PagesMessage>;
@@ -35,7 +37,7 @@ function PlacementPages({ block, projectId }: { block: Block; projectId: number 
           <button
             type="button"
             className="hover:bg-accent focus-visible:ring-ring flex w-full min-w-0 items-baseline justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2"
-            onClick={() => void navigate({ to: `${page.fullPath}${search}${hash}` })}
+            onClick={() => void navigate({ to: `${localized(page.fullPath)}${search}${hash}` })}
           >
             <span className="truncate">{page.nickname}</span>
             <span className="text-muted-foreground truncate">{page.fullPath}</span>

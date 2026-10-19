@@ -1,15 +1,15 @@
 import { useMutation } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 
-import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { blockMutations } from "@/lib/queries";
 import { reads, useStudioCache } from "@/lib/studio-reads";
+import { useLocalePath } from "@/lib/view-locale";
 
 export function useUpdateBlockPosition() {
   const studioCache = useStudioCache();
   const projectSlug = useProjectSlug();
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
 
   return useMutation({
     ...blockMutations.updatePosition(),
