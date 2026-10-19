@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import {
   adaptCanvasStyleSheets,
   adoptCanvasDocument,
+  canvasBlockOverlap,
   canvasPageHref,
   createCanvasDocument,
   logicalViewportValue,
@@ -255,7 +256,7 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   const doc = window.document;
   const root = doc.createElement("div");
   doc.body.appendChild(root);
-  const iframe = { style: { height: "800px" } };
+  const iframe = { style: { height: "800px" }, closest: () => null, ownerDocument: doc };
   let contentHeight = 1800;
   let queued: FrameRequestCallback | undefined;
   let resizeCallback: ResizeObserverCallback | undefined;
@@ -306,7 +307,7 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   });
   Object.defineProperty(root, "scrollHeight", { get: () => contentHeight });
   const cleanup = observeCanvasDocument(
-    iframe as HTMLIFrameElement,
+    iframe as unknown as HTMLIFrameElement,
     root as unknown as HTMLElement,
     800,
   );
@@ -349,7 +350,7 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   mutate("attributes", doc.body, "style");
   assert.notEqual(queued, undefined, "the document's own inline styles re-measure");
   cleanup();
-  assert.equal(disconnected, 2);
+  assert.equal(disconnected, 3);
   assert.equal(queued, undefined);
   void window.happyDOM.close();
 });
@@ -380,6 +381,78 @@ void test("a frame ends exactly where its content does, unless content overflows
   scrollHeight = 401;
   measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, "page");
   assert.equal(iframe.style.height, "800px", "a page is still at least as tall as the viewport");
+});
+
+void test("zoomed out, blocks overlap by at least a device pixel; from 100%, not at all", () => {
+  for (const pixelRatio of [1, 1.5, 2, 3])
+    for (let scale = 0.1; scale < 1; scale += 0.01) {
+      const devicePixels = canvasBlockOverlap(scale, pixelRatio) * scale * pixelRatio;
+      assert.ok(devicePixels >= 1, `covers a seam at ${scale} on ${pixelRatio}x`);
+      // Hides at most one more device pixel of a block, or a single CSS pixel.
+      assert.ok(devicePixels < 2 || canvasBlockOverlap(scale, pixelRatio) === 1);
+    }
+  for (const scale of [1, 1.5, 2]) assert.equal(canvasBlockOverlap(scale, 2), 0);
+});
+
+void test("a frame's blocks overlap as much as the frame's Canvas says, until it stops", (t) => {
+  const window = new Window();
+  const doc = window.document;
+  const root = doc.createElement("div");
+  doc.body.appendChild(root);
+  const host = new Window().document;
+  const holder = host.createElement("div");
+  holder.setAttribute("data-canvas-block-overlap", "4");
+  const iframe = host.createElement("iframe");
+  holder.appendChild(iframe);
+  host.body.appendChild(holder);
+  const observers: { callback: MutationCallback; target: unknown; options: unknown }[] = [];
+  for (const [key, value] of [
+    ["requestAnimationFrame", () => 1],
+    ["cancelAnimationFrame", () => {}],
+    [
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    ],
+    [
+      "MutationObserver",
+      class {
+        constructor(private callback: MutationCallback) {}
+        observe(target: unknown, options: unknown) {
+          observers.push({ callback: this.callback, target, options });
+        }
+        disconnect() {}
+      },
+    ],
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    t.after(() => {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    });
+  }
+  const overlap = () => doc.documentElement.style.getPropertyValue("--camox-block-overlap");
+  const styles = () => doc.head.querySelectorAll("style").length;
+  const before = styles();
+  const stop = observeCanvasDocument(
+    iframe as unknown as HTMLIFrameElement,
+    root as unknown as HTMLElement,
+    800,
+  );
+  assert.equal(overlap(), "4px");
+  const watcher = observers.find(({ target }) => target === host.documentElement);
+  assert.ok(watcher, "the frame watches its host document");
+  holder.setAttribute("data-canvas-block-overlap", "0");
+  watcher.callback([], {} as MutationObserver);
+  assert.equal(overlap(), "0px", "settling at 100% removes the overlap");
+  stop();
+  assert.equal(overlap(), "");
+  assert.equal(styles(), before);
+  void window.happyDOM.close();
 });
 
 void test("an adopted document fills the Canvas, then the Preview again exactly as before", (t) => {
@@ -429,7 +502,7 @@ void test("an adopted document fills the Canvas, then the Preview again exactly 
     assert.equal(element.style.getPropertyValue("overflow"), "hidden");
     assert.equal(element.style.getPropertyValue("overscroll-behavior"), "none");
   }
-  assert.equal(styles(), before + 1, "CSS animations can pause with the frame");
+  assert.equal(styles(), before + 2, "CSS animations can pause with the frame; blocks can overlap");
 
   undo();
   assert.equal(iframe.style.height, "");

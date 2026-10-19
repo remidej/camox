@@ -33,23 +33,22 @@ import {
   type CanvasVerticalRail,
 } from "./canvasCamera";
 import { createCanvasFlight } from "./canvasFlight";
+import { canvasBlockOverlap } from "./canvasFrameDocument";
 import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
 /** A zoom ends once its input pauses this long; a stretch past a limit then springs back. */
 const ZOOM_END_MS = 120;
-const CAMERA_PROPERTIES = ["--canvas-x", "--canvas-y", "--canvas-zoom"];
+const CAMERA_PROPERTIES = ["--canvas-x", "--canvas-y", "--canvas-zoom", "--canvas-pixel-ratio"];
 /** The camera counts as moving until it has been still this long. */
 const CAMERA_SETTLE_MS = 150;
 /**
  * At rest, zooms where layers that scale with the camera stay promoted
- * (`data-canvas-promoted`, for `will-change: transform`). Chromium rasters a
- * promoted layer at the screen's native resolution from a quarter of it, and the
- * GPU scales it down: edges stay seamless, where rastering at a fractional zoom
- * leaks a hairline of the page's background between blocks. Below this range the
- * layer would keep the larger raster scale it had, and run out of tile memory;
- * above it the native resolution is blurry. Outside it, layers are promoted only
- * while the camera moves, so the browser re-rasters them at their zoom once it settles.
+ * (`data-canvas-promoted`, for `will-change: transform`), so a movement starts
+ * on tiles already drawn. Below this range a promoted layer keeps the larger
+ * raster scale it had and runs out of tile memory; above it, the raster blurs.
+ * Outside it, layers are promoted only while the camera moves, so the browser
+ * re-rasters them at their zoom once it settles.
  */
 const PROMOTED_ZOOM_RANGE = { min: 0.25, max: 1 };
 
@@ -135,6 +134,7 @@ export function useCanvasCamera(
       for (const name of CAMERA_PROPERTIES) element.style.removeProperty(name);
       delete element.dataset.canvasPan;
       delete element.dataset.canvasPromoted;
+      delete element.dataset.canvasBlockOverlap;
     };
   }, []);
   /**
@@ -428,8 +428,17 @@ export function useCanvasCamera(
         else delete element.dataset.canvasPromoted;
       }
     };
+    // Overlapping blocks reflows their frames, so it changes only at rest.
+    const paintBlockOverlap = () => {
+      if (settle) return;
+      const overlap = String(canvasBlockOverlap(camera.scale, ownerWindow.devicePixelRatio));
+      for (const element of [viewport, ...mirrors.current])
+        if (element.dataset.canvasBlockOverlap !== overlap)
+          element.dataset.canvasBlockOverlap = overlap;
+    };
     const setMoving = (moving: boolean) => {
       paintPromotion();
+      paintBlockOverlap();
       canvasStore.send({ type: "setCameraMoving", workspaceKey, moving });
     };
     const markMoving = () => {
@@ -445,16 +454,20 @@ export function useCanvasCamera(
       element.style.setProperty("--canvas-x", `${camera.x}px`);
       element.style.setProperty("--canvas-y", `${camera.y}px`);
       element.style.setProperty("--canvas-zoom", String(camera.scale));
+      // With the zoom, sizes a screen's device pixel in the Canvas world.
+      element.style.setProperty("--canvas-pixel-ratio", String(ownerWindow.devicePixelRatio));
     };
     paintMirror.current = (element) => {
       paintElement(element);
       paintPanState();
       paintPromotion();
+      paintBlockOverlap();
     };
     const paint = () => {
       paintElement(viewport);
       for (const element of mirrors.current) paintElement(element);
       paintPromotion();
+      paintBlockOverlap();
       remember();
     };
     const animate = (time: number) => {
@@ -923,6 +936,7 @@ export function useCanvasCamera(
       ownerWindow.removeEventListener("blur", releaseSpace);
       delete viewport.dataset.canvasPan;
       delete viewport.dataset.canvasPromoted;
+      delete viewport.dataset.canvasBlockOverlap;
       paintMirror.current = null;
     };
   }, [workspaceKey, continuity]);
