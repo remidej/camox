@@ -12,12 +12,12 @@ import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
 import {
-  CollectionItemModalProvider,
-  type CollectionItemModalTarget,
-} from "./CollectionItemModalContext";
+  CollectionItemSheetProvider,
+  type CollectionItemSheetTarget,
+} from "./CollectionItemSheetContext";
 import { ContentSidebar } from "./components/ContentSidebar";
 import { ContentAssets } from "./ContentAssets";
-import { ContentCollection, ContentCollectionItemModal } from "./ContentCollection";
+import { ContentCollection, ContentCollectionItemSheet } from "./ContentCollection";
 
 export const CamoxContent = () => {
   const pathname = useLocalePath();
@@ -58,14 +58,14 @@ const ExperimentalContent = () => {
       ? { collectionId: route.collectionId, itemId: route.itemId }
       : null;
   const closeRouteTarget = useCallback(
-    (target: CollectionItemModalTarget) => {
+    (target: CollectionItemSheetTarget) => {
       void navigate({ to: localized(collectionContentPath(target.collectionId)), replace: true });
     },
     [localized, navigate],
   );
 
   return (
-    <CollectionItemModalProvider routeTarget={routeTarget} onRouteTargetClose={closeRouteTarget}>
+    <CollectionItemSheetProvider routeTarget={routeTarget} onRouteTargetClose={closeRouteTarget}>
       <div className="flex min-h-0 flex-1 flex-row">
         <ContentSidebar
           collections={collections}
@@ -86,7 +86,7 @@ const ExperimentalContent = () => {
           <ContentAssets />
         )}
       </div>
-      <ContentCollectionItemModal projectSlug={projectSlug} />
-    </CollectionItemModalProvider>
+      <ContentCollectionItemSheet projectSlug={projectSlug} />
+    </CollectionItemSheetProvider>
   );
 };
