@@ -152,6 +152,22 @@ describe("Analytics providers", () => {
     expect((await f.memberRead()).analytics).toEqual({ ga4: null, posthog: null });
   });
 
+  it("forbids someone outside the project's organization from removing a provider", async () => {
+    const f = await fixture();
+    const providers = {
+      ga4: { measurementId: "G-ABC123XYZ9" },
+      posthog: { projectApiKey: "phc_abc123", region: "us" },
+    };
+    await f.setGa4(providers.ga4.measurementId);
+    await f.setPosthog(providers.posthog);
+
+    await expect(f.setGa4(null, f.outsiderUser)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(f.setPosthog(null, f.outsiderUser)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect((await f.memberRead()).analytics).toEqual(providers);
+  });
+
   it("the public page data carries the providers, the same in every draft as on Live", async () => {
     const f = await fixture();
     await callSeedingLive(

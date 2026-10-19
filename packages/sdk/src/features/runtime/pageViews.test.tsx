@@ -190,6 +190,20 @@ void test("a visitor's navigations each send one PostHog page view, Back and For
   ]);
 });
 
+void test("a search-only change on the same page sends no PostHog page view, even back from it", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: POSTHOG });
+  await page.settle();
+  const top = page.window.history.state;
+  const sentBefore = posthogPageViews(page.posthogCalls).length;
+
+  await page.click("to-pricing-plan");
+  assert.equal(page.window.location.href, "https://site.test/pricing?plan=pro");
+  await page.traverse("/pricing", top);
+
+  assert.equal(page.shownPage(), "/pricing");
+  assert.equal(posthogPageViews(page.posthogCalls).length, sentBefore);
+});
+
 void test("with GA4 and PostHog, each gets exactly one page view per page", async (t) => {
   const page = await openPage(t, "https://site.test/pricing", {
     analytics: BOTH,
