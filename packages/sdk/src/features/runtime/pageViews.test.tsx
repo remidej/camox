@@ -25,6 +25,12 @@ void test("a visitor's page sends one GA4 page view on first load, with its path
   ]);
 });
 
+void test("a visitor's page sends one GA4 page view even when React runs its effects twice", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4, strictMode: true });
+  await page.settle();
+  assert.equal(pageViews(page.gtagCalls).length, 1);
+});
+
 void test("the studio presentation sends no page view", async (t) => {
   const page = await openPage(t, "https://site.test/pricing", { analytics: GA4, studio: true });
   await page.settle();

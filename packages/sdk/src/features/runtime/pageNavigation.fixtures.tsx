@@ -35,8 +35,11 @@ export async function openPage(
   {
     studio = false,
     analytics,
+    strictMode = false,
   }: {
     studio?: boolean;
+    /** Renders in React's StrictMode, which runs every effect twice on mount. */
+    strictMode?: boolean;
     /** The analytics providers the server loaded, which only the document's render input carries. */
     analytics?: AnalyticsProviders;
   } = {},
@@ -139,6 +142,7 @@ export async function openPage(
 
   const { createRoot } = await import("react-dom/client");
   let root: ReturnType<typeof createRoot> | null = null;
+  const Mode = strictMode ? React.StrictMode : React.Fragment;
   const mount = async () => {
     root = createRoot(document.getElementById("root")!);
     const initial = {
@@ -150,23 +154,25 @@ export async function openPage(
     document.title = titleOf(window.location.pathname);
     await React.act(async () => {
       root!.render(
-        <StudioScopeProvider client={queryClient}>
-          <PageNavigationProvider
-            camoxApp={createApp({ blocks: [] })}
-            initialInput={initial}
-            queryClient={queryClient}
-          >
-            {(input) =>
-              studio ? (
-                <PreviewDocumentContext.Provider value={input.previewDocument}>
-                  <Frame>{page(input)}</Frame>
-                </PreviewDocumentContext.Provider>
-              ) : (
-                page(input)
-              )
-            }
-          </PageNavigationProvider>
-        </StudioScopeProvider>,
+        <Mode>
+          <StudioScopeProvider client={queryClient}>
+            <PageNavigationProvider
+              camoxApp={createApp({ blocks: [] })}
+              initialInput={initial}
+              queryClient={queryClient}
+            >
+              {(input) =>
+                studio ? (
+                  <PreviewDocumentContext.Provider value={input.previewDocument}>
+                    <Frame>{page(input)}</Frame>
+                  </PreviewDocumentContext.Provider>
+                ) : (
+                  page(input)
+                )
+              }
+            </PageNavigationProvider>
+          </StudioScopeProvider>
+        </Mode>,
       );
     });
     await loadFrame();

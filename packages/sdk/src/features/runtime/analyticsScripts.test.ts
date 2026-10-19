@@ -106,7 +106,24 @@ async function request(
     new Request(`https://site.test${path}`, { headers: cookie ? { Cookie: cookie } : {} }),
     { ...runtimeOptions, developmentDraft },
   );
-  return response!.text();
+  return { body: await response!.text(), kind: kindOf(response!.headers.get("Content-Type")) };
+}
+
+type Reply = Awaited<ReturnType<typeof request>>;
+
+/** What a response is: an HTML document, the data route's render input, or Markdown. */
+function kindOf(contentType: string | null) {
+  const mediaType = contentType?.split(";")[0];
+  switch (mediaType) {
+    case "text/html":
+      return "document" as const;
+    case "application/json":
+      return "data" as const;
+    case "text/markdown":
+      return "markdown" as const;
+    default:
+      throw new Error(`Unexpected content type: ${contentType}`);
+  }
 }
 
 /** The scripts a document loads from elsewhere. */
@@ -131,14 +148,28 @@ function gtagCommands(html: string) {
   return JSON.parse(JSON.stringify(commands)) as unknown[][];
 }
 
+/** The render input a document hydrates with, if it has one. */
 function hydrationInput(html: string) {
   const json = html.match(
     /<script id="__CAMOX_DATA__" type="application\/json">([\s\S]*?)<\/script>/,
   );
-  return JSON.parse(json![1]!) as PageRenderInput;
+  return json ? (JSON.parse(json[1]!) as PageRenderInput) : undefined;
 }
 
-function assertCountsVisitor(html: string, label: string) {
+/** The render input a reply carries: the data route answers with it, a document embeds it. */
+function renderInput({ body, kind }: Reply) {
+  switch (kind) {
+    case "data":
+      return JSON.parse(body) as PageRenderInput;
+    case "document":
+      return hydrationInput(body);
+    case "markdown":
+      return undefined;
+  }
+}
+
+function assertCountsVisitor({ body: html, kind }: Reply, label: string) {
+  assert.equal(kind, "document", label);
   const gtag = externalScripts(html).find(({ src }) =>
     src.startsWith("https://www.googletagmanager.com/gtag/js"),
   );
@@ -148,22 +179,16 @@ function assertCountsVisitor(html: string, label: string) {
   const config = gtagCommands(html).find(([command]) => command === "config");
   assert.deepEqual(config, ["config", MEASUREMENT_ID, { send_page_view: false }], label);
   assert.deepEqual(
-    hydrationInput(html).analytics,
+    hydrationInput(html)?.analytics,
     { ga4: { measurementId: MEASUREMENT_ID } },
     `${label}: the page client sends the page views`,
   );
 }
 
-function assertCountsNobody(html: string, label: string) {
-  assert.doesNotMatch(html, /googletagmanager/, label);
-  assert.deepEqual(gtagCommands(html), [], label);
-  // The data route answers with the render input itself.
-  const input = html.startsWith("{")
-    ? (JSON.parse(html) as PageRenderInput)
-    : html.includes("__CAMOX_DATA__")
-      ? hydrationInput(html)
-      : undefined;
-  assert.equal(input?.analytics, undefined, label);
+function assertCountsNobody(reply: Reply, label: string) {
+  assert.doesNotMatch(reply.body, /googletagmanager/, label);
+  if (reply.kind === "document") assert.deepEqual(gtagCommands(reply.body), [], label);
+  assert.equal(renderInput(reply)?.analytics, undefined, label);
 }
 
 const PAGES = ["/about", "/pokedex"];
@@ -189,7 +214,7 @@ void test("a member's page loads no analytics, on Live or in a draft", async (t)
   }
 });
 
-void test("dev mode loads no analytics, for members or anyone else", async (t) => {
+void test("a development draft's pages load no analytics, for members or anyone else", async (t) => {
   mockApi(t);
   for (const path of PAGES) {
     for (const cookie of [MEMBER_SESSION, undefined]) {

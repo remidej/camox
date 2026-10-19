@@ -1,7 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { callSeedingLive, createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
@@ -22,6 +22,10 @@ async function fixture() {
 }
 
 describe("Analytics providers", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("a member adds, changes and removes a GA4 measurement ID", async () => {
     const f = await fixture();
     expect((await f.memberRead()).analytics.ga4).toBeNull();
@@ -39,8 +43,11 @@ describe("Analytics providers", () => {
   it("changing a provider bumps the project's updated time", async () => {
     const f = await fixture();
     const before = (await f.memberRead()).updatedAt;
+    // A later clock, so the bump can't land in the same millisecond as the project's creation.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(before + 60_000);
     await f.setGa4("G-ABC123XYZ9");
-    expect((await f.memberRead()).updatedAt).toBeGreaterThan(before);
+    expect((await f.memberRead()).updatedAt).toBe(before + 60_000);
   });
 
   it("rejects a malformed GA4 measurement ID", async () => {
