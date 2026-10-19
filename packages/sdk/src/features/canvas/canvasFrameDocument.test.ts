@@ -9,6 +9,7 @@ import {
   canvasPageHref,
   createCanvasDocument,
   logicalViewportValue,
+  measureCanvasDocument,
   observeCanvasDocument,
   pauseCanvasDocument,
 } from "./canvasFrameDocument";
@@ -351,6 +352,34 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   assert.equal(disconnected, 2);
   assert.equal(queued, undefined);
   void window.happyDOM.close();
+});
+
+void test("a frame ends exactly where its content does, unless content overflows its boxes", () => {
+  const window = new Window();
+  const doc = window.document;
+  const root = doc.createElement("div");
+  doc.body.appendChild(root);
+  const iframe = { style: { height: "" } } as HTMLIFrameElement;
+  let bottom = 1539.5;
+  let scrollHeight = 1540;
+  for (const element of [root, doc.body])
+    Object.defineProperty(element, "getBoundingClientRect", { value: () => ({ top: 0, bottom }) });
+  for (const element of [root, doc.body, doc.documentElement])
+    Object.defineProperty(element, "scrollHeight", { get: () => scrollHeight });
+  for (const fit of ["page", "content"] as const) {
+    bottom = 1539.5;
+    scrollHeight = 1540;
+    measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, fit);
+    // Rounding up would show a sliver of the document's background under the last block.
+    assert.equal(iframe.style.height, "1539.5px", `${fit}: rounded scroll heights don't count`);
+    scrollHeight = 1600;
+    measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, fit);
+    assert.equal(iframe.style.height, "1600px", `${fit}: overflowing content does`);
+  }
+  bottom = 400.5;
+  scrollHeight = 401;
+  measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, "page");
+  assert.equal(iframe.style.height, "800px", "a page is still at least as tall as the viewport");
 });
 
 void test("an adopted document fills the Canvas, then the Preview again exactly as before", (t) => {

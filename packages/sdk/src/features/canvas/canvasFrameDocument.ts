@@ -216,19 +216,29 @@ export function measureCanvasDocument(
   const rootRect = root.getBoundingClientRect();
   if (fit === "content") {
     // The document's own heights are at least the frame's, so only the root's count.
-    const height = Math.max(rootRect.bottom, root.scrollHeight + rootRect.top);
-    iframe.style.height = `${Math.max(1, Math.ceil(height))}px`;
+    const height = exactBottom(rootRect.bottom, root.scrollHeight + rootRect.top);
+    iframe.style.height = `${Math.max(1, height)}px`;
     return;
   }
-  iframe.style.height = `${Math.ceil(
-    Math.max(
-      baseline,
-      doc.body.scrollHeight + bodyRect.top,
-      doc.documentElement.scrollHeight,
-      rootRect.bottom,
-      root.scrollHeight + rootRect.top,
-    ),
-  )}px`;
+  const height = exactBottom(
+    Math.max(rootRect.bottom, bodyRect.bottom),
+    doc.body.scrollHeight + bodyRect.top,
+    doc.documentElement.scrollHeight,
+    root.scrollHeight + rootRect.top,
+  );
+  iframe.style.height = `${Math.max(baseline, height)}px`;
+}
+
+/**
+ * The bottom of a document's content, from its boxes' exact, often fractional,
+ * bottom. A frame any taller shows a sliver of the document's own background
+ * under the last block, which a scaled Canvas can draw as a bright line. Scroll
+ * heights are rounded to whole pixels, so they only count where content
+ * overflows past those boxes.
+ */
+function exactBottom(boxesBottom: number, ...scrollBottoms: number[]) {
+  const scrollBottom = Math.max(...scrollBottoms);
+  return scrollBottom > boxesBottom + 1 ? scrollBottom : boxesBottom;
 }
 
 /**

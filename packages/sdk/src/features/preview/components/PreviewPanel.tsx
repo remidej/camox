@@ -209,7 +209,13 @@ function PreviewPageCanvasEffects({ owner }: { owner: EditingOwner | null }) {
   React.useLayoutEffect(() => {
     if (!frame || !iframeElement || !root || viewportHeight === undefined) return;
     const undo = adoptCanvasDocument(iframeElement, root, viewportHeight);
-    const report = () => frame.setHeight(iframeElement.offsetHeight);
+    // The exact height: rounding it would size the slot under the frame a sliver taller.
+    const report = () =>
+      frame.setHeight(
+        Number.parseFloat(
+          iframeElement.ownerDocument.defaultView!.getComputedStyle(iframeElement).height,
+        ),
+      );
     // The first height places the frame before paint. Later ones resize the slot, which
     // the camera observes too, so they wait for the next frame rather than loop observers.
     report();
@@ -341,7 +347,8 @@ const PreviewPanel = ({
           <div
             data-preview-page-host
             className={cn(
-              placed && "absolute top-0 left-0",
+              // Promoted like the Canvas row, by the camera painting onto the clip.
+              placed && "absolute top-0 left-0 in-data-[canvas-promoted]:will-change-transform",
               !placed && !device && "h-full w-full",
               device && cn("relative overflow-hidden", viewportClassName[viewportMode]),
             )}
@@ -352,7 +359,6 @@ const PreviewPanel = ({
                     // The camera paints its variables onto the clip, like onto the viewport.
                     transform: `translate(calc(var(--canvas-x, 0px) + ${placed.left}px * var(--canvas-zoom, 1)), calc(var(--canvas-y, 0px) + ${placed.top}px * var(--canvas-zoom, 1))) scale(var(--canvas-zoom, 1))`,
                     transformOrigin: "0 0",
-                    willChange: "transform",
                   }
                 : undefined
             }

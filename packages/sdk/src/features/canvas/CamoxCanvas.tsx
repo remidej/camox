@@ -504,12 +504,12 @@ function CanvasWorkspace({
           <div
             ref={contentRef}
             data-canvas-items
-            className="absolute top-0 left-0 flex w-max items-start"
+            // The camera decides when the row is promoted; see PROMOTED_ZOOM_RANGE.
+            className="absolute top-0 left-0 flex w-max items-start in-data-[canvas-promoted]:will-change-transform"
             style={{
               gap: CANVAS_SHELF_GAP,
               transform: CANVAS_WORLD_TRANSFORM,
               transformOrigin: "0 0",
-              willChange: "transform",
             }}
           >
             {shelves.map((shelf) => {

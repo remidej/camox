@@ -41,6 +41,17 @@ const ZOOM_END_MS = 120;
 const CAMERA_PROPERTIES = ["--canvas-x", "--canvas-y", "--canvas-zoom"];
 /** The camera counts as moving until it has been still this long. */
 const CAMERA_SETTLE_MS = 150;
+/**
+ * At rest, zooms where layers that scale with the camera stay promoted
+ * (`data-canvas-promoted`, for `will-change: transform`). Chromium rasters a
+ * promoted layer at the screen's native resolution from a quarter of it, and the
+ * GPU scales it down: edges stay seamless, where rastering at a fractional zoom
+ * leaks a hairline of the page's background between blocks. Below this range the
+ * layer would keep the larger raster scale it had, and run out of tile memory;
+ * above it the native resolution is blurry. Outside it, layers are promoted only
+ * while the camera moves, so the browser re-rasters them at their zoom once it settles.
+ */
+const PROMOTED_ZOOM_RANGE = { min: 0.25, max: 1 };
 
 function isControl(target: EventTarget | null) {
   return (
@@ -123,6 +134,7 @@ export function useCanvasCamera(
       mirrors.current.delete(element);
       for (const name of CAMERA_PROPERTIES) element.style.removeProperty(name);
       delete element.dataset.canvasPan;
+      delete element.dataset.canvasPromoted;
     };
   }, []);
   /**
@@ -406,15 +418,28 @@ export function useCanvasCamera(
     // Input and flights move the camera, until it has been still for a moment.
     // Fitting it to changing geometry does not.
     let settle = 0;
-    const setMoving = (moving: boolean) =>
+    const paintPromotion = () => {
+      const promoted =
+        !!settle ||
+        (camera.scale >= PROMOTED_ZOOM_RANGE.min && camera.scale <= PROMOTED_ZOOM_RANGE.max);
+      for (const element of [viewport, ...mirrors.current]) {
+        if (promoted === "canvasPromoted" in element.dataset) continue;
+        if (promoted) element.dataset.canvasPromoted = "";
+        else delete element.dataset.canvasPromoted;
+      }
+    };
+    const setMoving = (moving: boolean) => {
+      paintPromotion();
       canvasStore.send({ type: "setCameraMoving", workspaceKey, moving });
+    };
     const markMoving = () => {
-      if (!settle) setMoving(true);
+      const wasMoving = !!settle;
       ownerWindow.clearTimeout(settle);
       settle = ownerWindow.setTimeout(() => {
         settle = 0;
         setMoving(false);
       }, CAMERA_SETTLE_MS);
+      if (!wasMoving) setMoving(true);
     };
     const paintElement = (element: HTMLElement) => {
       element.style.setProperty("--canvas-x", `${camera.x}px`);
@@ -424,10 +449,12 @@ export function useCanvasCamera(
     paintMirror.current = (element) => {
       paintElement(element);
       paintPanState();
+      paintPromotion();
     };
     const paint = () => {
       paintElement(viewport);
       for (const element of mirrors.current) paintElement(element);
+      paintPromotion();
       remember();
     };
     const animate = (time: number) => {
@@ -879,6 +906,7 @@ export function useCanvasCamera(
       remember();
       cancelAnimationFrame(animation);
       ownerWindow.clearTimeout(settle);
+      settle = 0;
       ownerWindow.clearTimeout(zoomEnd);
       setMoving(false);
       resize.disconnect();
@@ -894,6 +922,7 @@ export function useCanvasCamera(
       ownerWindow.removeEventListener("keyup", onSpaceUp);
       ownerWindow.removeEventListener("blur", releaseSpace);
       delete viewport.dataset.canvasPan;
+      delete viewport.dataset.canvasPromoted;
       paintMirror.current = null;
     };
   }, [workspaceKey, continuity]);

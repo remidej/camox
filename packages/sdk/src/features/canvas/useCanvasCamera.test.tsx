@@ -1708,6 +1708,28 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     flush();
     assert.notDeepEqual(camera(viewport), ["", "", ""]);
     assert.deepEqual(camera(mirror), camera(viewport), "camera moves reach the mirror");
+    const promoted = (element: { dataset: object }) => "canvasPromoted" in element.dataset;
+    const zoomBy = async (key: string, times = 1) => {
+      for (let count = 0; count < times; count++)
+        viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key }));
+      flush();
+      const scale = Number(viewport.style.getPropertyValue("--canvas-zoom"));
+      assert.equal(promoted(viewport), true, `a moving camera promotes its layers at ${scale}`);
+      assert.equal(promoted(mirror), true, "and the mirror's");
+      await new Promise((resolve) => dom.setTimeout(resolve, 300));
+      return scale;
+    };
+    // Settled, layers stay promoted only where Chromium rasters them at native resolution.
+    assert.equal(await zoomBy("0"), 1);
+    assert.equal(promoted(viewport), true, "at 100%, a promoted layer stays sharp and seamless");
+    assert.equal(promoted(mirror), true);
+    assert.ok((await zoomBy("+")) > 1);
+    assert.equal(promoted(viewport), false, "zoomed in, settling re-rasters sharper than native");
+    assert.equal(promoted(mirror), false);
+    assert.ok((await zoomBy("-", 8)) < 0.25);
+    assert.equal(promoted(viewport), false, "zoomed far out, settling re-rasters smaller");
+    assert.equal(promoted(mirror), false);
+    await zoomBy("0");
     const space = (type: string) =>
       dom.document.body.dispatchEvent(
         new dom.KeyboardEvent(type, { code: "Space", key: " ", bubbles: true }),
@@ -1720,6 +1742,7 @@ void test("the camera paints onto mirrored elements outside the viewport until r
 
     release();
     assert.deepEqual(camera(mirror), ["", "", ""], "releasing clears the mirrored camera");
+    assert.equal(promoted(mirror), false, "releasing demotes the mirror");
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
     flush();
     assert.deepEqual(camera(mirror), ["", "", ""], "a released mirror no longer follows");
