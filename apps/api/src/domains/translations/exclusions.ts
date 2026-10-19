@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
 import { blocks, pages, repeatableItems } from "../../schema";
+import { selectInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import { type Draft, type DraftInLocale, draftOf, type ReadScope } from "../drafts/scope";
 import { localizationExclusions } from "./schema";
@@ -74,12 +75,8 @@ export const excludedAmong = Effect.fn("translations.excludedAmong")(function* (
   scope: ReadScope,
   ids: readonly string[],
 ) {
-  if (ids.length === 0) return new Set<string>();
-  const rows = yield* overlay.select(
-    db,
-    scope,
-    localizationExclusions,
-    inArray(localizationExclusions.id, [...ids]),
+  const rows = yield* selectInChunks(db, scope, localizationExclusions, ids, (chunk) =>
+    inArray(localizationExclusions.id, chunk),
   );
   return new Set(rows.map((row) => row.id));
 });

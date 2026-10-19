@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import type { TranslatedEntity } from "../../lib/ai-job-queue";
 import { blocks, pages, repeatableItems, sharedContents } from "../../schema";
+import { selectInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import type { Draft, ReadScope } from "../drafts/scope";
 import type { Translatable } from "./service";
@@ -29,11 +30,9 @@ export const descendantsOf = Effect.fn("translations.descendantsOf")(function* (
     return fresh.map(({ id }) => id);
   };
   const childrenOf = (table: overlay.ContentTable, column: AnySQLiteColumn, parents: string[]) =>
-    parents.length === 0
-      ? Effect.succeed([])
-      : (overlay.select(db, scope, table, inArray(column, parents)) as Effect.Effect<
-          { id: string; draftId: string | null }[]
-        >);
+    selectInChunks(db, scope, table, parents, (chunk) => inArray(column, chunk)) as Effect.Effect<
+      { id: string; draftId: string | null }[]
+    >;
 
   let blockIds: string[] = [];
   let itemIds: string[] = [];

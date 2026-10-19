@@ -3,6 +3,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
+import { readInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftInLocale } from "../drafts/scope";
 import { translationBookkeeping } from "./schema";
@@ -42,9 +43,6 @@ export const readBookkeeping = Effect.fn("translation.readBookkeeping")(function
   return row;
 });
 
-/** Ids per query, under D1's limit of bound parameters. */
-const IDS_PER_READ = 90;
-
 /** The bookkeeping of several localizations of one kind, by id, as `readBookkeeping` reads each. */
 export const readBookkeepings = Effect.fn("translation.readBookkeepings")(function* (
   db: Database,
@@ -52,9 +50,8 @@ export const readBookkeepings = Effect.fn("translation.readBookkeepings")(functi
   entity: TranslatedEntity,
   entityIds: readonly string[],
 ) {
-  const found = new Map<string, Bookkeeping>();
-  for (let start = 0; start < entityIds.length; start += IDS_PER_READ) {
-    const rows = yield* Effect.promise(() =>
+  const rows = yield* readInChunks(entityIds, (chunk) =>
+    Effect.promise(() =>
       db
         .select({
           entityId: translationBookkeeping.entityId,
@@ -66,7 +63,7 @@ export const readBookkeepings = Effect.fn("translation.readBookkeepings")(functi
         .where(
           and(
             eq(translationBookkeeping.entity, entity),
-            inArray(translationBookkeeping.entityId, entityIds.slice(start, start + IDS_PER_READ)),
+            inArray(translationBookkeeping.entityId, chunk),
             eq(translationBookkeeping.locale, target.locale),
             or(
               eq(translationBookkeeping.draftId, target.id),
@@ -74,11 +71,12 @@ export const readBookkeepings = Effect.fn("translation.readBookkeepings")(functi
             ),
           ),
         ),
-    );
-    // The draft's own over Live's.
-    for (const { entityId, draftId, source, output } of rows) {
-      if (draftId !== null || !found.has(entityId)) found.set(entityId, { source, output });
-    }
+    ),
+  );
+  const found = new Map<string, Bookkeeping>();
+  // The draft's own over Live's.
+  for (const { entityId, draftId, source, output } of rows) {
+    if (draftId !== null || !found.has(entityId)) found.set(entityId, { source, output });
   }
   return found;
 });

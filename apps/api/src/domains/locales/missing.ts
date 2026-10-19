@@ -6,6 +6,7 @@ import { z } from "zod";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 import { collectionRecords } from "../collections/schema";
+import { selectInChunks } from "../content/chunks";
 import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
@@ -81,14 +82,14 @@ export const listMissingFromLocale = Effect.fn("locales.listMissing")(function* 
     .sort((a, b) => (a.fullPath < b.fullPath ? -1 : a.fullPath > b.fullPath ? 1 : 0));
 
   const recordIds = exclusions.filter(({ entity }) => entity === "record").map(({ id }) => id);
-  const recordRows = recordIds.length
-    ? yield* overlay.select(
-        ctx.db,
-        original,
-        collectionRecords,
-        and(eq(collectionRecords.projectId, projectId), inArray(collectionRecords.id, recordIds)),
-      )
-    : [];
+  const recordRows = yield* selectInChunks(
+    ctx.db,
+    original,
+    collectionRecords,
+    recordIds,
+    (chunk) =>
+      and(eq(collectionRecords.projectId, projectId), inArray(collectionRecords.id, chunk)),
+  );
   const reader = contentReader(ctx, { projectId, draft: original });
   const missingRecords: MissingRecord[] = [];
   for (const collectionId of [...new Set(recordRows.map((row) => row.collectionId))].sort()) {
