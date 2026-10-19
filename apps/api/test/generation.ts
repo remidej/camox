@@ -41,6 +41,7 @@ const scriptedModel = AiModel.of({
   pageSeo: (request) => answer("pageSeo", request),
   imageMetadata: (request) => answer("imageMetadata", request),
   translate: (request) => answer("translate", request),
+  merge: (request) => answer("merge", request),
 });
 
 /**

@@ -39,6 +39,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
+import * as translationBookkeeping from "../translations/bookkeeping";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import {
@@ -526,6 +527,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       after: [
         ...generatedValueStatements.publishStatements(ctx.db, scope),
         ...filePublishStatements(scope.projectId),
+        ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
       ],
     }),

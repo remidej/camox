@@ -79,6 +79,36 @@ describe("translation", () => {
   });
 });
 
+describe("merge", () => {
+  it("returns the merged texts asked for, by key", async () => {
+    chat.mockResolvedValue({
+      merges: [
+        { key: "title", text: "Herzlich willkommen, Freunde" },
+        { key: "invented", text: "Erfunden" },
+      ],
+    });
+
+    const text = (key: string) => ({
+      key,
+      format: "plain" as const,
+      previousSource: "Hello",
+      previousTranslation: "Hallo",
+      source: "Welcome",
+      current: "Hallo Freunde",
+    });
+    const merges = await Effect.runPromise(
+      openRouterModel("test-api-key").merge({
+        from: "en",
+        to: "de",
+        texts: [text("title"), text("subtitle")],
+      }),
+    );
+
+    // A text the model left out keeps the localization's; a key nobody asked for is dropped.
+    expect(merges).toEqual({ title: "Herzlich willkommen, Freunde" });
+  });
+});
+
 describe("image metadata", () => {
   const failures = [
     { name: "network failure", response: () => Promise.reject(new Error("Network failure")) },

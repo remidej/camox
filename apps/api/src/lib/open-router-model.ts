@@ -5,7 +5,7 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import { readMetadataImage } from "../domains/files/metadata-image";
-import { AiModel, type TranslationRequest } from "./ai-model";
+import { AiModel, type MergeRequest, type TranslationRequest } from "./ai-model";
 import { transformImageUrl } from "./image-transform";
 import { retryAiCall } from "./retry-ai-call";
 
@@ -98,17 +98,61 @@ export const openRouterModel = (apiKey: string) =>
             }),
             messages: [{ role: "user", content: translationPrompt(request) }],
           }),
-        ).pipe(
-          // Only keys the request asked for count: a missing key keeps its text.
-          Effect.map(({ translations }) => {
-            const asked = new Set(request.texts.map(({ key }) => key));
-            return Object.fromEntries(
-              translations.filter(({ key }) => asked.has(key)).map(({ key, text }) => [key, text]),
-            );
+        ).pipe(Effect.map(({ translations }) => byAskedKey(request.texts, translations))),
+      ),
+
+    merge: (request) =>
+      retryAiCall("merge", (abortController) =>
+        Effect.promise(() =>
+          chat({
+            adapter: createOpenRouterText(MODEL, apiKey),
+            abortController,
+            outputSchema: z.object({
+              merges: z.array(z.object({ key: z.string(), text: z.string() })),
+            }),
+            messages: [{ role: "user", content: mergePrompt(request) }],
           }),
-        ),
+        ).pipe(Effect.map(({ merges }) => byAskedKey(request.texts, merges))),
       ),
   });
+
+/** The answered texts by key: only keys the request asked for count, a missing key keeps its text. */
+function byAskedKey(asked: readonly { key: string }[], answered: { key: string; text: string }[]) {
+  const keys = new Set(asked.map(({ key }) => key));
+  return Object.fromEntries(
+    answered.filter(({ key }) => keys.has(key)).map(({ key, text }) => [key, text]),
+  );
+}
+
+const FORMAT_CONSTRAINTS = outdent`
+  - "plain" texts: return plain text, without markdown
+  - "html" texts: an HTML document; translate only the words people read, including titles and attributes such as alt, title and aria-label, and keep every tag, attribute name, script and style as it is
+  - "slug" texts: a URL path segment; return a translated segment in lowercase kebab-case, ASCII only, without slashes
+`;
+
+function mergePrompt(request: MergeRequest) {
+  return outdent`
+    <instruction>
+      A website is translated from the "${request.from}" locale into the "${request.to}" locale (BCP 47 tags). Someone edited some translated texts by hand, and their source has changed since. For each text, write the "${request.to}" text that keeps the hand edit's intent and carries over what changed in the source.
+    </instruction>
+
+    <inputs>
+      - "previousSource": the source text when it was last translated
+      - "previousTranslation": the translation written from it then
+      - "source": the source text now
+      - "current": the translation now, as edited by hand
+    </inputs>
+
+    <constraints>
+      - Return one text per input, under its key, in the "${request.to}" locale
+      - Keep what the hand edit changed in "current", unless the source's change replaces it
+      - Translate naturally, keeping the website's tone, brand and product names, code, URLs and placeholders such as {{name}}
+      ${FORMAT_CONSTRAINTS}
+    </constraints>
+
+    <texts>${JSON.stringify(request.texts)}</texts>
+  `;
+}
 
 function translationPrompt(request: TranslationRequest) {
   return outdent`
@@ -120,9 +164,7 @@ function translationPrompt(request: TranslationRequest) {
       - Return one translation per text, under the text's key
       - Translate naturally, as a native speaker would write for this website, keeping its tone
       - Keep brand and product names, code, URLs and placeholders such as {{name}} as they are
-      - "plain" texts: return plain text, without markdown
-      - "html" texts: an HTML document; translate only the words people read, including titles and attributes such as alt, title and aria-label, and keep every tag, attribute name, script and style as it is
-      - "slug" texts: a URL path segment; return a translated segment in lowercase kebab-case, ASCII only, without slashes
+      ${FORMAT_CONSTRAINTS}
     </constraints>
 
     <texts>${JSON.stringify(request.texts)}</texts>
