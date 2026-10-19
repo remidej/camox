@@ -1,8 +1,8 @@
 import { Context, Effect } from "effect";
 
+import { type AiJob, AiJobQueue, ScheduleError } from "../src/lib/ai-job-queue";
 import { AiModel } from "../src/lib/ai-model";
 import { Background, inline } from "../src/lib/background";
-import { type AiJob, GenerationScheduler, ScheduleError } from "../src/lib/generation-scheduler";
 import { AiCallError } from "../src/lib/retry-ai-call";
 
 // Stands in for the model and the Durable Object scheduler in every integration test
@@ -69,7 +69,7 @@ export type ScheduledJob = AiJob & { delayMs: number };
 const jobs: ScheduledJob[] = [];
 let failures = 0;
 
-const recordingScheduler = GenerationScheduler.of({
+const recordingScheduler = AiJobQueue.of({
   schedule: (job, delayMs) =>
     Effect.suspend(() => {
       if (failures > 0) {
@@ -106,9 +106,9 @@ export const failNextSchedule = () => {
 };
 
 /** The services `runService` and the job Durable Object provide, in tests. */
-export const testGenerationServices = () =>
+export const testAiServices = () =>
   Context.make(AiModel, scriptedModel).pipe(
-    Context.add(GenerationScheduler, recordingScheduler),
+    Context.add(AiJobQueue, recordingScheduler),
     // Scheduling runs before the request answers, so tests see the jobs it scheduled.
     Context.add(Background, inline),
   );

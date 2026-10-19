@@ -1,6 +1,6 @@
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-import type { TranslatedEntity } from "../../lib/generation-scheduler";
+import type { TranslatedEntity } from "../../lib/ai-job-queue";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 
@@ -35,5 +35,38 @@ export const translationRequests = sqliteTable(
       table.locale,
     ),
     index("translation_requests_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * A value a translation job gave an entity that must be unique within a locale of a draft, such
+ * as a page's full path or a record page's slug, named with the space it's unique in. Jobs run
+ * concurrently: the unique index lets one job claim a value, so another job translating to the
+ * same value picks the next one. A claim holds only while its entity has a pending translation:
+ * after that, what the job wrote is what keeps the value taken. Claims are dropped when their
+ * entity gets another value, and with the draft's pending translations. Not content.
+ */
+export const translationClaims = sqliteTable(
+  "translation_claims",
+  {
+    rowId: int("row_id").primaryKey(),
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    locale: text().notNull(),
+    // What the value is unique among: `page` for full paths, or a record page's collection and
+    // field.
+    space: text().notNull(),
+    value: text().notNull(),
+    entityId: text("entity_id").notNull(),
+  },
+  (table) => [
+    uniqueIndex("translation_claims_value_idx").on(
+      table.draftId,
+      table.locale,
+      table.space,
+      table.value,
+    ),
+    index("translation_claims_entity_idx").on(table.draftId, table.entityId),
   ],
 );

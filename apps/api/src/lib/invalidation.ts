@@ -234,8 +234,10 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         break;
       }
       case "translations":
-        // The draft's summary says which of its locales are translating.
+        // The draft's summary, and every listed draft's, says which of its locales are
+        // translating.
         add(change.draftId, queryKeys.drafts.get);
+        add(null, queryKeys.drafts.list);
         break;
       case "localizedWrite":
         // Its content change says where it shows.

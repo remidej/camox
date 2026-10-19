@@ -1,7 +1,7 @@
 import type { Database } from "../db";
 import { runGenerationJob } from "../domains/generated-values/generation";
 import { runTranslationJob } from "../domains/translations/job";
-import { type AiJob, isTranslationJob } from "./generation-scheduler";
+import { type AiJob, isTranslationJob } from "./ai-job-queue";
 
 /**
  * Runs a job the AI job scheduler holds: a generated value (ADR 0012) or a translation (ADR

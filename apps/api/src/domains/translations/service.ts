@@ -2,19 +2,20 @@ import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { Background } from "../../lib/background";
 import {
-  GenerationScheduler,
+  AiJobQueue,
   jobName,
+  TRANSLATED_ENTITIES,
   type TranslatedEntity,
   type TranslationJob,
-} from "../../lib/generation-scheduler";
-import { Journal, record, type Change } from "../../lib/journal";
+} from "../../lib/ai-job-queue";
+import { Background } from "../../lib/background";
+import { Journal, record } from "../../lib/journal";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftOf, type Draft } from "../drafts/scope";
 import { locales } from "../locales/schema";
-import { translationRequests } from "./schema";
+import { translationClaims, translationRequests } from "./schema";
 
 // Camox keeps every locale translated from the default locale (ADR 0015). Every write to a
 // default-locale entity in a draft, whatever wrote it, requests its translation into each of the
@@ -28,15 +29,8 @@ const DEBOUNCE_MS = 5000;
 /** An entity to translate: a localized entity, by kind and id. */
 export type Translatable = { entity: TranslatedEntity; id: string };
 
-const TRANSLATED: ReadonlySet<string> = new Set<TranslatedEntity>([
-  "page",
-  "block",
-  "sharedContent",
-  "repeatableItem",
-  "record",
-]);
-
-const isTranslated = (entity: string): entity is TranslatedEntity => TRANSLATED.has(entity);
+const isTranslated = (entity: string): entity is TranslatedEntity =>
+  (TRANSLATED_ENTITIES as readonly string[]).includes(entity);
 
 /** Records that a draft's pending translations changed: its locales show whether they translate. */
 const recordPending = (db: Database, draft: Draft) =>
@@ -95,14 +89,14 @@ export const requestTranslations = Effect.fn("translations.request")(function* (
   }
   yield* recordPending(db, draft);
 
-  const scheduler = yield* GenerationScheduler;
+  const queue = yield* AiJobQueue;
   const background = yield* Background;
   const delayMs = options.immediately ? 0 : DEBOUNCE_MS;
   yield* background.run(
     Effect.forEach(
       jobs,
       (job) =>
-        scheduler
+        queue
           .schedule(job, delayMs)
           .pipe(
             Effect.catchTag("ScheduleError", (error) =>
@@ -190,10 +184,11 @@ export const translateWrites = Effect.fn("translations.translateWrites")(functio
   const journal = yield* Journal;
   const { db } = journal;
   if (!db) return;
-  const byDraft = new Map<string, Extract<Change, { kind: "localizedWrite" }>[]>();
+  const byDraft = new Map<string, (Translatable & { locale: string })[]>();
   for (const change of journal.changes) {
     if (change.kind !== "localizedWrite" || !isTranslated(change.entity)) continue;
-    byDraft.set(change.draftId, [...(byDraft.get(change.draftId) ?? []), change]);
+    const write = { entity: change.entity, id: change.id, locale: change.locale };
+    byDraft.set(change.draftId, [...(byDraft.get(change.draftId) ?? []), write]);
   }
   for (const [draftId, writes] of byDraft) {
     const row = yield* Effect.promise(() =>
@@ -205,9 +200,7 @@ export const translateWrites = Effect.fn("translations.translateWrites")(functio
     if (others.length === 0) continue;
     const entities = new Map<string, Translatable>();
     for (const { entity, id, locale } of writes) {
-      if (locale === defaultTag && isTranslated(entity)) {
-        entities.set(`${entity}:${id}`, { entity, id });
-      }
+      if (locale === defaultTag) entities.set(`${entity}:${id}`, { entity, id });
     }
     yield* requestTranslations(db, draft, [...entities.values()], others);
   }
@@ -224,7 +217,7 @@ export const translateIntoLocale = Effect.fn("translations.translateIntoLocale")
 ) {
   const source = draftOf(draft);
   const entities: Translatable[] = [];
-  for (const entity of TRANSLATED as ReadonlySet<TranslatedEntity>) {
+  for (const entity of TRANSLATED_ENTITIES) {
     const table = overlay.contentTableOf(entity);
     const rows = yield* Effect.promise(
       () =>
@@ -243,19 +236,25 @@ export const translateIntoLocale = Effect.fn("translations.translateIntoLocale")
   yield* requestTranslations(db, draft, entities, [tag], { immediately: true });
 });
 
-/** Statements dropping a draft's pending translations into a locale it removes. */
+/** Statements dropping a draft's pending translations and claims in a locale it removes. */
 export function dropLocaleStatements(db: Database, draft: Draft, tag: string) {
   return [
     db
       .delete(translationRequests)
       .where(and(eq(translationRequests.draftId, draft.id), eq(translationRequests.locale, tag))),
+    db
+      .delete(translationClaims)
+      .where(and(eq(translationClaims.draftId, draft.id), eq(translationClaims.locale, tag))),
   ];
 }
 
 /**
- * Statements dropping a draft's pending translations when it's published or discarded: its jobs
- * then do nothing, also in a development draft, which stays (ADR 0006).
+ * Statements dropping a draft's pending translations and claims when it's published or
+ * discarded: its jobs then do nothing, also in a development draft, which stays (ADR 0006).
  */
 export function endStatements(db: Database, draftId: string) {
-  return [db.delete(translationRequests).where(eq(translationRequests.draftId, draftId))];
+  return [
+    db.delete(translationRequests).where(eq(translationRequests.draftId, draftId)),
+    db.delete(translationClaims).where(eq(translationClaims.draftId, draftId)),
+  ];
 }

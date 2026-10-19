@@ -80,7 +80,7 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   const draft = useReadQuery(reads.draft({ projectId: projectId ?? 0, draftId: draftId ?? "" }), {
     enabled: !!projectId && !!draftId,
   });
-  const translating = !!draftId && (draft.data?.translatingLocales.length ?? 0) > 0;
+  const translating = (draft.data?.translatingLocales.length ?? 0) > 0;
 
   // The dialogs belong to the locale they were opened in.
   React.useEffect(() => closeLocaleDialog, [viewed.tag]);

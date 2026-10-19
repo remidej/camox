@@ -12,7 +12,15 @@ export type JobEntity = "block" | "repeatableItem" | "page" | "file";
 export type GenerationJob = { entity: JobEntity; entityId: string; draftId: string | null };
 
 /** The entities a translation job translates: every localized entity (ADR 0015). */
-export type TranslatedEntity = "page" | "block" | "sharedContent" | "repeatableItem" | "record";
+export const TRANSLATED_ENTITIES = [
+  "page",
+  "block",
+  "sharedContent",
+  "repeatableItem",
+  "record",
+] as const;
+
+export type TranslatedEntity = (typeof TRANSLATED_ENTITIES)[number];
 
 /**
  * A job translating a default-locale entity into one locale of a draft (ADR 0015). Jobs are keyed
@@ -39,12 +47,12 @@ export class ScheduleError extends Data.TaggedError("ScheduleError")<{ readonly 
  * restarts its delay. Requests and jobs get the Durable Object adapter; tests get a recording
  * one.
  */
-export class GenerationScheduler extends Context.Service<
-  GenerationScheduler,
+export class AiJobQueue extends Context.Service<
+  AiJobQueue,
   {
     readonly schedule: (job: AiJob, delayMs: number) => Effect.Effect<void, ScheduleError>;
   }
->()("camox/GenerationScheduler") {}
+>()("camox/AiJobQueue") {}
 
 // Durable Object names predate entity names, and stay as they were so a job requested across a
 // deploy still replaces the pending one.
@@ -73,8 +81,8 @@ export const entityOfStoredName = (table: string, type: string) =>
 type SchedulerStub = DurableObjectStub & Pick<AiJobScheduler, "schedule">;
 
 /** One Durable Object per job key, holding the pending job and its alarm. */
-export const durableObjectScheduler = (namespace: DurableObjectNamespace) =>
-  GenerationScheduler.of({
+export const durableObjectQueue = (namespace: DurableObjectNamespace) =>
+  AiJobQueue.of({
     schedule: (job, delayMs) =>
       Effect.tryPromise({
         try: () => {

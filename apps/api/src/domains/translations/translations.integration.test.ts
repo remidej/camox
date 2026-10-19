@@ -5,6 +5,7 @@ import {
   LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -16,6 +17,7 @@ import {
   openDevelopmentDraft,
 } from "../../../test/fixtures";
 import { answerEvery, forgetScheduled, modelCalls, scheduled } from "../../../test/generation";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
@@ -39,10 +41,17 @@ const GERMAN: Record<string, string> = {
   Welcome: "Willkommen",
   Acme: "Acme AG",
   First: "Erster",
+  first: "erster",
   pricing: "preise",
   team: "Mannschaft",
   about: "uber-uns",
   prices: "preise",
+  tariffs: "preise",
+  news: "neu",
+  latest: "neu",
+  // Slugs come back from the model as words, which a URL can't hold as they are.
+  "hello-world": "Hallo Welt",
+  "hi-world": "Hallo Welt",
 };
 const FRENCH: Record<string, string> = { Hello: "Bonjour", Welcome: "Bienvenue", team: "equipe" };
 
@@ -102,10 +111,33 @@ async function fixture() {
           label: "title",
           contentSchema: {
             type: "object",
-            properties: { title: { type: "string", fieldType: "String" } },
-            required: ["title"],
+            properties: {
+              title: { type: "string", fieldType: "String" },
+              slug: { type: "string", fieldType: "String" },
+            },
+            required: ["title", "slug"],
             additionalProperties: false,
           },
+        },
+      ],
+    },
+    { context: createRpcContext(db, null) },
+  );
+  // Article pages, found by the article's slug.
+  await call(
+    router.layouts.sync,
+    {
+      projectSlug,
+      deployToken,
+      autoCreate: false,
+      layouts: [
+        { layoutId: base.layout.layoutId, kind: "curated", description: "", blocks: [] },
+        {
+          layoutId: "articles.$slug",
+          kind: "derived",
+          description: "",
+          blocks: [],
+          recordPages: { collectionId: "articles", field: "slug" },
         },
       ],
     },
@@ -131,7 +163,7 @@ async function fixture() {
   );
   const record = await callSeedingLive(
     router.collectionDefinitions.createRecord,
-    { projectSlug, collectionId: "articles", content: { title: "First" } },
+    { projectSlug, collectionId: "articles", content: { title: "First", slug: "first" } },
     member(),
   );
   await openDevelopmentDraft(db, projectId, memberUser.id);
@@ -213,7 +245,7 @@ describe("adding a locale", () => {
       id: f.record.id,
       locale: "de",
     });
-    expect(record.content).toEqual({ title: "Erster" });
+    expect(record.content).toEqual({ title: "Erster", slug: "erster" });
     // Live and the default locale are untouched.
     expect((await f.blockIn()).block.content).toMatchObject({ title: "Hello" });
     expect((await f.blockIn(undefined, {})).block.content).toMatchObject({ title: "Hello" });
@@ -333,6 +365,96 @@ describe("changing the default locale", () => {
     );
   });
 
+  it("gives two new pages whose paths translate alike different paths, though their jobs run at once", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    const created = async (pathSegment: string) =>
+      (
+        await call(
+          router.pages.create,
+          { projectId: f.projectId, pathSegment, layoutId: f.layout.layoutId },
+          f.member(f.inDraft),
+        )
+      ).page;
+    // Both translate to the German path the pricing page already has.
+    const prices = await created("prices");
+    const tariffs = await created("tariffs");
+
+    const jobs = f.translationJobs().filter(({ locale }) => locale === "de");
+    forgetScheduled(prices.id, tariffs.id);
+    await Promise.all(jobs.map((job) => runService(runAiJob(f.db, job))));
+
+    const paths = await Promise.all(
+      [f.page.id, prices.id, tariffs.id].map(
+        async (id) => (await f.tool("getPage", { id, locale: "de" })).page.fullPath,
+      ),
+    );
+    expect(new Set(paths).size).toBe(3);
+  });
+
+  it("keeps the paths of a moved page's descendants unique within the locale", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    const created = async (pathSegment: string, parentPageId?: string) =>
+      (
+        await call(
+          router.pages.create,
+          { projectId: f.projectId, pathSegment, parentPageId, layoutId: f.layout.layoutId },
+          f.member(f.inDraft),
+        )
+      ).page;
+    const news = await created("news");
+    const newsTeam = await created("team", news.id);
+    const about = await created("about");
+    const aboutTeam = await created("team", about.id);
+    await f.runTranslations();
+    // Removing the German news page by hand leaves its team page at /neu/mannschaft.
+    await call(
+      router.pages.delete,
+      { id: news.id },
+      f.member({ ...f.inDraft, [LOCALE_HEADER]: "de" }),
+    );
+
+    // "latest" translates to the German path the news page had.
+    await call(router.pages.update, { id: about.id, pathSegment: "latest" }, f.member(f.inDraft));
+    // The team page's own job runs first, before its parent's moves it.
+    const jobs = f.translationJobs().filter(({ locale }) => locale === "de");
+    forgetScheduled(about.id, aboutTeam.id);
+    for (const job of jobs.sort((a) => (a.entityId === aboutTeam.id ? -1 : 1))) {
+      await runService(runAiJob(f.db, job));
+    }
+
+    const pathOf = async (id: string) =>
+      (await f.tool("getPage", { id, locale: "de" })).page.fullPath;
+    expect(await pathOf(about.id)).toBe("/neu");
+    expect(await pathOf(newsTeam.id)).toBe("/neu/mannschaft");
+    expect(await pathOf(aboutTeam.id)).not.toBe("/neu/mannschaft");
+    expect(await pathOf(aboutTeam.id)).toMatch(/^\/neu\//);
+  });
+
+  it("translates a record's slug as a URL segment, unique within the locale", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    const created = async (slug: string) =>
+      call(
+        router.collectionDefinitions.createRecord,
+        { projectSlug: f.projectSlug, collectionId: "articles", content: { title: "Hello", slug } },
+        f.member(f.inDraft),
+      );
+    // Both slugs translate to the same words.
+    const hello = await created("hello-world");
+    const hi = await created("hi-world");
+    await f.runTranslations();
+
+    const slugOf = async (id: string) =>
+      (await f.tool("getCollectionRecord", { collectionId: "articles", id, locale: "de" })).content
+        .slug;
+    const slugs = [await slugOf(hello.id), await slugOf(hi.id)];
+    expect(slugs).toContain("hallo-welt");
+    expect(new Set(slugs).size).toBe(2);
+    for (const slug of slugs) expect(slug).toMatch(/^hallo-welt(-\d+)?$/);
+  });
+
   it("deletes a localization when its source is deleted", async () => {
     const f = await fixture();
     await translatedDraft(f);
@@ -376,6 +498,20 @@ describe("a translation job", () => {
         .translatingLocales,
     ).toEqual([]);
     expect(await titleIn(f, "de")).toBe("Hallo");
+  });
+
+  it("tells the draft's viewers and the drafts list when it settles, even having written nothing", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } });
+    answerEvery("translate", () => new AiCallError({ cause: "OpenRouter 503" }));
+
+    forgetSent(f.projectId);
+    await f.runTranslations();
+
+    const sent = sentTo(f.projectId);
+    expect(refreshes(sent, f.draft, [...queryKeys.drafts.get, f.draft])).toBe(true);
+    expect(refreshes(sent, null, [...queryKeys.drafts.list, f.projectId])).toBe(true);
   });
 
   it.each(["published", "discarded"] as const)(

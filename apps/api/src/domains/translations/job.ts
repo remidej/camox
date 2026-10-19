@@ -2,8 +2,8 @@ import { and, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { jobName, type TranslationJob } from "../../lib/ai-job-queue";
 import { AiModel, type TranslationText, type Translations } from "../../lib/ai-model";
-import { jobName, type TranslationJob } from "../../lib/generation-scheduler";
 import {
   blocks,
   collectionDefinitions,
@@ -18,6 +18,7 @@ import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
 import { inLocale, type Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import { claimUnique, releaseClaims } from "./claims";
 import { draftLocales, pendingRequest, settleTranslation } from "./service";
 import { contentTexts, slugOf } from "./texts";
 
@@ -46,7 +47,7 @@ const copyOf = (row: Row) =>
   Object.fromEntries(Object.entries(row).filter(([column]) => !IDENTITY.has(column)));
 
 /** Where a job reads and writes: its draft in the default locale, and in the job's locale. */
-type Places = { draft: Draft; target: Draft; from: string; to: string };
+type TranslationScope = { draft: Draft; target: Draft; from: string; to: string };
 
 /**
  * Runs a translation job, unless its request is gone because its draft ended, was emptied or
@@ -75,7 +76,7 @@ const translate = Effect.fn("translation.translate")(function* (
 ) {
   const { defaultTag, others } = yield* draftLocales(db, draft);
   if (defaultTag === undefined || !others.includes(job.locale)) return;
-  const places: Places = {
+  const scope: TranslationScope = {
     draft,
     target: inLocale(draft, job.locale),
     from: defaultTag,
@@ -83,68 +84,72 @@ const translate = Effect.fn("translation.translate")(function* (
   };
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
-  const current = yield* overlay.get(db, places.target, table, job.entityId);
+  const current = yield* overlay.get(db, scope.target, table, job.entityId);
 
   // A source deleted from the default locale takes its localizations along.
   if (!source) {
-    if (current) yield* overlay.remove(db, places.target, table, job.entityId);
+    if (current) yield* overlay.remove(db, scope.target, table, job.entityId);
+    yield* releaseClaims(db, draft, job.locale, job.entityId);
     return;
   }
 
-  const localized = { ...copyOf(source), ...(yield* localize(db, places, job.entity, source)) };
+  const localized = { ...copyOf(source), ...(yield* localize(db, scope, job.entity, source)) };
   const written = current
-    ? yield* overlay.update(db, places.target, table, job.entityId, localized)
-    : yield* overlay.insert(db, places.target, table, { ...localized, id: job.entityId });
+    ? yield* overlay.update(db, scope.target, table, job.entityId, localized)
+    : yield* overlay.insert(db, scope.target, table, { ...localized, id: job.entityId });
   if (job.entity === "page" && written) {
-    yield* movePageDescendants(db, places.target, written as typeof pages.$inferSelect);
+    yield* movePageDescendants(db, scope, written as typeof pages.$inferSelect);
   }
 });
 
 /** The localized values of an entity: its source's text translated, by kind of entity. */
 const localize = Effect.fn("translation.localize")(function* (
   db: Database,
-  places: Places,
+  scope: TranslationScope,
   entity: TranslationJob["entity"],
   source: Row,
 ) {
   switch (entity) {
     case "page":
-      return yield* localizePage(db, places, source as typeof pages.$inferSelect);
+      return yield* localizePage(db, scope, source as typeof pages.$inferSelect);
     case "block":
     case "sharedContent": {
       const row = source as Row & { projectId: number; type: string; content: unknown };
       const schemas = yield* loadDefinitionSchemas(
         db,
         { projectId: row.projectId, type: row.type },
-        places.draft,
+        scope.draft,
       );
-      return { content: yield* translateContent(places, schemas?.contentSchema, row.content) };
+      return { content: yield* translateContent(scope, schemas?.contentSchema, row.content) };
     }
     case "repeatableItem": {
       const item = source as typeof repeatableItems.$inferSelect;
-      const schema = yield* itemContentSchema(db, places.draft, item);
-      return { content: yield* translateContent(places, schema, item.content) };
+      const schema = yield* itemContentSchema(db, scope.draft, item);
+      return { content: yield* translateContent(scope, schema, item.content) };
     }
     case "record":
-      return yield* localizeRecord(db, places, source as typeof collectionRecords.$inferSelect);
+      return yield* localizeRecord(db, scope, source as typeof collectionRecords.$inferSelect);
   }
 });
 
 /** Asks the model for texts' translations, unless there are none to translate. */
-const ask = Effect.fn("translation.ask")(function* (places: Places, texts: TranslationText[]) {
+const translateTexts = Effect.fn("translation.texts")(function* (
+  scope: TranslationScope,
+  texts: TranslationText[],
+) {
   if (texts.length === 0) return {} as Translations;
   const model = yield* AiModel;
-  return yield* model.translate({ from: places.from, to: places.to, texts });
+  return yield* model.translate({ from: scope.from, to: scope.to, texts });
 });
 
 const translateContent = Effect.fn("translation.content")(function* (
-  places: Places,
+  scope: TranslationScope,
   schema: unknown,
   content: unknown,
 ) {
   if (content === null || typeof content !== "object" || Array.isArray(content)) return content;
   const { texts, translated } = contentTexts(schema, content as Record<string, unknown>);
-  return translated(yield* ask(places, texts));
+  return translated(yield* translateTexts(scope, texts));
 });
 
 /** The content schema of an item, from its repeater in its root's definition. */
@@ -182,7 +187,7 @@ const joinPath = (parentPath: string, segment: string) =>
  */
 const localizePage = Effect.fn("translation.page")(function* (
   db: Database,
-  places: Places,
+  scope: TranslationScope,
   page: typeof pages.$inferSelect,
 ) {
   const texts: TranslationText[] = [];
@@ -192,64 +197,91 @@ const localizePage = Effect.fn("translation.page")(function* (
     const text = page[key];
     if (text) texts.push({ key, text, format: "plain" });
   }
-  const translations = yield* ask(places, texts);
+  const translations = yield* translateTexts(scope, texts);
 
   const parent =
     page.parentPageId === null
       ? undefined
-      : ((yield* overlay.get(db, places.target, pages, page.parentPageId)) ??
-        (yield* overlay.get(db, places.draft, pages, page.parentPageId)));
-  const parentPath = parent?.fullPath ?? "";
+      : ((yield* overlay.get(db, scope.target, pages, page.parentPageId)) ??
+        (yield* overlay.get(db, scope.draft, pages, page.parentPageId)));
   const segment = page.pathSegment === "" ? "" : slugOf(translations.pathSegment, page.pathSegment);
-  const taken = new Set(
-    (yield* overlay.select(
-      db,
-      places.target,
-      pages,
-      and(eq(pages.projectId, page.projectId), ne(pages.id, page.id)),
-    )).map((other) => other.fullPath),
-  );
-  let pathSegment = segment;
-  for (let n = 2; taken.has(joinPath(parentPath, pathSegment)); n++) {
-    pathSegment = `${segment}-${n}`;
-  }
+  const placed = yield* placePage(db, scope, page, parent?.fullPath ?? "", segment);
   return {
-    pathSegment,
-    fullPath: joinPath(parentPath, pathSegment),
+    ...placed,
     metaTitle: page.metaTitle && (translations.metaTitle ?? page.metaTitle),
     metaDescription: page.metaDescription && (translations.metaDescription ?? page.metaDescription),
   };
 });
 
-/** Rewrites the full paths of a page localization's descendants under its new path. */
+/**
+ * A page localization's path segment and full path under `parentPath`: `segment`, or a numbered
+ * segment where another page of the locale has, or another job claimed, the full path.
+ */
+const placePage = Effect.fn("translation.placePage")(function* (
+  db: Database,
+  scope: TranslationScope,
+  page: Pick<typeof pages.$inferSelect, "id" | "projectId">,
+  parentPath: string,
+  segment: string,
+) {
+  const taken = new Set(
+    (yield* overlay.select(
+      db,
+      scope.target,
+      pages,
+      and(eq(pages.projectId, page.projectId), ne(pages.id, page.id)),
+    )).map((other) => other.fullPath),
+  );
+  const segmentAt = (n: number) => (n === 1 ? segment : `${segment}-${n}`);
+  const fullPath = yield* claimUnique(db, pathSpace(scope), page.id, taken, (n) =>
+    joinPath(parentPath, segmentAt(n)),
+  );
+  return { pathSegment: fullPath.slice(fullPath.lastIndexOf("/") + 1), fullPath };
+});
+
+const pathSpace = (scope: TranslationScope) => ({
+  draft: scope.draft,
+  locale: scope.to,
+  space: "page",
+});
+
+/**
+ * Rewrites the full paths of a page localization's descendants under its new path, each unique
+ * within the locale like the page's own.
+ */
 const movePageDescendants = Effect.fn("translation.movePageDescendants")(function* (
   db: Database,
-  target: Draft,
+  scope: TranslationScope,
   page: typeof pages.$inferSelect,
 ) {
-  const all = yield* overlay.select(db, target, pages, eq(pages.projectId, page.projectId));
+  const all = yield* overlay.select(db, scope.target, pages, eq(pages.projectId, page.projectId));
   const seen = new Set([page.id]);
   const queue = [{ id: page.id, fullPath: page.fullPath }];
   for (let parent = queue.shift(); parent; parent = queue.shift()) {
     for (const child of all.filter((other) => other.parentPageId === parent!.id)) {
       if (seen.has(child.id)) continue;
       seen.add(child.id);
-      const fullPath = joinPath(parent.fullPath, child.pathSegment);
-      if (fullPath !== child.fullPath) {
-        yield* overlay.update(db, target, pages, child.id, { fullPath, updatedAt: Date.now() });
+      let placed = { pathSegment: child.pathSegment, fullPath: child.fullPath };
+      if (joinPath(parent.fullPath, child.pathSegment) !== child.fullPath) {
+        placed = yield* placePage(db, scope, child, parent.fullPath, child.pathSegment);
+        yield* overlay.update(db, scope.target, pages, child.id, {
+          ...placed,
+          updatedAt: Date.now(),
+        });
       }
-      queue.push({ id: child.id, fullPath });
+      queue.push({ id: child.id, fullPath: placed.fullPath });
     }
   }
 });
 
 /**
- * A record's translated content. A value its record pages are found by, such as a slug, gets a
- * number where another record of the collection has it in the locale.
+ * A record's translated content. A value its record pages are found by, such as a slug, is
+ * translated as a URL path segment, and gets a number where another record of the collection
+ * has it in the locale, or another job claimed it.
  */
 const localizeRecord = Effect.fn("translation.record")(function* (
   db: Database,
-  places: Places,
+  scope: TranslationScope,
   record: typeof collectionRecords.$inferSelect,
 ) {
   const definition = yield* Effect.promise(() =>
@@ -260,28 +292,23 @@ const localizeRecord = Effect.fn("translation.record")(function* (
         and(
           eq(collectionDefinitions.projectId, record.projectId),
           eq(collectionDefinitions.collectionId, record.collectionId),
-          definitionsIn(collectionDefinitions, places.draft),
+          definitionsIn(collectionDefinitions, scope.draft),
         ),
       )
       .get(),
   );
-  const content = (yield* translateContent(
-    places,
-    definition?.contentSchema,
-    record.content,
-  )) as Record<string, unknown> | null;
-  if (!content) return { content: record.content };
+  const foundBy = new Set(
+    (yield* recordPageLayouts(db, { projectId: record.projectId, draft: scope.draft }))
+      .filter((layout) => layout.collectionId === record.collectionId)
+      .map((layout) => layout.field),
+  );
+  const { texts, translated } = contentTexts(definition?.contentSchema, record.content, foundBy);
+  const content = translated(yield* translateTexts(scope, texts));
+  if (foundBy.size === 0) return { content };
 
-  const foundBy = (yield* recordPageLayouts(db, {
-    projectId: record.projectId,
-    draft: places.draft,
-  }))
-    .filter((layout) => layout.collectionId === record.collectionId)
-    .map((layout) => layout.field);
-  if (foundBy.length === 0) return { content };
   const others = yield* overlay.select(
     db,
-    places.target,
+    scope.target,
     collectionRecords,
     and(
       eq(collectionRecords.projectId, record.projectId),
@@ -289,13 +316,18 @@ const localizeRecord = Effect.fn("translation.record")(function* (
       ne(collectionRecords.id, record.id),
     ),
   );
-  for (const field of new Set(foundBy)) {
+  for (const field of foundBy) {
     const value = content[field];
     if (typeof value !== "string" || pageValue(content, field) === null) continue;
-    const taken = new Set(others.map((other) => pageValue(other.content, field)));
-    let unique = value;
-    for (let n = 2; taken.has(unique); n++) unique = `${value}-${n}`;
-    content[field] = unique;
+    const taken = new Set(others.flatMap((other) => pageValue(other.content, field) ?? []));
+    const space = {
+      draft: scope.draft,
+      locale: scope.to,
+      space: `record:${record.collectionId}:${field}`,
+    };
+    content[field] = yield* claimUnique(db, space, record.id, taken, (n) =>
+      n === 1 ? value : `${value}-${n}`,
+    );
   }
   return { content };
 });

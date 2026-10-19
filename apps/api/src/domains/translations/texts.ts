@@ -34,8 +34,14 @@ function textNodesOf(node: LexicalNode, into: LexicalNode[] = []): LexicalNode[]
 /**
  * The texts of content its schema calls text, keyed by field: plain strings and each text node of
  * rich text, the labels of links, and artifact sources. Repeatable items hold their own content.
+ * Plain string fields named in `slugs`, such as the values record pages are found by, are
+ * translated as URL path segments.
  */
-export function contentTexts(schema: unknown, content: Content): TextsOf<Content> {
+export function contentTexts(
+  schema: unknown,
+  content: Content,
+  slugs: ReadonlySet<string> = new Set(),
+): TextsOf<Content> {
   const texts: TranslationText[] = [];
   const puts: ((translations: Translations, into: Content) => void)[] = [];
   const add = (key: string, text: string, format: TranslationText["format"]) => {
@@ -65,6 +71,11 @@ export function contentTexts(schema: unknown, content: Content): TextsOf<Content
           if (translation !== undefined) node.text = translation;
         });
         into[name] = typeof value === "string" ? JSON.stringify(copy) : copy;
+      });
+    } else if (field.kind === "String" && slugs.has(name) && typeof value === "string") {
+      if (!add(name, value, "slug")) continue;
+      puts.push((translations, into) => {
+        into[name] = slugOf(translations[name], value);
       });
     } else if (
       (field.kind === "String" || field.kind === "Artifact") &&

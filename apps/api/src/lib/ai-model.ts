@@ -47,9 +47,10 @@ export type TranslationRequest = {
 export type Translations = Record<string, string>;
 
 /**
- * The model that writes generated values (ADR 0012) and translations (ADR 0015). Each call is bounded: it times out, retries
- * transient failures, and fails with `AiCallError` once it gives up. Requests and jobs get the
- * OpenRouter adapter (`open-router-model.ts`); tests get a scripted one.
+ * The model that writes generated values (ADR 0012) and translations (ADR 0015). Each call is
+ * bounded: it times out, retries transient failures, and fails with `AiCallError` once it gives
+ * up. Requests and jobs get the OpenRouter adapter (`open-router-model.ts`); tests get a scripted
+ * one.
  */
 export class AiModel extends Context.Service<
   AiModel,

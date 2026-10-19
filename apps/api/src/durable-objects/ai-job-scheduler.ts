@@ -2,22 +2,16 @@ import { DurableObject } from "cloudflare:workers";
 import { Effect, Option, Schema } from "effect";
 
 import { createDb } from "../db";
+import { aiServices } from "../lib/ai-adapters";
+import { type AiJob, entityOfStoredName, jobName, TRANSLATED_ENTITIES } from "../lib/ai-job-queue";
 import { runAiJob } from "../lib/ai-jobs";
 import { inline } from "../lib/background";
-import { generationServices } from "../lib/generation-adapters";
-import { type AiJob, entityOfStoredName, jobName } from "../lib/generation-scheduler";
 import { announce } from "../lib/invalidation";
 import { journaled } from "../lib/journal";
 import type { Bindings } from "../types";
 
 const JobEntity = Schema.Literals(["block", "repeatableItem", "page", "file"]);
-const TranslatedEntity = Schema.Literals([
-  "page",
-  "block",
-  "sharedContent",
-  "repeatableItem",
-  "record",
-]);
+const TranslatedEntity = Schema.Literals(TRANSLATED_ENTITIES);
 
 const StoredJob = Schema.Union([
   Schema.Struct({
@@ -61,7 +55,7 @@ const decodeStoredJob = (stored: unknown) =>
   );
 
 /**
- * Holds one pending AI job, named by its key (`GenerationScheduler`), and runs it when its alarm
+ * Holds one pending AI job, named by its key (`AiJobQueue`), and runs it when its alarm
  * fires. Scheduling again replaces the job and restarts the delay.
  */
 export class AiJobScheduler extends DurableObject<Bindings> {
@@ -81,7 +75,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       // viewers like any write (ADR 0012).
       const run = runAiJob(createDb(this.env.DB), job.value).pipe(
         // The alarm waits for what the job schedules: nothing answers sooner for it.
-        Effect.provideContext(generationServices(this.env, inline)),
+        Effect.provideContext(aiServices(this.env, inline)),
         Effect.annotateLogs("job", jobName(job.value)),
       );
       await Effect.runPromise(journaled(run, announce));
