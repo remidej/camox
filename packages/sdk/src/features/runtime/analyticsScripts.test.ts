@@ -10,9 +10,7 @@ const MEMBER_SESSION = "camox_auth_cookie=valid";
 const MEASUREMENT_ID = "G-TEST123";
 const POSTHOG_KEY = "phc_test123";
 
-type Providers = AnalyticsProviders;
-
-const BOTH: Providers = {
+const BOTH: AnalyticsProviders = {
   ga4: { measurementId: MEASUREMENT_ID },
   posthog: { projectApiKey: POSTHOG_KEY, region: "eu" },
 };
@@ -27,7 +25,10 @@ const unauthorized = () =>
  * An API where only the valid session is a member, and whose project has the given analytics
  * providers. Like the real API, naming a draft without a session is refused.
  */
-function mockApi(t: { mock: { method: typeof test.mock.method } }, analytics: Providers = BOTH) {
+function mockApi(
+  t: { mock: { method: typeof test.mock.method } },
+  analytics: AnalyticsProviders = BOTH,
+) {
   const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1, analytics };
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const url = new URL(request.url);
@@ -210,13 +211,15 @@ function assertLoadsGa4(html: string, label: string) {
   assert.deepEqual(config, ["config", MEASUREMENT_ID, { send_page_view: false }], label);
 }
 
+type PosthogRegion = NonNullable<AnalyticsProviders["posthog"]>["region"];
+
 /** PostHog Cloud's hosts in each region. */
-const POSTHOG_HOSTS = {
+const POSTHOG_HOSTS: Record<PosthogRegion, { api: string; assets: string }> = {
   us: { api: "https://us.i.posthog.com", assets: "https://us-assets.i.posthog.com" },
   eu: { api: "https://eu.i.posthog.com", assets: "https://eu-assets.i.posthog.com" },
 };
 
-function assertLoadsPosthog(html: string, region: "us" | "eu", label: string) {
+function assertLoadsPosthog(html: string, region: PosthogRegion, label: string) {
   const { posthogInits, addedScripts } = runInlineScripts(html);
   assert.deepEqual(
     addedScripts,
@@ -260,7 +263,7 @@ void test("a visitor's Live page loads GA4 and PostHog with automatic page views
 });
 
 void test("a visitor's Live page loads PostHog from the project's region", async (t) => {
-  for (const region of ["us", "eu"] as const) {
+  for (const region of Object.keys(POSTHOG_HOSTS) as PosthogRegion[]) {
     await t.test(region, async (st) => {
       const providers = { ga4: null, posthog: { projectApiKey: POSTHOG_KEY, region } };
       mockApi(st, providers);

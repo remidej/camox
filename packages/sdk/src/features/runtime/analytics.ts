@@ -12,7 +12,7 @@ type Provider = keyof AnalyticsProviders;
 export function configuredProviders(
   providers: AnalyticsProviders | undefined,
 ): AnalyticsProviders | undefined {
-  return providers?.ga4 || providers?.posthog ? providers : undefined;
+  return providers && PROVIDERS.some((provider) => providers[provider]) ? providers : undefined;
 }
 
 /**
@@ -43,16 +43,20 @@ const providerScripts: {
   },
 };
 
+const PROVIDERS = Object.keys(providerScripts) as Provider[];
+
+/** The script loading `provider` with its `settings`, or nothing when it isn't set up. */
+function providerScript<P extends Provider>(provider: P, settings: AnalyticsProviders[P]) {
+  return settings ? providerScripts[provider](settings) : "";
+}
+
 /**
  * The providers' scripts, loaded without blocking the page. They send no page view of their own:
  * the page client does, once each page's title is in place.
  */
 export function renderAnalyticsScripts(providers: AnalyticsProviders | undefined): string {
   if (!providers) return "";
-  return (
-    (providers.ga4 ? providerScripts.ga4(providers.ga4) : "") +
-    (providers.posthog ? providerScripts.posthog(providers.posthog) : "")
-  );
+  return PROVIDERS.map((provider) => providerScript(provider, providers[provider])).join("");
 }
 
 type AnalyticsWindow = Pick<Window, "location" | "document"> & {
@@ -92,7 +96,7 @@ export function sendPageView(providers: AnalyticsProviders, target: AnalyticsWin
     path: target.location.pathname,
     title: target.document.title,
   };
-  for (const provider of Object.keys(pageViewSenders) as Provider[]) {
+  for (const provider of PROVIDERS) {
     if (providers[provider]) pageViewSenders[provider](pageView, target);
   }
 }
