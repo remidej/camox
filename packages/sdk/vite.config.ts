@@ -18,7 +18,6 @@ export default defineConfig({
       "features/studio/CamoxStudio": "src/features/studio/CamoxStudio.tsx",
       "features/navigation/navigation": "src/features/navigation/navigation.tsx",
       "features/vite/vite": "src/features/vite/vite.ts",
-      "features/metadata/sitemap": "src/features/metadata/sitemap.ts",
       "features/runtime/runtime": "src/features/runtime/runtime.ts",
       "features/runtime/pageServer": "src/features/runtime/pageServer.tsx",
       "features/runtime/pageClient": "src/features/runtime/pageClient.tsx",
