@@ -9,6 +9,7 @@ import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { type LocaleView, parseLocalePath } from "../../lib/locale-path";
 import { Frame } from "../preview/components/Frame";
 import { PageNavigationProvider } from "./pageNavigation";
+import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
 
 type HappyWindow = InstanceType<typeof Window>;
@@ -44,6 +45,10 @@ export async function openPage(
   document.body.innerHTML = '<div id="root"></div>';
   const queryClient = new QueryClient();
   const input = (pathname: string): PageRenderInput => ({
+    // The Studio's frame opens the site's document, in the page's language.
+    ...(studio && {
+      previewDocument: `<!doctype html><html lang="${parseLocalePath(pathname, LOCALES).locale.tag}"><head></head><body><div data-camox-preview-root></div></body></html>`,
+    }),
     locale: parseLocalePath(pathname, LOCALES).locale,
     locales: LOCALES,
     presentation: studio ? "studio" : "public",
@@ -131,18 +136,30 @@ export async function openPage(
             initialInput={initial}
             queryClient={queryClient}
           >
-            {(input) => (studio ? <Frame>{page(input)}</Frame> : page(input))}
+            {(input) =>
+              studio ? (
+                <PreviewDocumentContext.Provider value={input.previewDocument}>
+                  <Frame>{page(input)}</Frame>
+                </PreviewDocumentContext.Provider>
+              ) : (
+                page(input)
+              )
+            }
           </PageNavigationProvider>
         </StudioScopeProvider>,
       );
     });
-    if (!studio) return;
-    // Happy DOM doesn't load srcdoc: give the iframe a fresh document of its own.
+    await loadFrame();
+  };
+  /** Happy DOM doesn't load srcdoc: gives a new iframe a document of its own, from its srcdoc. */
+  const loadFrame = async () => {
+    const iframe = document.querySelector("iframe");
+    if (!studio || !iframe || iframe.contentWindow === frame) return;
+    await frame?.happyDOM.close();
     const opened = new Window({ url: window.location.href });
-    opened.document.body.innerHTML = "<div data-camox-preview-root></div>";
+    opened.document.write(iframe.getAttribute("srcdoc") ?? "");
     spyOnScrolls(opened);
     frame = opened;
-    const iframe = document.querySelector("iframe")!;
     Object.defineProperty(iframe, "contentDocument", { value: opened.document });
     Object.defineProperty(iframe, "contentWindow", { value: opened });
     await React.act(async () => {
@@ -162,10 +179,13 @@ export async function openPage(
     await window.happyDOM.close();
   });
 
-  const settle = () =>
-    React.act(async () => {
+  const settle = async () => {
+    await React.act(async () => {
       for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    // A switch to another locale mounts the page afresh, in a new frame.
+    await loadFrame();
+  };
 
   return {
     window,

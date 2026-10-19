@@ -90,3 +90,13 @@ void test("a page in another locale leaves the Studio's own document in its lang
   assert.equal(page.window.location.pathname, "/de/preise");
   assert.equal(page.window.document.documentElement.lang, "en");
 });
+
+void test("in the Studio, the page's frame takes the language of the page navigated to", async (t) => {
+  const page = await openPage(t, "https://site.test/", { studio: true });
+  assert.equal(page.viewport().document.documentElement.lang, "en");
+
+  await page.click("to-german");
+
+  assert.equal(page.shownPage(), "/de/preise");
+  assert.equal(page.viewport().document.documentElement.lang, "de");
+});
