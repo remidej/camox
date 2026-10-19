@@ -20,7 +20,7 @@ import {
   pageServingProblems,
   servesPages,
 } from "../layouts/route-ownership";
-import { excludeLocalization } from "../translations/exclusions";
+import { deleteOnPurpose } from "../translations/exclusions";
 import { duplicatePathIds } from "./duplicate-paths";
 import { type PageView } from "./generated-seo";
 
@@ -433,8 +433,7 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
 ) {
   const { id } = yield* decodeInput(deletePageInput, rawInput);
   const { scope } = yield* accessTo(ctx, { page: id }, "write");
-  const result = yield* overlay.remove(ctx.db, scope, pages, id);
-  if (result) yield* excludeLocalization(ctx.db, scope, "page", id);
+  const result = yield* deleteOnPurpose(ctx.db, scope, pages, id);
   return result;
 }, Effect.scoped);
 

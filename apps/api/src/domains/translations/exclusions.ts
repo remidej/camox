@@ -2,7 +2,7 @@ import { inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import type { TranslatedEntity } from "../../lib/ai-job-queue";
+import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
 import { blocks, pages, repeatableItems } from "../../schema";
 import * as overlay from "../drafts/overlay";
 import { type Draft, type DraftInLocale, draftOf, type ReadScope } from "../drafts/scope";
@@ -18,12 +18,30 @@ import { descendantsOf } from "./subtree";
 // to Live, where they stay.
 
 /**
+ * Deletes content from the locale `scope` writes on purpose, as members and the agent do, and
+ * returns what it deleted, like `overlay.remove`: a localization deleted so stays out of its
+ * locale, with what's beneath it, through its original's changes. Every path deleting content on
+ * purpose goes through here; translation deleting the localizations of a deleted original
+ * doesn't. Callers delete descendants as `overlay.remove` asks them to: being beneath a deleted
+ * localization excludes them already.
+ */
+export const deleteOnPurpose = Effect.fn("translations.deleteOnPurpose")(function* <
+  T extends overlay.ContentTable,
+>(db: Database, scope: Draft, table: T, id: string) {
+  const removed = yield* overlay.remove(db, scope, table, id);
+  const { entity } = overlay.registrationOf(table);
+  if (removed && isTranslatedEntity(entity)) yield* excludeLocalization(db, scope, entity, id);
+  return removed;
+});
+
+const isTranslatedEntity = (entity: string): entity is TranslatedEntity =>
+  (TRANSLATED_ENTITIES as readonly string[]).includes(entity);
+
+/**
  * Records that a localization was deleted from the locale `scope` writes, unless the entity
  * isn't a localization there: content of the default locale, or created in the locale only.
- * Call it once the localization is deleted, from paths deleting it on purpose. A deleted
- * entity's descendants need none: being beneath it excludes them.
  */
-export const excludeLocalization = Effect.fn("translations.exclude")(function* (
+const excludeLocalization = Effect.fn("translations.exclude")(function* (
   db: Database,
   scope: Draft,
   entity: TranslatedEntity,
