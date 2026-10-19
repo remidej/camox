@@ -5,6 +5,7 @@ import type { Database } from "../../db";
 import {
   DraftEndedError,
   ForbiddenError,
+  InvalidInputError,
   LiveReadOnlyError,
   NoDevelopmentDraftError,
   NotFoundError,
@@ -34,8 +35,9 @@ import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 //    - an id: created with the create header when missing; 404 when it isn't this project's, or
 //      DraftEndedError when it was published or discarded. Someone else's development draft is
 //      403.
-// 5. 404: the scope deleted the entity.
-// 6. LiveReadOnlyError: a `write` that names no draft.
+// 5. 404: the request names a locale the scope doesn't have.
+// 6. 404: the scope deleted the entity, or doesn't have it in the locale.
+// 7. LiveReadOnlyError: a `write` that names no draft.
 //
 // Access fails closed: nothing falls back to Live. A draft this request started is dropped again,
 // while it stores nothing, when the service using the access fails: run services under
@@ -84,7 +86,7 @@ export type ContentAccess<R extends ContentRef, M extends AccessMode> = {
   entity: EntityOf<R>;
 };
 
-type AccessContext = Pick<ServiceContext, "db" | "user" | "draft" | "projectId">;
+type AccessContext = Pick<ServiceContext, "db" | "user" | "draft" | "projectId" | "locale">;
 
 /** One table's rows an entity id names: Live's, and the named draft's (any of the caller's development drafts). */
 function storedForRequest(table: overlay.ContentTable, ctx: AccessContext): SQL {
@@ -278,6 +280,34 @@ const memberScope = Effect.fn("access.memberScope")(function* (
 });
 
 /**
+ * The scope reading the locale a request names (ADR 0015): a draft reads it when it has the
+ * locale, matched by tag whatever its case. Live reads only its default locale through content
+ * access for now. Without a named locale, the scope reads the default locale.
+ */
+const inRequestedLocale = Effect.fn("access.inRequestedLocale")(function* (
+  db: Database,
+  projectId: number,
+  scope: DraftScope,
+  requested: string | undefined,
+): Effect.fn.Return<DraftScope, ServiceError> {
+  if (requested === undefined) return scope;
+  const tags = yield* overlay.select(db, scope, locales, eq(locales.projectId, projectId));
+  const locale = tags.find((row) => row.tag.toLowerCase() === requested.toLowerCase());
+  if (!locale) {
+    return yield* new NotFoundError({
+      message: `${scope ? "The draft" : "Live"} has no locale "${requested}"`,
+      data: { locale: requested },
+    });
+  }
+  if (scope) return { ...scope, locale: locale.tag };
+  if (locale.isDefault) return null;
+  return yield* new InvalidInputError({
+    message: `Name a draft to read the "${locale.tag}" locale`,
+    data: { locale: locale.tag },
+  });
+});
+
+/**
  * The entity a reference names as the scope reads it, from its candidates. An item names its
  * page through its block.
  */
@@ -338,9 +368,10 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
     const { project } = authorized;
 
     if (needsMember && !authorized.member) return yield* new ForbiddenError();
-    const scope = needsMember
+    const drafted = needsMember
       ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
       : null;
+    const scope = yield* inRequestedLocale(ctx.db, project.id, drafted, ctx.locale);
 
     // Content in the scope's locale, or in Live's default locale (ADR 0015).
     const locale = scope?.locale ?? authorized.defaultLocale;

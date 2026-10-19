@@ -6,7 +6,7 @@ import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, printError } from "../lib/output";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, localeFlag } from "../lib/runtime-options";
 import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
@@ -18,6 +18,7 @@ const list = command(
     command: constant("pages.list" as const),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -30,6 +31,7 @@ const get = command(
     path: optional(option("--path", string({ metavar: "PATH" }))),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -44,6 +46,7 @@ const create = command(
     parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -59,6 +62,7 @@ const update = command(
     parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
   {
@@ -89,6 +93,7 @@ const setSeo = command(
     ),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
   {
@@ -104,6 +109,7 @@ const setLayout = command(
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
@@ -115,13 +121,14 @@ const del = command(
     id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
+    locale: localeFlag,
     json: jsonFlag,
   }),
 );
 
 export const parser = command("pages", or(list, get, create, update, setSeo, setLayout, del));
 
-type CommonFlags = { cwd?: string; project?: string; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; locale?: string; json: boolean };
 
 type Args =
   | ({ command: "pages.list" } & CommonFlags)
@@ -156,6 +163,7 @@ export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
+  const locale = args.locale;
 
   switch (args.command) {
     case "pages.list":
@@ -164,6 +172,7 @@ export async function handler(args: Args): Promise<never> {
         args: {},
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
     case "pages.get": {
@@ -179,6 +188,7 @@ export async function handler(args: Args): Promise<never> {
         args: args.id != null ? { id: args.id } : { path: args.path },
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
     }
@@ -193,6 +203,7 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
     case "pages.update": {
@@ -214,6 +225,7 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
     }
@@ -247,6 +259,7 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
     }
@@ -256,6 +269,7 @@ export async function handler(args: Args): Promise<never> {
         args: { id: args.id, layoutId: args.layoutId },
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
     case "pages.delete":
@@ -264,6 +278,7 @@ export async function handler(args: Args): Promise<never> {
         args: { id: args.id },
         cwd,
         projectFlag,
+        locale,
         outputMode,
       });
   }

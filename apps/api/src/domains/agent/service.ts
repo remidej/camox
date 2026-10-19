@@ -2,6 +2,7 @@ import {
   type ToolContext,
   type ToolDefinition,
   formatToolError,
+  localeArgument,
   resolveTools,
   toJsonSchemaTool,
   toolProviders,
@@ -39,6 +40,7 @@ export const buildToolContext = Effect.fn("agent.buildToolContext")(function* (
     client: ctx.client,
     telemetryDisabled: ctx.telemetryDisabled,
     draft: ctx.draft,
+    locale: ctx.locale,
     projectId,
   };
 });
@@ -117,5 +119,10 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   const tool = findTool(tools, name);
   // Live is read-only (ADR 0003): a tool writing content needs the session to name a draft.
   if (tool?.meta.kind === "write" && !ctx.draft) return yield* new LiveReadOnlyError();
-  return yield* executeTool({ toolCtx, tools, name, args });
+  // A localized tool acts in the locale its arguments name (ADR 0015).
+  const locale = tool?.meta.localized ? localeArgument(args) : undefined;
+  if (locale === undefined) return yield* executeTool({ toolCtx, tools, name, args });
+  const inLocale = { ...toolCtx, locale };
+  const localized = yield* Effect.promise(() => resolveTools(toolProviders, inLocale));
+  return yield* executeTool({ toolCtx: inLocale, tools: localized, name, args });
 });

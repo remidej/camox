@@ -6,6 +6,7 @@ import {
   blocks,
   collectionDefinitions,
   collectionRecords,
+  locales,
   pages,
   repeatableItems,
   sharedContents,
@@ -33,11 +34,15 @@ import {
 import { pagesWithDuplicatePaths } from "../pages/duplicate-paths";
 import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
 import * as overlay from "./overlay";
-import type { DraftScope } from "./scope";
+import { draftOf, inLocale, type DraftScope, type ReadScope } from "./scope";
 
 // What publishing a draft checks about content (ADR 0009): duplicate paths, dangling references,
 // values of the wrong kind and missing meta titles. Each check returns findings in what the draft changed, which
 // block publishing, and the same problems already on Live, which are warnings.
+//
+// Each locale's content is checked on its own (ADR 0015): a path or a record page value is
+// unique within a locale, and every localization the draft changes is checked like the default
+// locale's content.
 
 type Scope = NonNullable<DraftScope>;
 type RecordRow = typeof collectionRecords.$inferSelect;
@@ -50,21 +55,28 @@ export type ContentProblemCode =
   | "danglingPageLink"
   | "wrongKindValue"
   | "missingMetaTitle"
-  | "metaTitlePending";
+  | "metaTitlePending"
+  | "localePrefixTaken"
+  | "duplicateLocale";
 
 /** An entity holding content, as previews name it. */
 type ContentEntity = Exclude<overlay.EntityKind, "file">;
 
-/** A problem found in an entity's field. */
+/** A problem found in an entity's field, in the locale of the localization it's found in. */
 export type ContentFinding = {
   entity: ContentEntity;
   id: string;
+  /** The tag of the localization's locale, or null for an entity stored once, like a locale. */
+  locale: string | null;
   code: ContentProblemCode;
   field: string;
   message: string;
 };
 
-type Findings = { blockers: ContentFinding[]; warnings: ContentFinding[] };
+/** A finding before it's placed in a locale: the checks of one locale find them. */
+type Finding = Omit<ContentFinding, "locale">;
+
+type Findings = { blockers: Finding[]; warnings: Finding[] };
 
 /** Whether the draft stores the row: it created or changed the entity. */
 const storedBy = (scope: Scope, row: { draftId: string | null }) => row.draftId === scope.id;
@@ -72,7 +84,7 @@ const storedBy = (scope: Scope, row: { draftId: string | null }) => row.draftId 
 /** A content table's rows in the project, as a scope reads them. */
 const rowsIn = <T extends overlay.ContentTable>(
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: ReadScope,
   projectId: number,
   table: T,
 ) => overlay.select(ctx.db, scope, table, overlay.registrationOf(table).inProject(projectId));
@@ -114,7 +126,7 @@ const checkMetaTitles = Effect.fn("drafts.checkMetaTitles")(function* (
     scope,
     drafted.filter(seoGenerated).map((page) => page.id),
   );
-  const finding = (page: { id: string }, code: ContentProblemCode, message: string) => ({
+  const finding = (page: { id: string }, code: ContentProblemCode, message: string): Finding => ({
     entity: "page" as const,
     id: page.id,
     code,
@@ -198,6 +210,8 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
 export type Holder = {
   entity: Exclude<ContentEntity, "page">;
   id: string;
+  /** The locale of the localization holding the content. */
+  locale: string;
   projectId: number;
   /** Whether the draft created or changed it, rather than reading Live's. */
   changed: boolean;
@@ -254,6 +268,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
     holders.push({
       entity: "block",
       id: block.id,
+      locale: block.locale,
       projectId: block.projectId,
       changed: changed(block),
       content: block.content,
@@ -268,6 +283,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
     holders.push({
       entity: "sharedContent",
       id: shared.id,
+      locale: shared.locale,
       projectId: shared.projectId,
       changed: changed(shared),
       content: shared.content,
@@ -298,6 +314,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
       holders.push({
         entity: "repeatableItem",
         id: item.id,
+        locale: item.locale,
         projectId,
         changed: changed(item),
         content: item.content,
@@ -313,6 +330,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
     holders.push({
       entity: "record",
       id: record.id,
+      locale: record.locale,
       projectId: record.projectId,
       changed: changed(record),
       content: record.content,
@@ -415,29 +433,81 @@ function keyOf(projectId: number, pointer: ContentPointer) {
     : `${projectId}:record:${pointer.collectionId}:${pointer.id}`;
 }
 
-/** Blockers and warnings about content: what the draft changed, and untouched Live content. */
-export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(function* (
+type LocaleRow = typeof locales.$inferSelect;
+type PageRow = typeof pages.$inferSelect;
+
+/**
+ * Locales whose prefix, their tag in lowercase, is a top-level path of the default locale's
+ * pages: those pages would be shadowed. A locale or page the draft adds blocks publishing; a
+ * clash already on Live is a warning.
+ */
+function checkLocalePrefixes(
+  scope: Scope,
+  others: LocaleRow[],
+  defaultPages: PageRow[],
+  found: Findings,
+) {
+  for (const locale of others) {
+    const prefix = `/${locale.tag.toLowerCase()}`;
+    const shadowed = defaultPages.filter(
+      (page) => page.fullPath === prefix || page.fullPath.startsWith(`${prefix}/`),
+    );
+    if (shadowed.length === 0) continue;
+    const drafted = storedBy(scope, locale) || shadowed.some((page) => storedBy(scope, page));
+    (drafted ? found.blockers : found.warnings).push({
+      entity: "locale",
+      id: locale.id,
+      code: "localePrefixTaken",
+      field: "tag",
+      message: `The "${locale.tag}" locale's prefix is a page path in the default locale: ${prefix}`,
+    });
+  }
+}
+
+/**
+ * A locale the draft adds that Live has had since another draft published it: the draft has to
+ * remove its own, and reads Live's.
+ */
+function checkDuplicateLocales(scope: Scope, tags: LocaleRow[], found: Findings) {
+  const live = new Set(tags.filter((locale) => locale.draftId === null).map((row) => row.tag));
+  for (const locale of tags) {
+    if (!storedBy(scope, locale) || locale.baseVersion !== null || !live.has(locale.tag)) continue;
+    found.blockers.push({
+      entity: "locale",
+      id: locale.id,
+      code: "duplicateLocale",
+      field: "tag",
+      message: `Another draft published the "${locale.tag}" locale: remove it from this draft to keep Live's`,
+    });
+  }
+}
+
+/** Blockers and warnings about one locale's content, read by `scope` and on Live. */
+const checkLocale = Effect.fn("drafts.checkLocale")(function* (
   ctx: ServiceContext,
   scope: Scope,
+  defaults: { draft: PageRow[]; live: PageRow[] },
 ) {
   const found: Findings = { blockers: [], warnings: [] };
   const { projectId } = scope;
+  const live = inLocale(null, scope.locale!);
   const draftPages = yield* rowsIn(ctx, scope, projectId, pages);
-  const livePages = yield* rowsIn(ctx, null, projectId, pages);
+  const livePages = yield* rowsIn(ctx, live, projectId, pages);
   const draftRecords = yield* rowsIn(ctx, scope, projectId, collectionRecords);
-  const liveRecords = yield* rowsIn(ctx, null, projectId, collectionRecords);
+  const liveRecords = yield* rowsIn(ctx, live, projectId, collectionRecords);
 
   checkDuplicatePaths(scope, draftPages, found);
   yield* checkMetaTitles(ctx, scope, draftPages, found);
   yield* checkDuplicateRecordPageValues(ctx, scope, draftRecords, found);
 
-  const keys = (pageRows: typeof draftPages, recordRows: RecordRow[]) =>
+  // A link to a page missing from the locale leads to the default locale's page.
+  const keys = (pageRows: PageRow[], recordRows: RecordRow[]) =>
     new Set([
       ...pageRows.map((page) => `${page.projectId}:page:${page.id}`),
       ...recordRows.map((r) => `${r.projectId}:record:${r.collectionId}:${r.id}`),
     ]);
-  const inDraft = keys(draftPages, draftRecords);
-  const onLive = keys(livePages, liveRecords);
+  const inDraft = keys([...draftPages, ...defaults.draft], draftRecords);
+  const onLive = keys([...livePages, ...defaults.live], liveRecords);
   const holders = yield* holdersIn(
     ctx,
     scope,
@@ -453,4 +523,47 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
   checkWrongKinds(holders, found);
 
   return { ...found, records: draftRecords, holders };
+});
+
+/**
+ * Blockers and warnings about content: what the draft changed, and untouched Live content, in
+ * each locale the draft reads.
+ */
+export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(function* (
+  ctx: ServiceContext,
+  draft: Scope,
+) {
+  const scope = draftOf(draft);
+  const { projectId } = scope;
+  const tags = yield* rowsIn(ctx, scope, projectId, locales);
+  const defaultLocale = tags.find((locale) => locale.isDefault)!;
+  const defaults = {
+    draft: yield* rowsIn(ctx, scope, projectId, pages),
+    live: yield* rowsIn(ctx, null, projectId, pages),
+  };
+
+  const blockers: ContentFinding[] = [];
+  const warnings: ContentFinding[] = [];
+  const records: RecordRow[] = [];
+  const holders: Holder[] = [];
+  const unplaced: Findings = { blockers: [], warnings: [] };
+  checkLocalePrefixes(
+    scope,
+    tags.filter((locale) => locale !== defaultLocale),
+    defaults.draft,
+    unplaced,
+  );
+  checkDuplicateLocales(scope, tags, unplaced);
+  blockers.push(...unplaced.blockers.map((finding) => ({ ...finding, locale: null })));
+  warnings.push(...unplaced.warnings.map((finding) => ({ ...finding, locale: null })));
+
+  // A locale another draft published since this one added it is read once.
+  for (const tag of new Set(tags.map((locale) => locale.tag))) {
+    const found = yield* checkLocale(ctx, inLocale(scope, tag), defaults);
+    blockers.push(...found.blockers.map((finding) => ({ ...finding, locale: tag })));
+    warnings.push(...found.warnings.map((finding) => ({ ...finding, locale: tag })));
+    records.push(...found.records);
+    holders.push(...found.holders);
+  }
+  return { blockers, warnings, records, holders };
 });

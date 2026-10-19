@@ -2,7 +2,7 @@
 
 ## Runtime lookup and monorepos
 
-Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `files`,
+Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `locales`, `files`,
 `publish`, `discard`, `preview`, and `logout`) accept `--cwd PATH`:
 
 ```sh
@@ -134,6 +134,21 @@ before editing.
 Commands accept `--cwd`, `--project`, and `--json`.
 Keep the project consistent when using discovered IDs.
 Editing a shared layout block changes it for all pages using that layout.
+
+## Locales
+
+```sh
+camox locales list
+camox locales add --tag de
+camox pages get --path /pricing --locale de
+camox locales remove --tag de
+camox locales set-default-tag --tag en-GB
+```
+
+Locales are added and removed in your development draft, like content. Content
+commands (`pages`, `blocks`, `layouts get`) take `--locale <TAG>` and act on the
+default locale without it. Correcting the default locale's tag applies at once
+and is only possible while it's the only locale.
 
 ## Media
 

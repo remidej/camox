@@ -36,6 +36,8 @@ export type DispatchOptions = {
   projectFlag?: string;
   /** Starting directory for runtime lookup only; does not change process.cwd(). */
   cwd?: string;
+  /** The locale a localized tool reads or writes, from `--locale`. */
+  locale?: string;
   outputMode: OutputMode;
 };
 
@@ -124,7 +126,7 @@ export async function callToolResult(opts: Omit<DispatchOptions, "outputMode">):
   const response = await callRemote({
     ...context,
     name: opts.toolName,
-    args: compact(opts.args),
+    args: compact({ ...opts.args, locale: opts.locale }),
   });
 
   if (!response.ok) {

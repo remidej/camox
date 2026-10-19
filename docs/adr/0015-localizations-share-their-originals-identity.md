@@ -13,3 +13,5 @@ Every locale gets its own copy of each page, block, repeatable item, synced bloc
 - Each locale's pages are a separate path space under its prefix, so a duplicate path is a blocker within a locale only (ADR 0009).
 - A localization removed on purpose has to stay removed when its original next changes, but deleting it leaves nothing on Live (ADR 0008). Live keeps a record that the entity is excluded from that locale, and the translation job skips it.
 - References, links and reference lists resolve in the locale being rendered. Query-backed reference lists query that locale's records.
+- A locale is the parent of every localization in it. Removing a locale in a draft removes only the locale, and publishing deletes its localizations from Live with it, like the blocks of a deleted page.
+- Correcting the default locale's tag while it's the only locale renames it on Live and in every draft at once, without a draft. No content changes, and a draft would have to copy every entity under the new tag. This is the one write to Live besides publishing and releases (ADR 0006).

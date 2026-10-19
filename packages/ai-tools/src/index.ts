@@ -1,11 +1,13 @@
 export { formatToolError } from "./errors";
 export type { ToolError } from "./errors";
+export { localeArgument } from "./lib/locale-input";
 export { rewriteAssetSchema } from "./lib/rewrite-asset-schema";
 export { blockTypesProvider } from "./providers/block-types";
 export { blocksProvider } from "./providers/blocks";
 export { collectionsProvider } from "./providers/collections";
 export { draftsProvider } from "./providers/drafts";
 export { layoutsProvider } from "./providers/layouts";
+export { localesProvider } from "./providers/locales";
 export { pagesProvider } from "./providers/pages";
 export { toolProviders } from "./registry";
 export { resolveTools } from "./resolve";

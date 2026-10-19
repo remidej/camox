@@ -324,6 +324,7 @@ describe("reviewing a draft's record changes", () => {
           label: "Ada Lovelace",
           owner: { kind: "collection", name: "authors", title: "Authors" },
           change: "changed",
+          locale: "en",
         },
         {
           entity: "record",
@@ -331,6 +332,7 @@ describe("reviewing a draft's record changes", () => {
           label: "Hello",
           owner: { kind: "collection", name: "articles", title: "Articles" },
           change: "created",
+          locale: "en",
         },
       ]),
     );

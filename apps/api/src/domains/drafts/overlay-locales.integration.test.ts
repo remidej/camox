@@ -41,6 +41,9 @@ async function fixture(suffix: string) {
     updatedAt: 1,
   };
   const page = (await run(overlay.insert(db, RELEASE, pages, pageValues)))!;
+  // German is on Live: content in a locale needs the locale.
+  const localeValues = { projectId: project.id, tag: "de", createdAt: 1, updatedAt: 1 };
+  await run(overlay.insert(db, RELEASE, locales, localeValues));
   const newBlock = (title: string, id?: string) => ({
     id,
     projectId: project.id,
@@ -288,13 +291,10 @@ describe("content keyed by locale", () => {
 
     // German becomes the default locale.
     await db.update(locales).set({ isDefault: false }).where(eq(locales.projectId, project.id));
-    await db.insert(locales).values({
-      projectId: project.id,
-      tag: "de",
-      isDefault: true,
-      createdAt: 1,
-      updatedAt: 1,
-    });
+    await db
+      .update(locales)
+      .set({ isDefault: true })
+      .where(and(eq(locales.projectId, project.id), eq(locales.tag, "de")));
     expect(await titleOfRequested()).toBe("Hallo");
   });
 
@@ -303,7 +303,13 @@ describe("content keyed by locale", () => {
     await db
       .update(locales)
       .set({ tag: "fr" })
-      .where(and(eq(locales.projectId, project.id), isNull(locales.draftId)));
+      .where(
+        and(
+          eq(locales.projectId, project.id),
+          isNull(locales.draftId),
+          eq(locales.isDefault, true),
+        ),
+      );
 
     const live = (await run(overlay.insert(db, RELEASE, blocks, newBlock("Bonjour"))))!;
     const draft = await openDraft();

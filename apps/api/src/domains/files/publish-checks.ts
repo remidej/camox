@@ -25,6 +25,8 @@ export type FileProblemCode =
 export type Finding = {
   entity: Holder["entity"] | "file";
   id: string;
+  /** The locale of the content the problem is in, or null for a file, stored once. */
+  locale: string | null;
   code: FileProblemCode;
   field: string;
   message: string;
@@ -75,6 +77,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
     blockers.push({
       entity: "file",
       id: file.id,
+      locale: null,
       code: "missingFileBytes",
       field: "file",
       message: `The stored bytes of "${file.filename}" are missing: upload it again`,
@@ -87,7 +90,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
     for (const field of fieldsOf(holder.schema)) {
       if (!isAsset(field)) continue;
       const { title } = field;
-      const at = { entity: holder.entity, id: holder.id, field: field.name };
+      const at = { entity: holder.entity, id: holder.id, locale: holder.locale, field: field.name };
       const fileIds = pointersOf(field, content[field.name]).map((pointer) => pointer.id);
 
       // Lists can't be required: an empty list is always valid.

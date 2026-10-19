@@ -54,7 +54,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
       name: "listCollectionRecords",
       description: "List record IDs and labels, newest first.",
       inputSchema: definitionInput,
-      meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+      meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
       handler: async (input) => {
         const parsed = definitionInput.parse(input);
         return runService(
@@ -71,7 +71,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
       description:
         "Read a record's current content. Files read as their current metadata alongside their _fileId.",
       inputSchema: recordInput,
-      meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+      meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
       handler: async (input) => {
         const parsed = recordInput.parse(input);
         return runService(
@@ -88,7 +88,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
       description:
         "Create a record. Supply full content matching getCollection's schema; reference fields hold a record id (or null), reference lists an array of distinct record ids from the referenced collection, and image or file fields a { _fileId } (or null).",
       inputSchema: createInput,
-      meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
+      meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
       handler: async (input) => {
         const parsed = createInput.parse(input);
         return runService(
@@ -102,7 +102,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
       name: "editCollectionRecord",
       description: "Replace a record's complete content, preserving omitted fields yourself.",
       inputSchema: editInput,
-      meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
+      meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
       handler: async (input) => {
         const parsed = editInput.parse(input);
         return runService(
@@ -117,7 +117,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
       description:
         "Permanently delete a record. Content that references it is left alone and reads the reference as empty. Files are kept.",
       inputSchema: deleteInput,
-      meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+      meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"], localized: true },
       handler: async (input) => {
         const parsed = deleteInput.parse(input);
         return runService(

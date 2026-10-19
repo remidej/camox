@@ -22,6 +22,11 @@ export type ToolDefinition = {
   meta: {
     /** A write changes content, so it needs a draft: Live is read-only (ADR 0003). */
     kind: "read" | "write";
+    /**
+     * Reads or writes content stored per locale (ADR 0015): the tool takes an optional `locale`,
+     * and acts in the default locale without one.
+     */
+    localized?: boolean;
     risk: ToolRisk;
     surfaces: ToolSurface[];
   };
