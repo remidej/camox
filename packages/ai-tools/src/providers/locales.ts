@@ -70,8 +70,8 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "List the pages and collection records deleted from a locale, which Camox no longer " +
       "translates into it: `pages` with their `id`, `fullPath` and `nickname`, `records` with " +
       "their `id`, `collectionId` and `label`, as the default locale shows them. A page deleted " +
-      "beneath another deleted page isn't listed: adding back the page above brings it back. " +
-      "The default locale misses nothing.",
+      "beneath another deleted page is listed once the page above is added back, which leaves " +
+      "it deleted. The default locale misses nothing.",
     inputSchema: listMissingInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
     handler: async () => runService(listMissingFromLocale(ctx, { projectId: ctx.projectId })),

@@ -47,8 +47,8 @@ const exclusionsIn = (ctx: ServiceContext, scope: ReadScope, projectId: number) 
 /**
  * The pages and records deleted from the locale the request reads, as the default locale shows
  * them: pages by path, records by collection and label. A page deleted from the locale beneath
- * another one deleted from it isn't listed: adding back the page above it brings it back too.
- * The default locale misses nothing.
+ * another one deleted from it is listed once the page above it is added back, which leaves it
+ * deleted. The default locale misses nothing.
  */
 export const listMissingFromLocale = Effect.fn("locales.listMissing")(function* (
   ctx: ServiceContext,
