@@ -17,6 +17,7 @@ import { itemSchemas } from "../_shared/fields";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
+import { publishWhenTranslated } from "../drafts/publish";
 import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
@@ -82,6 +83,8 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
     );
   }
   yield* settleTranslation(db, job, startedAt);
+  // The last translation of a catch-up draft publishes it.
+  if (draft) yield* publishWhenTranslated(db, draft.id);
 });
 
 const translate = Effect.fn("translation.translate")(function* (

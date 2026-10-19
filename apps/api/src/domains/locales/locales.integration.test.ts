@@ -180,7 +180,10 @@ async function fixture() {
   const preview = (headers = development) => tool("previewPublish", {}, headers);
   const publish = async (headers = development) => {
     const { token } = await preview(headers);
-    expect(await tool("publishDraft", { token }, headers)).toMatchObject({ published: true });
+    // These tests don't run the translations adding a locale queues.
+    expect(await tool("publishDraft", { token, publishAnyway: true }, headers)).toMatchObject({
+      published: true,
+    });
   };
   const layoutIn = async (locale?: string) =>
     tool("getLayout", { layoutId: base.layout.layoutId, locale });

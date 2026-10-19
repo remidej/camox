@@ -1,4 +1,4 @@
-import type { DraftKind } from "@camox/api-contract/drafts";
+import { CAMOX_ACTOR, CAMOX_NAME, type DraftKind } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
@@ -65,6 +65,7 @@ const namesOf = Effect.fn("drafts.namesOf")(function* (db: ServiceContext["db"],
       )
     : [];
   const byId = new Map(rows.map((row) => [row.id, row.name]));
+  byId.set(CAMOX_ACTOR, CAMOX_NAME);
   return (id: string): Person => ({ id, name: byId.get(id) ?? FORMER_MEMBER });
 });
 

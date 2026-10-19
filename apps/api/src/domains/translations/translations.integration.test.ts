@@ -571,12 +571,12 @@ describe("a translation job", () => {
 
       if (outcome === "published") {
         const { token } = await f.tool("previewPublish");
-        await f.tool("publishDraft", { token });
+        await f.tool("publishDraft", { token, publishAnyway: true });
       } else {
         await call(router.drafts.discard, { projectId: f.projectId }, f.member(f.inDraft));
       }
       const asked = modelCalls().length;
-      await f.runTranslations();
+      for (const job of jobs) await runService(runAiJob(f.db, job));
 
       expect(jobs).not.toEqual([]);
       expect(modelCalls()).toHaveLength(asked);
@@ -591,9 +591,10 @@ describe("a translation job", () => {
     await f.runTranslations();
     await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, development);
 
+    const jobs = f.translationJobs();
     const { token } = await f.tool("previewPublish", {}, development);
-    await f.tool("publishDraft", { token }, development);
-    await f.runTranslations();
+    await f.tool("publishDraft", { token, publishAnyway: true }, development);
+    for (const job of jobs) await runService(runAiJob(f.db, job));
 
     // The development draft stays empty: it reads Live's German, as published.
     expect((await f.tool("previewPublish", {}, development)).changes).toEqual([]);

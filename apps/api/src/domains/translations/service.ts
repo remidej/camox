@@ -175,6 +175,31 @@ export const translatingLocales = Effect.fn("translations.translatingLocales")(f
   return translating;
 });
 
+/** A pending translation: what it translates, into which locale, from which source. */
+export type PendingTranslation = Translatable & {
+  locale: string;
+  source: TranslationRequestSource;
+};
+
+/** A draft's pending translations, which publishing it drops. */
+export const pendingRequestsOf = Effect.fn("translations.pendingRequestsOf")(function* (
+  db: Database,
+  draftId: string,
+) {
+  const rows: PendingTranslation[] = yield* Effect.promise(() =>
+    db
+      .select({
+        entity: translationRequests.entity,
+        id: translationRequests.entityId,
+        locale: translationRequests.locale,
+        source: translationRequests.source,
+      })
+      .from(translationRequests)
+      .where(eq(translationRequests.draftId, draftId)),
+  );
+  return rows;
+});
+
 /** The locales a draft reads, its default locale's tag apart from the others'. */
 export const draftLocales = Effect.fn("translations.draftLocales")(function* (
   db: Database,

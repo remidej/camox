@@ -60,6 +60,21 @@ export const CONFLICTS_CHANGED_ERROR = "CONFLICTS_CHANGED";
 export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";
 
 /**
+ * oRPC error code for a publish refused because the draft still has pending translations: every
+ * locale goes live together, unless the caller publishes anyway (ADR 0015).
+ */
+export const TRANSLATIONS_PENDING_ERROR = "TRANSLATIONS_PENDING";
+
+/**
+ * Who Camox's own work is by: the creator of the drafts it opens to catch translations up, their
+ * publisher on Live, and who ended them. Shown as "Camox".
+ */
+export const CAMOX_ACTOR = "camox";
+
+/** The name Camox's own work shows under. */
+export const CAMOX_NAME = "Camox";
+
+/**
  * oRPC error code for a content write that names no draft. Live is read-only (ADR 0003): content
  * changes reach it only by publishing a draft, or through a release.
  */
