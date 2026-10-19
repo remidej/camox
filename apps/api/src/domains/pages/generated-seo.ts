@@ -5,7 +5,8 @@ import type { ReadScope } from "../drafts/scope";
 import { readValues } from "../generated-values/service";
 import type { pages } from "./schema";
 
-// A page's meta title and description are one group (ADR 0012): all generated or all manual.
+// A page localization's meta title and description are one group (ADR 0012): all generated or all
+// manual, in its locale.
 // Manual values are content; `null` in both columns means the generated values apply.
 
 type PageRow = typeof pages.$inferSelect;

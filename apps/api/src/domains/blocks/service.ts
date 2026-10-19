@@ -32,7 +32,7 @@ import { blockScope, validateReferenceValues } from "../collections/references";
 import { type BlockMarkdown, contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftIn, type Draft, type DraftScope, type ReadScope } from "../drafts/scope";
+import { type Draft, type DraftScope, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
 import {
   copyValue,
@@ -1134,7 +1134,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { block: id }, "member");
 
-  yield* generateNow(ctx.db, draftIn(scope), "block", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "block", id).pipe(Effect.orDie);
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   return stored && (yield* shownBlock(ctx, project.id, scope, stored));
 }, Effect.scoped);

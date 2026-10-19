@@ -167,7 +167,7 @@ A generated value: a short description of a block's or repeatable item's content
 _Avoid_: Description, label, excerpt
 
 **Generated Value**:
-A value AI derives from content (a summary, a page's SEO, or a file's alt text and filename), kept beside the content rather than in it, so producing one never changes a draft. A value written by hand takes its place.
+A value AI derives from content (a summary, a page's SEO, or a file's alt text and filename), kept beside the content rather than in it, so producing one never changes a draft. A value written by hand takes its place. SEO and alt text are generated in each locale; summaries and filenames in the default locale only.
 _Avoid_: AI field, AI metadata, derived content
 
 **Markdown Representation**:

@@ -28,6 +28,8 @@ const StoredJob = Schema.Union([
     entity: JobEntity,
     entityId: Schema.String,
     draftId: Schema.NullOr(Schema.String),
+    // Absent in the default locale, and on jobs stored before jobs had a locale.
+    locale: Schema.optional(Schema.String),
   }),
   // Jobs stored before jobs named their entity; they drain within seconds of a deploy.
   Schema.Struct({

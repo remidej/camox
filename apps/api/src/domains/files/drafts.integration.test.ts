@@ -1,4 +1,4 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
@@ -13,6 +13,7 @@ import {
   callSeedingLive,
   seedLive,
 } from "../../../test/fixtures";
+import { forgetScheduled, scheduledFor } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, drafts, files, pages } from "../../schema";
@@ -94,18 +95,20 @@ async function fixture() {
   /** Posts an upload, or a replacement of `target`'s content, with the given headers. */
   async function send(
     headers: Headers,
-    { target, id, type = "image/png", name = "hero.png", bytes = "image bytes" } = {} as {
+    { target, id, type = "image/png", name = "hero.png", bytes = "image bytes", alt = "" } = {} as {
       target?: string;
       id?: string;
       type?: string;
       name?: string;
       bytes?: string;
+      /** Null leaves the metadata to generation. */
+      alt?: string | null;
     },
   ) {
     const body = new FormData();
     body.set("file", new File([bytes], name, { type }));
     body.set("projectId", String(projectId));
-    body.set("alt", "");
+    if (alt !== null) body.set("alt", alt);
     if (id) body.set("id", id);
     const execution = createExecutionContext();
     const response = await app.request(
@@ -242,6 +245,36 @@ describe("files in drafts", () => {
     expect(await f.bytesAt(published.url)).toBe("new bytes");
     // Nothing names the old blob any more.
     expect(await f.blobExists(live.blobId)).toBe(false);
+  });
+
+  it("an uploaded or replaced image's alt text is requested in every locale, with one shared filename", async () => {
+    const f = await fixture();
+    const draftId = generateUuidv7();
+    await call(
+      router.locales.add,
+      { projectId: f.project.id, tag: "de" },
+      f.member(startingDraft(draftId)),
+    );
+
+    const uploaded = await f.upload(inDraft(draftId), { alt: null, name: "team.png" });
+    expect(scheduledFor(uploaded.id)).toEqual([
+      expect.objectContaining({ entity: "file", draftId }),
+      expect.objectContaining({ entity: "file", draftId, locale: "de" }),
+    ]);
+    expect(scheduledFor(uploaded.id)[0]).not.toHaveProperty("locale");
+    const german = { ...inDraft(draftId), [LOCALE_HEADER]: "de" };
+    expect(await f.getFile(uploaded.id, german)).toMatchObject({
+      filename: "team.png",
+      aiMetadata: true,
+    });
+
+    forgetScheduled(uploaded.id);
+    await f.replace(uploaded.id, inDraft(draftId), { alt: null, name: "office.png" });
+    expect(scheduledFor(uploaded.id)).toEqual([
+      expect.objectContaining({ entity: "file", draftId }),
+      expect.objectContaining({ entity: "file", draftId, locale: "de" }),
+    ]);
+    expect(await f.getFile(uploaded.id, german)).toMatchObject({ filename: "office.png" });
   });
 
   it("changing alt text in a draft copies the file there and leaves Live's alone", async () => {

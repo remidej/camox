@@ -18,6 +18,8 @@ import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
 import { inLocale, type Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
+import { homeOf } from "../generated-values/service";
 import { claimUnique, releaseClaims } from "./claims";
 import { draftLocales, pendingRequest, settleTranslation } from "./service";
 import { contentTexts, slugOf } from "./texts";
@@ -100,7 +102,20 @@ const translate = Effect.fn("translation.translate")(function* (
   if (job.entity === "page" && written) {
     yield* movePageDescendants(db, scope, written as typeof pages.$inferSelect);
   }
+  // The locale's page SEO is generated from what was just written (ADR 0012).
+  if (written && isGeneratedEntity(job.entity)) {
+    const row = written as Row & { projectId: number };
+    yield* requestGeneration(db, homeOf(scope.target, row.projectId), {
+      entity: job.entity,
+      row,
+    } as GenerationTarget);
+  }
 });
+
+const isGeneratedEntity = (
+  entity: TranslationJob["entity"],
+): entity is "page" | "block" | "repeatableItem" =>
+  entity === "page" || entity === "block" || entity === "repeatableItem";
 
 /** The localized values of an entity: its source's text translated, by kind of entity. */
 const localize = Effect.fn("translation.localize")(function* (

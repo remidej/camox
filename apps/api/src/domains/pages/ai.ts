@@ -12,7 +12,7 @@ import { conformBlocks } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import type { Stale } from "../generated-values/generation";
 import { homeOf, readValue, saveValue, settleRequest } from "../generated-values/service";
 import { seoGenerated, seoKey } from "./generated-seo";
@@ -51,12 +51,13 @@ function stripNonSeoFields(obj: Record<string, unknown>): Record<string, unknown
 }
 
 /**
- * Generates a page's SEO as the scope reads it, into the scope's generated values: never into
- * the page, so it never copies one into a draft (ADR 0012). Pages with manual SEO are skipped.
+ * Generates a page's SEO as the scope reads it, in the page's locale, into the scope's generated
+ * values: never into the page, so it never copies one into a draft (ADR 0012). Pages with manual
+ * SEO are skipped.
  */
 export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   pageId: string,
   startedAt: number,
 ): Effect.fn.Return<Stale | null, AiCallError, AiModel | Journal> {
@@ -143,6 +144,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   const previous = (yield* readValue(db, scope, seoKey(pageId))).value;
   const model = yield* AiModel;
   const seo = yield* model.pageSeo({
+    locale: page.locale,
     fullPath: page.fullPath,
     blocks: markdownBlocks,
     previousMetaTitle: previous?.metaTitle,

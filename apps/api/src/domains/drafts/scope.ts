@@ -37,6 +37,12 @@ export function inLocale(scope: ReadScope, locale: string): Draft | LiveInLocale
   return draft ? { ...draft, locale } : { live: true, locale };
 }
 
+/** The scope reading what `scope` reads, in the project's default locale. */
+export function inDefaultLocale(scope: ReadScope): DraftScope {
+  const draft = draftIn(scope);
+  return draft && draftOf(draft);
+}
+
 /**
  * Where a content write lands: a draft, or Live as a release writes it. Publishing a draft and
  * releases are Live's only writers (ADR 0006, ADR 0009), so no write targets Live otherwise. A

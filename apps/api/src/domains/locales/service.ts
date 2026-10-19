@@ -8,7 +8,11 @@ import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftOf, type Draft, type ReadScope } from "../drafts/scope";
+import { draftOf, inLocale, type Draft, type ReadScope } from "../drafts/scope";
+import { files } from "../files/schema";
+import { type GenerationTarget, requestGenerations } from "../generated-values/generation";
+import { homeOf, retagStatements as retagValueStatements } from "../generated-values/service";
+import { pages } from "../pages/schema";
 import * as translations from "../translations/service";
 import { INITIAL_LOCALE, locales } from "./schema";
 
@@ -165,8 +169,30 @@ export const addLocale = Effect.fn("locales.add")(function* (
       }
       // Camox fills the new locale with a translation of the whole website.
       yield* translations.translateIntoLocale(ctx.db, draft, tag);
+      yield* requestLocaleGeneration(ctx.db, inLocale(draft, tag));
       return view(added);
     }),
+  );
+});
+
+/**
+ * Requests the values generated in each locale (ADR 0012) for a locale a draft added: the SEO
+ * of its pages, and the alt text of the project's files.
+ */
+const requestLocaleGeneration = Effect.fn("locales.requestGeneration")(function* (
+  db: Database,
+  scope: Draft,
+) {
+  const home = homeOf(scope, scope.projectId);
+  const pageRows = yield* overlay.select(db, scope, pages, eq(pages.projectId, scope.projectId));
+  const fileRows = yield* overlay.select(db, scope, files, eq(files.projectId, scope.projectId));
+  const targets: GenerationTarget[] = [
+    ...pageRows.map((row) => ({ entity: "page" as const, row })),
+    ...fileRows.map((row) => ({ entity: "file" as const, row })),
+  ];
+  yield* requestGenerations(
+    db,
+    targets.map((target) => ({ home, target })),
   );
 });
 
@@ -258,10 +284,10 @@ export const setDefaultLocaleTag = Effect.fn("locales.setDefaultTag")(function* 
       message: `The default locale's tag can only change while it's the only locale, and "${others[0]!.tag}" exists`,
     });
   }
-  yield* overlay.runStatements(
-    ctx.db,
-    overlay.retagStatements(ctx.db, projectId, current.tag, tag),
-  );
+  yield* overlay.runStatements(ctx.db, [
+    ...overlay.retagStatements(ctx.db, projectId, current.tag, tag),
+    ...retagValueStatements(ctx.db, projectId, current.tag, tag),
+  ]);
   yield* record(ctx.db, {
     kind: "content",
     entity: "locale",

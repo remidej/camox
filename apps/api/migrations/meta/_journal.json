@@ -43,6 +43,13 @@
       "when": 1792425280987,
       "tag": "0005_translation_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792437472146,
+      "tag": "0006_generated_values_per_locale",
+      "breakpoints": true
     }
   ]
 }

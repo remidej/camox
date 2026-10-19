@@ -7,17 +7,19 @@ import { Background } from "../../lib/background";
 import { isRasterImage } from "../../lib/image-transform";
 import type { Journal } from "../../lib/journal";
 import type { AiCallError } from "../../lib/retry-ai-call";
+import { blocks, pages, repeatableItems } from "../../schema";
 import { executeBlockSummary } from "../blocks/service";
-import type { DraftScope } from "../drafts/scope";
+import * as overlay from "../drafts/overlay";
+import { draftIn, inDefaultLocale, inLocale, type ReadScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
-import { metadataGenerated } from "../files/generated-metadata";
+import { altGeneratedIn, metadataGenerated } from "../files/generated-metadata";
 import type { files } from "../files/schema";
 import { executeFileMetadata } from "../files/service";
+import { otherLocale } from "../locales/default-locale";
 import { executePageSeo } from "../pages/ai";
 import { seoGenerated } from "../pages/generated-seo";
-import type { pages } from "../pages/schema";
 import { executeRepeatableItemSummary } from "../repeatable-items/service";
-import type { GeneratedType } from "./schema";
+import { type GeneratedType, LOCALIZED } from "./schema";
 import {
   homeOf,
   markRequested,
@@ -31,13 +33,17 @@ import {
 // in which scope; this module knows, per kind of job, the value it generates, how long to wait
 // for more edits, whether a manual group skips it, and which parent's value it makes stale: an
 // item's summary feeds its block's, which feeds its page's SEO.
+//
+// SEO and alt text are generated in each locale; summaries in the default locale only (ADR
+// 0015), as `LOCALIZED` says of each type. An edit in another locale generates no summary: it
+// makes its page's SEO in that locale stale directly.
 
 /** What a request needs of each entity: its id, and what tells whether its group is generated. */
 type JobRows = {
   block: { id: string };
   repeatableItem: { id: string };
   page: Pick<typeof pages.$inferSelect, "id" | "metaTitle" | "metaDescription">;
-  file: Pick<typeof files.$inferSelect, "id" | "alt" | "filename" | "mimeType">;
+  file: Pick<typeof files.$inferSelect, "id" | "alt" | "filename" | "mimeType" | "altsByLocale">;
 };
 
 /** An entity whose value to generate. */
@@ -50,33 +56,39 @@ type Kind<E extends JobEntity> = {
   type: GeneratedType;
   /** How long to wait for more edits before generating, unless asked for immediately. */
   debounceMs: number;
-  /** Whether the entity's group is generated: a manual one generates nothing. */
-  generated: (row: JobRows[E]) => boolean;
+  /**
+   * Whether the entity's group is generated in a locale, named by its tag or without one the
+   * default locale: a manual one generates nothing.
+   */
+  generated: (row: JobRows[E], locale: string | undefined) => boolean;
   /**
    * Generates the value as the scope reads it and settles the request, unless another came after
-   * `startedAt`. Returns the parent the new value made stale.
+   * `startedAt`. Returns the parent the new value made stale. A value that isn't localized is
+   * generated in the default locale.
    */
   generate: (
     db: Database,
-    scope: DraftScope,
+    scope: ReadScope,
     entityId: string,
     startedAt: number,
   ) => Effect.Effect<Stale | null, AiCallError, AiModel | Journal>;
 };
 
-// `generate` reaches the domains lazily: they request generation from this module too.
+// `generate` reaches the domains lazily: they request generation from this module too. Summary
+// executors take a draft scope, which `draftIn` narrows to: `generateNow` reads a value that
+// isn't localized in the default locale already.
 const KINDS: { [E in JobEntity]: Kind<E> } = {
   repeatableItem: {
     type: "summary",
     debounceMs: 5000,
     generated: () => true,
-    generate: (...args) => executeRepeatableItemSummary(...args),
+    generate: (db, scope, ...rest) => executeRepeatableItemSummary(db, draftIn(scope), ...rest),
   },
   block: {
     type: "summary",
     debounceMs: 5000,
     generated: () => true,
-    generate: (...args) => executeBlockSummary(...args),
+    generate: (db, scope, ...rest) => executeBlockSummary(db, draftIn(scope), ...rest),
   },
   page: {
     type: "seo",
@@ -88,12 +100,17 @@ const KINDS: { [E in JobEntity]: Kind<E> } = {
   file: {
     type: "fileMetadata",
     debounceMs: 0,
-    generated: (file) => metadataGenerated(file) && isRasterImage(file.mimeType),
+    generated: (file, locale) =>
+      (locale === undefined ? metadataGenerated(file) : altGeneratedIn(file, locale)) &&
+      isRasterImage(file.mimeType),
     generate: (...args) => executeFileMetadata(...args),
   },
 };
 
 const kindOf = (entity: JobEntity) => KINDS[entity] as unknown as Kind<JobEntity>;
+
+/** Whether an entity's value is generated in each locale, or in the default locale only. */
+const localized = (entity: JobEntity) => LOCALIZED[kindOf(entity).type];
 
 const keyOf = (entity: JobEntity, entityId: string): ValueKey => ({
   entity,
@@ -101,20 +118,57 @@ const keyOf = (entity: JobEntity, entityId: string): ValueKey => ({
   type: kindOf(entity).type,
 });
 
+/** The page holding a block or an item's block in a scope's locale, if any. */
+const pageOf = Effect.fn("generation.pageOf")(function* (
+  db: Database,
+  scope: ReadScope,
+  entity: "block" | "repeatableItem",
+  id: string,
+) {
+  let blockId: string | null = id;
+  if (entity === "repeatableItem") {
+    blockId = (yield* overlay.get(db, scope, repeatableItems, id))?.blockId ?? null;
+  }
+  const block = blockId === null ? undefined : yield* overlay.get(db, scope, blocks, blockId);
+  if (!block?.pageId) return undefined;
+  return yield* overlay.get(db, scope, pages, block.pageId);
+});
+
 /**
  * Requests an entity's value in a scope, unless its group is manual: marks it pending and
  * schedules its job, after the kind's debounce or `immediately`. A newer request for the same
- * entity and scope replaces a pending job. Scheduling doesn't hold up the request: it runs after
- * it, and a job that can't be scheduled settles its request, leaving nothing pending.
+ * entity, scope and locale replaces a pending job. Scheduling doesn't hold up the request: it
+ * runs after it, and a job that can't be scheduled settles its request, leaving nothing pending.
+ * A summary requested in a locale other than the default one requests its page's SEO in that
+ * locale instead.
  */
 export const requestGeneration = Effect.fn("generation.request")(function* (
   db: Database,
-  home: ValueHome,
+  requested: ValueHome,
   target: GenerationTarget,
   options: { immediately?: boolean } = {},
-) {
+): Effect.fn.Return<void, never, AiJobQueue | Background | Journal> {
   const kind = kindOf(target.entity);
-  if (!kind.generated(target.row)) return;
+  // The default locale is requested without a tag, so its jobs have one key.
+  const locale = yield* otherLocale(db, requested.projectId, requested.locale);
+  const home: ValueHome = {
+    projectId: requested.projectId,
+    draftId: requested.draftId,
+    ...(locale !== undefined ? { locale } : {}),
+  };
+  if (home.locale !== undefined && !localized(target.entity)) {
+    const scope = yield* draftScopeOfJob(db, home.draftId);
+    if (scope === undefined) return;
+    const page = yield* pageOf(
+      db,
+      inLocale(scope, home.locale),
+      target.entity as "block" | "repeatableItem",
+      target.row.id,
+    );
+    if (page) yield* requestGeneration(db, home, { entity: "page", row: page });
+    return;
+  }
+  if (!kind.generated(target.row, home.locale)) return;
   const requestedAt = Date.now();
   const key = keyOf(target.entity, target.row.id);
   yield* markRequested(db, home, key, requestedAt);
@@ -123,6 +177,7 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
     entity: target.entity,
     entityId: target.row.id,
     draftId: home.draftId,
+    ...(home.locale !== undefined ? { locale: home.locale } : {}),
   };
   const scheduler = yield* AiJobQueue;
   const background = yield* Background;
@@ -139,38 +194,63 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
   );
 });
 
+/** One request of `requestGenerations`. */
+export type GenerationRequest = { home: ValueHome; target: GenerationTarget };
+
+/**
+ * Requests many values at once, like `requestGeneration`. Each request writes and reaches a
+ * Durable Object: a few run at a time, not one after another.
+ */
+export const requestGenerations = (
+  db: Database,
+  requests: readonly GenerationRequest[],
+  options: { immediately?: boolean } = {},
+) =>
+  Effect.forEach(requests, ({ home, target }) => requestGeneration(db, home, target, options), {
+    concurrency: 8,
+    discard: true,
+  });
+
 /**
  * Generates an entity's value now, as the scope reads it, then requests the parent it made
- * stale.
+ * stale. A summary is generated from the default locale's content, whatever the scope's locale.
  */
 export const generateNow = Effect.fn("generation.generateNow")(function* (
   db: Database,
-  scope: DraftScope,
+  readScope: ReadScope,
   entity: JobEntity,
   entityId: string,
   startedAt: number = Date.now(),
 ) {
+  const scope = localized(entity) ? readScope : inDefaultLocale(readScope);
   const stale = yield* kindOf(entity).generate(db, scope, entityId, startedAt);
   if (stale) yield* requestGeneration(db, homeOf(scope, stale.projectId), stale.target);
 });
 
 /**
- * Runs a scheduled job in the scope it was scheduled from, or nothing once its draft ended. A
- * job that fails for good settles its request, so its value stops showing as pending, and
- * doesn't fail: the model already retried it.
+ * Runs a scheduled job in the scope and locale it was scheduled from, or nothing once its draft
+ * ended. A job that fails for good settles its request, so its value stops showing as pending,
+ * and doesn't fail: the model already retried it.
  */
 export const runGenerationJob = Effect.fn("generation.run")(function* (
   db: Database,
   job: GenerationJob,
 ) {
-  const scope = yield* draftScopeOfJob(db, job.draftId);
-  if (scope === undefined) return;
+  const drafted = yield* draftScopeOfJob(db, job.draftId);
+  if (drafted === undefined) return;
+  const scope = job.locale === undefined ? drafted : inLocale(drafted, job.locale);
   const startedAt = Date.now();
   yield* generateNow(db, scope, job.entity, job.entityId, startedAt).pipe(
     Effect.catchCause((cause) =>
       Effect.logError(`[generation] ${jobName(job)} failed`, cause).pipe(
         Effect.andThen(
-          settleFailedRequest(db, job.draftId, keyOf(job.entity, job.entityId), startedAt),
+          settleFailedRequest(
+            db,
+            job.draftId,
+            job.locale,
+            keyOf(job.entity, job.entityId),
+            startedAt,
+          ),
         ),
       ),
     ),

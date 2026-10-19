@@ -6,10 +6,17 @@ import type { AiJobScheduler } from "../durable-objects/ai-job-scheduler";
 export type JobEntity = "block" | "repeatableItem" | "page" | "file";
 
 /**
- * A job generating an entity's value in Live (`draftId` null) or in one draft (ADR 0012). Jobs
- * are keyed by all three: a newer job of the same key replaces a pending one.
+ * A job generating an entity's value in Live (`draftId` null) or in one draft (ADR 0012), in a
+ * locale other than the default one, named by its tag, or without one in the default locale.
+ * Jobs are keyed by all four: a newer job of the same key replaces a pending one. Summaries are
+ * only generated in the default locale.
  */
-export type GenerationJob = { entity: JobEntity; entityId: string; draftId: string | null };
+export type GenerationJob = {
+  entity: JobEntity;
+  entityId: string;
+  draftId: string | null;
+  locale?: string;
+};
 
 /** The entities a translation job translates: every localized entity (ADR 0015). */
 export const TRANSLATED_ENTITIES = [
@@ -63,13 +70,14 @@ const NAME_PARTS = {
   file: ["files", "fileMetadata"],
 } as const satisfies Record<JobEntity, readonly [string, string]>;
 
-/** Names a job: its Durable Object, and its logs. */
+/** Names a job: its Durable Object, and its logs. The default locale's jobs keep their names. */
 export const jobName = (job: AiJob) => {
   if (isTranslationJob(job)) {
     return `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
   }
   const [table, type] = NAME_PARTS[job.entity];
-  return `${table}:${job.entityId}:${type}:${job.draftId ?? "live"}`;
+  const name = `${table}:${job.entityId}:${type}:${job.draftId ?? "live"}`;
+  return job.locale === undefined ? name : `${name}:${job.locale}`;
 };
 
 /** The entity of a job stored under its former table and type names. */

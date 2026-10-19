@@ -16,8 +16,15 @@ import {
   createServiceContext,
   openDevelopmentDraft,
 } from "../../../test/fixtures";
-import { answerEvery, forgetScheduled, modelCalls, scheduled } from "../../../test/generation";
+import {
+  answerEvery,
+  forgetScheduled,
+  modelCalls,
+  scheduled,
+  scheduledFor,
+} from "../../../test/generation";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
+import { isTranslationJob } from "../../lib/ai-job-queue";
 import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
@@ -188,7 +195,7 @@ async function fixture() {
 
   /** The translation jobs scheduled so far, each key once. */
   const translationJobs = () => {
-    const jobs = scheduled().filter((job) => "locale" in job);
+    const jobs = scheduled().filter(isTranslationJob);
     const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
     return [...keyed.values()];
   };
@@ -320,6 +327,23 @@ describe("changing the default locale", () => {
     ]);
     await f.runTranslations();
     expect((await f.blockIn("de", development)).block.content.title).toBe("Willkommen");
+  });
+
+  it("requests each locale's page SEO once its translation is written, so it's generated from translated content", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } });
+    const seoIn = () =>
+      scheduledFor(f.page.id)
+        .filter((job) => !isTranslationJob(job) && job.locale !== undefined)
+        .map(({ locale }) => locale);
+    forgetScheduled(f.page.id);
+    expect(seoIn()).toEqual([]);
+
+    await f.runTranslations();
+
+    expect(seoIn()).toEqual(expect.arrayContaining(["de", "fr"]));
+    expect(seoIn()).toHaveLength(2);
   });
 
   it("queues nothing when a localization is edited", async () => {
