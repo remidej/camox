@@ -83,6 +83,38 @@ export const readBookkeepings = Effect.fn("translation.readBookkeepings")(functi
   return found;
 });
 
+/**
+ * Records in a localization's bookkeeping, in its draft, that Camox wrote its position, in one
+ * statement over the bookkeeping as it stands: a job translating the localization at the same
+ * time keeps what it records. A localization without bookkeeping gets none.
+ */
+export const writeBookkeepingPosition = Effect.fn("translation.writeBookkeepingPosition")(
+  function* (
+    db: Database,
+    target: DraftInLocale,
+    entity: TranslatedEntity,
+    entityId: string,
+    position: string,
+  ) {
+    const t = translationBookkeeping;
+    // The draft's own bookkeeping, or a copy of Live's.
+    yield* Effect.promise(() =>
+      db.run(sql`
+        insert into ${t} (project_id, draft_id, entity, entity_id, locale, source, output)
+        select ${t.projectId}, ${target.id}, ${t.entity}, ${t.entityId}, ${t.locale}, ${t.source},
+          json_set(${t.output}, '$.position', ${position})
+        from ${t}
+        where ${t.entity} = ${entity} and ${t.entityId} = ${entityId}
+          and ${t.locale} = ${target.locale}
+          and (${t.draftId} = ${target.id} or ${t.draftId} is null)
+        order by ${t.draftId} is null
+        limit 1
+        on conflict (draft_id, entity, entity_id, locale) where draft_id is not null
+          do update set output = json_set(${t.output}, '$.position', ${position})`),
+    );
+  },
+);
+
 /** Stores a localization's bookkeeping in its draft. */
 export const writeBookkeeping = Effect.fn("translation.writeBookkeeping")(function* (
   db: Database,

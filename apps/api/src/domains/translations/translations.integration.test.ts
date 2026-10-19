@@ -1210,6 +1210,32 @@ describe("the order of blocks and items in a localization", () => {
     expect(await blocksIn(f, "de")).toEqual([second, added.id, third, first, german.id]);
   });
 
+  it("follows the source in a later draft, once a draft that moved its blocks was published", async () => {
+    const { f, ids } = await threeBlocks();
+    const [first, second, third] = ids;
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token });
+    const later = { [DRAFT_HEADER]: generateUuidv7() };
+    const blocksInLater = async (locale?: string) =>
+      ((await f.tool("getPage", { id: f.page.id, locale }, later)).blocks as { id: string }[]).map(
+        ({ id }) => id,
+      );
+
+    // Reversed, German blocks move beside the one each job places, from Live's bookkeeping.
+    await f.tool(
+      "moveBlock",
+      { id: third, position: "first" },
+      { ...later, [DRAFT_CREATE_HEADER]: "1" },
+    );
+    await f.tool("moveBlock", { id: first, position: "last" }, later);
+    await f.runTranslations();
+    expect(await blocksInLater("de")).toEqual([third, second, first]);
+
+    await f.tool("moveBlock", { id: second, position: "first" }, later);
+    await f.runTranslations();
+    expect(await blocksInLater("de")).toEqual([second, third, first]);
+  });
+
   it("compares the order of items, not their positions, so a locale whose items were rewritten still follows the source", async () => {
     const f = await fixture();
     await translatedDraft(f);

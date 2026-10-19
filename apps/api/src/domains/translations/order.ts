@@ -7,7 +7,7 @@ import { blocks, repeatableItems } from "../../schema";
 import * as overlay from "../drafts/overlay";
 import { blocksOfOwner } from "../layouts/identity";
 import { itemsUnder, rootOfItem } from "../repeatable-items/roots";
-import { type Bookkeeping, readBookkeepings, writeBookkeeping } from "./bookkeeping";
+import { type Bookkeeping, readBookkeepings, writeBookkeepingPosition } from "./bookkeeping";
 import type { Merged } from "./merge";
 import type { TranslationScope } from "./scope";
 
@@ -224,10 +224,7 @@ export const placeLocalizedSibling = Effect.fn("translation.placeLocalizedSiblin
     }
     const kept = bookkeepings.get(row.id);
     if (follows && kept && positionIn(kept.output) !== position) {
-      yield* writeBookkeeping(db, scope.target, entity, row.id, {
-        source: kept.source,
-        output: { ...kept.output, position },
-      });
+      yield* writeBookkeepingPosition(db, scope.target, entity, row.id, position);
     }
   }
   const position = placed.get(source.id)!;
