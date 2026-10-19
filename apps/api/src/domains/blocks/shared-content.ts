@@ -6,7 +6,7 @@ import type { Journal } from "../../lib/journal";
 import { blocks, repeatableItems, sharedContentId, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
-import { readScopeOf, type DraftScope, type WriteTarget } from "../drafts/scope";
+import { readScopeOf, type ReadScope, type WriteTarget } from "../drafts/scope";
 import type { GeneratedEntity } from "../generated-values/schema";
 import { readValuesOf } from "../generated-values/service";
 import {
@@ -45,7 +45,7 @@ export function definitionOf(block: { projectId: number; type: string }): Defini
 }
 
 /** A definition's shared content as a scope reads it. */
-export const findSharedContent = (db: Database, scope: DraftScope, key: DefinitionKey) =>
+export const findSharedContent = (db: Database, scope: ReadScope, key: DefinitionKey) =>
   overlay.get(db, scope, sharedContents, sharedContentId(key));
 
 const insertSharedContent = Effect.fn("insertSharedContent")(function* (
@@ -65,7 +65,7 @@ const insertSharedContent = Effect.fn("insertSharedContent")(function* (
  */
 export const contentOwnerOf = Effect.fn("contentOwnerOf")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   block: { id: string; projectId: number; type: string },
 ) {
   const key = definitionOf(block);
@@ -77,7 +77,7 @@ export const contentOwnerOf = Effect.fn("contentOwnerOf")(function* (
 /** The placements of a definition as a scope reads them, oldest first. */
 export const placementsOf = Effect.fn("placementsOf")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   key: DefinitionKey,
 ) {
   const rows = yield* overlay.select(db, scope, blocks, placementsWhere(key));
@@ -92,7 +92,7 @@ export const placementsOf = Effect.fn("placementsOf")(function* (
  */
 export const withSharedContent = Effect.fn("withSharedContent")(function* <B extends BlockRow>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   blockRows: readonly B[],
   itemRows: readonly ItemRow[],
 ) {
@@ -117,7 +117,7 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
 
 const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends BlockRow>(
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   blockRows: readonly B[],
   itemRows: readonly ItemRow[],
 ) {
@@ -238,7 +238,7 @@ const copyItemTree = Effect.fn("copyItemTree")(function* (
 /** The content a definition's defaults give a new block, with its repeatable item seeds. */
 const defaultBundle = Effect.fn("defaultBundle")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   key: DefinitionKey,
 ) {
   const definition = yield* findDefinition(db, key, scope);
@@ -289,7 +289,7 @@ const sharedContentFromDefaults = Effect.fn("sharedContentFromDefaults")(functio
 });
 
 /** The items of a placement as a scope reads them. */
-const itemsOfPlacements = (db: Database, scope: DraftScope, placementIds: string[]) =>
+const itemsOfPlacements = (db: Database, scope: ReadScope, placementIds: string[]) =>
   overlay.select(db, scope, repeatableItems, inArray(repeatableItems.blockId, placementIds));
 
 /**
@@ -468,7 +468,7 @@ export const adoptSharedContent = Effect.fn("blocks.adoptSharedContent")(functio
  */
 export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function* (
   db: Database,
-  scope: DraftScope,
+  scope: ReadScope,
   key: DefinitionKey,
 ) {
   if (!(yield* findSharedContent(db, scope, key))) return null;

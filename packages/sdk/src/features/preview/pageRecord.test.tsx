@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
+import { LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
@@ -15,6 +16,7 @@ import {
   testStudioCache,
 } from "../../lib/draft-scope.fixtures";
 import { reads } from "../../lib/studio-reads";
+import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 
@@ -73,15 +75,20 @@ async function renderPreview(t: TestContext, title: string) {
 
 const ARTICLE = { collectionId: "articles", id: "00000000-0000-4000-8000-000000000001" };
 
-/** The Studio on a record page, against a site whose routes put the article at `articlePath`. */
-async function renderRecordPage(t: TestContext, pathname: string) {
+/**
+ * The Studio on a record page, in the default locale unless `view` names another, against a site
+ * whose routes put the article at `articlePath` in the locale a request names.
+ */
+async function renderRecordPage(t: TestContext, pathname: string, view?: ViewLocale) {
   const window = new Window({ url: `https://site.test${pathname}?zoom=2` });
   Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
   const site = { articlePath: pathname as string | null };
   const requests: string[] = [];
-  t.mock.method(globalThis, "fetch", async (input: URL) => {
+  const locales: Array<string | null> = [];
+  t.mock.method(globalThis, "fetch", async (input: URL, init?: RequestInit) => {
     const url = new URL(input);
     requests.push(`${url.pathname}?${url.searchParams}`);
+    locales.push(new Headers(init?.headers).get(LOCALE_HEADER));
     return Response.json({ path: site.articlePath });
   });
   const navigations: NavigateOptions[] = [];
@@ -102,14 +109,16 @@ async function renderRecordPage(t: TestContext, pathname: string) {
   await act(async () =>
     root.render(
       <StudioQueryClientProvider client={client}>
-        <NavigationProvider
-          location={{ pathname, href: `${pathname}?zoom=2`, search: "?zoom=2", hash: "" }}
-          navigate={(options) => {
-            navigations.push(options);
-          }}
-        >
-          <Studio />
-        </NavigationProvider>
+        <ViewLocaleContext value={view ?? null}>
+          <NavigationProvider
+            location={{ pathname, href: `${pathname}?zoom=2`, search: "?zoom=2", hash: "" }}
+            navigate={(options) => {
+              navigations.push(options);
+            }}
+          >
+            <Studio />
+          </NavigationProvider>
+        </ViewLocaleContext>
       </StudioQueryClientProvider>,
     ),
   );
@@ -126,11 +135,12 @@ async function renderRecordPage(t: TestContext, pathname: string) {
       testStudioCache(client).set(
         reads.record({ projectSlug: "site", collectionId: ARTICLE.collectionId, id: ARTICLE.id }),
         { id: ARTICLE.id, content: { slug }, createdAt: 1000, updatedAt },
+        { locale: view?.locale },
       ),
     );
     await settle();
   };
-  return { requests, navigations, save };
+  return { requests, locales, navigations, save };
 }
 
 void test("editing the slug of the previewed record moves the Studio to its new URL", async (t) => {
@@ -142,6 +152,19 @@ void test("editing the slug of the previewed record moves the Studio to its new 
   ]);
   assert.deepEqual(studio.navigations, [
     { to: "/articles/hello-world?zoom=2", replace: true, source: "canvas" },
+  ]);
+});
+
+void test("editing the slug of the previewed record in another locale moves the Studio to its new URL in that locale", async (t) => {
+  const de = { tag: "de", isDefault: false };
+  const studio = await renderRecordPage(t, "/de/articles/hallo", {
+    locale: de,
+    locales: [{ tag: "en", isDefault: true }, de],
+  });
+  await studio.save(2000, "hallo-welt");
+  assert.deepEqual(studio.locales, ["de"], "route discovery reads the record's German slug");
+  assert.deepEqual(studio.navigations, [
+    { to: "/de/articles/hallo-welt?zoom=2", replace: true, source: "canvas" },
   ]);
 });
 

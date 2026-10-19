@@ -79,6 +79,8 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     projectName: project.name,
   });
   const input: PageRenderInput = {
+    locale: { tag: "en", isDefault: true },
+    locales: [{ tag: "en", isDefault: true }],
     presentation: "studio",
     previewDocument:
       '<!doctype html><html class="dark"><head><link rel="stylesheet" href="/site.css"></head><body><div id="root" data-camox-preview-root><main id="site-content">Site</main></div></body></html>',

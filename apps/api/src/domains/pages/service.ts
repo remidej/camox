@@ -10,7 +10,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { type BlockBundle, contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import type { Draft, DraftScope } from "../drafts/scope";
+import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
@@ -106,13 +106,13 @@ export const generatePageSeoInput = z.object({ id: uuidv7Schema });
 // a draft shows its own pages over Live's, minus the ones it deleted.
 
 /** The pages of a project as a scope reads them. */
-const pagesIn = (ctx: ServiceContext, scope: DraftScope, projectId: number) =>
+const pagesIn = (ctx: ServiceContext, scope: ReadScope, projectId: number) =>
   overlay.select(ctx.db, scope, pages, eq(pages.projectId, projectId));
 
 /** A page as readers see it, with the SEO in effect (ADR 0012). */
 const shownPage = Effect.fn("pages.shownPage")(function* <P extends typeof pages.$inferSelect>(
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: ReadScope,
   row: P,
 ) {
   return (yield* contentReader(ctx, { projectId: row.projectId, draft: scope }).shown.pages([
@@ -125,7 +125,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
   ctx: ServiceContext,
   project: typeof projects.$inferSelect,
   fullPath: string,
-  scope: DraftScope,
+  scope: ReadScope,
 ) {
   const [page] = yield* overlay.select(
     ctx.db,
@@ -235,7 +235,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
 const withPageProblems = Effect.fn("pages.withPageProblems")(function* (
   ctx: ServiceContext,
   projectId: number,
-  scope: DraftScope,
+  scope: ReadScope,
   rows: PageView[],
 ) {
   const problems = yield* pageServingProblems(ctx, projectId, scope);
@@ -303,7 +303,8 @@ export const getPage = Effect.fn("pages.getPage")(function* (
   }
   if (!row) return yield* new NotFoundError();
   // A draft holds content of its own project only.
-  if (scope && scope.projectId !== row.projectId) return yield* new NotFoundError();
+  const draft = draftIn(scope);
+  if (draft && draft.projectId !== row.projectId) return yield* new NotFoundError();
   const createdById = row.createdById;
   const creator = createdById
     ? yield* Effect.promise(() =>
@@ -499,7 +500,8 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
   const { scope } = yield* accessTo(ctx, { page: id }, "member");
 
-  yield* generateNow(ctx.db, scope, "page", id).pipe(Effect.orDie);
+  // Generated values aren't per locale: the draft's, or Live's.
+  yield* generateNow(ctx.db, draftIn(scope), "page", id).pipe(Effect.orDie);
   const page = yield* overlay.get(ctx.db, scope, pages, id);
   return page ? yield* shownPage(ctx, scope, page) : undefined;
 }, Effect.scoped);

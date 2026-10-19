@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -14,6 +14,13 @@ import {
   type RecordLookup,
 } from "../../core/requestContext";
 import { draftNamedBy } from "../../lib/draft-scope";
+import {
+  localizedPath,
+  UNNAMED_DEFAULT_LOCALE,
+  parseLocalePath,
+  type LocalePath,
+  type LocaleView,
+} from "../../lib/locale-path";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
@@ -34,6 +41,7 @@ import {
   prefersMarkdown,
   withFrontMatter,
   readDraftOrLive,
+  readScopeLocales,
   renderedHref,
   resolveMemberProject,
   type DraftRead,
@@ -107,9 +115,25 @@ export interface PageRenderInput extends DraftRead {
   href: string;
   layoutIdentity: LayoutIdentity | null;
   loaderData: unknown;
+  /** The locale the render shows, named by the path's prefix. */
+  locale: LocaleView;
+  /** The locales of the scope the render reads: Live's, or its draft's. */
+  locales: LocaleView[];
+  /**
+   * The full runtime path, with the locale's prefix (`/de/preise`). The locale-relative path is
+   * `parseLocalePath(pathname, locales).path`.
+   */
   pathname: string;
   projectSlug: string;
   runtimeBasePath: string;
+}
+
+/**
+ * A request's path in its locale: the locales of the scope it reads, the locale its path's
+ * prefix names, and the locale-relative path after the prefix.
+ */
+interface RequestLocale extends LocalePath {
+  locales: LocaleView[];
 }
 
 export interface RuntimeOptions {
@@ -357,6 +381,8 @@ async function resolveRequestMember(
 /**
  * The first discovered page of a derived layout, which the Canvas previews by default. With
  * `recordId`, the page rendering that record, which the Studio follows when its slug changes.
+ * Records are found by their values in the locale `LOCALE_HEADER` names, the default locale
+ * without it, and the path is that locale's, without its prefix: route patterns aren't localized.
  */
 async function createRoutesResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
@@ -371,17 +397,18 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   const { project, clearAuthCookie } = await resolveRequestMember(request, options);
   const headers = {
     "Cache-Control": "private, no-store",
-    Vary: "Cookie",
+    Vary: `Cookie, ${LOCALE_HEADER}`,
     ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
   };
+  // Only a non-default locale is named; the API refuses a tag the scope doesn't have.
+  const tag = request.headers.get(LOCALE_HEADER);
   try {
     const pages = await discoverLayoutPages(
       layout,
-      createLayoutRequestContext(
-        options,
-        project ? "draft" : "live",
-        getServerAuthCookieHeader(request.headers),
-      ),
+      createLayoutRequestContext(options, project ? "draft" : "live", {
+        authCookieHeader: getServerAuthCookieHeader(request.headers),
+        locale: tag ? { tag, isDefault: false } : undefined,
+      }),
     );
     const page = recordId ? pages.find((entry) => entry.recordId === recordId) : pages[0];
     return Response.json({ path: page?.path ?? null }, { headers });
@@ -476,10 +503,13 @@ function renderHead(
   pageHead: UseHeadInput,
   stylesheetUrl?: string,
   studioStylesheetUrl?: string,
+  /** The site's rendered locale, whose tag overrides the Document's `lang`. */
+  locale?: LocaleView,
 ) {
   const head = createHead();
   head.push(createDefaultHeadInput(stylesheetUrl));
   head.push(document);
+  if (locale) head.push({ htmlAttrs: { lang: locale.tag } });
   if (studioStylesheetUrl)
     head.push({
       link: [{ rel: "stylesheet", href: studioStylesheetUrl, "data-camox-studio": "true" }],
@@ -524,6 +554,8 @@ async function preparePreviewDocument(
     document,
     createPageHeadInput((input.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
     options.stylesheetUrl,
+    undefined,
+    input.locale,
   );
   const href = new URL(withRuntimeBasePath(input.pathname, options.runtimeBasePath), input.href)
     .href;
@@ -555,7 +587,24 @@ function renderStudioThemeScript(enabled: boolean) {
     : "";
 }
 
-async function createPageHtmlResponse({
+/** Whether a request is a preview link's token handoff, which signs in before reading anything. */
+function isPreviewHandoff(request: Request, options: RuntimeOptions): boolean {
+  const { searchParams } = new URL(request.url);
+  return (
+    searchParams.has("camox-preview") &&
+    searchParams.has("ott") &&
+    !!options.apiUrl &&
+    !!options.authenticationUrl &&
+    !!options.projectSlug &&
+    !!options.renderPage
+  );
+}
+
+/**
+ * The sign-in page a preview link opens on. No page, project or locale lookup yet: the browser
+ * authenticates first, then loads the page again.
+ */
+async function createPreviewHandoffResponse({
   options,
   pathname,
   request,
@@ -564,46 +613,59 @@ async function createPageHtmlResponse({
   pathname: string;
   request: Request;
 }): Promise<Response> {
+  // The sign-in page shows no content: the default locale, of a tag unknown yet, stands in.
+  const locale = UNNAMED_DEFAULT_LOCALE;
+  const input: PageRenderInput = {
+    previewHandoff: true,
+    presentation: "public",
+    apiUrl: options.apiUrl!,
+    authenticationUrl: options.authenticationUrl!,
+    projectSlug: options.projectSlug!,
+    href: request.url,
+    pathname,
+    runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    locale,
+    locales: [locale],
+    head: {},
+    loaderData: null,
+    layoutIdentity: null,
+    dehydratedState: dehydrate(new QueryClient()),
+  };
+  const html = await options.renderPage!(input);
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Camox draft preview</title><script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body><div id="root">${html}</div>${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        "Referrer-Policy": "no-referrer",
+      },
+    },
+  );
+}
+
+async function createPageHtmlResponse({
+  options,
+  pathname,
+  located,
+  request,
+}: {
+  options: RuntimeOptions;
+  /** The full runtime path, with the locale's prefix. */
+  pathname: string;
+  located: RequestLocale;
+  request: Request;
+}): Promise<Response> {
   if (
     !options.apiUrl ||
     !options.authenticationUrl ||
     !options.projectSlug ||
     !options.renderPage
   ) {
-    return createPageDataResponse({ options, pathname, request });
+    return createPageDataResponse({ options, pathname, located, request });
   }
 
-  const requestUrl = new URL(request.url);
-  if (requestUrl.searchParams.has("camox-preview") && requestUrl.searchParams.has("ott")) {
-    // No page/project lookup yet: the browser authenticates first.
-    const input: PageRenderInput = {
-      previewHandoff: true,
-      presentation: "public",
-      apiUrl: options.apiUrl,
-      authenticationUrl: options.authenticationUrl,
-      projectSlug: options.projectSlug,
-      href: requestUrl.href,
-      pathname,
-      runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      head: {},
-      loaderData: null,
-      layoutIdentity: null,
-      dehydratedState: dehydrate(new QueryClient()),
-    };
-    const html = await options.renderPage(input);
-    return new Response(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Camox draft preview</title><script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body><div id="root">${html}</div>${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
-      {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "private, no-store",
-          "Referrer-Policy": "no-referrer",
-        },
-      },
-    );
-  }
-
-  const singleton = await createDerivedResponse(options, pathname, request, {
+  const singleton = await createDerivedResponse(options, pathname, located, request, {
     singletonOnly: true,
   });
   if (singleton) return singleton;
@@ -614,8 +676,9 @@ async function createPageHtmlResponse({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: getRequestDraftId(request, options),
+      locale: located.locale,
       origin: new URL(request.url).origin,
-      pathname,
+      pathname: located.path,
       projectSlug: options.projectSlug,
       queryClient,
     });
@@ -631,7 +694,7 @@ async function createPageHtmlResponse({
 
     const camoxApp = await options.getCamoxApp?.();
     const document = (await options.getDocument?.()) ?? {};
-    const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data) : {};
+    const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {};
     const dehydratedState = dehydrate(queryClient);
     const { project } = result;
     const studio = project !== undefined;
@@ -650,6 +713,8 @@ async function createPageHtmlResponse({
       pathname,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      locale: located.locale,
+      locales: located.locales,
     } satisfies PageRenderInput;
     // Public documents only need site head/attributes for possible client-side
     // studio activation; avoid rendering or serializing their page content twice.
@@ -660,6 +725,7 @@ async function createPageHtmlResponse({
       createPageHeadInput(head),
       studio ? undefined : options.stylesheetUrl,
       studio ? options.studioStylesheetUrl : undefined,
+      studio ? undefined : located.locale,
     );
 
     return new Response(
@@ -682,7 +748,7 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
     );
   } catch (error) {
     if (isNotFoundError(error)) {
-      const derived = await createDerivedResponse(options, pathname, request);
+      const derived = await createDerivedResponse(options, pathname, located, request);
       if (derived) return derived;
       return new Response("No Camox page on this path", { status: 404 });
     }
@@ -699,26 +765,36 @@ type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 function createLayoutRequestContext(
   options: RuntimeOptions,
   source: RecordSource,
-  authCookieHeader?: string,
-  draftId?: string,
+  reading?: RecordReading,
 ): LayoutRequestContext {
-  return createRequestContext({
-    records: createRecordLookup(options, source, authCookieHeader, draftId),
-  });
+  return createRequestContext({ records: createRecordLookup(options, source, reading) });
 }
 
-/** Reads the records `loader` and `routes` ask for; none without an API. */
+/** Who reads records, in which draft and in which locale. */
+interface RecordReading {
+  /** The editor's session, which only draft reads carry. */
+  authCookieHeader?: string;
+  /** The draft read. Without it, Live. */
+  draftId?: string;
+  /** The locale read. Without it, the default locale. */
+  locale?: LocaleView;
+}
+
+/**
+ * Reads the records `loader` and `routes` ask for, in `locale` or the default locale; none
+ * without an API.
+ */
 function createRecordLookup(
   options: RuntimeOptions,
   source: RecordSource,
-  authCookieHeader?: string,
-  draftId?: string,
+  { authCookieHeader, draftId, locale }: RecordReading = {},
 ): RecordLookup | undefined {
   const { apiUrl, projectSlug } = options;
   if (!apiUrl || !projectSlug) return undefined;
   const api = createServerApiClient(apiUrl, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
     draftId,
+    locale,
   });
   return {
     findByField: (input) => api.collectionDefinitions.findRecordsByField({ ...input, projectSlug }),
@@ -771,18 +847,23 @@ async function loadLayoutResult(
 async function createLayoutMarkdownResponse(
   options: RuntimeOptions,
   match: DerivedMatch,
-  /** The page's path, and its absolute URL, which the front matter states. */
+  locale: LocaleView,
+  /** The page's full path, with its locale's prefix, and its absolute URL, which the front matter states. */
   page: { pathname: string; url: string },
 ): Promise<Response | null> {
   const { toMarkdown, id } = match.layout._internal;
   const { apiUrl, projectSlug } = options;
   if (!toMarkdown || !apiUrl || !projectSlug) return null;
-  const api = createServerApiClient(apiUrl);
+  const api = createServerApiClient(apiUrl, { locale });
   const app = await options.getCamoxApp?.();
   /** The layout's own Markdown, between its before and after blocks, and what built it. */
   const layoutMarkdown = async () => {
     // Markdown is a public output: it reads published records whoever asks.
-    const result = await loadLayoutResult(app, match, createLayoutRequestContext(options, "live"));
+    const result = await loadLayoutResult(
+      app,
+      match,
+      createLayoutRequestContext(options, "live", { locale }),
+    );
     const record = asCollectionItem(result);
     const collection = record && app?.getCollectionById(record.collectionId);
     if (!record || !collection)
@@ -838,12 +919,15 @@ interface DerivedResponseOptions {
 
 async function createDerivedResponse(
   options: RuntimeOptions,
+  /** The full runtime path, with the locale's prefix. */
   pathname: string,
+  located: RequestLocale,
   request: Request,
   { dataOnly = false, singletonOnly = false }: DerivedResponseOptions = {},
 ): Promise<Response | null> {
   const app = await options.getCamoxApp?.();
-  const match = app && matchDerivedLayout(app.getLayouts(), pathname);
+  // Route patterns name locale-relative paths: their segments aren't localized.
+  const match = app && matchDerivedLayout(app.getLayouts(), located.path);
   if (!match || (!dataOnly && !options.renderPage)) return null;
   if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
@@ -858,13 +942,18 @@ async function createDerivedResponse(
         createServerApiClient(options.apiUrl!, {
           authCookieHeader,
           draftId,
+          locale: located.locale,
         }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
       );
     const runLoader = (draftId?: string) =>
       loadLayoutResult(
         app,
         match,
-        createLayoutRequestContext(options, studio ? "draft" : "live", authCookieHeader, draftId),
+        createLayoutRequestContext(options, studio ? "draft" : "live", {
+          authCookieHeader,
+          draftId,
+          locale: located.locale,
+        }),
       );
     // In a draft, the layout read settles which draft the page shows, so the loader then reads
     // records from that draft, or from Live when the draft was refused.
@@ -876,6 +965,7 @@ async function createDerivedResponse(
     const studioCache = createServerStudioCache(queryClient, {
       apiUrl: options.apiUrl!,
       authCookieHeader,
+      locale: located.locale,
     });
     const projectSlug = options.projectSlug!;
     const shownIn = { in: read.draftId ?? null };
@@ -928,6 +1018,8 @@ async function createDerivedResponse(
       loaderData: null,
       pathname,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      locale: located.locale,
+      locales: located.locales,
       derived: {
         layoutId: match.layout._internal.id,
         result: serializedResult,
@@ -950,6 +1042,7 @@ async function createDerivedResponse(
       createPageHeadInput(pageHead),
       studio ? undefined : options.stylesheetUrl,
       studio ? options.studioStylesheetUrl : undefined,
+      studio ? undefined : located.locale,
     );
     return new Response(
       `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, html))}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
@@ -972,11 +1065,17 @@ async function createDerivedResponse(
 async function createStudioHtmlResponse({
   match,
   options,
+  pathname,
+  located,
   request,
   dataOnly = false,
 }: {
-  match: RuntimeRouteMatch;
+  /** The studio route the locale-relative path names. */
+  match: RuntimeRouteMatch & { kind: StudioRouteKind };
   options: RuntimeOptions;
+  /** The full runtime path, with the locale's prefix. */
+  pathname: string;
+  located: RequestLocale;
   request: Request;
   dataOnly?: boolean;
 }): Promise<Response> {
@@ -1005,10 +1104,12 @@ async function createStudioHtmlResponse({
     authenticationUrl: options.authenticationUrl,
     dehydratedState: dehydrate(queryClient),
     href: new URL(request.url).href,
-    pathname: match.pathname,
+    pathname,
     projectSlug: options.projectSlug,
-    routeKind: match.kind as "studio" | "studio-content" | "studio-nested",
+    routeKind: match.kind,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    locale: located.locale,
+    locales: located.locales,
   } satisfies StudioRenderInput;
   if (dataOnly)
     return Response.json(studioRenderInput, {
@@ -1060,15 +1161,18 @@ ${renderClientEntryScript(options.studioClientEntryUrl)}
 async function createCanvasOnlyResponse({
   options,
   pathname,
+  located,
   request,
   dataOnly = false,
 }: {
   options: RuntimeOptions;
+  /** The full runtime path, with the locale's prefix. */
   pathname: string;
+  located: RequestLocale;
   request: Request;
   dataOnly?: boolean;
 }): Promise<Response> {
-  const { blockId } = matchCanvasOnlyPath(pathname)!;
+  const { blockId } = matchCanvasOnlyPath(located.path)!;
   const app = blockId ? await options.getCamoxApp?.() : undefined;
   const block = blockId ? app?.getBlockById(blockId) : undefined;
   if (blockId && (!block || block._internal.layoutOnly)) {
@@ -1078,7 +1182,10 @@ async function createCanvasOnlyResponse({
         { status: 404 },
       );
     return Response.redirect(
-      new URL(withRuntimeBasePath("/", options.runtimeBasePath), request.url),
+      new URL(
+        withRuntimeBasePath(localizedPath("/", located.locale), options.runtimeBasePath),
+        request.url,
+      ),
       302,
     );
   }
@@ -1104,6 +1211,8 @@ async function createCanvasOnlyResponse({
     authenticationUrl: options.authenticationUrl,
     projectSlug: options.projectSlug,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    locale: located.locale,
+    locales: located.locales,
     href: request.url,
     pathname,
     head: { meta: [{ title }] },
@@ -1140,17 +1249,20 @@ async function createCanvasOnlyResponse({
 async function createPageDataResponse({
   options,
   pathname,
+  located,
   request,
 }: {
   options: RuntimeOptions;
+  /** The full runtime path, with the locale's prefix. */
   pathname: string;
+  located: RequestLocale;
   request: Request;
 }): Promise<Response> {
   if (!options.apiUrl || !options.projectSlug) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
   }
 
-  const singleton = await createDerivedResponse(options, pathname, request, {
+  const singleton = await createDerivedResponse(options, pathname, located, request, {
     dataOnly: true,
     singletonOnly: true,
   });
@@ -1162,8 +1274,9 @@ async function createPageDataResponse({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: getRequestDraftId(request, options),
+      locale: located.locale,
       origin: new URL(request.url).origin,
-      pathname,
+      pathname: located.path,
       projectSlug: options.projectSlug,
       queryClient,
     });
@@ -1177,13 +1290,15 @@ async function createPageDataResponse({
     }
 
     const camoxApp = await options.getCamoxApp?.();
-    const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data) : null;
+    const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null;
     const dehydratedState = dehydrate(queryClient);
     const input: PageRenderInput = {
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl ?? "",
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      locale: located.locale,
+      locales: located.locales,
       href: renderedHref(request.url, result),
       draftId: result.draftId,
       refusedDraft: result.refusedDraft,
@@ -1199,7 +1314,9 @@ async function createPageDataResponse({
     return Response.json(input, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {
-      const derived = await createDerivedResponse(options, pathname, request, { dataOnly: true });
+      const derived = await createDerivedResponse(options, pathname, located, request, {
+        dataOnly: true,
+      });
       if (derived) return derived;
       return Response.json(
         { kind: "page", message: "No Camox page on this path", pathname },
@@ -1253,77 +1370,135 @@ export async function handleCamoxRequest(
   }
 
   if (match.kind === "data") {
-    const url = new URL(request.url);
-    const targetPathname = normalizePagePath(url.searchParams.get("path"));
-    const targetMatch = matchRuntimeRoute(targetPathname);
-    if (targetMatch.kind === "canvas") {
-      return createCanvasOnlyResponse({
-        options,
-        pathname: targetPathname,
-        request,
-        dataOnly: true,
-      });
-    }
-    if (targetMatch.kind.startsWith("studio")) {
-      return createStudioHtmlResponse({ match: targetMatch, options, request, dataOnly: true });
-    }
-    if (targetMatch.kind !== "page") return new Response("Not found", { status: 404 });
-    return createPageDataResponse({ options, pathname: targetPathname, request });
+    const targetPathname = normalizePagePath(new URL(request.url).searchParams.get("path"));
+    if (matchRuntimeOwnedRoute(targetPathname)) return new Response("Not found", { status: 404 });
+    return respondInLocale(options, request, targetPathname, { dataOnly: true });
   }
 
+  // The rest of the runtime's paths sit under the locale's prefix.
+  if (isPreviewHandoff(request, options) && match.kind === "page") {
+    return createPreviewHandoffResponse({ options, pathname, request });
+  }
+
+  // Agents reach the Markdown Representation by asking for it, or at the page's `.md` URL.
+  const { apiUrl, projectSlug } = options;
+  const markdownPathname = parseMarkdownPath(pathname);
   if (
-    match.kind === "studio" ||
-    match.kind === "studio-content" ||
-    match.kind === "studio-nested"
+    apiUrl &&
+    projectSlug &&
+    (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? ""))
   ) {
-    return createStudioHtmlResponse({ match, options, request });
-  }
-
-  if (match.kind === "canvas") {
-    return createCanvasOnlyResponse({ options, pathname: match.pathname, request });
-  }
-
-  if (match.kind === "page") {
-    // Agents reach the Markdown Representation by asking for it, or at the page's `.md` URL.
-    const markdownPathname = parseMarkdownPath(match.pathname);
-    if (
-      options.apiUrl &&
-      options.projectSlug &&
-      (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? ""))
-    ) {
-      const pathname = markdownPathname ?? match.pathname;
-      // The front matter links the page itself, not its Markdown.
-      const url = absoluteUrl(request, options)(pathname);
-      // Same precedence as HTML: singleton, curated page, then derived layout.
-      const app = await options.getCamoxApp?.();
-      const layoutMatch = app && matchDerivedLayout(app.getLayouts(), pathname);
-      const markdownResponse =
-        layoutMatch?.layout._internal.kind === "singleton"
-          ? await createLayoutMarkdownResponse(options, layoutMatch, { pathname, url })
-          : await createMarkdownResponse({
-              apiUrl: options.apiUrl,
-              camoxApp: app,
-              pathname,
-              projectSlug: options.projectSlug,
-              request,
-              url,
-              onNotFound: async () =>
-                layoutMatch
-                  ? createLayoutMarkdownResponse(options, layoutMatch, { pathname, url })
-                  : null,
-            });
+    // Markdown is a public output: it reads Live, whoever asks.
+    const located = await locateRequest(request, options, markdownPathname ?? pathname, {
+      live: true,
+    });
+    if (markdownPathname || matchLocalizedRoute(located.path)?.kind === "page") {
+      const markdownResponse = await createPageMarkdownResponse(
+        { ...options, apiUrl, projectSlug },
+        located,
+        { pathname: markdownPathname ?? pathname, request },
+      );
       if (markdownResponse) return markdownResponse;
       if (markdownPathname) return new Response("Page not found", { status: 404 });
     }
-
-    return createPageHtmlResponse({ options, pathname: match.pathname, request });
   }
 
-  return Response.json(
-    {
-      message: "Camox runtime route matched.",
-      ...match,
-    },
-    { status: 501 },
+  return respondInLocale(options, request, pathname);
+}
+
+/**
+ * Answers a path under its locale's prefix: the Canvas, a studio route or a page, in that locale.
+ * With `dataOnly`, as the JSON client navigation loads.
+ */
+async function respondInLocale(
+  options: RuntimeOptions,
+  request: Request,
+  /** The full runtime path, with the locale's prefix. */
+  pathname: string,
+  { dataOnly = false }: { dataOnly?: boolean } = {},
+): Promise<Response> {
+  const located = await locateRequest(request, options, pathname);
+  const localized = matchLocalizedRoute(located.path);
+  if (!localized) return new Response("Not found", { status: 404 });
+  const target = { options, pathname, located, request };
+  if (localized.kind === "canvas") return createCanvasOnlyResponse({ ...target, dataOnly });
+  if (isStudioRoute(localized))
+    return createStudioHtmlResponse({ ...target, match: localized, dataOnly });
+  return dataOnly ? createPageDataResponse(target) : createPageHtmlResponse(target);
+}
+
+/**
+ * A page's Markdown Representation in its locale, with the same precedence as its HTML:
+ * singleton, curated page, then derived layout. Null when the page has none.
+ */
+async function createPageMarkdownResponse(
+  options: RuntimeOptions & { apiUrl: string; projectSlug: string },
+  { locale, path }: RequestLocale,
+  /** The page's full path, with its locale's prefix, and the request asking for it. */
+  { pathname, request }: { pathname: string; request: Request },
+): Promise<Response | null> {
+  // The front matter links the page itself, not its Markdown.
+  const page = { pathname, url: absoluteUrl(request, options)(pathname) };
+  const app = await options.getCamoxApp?.();
+  const layoutMatch = app && matchDerivedLayout(app.getLayouts(), path);
+  if (layoutMatch?.layout._internal.kind === "singleton")
+    return createLayoutMarkdownResponse(options, layoutMatch, locale, page);
+  return createMarkdownResponse({
+    apiUrl: options.apiUrl,
+    camoxApp: app,
+    locale,
+    pathname: path,
+    projectSlug: options.projectSlug,
+    request,
+    url: page.url,
+    onNotFound: async () =>
+      layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale, page) : null,
+  });
+}
+
+type StudioRouteKind = "studio" | "studio-content" | "studio-nested";
+
+/** Whether a route is one of the studio's own, rather than a page or the Canvas. */
+function isStudioRoute(
+  match: RuntimeRouteMatch,
+): match is RuntimeRouteMatch & { kind: StudioRouteKind } {
+  return (
+    match.kind === "studio" || match.kind === "studio-content" || match.kind === "studio-nested"
   );
+}
+
+/**
+ * The studio or page route a locale-relative path names, or null for a runtime-owned route
+ * under a locale's prefix (`/de/sitemap.xml`), which names nothing.
+ */
+function matchLocalizedRoute(path: string) {
+  const match = matchRuntimeRoute(path);
+  return match.kind === "page" || match.kind === "canvas" || isStudioRoute(match) ? match : null;
+}
+
+/**
+ * The locale a request's path names, among the locales of the scope it reads: the URL's draft's
+ * for a session naming one, else Live's. `live` reads Live's whatever the request names. Without
+ * an API there are none to read: every path is the default locale's, which then says it can't
+ * render.
+ */
+async function locateRequest(
+  request: Request,
+  options: RuntimeOptions,
+  pathname: string,
+  { live = false }: { live?: boolean } = {},
+): Promise<RequestLocale> {
+  const { apiUrl, projectSlug } = options;
+  const locales =
+    apiUrl && projectSlug
+      ? await readScopeLocales({
+          apiUrl,
+          projectSlug,
+          ...(!live && {
+            authCookieHeader: getServerAuthCookieHeader(request.headers),
+            draftId: getRequestDraftId(request, options),
+          }),
+        })
+      : [UNNAMED_DEFAULT_LOCALE];
+  return { ...parseLocalePath(pathname, locales), locales };
 }

@@ -15,8 +15,9 @@ import {
 import { useSelector } from "@xstate/store-react";
 import { Check, EyeOff, LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
 
-import { useLocation, useNavigate } from "@/features/navigation/navigation";
+import { useNavigate } from "@/features/navigation/navigation";
 import { useAuthContext, useAuthState } from "@/lib/auth";
+import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import { previewStore, selectIsCanvasShown } from "../../preview/previewStore";
 import { STUDIO_BASE_PATH } from "../routes";
@@ -48,7 +49,8 @@ function AuthenticatedUserButton({
   const { data: session } = authCtx.authClient.useSession();
   const authenticationUrl = authCtx.authenticationUrl;
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   const navigate = useNavigate();
   const isPreviewPage =
     pathname !== STUDIO_BASE_PATH && !pathname.startsWith(`${STUDIO_BASE_PATH}/`);
@@ -56,7 +58,7 @@ function AuthenticatedUserButton({
   const hideCamoxUi = () => {
     previewStore.send({ type: "hideToolbar" });
     if (isPreviewPage) return;
-    void navigate({ to: "/" });
+    void navigate({ to: localized("/") });
   };
 
   const userName = session?.user?.name || "User";

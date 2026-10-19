@@ -24,3 +24,32 @@ void test("selection resolves concrete pages before derived layouts and supports
   assert.equal(select("/articles/hello%20world")?.key, "derived:articles.$slug");
   assert.equal(select("/missing"), undefined);
 });
+
+void test("in a non-default locale, pages sit under its prefix and derived routes match after it", () => {
+  const de = { tag: "de", isDefault: false };
+  const locales = [{ tag: "en", isDefault: true }, de];
+  const layouts = [
+    { _internal: { id: "about", kind: "singleton", title: "About" } },
+    { _internal: { id: "articles.$slug", kind: "derived", title: "Article" } },
+  ] as Layout[];
+  const pages = getCanvasPages(
+    [
+      { id: "7", nickname: "Home", fullPath: "/" },
+      { id: "9", nickname: "Pricing", fullPath: "/preise" },
+    ],
+    layouts,
+    // Route discovery in German finds the record's German path, after the prefix.
+    new Map([["articles.$slug", "/articles/hallo"]]),
+    de,
+  );
+  const select = (pathname: string) => selectedCanvasPage(pages, layouts, pathname, locales);
+
+  assert.deepEqual(
+    pages.map((page) => page.pathname),
+    ["/de", "/de/preise", "/de/about", "/de/articles/hallo"],
+  );
+  assert.equal(select("/de")?.key, "page:7");
+  assert.equal(select("/de/preise")?.key, "page:9");
+  assert.equal(select("/de/about")?.key, "singleton:about");
+  assert.equal(select("/de/articles/hallo")?.key, "derived:articles.$slug");
+});

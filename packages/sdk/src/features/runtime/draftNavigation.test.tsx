@@ -9,12 +9,16 @@ import * as React from "react";
 import { createApp } from "../../core/createApp";
 import { createDraftScope } from "../../lib/draft-scope";
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
+import { type LocaleView, parseLocalePath } from "../../lib/locale-path";
+import { useLocalePath, useViewLocale } from "../../lib/view-locale";
 import { Link, useNavigate } from "../navigation/navigation";
 import type { DraftNotice } from "../routes/pageRuntime";
 import { PageNavigationProvider } from "./pageNavigation";
 import type { PageRenderInput } from "./runtime";
 
 const ENDED_DRAFT = "ended";
+const EN: LocaleView = { tag: "en", isDefault: true };
+const DE: LocaleView = { tag: "de", isDefault: false };
 const ended: EndedDraft = {
   draftId: ENDED_DRAFT,
   outcome: "discarded",
@@ -42,6 +46,8 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
   document.body.innerHTML = '<div id="root"></div>';
   const queryClient = new QueryClient();
   const input: PageRenderInput = {
+    locale: EN,
+    locales: [EN, DE],
     presentation: "studio",
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
@@ -66,6 +72,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
     const next: PageRenderInput = {
       ...input,
       pathname: href.pathname,
+      locale: parseLocalePath(href.pathname, input.locales).locale,
       href: href.href,
       draftId: draft && !refused ? draft : undefined,
       refusedDraft: refused ? { notice: { reason: "ended", ...ended } } : undefined,
@@ -83,8 +90,10 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
 
   let navigate!: ReturnType<typeof useNavigate>;
   let mounts = 0;
+  let shown!: { locale: string; path: string };
   function Workspace() {
     navigate = useNavigate();
+    shown = { locale: useViewLocale().locale.tag, path: useLocalePath() };
     React.useEffect(() => {
       mounts++;
     }, []);
@@ -126,6 +135,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
     dataRequests,
     notices,
     mounts: () => mounts,
+    shown: () => shown,
     navigate: (options: Parameters<typeof navigate>[0]) =>
       React.act(async () => {
         await navigate(options);
@@ -198,6 +208,23 @@ void test("switching drafts reads the page from the new draft, and Back returns 
   assert.equal(page.dataRequests[1]!.searchParams.get("camox-draft"), null);
   assert.equal(page.draftScope.current(), null, "Back returns to Live");
   assert.equal(page.mounts(), 3);
+});
+
+void test("a page under a locale's prefix is shown afresh in that locale, and its links keep it", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
+
+  await page.navigate({ to: "/de/preise" });
+
+  assert.equal(page.window.location.pathname, "/de/preise");
+  assert.equal(page.draftInUrl(), "d1", "the draft composes with the locale's prefix");
+  assert.equal(page.draftScope.locale().tag, "de");
+  assert.deepEqual(page.shown(), { locale: "de", path: "/preise" });
+  assert.equal(page.mounts(), 2, "the page is shown afresh in the locale");
+
+  await page.navigate({ to: "/de/kontakt" });
+
+  assert.equal(page.mounts(), 2, "navigating within the locale keeps the page mounted");
+  assert.deepEqual(page.shown(), { locale: "de", path: "/kontakt" });
 });
 
 void test("navigating within a draft keeps the page mounted", async (t) => {

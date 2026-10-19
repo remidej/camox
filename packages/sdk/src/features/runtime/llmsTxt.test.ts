@@ -6,7 +6,7 @@ import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout } from "../../core/createLayout";
-import { pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse } from "./api.fixtures";
 import { LLMS_TXT_DERIVED_LAYOUT_CAP } from "./llmsTxt";
 import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
@@ -326,6 +326,7 @@ void test("llms.txt and the sitemap list the same pages", async (t) => {
 
 void test("HTML pages point LLM tools to llms.txt", async (t) => {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/pages/getByPath"))
       return Response.json({

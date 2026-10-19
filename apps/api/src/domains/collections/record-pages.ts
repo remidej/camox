@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { definitionsIn } from "../_shared/definitions";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import { layouts } from "../layouts/schema";
 
 // Record pages (GLOSSARY): pages of a derived layout, each rendering one collection record
@@ -40,7 +40,7 @@ export function recordsSharingPageValues<T>(
 /** The record pages a project's layouts declare. */
 export const recordPageLayouts = Effect.fn("collections.recordPageLayouts")(function* (
   db: Database,
-  where: { projectId: number; draft: DraftScope },
+  where: { projectId: number; draft: ReadScope },
 ) {
   const scope = and(eq(layouts.projectId, where.projectId), definitionsIn(layouts, where.draft));
   const rows = yield* Effect.promise(() =>

@@ -3,7 +3,7 @@ import * as React from "react";
 import { useProjectSlug } from "../../lib/auth";
 import { NormalizedDataProvider, usePageBlocks } from "../../lib/normalized-data";
 import { reads, useRead } from "../../lib/studio-reads";
-import { useLocation } from "../navigation/navigation";
+import { useLocalePath } from "../../lib/view-locale";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedLayoutContent } from "./SharedLayoutContent";
@@ -41,7 +41,7 @@ function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout"
 
 /** A curated page as visitors see it, without editing. */
 export function CuratedPageContent() {
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
   const pageData = useRead(reads.pageStructure({ path: pathname, projectSlug }));

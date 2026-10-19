@@ -22,10 +22,10 @@ import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import type { Block } from "@/core/createBlock";
-import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
 import { type BlockBundle, blockMutations } from "@/lib/queries";
+import { useLocalePath } from "@/lib/view-locale";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
@@ -50,7 +50,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
   const studioCache = useStudioCache();
   const projectSlug = useProjectSlug();
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
 
   const createBlock = useMutation({
     ...blockMutations.create(),

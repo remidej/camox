@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { useProjectSlug } from "../../../lib/auth";
 import { reads, useRead } from "../../../lib/studio-reads";
-import { useLocation } from "../../navigation/navigation";
+import { useLocalePath } from "../../../lib/view-locale";
 import { AddBlockDialog } from "../../preview/components/AddBlockDialog";
 import { PageInfo } from "../../preview/components/PageInfo";
 import { PageTree } from "../../preview/components/PageTree";
@@ -11,7 +11,7 @@ import { PageOverview } from "./PageOverview";
 
 /** A curated page: its blocks, which editors arrange, then what's about the page. */
 export function CuratedPageInspector() {
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
   const projectSlug = useProjectSlug();
   const owner = React.useContext(PreviewEditingOwnerContext);
   // PageTree reads the same page through usePreviewedPage.

@@ -4,6 +4,7 @@ import { Link } from "@/features/navigation/navigation";
 import { collectionContentPath, STUDIO_ASSETS_PATH } from "@/features/studio/routes";
 import type { CollectionDefinition } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { useLocalizedPath } from "@/lib/view-locale";
 
 import { ContentSidebarGroup } from "./ContentSidebarGroup";
 
@@ -60,19 +61,23 @@ const ContentSidebarItem = ({
   icon: LucideIcon;
   title: string;
   selected: boolean;
+  /** The studio route, without the locale's prefix. */
   to: string;
-}) => (
-  <Link
-    to={to}
-    aria-current={selected ? "page" : undefined}
-    className={cn(
-      "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium",
-      selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-    )}
-  >
-    <Icon aria-hidden className={cn("h-4 w-4 shrink-0", !selected && "text-muted-foreground")} />
-    <span className="truncate" title={title}>
-      {title}
-    </span>
-  </Link>
-);
+}) => {
+  const localized = useLocalizedPath();
+  return (
+    <Link
+      to={localized(to)}
+      aria-current={selected ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium",
+        selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+      )}
+    >
+      <Icon aria-hidden className={cn("h-4 w-4 shrink-0", !selected && "text-muted-foreground")} />
+      <span className="truncate" title={title}>
+        {title}
+      </span>
+    </Link>
+  );
+};

@@ -8,7 +8,7 @@ import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftOf, type Draft, type DraftScope } from "../drafts/scope";
+import { draftOf, type Draft, type ReadScope } from "../drafts/scope";
 import { INITIAL_LOCALE, locales } from "./schema";
 
 // Locales are content (ADR 0015): a draft adds and removes them, and publishing puts them on
@@ -37,7 +37,11 @@ const tagSchema = z
   .min(1)
   .describe('A BCP 47 language tag, such as "de" or "pt-BR".');
 
-export const listLocalesInput = z.object({ projectId: z.number() });
+/** A project by id, or by slug as a website's runtime knows it. */
+export const listLocalesInput = z.union([
+  z.object({ projectId: z.number() }),
+  z.object({ projectSlug: z.string() }),
+]);
 export const addLocaleInput = z.object({ projectId: z.number(), tag: tagSchema });
 export const removeLocaleInput = z.object({ projectId: z.number(), tag: tagSchema });
 export const setDefaultLocaleTagInput = z.object({ projectId: z.number(), tag: tagSchema });
@@ -65,7 +69,7 @@ const canonicalTag = (tag: string) =>
   });
 
 /** The locales a scope reads in a project: the default locale first, then by when they were added. */
-const localesIn = (db: Database, scope: DraftScope, projectId: number) =>
+const localesIn = (db: Database, scope: ReadScope, projectId: number) =>
   overlay
     .select(db, scope, locales, eq(locales.projectId, projectId))
     .pipe(
@@ -89,9 +93,14 @@ const withTag = (rows: LocaleRow[], tag: string) =>
  */
 const projectAccess = <M extends "public" | "member" | "write">(
   ctx: ServiceContext,
-  projectId: number,
+  project: number | { projectSlug: string },
   mode: M,
-) => accessTo({ ...ctx, locale: undefined }, { project: projectId }, mode);
+) =>
+  accessTo(
+    { ...ctx, locale: undefined },
+    typeof project === "number" ? { project } : project,
+    mode,
+  );
 
 // --- Reads ---
 
@@ -100,9 +109,11 @@ export const listLocales = Effect.fn("locales.list")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listLocalesInput>,
 ) {
-  const { projectId } = yield* decodeInput(listLocalesInput, rawInput);
-  const { scope } = yield* Effect.scoped(projectAccess(ctx, projectId, "public"));
-  return (yield* localesIn(ctx.db, scope, projectId)).map(view);
+  const input = yield* decodeInput(listLocalesInput, rawInput);
+  const { scope, project } = yield* Effect.scoped(
+    projectAccess(ctx, "projectId" in input ? input.projectId : input, "public"),
+  );
+  return (yield* localesIn(ctx.db, scope, project.id)).map(view);
 });
 
 // --- Writes ---

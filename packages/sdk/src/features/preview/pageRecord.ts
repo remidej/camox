@@ -6,10 +6,13 @@ import { asCollectionItem } from "@/core/recordItem";
 import type { CollectionRecordId } from "@/core/requestContext";
 
 import { useDraftScope } from "../../lib/draft-scope";
+import { localizedPath } from "../../lib/locale-path";
 import { reads, useReadQuery } from "../../lib/studio-reads";
+import { useViewLocale } from "../../lib/view-locale";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
+import type { PageRenderInput } from "../runtime/runtime";
 import type { LayoutRecordPlacer } from "./components/useRecordView";
 
 export type PageRecordId = CollectionRecordId;
@@ -19,6 +22,22 @@ export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRe
   const record = asCollectionItem(result);
   if (!record) return undefined;
   return { collectionId: record.collectionId, id: record.data.id };
+}
+
+/** The record page a render shows: a derived layout's page of one record. */
+export type ShownRecordPage = { layoutId: string; recordId: string; runtimeBasePath: string };
+
+/** The record page `input` renders, or undefined when it renders none. */
+export function shownRecordPage(
+  input: Pick<PageRenderInput, "derived" | "runtimeBasePath">,
+): ShownRecordPage | undefined {
+  const record = getPageRecord(input.derived?.result);
+  if (!input.derived || !record) return undefined;
+  return {
+    layoutId: input.derived.layoutId,
+    recordId: record.id,
+    runtimeBasePath: input.runtimeBasePath ?? "",
+  };
 }
 
 /**
@@ -69,8 +88,10 @@ export function useFollowPageRecord({
     reads.record({ projectSlug, collectionId: record?.collectionId ?? "", id: record?.id ?? "" }),
     { enabled: false, select: (saved) => saved.updatedAt },
   );
+  const { locale } = useViewLocale();
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
     if (!layoutId || !record) return;
+    // Route discovery finds the record by its values in the locale viewed.
     const response = await fetchRuntimeJson(
       draftScope,
       "/_camox/routes",
@@ -78,13 +99,15 @@ export function useFollowPageRecord({
       { layoutId, recordId: record.id },
       draftScope.current(),
       signal,
+      locale,
     );
     if (!response.ok) return;
     const { path } = (await response.json()) as { path: string | null };
-    if (!path || path === location.pathname || signal.aborted) return;
+    const to = path && localizedPath(path, locale);
+    if (!to || to === location.pathname || signal.aborted) return;
     // The Canvas keeps its camera on the frame, which now shows the same record.
     await navigate({
-      to: `${path}${location.search}${location.hash}`,
+      to: `${to}${location.search}${location.hash}`,
       replace: true,
       source: "canvas",
     });

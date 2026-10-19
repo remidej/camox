@@ -22,6 +22,7 @@ import { useEffect, useMemo } from "react";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { pageMutations } from "@/lib/queries";
+import { useLocalizedPath } from "@/lib/view-locale";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
@@ -61,6 +62,7 @@ const CreatePageModal = () => {
     [allLayouts, camoxApp],
   );
   const navigate = useNavigate();
+  const localized = useLocalizedPath();
 
   const form = useForm({
     defaultValues: {
@@ -102,7 +104,7 @@ const CreatePageModal = () => {
 
         // Small delay to allow database to sync before navigation
         await new Promise((resolve) => setTimeout(resolve, 50));
-        await navigate({ to: fullPath });
+        await navigate({ to: localized(fullPath) });
       } catch (error) {
         console.error("Failed to create page:", error);
         toast.error("Could not create page");

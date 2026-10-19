@@ -71,6 +71,8 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     const root = createRoot(host);
     const queryClient = new QueryClient();
     const input: PageRenderInput = {
+      locale: { tag: "en", isDefault: true },
+      locales: [{ tag: "en", isDefault: true }],
       ...target,
       authenticationUrl: "https://auth.test",
       presentation: initialAuthenticated ? "studio" : "public",

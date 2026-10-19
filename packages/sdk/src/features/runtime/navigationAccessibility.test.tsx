@@ -71,3 +71,32 @@ void test("in Studio, focus outside the preview stays where it is", async (t) =>
   assert.equal(page.focused(), link);
   assert.equal(page.announced(), "Title of /about", "the page is read out all the same");
 });
+
+void test("a page in another locale gives the visitor's document that locale's language", async (t) => {
+  const page = await openPage(t, "https://site.test/");
+  page.window.document.documentElement.lang = "en";
+
+  await page.click("to-german");
+
+  assert.equal(page.window.document.documentElement.lang, "de");
+});
+
+void test("a page in another locale leaves the Studio's own document in its language", async (t) => {
+  const page = await openPage(t, "https://site.test/", { studio: true });
+  page.window.document.documentElement.lang = "en";
+
+  await page.click("to-german");
+
+  assert.equal(page.window.location.pathname, "/de/preise");
+  assert.equal(page.window.document.documentElement.lang, "en");
+});
+
+void test("in the Studio, the page's frame takes the language of the page navigated to", async (t) => {
+  const page = await openPage(t, "https://site.test/", { studio: true });
+  assert.equal(page.viewport().document.documentElement.lang, "en");
+
+  await page.click("to-german");
+
+  assert.equal(page.shownPage(), "/de/preise");
+  assert.equal(page.viewport().document.documentElement.lang, "de");
+});

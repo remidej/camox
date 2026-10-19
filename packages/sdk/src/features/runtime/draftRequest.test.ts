@@ -10,7 +10,7 @@ import {
 } from "@camox/api-contract/drafts";
 
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
-import { markdownBody, pageListResponse } from "./api.fixtures";
+import { localesResponse, markdownBody, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
@@ -57,6 +57,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     if (draft === ENDED_DRAFT) return refused(410, DRAFT_ENDED_ERROR_CODE, ended);
     if (draft === DEVELOPMENT_DRAFT && !developmentDraftExists)
       return refused(404, NO_DEVELOPMENT_DRAFT_ERROR, undefined);
+    if (url.pathname.endsWith("/locales/list")) return localesResponse();
     const source = draft ? `draft ${draft}` : "Live";
     if (url.pathname.endsWith("/getBySlug")) {
       if (!session) return unauthorized();

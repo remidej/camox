@@ -13,6 +13,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
+import { localeHeaders, localizedPath, type LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -37,6 +38,9 @@ interface LoadPageOptions {
   authCookieHeader?: string;
   /** The draft to read instead of Live. Only sent along with a session. */
   draftId?: string;
+  /** The locale to read the page in. Without it, the default locale. */
+  locale?: LocaleView;
+  /** The page's path in its locale, after the locale's prefix. */
   pathname: string;
   projectSlug: string;
   queryClient: QueryClient;
@@ -47,7 +51,10 @@ interface LoadPageForRequestOptions {
   authCookieHeader?: string;
   /** The draft the request's URL names. Only a member reads it; anyone else reads Live. */
   draftId?: string;
+  /** The locale to read the page in. Without it, the default locale. */
+  locale?: LocaleView;
   origin: string;
+  /** The page's path in its locale, after the locale's prefix. */
   pathname: string;
   projectSlug: string;
   queryClient: QueryClient;
@@ -122,9 +129,9 @@ export function parseMarkdownPath(pathname: string): string | null {
 
 export function createServerApiClient(
   apiUrl: string,
-  options?: { authCookieHeader?: string; draftId?: string },
+  options?: { authCookieHeader?: string; draftId?: string; locale?: LocaleView },
 ): RouterClient<Router> {
-  const headers: Record<string, string> = {};
+  const headers = localeHeaders(options?.locale);
   // Only a session can read a draft, so a draft is only ever named along with one.
   if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
   return createORPCClient<RouterClient<Router>>(
@@ -223,11 +230,12 @@ export async function loadCamoxPage({
   apiUrl,
   authCookieHeader,
   draftId,
+  locale,
   pathname,
   projectSlug,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
-  const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader });
+  const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader, locale });
   // Only a session names the draft, so without one the read is Live's.
   const inDraft = { in: draftId && authCookieHeader ? draftId : null };
   const [page] = await Promise.all([
@@ -244,14 +252,49 @@ export async function loadCamoxPage({
  */
 export function createServerStudioCache(
   queryClient: QueryClient,
-  { apiUrl, authCookieHeader }: { apiUrl: string; authCookieHeader?: string },
+  {
+    apiUrl,
+    authCookieHeader,
+    locale,
+  }: {
+    apiUrl: string;
+    authCookieHeader?: string;
+    /** The locale the request renders. Without it, the default locale. */
+    locale?: LocaleView;
+  },
 ): StudioCache {
   return createStudioCache({
     queryClient,
     scope: createDraftScope({ queryClient }),
     api: (draft) =>
-      createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined }),
+      createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined, locale }),
+    ...(locale && { locale: () => locale }),
   });
+}
+
+/**
+ * The locales of the scope a request reads: the URL's draft's for a session naming one, else
+ * Live's. A draft the API refuses reads Live's, as the request's other reads then do.
+ */
+export async function readScopeLocales({
+  apiUrl,
+  authCookieHeader,
+  draftId,
+  projectSlug,
+}: {
+  apiUrl: string;
+  authCookieHeader?: string;
+  draftId?: string;
+  projectSlug: string;
+}): Promise<LocaleView[]> {
+  // The API checks the session is a member's: a refusal reads Live's.
+  const { value } = await readDraftOrLive(draftId, !!authCookieHeader, (readDraftId) =>
+    createServerApiClient(apiUrl, {
+      authCookieHeader: readDraftId ? authCookieHeader : undefined,
+      draftId: readDraftId,
+    }).locales.list({ projectSlug }),
+  );
+  return value;
 }
 
 /**
@@ -310,6 +353,7 @@ export async function loadCamoxPageForRequest({
   apiUrl,
   authCookieHeader,
   draftId,
+  locale,
   origin,
   pathname,
   projectSlug,
@@ -328,6 +372,7 @@ export async function loadCamoxPageForRequest({
       apiUrl,
       authCookieHeader: member.project ? authCookieHeader : undefined,
       draftId: readDraftId,
+      locale,
       pathname,
       projectSlug,
       queryClient,
@@ -344,6 +389,7 @@ export async function loadCamoxPageForRequest({
 export async function createMarkdownResponse({
   apiUrl,
   camoxApp,
+  locale,
   pathname,
   projectSlug,
   request,
@@ -353,6 +399,9 @@ export async function createMarkdownResponse({
   apiUrl: string;
   /** Builds the page's title and description with its layout's callbacks. */
   camoxApp: CamoxApp | undefined;
+  /** The locale of the page. Without it, the default locale. */
+  locale?: LocaleView;
+  /** The page's path in its locale. Without it, the request's path. */
   pathname?: string;
   projectSlug: string;
   request: Request;
@@ -361,14 +410,14 @@ export async function createMarkdownResponse({
   /** Answers for a path without a curated page, such as a derived layout's page. */
   onNotFound?: () => Promise<Response | null>;
 }): Promise<Response | null> {
-  const api = createServerApiClient(apiUrl);
+  const api = createServerApiClient(apiUrl, { locale });
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
     const page = await api.pages.getByPath({ path: requestPathname, projectSlug });
     const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
     if (!markdown) return null;
 
-    const meta = buildPageMeta(curatedPageMetaInput(camoxApp, page));
+    const meta = buildPageMeta(curatedPageMetaInput(camoxApp, page, locale));
     return new Response(withFrontMatter(markdown, { ...meta, url }), {
       headers: { "Content-Type": "text/markdown; charset=utf-8" },
     });
@@ -433,7 +482,12 @@ export function buildPageMeta(input: PageMetaInput): { title: string; descriptio
 }
 
 /** A curated page's meta input: its editor metadata and its layout. */
-function curatedPageMetaInput(camoxApp: CamoxApp | undefined, page: PageStructure): PageMetaInput {
+/** A curated page's meta input. Its path keeps the prefix of the page's `locale`. */
+function curatedPageMetaInput(
+  camoxApp: CamoxApp | undefined,
+  page: PageStructure,
+  locale?: LocaleView,
+): PageMetaInput {
   return {
     layout: page.layout ? camoxApp?.getLayoutById(page.layout.layoutId)?._internal : undefined,
     pageMetaTitle: page.page.metaTitle ?? page.page.pathSegment,
@@ -441,7 +495,7 @@ function curatedPageMetaInput(camoxApp: CamoxApp | undefined, page: PageStructur
     data: undefined,
     params: {},
     projectName: page.projectName,
-    pageFullPath: page.page.fullPath,
+    pageFullPath: locale ? localizedPath(page.page.fullPath, locale) : page.page.fullPath,
   };
 }
 
@@ -499,11 +553,16 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   return { meta, links };
 }
 
-export function buildCamoxPageHead(camoxApp: CamoxApp, loaderData?: CamoxPageLoaderData): PageHead {
+/** A curated page's head. Its paths keep the prefix of the page's `locale`. */
+export function buildCamoxPageHead(
+  camoxApp: CamoxApp,
+  loaderData?: CamoxPageLoaderData,
+  locale?: LocaleView,
+): PageHead {
   if (!loaderData) return {};
 
   const { page, origin, faviconUrl } = loaderData;
-  const metaInput = curatedPageMetaInput(camoxApp, page);
+  const metaInput = curatedPageMetaInput(camoxApp, page, locale);
   return buildPageHead({
     ...metaInput,
     ogImageTitle: metaInput.pageMetaTitle,

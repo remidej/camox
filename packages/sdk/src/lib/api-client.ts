@@ -7,6 +7,7 @@ import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
 import type { DraftRequestHeaders, DraftScope } from "./draft-scope";
+import { localeHeaders, type LocaleView } from "./locale-path";
 
 declare const __CAMOX_TELEMETRY_DISABLED__: boolean;
 
@@ -16,7 +17,7 @@ let _client: ApiClient | null = null;
 let _orpc: ReturnType<typeof createTanstackQueryUtils<ApiClient>> | null = null;
 let _apiUrl: string | null = null;
 let _draftScope: DraftScope | null = null;
-const _readClients = new Map<string | null, ApiClient>();
+const _readClients = new Map<string, ApiClient>();
 
 /** Creates the window's API client, whose requests read and write the draft `draftScope` views. */
 export function initApiClient(apiUrl: string, draftScope: DraftScope): ApiClient {
@@ -29,16 +30,20 @@ export function initApiClient(apiUrl: string, draftScope: DraftScope): ApiClient
 }
 
 /**
- * A client of the window's API whose requests name `draft` (null for Live), whatever draft the
- * studio views by the time they're sent. The studio's reads fetch through it, so a read caches
- * only the draft its key names.
+ * A client of the window's API whose requests name `draft` (null for Live) and `locale` (the
+ * default locale without it), whatever the studio views by the time they're sent. The studio's
+ * reads fetch through it, so a read caches only the draft and locale its key names.
  */
-export function getDraftReadClient(draft: string | null): ApiClient {
-  let client = _readClients.get(draft);
+export function getDraftReadClient(draft: string | null, locale?: LocaleView): ApiClient {
+  const headers: Record<string, string> = {
+    ...(draft && { [DRAFT_HEADER]: draft }),
+    ...localeHeaders(locale),
+  };
+  const cacheKey = JSON.stringify(headers);
+  let client = _readClients.get(cacheKey);
   if (client) return client;
-  const headers: Record<string, string> = draft ? { [DRAFT_HEADER]: draft } : {};
   client = createStudioClient(getApiUrl(), () => ({ headers, settle: () => {} }));
-  _readClients.set(draft, client);
+  _readClients.set(cacheKey, client);
   return client;
 }
 

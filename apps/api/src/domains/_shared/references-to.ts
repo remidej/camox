@@ -5,7 +5,7 @@ import type { Database } from "../../db";
 import { blocks, sharedContents } from "../blocks/schema";
 import { collectionDefinitions, collectionRecords } from "../collections/schema";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { ReadScope } from "../drafts/scope";
 import { itemsInProject } from "../repeatable-items/roots";
 import { repeatableItems } from "../repeatable-items/schema";
 import { definitionsIn } from "./definitions";
@@ -36,7 +36,7 @@ export type ReferencingContent =
  */
 export const referencesTo = Effect.fn("references.referencesTo")(function* (
   db: Database,
-  scope: { projectId: number; draft: DraftScope },
+  scope: { projectId: number; draft: ReadScope },
   target: ReferenceTarget,
 ) {
   const matches = (content: SQL) =>

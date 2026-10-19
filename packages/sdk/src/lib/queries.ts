@@ -75,6 +75,12 @@ export const draftMutations = {
   discard: () => getOrpc().drafts.discard.mutationOptions(),
 };
 
+/** Adding and removing locales: content writes, so on Live they start a draft (ADR 0015). */
+export const localeMutations = {
+  add: () => getOrpc().locales.add.mutationOptions(),
+  remove: () => getOrpc().locales.remove.mutationOptions(),
+};
+
 export const blockMutations = {
   create: () => getOrpc().blocks.create.mutationOptions(),
   delete: () => getOrpc().blocks.delete.mutationOptions(),

@@ -7,8 +7,10 @@ import { ContentCollectionItemModal } from "@/features/content/ContentCollection
 import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
+import { parseLocalePath } from "@/lib/locale-path";
 import { NormalizedDataProvider, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
+import { useLocalePath, useLocalizedPath, useViewLocale } from "@/lib/view-locale";
 
 import { useCurrentDraftId } from "../../lib/draft-scope";
 import {
@@ -65,7 +67,7 @@ function useIsMobileStudio() {
 
 /** The page the Preview shows: as the server rendered it, then following edits. */
 export function usePreviewedPage() {
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
   const projectSlug = useProjectSlug();
   return useRead(reads.pageStructure({ path: pathname, projectSlug }));
 }
@@ -283,9 +285,12 @@ export const CamoxPreview = ({
   const pathname = shown?.location.pathname;
   const shownDerived = shown?.derived;
   const projectSlug = useProjectSlug();
+  const { locales } = useViewLocale();
+  // The API reads a page by its path in the locale shown, after the locale's prefix.
+  const shownPath = pathname === undefined ? undefined : parseLocalePath(pathname, locales).path;
   // All route kinds resolve through one component so selecting a layout frame, a
   // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
-  const shownRead = pageRead(projectSlug, pathname, shownDerived);
+  const shownRead = pageRead(projectSlug, shownPath, shownDerived);
   const data = useRead(shownRead);
   useRefreshMemberRead(shownRead);
   // A code-owned page's loader runs again after record edits and publication.
@@ -339,7 +344,10 @@ function useCanvasOnlyLocation(
 ) {
   const navigate = useNavigate();
   const wasCanvasShown = React.useRef(isCanvasShown);
-  const lastPageHref = lastPage ? `${lastPage.pathname}${lastPage.search}${lastPage.hash}` : "/";
+  const localized = useLocalizedPath();
+  const lastPageHref = lastPage
+    ? `${lastPage.pathname}${lastPage.search}${lastPage.hash}`
+    : localized("/");
   React.useEffect(() => {
     const left = wasCanvasShown.current && !isCanvasShown;
     wasCanvasShown.current = isCanvasShown;
@@ -527,7 +535,8 @@ export const PreviewShell = ({
 /** Zooms out to the whole Canvas, from anywhere in the site or the Studio. */
 export function useShowCanvasAction() {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   const isMobileStudio = useIsMobileStudio();
 
   React.useEffect(() => {
@@ -541,7 +550,7 @@ export function useShowCanvasAction() {
         checkIfAvailable: () => !isMobileStudio,
         execute: () => {
           previewStore.send({ type: "showCanvas" });
-          if (pathname !== STUDIO_CANVAS_PATH) void navigate({ to: STUDIO_CANVAS_PATH });
+          if (pathname !== STUDIO_CANVAS_PATH) void navigate({ to: localized(STUDIO_CANVAS_PATH) });
           canvasStore.send({ type: "requestOverview" });
         },
         shortcut: SHOW_WHOLE_CANVAS_SHORTCUT,
@@ -552,12 +561,13 @@ export function useShowCanvasAction() {
     return () => {
       actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
     };
-  }, [navigate, pathname, isMobileStudio]);
+  }, [localized, navigate, pathname, isMobileStudio]);
 }
 
 export function usePreviewPagesActions() {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const pathname = useLocalePath();
+  const localized = useLocalizedPath();
   const pages = usePageDestinations();
 
   React.useEffect(() => {
@@ -604,7 +614,7 @@ export function usePreviewPagesActions() {
         aliases: [page.fullPath],
         groupLabel: "Website",
         checkIfAvailable: () => true,
-        execute: () => navigate({ to: page.fullPath }),
+        execute: () => navigate({ to: localized(page.fullPath) }),
       })),
     ];
 
@@ -619,5 +629,5 @@ export function usePreviewPagesActions() {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [navigate, pages, pathname]);
+  }, [localized, navigate, pages, pathname]);
 }

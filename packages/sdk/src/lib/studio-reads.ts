@@ -19,6 +19,7 @@ import { fetchRuntimeJson } from "../features/runtime/navigationTarget";
 import type { PageRenderInput } from "../features/runtime/runtime";
 import type { ApiClient } from "./api-client";
 import { type DraftScope, useCurrentDraftId } from "./draft-scope";
+import type { LocaleView } from "./locale-path";
 import { collectFileIds } from "./normalized-data";
 import type {
   BlockBundle,
@@ -33,6 +34,7 @@ import type {
   PageWithBlocks,
   Project,
 } from "./queries";
+import { ViewLocaleContext } from "./view-locale";
 
 /**
  * The studio's reads (ADR 0011): every query the studio caches is one entry here, which owns its
@@ -52,36 +54,52 @@ export interface Read<T, R = T> {
   readonly __types?: { value: T; response: R };
 }
 
-/** What a read's fetch gets: the draft its key names, and the transports to read it through. */
+/**
+ * What a read's fetch gets: the draft and locale its key names, and the transports to read it
+ * through.
+ */
 interface FetchContext {
   draft: string | null;
-  /** A client whose reads name the draft the key names. */
+  /** A client whose reads name the draft and locale the key names. */
   api: ApiClient;
   /** A client whose reads name another draft, for shared reads about one draft. */
   apiIn: (draft: string | null) => ApiClient;
   signal: AbortSignal;
-  runtimeJson: RuntimeJson;
+  /** Reads the runtime's JSON endpoints, in the locale the key names. */
+  runtimeJson: (
+    endpoint: string,
+    runtimeBasePath: string,
+    params: Record<string, string>,
+    draft: string | null,
+    signal: AbortSignal,
+  ) => Promise<Response>;
   /** Stores what a response says about other reads, in the same draft. */
   fill: <V>(read: Read<V>, value: V) => void;
 }
 
-/** Reads one of the runtime's JSON endpoints in `draft`, relative to `runtimeBasePath`. */
+/**
+ * Reads one of the runtime's JSON endpoints in `draft` and `locale` (the default locale without
+ * it), relative to `runtimeBasePath`.
+ */
 export type RuntimeJson = (
   endpoint: string,
   runtimeBasePath: string,
   params: Record<string, string>,
   draft: string | null,
   signal: AbortSignal,
+  locale?: LocaleView,
 ) => Promise<Response>;
 
 interface EntryDefinition<P, T, R> {
   /** The key without its scope, under the prefix the API broadcasts for it. */
   key: (params: P) => QueryKey;
   /**
-   * A shared read's key names no scope: it's the same in every draft, or it's about the draft
-   * its params name.
+   * A shared read's key names no scope nor locale: it's the same in every draft, or it's about
+   * the draft its params name.
    */
   shared?: boolean;
+  /** A read the same in every locale: its key names no locale. */
+  everyLocale?: boolean;
   /** The light fetch a refetch uses. */
   fetch: (context: FetchContext, params: P) => Promise<T>;
   /** A full response this read can be filled from, and the other reads it fills in. */
@@ -89,7 +107,10 @@ interface EntryDefinition<P, T, R> {
     load: (context: FetchContext, params: P) => Promise<R>;
     land: (response: R, fill: FetchContext["fill"], params: P) => T;
   };
-  /** Decodes the params from a key, for reads matched in a dehydrated cache. */
+  /**
+   * Decodes the params from a key as `key` builds it, without its locale and scope, for reads
+   * matched in a dehydrated cache.
+   */
   parse?: (key: readonly unknown[]) => P | null;
   staleTime?: number;
   retry?: boolean;
@@ -106,7 +127,8 @@ function entry<P, T, R = T>(definition: EntryDefinition<P, T, R>): ReadEntry<P, 
   const make = ((params: P) => ({ entry: make, params })) as ReadEntry<P, T, R>;
   Object.assign(make, {
     definition,
-    paramsOf: (key: readonly unknown[]) => definition.parse?.(key) ?? null,
+    paramsOf: (key: readonly unknown[]) =>
+      definition.parse?.(key.slice(0, key.length - keySuffixLength(definition))) ?? null,
   });
   return make;
 }
@@ -134,6 +156,17 @@ export const reads = {
     key: ({ slug }) => ["camox", "projects", "getBySlug", slug],
     shared: true,
     fetch: ({ api, signal }, { slug }) => api.projects.getBySlug({ slug }, { signal }),
+    staleTime: Infinity,
+  }),
+
+  /**
+   * The locales the draft reads, or Live's: the default locale first. Adding or removing one
+   * refreshes every read of its scope, this one included.
+   */
+  localeList: entry<{ projectId: number }, LocaleView[]>({
+    key: ({ projectId }) => ["camox", "locales", "list", projectId],
+    everyLocale: true,
+    fetch: ({ api, signal }, { projectId }) => api.locales.list({ projectId }, { signal }),
     staleTime: Infinity,
   }),
 
@@ -192,11 +225,11 @@ export const reads = {
   blockBundle: entry<string, BlockBundle>({
     key: (id) => queryKeys.blocks.get(id),
     fetch: ({ api, signal }, id) => api.blocks.get({ id }, { signal }),
-    // A block bundle's key is its block's prefix and a scope; decoding rebuilds it to check.
+    // A block bundle's key is its block's prefix; decoding rebuilds it to check.
     parse: (key) => {
       const id = key[3];
       if (typeof id !== "string") return null;
-      const rebuilt = inScope(queryKeys.blocks.get(id), scopeOfKey(key) as string);
+      const rebuilt = queryKeys.blocks.get(id);
       return rebuilt.length === key.length && rebuilt.every((part, index) => part === key[index])
         ? id
         : null;
@@ -366,23 +399,28 @@ export const reads = {
     staleTime: Infinity,
   }),
 
-  /** The first page a derived layout's route discovery lists, or null without one. */
+  /**
+   * The first page a derived layout's route discovery lists in the read's locale, or with
+   * `recordId` the page of that record; null without one. The path is the locale's, after its
+   * prefix.
+   */
   discoveredPath: entry<
-    { projectSlug: string; runtimeBasePath: string; layoutId: string },
+    { projectSlug: string; runtimeBasePath: string; layoutId: string; recordId?: string },
     string | null
   >({
-    key: ({ projectSlug, runtimeBasePath, layoutId }) => [
+    key: ({ projectSlug, runtimeBasePath, layoutId, recordId }) => [
       ...queryKeys.layouts.all,
       "routes",
       projectSlug,
       runtimeBasePath,
       layoutId,
+      ...(recordId ? [recordId] : []),
     ],
-    fetch: async ({ runtimeJson, draft, signal }, { runtimeBasePath, layoutId }) => {
+    fetch: async ({ runtimeJson, draft, signal }, { runtimeBasePath, layoutId, recordId }) => {
       const response = await runtimeJson(
         "/_camox/routes",
         runtimeBasePath,
-        { layoutId },
+        { layoutId, ...(recordId && { recordId }) },
         draft,
         signal,
       );
@@ -482,8 +520,33 @@ export interface ReadQueryOptions<T> {
   refetchOnWindowFocus?: boolean;
 }
 
-/** Which draft an operation acts in: the scope's current one unless named (null for Live). */
-type InDraft = { in?: string | null };
+/**
+ * Which draft and locale an operation acts in: the scope's current draft unless `in` names one
+ * (null for Live), and the locale the studio views unless `locale` names one.
+ */
+type InDraft = { in?: string | null; locale?: LocaleView };
+/** The draft and locale an operation acts in. */
+type Target = { draft: string | null; locale: LocaleView };
+
+/**
+ * A locale as a key segment: the tag a request names in `LOCALE_HEADER`, and none for the default
+ * locale, which requests don't name. A server render naming no locale keys the default one's.
+ */
+const localeKey = (locale: LocaleView) => (locale.isDefault ? "" : locale.tag);
+
+/** A read's key in `target`: its own key, then its locale unless it has none, then its scope. */
+function keyIn(definition: EntryDefinition<any, any, any>, params: unknown, target: Target) {
+  const key = definition.key(params);
+  if (definition.shared) return key;
+  // The scope stays last: moving between drafts reads and rewrites it there.
+  return inScope(definition.everyLocale ? key : [...key, localeKey(target.locale)], target.draft);
+}
+
+/** How many segments `keyIn` appends to a read's own key: its locale and scope. */
+function keySuffixLength(definition: EntryDefinition<any, any, any>) {
+  if (definition.shared) return 0;
+  return definition.everyLocale ? 1 : 2;
+}
 
 /**
  * The studio's reads, cached for one draft scope: one per browser window and per server request.
@@ -531,46 +594,52 @@ export interface StudioEdit {
 export interface StudioCacheOptions {
   queryClient: QueryClient;
   scope: DraftScope;
-  /** A client whose reads name `draft` (null for Live). */
-  api: (draft: string | null) => ApiClient;
+  /** A client whose reads name `draft` (null for Live) and `locale`. */
+  api: (draft: string | null, locale: LocaleView) => ApiClient;
   /** Reads the runtime's JSON endpoints. Defaults to the browser's same-origin fetch. */
   runtimeJson?: RuntimeJson;
+  /**
+   * The locale reads and writes act in, at each operation: the one the studio shows. Without it,
+   * the default locale.
+   */
+  locale?: () => LocaleView;
 }
 
 export function createStudioCache({
   queryClient,
   scope,
   api,
-  runtimeJson = (endpoint, base, params, draft, signal) =>
-    fetchRuntimeJson(scope, endpoint, base, params, draft, signal),
+  runtimeJson = (endpoint, base, params, draft, signal, locale) =>
+    fetchRuntimeJson(scope, endpoint, base, params, draft, signal, locale),
+  locale: viewedLocale = scope.locale,
 }: StudioCacheOptions): StudioCache {
-  const draftOf = (options?: InDraft) =>
-    options && "in" in options ? (options.in ?? null) : scope.current();
-  const keyOf = (read: Read<any, any>, draft: string | null): QueryKey => {
-    const definition = read.entry.definition;
-    const key = definition.key(read.params);
-    return definition.shared ? key : inScope(key, draft);
-  };
-  const contextFor = (draft: string | null, signal: AbortSignal): FetchContext => ({
-    draft,
+  const targetOf = (options?: InDraft): Target => ({
+    draft: options && "in" in options ? (options.in ?? null) : scope.current(),
+    locale: options?.locale ?? viewedLocale(),
+  });
+  const keyOf = (read: Read<any, any>, target: Target): QueryKey =>
+    keyIn(read.entry.definition, read.params, target);
+  const contextFor = (target: Target, signal: AbortSignal): FetchContext => ({
+    draft: target.draft,
     // Only fetches need a client: landing a response doesn't.
     get api() {
-      return api(draft);
+      return api(target.draft, target.locale);
     },
-    apiIn: api,
+    apiIn: (draft) => api(draft, target.locale),
     signal,
-    runtimeJson,
-    fill: (read, value) => queryClient.setQueryData(keyOf(read, draft), value),
+    runtimeJson: (endpoint, base, params, draft, signal) =>
+      runtimeJson(endpoint, base, params, draft, signal, target.locale),
+    fill: (read, value) => queryClient.setQueryData(keyOf(read, target), value),
   });
   const neverAborted = () => new AbortController().signal;
 
   const options: StudioCache["options"] = (read, inDraft) => {
-    const draft = draftOf(inDraft);
+    const target = targetOf(inDraft);
     const definition = read.entry.definition;
-    const queryKey = keyOf(read, draft);
+    const queryKey = keyOf(read, target);
     return {
       queryKey,
-      queryFn: ({ signal }) => definition.fetch(contextFor(draft, signal), read.params),
+      queryFn: ({ signal }) => definition.fetch(contextFor(target, signal), read.params),
       ...(definition.staleTime !== undefined && { staleTime: definition.staleTime }),
       ...(definition.retry !== undefined && { retry: definition.retry }),
       ...(definition.refetchOnWindowFocus !== undefined && {
@@ -580,50 +649,53 @@ export function createStudioCache({
   };
 
   const land: StudioCache["land"] = (read, response, inDraft) => {
-    const draft = draftOf(inDraft);
+    const target = targetOf(inDraft);
     const full = read.entry.definition.full;
     if (!full) {
-      queryClient.setQueryData(keyOf(read, draft), response);
+      queryClient.setQueryData(keyOf(read, target), response);
       return response as never;
     }
-    const context = contextFor(draft, neverAborted());
+    const context = contextFor(target, neverAborted());
     const value = full.land(response, context.fill, read.params);
-    queryClient.setQueryData(keyOf(read, draft), value);
+    queryClient.setQueryData(keyOf(read, target), value);
     return value;
   };
 
   const loadFully = async <T>(read: Read<T, any>, inDraft?: InDraft): Promise<T> => {
-    const draft = draftOf(inDraft);
+    const target = targetOf(inDraft);
     const definition = read.entry.definition;
-    const context = contextFor(draft, neverAborted());
+    const context = contextFor(target, neverAborted());
     if (!definition.full) {
       const value = await definition.fetch(context, read.params);
-      queryClient.setQueryData(keyOf(read, draft), value);
+      queryClient.setQueryData(keyOf(read, target), value);
       return value;
     }
-    return land(read, await definition.full.load(context, read.params), { in: draft });
+    return land(read, await definition.full.load(context, read.params), {
+      in: target.draft,
+      locale: target.locale,
+    });
   };
 
   return {
     options,
-    get: (read, inDraft) => queryClient.getQueryData(keyOf(read, draftOf(inDraft))),
+    get: (read, inDraft) => queryClient.getQueryData(keyOf(read, targetOf(inDraft))),
     set: (read, value, inDraft) =>
-      queryClient.setQueryData(keyOf(read, draftOf(inDraft)), value as never),
+      queryClient.setQueryData(keyOf(read, targetOf(inDraft)), value as never),
     land,
     ensure: async (read, inDraft) => {
-      const cached = queryClient.getQueryData(keyOf(read, draftOf(inDraft)));
+      const cached = queryClient.getQueryData(keyOf(read, targetOf(inDraft)));
       return cached !== undefined ? (cached as never) : loadFully(read, inDraft);
     },
     reload: loadFully,
     invalidate: (read, inDraft) =>
-      queryClient.invalidateQueries({ queryKey: keyOf(read, draftOf(inDraft)), exact: true }),
+      queryClient.invalidateQueries({ queryKey: keyOf(read, targetOf(inDraft)), exact: true }),
     remove: (read, inDraft) =>
-      queryClient.removeQueries({ queryKey: keyOf(read, draftOf(inDraft)), exact: true }),
+      queryClient.removeQueries({ queryKey: keyOf(read, targetOf(inDraft)), exact: true }),
     edit: () => {
-      const draft = scope.current();
+      const target = targetOf();
       const snapshots = new Map<string, { key: QueryKey; data: unknown }>();
       const touch = (read: Read<any, any>) => {
-        const key = keyOf(read, draft);
+        const key = keyOf(read, target);
         const hash = JSON.stringify(key);
         if (!snapshots.has(hash)) {
           void queryClient.cancelQueries({ queryKey: key, exact: true });
@@ -632,7 +704,7 @@ export function createStudioCache({
         return key;
       };
       return {
-        get: (read) => queryClient.getQueryData(keyOf(read, draft)),
+        get: (read) => queryClient.getQueryData(keyOf(read, target)),
         set: (read, value) => queryClient.setQueryData(touch(read), value as never),
         remove: (read) => queryClient.removeQueries({ queryKey: touch(read), exact: true }),
         rollback: () => {
@@ -674,6 +746,14 @@ export function useStudioCache(): StudioCache {
   return cache;
 }
 
+/**
+ * The draft and locale the caller's render shows, which its reads name: the read hooks re-render
+ * after a move to another draft, and a locale switch mounts the page afresh.
+ */
+function useShownTarget(): InDraft {
+  return { in: useCurrentDraftId(), locale: React.useContext(ViewLocaleContext)?.locale };
+}
+
 const NO_READ: ReadQueryOptions<null> = {
   queryKey: ["camox", "noRead"],
   queryFn: async () => null,
@@ -687,7 +767,7 @@ const NO_READ: ReadQueryOptions<null> = {
 export function useRead<T>(read: Read<T, any>): T;
 export function useRead<T>(read: Read<T, any> | null): T | null;
 export function useRead<T>(read: Read<T, any> | null): T | null {
-  const inDraft = { in: useCurrentDraftId() };
+  const inDraft = useShownTarget();
   const cache = useStudioCache();
   const { data } = useSuspenseQuery<T | null, Error, T | null, QueryKey>(
     read ? cache.options(read, inDraft) : NO_READ,
@@ -700,7 +780,7 @@ export function useReadQuery<T, S = T>(
   read: Read<T, any>,
   { enabled, select }: { enabled?: boolean; select?: (value: T) => S } = {},
 ): UseQueryResult<S> {
-  const inDraft = { in: useCurrentDraftId() };
+  const inDraft = useShownTarget();
   const cache = useStudioCache();
   return useQuery({ ...cache.options(read, inDraft), enabled, select });
 }
@@ -716,7 +796,7 @@ export function useReadQueries<T, C>(
   list: Read<T, any>[],
   combine?: (results: UseQueryResult<T>[]) => C,
 ) {
-  const inDraft = { in: useCurrentDraftId() };
+  const inDraft = useShownTarget();
   const cache = useStudioCache();
   return useQueries({ queries: list.map((read) => cache.options(read, inDraft)), combine });
 }

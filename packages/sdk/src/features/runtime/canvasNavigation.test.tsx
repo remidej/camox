@@ -30,6 +30,8 @@ for (const base of ["", "/mounted"]) {
     const queryClient = new QueryClient();
     const seed = new QueryClient();
     const input: PageRenderInput = {
+      locale: { tag: "en", isDefault: true },
+      locales: [{ tag: "en", isDefault: true }],
       presentation: "studio",
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
