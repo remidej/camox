@@ -132,7 +132,7 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     assert.equal(new URL(window.location.href).searchParams.has("ott"), false);
     assert.equal(new URL(window.location.href).searchParams.get("other"), "value");
     assert.equal(window.location.hash, "#heading");
-    assert.deepEqual(window.history.state, { navigation: "preserved" });
+    assert.equal((window.history.state as { navigation?: string } | null)?.navigation, "preserved");
     assert.equal(
       new URL(window.location.href).searchParams.has("camox-preview"),
       true,
@@ -147,7 +147,7 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     const historyLength = window.history.length;
     const authenticated = await mount(target, { initialAuthenticated: true, resume: true });
     assert.equal(window.location.href, "http://localhost:3000/about?other=value#heading");
-    assert.deepEqual(window.history.state, { navigation: "preserved" });
+    assert.equal((window.history.state as { navigation?: string } | null)?.navigation, "preserved");
     assert.equal(window.history.length, historyLength, "cleanup must not add a history entry");
     assert.equal(exchanges, 1);
     assert.equal(reloads, 1, "cleanup must not cause another reload");

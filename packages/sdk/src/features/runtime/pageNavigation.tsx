@@ -7,10 +7,18 @@ import type { CamoxApp } from "../../core/createApp";
 import { draftNamedBy, DraftScopeContext } from "../../lib/draft-scope";
 import { reads } from "../../lib/studio-reads";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
+import { createPrefetchCache, listenForLinkIntent } from "./linkPrefetch";
+import { createRouteAnnouncer, focusNewPage } from "./navigationAccessibility";
 import { createNavigationRequestTracker } from "./navigationRequest";
 import { fetchRuntimeJson, getNavigationTarget } from "./navigationTarget";
 import { getPageBlockTypes } from "./pageBlockTypes";
+import { type PageViewport, PageViewportContext } from "./pageViewport";
 import { createPageHeadInput, type LayoutIdentity, type PageRenderInput } from "./runtime";
+import {
+  createScrollRestoration,
+  type ScrollIntent,
+  type ScrollRestoration,
+} from "./scrollRestoration";
 
 function preserveStableLayoutBlockCaches(
   dehydratedState: unknown,
@@ -34,6 +42,10 @@ function preserveStableLayoutBlockCaches(
       return !(blockId && ids.has(blockId));
     }),
   };
+}
+
+function prefetchKey(pathname: string, draft: string | null) {
+  return JSON.stringify({ pathname, draft });
 }
 
 export function PageNavigationProvider({
@@ -64,6 +76,58 @@ export function PageNavigationProvider({
   });
   const current = React.useRef(initialInput);
   const [requests] = React.useState(createNavigationRequestTracker);
+  // A visitor's page scrolls the window. A member's shows in a Studio frame, which takes part
+  // through PageViewportContext.
+  const ownsWindow = initialInput.presentation !== "studio";
+  const scroll = React.useRef<ScrollRestoration | null>(null);
+  // Only ever called in the browser.
+  const restoration = React.useCallback(
+    () => (scroll.current ??= createScrollRestoration(window)),
+    [],
+  );
+  /** How the page at `href` scrolls once shown, until whatever shows it takes it. */
+  const pendingScroll = React.useRef<{ href: string; intent: ScrollIntent } | null>(null);
+  const takeScroll = (href: string) => {
+    const pending = pendingScroll.current;
+    if (pending?.href !== href) return null;
+    pendingScroll.current = null;
+    return pending.intent;
+  };
+  /** Scrolls `viewport`, which just rendered the page at `href`, then moves focus into it. */
+  const position = React.useCallback(
+    (viewport: Window, intent: ScrollIntent, href: string) => {
+      const fragment = restoration().apply(viewport, intent, new URL(href).hash);
+      // Within the page, focus only moves to a fragment it has.
+      if (intent !== "resume" && (fragment || intent !== "fragment"))
+        focusNewPage(viewport.document, fragment);
+    },
+    [restoration],
+  );
+  /** The path of the page navigated to, read out once it shows. */
+  const pendingAnnouncement = React.useRef<string | null>(null);
+  const announcer = React.useRef<ReturnType<typeof createRouteAnnouncer> | null>(null);
+
+  /** Reads the page at `pathname` from `draft`, once the blocks it shows can render. */
+  const loadPage = React.useCallback(
+    async (pathname: string, draft: string | null, signal: AbortSignal) => {
+      const response = await fetchRuntimeJson(
+        draftScope,
+        "/_camox/data",
+        initialInput.runtimeBasePath,
+        { path: pathname },
+        draft,
+        signal,
+      );
+      if (!response.ok) throw new Error(`Navigation failed: ${response.status}`);
+      const next = (await response.json()) as PageRenderInput;
+      if (next.pathname !== pathname || !next.dehydratedState)
+        throw new Error("Invalid navigation response");
+      await camoxApp.loadBlocks(getPageBlockTypes(next.dehydratedState));
+      return next;
+    },
+    [camoxApp, draftScope, initialInput.runtimeBasePath],
+  );
+  const [prefetched] = React.useState(() => createPrefetchCache<PageRenderInput>());
   const headManager = React.useRef<{
     head: ReturnType<typeof createHead>;
     entry?: ActiveHeadEntry<UseHeadInput>;
@@ -88,43 +152,53 @@ export function PageNavigationProvider({
         else window.location.assign(to);
         return;
       }
+      // Back and forward already show another entry: keep where the one left was scrolled to.
+      if (pop) restoration().save();
 
       // Selecting the current page is still a navigation intent: begin() above
       // cancels an in-flight selection, but must not add a duplicate history entry.
-      if (!pop && !refresh && target.url.href === current.current.href) return;
+      // Like the browser, following a link to the fragment shown scrolls to it again.
+      if (!pop && !refresh && target.url.href === current.current.href) {
+        const viewport = restoration().viewport();
+        if (target.url.hash && viewport) position(viewport, "fragment", target.url.href);
+        return;
+      }
 
       try {
         let next = current.current;
         const targetDraft = draftNamedBy(target.url.href);
         // Hash/search-only changes need no new route payload, unless they switch drafts.
         const fetched =
-          target.pathname !== next.pathname ||
-          pop ||
-          refresh ||
-          targetDraft !== draftNamedBy(next.href);
+          target.pathname !== next.pathname || refresh || targetDraft !== draftNamedBy(next.href);
         if (fetched) {
-          const response = await fetchRuntimeJson(
-            draftScope,
-            "/_camox/data",
-            initialInput.runtimeBasePath,
-            { path: target.pathname },
-            targetDraft,
-            request.signal,
-          );
-          if (!response.ok) throw new Error(`Navigation failed: ${response.status}`);
-          next = (await response.json()) as PageRenderInput;
-          if (next.pathname !== target.pathname || !next.dehydratedState)
-            throw new Error("Invalid navigation response");
-          // Keep the current page until the next one's blocks can render.
-          await camoxApp.loadBlocks(getPageBlockTypes(next.dehydratedState));
+          // Keep the current page until the next one's blocks can render. A page loaded ahead
+          // serves the navigation, unless it refreshes what's shown.
+          next = await ((!refresh && prefetched.take(prefetchKey(target.pathname, targetDraft))) ||
+            loadPage(target.pathname, targetDraft, request.signal));
         }
         if (!request.isCurrent()) return;
         const switching = (next.draftId ?? null) !== (current.current.draftId ?? null);
         // Back and forward already moved the browser's history.
+        const positions = restoration();
         if (!pop) {
-          if (replace || refresh) window.history.replaceState(null, "", target.url.href);
-          else window.history.pushState(null, "", target.url.href);
+          if (replace || refresh) {
+            window.history.replaceState(window.history.state, "", target.url.href);
+          } else {
+            positions.save();
+            window.history.pushState(positions.stateForNewEntry(), "", target.url.href);
+          }
         }
+        positions.entered();
+        // A replaced entry keeps its position, unless the page changes.
+        const intent: ScrollIntent | null = pop
+          ? "restore"
+          : refresh || (replace && !fetched)
+            ? null
+            : fetched
+              ? "enter"
+              : "fragment";
+        pendingScroll.current = intent && { href: window.location.href, intent };
+        pendingAnnouncement.current = fetched && !refresh ? next.pathname : null;
         // The page couldn't show the draft, so it showed Live: the URL drops the draft too.
         if (fetched) draftScope.adopt(next);
         hydrate(
@@ -159,7 +233,6 @@ export function PageNavigationProvider({
             generation: location.generation + (switching ? 1 : 0),
           })),
         );
-        if (!pop && !replace && !refresh && !target.url.hash) window.scrollTo({ top: 0 });
       } catch {
         if (!request.isCurrent()) return;
         if (pop) window.location.reload();
@@ -167,8 +240,101 @@ export function PageNavigationProvider({
         else window.location.assign(target.url.href);
       }
     },
-    [camoxApp, draftScope, initialInput.runtimeBasePath, queryClient, requests],
+    [
+      draftScope,
+      initialInput.runtimeBasePath,
+      loadPage,
+      position,
+      prefetched,
+      queryClient,
+      requests,
+      restoration,
+    ],
   );
+
+  const prefetchLink = React.useCallback(
+    (anchor: HTMLAnchorElement) => {
+      if (anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
+      const href = draftScope.hrefFor(anchor.href, { from: window.location.href });
+      const target = getNavigationTarget(href, window.location.href, initialInput.runtimeBasePath);
+      if (!target || target.pathname === current.current.pathname) return;
+      const draft = draftNamedBy(target.url.href);
+      // Whichever navigation takes this load awaits it, so none of them aborts it.
+      prefetched.prefetch(prefetchKey(target.pathname, draft), () =>
+        loadPage(target.pathname, draft, new AbortController().signal),
+      );
+    },
+    [draftScope, initialInput.runtimeBasePath, loadPage, prefetched],
+  );
+
+  const pageViewport = React.useMemo<PageViewport>(
+    () => ({
+      opened(viewport, href) {
+        restoration().apply(viewport, takeScroll(href) ?? "restore", new URL(href).hash);
+      },
+      placed(href) {
+        takeScroll(href);
+      },
+      attach(viewport) {
+        restoration().setViewport(viewport);
+        return () => {
+          const positions = restoration();
+          if (positions.viewport() === viewport) positions.setViewport(ownsWindow ? window : null);
+        };
+      },
+      prefetchLink,
+    }),
+    // takeScroll only reads refs.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [ownsWindow, position, prefetchLink, restoration],
+  );
+
+  React.useEffect(() => {
+    const positions = restoration();
+    if (ownsWindow) {
+      positions.setViewport(window);
+      // Reloaded, or back to an entry whose document the browser had to load again.
+      positions.apply(window, "resume", window.location.hash);
+    }
+    announcer.current = createRouteAnnouncer(document);
+    return () => {
+      announcer.current?.dispose();
+      announcer.current = null;
+      scroll.current?.dispose();
+      scroll.current = null;
+    };
+  }, [ownsWindow, restoration]);
+
+  React.useEffect(() => {
+    if (!ownsWindow) return;
+    const stopListening = listenForLinkIntent(document, prefetchLink);
+    return stopListening;
+  }, [ownsWindow, prefetchLink]);
+
+  React.useEffect(() => {
+    // Pages loaded for one draft never serve another.
+    const unsubscribe = draftScope.subscribe(() => prefetched.clear());
+    return () => {
+      unsubscribe();
+      prefetched.clear();
+    };
+  }, [draftScope, prefetched]);
+
+  // The next page has rendered, in the window or the Studio frame showing it: scroll it before
+  // the browser paints it, then read out its name.
+  React.useLayoutEffect(() => {
+    const intent = takeScroll(input.href);
+    const viewport = scroll.current?.viewport();
+    if (intent && viewport) position(viewport, intent, input.href);
+    const announced = pendingAnnouncement.current;
+    pendingAnnouncement.current = null;
+    if (announced) {
+      const viewport = scroll.current?.viewport();
+      announcer.current?.announce(viewport?.document ?? document, announced);
+    }
+    // takeScroll only reads refs.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [input]);
 
   React.useEffect(() => {
     // Child effects may clean sign-in parameters during hydration. The browser
@@ -243,7 +409,9 @@ export function PageNavigationProvider({
       }}
       navigate={navigate}
     >
-      <React.Fragment key={generation}>{children(input)}</React.Fragment>
+      <PageViewportContext value={pageViewport}>
+        <React.Fragment key={generation}>{children(input)}</React.Fragment>
+      </PageViewportContext>
     </NavigationProvider>
   );
 }

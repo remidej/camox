@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 import { useLocation, useNavigate } from "../../navigation/navigation";
+import { listenForLinkIntent } from "../../runtime/linkPrefetch";
+import { PageViewportContext } from "../../runtime/pageViewport";
 import { PreviewDocumentContext } from "../../runtime/PreviewDocumentContext";
 import {
   capturePreviewAnchor,
@@ -76,6 +78,7 @@ export const Frame = ({
   const { pathname, hash, href } = useLocation();
   const previewDocument = React.useContext(PreviewDocumentContext);
   const continuity = React.useContext(ViewportContinuityContext);
+  const pageViewport = React.useContext(PageViewportContext);
   // Freeze the srcdoc for this iframe's lifetime. Route updates go through the
   // existing portal, not a document reload that would reset the site's theme.
   const [srcDoc] = React.useState(previewDocument ?? EMPTY_PREVIEW_DOCUMENT);
@@ -183,6 +186,7 @@ export const Frame = ({
       positionedLocation.current.href === href
     )
       return;
+    const opened = positionedLocation.current?.doc !== iframeWindow.document;
     if (positionedLocation.current && continuity?.checkpoint) {
       // oxlint-disable-next-line react/immutability -- the continuity store is a mutable object shared outside React
       continuity.checkpoint.moved = true;
@@ -194,7 +198,15 @@ export const Frame = ({
       iframeWindow.document.head.insertBefore(base, iframeWindow.document.head.firstChild);
     }
     base.href = href;
-    if (continuity?.pendingPreview?.pathname === pathname) return;
+    if (continuity?.pendingPreview?.pathname === pathname) {
+      pageViewport?.placed(href);
+      return;
+    }
+    // In the page runtime, each navigation scrolls the page it shows, as in a visitor's window.
+    if (pageViewport && !inCanvasRef.current) {
+      if (opened) pageViewport.opened(iframeWindow, href);
+      return;
+    }
     if (!hash) {
       iframeWindow.scrollTo({ top: 0 });
       return;
@@ -204,7 +216,20 @@ export const Frame = ({
     } catch {
       // Malformed hash escapes must not break navigation.
     }
-  }, [pathname, hash, href, iframeWindow, mountNode, continuity]);
+  }, [pathname, hash, href, iframeWindow, mountNode, continuity, pageViewport]);
+
+  // Outside the Canvas, the frame is where the page scrolls, and where its links are followed.
+  React.useLayoutEffect(() => {
+    if (!pageViewport || !iframeWindow || !mountNode || inCanvas) return;
+    const release = pageViewport.attach(iframeWindow);
+    const stopListening = listenForLinkIntent(iframeWindow.document, (anchor) =>
+      pageViewport.prefetchLink(anchor),
+    );
+    return () => {
+      stopListening();
+      release();
+    };
+  }, [pageViewport, iframeWindow, mountNode, inCanvas]);
 
   React.useLayoutEffect(() => {
     // The Canvas restores this reading position once the frame fills the Preview again.
