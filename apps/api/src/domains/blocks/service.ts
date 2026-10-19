@@ -44,6 +44,7 @@ import {
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
+import { translatePlacedDefaults } from "../translations/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
@@ -928,6 +929,8 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   }
 
   yield* adoptSharedContent(ctx, scope, result);
+  // A synced block reads its shared content rather than the defaults it was placed with.
+  if (!def?.synced) yield* translatePlacedDefaults(ctx.db, scope, result.id);
 
   yield* requestGeneration(
     ctx.db,

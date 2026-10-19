@@ -21,6 +21,7 @@ import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { claimUnique, releaseClaims } from "./claims";
+import { translateDefaults } from "./defaults";
 import { draftLocales, pendingRequest, settleTranslation } from "./service";
 import { contentTexts, slugOf } from "./texts";
 
@@ -64,7 +65,8 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
   const draft = yield* draftScopeOfJob(db, job.draftId);
   const startedAt = Date.now();
   if (draft) {
-    yield* translate(db, draft, job).pipe(
+    const run = job.source === "defaults" ? translateDefaults : translate;
+    yield* run(db, draft, job).pipe(
       Effect.catchCause((cause) => Effect.logError(`[translation] ${jobName(job)} failed`, cause)),
     );
   }

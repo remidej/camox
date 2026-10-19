@@ -31,7 +31,9 @@ export type TranslatedEntity = (typeof TRANSLATED_ENTITIES)[number];
 
 /**
  * A job translating a default-locale entity into one locale of a draft (ADR 0015). Jobs are keyed
- * by entity, locale and draft, and debounced like generation jobs.
+ * by entity, locale and draft, and debounced like generation jobs. A job translating `defaults`
+ * translates the code-owned defaults of a block placed in that locale instead, which has no
+ * default-locale source.
  */
 export type TranslationJob = {
   kind: "translation";
@@ -39,6 +41,7 @@ export type TranslationJob = {
   entityId: string;
   locale: string;
   draftId: string;
+  source?: "defaults";
 };
 
 /** A job the AI job scheduler runs. */
@@ -73,7 +76,8 @@ const NAME_PARTS = {
 /** Names a job: its Durable Object, and its logs. The default locale's jobs keep their names. */
 export const jobName = (job: AiJob) => {
   if (isTranslationJob(job)) {
-    return `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
+    const name = `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
+    return job.source === undefined ? name : `${name}:${job.source}`;
   }
   const [table, type] = NAME_PARTS[job.entity];
   const name = `${table}:${job.entityId}:${type}:${job.draftId ?? "live"}`;

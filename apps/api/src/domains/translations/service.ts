@@ -50,7 +50,7 @@ export const requestTranslations = Effect.fn("translations.request")(function* (
   draft: Draft,
   entities: readonly Translatable[],
   targets: readonly string[],
-  options: { immediately?: boolean } = {},
+  options: { immediately?: boolean; source?: TranslationJob["source"] } = {},
 ) {
   const jobs: TranslationJob[] = entities.flatMap(({ entity, id }) =>
     targets.map((locale) => ({
@@ -59,6 +59,7 @@ export const requestTranslations = Effect.fn("translations.request")(function* (
       entityId: id,
       locale,
       draftId: draft.id,
+      ...(options.source && { source: options.source }),
     })),
   );
   if (jobs.length === 0) return;
@@ -234,6 +235,28 @@ export const translateIntoLocale = Effect.fn("translations.translateIntoLocale")
     for (const { id } of rows) entities.push({ entity, id });
   }
   yield* requestTranslations(db, draft, entities, [tag], { immediately: true });
+});
+
+/**
+ * Requests the translation of a block's code-owned defaults into the locale a draft placed it in,
+ * unless that's the default locale: nobody chose that content. A block placed in the default
+ * locale is translated like any other write to it.
+ */
+export const translatePlacedDefaults = Effect.fn("translations.translatePlacedDefaults")(function* (
+  db: Database,
+  scope: Draft,
+  blockId: string,
+) {
+  if (scope.locale === undefined) return;
+  const { defaultTag, others } = yield* draftLocales(db, scope);
+  if (scope.locale === defaultTag || !others.includes(scope.locale)) return;
+  yield* requestTranslations(
+    db,
+    draftOf(scope),
+    [{ entity: "block", id: blockId }],
+    [scope.locale],
+    { immediately: true, source: "defaults" },
+  );
 });
 
 /** Statements dropping a draft's pending translations and claims in a locale it removes. */

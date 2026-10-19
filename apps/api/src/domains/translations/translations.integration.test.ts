@@ -577,3 +577,106 @@ describe("a translation job", () => {
     expect((await f.blockIn("de", development)).block.content.title).toBe("Hallo");
   });
 });
+
+describe("placing a block in a locale", () => {
+  /** `f`'s draft in German, with a banner definition whose defaults the dictionary translates. */
+  async function germanDraft(f: Awaited<ReturnType<typeof fixture>>) {
+    await runService(
+      upsertBlockDefinition(createServiceContext(f.db, null), {
+        projectSlug: f.projectSlug,
+        deployToken: f.project.deployToken,
+        blockId: "banner",
+        title: "Banner",
+        description: "Banner",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", fieldType: "String", default: "Hello" },
+            subtitle: { type: "string", fieldType: "String", default: "Welcome" },
+            variant: {
+              type: "string",
+              fieldType: "Enum",
+              enum: ["light", "dark"],
+              default: "dark",
+            },
+            items: {
+              type: "array",
+              fieldType: "Repeater",
+              minItems: 1,
+              items: {
+                type: "object",
+                properties: { label: { type: "string", fieldType: "String", default: "One" } },
+              },
+            },
+          },
+          toMarkdown: ["# {{title}}"],
+        },
+      }),
+    );
+    translateWithDictionaries();
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    await f.runTranslations();
+  }
+
+  /** Places a banner with its defaults, as the studio does, in a locale of `f`'s draft. */
+  const place = async (f: Awaited<ReturnType<typeof fixture>>, locale?: string) =>
+    call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "banner", content: { title: "Hello", subtitle: "Welcome" } },
+      f.member(locale ? { ...f.inDraft, [LOCALE_HEADER]: locale } : f.inDraft),
+    );
+
+  it("translates the block's defaults into the page's locale", async () => {
+    const f = await fixture();
+    await germanDraft(f);
+
+    const placed = await place(f, "de");
+    expect(f.translationJobs()).toEqual([
+      expect.objectContaining({ entity: "block", entityId: placed.id, locale: "de" }),
+    ]);
+    await f.runTranslations();
+
+    const german = await f.tool("getBlock", { id: placed.id, locale: "de" });
+    expect(german.block.content).toMatchObject({
+      title: "Hallo",
+      subtitle: "Willkommen",
+      variant: "dark",
+    });
+    expect(german.repeatableItems).toEqual([
+      expect.objectContaining({ content: { label: "Eins" } }),
+    ]);
+  });
+
+  it("keeps a field edited before the translation finishes", async () => {
+    const f = await fixture();
+    await germanDraft(f);
+    const placed = await place(f, "de");
+
+    // A word the dictionary would translate, so translating the edit would show.
+    await f.tool("editBlock", { id: placed.id, content: { title: "Docs" }, locale: "de" });
+    await f.runTranslations();
+
+    const german = await f.tool("getBlock", { id: placed.id, locale: "de" });
+    expect(german.block.content).toMatchObject({ title: "Docs", subtitle: "Willkommen" });
+  });
+
+  it("queues no translation of its defaults when placed in the default locale", async () => {
+    const f = await fixture();
+    await germanDraft(f);
+
+    const placed = await place(f);
+
+    // Like any write to the default locale, the block is translated into German, from itself.
+    const jobsOfBlock = f.translationJobs().filter(({ entityId }) => entityId === placed.id);
+    expect(jobsOfBlock).toEqual([
+      {
+        kind: "translation",
+        entity: "block",
+        entityId: placed.id,
+        locale: "de",
+        draftId: f.draft,
+        delayMs: expect.any(Number),
+      },
+    ]);
+  });
+});
