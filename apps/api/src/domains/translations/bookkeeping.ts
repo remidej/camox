@@ -4,12 +4,12 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
 import * as overlay from "../drafts/overlay";
-import type { Draft } from "../drafts/scope";
+import type { Draft, DraftInLocale } from "../drafts/scope";
 import { translationBookkeeping } from "./schema";
 
-// A localization's bookkeeping (ADR 0015): what it was last translated from, and what Camox
-// wrote from that. It sits beside content like generated values (ADR 0012): a draft reads its
-// own over Live's, writing it never touches content, and publishing copies the draft's to Live.
+// A localization's bookkeeping: what it was last translated from, and what Camox wrote from
+// that. It sits beside content like generated values (ADR 0012): a draft reads its own over
+// Live's, writing it never touches content, and publishing copies the draft's to Live.
 
 /** A localization's columns, with its content and settings, as bookkeeping holds them. */
 export type Values = Record<string, unknown>;
@@ -17,9 +17,9 @@ export type Values = Record<string, unknown>;
 export type Bookkeeping = { source: Values; output: Values };
 
 /** A localization's bookkeeping as a draft in its locale reads it: the draft's own, or Live's. */
-export const readBookkeeping = Effect.fn("bookkeeping.read")(function* (
+export const readBookkeeping = Effect.fn("translation.readBookkeeping")(function* (
   db: Database,
-  target: Draft & { locale: string },
+  target: DraftInLocale,
   entity: TranslatedEntity,
   entityId: string,
 ) {
@@ -39,13 +39,13 @@ export const readBookkeeping = Effect.fn("bookkeeping.read")(function* (
       .orderBy(desc(translationBookkeeping.draftId))
       .get(),
   );
-  return row as Bookkeeping | undefined;
+  return row;
 });
 
 /** Stores a localization's bookkeeping in its draft. */
-export const writeBookkeeping = Effect.fn("bookkeeping.write")(function* (
+export const writeBookkeeping = Effect.fn("translation.writeBookkeeping")(function* (
   db: Database,
-  target: Draft & { locale: string },
+  target: DraftInLocale,
   entity: TranslatedEntity,
   entityId: string,
   bookkeeping: Bookkeeping,

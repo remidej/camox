@@ -723,6 +723,52 @@ describe("hand edits to a localization", () => {
     expect(modelCalls().some(({ method }) => method === "merge")).toBe(false);
   });
 
+  it("merges rich text whose paragraphs no longer line up as a whole with the model, writing its answer", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    await f.tool("editBlock", {
+      id: f.block.id,
+      content: { subtitle: JSON.stringify(markdownToLexicalState("Hello\n\nOne")) },
+    });
+    await f.runTranslations();
+    // The hand edit joins the two paragraphs into one.
+    await f.tool("editBlock", {
+      id: f.block.id,
+      content: { subtitle: JSON.stringify(markdownToLexicalState("Grüß Gott, eins")) },
+      locale: "de",
+    });
+    answerEvery("merge", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key }) => [key, "Grüß Gott, **zwei**"])),
+    );
+
+    await f.tool("editBlock", {
+      id: f.block.id,
+      content: { subtitle: JSON.stringify(markdownToLexicalState("Hello\n\nTwo")) },
+    });
+    await f.runTranslations();
+
+    const merges = modelCalls().flatMap((call) => (call.method === "merge" ? [call.request] : []));
+    expect(merges).toEqual([
+      {
+        from: "en",
+        to: "de",
+        texts: [
+          {
+            key: "subtitle",
+            format: "markdown",
+            previousSource: "Hello\n\nOne",
+            previousTranslation: "Hallo\n\nEins",
+            source: "Hello\n\nTwo",
+            current: "Grüß Gott, eins",
+          },
+        ],
+      },
+    ]);
+    expect(lexicalStateToMarkdown((await f.blockIn("de")).block.content.subtitle)).toBe(
+      "Grüß Gott, **zwei**",
+    );
+  });
+
   it("sends the model only the source fields that changed", async () => {
     const f = await fixture();
     await translatedDraft(f);
@@ -742,7 +788,7 @@ describe("hand edits to a localization", () => {
     });
   });
 
-  it("carries a changed setting over to localizations that didn't change it, without the model, and keeps it where one did", async () => {
+  it("carries a changed block setting over to localizations that didn't change it, without the model, and keeps it where one did", async () => {
     const f = await fixture();
     await translatedDraft(f);
     await call(
@@ -808,6 +854,32 @@ describe("hand edits to a localization", () => {
       title: "Willkommen",
     });
     expect((await f.blockIn("fr")).block.content).toMatchObject({ image: office });
+  });
+
+  it("keeps a page's SEO all manual when the source makes it generated again after a localization changed one of its fields", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    await call(
+      router.pages.setSeo,
+      { id: f.page.id, metaTitle: "Hello", metaDescription: "Welcome" },
+      f.member(f.inDraft),
+    );
+    await f.runTranslations();
+    await call(
+      router.pages.setSeo,
+      { id: f.page.id, metaDescription: "Unsere Preise" },
+      f.member({ ...f.inDraft, [LOCALE_HEADER]: "de" }),
+    );
+
+    await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
+    await f.runTranslations();
+
+    expect(await f.pageIn("de")).toMatchObject({
+      metaTitle: "Hallo",
+      metaDescription: "Unsere Preise",
+    });
+    // French didn't change its SEO: it follows the source back to generated.
+    expect(await f.pageIn("fr")).toMatchObject({ metaTitle: null, metaDescription: null });
   });
 
   it("keeps a hand edit published to Live when a later draft changes the source", async () => {

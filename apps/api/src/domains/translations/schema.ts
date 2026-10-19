@@ -4,6 +4,7 @@ import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-c
 import type { TranslatedEntity } from "../../lib/ai-job-queue";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
+import type { Values } from "./bookkeeping";
 
 /**
  * A pending translation job (ADR 0015): one per entity, locale and draft, from when the job is
@@ -73,9 +74,9 @@ export const translationClaims = sqliteTable(
 );
 
 /**
- * A localization's bookkeeping (ADR 0015): the source it was last translated from and what Camox
- * wrote from it, for the entity as a whole, each as the localization's columns with its content
- * and settings. A translation job merges three ways from it: what the source changed since,
+ * A localization's bookkeeping: the source it was last translated from and what Camox wrote
+ * from it, for the entity as a whole, each as the localization's columns with its content and
+ * settings. A translation job merges three ways from it: what the source changed since,
  * against what someone changed in the localization since. Like generated values (ADR 0012) it
  * sits beside content, one per entity and locale for Live and for each draft whose jobs wrote
  * their own, which the draft reads over Live's. Writing it never copies an entity into a draft,
@@ -94,8 +95,8 @@ export const translationBookkeeping = sqliteTable(
     entityId: text("entity_id").notNull(),
     // The tag of the localization's locale.
     locale: text().notNull(),
-    source: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    output: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
+    source: text({ mode: "json" }).notNull().$type<Values>(),
+    output: text({ mode: "json" }).notNull().$type<Values>(),
   },
   (table) => [
     uniqueIndex("translation_bookkeeping_live_idx")

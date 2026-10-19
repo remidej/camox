@@ -1,15 +1,20 @@
 import slugify from "slugify";
 
 import type { TranslationText } from "../../lib/ai-model";
-import { isLexicalState } from "../../lib/lexical-state";
+import {
+  isLexicalState,
+  lexicalStateToMarkdown,
+  markdownToLexicalState,
+} from "../../lib/lexical-state";
 import { fieldsOf } from "../_shared/fields";
 import type { Values } from "./bookkeeping";
 
-// The fields of a localization a translation job merges one by one (ADR 0015), read from its
-// stored schema, and the texts it sends the model for each. A field is a column, a key of the
-// content or a key of the settings. Text fields, link labels and artifact sources are translated;
-// every other value is copied as it is, ids included, so references and links keep pointing at
-// the same entities in the localization's locale.
+// The units of a localization a translation job merges one by one, read from its stored schema,
+// and the texts it sends the model for each. A unit is a column, a group of columns, a key of the
+// content (a field, or a link's target or label) or a key of the settings (a block setting). Text
+// fields, link labels and artifact sources are translated; every other value is copied as it is,
+// ids included, so references and links keep pointing at the same entities in the localization's
+// locale.
 
 type Format = TranslationText["format"];
 
@@ -21,26 +26,42 @@ export type Shape = {
   slugs?: ReadonlySet<string>;
   /** Columns holding text, by how it's translated. */
   textColumns?: Readonly<Record<string, Format>>;
+  /** Columns merged as one unit, such as a page's SEO, which is all generated or all manual. */
+  columnGroups?: readonly (readonly string[])[];
   /** Columns the job derives itself rather than merging, such as a page's full path. */
   derived?: ReadonlySet<string>;
 };
 
-/** One field of a localization: how its value is read and written, and whether it's text. */
-export type Field = {
-  /** The field's name in the model's requests. */
+/**
+ * A text unit's value as texts for the model: one plain, HTML or slug text, each text node of
+ * rich text, or the texts of each column of a group, keyed under the unit's key.
+ */
+export type UnitTexts = {
+  texts: TranslationText[];
+  /** The value with each text replaced by its answer, or kept where none came back. */
+  rebuild: (answers: Record<string, string>) => unknown;
+  /** The value with its texts blanked: two values' texts line up key by key when it's the same. */
+  structure: string;
+  /** Rich text as one Markdown text, and the value an answer in Markdown makes. */
+  whole?: { text: string; rebuild: (answer: string) => unknown };
+};
+
+/** One unit of a localization a translation job merges: how its value is read and written. */
+export type MergeUnit = {
+  /** The unit's name in the model's requests. */
   key: string;
-  /** How the field is translated, or undefined for a value copied as it is. */
-  format?: Format;
   get: (values: Values) => unknown;
   set: (values: Values, value: unknown) => void;
+  /** The texts a value of the unit holds; absent for a value copied as it is. */
+  texts?: (value: unknown) => UnitTexts | undefined;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-const column = (name: string, format?: Format): Field => ({
+const column = (name: string, format?: Format): MergeUnit => ({
   key: name,
-  format,
+  texts: format && textsAs(name, format),
   get: (values) => values[name],
   set: (values, value) => {
     if (value === undefined) delete values[name];
@@ -48,10 +69,35 @@ const column = (name: string, format?: Format): Field => ({
   },
 });
 
+/** Columns merged as one unit, their value an object by column. */
+const columnGroup = (members: MergeUnit[]): MergeUnit => ({
+  key: members.map((member) => member.key).join("+"),
+  get: (values) => Object.fromEntries(members.map((member) => [member.key, member.get(values)])),
+  set: (values, value) => {
+    for (const member of members) member.set(values, isObject(value) ? value[member.key] : value);
+  },
+  texts: (value) => {
+    if (!isObject(value)) return undefined;
+    const parts = members.map((member) => ({ member, texts: textsOf(member, value[member.key]) }));
+    if (parts.every(({ texts }) => !texts)) return undefined;
+    return {
+      texts: parts.flatMap(({ texts }) => texts?.texts ?? []),
+      structure: JSON.stringify(parts.map(({ texts }) => texts?.structure ?? null)),
+      rebuild: (answers) =>
+        Object.fromEntries(
+          parts.map(({ member, texts }) => [
+            member.key,
+            texts ? texts.rebuild(answers) : value[member.key],
+          ]),
+        ),
+    };
+  },
+});
+
 /** A key of an object column, such as content or settings. */
-const entry = (name: string, key: string, requestKey: string, format?: Format): Field => ({
+const entry = (name: string, key: string, requestKey: string, format?: Format): MergeUnit => ({
   key: requestKey,
-  format,
+  texts: format && textsAs(requestKey, format),
   get: (values) => (isObject(values[name]) ? values[name][key] : undefined),
   set: (values, value) => {
     const object = { ...(isObject(values[name]) ? values[name] : {}) };
@@ -61,69 +107,75 @@ const entry = (name: string, key: string, requestKey: string, format?: Format): 
   },
 });
 
-/** A link's target: everything but its label, which is a field of its own. */
-const linkTarget = (key: string): Field => {
-  const field = entry("content", key, `${key}/target`);
+/** A link with its label, `text`, apart from its target, everything else. */
+const splitLink = (link: Record<string, unknown>) => {
+  const { text: label, ...target } = link;
+  return { label, target };
+};
+
+const joinLink = (target: Record<string, unknown>, label: unknown) =>
+  label === undefined ? { ...target } : { ...target, text: label };
+
+/** One part of a link field, merged on its own: its target, or its translated label. */
+const linkPart = (key: string, part: "target" | "label"): MergeUnit => {
+  const link = entry("content", key, key);
+  const label = part === "label";
+  const requestKey = `${key}/${label ? "text" : "target"}`;
   return {
-    ...field,
+    key: requestKey,
+    texts: label ? textsAs(requestKey, "plain") : undefined,
     get: (values) => {
-      const link = field.get(values);
-      if (!isObject(link)) return link;
-      const { text: _label, ...target } = link;
-      return target;
+      const held = link.get(values);
+      if (!isObject(held)) return label ? undefined : held;
+      const parts = splitLink(held);
+      return label ? parts.label : parts.target;
     },
     set: (values, value) => {
-      const link = field.get(values);
-      const label = isObject(link) ? link.text : undefined;
-      field.set(values, isObject(value) && label !== undefined ? { ...value, text: label } : value);
+      const held = link.get(values);
+      const parts = isObject(held) ? splitLink(held) : undefined;
+      if (label) {
+        if (parts) link.set(values, joinLink(parts.target, value));
+      } else {
+        link.set(values, isObject(value) ? joinLink(value, parts?.label) : value);
+      }
     },
   };
 };
 
-const linkLabel = (key: string): Field => {
-  const field = entry("content", key, `${key}/text`, "plain");
-  return {
-    ...field,
-    get: (values) => {
-      const link = field.get(values);
-      return isObject(link) ? link.text : undefined;
-    },
-    set: (values, value) => {
-      const link = field.get(values);
-      if (!isObject(link)) return;
-      const updated = { ...link };
-      if (value === undefined) delete updated.text;
-      else updated.text = value;
-      field.set(values, updated);
-    },
-  };
-};
-
-/** Every field of a localization that any of `rows` holds. */
-export function fieldsFor(shape: Shape, rows: readonly Values[]): Field[] {
+/** Every unit of a localization that any of `rows` holds. */
+export function mergeUnitsOf(shape: Shape, rows: readonly Values[]): MergeUnit[] {
   const kinds = new Map(fieldsOf(shape.contentSchema).map((field) => [field.name, field.kind]));
   const keysOf = (name: string) =>
     new Set(rows.flatMap((row) => (isObject(row[name]) ? Object.keys(row[name]) : [])));
-  const fields: Field[] = [];
+  const columnOf = (name: string) => column(name, shape.textColumns?.[name]);
+  const units: MergeUnit[] = [];
+  const grouped = new Set<string>();
   for (const name of new Set(rows.flatMap((row) => Object.keys(row)))) {
-    if (shape.derived?.has(name)) continue;
-    if (name === "settings") {
-      for (const key of keysOf(name)) fields.push(entry(name, key, `settings/${key}`));
+    if (shape.derived?.has(name) || grouped.has(name)) continue;
+    const group = shape.columnGroups?.find((columns) => columns.includes(name));
+    if (group) {
+      for (const member of group) grouped.add(member);
+      units.push(columnGroup(group.map(columnOf)));
+    } else if (name === "settings") {
+      for (const key of keysOf(name)) units.push(entry(name, key, `settings/${key}`));
     } else if (name === "content") {
       for (const key of keysOf(name)) {
         const kind = kinds.get(key);
-        if (kind === "Link") fields.push(linkTarget(key), linkLabel(key));
+        if (kind === "Link") units.push(linkPart(key, "target"), linkPart(key, "label"));
         else if (kind === "String")
-          fields.push(entry(name, key, key, shape.slugs?.has(key) ? "slug" : "plain"));
-        else if (kind === "Artifact") fields.push(entry(name, key, key, "html"));
-        else fields.push(entry(name, key, key));
+          units.push(entry(name, key, key, shape.slugs?.has(key) ? "slug" : "plain"));
+        else if (kind === "Artifact") units.push(entry(name, key, key, "html"));
+        else units.push(entry(name, key, key));
       }
     } else {
-      fields.push(column(name, shape.textColumns?.[name]));
+      units.push(columnOf(name));
     }
   }
-  return fields;
+  return units;
 }
+
+/** The texts of a unit's value, or undefined when it holds no text to translate. */
+export const textsOf = (unit: MergeUnit, value: unknown) => unit.texts?.(value);
 
 type LexicalNode = { type?: unknown; text?: unknown; children?: unknown };
 type LexicalTree = { root: LexicalNode };
@@ -139,55 +191,50 @@ function textNodesOf(node: LexicalNode, into: LexicalNode[] = []): LexicalNode[]
   return into;
 }
 
-/**
- * A text field's value as texts for the model: one plain, HTML or slug text, or each text node
- * of rich text, keyed under the field's key.
- */
-export type FieldTexts = {
-  texts: TranslationText[];
-  /** The value with each text replaced by its answer, or kept where none came back. */
-  rebuild: (answers: Record<string, string>) => unknown;
-  /** The value's rich text tree with its texts blanked, to tell if two trees line up. */
-  structure?: string;
-  /** Rich text's tree, read from its stored form. */
-  tree?: LexicalTree;
-};
-
-/** The texts of a text field's value, or undefined when it holds no text to translate. */
-export function textsOf(field: Field, value: unknown): FieldTexts | undefined {
-  const { key, format } = field;
-  if (format === undefined) return undefined;
-  if (format === "plain" && isLexicalState(value)) {
-    const tree = (
-      typeof value === "string" ? JSON.parse(value) : structuredClone(value)
-    ) as LexicalTree;
-    const texts: TranslationText[] = [];
-    textNodesOf(tree.root).forEach((node, index) => {
-      const text = node.text as string;
-      if (text.trim() !== "") texts.push({ key: `${key}/${index}`, text, format: "plain" });
-    });
-    if (texts.length === 0) return undefined;
-    const blank = structuredClone(tree);
-    for (const node of textNodesOf(blank.root)) node.text = "";
+/** How a text value under `key` is read as texts for the model. */
+const textsAs =
+  (key: string, format: Format) =>
+  (value: unknown): UnitTexts | undefined => {
+    if (format === "plain" && isLexicalState(value)) return richTextsOf(key, value);
+    if (typeof value !== "string" || value.trim() === "") return undefined;
     return {
-      texts,
-      tree,
-      structure: JSON.stringify(blank),
-      rebuild: (answers) => {
-        const copy = structuredClone(tree);
-        textNodesOf(copy.root).forEach((node, index) => {
-          const answer = answers[`${key}/${index}`];
-          if (answer !== undefined) node.text = answer;
-        });
-        return typeof value === "string" ? JSON.stringify(copy) : copy;
-      },
+      texts: [{ key, text: value, format }],
+      structure: "",
+      rebuild: (answers) =>
+        format === "slug" ? slugOf(answers[key], value) : (answers[key] ?? value),
     };
-  }
-  if (typeof value !== "string" || value.trim() === "") return undefined;
+  };
+
+/** Rich text's texts: each of its text nodes, keyed by its place in the tree. */
+function richTextsOf(key: string, value: unknown): UnitTexts | undefined {
+  const tree = (
+    typeof value === "string" ? JSON.parse(value) : structuredClone(value)
+  ) as LexicalTree;
+  // Rich text is stored as the Lexical state, or as its JSON.
+  const stored = (state: unknown) => (typeof value === "string" ? JSON.stringify(state) : state);
+  const texts: TranslationText[] = [];
+  textNodesOf(tree.root).forEach((node, index) => {
+    const text = node.text as string;
+    if (text.trim() !== "") texts.push({ key: `${key}/${index}`, text, format: "plain" });
+  });
+  if (texts.length === 0) return undefined;
+  const blank = structuredClone(tree);
+  for (const node of textNodesOf(blank.root)) node.text = "";
   return {
-    texts: [{ key, text: value, format }],
-    rebuild: (answers) =>
-      format === "slug" ? slugOf(answers[key], value) : (answers[key] ?? value),
+    texts,
+    structure: JSON.stringify(blank),
+    rebuild: (answers) => {
+      const copy = structuredClone(tree);
+      textNodesOf(copy.root).forEach((node, index) => {
+        const answer = answers[`${key}/${index}`];
+        if (answer !== undefined) node.text = answer;
+      });
+      return stored(copy);
+    },
+    whole: {
+      text: lexicalStateToMarkdown(tree as unknown as Record<string, unknown>),
+      rebuild: (answer) => stored(markdownToLexicalState(answer)),
+    },
   };
 }
 

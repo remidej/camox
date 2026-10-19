@@ -144,10 +144,12 @@ export const addLocale = Effect.fn("locales.add")(function* (
 
       const removed = yield* removedFromLive(ctx.db, draft, tag);
       if (removed) {
-        yield* overlay.runStatements(
-          ctx.db,
-          overlay.dropLocaleStatements(ctx.db, draft, removed.tag),
-        );
+        // The draft's translation state goes with its content, so Live's localizations aren't
+        // merged against bookkeeping of what the draft wrote.
+        yield* overlay.runStatements(ctx.db, [
+          ...overlay.dropLocaleStatements(ctx.db, draft, removed.tag),
+          ...translations.dropLocaleStatements(ctx.db, draft, removed.tag),
+        ]);
         yield* overlay.revert(ctx.db, draft, locales, removed.id);
         return view({ ...removed, deleted: false });
       }

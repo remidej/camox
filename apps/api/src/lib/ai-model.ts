@@ -53,11 +53,12 @@ export type Translations = Record<string, string>;
 /**
  * One text of a localization someone changed by hand while its source changed too, named by a
  * key the answer keeps: the source and Camox's translation of it when they were last in sync,
- * then the source and the localization now.
+ * then the source and the localization now. Besides the formats of translations, `markdown` is
+ * rich text merged whole, as Markdown.
  */
 export type MergeText = {
   key: string;
-  format: TranslationText["format"];
+  format: TranslationText["format"] | "markdown";
   previousSource: string;
   previousTranslation: string;
   source: string;

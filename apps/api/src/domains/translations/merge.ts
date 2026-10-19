@@ -2,20 +2,21 @@ import { Effect } from "effect";
 
 import type { MergeText, Merges, TranslationText, Translations } from "../../lib/ai-model";
 import type { Bookkeeping, Values } from "./bookkeeping";
-import { type Field, fieldsFor, type Shape, textsOf } from "./texts";
+import { type MergeUnit, mergeUnitsOf, type Shape, textsOf, type UnitTexts } from "./texts";
 
-// How a translation job brings a localization up to date with its source (ADR 0015): a
-// three-way merge, field by field, from the localization's bookkeeping, in code wherever
-// possible.
+// How a translation job brings a localization up to date with its source: a three-way merge,
+// unit by unit, from the localization's bookkeeping, in code wherever possible. Bookkeeping holds
+// the previous source, the source the localization was last translated from, and the previous
+// output, what Camox wrote from it. The current value is what the localization holds now.
 //
-// - A field the source didn't change keeps the localization's value.
-// - A field the source changed, which the localization still holds as Camox wrote it, follows
+// - A unit whose source equals the previous source keeps its current value.
+// - A unit whose source changed, and whose current value is still the previous output, follows
 //   the source: text is translated again, any other value copied. Only these go to the model.
-// - A field both changed keeps the localization's intent: text goes to the model's merge, with
-//   the field's source and translation when they were last in sync, its source now and the
-//   localization now; any other value keeps the localization's.
+// - A unit both changed keeps the localization's intent: text goes to the model's merge, with
+//   its previous source, previous output, source and current value; any other value keeps the
+//   current one.
 //
-// A localization without bookkeeping follows its source in every field.
+// A localization without bookkeeping follows its source in every unit.
 
 /** What a job asks the model: translations of texts, and merges of hand-edited texts. */
 export type MergeModel<E, R> = {
@@ -49,96 +50,144 @@ export const mergeLocalization = Effect.fn("translation.merge")(function* <E, R>
   current: Values | undefined,
   bookkeeping: Bookkeeping | undefined,
 ) {
-  const base = current && bookkeeping;
+  // The last sync, when there's a localization to merge with it.
+  const previous = current && bookkeeping;
   const values = structuredClone(current ?? source);
   // What Camox wrote, where it differs from what the localization holds.
-  const outputs: [Field, unknown][] = [];
+  const outputs: [MergeUnit, unknown][] = [];
   const toTranslate: TranslationText[] = [];
   const toMerge: MergeText[] = [];
   const finishes: ((translations: Translations, merges: Merges) => void)[] = [];
 
-  const rows = [source, ...(current ? [current] : []), ...(base ? [base.source, base.output] : [])];
-  for (const field of fieldsFor(shape, rows)) {
-    const now = field.get(source);
-    if (base && sameValue(now, field.get(base.source))) {
-      outputs.push([field, field.get(base.output)]);
+  const rows = [
+    source,
+    ...(current ? [current] : []),
+    ...(previous ? [previous.source, previous.output] : []),
+  ];
+  for (const unit of mergeUnitsOf(shape, rows)) {
+    const sourceValue = unit.get(source);
+    if (previous && sameValue(sourceValue, unit.get(previous.source))) {
+      outputs.push([unit, unit.get(previous.output)]);
       continue;
     }
-    const held = current && field.get(current);
-    const follows = !base || sameValue(held, field.get(base.output));
-    const texts = textsOf(field, now);
-    if (!texts) {
-      if (follows) field.set(values, now);
-      else outputs.push([field, now]);
+    const currentValue = current && unit.get(current);
+    // Whether the localization still holds what Camox wrote, so it follows the source.
+    const followsSource = !previous || sameValue(currentValue, unit.get(previous.output));
+    const sourceTexts = textsOf(unit, sourceValue);
+    if (!sourceTexts) {
+      if (followsSource) unit.set(values, sourceValue);
+      else outputs.push([unit, sourceValue]);
       continue;
     }
-    toTranslate.push(...texts.texts);
-    if (follows) {
-      finishes.push((translations) => field.set(values, texts.rebuild(translations)));
+    toTranslate.push(...sourceTexts.texts);
+    if (followsSource) {
+      finishes.push((translations) => unit.set(values, sourceTexts.rebuild(translations)));
       continue;
     }
     // Both changed: the localization keeps what the merge makes of the two, and Camox's own
     // translation of the source is kept for the next merge.
-    finishes.push((translations) => outputs.push([field, texts.rebuild(translations)]));
-    const merge = conflictOf(field, texts, base!, held);
-    if (!merge) continue;
-    toMerge.push(...merge.texts);
-    finishes.push((translations, merges) => field.set(values, merge.merged(translations, merges)));
+    finishes.push((translations) => outputs.push([unit, sourceTexts.rebuild(translations)]));
+    const conflict = conflictOf(unit, sourceTexts, previous!, currentValue);
+    if (!conflict) continue;
+    toMerge.push(...conflict.texts);
+    finishes.push((translations, merges) =>
+      unit.set(values, conflict.merged(translations, merges)),
+    );
   }
 
   const translations = toTranslate.length === 0 ? {} : yield* model.translate(toTranslate);
   const merges = toMerge.length === 0 ? {} : yield* model.merge(toMerge);
   for (const finish of finishes) finish(translations, merges);
   const output = structuredClone(values);
-  for (const [field, value] of outputs) field.set(output, value);
+  for (const [unit, value] of outputs) unit.set(output, value);
   return { values, output } satisfies Merged;
 });
 
 /**
- * What a field both the source and the localization changed asks the merge, and how its answers
- * make the field's value; undefined when the four values don't line up as texts, which keeps the
- * localization's value. Rich text is merged node by node, each node by the three-way rule, when
- * its trees line up.
+ * What a unit both the source and the localization changed asks the merge, and how its answers
+ * make the unit's value; undefined when the current value holds no text, or doesn't line up with
+ * the source and isn't rich text, which keeps the current value.
+ *
+ * Texts that line up key by key, such as each text node of rich text whose trees match, are
+ * merged one by one, each by the three-way rule. Rich text whose trees no longer line up is
+ * merged whole, as Markdown.
  */
 function conflictOf(
-  field: Field,
-  now: NonNullable<ReturnType<typeof textsOf>>,
-  base: Bookkeeping,
-  held: unknown,
+  unit: MergeUnit,
+  source: UnitTexts,
+  previous: Bookkeeping,
+  currentValue: unknown,
 ) {
-  const previousSource = textsOf(field, field.get(base.source));
-  const previousTranslation = textsOf(field, field.get(base.output));
-  const current = textsOf(field, held);
-  if (!previousSource || !previousTranslation || !current) return undefined;
-  const all = [now, previousSource, previousTranslation, current];
-  if (all.some((texts) => texts.structure !== now.structure)) return undefined;
+  const current = textsOf(unit, currentValue);
+  if (!current) return undefined;
+  const previousSource = textsOf(unit, unit.get(previous.source));
+  const previousOutput = textsOf(unit, unit.get(previous.output));
+  const linedUp = [previousSource, previousOutput, current].every(
+    (texts) => !texts || texts.structure === source.structure,
+  );
+  if (!linedUp) {
+    return wholeConflictOf(unit, source, previousSource, previousOutput, current, currentValue);
+  }
 
-  const byKey = (texts: typeof now) => new Map(texts.texts.map((text) => [text.key, text.text]));
-  const [before, written, mine] = [previousSource, previousTranslation, current].map(byKey);
+  const byKey = (texts: UnitTexts | undefined) =>
+    new Map(texts?.texts.map(({ key, text }) => [key, text]));
+  const previousSources = byKey(previousSource);
+  const previousOutputs = byKey(previousOutput);
+  const currents = byKey(current);
   const texts: MergeText[] = [];
-  const follows: string[] = [];
-  for (const { key, text, format } of now.texts) {
-    if (text === before.get(key)) continue;
-    const currentText = mine.get(key);
-    if (currentText === undefined || currentText === written.get(key)) follows.push(key);
-    else
-      texts.push({
-        key,
-        format,
-        previousSource: before.get(key) ?? "",
-        previousTranslation: written.get(key) ?? "",
-        source: text,
-        current: currentText,
-      });
+  const following: string[] = [];
+  for (const { key, text, format } of source.texts) {
+    if (text === previousSources.get(key)) continue;
+    const currentText = currents.get(key);
+    if (currentText === undefined || currentText === previousOutputs.get(key)) {
+      following.push(key);
+      continue;
+    }
+    texts.push({
+      key,
+      format,
+      previousSource: previousSources.get(key) ?? "",
+      previousTranslation: previousOutputs.get(key) ?? "",
+      source: text,
+      current: currentText,
+    });
   }
   return {
     texts,
     merged: (translations: Translations, merges: Merges) =>
       current.rebuild({
         ...Object.fromEntries(
-          follows.flatMap((key) => (key in translations ? [[key, translations[key]]] : [])),
+          following.flatMap((key) => (key in translations ? [[key, translations[key]]] : [])),
         ),
         ...merges,
       }),
+  };
+}
+
+/** A rich text unit merged as one Markdown text, for trees that no longer line up. */
+function wholeConflictOf(
+  unit: MergeUnit,
+  source: UnitTexts,
+  previousSource: UnitTexts | undefined,
+  previousOutput: UnitTexts | undefined,
+  current: UnitTexts,
+  currentValue: unknown,
+) {
+  const sourceWhole = source.whole;
+  const currentWhole = current.whole;
+  if (!sourceWhole || !currentWhole) return undefined;
+  const text: MergeText = {
+    key: unit.key,
+    format: "markdown",
+    previousSource: previousSource?.whole?.text ?? "",
+    previousTranslation: previousOutput?.whole?.text ?? "",
+    source: sourceWhole.text,
+    current: currentWhole.text,
+  };
+  return {
+    texts: [text],
+    // A missing answer keeps the current value.
+    merged: (_translations: Translations, merges: Merges) =>
+      unit.key in merges ? currentWhole.rebuild(merges[unit.key]) : currentValue,
   };
 }

@@ -148,6 +148,7 @@ function mergePrompt(request: MergeRequest) {
       - Keep what the hand edit changed in "current", unless the source's change replaces it
       - Translate naturally, keeping the website's tone, brand and product names, code, URLs and placeholders such as {{name}}
       ${FORMAT_CONSTRAINTS}
+      - "markdown" texts: rich text as Markdown; return Markdown, keeping its paragraphs, bold and italic, and every link's target as it is
     </constraints>
 
     <texts>${JSON.stringify(request.texts)}</texts>
