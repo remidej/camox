@@ -7,6 +7,7 @@ import { QueryClient } from "@tanstack/react-query";
 
 import type { ApiClient } from "./api-client";
 import { createDraftScope } from "./draft-scope";
+import type { LocaleView } from "./locale-path";
 import type { PageWithBlocks } from "./queries";
 import { createStudioCache, reads } from "./studio-reads";
 
@@ -16,25 +17,38 @@ type Call = { draft: string | null; procedure: string; input: unknown };
 /** An API answering each procedure with `answers[procedure](input)`, recording every call. */
 function fakeApi(answers: Record<string, (input: any) => unknown> = {}) {
   const calls: Call[] = [];
-  const clientFor = (draft: string | null, path: string[] = []): unknown =>
+  /** The tag of the locale each call named, in order. */
+  const locales: string[] = [];
+  const clientFor = (draft: string | null, locale: LocaleView, path: string[] = []): unknown =>
     new Proxy(() => {}, {
-      get: (_target, name) => clientFor(draft, [...path, String(name)]),
+      get: (_target, name) => clientFor(draft, locale, [...path, String(name)]),
       apply: async (_target, _this, [input]) => {
         const procedure = path.join(".");
         calls.push({ draft, procedure, input });
+        locales.push(locale.tag);
         const answer = answers[procedure];
         if (!answer) throw new Error(`Unexpected call to ${procedure}`);
         return answer(input);
       },
     });
-  return { calls, api: (draft: string | null) => clientFor(draft) as ApiClient };
+  return {
+    calls,
+    locales,
+    api: (draft: string | null, locale: LocaleView) => clientFor(draft, locale) as ApiClient,
+  };
 }
 
 function openCache(answers?: Record<string, (input: any) => unknown>, developmentMode = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const scope = createDraftScope({ queryClient, developmentMode });
-  const { api, calls } = fakeApi(answers);
-  return { queryClient, scope, calls, cache: createStudioCache({ queryClient, scope, api }) };
+  const { api, calls, locales } = fakeApi(answers);
+  return {
+    queryClient,
+    scope,
+    calls,
+    locales,
+    cache: createStudioCache({ queryClient, scope, api }),
+  };
 }
 
 function file(id: string) {
@@ -109,10 +123,9 @@ void test("reads are keyed under the draft the studio views, and shared reads un
   const { cache, scope } = openCache();
   scope.adopt({ draftId: "d1" });
 
-  assert.deepEqual(cache.options(reads.blockBundle("b")).queryKey, [
-    ...queryKeys.blocks.get("b"),
-    "d1",
-  ]);
+  const key = cache.options(reads.blockBundle("b")).queryKey;
+  assert.deepEqual(key.slice(0, queryKeys.blocks.get("b").length), queryKeys.blocks.get("b"));
+  assert.equal(key.at(-1), "d1");
   assert.deepEqual(cache.options(reads.project({ slug: "site" })).queryKey, [
     "camox",
     "projects",
@@ -123,6 +136,53 @@ void test("reads are keyed under the draft the studio views, and shared reads un
     ...queryKeys.drafts.get,
     "d2",
   ]);
+});
+
+const en: LocaleView = { tag: "en", isDefault: true };
+const de: LocaleView = { tag: "de", isDefault: false };
+
+void test("localizations share their original's id, but each locale's read has its own key", () => {
+  const { cache, scope } = openCache();
+  scope.adopt({ draftId: "d1", locale: en });
+  const inDefault = cache.options(reads.blockBundle("b")).queryKey;
+
+  scope.adopt({ draftId: "d1", locale: de });
+  const inGerman = cache.options(reads.blockBundle("b")).queryKey;
+
+  assert.notDeepEqual(inGerman, inDefault);
+  assert.equal(inGerman.at(-1), "d1", "the scope stays a key's last segment");
+  assert.deepEqual(cache.options(reads.blockBundle("b"), { locale: en }).queryKey, inDefault);
+  assert.equal(reads.blockBundle.paramsOf(inGerman), "b");
+});
+
+void test("a read fetches in the locale its key names, even once the studio moved to another", async () => {
+  const { cache, scope, locales } = openCache({
+    "blocks.get": ({ id }) => ({ block: { id }, repeatableItems: [], files: [] }),
+  });
+  scope.adopt({ locale: de });
+  const options = cache.options(reads.blockBundle("b"));
+
+  scope.adopt({ locale: en });
+  await options.queryFn({ signal: new AbortController().signal });
+
+  assert.deepEqual(locales, ["de"]);
+});
+
+void test("a server render keys its reads in the locale it renders, as the browser showing it does", () => {
+  const server = openCache();
+  const serverCache = createStudioCache({
+    queryClient: server.queryClient,
+    scope: server.scope,
+    api: fakeApi().api,
+    locale: () => de,
+  });
+  const browser = openCache();
+  browser.scope.adopt({ locale: de });
+
+  assert.deepEqual(
+    serverCache.options(reads.blockBundle("b")).queryKey,
+    browser.cache.options(reads.blockBundle("b")).queryKey,
+  );
 });
 
 void test("a read fetches the draft its key names, even once the studio moved to another", async () => {
@@ -260,11 +320,13 @@ const BROADCAST_PREFIXES = [
 
 /** Reads realtime doesn't need to reach: the same for every viewer, or code-owned. */
 const UNREACHED = new Set(["project", "collectionList", "collection"]);
+/** Reads only the API's refresh of everything a scope reads reaches, as a locale change does. */
+const REACHED_BROADLY = new Set(["localeList"]);
 
 void test("realtime reaches every read: each key sits under a prefix the API broadcasts", () => {
   const params = new Proxy({}, { get: () => "x" });
   for (const [name, entry] of Object.entries(reads)) {
-    if (UNREACHED.has(name)) continue;
+    if (UNREACHED.has(name) || REACHED_BROADLY.has(name)) continue;
     const key = entry.definition.key(params as never);
     const reached = BROADCAST_PREFIXES.some((prefix) =>
       prefix.every((segment, index) => key[index] === segment),

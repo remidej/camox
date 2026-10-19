@@ -6,6 +6,7 @@ import {
   DRAFT_CREATE_HEADER,
   DRAFT_HEADER,
   type EndedDraft,
+  LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
@@ -214,4 +215,32 @@ void test("the first render shows what its own request read, without marking it 
 
   assert.equal(draftScope.current(), "d1");
   assert.equal(queryClient.getQueryState(inScope(block, "d1"))?.isInvalidated, false);
+});
+
+void test("requests in a non-default locale name it, reads and writes alike; the default locale's name none", () => {
+  const { draftScope } = openScope("https://site.test/de/preise?camox-draft=d1");
+  const en = { tag: "en", isDefault: true };
+  const de = { tag: "de", isDefault: false };
+
+  draftScope.adopt({ draftId: "d1", locale: de });
+
+  assert.deepEqual(draftScope.locale(), de);
+  assert.deepEqual(draftScope.requestHeaders(false).headers, {
+    [DRAFT_HEADER]: "d1",
+    [LOCALE_HEADER]: "de",
+  });
+  assert.equal(draftScope.requestHeaders(true).headers[LOCALE_HEADER], "de");
+
+  draftScope.adopt({ draftId: "d1", locale: en });
+  assert.deepEqual(draftScope.requestHeaders(true).headers, { [DRAFT_HEADER]: "d1" });
+});
+
+void test("the first content write on Live in a non-default locale starts a draft in that locale", () => {
+  const { draftScope } = openScope("https://site.test/de");
+  draftScope.adopt({ locale: { tag: "de", isDefault: false } });
+
+  const write = draftScope.requestHeaders(true);
+
+  assert.equal(write.headers[DRAFT_CREATE_HEADER], "1");
+  assert.equal(write.headers[LOCALE_HEADER], "de");
 });

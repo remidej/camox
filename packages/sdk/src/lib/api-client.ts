@@ -1,5 +1,5 @@
 import type { Router } from "@camox/api-contract";
-import { DRAFT_HEADER, isContentWrite } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER, isContentWrite, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
@@ -7,6 +7,7 @@ import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
 import type { DraftRequestHeaders, DraftScope } from "./draft-scope";
+import type { LocaleView } from "./locale-path";
 
 declare const __CAMOX_TELEMETRY_DISABLED__: boolean;
 
@@ -16,7 +17,7 @@ let _client: ApiClient | null = null;
 let _orpc: ReturnType<typeof createTanstackQueryUtils<ApiClient>> | null = null;
 let _apiUrl: string | null = null;
 let _draftScope: DraftScope | null = null;
-const _readClients = new Map<string | null, ApiClient>();
+const _readClients = new Map<string, ApiClient>();
 
 /** Creates the window's API client, whose requests read and write the draft `draftScope` views. */
 export function initApiClient(apiUrl: string, draftScope: DraftScope): ApiClient {
@@ -29,16 +30,20 @@ export function initApiClient(apiUrl: string, draftScope: DraftScope): ApiClient
 }
 
 /**
- * A client of the window's API whose requests name `draft` (null for Live), whatever draft the
- * studio views by the time they're sent. The studio's reads fetch through it, so a read caches
- * only the draft its key names.
+ * A client of the window's API whose requests name `draft` (null for Live) and `locale` (the
+ * default locale without it), whatever the studio views by the time they're sent. The studio's
+ * reads fetch through it, so a read caches only the draft and locale its key names.
  */
-export function getDraftReadClient(draft: string | null): ApiClient {
-  let client = _readClients.get(draft);
+export function getDraftReadClient(draft: string | null, locale?: LocaleView): ApiClient {
+  const named = locale && !locale.isDefault ? locale.tag : null;
+  const cacheKey = JSON.stringify([draft, named]);
+  let client = _readClients.get(cacheKey);
   if (client) return client;
   const headers: Record<string, string> = draft ? { [DRAFT_HEADER]: draft } : {};
+  // The default locale is the API's own default, so only another locale is named.
+  if (named) headers[LOCALE_HEADER] = named;
   client = createStudioClient(getApiUrl(), () => ({ headers, settle: () => {} }));
-  _readClients.set(draft, client);
+  _readClients.set(cacheKey, client);
   return client;
 }
 

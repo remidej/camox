@@ -4,6 +4,7 @@ import {
   DRAFT_HEADER,
   DRAFT_SEARCH_PARAM,
   type EndedDraft,
+  LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { LIVE_KEY_SCOPE, scopeOfKey } from "@camox/api-contract/query-keys";
@@ -12,6 +13,7 @@ import * as React from "react";
 
 import type { DraftNotice, DraftRead } from "../features/routes/pageRuntime";
 import { getApiClient } from "./api-client";
+import type { LocaleView } from "./locale-path";
 
 /**
  * Which draft the studio is viewing (ADR 0011): a draft's id, or Live. There is one per server
@@ -25,10 +27,16 @@ import { getApiClient } from "./api-client";
  *
  * Dev mode works only in the caller's development draft and ignores the URL (ADR 0006): every
  * request and key names `development`, and no draft is ever started.
+ *
+ * The scope also follows the locale each render shows, named by its path's prefix, so every
+ * request reads and writes in it: localizations share their original's id (ADR 0015), so a write
+ * naming no locale would change the default locale's.
  */
 export interface DraftScope {
   /** The draft viewed: a draft's id, `development` in dev mode, or null for Live. */
   current: () => string | null;
+  /** The locale the studio views: the one the last render showed. */
+  locale: () => LocaleView;
   /** Whether this is dev mode, which works only in the development draft (ADR 0006). */
   readonly developmentMode: boolean;
   /** Calls `listener` after every move to another scope, or after leaving one. */
@@ -48,11 +56,11 @@ export interface DraftScope {
   hrefFor: (to: string, options?: { from?: string; draft?: string | null }) => string;
 
   /**
-   * Follows a render: the page now shown read `rendered`. Where it couldn't read the draft its
-   * URL named, the param leaves the browser's URL in place and a member gets a notice. Queries
-   * cached the last time an entered scope was shown are marked outdated.
+   * Follows a render: the page now shown read `rendered`, in its locale. Where it couldn't read
+   * the draft its URL named, the param leaves the browser's URL in place and a member gets a
+   * notice. Queries cached the last time an entered scope was shown are marked outdated.
    */
-  adopt: (rendered: DraftRead) => void;
+  adopt: (rendered: DraftRead & { locale?: LocaleView }) => void;
   /**
    * Switches to Live once the viewed draft was published or discarded, here or by someone else,
    * replacing its URL entry. A development draft never ends: it is emptied and dev mode stays in
@@ -107,6 +115,9 @@ export function withoutDraft(href: string): string {
   return url.href;
 }
 
+/** The locale viewed before any render says which: the default one, whose tag requests never name. */
+const UNNAMED_DEFAULT_LOCALE: LocaleView = { tag: "und", isDefault: true };
+
 function buildIsDevelopmentMode(): boolean {
   return typeof __CAMOX_DEVELOPMENT_DRAFT__ !== "undefined" && __CAMOX_DEVELOPMENT_DRAFT__;
 }
@@ -119,6 +130,7 @@ export function createDraftScope({
     (await getApiClient().drafts.get({ projectId }))?.id,
 }: DraftScopeOptions): DraftScope {
   let current: string | null = developmentMode ? DEVELOPMENT_DRAFT : null;
+  let locale = UNNAMED_DEFAULT_LOCALE;
   /** The id the first content writes on Live share, and how many of them are still in flight. */
   let pending: { id: string; inFlight: number } | null = null;
   let developmentDraftId: Promise<string | undefined> | undefined;
@@ -171,15 +183,19 @@ export function createDraftScope({
 
   const headersFor = (contentWrite: boolean): DraftRequestHeaders => {
     const noop = () => {};
-    if (current) return { headers: { [DRAFT_HEADER]: current }, settle: noop };
+    // The default locale is the API's own default, so only another locale is named.
+    const inLocale: Record<string, string> = locale.isDefault
+      ? {}
+      : { [LOCALE_HEADER]: locale.tag };
+    if (current) return { headers: { [DRAFT_HEADER]: current, ...inLocale }, settle: noop };
     // Dev mode never starts a draft: without the development draft, it can't write.
-    if (!contentWrite || developmentMode) return { headers: {}, settle: noop };
+    if (!contentWrite || developmentMode) return { headers: inLocale, settle: noop };
 
     pending ??= { id: generateUuidv7(), inFlight: 0 };
     const started = pending;
     started.inFlight += 1;
     return {
-      headers: { [DRAFT_HEADER]: started.id, [DRAFT_CREATE_HEADER]: "1" },
+      headers: { [DRAFT_HEADER]: started.id, [DRAFT_CREATE_HEADER]: "1", ...inLocale },
       settle: (ok) => {
         if (pending !== started) return;
         started.inFlight -= 1;
@@ -192,6 +208,7 @@ export function createDraftScope({
 
   return {
     current: () => current,
+    locale: () => locale,
     developmentMode,
     subscribe(listener) {
       listeners.add(listener);
@@ -216,6 +233,7 @@ export function createDraftScope({
     },
 
     adopt(rendered) {
+      if (rendered.locale) locale = rendered.locale;
       if (rendered.refusedDraft) {
         replaceUrl(null);
         if (rendered.refusedDraft.notice) report(rendered.refusedDraft.notice);

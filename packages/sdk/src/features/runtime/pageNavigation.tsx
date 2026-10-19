@@ -5,7 +5,9 @@ import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
 import { draftNamedBy, DraftScopeContext } from "../../lib/draft-scope";
+import type { LocaleView } from "../../lib/locale-path";
 import { reads } from "../../lib/studio-reads";
+import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { createPrefetchCache, listenForLinkIntent } from "./linkPrefetch";
 import { createRouteAnnouncer, focusNewPage } from "./navigationAccessibility";
@@ -42,6 +44,10 @@ function preserveStableLayoutBlockCaches(
       return !(blockId && ids.has(blockId));
     }),
   };
+}
+
+function sameLocale(a: LocaleView, b: LocaleView) {
+  return a.tag === b.tag && a.isDefault === b.isDefault;
 }
 
 function prefetchKey(pathname: string, draft: string | null) {
@@ -177,7 +183,10 @@ export function PageNavigationProvider({
             loadPage(target.pathname, targetDraft, request.signal));
         }
         if (!request.isCurrent()) return;
-        const switching = (next.draftId ?? null) !== (current.current.draftId ?? null);
+        // Another draft or locale shows other keys: the page mounts afresh to read them.
+        const switching =
+          (next.draftId ?? null) !== (current.current.draftId ?? null) ||
+          !sameLocale(next.locale, current.current.locale);
         // Back and forward already moved the browser's history.
         const positions = restoration();
         if (!pop) {
@@ -398,6 +407,9 @@ export function PageNavigationProvider({
   }, [navigate, initialInput.runtimeBasePath, requests]);
 
   const url = new URL(input.href);
+  // Each render's response is new JSON: keep the value while it says the same.
+  const viewLocaleJson = JSON.stringify({ locale: input.locale, locales: input.locales });
+  const viewLocale = React.useMemo<ViewLocale>(() => JSON.parse(viewLocaleJson), [viewLocaleJson]);
   return (
     <NavigationProvider
       location={{
@@ -409,9 +421,11 @@ export function PageNavigationProvider({
       }}
       navigate={navigate}
     >
-      <PageViewportContext value={pageViewport}>
-        <React.Fragment key={generation}>{children(input)}</React.Fragment>
-      </PageViewportContext>
+      <ViewLocaleContext value={viewLocale}>
+        <PageViewportContext value={pageViewport}>
+          <React.Fragment key={generation}>{children(input)}</React.Fragment>
+        </PageViewportContext>
+      </ViewLocaleContext>
     </NavigationProvider>
   );
 }

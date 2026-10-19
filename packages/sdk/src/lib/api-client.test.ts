@@ -6,6 +6,7 @@ import {
   DRAFT_CREATE_HEADER,
   DRAFT_HEADER,
   DRAFT_SEARCH_PARAM,
+  LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { Window } from "happy-dom";
 
@@ -16,7 +17,8 @@ Object.assign(globalThis, {
   __CAMOX_TELEMETRY_DISABLED__: true,
 });
 const { QueryClient } = await import("@tanstack/react-query");
-const { getApiClient, getContentWriteHeaders, initApiClient } = await import("./api-client");
+const { getApiClient, getContentWriteHeaders, getDraftReadClient, initApiClient } =
+  await import("./api-client");
 const { createDraftScope } = await import("./draft-scope");
 
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -207,6 +209,25 @@ void test("a studio opened on a draft reads and writes it without creating it", 
       { draft: draftId, create: null },
     ],
   );
+});
+
+void test("a studio viewing a non-default locale reads and edits that locale's localizations", async (t) => {
+  const draftId = "01890a5d-ac96-774b-bcce-b302099a8057";
+  const draftScope = openStudio(`/de/preise?${DRAFT_SEARCH_PARAM}=${draftId}`);
+  draftScope.adopt({ draftId, locale: { tag: "de", isDefault: false } });
+  const locales: (string | null)[] = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    locales.push(request.headers.get(LOCALE_HEADER));
+    return okJson(null);
+  });
+
+  await blockEdit();
+  await getDraftReadClient(draftId, draftScope.locale()).blocks.get({ id: "block-1" } as never);
+  await getDraftReadClient(draftId, { tag: "en", isDefault: true }).blocks.get({
+    id: "block-1",
+  } as never);
+
+  assert.deepEqual(locales, ["de", "de", null]);
 });
 
 void test("changing a file on Live starts a draft, and reading or generating metadata doesn't", async (t) => {
