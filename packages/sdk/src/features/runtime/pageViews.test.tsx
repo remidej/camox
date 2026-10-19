@@ -42,3 +42,87 @@ void test("a render input without providers sends no page view", async (t) => {
   await page.settle();
   assert.deepEqual(page.gtagCalls, []);
 });
+
+void test("a visitor's navigation to another page sends one more GA4 page view, with the new page's path and title", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
+  await page.settle();
+  await page.click("to-about");
+  assert.deepEqual(pageViews(page.gtagCalls).slice(1), [
+    [
+      "event",
+      "page_view",
+      {
+        page_location: "https://site.test/about",
+        page_path: "/about",
+        page_title: titleOf("/about"),
+      },
+    ],
+  ]);
+});
+
+void test("Back and Forward each send one GA4 page view, with the page they return to", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
+  const pricing = page.window.history.state;
+  await page.click("to-about");
+  const about = page.window.history.state;
+  const sentBefore = pageViews(page.gtagCalls).length;
+
+  await page.traverse("/pricing", pricing);
+  await page.traverse("/about", about);
+
+  assert.deepEqual(
+    pageViews(page.gtagCalls)
+      .slice(sentBefore)
+      .map(([, , params]) => params),
+    [
+      {
+        page_location: "https://site.test/pricing",
+        page_path: "/pricing",
+        page_title: titleOf("/pricing"),
+      },
+      {
+        page_location: "https://site.test/about",
+        page_path: "/about",
+        page_title: titleOf("/about"),
+      },
+    ],
+  );
+});
+
+void test("a hash-only change on the same page sends no page view, even back from it", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
+  await page.settle();
+  const top = page.window.history.state;
+  const sentBefore = pageViews(page.gtagCalls).length;
+  await page.click("to-details");
+  await page.click("to-pricing-details");
+  await page.traverse("/pricing", top);
+  assert.equal(page.shownPage(), "/pricing");
+  assert.equal(pageViews(page.gtagCalls).length, sentBefore);
+});
+
+void test("a search-only change on the same page sends no page view", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
+  await page.settle();
+  const sentBefore = pageViews(page.gtagCalls).length;
+  await page.traverse("/pricing?plan=pro", null);
+  assert.equal(pageViews(page.gtagCalls).length, sentBefore);
+});
+
+void test("the studio presentation sends no page view on navigation", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4, studio: true });
+  const pricing = page.window.history.state;
+  await page.click("to-about");
+  await page.traverse("/pricing", pricing);
+  assert.equal(page.shownPage(), "/pricing");
+  assert.deepEqual(page.gtagCalls, []);
+});
+
+void test("a render input without providers sends no page view on navigation", async (t) => {
+  const page = await openPage(t, "https://site.test/pricing");
+  const pricing = page.window.history.state;
+  await page.click("to-about");
+  await page.traverse("/pricing", pricing);
+  assert.equal(page.shownPage(), "/pricing");
+  assert.deepEqual(page.gtagCalls, []);
+});
