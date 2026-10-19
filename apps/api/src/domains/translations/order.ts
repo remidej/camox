@@ -45,7 +45,7 @@ function siblingsOf(entity: OrderedEntity, row: Record<string, unknown>) {
   return {
     table: repeatableItems,
     where: and(itemsUnder(rootOfItem(item)), eq(repeatableItems.fieldName, item.fieldName))!,
-    matches: (other: Row) => other.parentItemId === item.parentItemId,
+    matches: (other: Record<string, unknown>) => other.parentItemId === item.parentItemId,
   };
 }
 
@@ -55,8 +55,16 @@ const select = (
   siblings: { table: typeof blocks | typeof repeatableItems; where: SQL },
 ) => overlay.select(db, scope, siblings.table, siblings.where) as Effect.Effect<Row[]>;
 
-const positionIn = (values: Record<string, unknown> | undefined) =>
-  typeof values?.position === "string" ? values.position : undefined;
+/** The column placing a block or item among its siblings, which `placeLocalizedSibling` derives. */
+const POSITION = "position";
+
+/** The columns `placeLocalizedSibling` derives rather than the merge (`Shape.derived`). */
+export const SIBLING_ORDER_COLUMNS: ReadonlySet<string> = new Set([POSITION]);
+
+const positionIn = (values: Record<string, unknown> | undefined) => {
+  const position = values?.[POSITION];
+  return typeof position === "string" ? position : undefined;
+};
 
 /** Whether `ids`, in the order a locale has them, are no longer in the order Camox gave them. */
 function reordered(ids: readonly string[], written: ReadonlyMap<string, string>) {
@@ -141,6 +149,14 @@ function positionsFor(
   return result;
 }
 
+/** A block or item localization a job merges: its original, as it was, and its bookkeeping. */
+export type Localizing = {
+  entity: OrderedEntity;
+  source: Record<string, unknown> & { id: string };
+  current: Record<string, unknown> | undefined;
+  bookkeeping: Bookkeeping | undefined;
+};
+
 /**
  * Gives a merged block or item localization its position among its siblings in the locale, by
  * the three-way merge of their order, and repositions the siblings the merged order moves.
@@ -148,10 +164,7 @@ function positionsFor(
 export const placeLocalizedSibling = Effect.fn("translation.placeLocalizedSibling")(function* (
   db: Database,
   scope: TranslationScope,
-  entity: OrderedEntity,
-  source: Record<string, unknown> & { id: string },
-  current: Record<string, unknown> | undefined,
-  bookkeeping: Bookkeeping | undefined,
+  { entity, source, current, bookkeeping }: Localizing,
   merged: Merged,
 ) {
   const inSource = siblingsOf(entity, source);
@@ -165,7 +178,7 @@ export const placeLocalizedSibling = Effect.fn("translation.placeLocalizedSiblin
   const others = (yield* select(db, scope.target, inTarget)).filter(
     (row) => inTarget.matches(row) && row.id !== source.id,
   );
-  const ownPosition = current && inTarget.matches(current as Row) ? positionIn(current) : undefined;
+  const ownPosition = current && inTarget.matches(current) ? positionIn(current) : undefined;
   const positions = new Map(others.map((row) => [row.id, row.position]));
   if (ownPosition !== undefined) positions.set(source.id, ownPosition);
   const ours = overlay
@@ -228,6 +241,6 @@ export const placeLocalizedSibling = Effect.fn("translation.placeLocalizedSiblin
     }
   }
   const position = placed.get(source.id)!;
-  merged.values.position = position;
-  merged.output.position = follows ? position : (positionIn(bookkeeping?.output) ?? position);
+  merged.values[POSITION] = position;
+  merged.output[POSITION] = follows ? position : (positionIn(bookkeeping?.output) ?? position);
 });

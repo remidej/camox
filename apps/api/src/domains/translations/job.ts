@@ -26,7 +26,7 @@ import { claimUnique, releaseClaims } from "./claims";
 import { translateDefaults } from "./defaults";
 import { isLeftOut } from "./exclusions";
 import { type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
-import { isOrderedEntity, placeLocalizedSibling } from "./order";
+import { isOrderedEntity, placeLocalizedSibling, SIBLING_ORDER_COLUMNS } from "./order";
 import { translationScope, type TranslationScope } from "./scope";
 import { pendingRequest, settleTranslation } from "./service";
 import { dropDescendants } from "./subtree";
@@ -124,7 +124,8 @@ const translate = Effect.fn("translation.translate")(function* (
   if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return;
   if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
   if (isOrderedEntity(job.entity)) {
-    yield* placeLocalizedSibling(db, scope, job.entity, source, current, bookkeeping, merged);
+    const localizing = { entity: job.entity, source, current, bookkeeping };
+    yield* placeLocalizedSibling(db, scope, localizing, merged);
   }
   if (job.entity === "record") {
     const record = source as typeof collectionRecords.$inferSelect;
@@ -174,8 +175,6 @@ const modelFor = (scope: TranslationScope): MergeModel<AiCallError, AiModel> => 
     AiModel.use((model) => model.merge({ from: scope.from, to: scope.to, texts })),
 });
 
-const ORDER: ReadonlySet<string> = new Set(["position"]);
-
 /** What an entity's localization holds, by kind of entity, read from its stored schemas. */
 const shapeOf = Effect.fn("translation.shape")(function* (
   db: Database,
@@ -203,14 +202,14 @@ const shapeOf = Effect.fn("translation.shape")(function* (
       return {
         contentSchema: schemas?.contentSchema,
         // A block's order merges among its siblings (`order.ts`).
-        derived: entity === "block" ? ORDER : undefined,
+        derived: entity === "block" ? SIBLING_ORDER_COLUMNS : undefined,
       } satisfies Shape;
     }
     case "repeatableItem": {
       const item = source as typeof repeatableItems.$inferSelect;
       return {
         contentSchema: yield* itemContentSchema(db, scope.draft, item),
-        derived: ORDER,
+        derived: SIBLING_ORDER_COLUMNS,
       } satisfies Shape;
     }
     case "record": {
