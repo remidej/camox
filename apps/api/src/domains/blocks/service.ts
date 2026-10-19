@@ -22,6 +22,7 @@ import {
   layouts,
   pages,
   repeatableItems,
+  sharedContentId,
   sharedContents,
 } from "../../schema";
 import { nestChildItems } from "../_shared/block-markers";
@@ -808,6 +809,27 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   };
 });
 
+/**
+ * Adopts a new placement's shared content, and translates the defaults it brought into the locale
+ * it was placed in: its own, or those of the shared content it seeded. Shared content that existed
+ * is already the locale's.
+ */
+const placeContent = Effect.fn("blocks.placeContent")(function* (
+  ctx: ServiceContext,
+  scope: Draft,
+  block: typeof blocks.$inferSelect,
+) {
+  const adoption = yield* adoptSharedContent(ctx, scope, block);
+  if (adoption === "adopted") return;
+  yield* translatePlacedDefaults(
+    ctx.db,
+    scope,
+    adoption === "own"
+      ? { entity: "block", id: block.id }
+      : { entity: "sharedContent", id: sharedContentId(block) },
+  );
+});
+
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createBlockInput>,
@@ -928,9 +950,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     }
   }
 
-  yield* adoptSharedContent(ctx, scope, result);
-  // A synced block reads its shared content rather than the defaults it was placed with.
-  if (!def?.synced) yield* translatePlacedDefaults(ctx.db, scope, result.id);
+  yield* placeContent(ctx, scope, result);
 
   yield* requestGeneration(
     ctx.db,
@@ -1172,7 +1192,8 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     updatedAt: now,
   });
   if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
-  yield* adoptSharedContent(ctx, scope, result);
+  // A copy made before the original's defaults were translated holds them untranslated.
+  yield* placeContent(ctx, scope, result);
   yield* copyValue(
     ctx.db,
     scope,
