@@ -120,6 +120,8 @@ const translate = Effect.fn("translation.translate")(function* (
     current && valuesOf(current),
     bookkeeping,
   );
+  // The locale may have left it out while the model ran.
+  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return;
   if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
   if (isOrderedEntity(job.entity)) {
     yield* placeLocalizedSibling(db, scope, job.entity, source, current, bookkeeping, merged);

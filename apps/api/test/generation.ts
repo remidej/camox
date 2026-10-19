@@ -13,7 +13,9 @@ type Model = AiModel["Service"];
 type Method = keyof Model;
 type Request<M extends Method> = Parameters<Model[M]>[0];
 type Answer<M extends Method> = Effect.Success<ReturnType<Model[M]>>;
-type Answerer<M extends Method> = (request: Request<M>) => Answer<M> | AiCallError;
+type Answered<M extends Method> = Answer<M> | AiCallError;
+/** Answers a call, or waits on something first, as a test acting while the model runs does. */
+type Answerer<M extends Method> = (request: Request<M>) => Answered<M> | Promise<Answered<M>>;
 
 /** What the model was asked, in order. */
 export type ModelCall = { [M in Method]: { method: M; request: Request<M> } }[Method];
@@ -28,10 +30,14 @@ const answer = <M extends Method>(method: M, request: Request<M>) =>
     const next = answers.get(method)?.shift();
     if (next === undefined) {
       const answerer = standing.get(method) as Answerer<M> | undefined;
-      const answered = answerer?.(request);
-      if (answered instanceof AiCallError) return Effect.fail(answered);
-      if (answered !== undefined) return Effect.succeed(answered);
-      return Effect.fail(new AiCallError({ cause: `No ${method} answer scripted` }));
+      const unscripted = new AiCallError({ cause: `No ${method} answer scripted` });
+      return Effect.promise(async () => answerer?.(request)).pipe(
+        Effect.flatMap((answered) =>
+          answered === undefined || answered instanceof AiCallError
+            ? Effect.fail(answered ?? unscripted)
+            : Effect.succeed(answered),
+        ),
+      );
     }
     return next instanceof AiCallError ? Effect.fail(next) : Effect.succeed(next as Answer<M>);
   });

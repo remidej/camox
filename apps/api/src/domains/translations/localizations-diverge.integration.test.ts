@@ -264,6 +264,36 @@ describe("deleting a localization", () => {
     expect(await f.recordsIn("fr")).toEqual([f.record.id]);
   });
 
+  it("keeps a block out of a locale its page is deleted from while the block translates", async () => {
+    const f = await fixture();
+    await f.publish();
+    const later = f.newDraft();
+    const added = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Welcome", items: [] } },
+      f.member(later.starting),
+    );
+
+    let deleting: Promise<unknown> | undefined;
+    answerEvery("translate", async ({ to, texts }) => {
+      if (to === "de") {
+        deleting ??= f.tool("deletePage", { id: f.page.id, locale: "de" }, later.inDraft);
+        await deleting;
+      }
+      return Object.fromEntries(texts.map(({ key, text }) => [key, GERMAN[text] ?? text]));
+    });
+    await f.runTranslations();
+
+    expect(deleting).toBeDefined();
+    const preview = await f.tool("previewPublish", {}, later.inDraft);
+    expect(
+      preview.changes.filter(
+        ({ id, locale }: { id: string; locale: string }) => id === added.id && locale === "de",
+      ),
+    ).toEqual([]);
+    expect(preview.lost).toEqual([]);
+  });
+
   it("is a change in its locale, which publishing keeps on Live", async () => {
     const f = await fixture();
     await f.publish();
