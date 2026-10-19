@@ -43,22 +43,15 @@ import {
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
 import { omitArtifactSources } from "./artifactSources";
 import { getPageBlockTypes } from "./pageBlockTypes";
+import { matchRuntimeOwnedRoute, type RuntimeOwnedRouteKind } from "./runtimeRoutes";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
-const RUNTIME_HEALTH_PATH = "/_camox/health";
-const RUNTIME_REGISTRY_PATH = "/_camox/registry";
-const RUNTIME_ROUTES_PATH = "/_camox/routes";
 
 export type RuntimeRouteKind =
+  | RuntimeOwnedRouteKind
   | "canvas"
-  | "data"
-  | "health"
-  | "og"
   | "page"
-  | "registry"
-  | "routes"
-  | "sitemap"
   | "studio"
   | "studio-content"
   | "studio-nested";
@@ -204,10 +197,8 @@ function getLayoutIdentity(
 }
 
 export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
-  if (pathname === RUNTIME_HEALTH_PATH) return { kind: "health", pathname };
-  if (pathname === RUNTIME_REGISTRY_PATH) return { kind: "registry", pathname };
-  if (pathname === RUNTIME_ROUTES_PATH) return { kind: "routes", pathname };
-  if (pathname === "/_camox/data") return { kind: "data", pathname };
+  const ownedRoute = matchRuntimeOwnedRoute(pathname);
+  if (ownedRoute) return { kind: ownedRoute, pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
   if (matchCanvasOnlyPath(pathname)) return { kind: "canvas", pathname };
   if (
@@ -218,8 +209,6 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   )
     return { kind: "studio-content", pathname };
   if (pathname.startsWith("/camox/")) return { kind: "studio-nested", pathname };
-  if (pathname === "/og") return { kind: "og", pathname };
-  if (pathname === "/sitemap.xml") return { kind: "sitemap", pathname };
 
   return { kind: "page", pathname };
 }
@@ -1165,6 +1154,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "sitemap") {
     return createSitemapResponse(request, options);
+  }
+
+  if (match.kind === "llms-txt") {
+    return new Response("Not found", { status: 404 });
   }
 
   if (match.kind === "routes") {

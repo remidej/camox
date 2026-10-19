@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { getNavigationTarget } from "./navigationTarget";
+import { RUNTIME_ROUTE_PATHS } from "./runtimeRoutes";
 
 void test("curated, derived and studio routes all use client navigation", () => {
   for (const path of ["/", "/about", "/pokemon/pikachu", "/camox", "/camox/content"]) {
@@ -34,5 +35,16 @@ void test("external origins, protocols, host routes and runtime endpoints are no
     "/sitemap.xml",
   ]) {
     assert.equal(getNavigationTarget(path, "https://site.test/site/", "/site"), null);
+  }
+});
+
+void test("every route the runtime owns, including /llms.txt, is a document request", () => {
+  for (const path of [...Object.values(RUNTIME_ROUTE_PATHS), "/llms.txt"]) {
+    assert.equal(getNavigationTarget(path, "https://site.test/about", ""), null, path);
+    assert.equal(
+      getNavigationTarget(`/site${path}`, "https://site.test/site/", "/site"),
+      null,
+      path,
+    );
   }
 });
