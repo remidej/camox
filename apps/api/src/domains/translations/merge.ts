@@ -104,6 +104,18 @@ export const mergeLocalization = Effect.fn("translation.merge")(function* <E, R>
 });
 
 /**
+ * Gives a merged localization the units someone changed by hand in `edited`, another copy of it:
+ * those whose value differs from what Camox wrote there (`written`). What Camox wrote stays the
+ * merge's, so they keep counting as hand edits.
+ */
+export function keepEdits(shape: Shape, merged: Merged, edited: Values, written: Values) {
+  for (const unit of mergeUnitsOf(shape, [merged.values, edited, written])) {
+    const value = unit.get(edited);
+    if (!sameValue(value, unit.get(written))) unit.set(merged.values, structuredClone(value));
+  }
+}
+
+/**
  * What a unit both the source and the localization changed asks the merge, and how its answers
  * make the unit's value; undefined when the current value holds no text, or doesn't line up with
  * the source and isn't rich text, which keeps the current value.

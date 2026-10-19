@@ -219,7 +219,7 @@ A problem in a draft that prevents publishing it until it is fixed in the draft,
 _Avoid_: Error, validation failure
 
 **Conflict**:
-Content that a draft changes and that Live also changed or deleted after the draft first changed it.
+Content that a draft changes and that Live also changed or deleted after the draft first changed it. Camox merges a localization's conflict with Live's before publishing wherever it can tell the draft's changes from Live's.
 _Avoid_: Collision, merge conflict
 
 ### Editing

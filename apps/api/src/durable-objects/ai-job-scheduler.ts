@@ -22,7 +22,7 @@ const StoredJob = Schema.Union([
     entityId: Schema.String,
     locale: Schema.String,
     draftId: Schema.String,
-    source: Schema.optional(Schema.Literal("defaults")),
+    source: Schema.optional(Schema.Literals(["defaults", "live"])),
   }),
   Schema.Struct({
     id: Schema.String,

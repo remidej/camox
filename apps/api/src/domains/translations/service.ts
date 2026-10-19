@@ -1,4 +1,5 @@
-import { and, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
@@ -14,6 +15,7 @@ import { Journal, record } from "../../lib/journal";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftOf, type Draft } from "../drafts/scope";
+import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import {
   translationBookkeeping,
@@ -292,6 +294,78 @@ export const translatePlacedDefaults = Effect.fn("translations.translatePlacedDe
     source: "defaults",
   });
 });
+
+/**
+ * Requests merges of the localizations a publish just changed on Live, `published`'s changes,
+ * into the other open drafts that copied them before: each draft's copy now conflicts with
+ * Live's, and a `live` translation job merges the two before the draft publishes (ADR 0016).
+ * Only localizations in a locale other than the default one: conflicts in the default locale are
+ * confirmed as they were (ADR 0009).
+ */
+export const requestLiveMerges = Effect.fn("translations.requestLiveMerges")(function* (
+  db: Database,
+  published: Draft,
+  changes: readonly overlay.StoredChange[],
+) {
+  const defaultTag = yield* defaultLocaleTag(db, published.projectId);
+  const changed = changes.flatMap(({ entity, row }) => {
+    const { locale } = row as { locale?: unknown };
+    if (!isTranslated(entity) || row.deleted || typeof locale !== "string") return [];
+    return locale === defaultTag ? [] : [{ entity, id: row.id, locale }];
+  });
+  const byDraft = new Map<string, Map<string, Translatable[]>>();
+  for (const entity of TRANSLATED_ENTITIES) {
+    const keys = changed.filter((localization) => localization.entity === entity);
+    const table = overlay.contentTableOf(entity);
+    for (let start = 0; start < keys.length; start += KEYS_PER_SELECT) {
+      const chunk = keys.slice(start, start + KEYS_PER_SELECT);
+      const copies = yield* Effect.promise(() =>
+        db
+          .select({
+            draftId: sql<string>`${table.draftId}`,
+            id: sql<string>`${table.id}`,
+            locale: sql<string>`"locale"`,
+          })
+          .from(table as SQLiteTable)
+          .where(
+            and(
+              ne(table.draftId, published.id),
+              isNotNull(table.baseVersion),
+              eq(table.deleted, false),
+              sql`(${table.id}, "locale") in (${sql.join(
+                chunk.map(({ id, locale }) => sql`(${id}, ${locale})`),
+                sql`, `,
+              )})`,
+            ),
+          ),
+      );
+      for (const { draftId, id, locale } of copies) {
+        const byLocale = byDraft.get(draftId) ?? new Map<string, Translatable[]>();
+        byLocale.set(locale, [...(byLocale.get(locale) ?? []), { entity, id }]);
+        byDraft.set(draftId, byLocale);
+      }
+    }
+  }
+  if (byDraft.size === 0) return;
+  const rows = yield* Effect.promise(() =>
+    db
+      .select()
+      .from(drafts)
+      .where(inArray(drafts.id, [...byDraft.keys()])),
+  );
+  for (const row of rows) {
+    const draft = draftOf(row);
+    for (const [locale, entities] of byDraft.get(row.id)!) {
+      yield* requestTranslations(db, draft, entities, [locale], {
+        immediately: true,
+        source: "live",
+      });
+    }
+  }
+});
+
+// D1 binds at most 100 parameters per statement; a key takes two.
+const KEYS_PER_SELECT = 45;
 
 /**
  * Statements dropping a draft's pending translations, claims and bookkeeping in a locale it

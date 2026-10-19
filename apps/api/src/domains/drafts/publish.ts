@@ -549,6 +549,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
   yield* deleteUnreferencedBlobs(ctx, blobs);
   yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
   yield* requestLiveGeneration(ctx, scope, options.stored);
+  yield* translations.requestLiveMerges(ctx.db, scope, options.stored);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   yield* recordEnded(ctx, projectId, ended);
   return { applied: true, ended };

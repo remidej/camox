@@ -33,7 +33,9 @@ export type TranslatedEntity = (typeof TRANSLATED_ENTITIES)[number];
  * A job translating a default-locale entity into one locale of a draft (ADR 0015). Jobs are keyed
  * by entity, locale, draft and source, and debounced like generation jobs. A job translating
  * `defaults` translates the code-owned defaults of a block placed in that locale instead, or of
- * the shared content a synced block created there, which have no default-locale source.
+ * the shared content a synced block created there, which have no default-locale source. A job
+ * merging with `live` merges the draft's localization with Live's, which Live changed since the
+ * draft copied it, so it's no longer a conflict (ADR 0016).
  */
 export type TranslationJob = {
   kind: "translation";
@@ -41,7 +43,7 @@ export type TranslationJob = {
   entityId: string;
   locale: string;
   draftId: string;
-  source?: "defaults";
+  source?: "defaults" | "live";
 };
 
 /** A job the AI job scheduler runs. */

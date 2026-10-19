@@ -157,14 +157,16 @@ export const catchUpPending = Effect.fn("drafts.catchUpPending")(function* (
 ) {
   const groups = new Map<string, PendingTranslation[]>();
   for (const translation of pending) {
+    // A merge with Live's localization is moot once the draft's localization is Live's.
+    if (translation.source === "live") continue;
     const key = JSON.stringify([translation.locale, translation.source]);
     groups.set(key, [...(groups.get(key) ?? []), translation]);
   }
   for (const group of groups.values()) {
     const { locale, source } = group[0]!;
     const entities = new Map(group.map(({ entity, id }) => [`${entity}:${id}`, { entity, id }]));
-    // Code-owned defaults placed in a locale stay translated as such; anything else, such as a
-    // merge, is a translation of the source as Live now has it.
+    // Code-owned defaults placed in a locale stay translated as such; anything else is a
+    // translation of the source as Live now has it.
     yield* catchUp(db, projectId, [...entities.values()], [locale], {
       ...(source === "defaults" && { source }),
     });
