@@ -127,6 +127,9 @@ export async function openPage(
       <a id="to-pricing" href="/pricing">
         Pricing <span id="pricing-label">plans</span>
       </a>
+      <a id="to-pricing-plan" href="/pricing?plan=pro">
+        Pro plan
+      </a>
       <a id="to-pricing-details" href="/pricing#details">
         Pricing details
       </a>

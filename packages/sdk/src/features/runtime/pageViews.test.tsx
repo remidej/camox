@@ -62,6 +62,7 @@ void test("a visitor's navigation to another page sends one more GA4 page view, 
 
 void test("Back and Forward each send one GA4 page view, with the page they return to", async (t) => {
   const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
+  await page.settle();
   const pricing = page.window.history.state;
   await page.click("to-about");
   const about = page.window.history.state;
@@ -101,11 +102,23 @@ void test("a hash-only change on the same page sends no page view, even back fro
   assert.equal(pageViews(page.gtagCalls).length, sentBefore);
 });
 
-void test("a search-only change on the same page sends no page view", async (t) => {
+void test("a search-only change on the same page sends no page view, even back from it", async (t) => {
   const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
   await page.settle();
+  const top = page.window.history.state;
+  const entries = page.window.history.length;
   const sentBefore = pageViews(page.gtagCalls).length;
-  await page.traverse("/pricing?plan=pro", null);
+  page.scrollBy(300);
+
+  await page.click("to-pricing-plan");
+  assert.equal(page.window.location.href, "https://site.test/pricing?plan=pro");
+  assert.equal(page.window.history.length, entries + 1, "the link made a new entry");
+
+  page.scrollBy(900);
+  await page.traverse("/pricing", top);
+  assert.equal(page.viewport().scrollY, 300, "Back restored the entry it returned to");
+
+  assert.equal(page.shownPage(), "/pricing");
   assert.equal(pageViews(page.gtagCalls).length, sentBefore);
 });
 
