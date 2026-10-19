@@ -17,6 +17,7 @@ import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import { RELEASE, type WriteTarget } from "../drafts/scope";
+import { publicProjectSummary } from "../projects/analytics";
 import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
 
@@ -111,8 +112,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   const layoutBlocks = content.blocks;
   return {
     projectName: project.name,
-    // Enough for the SDK to build a cache-busted favicon URL, as for pages.
-    project: { id: project.id, updatedAt: project.updatedAt },
+    project: publicProjectSummary(project),
     layout: {
       layoutId: layout.layoutId,
       contentUpdatedAt: layout.contentUpdatedAt,

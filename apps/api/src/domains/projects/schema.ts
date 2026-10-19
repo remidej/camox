@@ -12,6 +12,8 @@ export const projects = sqliteTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizationTable.id),
+    /** The project's Google Analytics 4 measurement ID: a Project Setting, outside drafts. */
+    ga4MeasurementId: text("ga4_measurement_id"),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

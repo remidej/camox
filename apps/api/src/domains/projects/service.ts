@@ -40,6 +40,7 @@ import { requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { insertInitialLocale } from "../locales/service";
 import { itemsInProject } from "../repeatable-items/roots";
+import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analytics";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -57,6 +58,7 @@ export const createProjectInput = z.object({
 });
 export const updateProjectInput = z.object({ id: z.number(), name: z.string() });
 export const deleteProjectInput = z.object({ id: z.number() });
+export const updateProjectAnalyticsInput = analyticsProvidersInput.extend({ id: z.number() });
 
 const repeatableItemSeedSchema = z.object({
   tempId: z.string(),
@@ -133,7 +135,11 @@ export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function*
   );
   if (!result) return yield* new NotFoundError();
   yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
-  return { ...result.project, organizationSlug: result.organizationSlug };
+  return {
+    ...result.project,
+    organizationSlug: result.organizationSlug,
+    analytics: analyticsOf(result.project),
+  };
 });
 
 export const getProject = Effect.fn("projects.getProject")(function* (
@@ -155,7 +161,11 @@ export const getProject = Effect.fn("projects.getProject")(function* (
   );
   if (!result) return yield* new NotFoundError();
   yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
-  return { ...result.project, organizationSlug: result.organizationSlug };
+  return {
+    ...result.project,
+    organizationSlug: result.organizationSlug,
+    analytics: analyticsOf(result.project),
+  };
 });
 
 export const checkProjectSlugAvailability = Effect.fn("projects.checkProjectSlugAvailability")(
@@ -227,6 +237,26 @@ export const updateProject = Effect.fn("projects.updateProject")(function* (
   );
   yield* record(ctx.db, { kind: "project", projectId: id });
   return result;
+});
+
+/** Sets or removes analytics providers: a Project Setting, so Live and every draft change at once. */
+export const updateProjectAnalytics = Effect.fn("projects.updateProjectAnalytics")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof updateProjectAnalyticsInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id, ...providers } = yield* decodeInput(updateProjectAnalyticsInput, rawInput);
+  yield* getAuthorizedProject(ctx.db, id, user.id);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(projects)
+      .set({ ...analyticsColumns(providers), updatedAt: Date.now() })
+      .where(eq(projects.id, id))
+      .returning()
+      .get(),
+  );
+  yield* record(ctx.db, { kind: "project", projectId: id });
+  return { analytics: analyticsOf(result), updatedAt: result.updatedAt };
 });
 
 export const deleteProject = Effect.fn("projects.deleteProject")(function* (
