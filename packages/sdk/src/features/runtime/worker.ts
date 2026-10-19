@@ -5,7 +5,11 @@
  */
 import { devHtml, handleCamoxRequest, runtimeBasePath } from "virtual:camox/server";
 
+import { fetchLocalhostOnLoopback } from "./loopbackFetch";
 import { shouldHandleRequest, withDevHtml } from "./workerRequest";
+
+// Only the dev server has dev HTML.
+if (devHtml) globalThis.fetch = fetchLocalhostOnLoopback(globalThis.fetch.bind(globalThis));
 
 function notFound(): Response {
   return new Response("Not found", { status: 404 });
