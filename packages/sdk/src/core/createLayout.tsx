@@ -131,6 +131,8 @@ type LoaderReturn = AnyLayoutLoaderResult | PromiseLike<AnyLayoutLoaderResult>;
 /** The record a discovered page renders, independent of its current params. */
 export interface LayoutRouteTarget extends CollectionRecordId {
   kind: "collection-item";
+  /** The record's Label, which names its page where pages are listed (llms.txt). */
+  label?: string;
 }
 
 /** Route discovery result: the params of each page a derived layout can render. */

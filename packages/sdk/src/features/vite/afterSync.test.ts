@@ -74,7 +74,10 @@ async function devCheckout(
     pages: {
       listBySlug: base.handler(({ context }) => {
         requests.push({ path: "pages.listBySlug", headers: context.headers });
-        return Array.from({ length: livePages }, (_, id) => ({ id }));
+        return {
+          projectName: "Test project",
+          pages: Array.from({ length: livePages }, (_, id) => ({ id })),
+        };
       }),
     },
     projects: {

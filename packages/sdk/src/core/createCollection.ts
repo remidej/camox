@@ -110,7 +110,12 @@ export function createCollection<
           return {
             data: records.map((record) => ({
               params: { [param]: record.value } as Record<typeof param, string>,
-              target: { kind: "collection-item", collectionId: id, id: record.id },
+              target: {
+                kind: "collection-item",
+                collectionId: id,
+                id: record.id,
+                label: record.label,
+              },
             })),
           };
         },

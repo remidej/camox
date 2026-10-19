@@ -35,13 +35,13 @@ export interface RecordLookup {
     value: string;
   }): Promise<LoadedRecord[]>;
   /**
-   * Every record whose String field's plain text can be a path segment, with that text.
-   * Records sharing a value are all listed.
+   * Every record whose String field's plain text can be a path segment, with that text and the
+   * record's Label. Records sharing a value are all listed.
    */
   listPageValues(input: {
     collectionId: string;
     field: string;
-  }): Promise<Array<{ id: string; value: string }>>;
+  }): Promise<Array<{ id: string; value: string; label: string }>>;
 }
 
 interface RequestContextState {

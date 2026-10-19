@@ -10,7 +10,7 @@ import { assertSyncAccess, getAuthorizedProject } from "../../authorization";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, pages } from "../../schema";
 import { updateBlockContent } from "../blocks/service";
-import { getPageByPath } from "./service";
+import { getPageByPath, listPagesBySlug } from "./service";
 
 describe("page persistence", () => {
   it("enforces tenant boundaries with a real local D1 database", async () => {
@@ -105,5 +105,47 @@ describe("page persistence", () => {
       expect(view.blocks[0].content).toEqual({ title: "Edited" });
       expect(view.page).not.toHaveProperty("status");
     }
+  });
+
+  it("lists a project's pages by slug with the project's name", async () => {
+    const { db, layout, memberUser, project } = await createProjectFixture("list-by-slug");
+    const now = Date.now();
+    const page = await db
+      .insert(pages)
+      .values({
+        projectId: project.id,
+        pathSegment: "about",
+        fullPath: "/about",
+        layoutId: layout.layoutId,
+        nickname: "About",
+        contentUpdatedAt: now,
+        createdById: memberUser.id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const other = await createProjectFixture("list-by-slug-other");
+    await db.insert(pages).values({
+      projectId: other.project.id,
+      pathSegment: "elsewhere",
+      fullPath: "/elsewhere",
+      layoutId: other.layout.layoutId,
+      nickname: "Elsewhere",
+      contentUpdatedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const list = await runService(
+      listPagesBySlug(inScope(createServiceContext(db, null), null), {
+        projectSlug: project.slug,
+      }),
+    );
+
+    expect(list.projectName).toBe(project.name);
+    expect(list.pages.map(({ id, fullPath }) => ({ id, fullPath }))).toEqual([
+      { id: page.id, fullPath: "/about" },
+    ]);
   });
 });

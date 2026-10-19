@@ -72,11 +72,6 @@
       "types": "./dist/features/vite/vite.d.ts",
       "import": "./dist/features/vite/vite.js"
     },
-    "./metadata": {
-      "source": "./src/features/metadata/sitemap.ts",
-      "types": "./dist/features/metadata/sitemap.d.ts",
-      "import": "./dist/features/metadata/sitemap.js"
-    },
     "./_internal/pageServer": {
       "source": "./src/features/runtime/pageServer.tsx",
       "types": "./dist/features/runtime/pageServer.d.ts",
@@ -163,10 +158,6 @@
       "./vite": {
         "types": "./dist/features/vite/vite.d.ts",
         "import": "./dist/features/vite/vite.js"
-      },
-      "./metadata": {
-        "types": "./dist/features/metadata/sitemap.d.ts",
-        "import": "./dist/features/metadata/sitemap.js"
       },
       "./_internal/pageServer": {
         "types": "./dist/features/runtime/pageServer.d.ts",

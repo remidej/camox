@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
 import { artifactFrameProps } from "../../core/lib/artifact";
+import { pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
@@ -78,7 +79,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     const path = new URL(request.url).pathname;
     calls.push(path);
     if (path.endsWith("/getBySlug")) return Response.json({ json: project });
-    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath")) {
       const body = (await request.json()) as { json: { path: string } };
       assert.ok(
@@ -219,7 +220,7 @@ void test("visitors and members load the same curated page, and only members wit
       );
       return Response.json({ json: project });
     }
-    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath")) {
       const { json: input } = (await request.json()) as { json: { path: string } };
       assert.deepEqual(input, { path: "/new-curated-page", projectSlug: "test" });
@@ -279,12 +280,10 @@ void test("visitors and members load the same curated page, and only members wit
 
 void test("sitemaps include curated pages and singleton destinations with the runtime base path and no invented lastmod", async (t) => {
   t.mock.method(globalThis, "fetch", async () =>
-    Response.json({
-      json: [
-        { id: "1", nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
-        { id: "2", nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
-      ],
-    }),
+    pageListResponse([
+      { id: "1", nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
+      { id: "2", nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
+    ]),
   );
   const response = await handleCamoxRequest(new Request("https://site.test/site/sitemap.xml"), {
     apiUrl: "https://api.test",
@@ -525,7 +524,7 @@ function appWithRoutes(routes: () => unknown) {
 }
 
 void test("sitemaps list the pages derived layouts discover, encoded and without lastmod", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => Response.json({ json: [] }));
+  t.mock.method(globalThis, "fetch", async () => pageListResponse());
   const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
     apiUrl: "https://api.test",
     projectSlug: "test",
@@ -542,7 +541,7 @@ void test("sitemaps list the pages derived layouts discover, encoded and without
 });
 
 void test("sitemaps fail loudly when route discovery fails", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => Response.json({ json: [] }));
+  t.mock.method(globalThis, "fetch", async () => pageListResponse());
   t.mock.method(console, "error", () => {});
   for (const routes of [
     () => ({ data: [{ params: { name: "a/b" } }] }),
@@ -602,7 +601,7 @@ function mockPageWithBlocks(
 ) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath"))
       return Response.json({
         json: {
@@ -655,7 +654,7 @@ void test("a public page's hydration data leaves out the artifact sources its fr
   const source = "<!doctype html><title>Orbit diagram</title><svg></svg>";
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath"))
       return Response.json({
         json: {

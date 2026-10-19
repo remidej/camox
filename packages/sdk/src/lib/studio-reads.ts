@@ -139,7 +139,8 @@ export const reads = {
 
   pageList: entry<{ projectSlug: string }, Page[]>({
     key: () => queryKeys.pages.list,
-    fetch: ({ api, signal }, { projectSlug }) => api.pages.listBySlug({ projectSlug }, { signal }),
+    fetch: async ({ api, signal }, { projectSlug }) =>
+      (await api.pages.listBySlug({ projectSlug }, { signal })).pages,
     staleTime: Infinity,
   }),
 

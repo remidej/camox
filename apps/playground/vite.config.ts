@@ -62,10 +62,6 @@ const config = defineConfig({
         find: "camox/og",
         replacement: resolve(__dirname, "../../packages/sdk/src/og/og.ts"),
       },
-      {
-        find: "camox/metadata",
-        replacement: resolve(__dirname, "../../packages/sdk/src/features/metadata/sitemap.ts"),
-      },
     ],
   },
   plugins: [

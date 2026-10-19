@@ -1,3 +1,5 @@
+import { matchRuntimeOwnedRoute } from "./runtimeRoutes";
+
 /** How the Camox Worker picks the requests it answers and prepares its responses. */
 function isDocumentRequest(request: Request): boolean {
   const accept = request.headers.get("Accept") ?? "";
@@ -17,17 +19,9 @@ export function shouldHandleRequest(request: Request, basePath: string): boolean
   const pathname = getRuntimePathname(new URL(request.url).pathname, basePath);
   if (!pathname) return false;
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  if (
-    pathname === "/_camox/data" ||
-    pathname === "/_camox/health" ||
-    pathname === "/_camox/registry" ||
-    pathname === "/_camox/routes"
-  ) {
-    return true;
-  }
-  if (pathname === "/og" || pathname === "/sitemap.xml") return true;
+  if (matchRuntimeOwnedRoute(pathname)) return true;
   if (pathname === "/camox" || pathname.startsWith("/camox/")) return true;
-  // A page's Markdown Representation is the only file-like URL the runtime answers.
+  // Besides its own routes, a page's Markdown Representation is the only file-like URL it answers.
   if (pathname.endsWith(".md")) return true;
   if (/\.[a-z0-9]+$/i.test(pathname)) return false;
   if (pathname.startsWith("/@") || pathname.startsWith("/src/")) return false;

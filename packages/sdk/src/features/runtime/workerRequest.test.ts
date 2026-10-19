@@ -30,6 +30,15 @@ void test("a mounted runtime only answers under its base path", () => {
   assert.equal(shouldHandleRequest(request("/siteabout"), "/site"), false);
 });
 
+void test("the Worker answers /llms.txt, with or without a base path, but no other text file", () => {
+  assert.equal(shouldHandleRequest(request("/llms.txt", { accept: "text/plain" }), ""), true);
+  assert.equal(shouldHandleRequest(request("/llms.txt", { method: "HEAD" }), ""), true);
+  assert.equal(shouldHandleRequest(request("/site/llms.txt"), "/site"), true);
+  assert.equal(shouldHandleRequest(request("/llms.txt"), "/site"), false);
+  for (const path of ["/robots.txt", "/about/llms.txt"])
+    assert.equal(shouldHandleRequest(request(path), ""), false, path);
+});
+
 void test("dev HTML lands inside the page's head and body", async () => {
   const page = new Response(
     '<html><head lang="en"><title>A</title></head><body><p>B</p></body></html>',

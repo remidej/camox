@@ -7,9 +7,12 @@ import type { CamoxApp } from "../../core/createApp";
 import type { AnyLayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoutes";
-import { getPageDestinations } from "../../core/pageDestinations";
 import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
-import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
+import {
+  createRequestContext,
+  type LayoutRequestContext,
+  type RecordLookup,
+} from "../../core/requestContext";
 import { draftNamedBy } from "../../lib/draft-scope";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
@@ -42,23 +45,22 @@ import {
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
 import { omitArtifactSources } from "./artifactSources";
+import { type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
+import { formatLlmsTxt } from "./llmsTxt";
 import { getPageBlockTypes } from "./pageBlockTypes";
+import {
+  matchRuntimeOwnedRoute,
+  RUNTIME_ROUTE_PATHS,
+  type RuntimeOwnedRouteKind,
+} from "./runtimeRoutes";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
-const RUNTIME_HEALTH_PATH = "/_camox/health";
-const RUNTIME_REGISTRY_PATH = "/_camox/registry";
-const RUNTIME_ROUTES_PATH = "/_camox/routes";
 
 export type RuntimeRouteKind =
+  | RuntimeOwnedRouteKind
   | "canvas"
-  | "data"
-  | "health"
-  | "og"
   | "page"
-  | "registry"
-  | "routes"
-  | "sitemap"
   | "studio"
   | "studio-content"
   | "studio-nested";
@@ -204,10 +206,8 @@ function getLayoutIdentity(
 }
 
 export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
-  if (pathname === RUNTIME_HEALTH_PATH) return { kind: "health", pathname };
-  if (pathname === RUNTIME_REGISTRY_PATH) return { kind: "registry", pathname };
-  if (pathname === RUNTIME_ROUTES_PATH) return { kind: "routes", pathname };
-  if (pathname === "/_camox/data") return { kind: "data", pathname };
+  const ownedRoute = matchRuntimeOwnedRoute(pathname);
+  if (ownedRoute) return { kind: ownedRoute, pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
   if (matchCanvasOnlyPath(pathname)) return { kind: "canvas", pathname };
   if (
@@ -218,8 +218,6 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   )
     return { kind: "studio-content", pathname };
   if (pathname.startsWith("/camox/")) return { kind: "studio-nested", pathname };
-  if (pathname === "/og") return { kind: "og", pathname };
-  if (pathname === "/sitemap.xml") return { kind: "sitemap", pathname };
 
   return { kind: "page", pathname };
 }
@@ -231,64 +229,114 @@ function withRuntimeBasePath(pathname: string, runtimeBasePath?: string): string
   return `${basePath}${pathname}`;
 }
 
-async function createSitemapResponse(request: Request, options: RuntimeOptions): Promise<Response> {
-  if (!options.apiUrl || !options.projectSlug) {
-    return Response.json({ message: "Camox sitemap is not configured." }, { status: 500 });
-  }
+/** The website's Live pages, the project's name and the app, which indexes of it are built from. */
+interface LiveWebsite {
+  app: CamoxApp | undefined;
+  projectName: string;
+  pages: LivePage[];
+}
 
-  const api = createServerApiClient(options.apiUrl);
-  const origin = new URL(request.url).origin;
-  const pages = await api.pages.listBySlug({ projectSlug: options.projectSlug });
+/**
+ * Answers with an index of the website's Live pages, or a 500 saying why they can't be listed.
+ * Sitemaps and llms.txt read Live whoever asks: crawlers only ever see published content.
+ */
+async function respondWithLiveWebsite(
+  options: RuntimeOptions,
+  name: string,
+  respond: (website: LiveWebsite) => Response | Promise<Response>,
+): Promise<Response> {
+  const { apiUrl, projectSlug } = options;
+  if (!apiUrl || !projectSlug) {
+    return Response.json({ message: `Camox ${name} is not configured.` }, { status: 500 });
+  }
+  const api = createServerApiClient(apiUrl);
+  const { projectName, pages } = await api.pages.listBySlug({ projectSlug });
   const app = await options.getCamoxApp?.();
-  const layouts = app?.getLayouts() ?? [];
-  const destinations = getPageDestinations(pages, layouts);
-  let discoveredPaths: string[][];
+  let livePages: LivePage[];
   try {
-    discoveredPaths = await Promise.all(
-      layouts
-        .filter((layout) => layout._internal.kind === "derived")
-        // Crawlers only ever see published records, even when an editor asks.
-        .map(async (layout) => {
-          const discovered = await discoverLayoutPages(
-            layout,
-            createLayoutRequestContext(options, "live"),
-          );
-          return discovered.map((page) => page.path);
-        }),
-    );
+    livePages = await listLivePages({ pages, app, records: createRecordLookup(options, "live") });
   } catch (error) {
-    // A sitemap silently missing pages is worse than one that visibly fails.
-    console.error("[camox] Route discovery failed while building the sitemap.", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return Response.json({ message: `Camox sitemap failed: ${message}` }, { status: 500 });
+    if (!(error instanceof RouteDiscoveryError)) throw error;
+    // An index silently missing pages is worse than one that visibly fails.
+    console.error(`[camox] Route discovery failed while building the ${name}.`, error.cause);
+    return Response.json({ message: `Camox ${name} failed: ${error.message}` }, { status: 500 });
   }
-  const updatedAtById = new Map(pages.map((page) => [page.id, page.updatedAt]));
-  const sitemapEntry = (fullPath: string, updatedAt?: string | number) => {
-    const lastmod =
-      updatedAt == null
-        ? ""
-        : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
-    return `  <url>
-    <loc>${escapeXml(`${origin}${withRuntimeBasePath(fullPath, options.runtimeBasePath)}`)}</loc>${lastmod}
-  </url>`;
-  };
-  const entries = [
-    ...destinations.map((page) =>
-      sitemapEntry(
-        page.fullPath,
-        page.kind === "curated" ? updatedAtById.get(page.pageId) : undefined,
-      ),
-    ),
-    ...discoveredPaths.flat().map((path) => sitemapEntry(path)),
-  ].join("\n");
+  return respond({ app, projectName, pages: livePages });
+}
 
-  return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>
+/** A path's absolute URL, with the runtime base path. */
+function absoluteUrl(request: Request, options: RuntimeOptions) {
+  const { origin } = new URL(request.url);
+  return (path: string) => `${origin}${withRuntimeBasePath(path, options.runtimeBasePath)}`;
+}
+
+/** `body` with an ETag derived from it, or a 304 when the request's `If-None-Match` names it. */
+async function withEtag(
+  request: Request,
+  body: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  const etag = `"${[...new Uint8Array(digest)]
+    .slice(0, 16)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}"`;
+  const taggedHeaders = { ...headers, ETag: etag };
+  const matches = (request.headers.get("If-None-Match") ?? "")
+    .split(",")
+    .map((tag) => tag.trim().replace(/^W\//, ""))
+    .some((tag) => tag === etag || tag === "*");
+  if (matches) return new Response(null, { status: 304, headers: taggedHeaders });
+  return new Response(body, { headers: taggedHeaders });
+}
+
+function createLlmsTxtResponse(request: Request, options: RuntimeOptions): Promise<Response> {
+  return respondWithLiveWebsite(options, "llms.txt", (website) =>
+    withEtag(
+      request,
+      formatLlmsTxt({
+        projectName: website.projectName,
+        pages: website.pages,
+        layouts: (website.app?.getLayouts() ?? []).map(({ _internal }) => _internal),
+        url: absoluteUrl(request, options),
+      }),
+      {
+        "Content-Type": "text/plain; charset=utf-8",
+        // Short, so a publish shows up within minutes; revalidating is cheap with the ETag.
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+      },
+    ),
+  );
+}
+
+/** Tells LLM tools fetching a page's HTML where the website's llms.txt is. */
+function llmsTxtLinkHeader(options: RuntimeOptions): string {
+  return `<${withRuntimeBasePath(RUNTIME_ROUTE_PATHS["llms-txt"], options.runtimeBasePath)}>; rel="llms-txt"`;
+}
+
+function createSitemapResponse(request: Request, options: RuntimeOptions): Promise<Response> {
+  return respondWithLiveWebsite(options, "sitemap", (website) => {
+    const url = absoluteUrl(request, options);
+    const entries = website.pages
+      .map(({ fullPath, updatedAt }) => {
+        const lastmod =
+          updatedAt == null
+            ? ""
+            : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
+        return `  <url>
+    <loc>${escapeXml(url(fullPath))}</loc>${lastmod}
+  </url>`;
+      })
+      .join("\n");
+
+    return new Response(
+      `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${entries}
 </urlset>`,
-    { headers: { "Content-Type": "application/xml; charset=utf-8" } },
-  );
+      { headers: { "Content-Type": "application/xml; charset=utf-8" } },
+    );
+  });
 }
 
 /** The request's member project, if its session is valid. Without an API, nobody is a member. */
@@ -569,7 +617,11 @@ async function createPageHtmlResponse({
       projectSlug: options.projectSlug,
       queryClient,
     });
-    const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", Vary: "Cookie" });
+    const headers = new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+      Vary: "Cookie",
+      Link: llmsTxtLinkHeader(options),
+    });
     if (isPrivateRender(request, options)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
@@ -648,20 +700,29 @@ function createLayoutRequestContext(
   authCookieHeader?: string,
   draftId?: string,
 ): LayoutRequestContext {
+  return createRequestContext({
+    records: createRecordLookup(options, source, authCookieHeader, draftId),
+  });
+}
+
+/** Reads the records `loader` and `routes` ask for; none without an API. */
+function createRecordLookup(
+  options: RuntimeOptions,
+  source: RecordSource,
+  authCookieHeader?: string,
+  draftId?: string,
+): RecordLookup | undefined {
   const { apiUrl, projectSlug } = options;
-  if (!apiUrl || !projectSlug) return createRequestContext({});
+  if (!apiUrl || !projectSlug) return undefined;
   const api = createServerApiClient(apiUrl, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
     draftId,
   });
-  return createRequestContext({
-    records: {
-      findByField: (input) =>
-        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug }),
-      listPageValues: (input) =>
-        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug }),
-    },
-  });
+  return {
+    findByField: (input) => api.collectionDefinitions.findRecordsByField({ ...input, projectSlug }),
+    listPageValues: (input) =>
+      api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug }),
+  };
 }
 
 const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -881,6 +942,7 @@ async function createDerivedResponse(
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           Vary: "Cookie",
+          Link: llmsTxtLinkHeader(options),
           ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
@@ -1165,6 +1227,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "sitemap") {
     return createSitemapResponse(request, options);
+  }
+
+  if (match.kind === "llms-txt") {
+    return createLlmsTxtResponse(request, options);
   }
 
   if (match.kind === "routes") {

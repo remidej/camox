@@ -5,6 +5,7 @@ import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout, type LayoutCollectionItemResult } from "../../core/createLayout";
 import { plainTextToLexicalState } from "../../core/lib/lexicalState";
+import { pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const VALID_SESSION = "camox_auth_cookie=valid";
@@ -95,7 +96,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
       );
     if (url.pathname.endsWith("/getBySlug"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
-    if (url.pathname.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (url.pathname.endsWith("/listBySlug")) return pageListResponse();
     if (url.pathname.endsWith("/getByPath"))
       return Response.json(
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
@@ -139,7 +140,11 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
       assert.equal(input.projectSlug, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
-        json: apiRecords.map((record) => ({ id: record.id, value: record.content[input.field] })),
+        json: apiRecords.map((record) => ({
+          id: record.id,
+          value: record.content[input.field],
+          label: record.content.title,
+        })),
       });
     }
     throw new Error(`Unexpected request: ${url}`);
@@ -328,7 +333,7 @@ void test("every discovered page loads its record", async (t) => {
   assert.deepEqual(loadedIds, [FIRST_ID, SECOND_ID]);
 });
 
-void test("discovered entries name their record", async (t) => {
+void test("discovered entries name their record and its Label", async (t) => {
   mockApi(t, discoverable);
   const pages = articles.pages({ by: "slug", param: "slug" });
   let discovered: unknown;
@@ -346,11 +351,21 @@ void test("discovered entries name their record", async (t) => {
     data: [
       {
         params: { slug: "first" },
-        target: { kind: "collection-item", collectionId: "articles", id: FIRST_ID },
+        target: {
+          kind: "collection-item",
+          collectionId: "articles",
+          id: FIRST_ID,
+          label: "First title",
+        },
       },
       {
         params: { slug: "second" },
-        target: { kind: "collection-item", collectionId: "articles", id: SECOND_ID },
+        target: {
+          kind: "collection-item",
+          collectionId: "articles",
+          id: SECOND_ID,
+          label: "Second title",
+        },
       },
     ],
   });

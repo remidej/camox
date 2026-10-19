@@ -10,6 +10,7 @@ import {
 } from "@camox/api-contract/drafts";
 
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
+import { pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
@@ -62,9 +63,9 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       return Response.json({ json: project });
     }
     if (url.pathname.endsWith("/listBySlug"))
-      return Response.json({
-        json: [{ id: 1, fullPath: "/about", pathSegment: "about", updatedAt: 1, layoutId: null }],
-      });
+      return pageListResponse([
+        { id: 1, fullPath: "/about", pathSegment: "about", updatedAt: 1, layoutId: null },
+      ]);
     if (url.pathname.endsWith("/getByPath")) {
       const { json: input } = (await request.json()) as { json: { path: string } };
       if (input.path !== "/about") return notFound();
