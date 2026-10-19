@@ -60,6 +60,12 @@ export const CONFLICTS_CHANGED_ERROR = "CONFLICTS_CHANGED";
 export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";
 
 /**
+ * oRPC error code for a publish refused because the draft still has pending translations, unless
+ * it's sent with `publishAnyway`.
+ */
+export const TRANSLATIONS_PENDING_ERROR = "TRANSLATIONS_PENDING";
+
+/**
  * oRPC error code for a content write that names no draft. Live is read-only (ADR 0003): content
  * changes reach it only by publishing a draft, or through a release.
  */

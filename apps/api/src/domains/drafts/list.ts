@@ -9,11 +9,12 @@ import { decodeInput, InvalidInputError } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { listedChanges } from "../translations/review";
 import { translatingLocales } from "../translations/service";
 import { accessTo } from "./access";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
-import { draftIn } from "./scope";
+import { draftIn, draftOf } from "./scope";
 import { startDraft } from "./service";
 
 // The drafts the studio's control lists and switches between (ADR 0011). An unnamed draft is
@@ -76,6 +77,14 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     db,
     rows.map((row) => row.id),
   );
+  // As many changes as the draft's review lists, which leaves out what Camox wrote.
+  const changeCounts = new Map<string, number>();
+  for (const row of rows) {
+    if (!activity.has(row.id)) continue;
+    const scope = draftOf(row);
+    const listed = yield* listedChanges(db, scope, yield* overlay.changesOf(db, scope));
+    changeCounts.set(row.id, listed.length);
+  }
   const person = yield* namesOf(
     db,
     rows.map((row) => row.createdBy),
@@ -91,7 +100,7 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     createdBy: person(row.createdBy),
     createdAt: row.createdAt,
     lastChangedAt: activity.get(row.id)?.lastChangedAt ?? null,
-    changeCount: activity.get(row.id)?.changeCount ?? 0,
+    changeCount: changeCounts.get(row.id) ?? 0,
     translatingLocales: translating.get(row.id) ?? [],
   }));
 });

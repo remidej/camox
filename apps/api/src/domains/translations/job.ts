@@ -58,7 +58,7 @@ const copyOf = (row: Row) =>
   Object.fromEntries(Object.entries(row).filter(([column]) => !IDENTITY.has(column)));
 
 /** What a localization merges: its columns but the overlay's own and its timestamps. */
-const valuesOf = (row: Row): Values =>
+export const valuesOf = (row: Row): Values =>
   Object.fromEntries(
     Object.entries(row).filter(([column]) => !IDENTITY.has(column) && !TIMESTAMPS.has(column)),
   );

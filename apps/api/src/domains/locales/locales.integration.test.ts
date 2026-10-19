@@ -260,27 +260,11 @@ describe("locales", () => {
       }),
     ).toMatchObject({ id: f.record.id, content: { title: "First" } });
 
-    // Every localization is new in the draft, under its original's id.
+    // The draft's review lists the locale it adds, not the localizations Camox copied into it.
     const { changes } = await f.preview();
-    const inGerman = changes
-      .filter((change: { locale: string | null }) => change.locale === "de")
-      .map(({ entity, id, change }: { entity: string; id: string; change: string }) => ({
-        entity,
-        id,
-        change,
-      }));
-    const shared = changes.find((change: { entity: string }) => change.entity === "sharedContent");
-    expect(inGerman).toEqual(
-      expect.arrayContaining([
-        { entity: "page", id: f.page.id, change: "created" },
-        { entity: "block", id: f.block.id, change: "created" },
-        { entity: "block", id: f.navbar.id, change: "created" },
-        { entity: "repeatableItem", id: item.id, change: "created" },
-        { entity: "sharedContent", id: shared.id, change: "created" },
-        { entity: "record", id: f.record.id, change: "created" },
-      ]),
-    );
-    expect(inGerman).toHaveLength(6);
+    expect(changes).toEqual([
+      expect.objectContaining({ entity: "locale", label: "de", change: "created" }),
+    ]);
   });
 
   it("reads and writes the locale a request names, and the default locale without one", async () => {
