@@ -1,3 +1,4 @@
+import type { Layout } from "../../core/createLayout";
 import type { LivePage } from "./livePages";
 
 /** At most this many pages of a derived layout are listed; the sitemap lists them all. */
@@ -9,6 +10,11 @@ function escapeMarkdown(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[\\`*_[\]<>]/g, "\\$&");
+}
+
+/** A URL that can't end its Markdown link early. */
+function escapeLinkTarget(url: string): string {
+  return url.replace(/\s/g, encodeURIComponent).replace(/\(/g, "%28").replace(/\)/g, "%29");
 }
 
 function markdownPath(page: LivePage): string {
@@ -28,10 +34,12 @@ export function formatLlmsTxt({
 }: {
   projectName: string;
   pages: readonly LivePage[];
-  layouts: readonly { id: string; title: string; kind: string }[];
+  layouts: readonly Pick<Layout["_internal"], "id" | "title" | "kind">[];
   /** A path's absolute URL, with the runtime base path. */
   url: (path: string) => string;
 }): string {
+  const link = (text: string, path: string) =>
+    `[${escapeMarkdown(text)}](${escapeLinkTarget(url(path))})`;
   const lines = [`# ${escapeMarkdown(projectName)}`];
   const summary = pages.find((page) => page.fullPath === "/")?.description;
   if (summary) lines.push("", `> ${escapeMarkdown(summary)}`);
@@ -45,11 +53,13 @@ export function formatLlmsTxt({
     lines.push("", `## ${escapeMarkdown(layout.title)}`, "");
     for (const page of entries.slice(0, cap)) {
       const description = page.description ? `: ${escapeMarkdown(page.description)}` : "";
-      lines.push(`- [${escapeMarkdown(page.title)}](${url(markdownPath(page))})${description}`);
+      lines.push(`- ${link(page.title, markdownPath(page))}${description}`);
     }
+    // A plain line, not an entry: LLMs would read an entry as one more page.
     if (entries.length > cap)
       lines.push(
-        `- [Sitemap](${url("/sitemap.xml")}): ${entries.length - cap} more ${escapeMarkdown(layout.title)} pages`,
+        "",
+        `${entries.length - cap} more ${escapeMarkdown(layout.title)} pages are listed in the ${link("sitemap", "/sitemap.xml")}.`,
       );
   }
   return `${lines.join("\n")}\n`;

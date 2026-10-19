@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+
 import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout } from "../../core/createLayout";
+import { pageListResponse } from "./api.fixtures";
 import { LLMS_TXT_DERIVED_LAYOUT_CAP } from "./llmsTxt";
 import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
@@ -67,7 +70,7 @@ function mockApi(
       draft: request.headers.get("x-camox-draft"),
       session: request.headers.get("Better-Auth-Cookie"),
     });
-    if (path.endsWith("/pages/listBySlug")) return Response.json({ json: { projectName, pages } });
+    if (path.endsWith("/pages/listBySlug")) return pageListResponse(pages, projectName);
     if (path.endsWith("/collectionDefinitions/listRecordPageValues"))
       return Response.json({
         json: records.map((record) => ({ id: record.id, value: record.slug, label: record.label })),
@@ -222,16 +225,17 @@ void test("llms.txt caps each derived layout's entries and points to the sitemap
     (_, index) => `pokemon-${index}`,
   );
   const text = await (await llmsTxt([pokemonRoutes(names)]))!.text();
-  const urls = linkedUrls(text);
-  assert.equal(urls.length, LLMS_TXT_DERIVED_LAYOUT_CAP + 1);
-  assert.equal(urls.at(-1), "https://site.test/sitemap.xml");
   assert.deepEqual(
-    urls.slice(0, -1),
+    linkedUrls(text),
     [...names]
       .sort()
       .slice(0, LLMS_TXT_DERIVED_LAYOUT_CAP)
       .map((name) => `https://site.test/pokemon/${name}`),
   );
+  // Not a list entry: LLMs would read it as one more page.
+  const lastLine = text.trimEnd().split("\n").at(-1)!;
+  assert.doesNotMatch(lastLine, /^- /);
+  assert.match(lastLine, /\(https:\/\/site\.test\/sitemap\.xml\)/);
 
   const atCap = await (await llmsTxt([
     pokemonRoutes(names.slice(0, LLMS_TXT_DERIVED_LAYOUT_CAP)),
@@ -243,7 +247,10 @@ void test("llms.txt reads Live, even for a signed-in editor viewing a draft", as
   const requests = mockApi(t, { pages: [page("/team")], records: articleRecords });
   const response = await llmsTxt([defaultLayout, articleLayout], {
     path: "/llms.txt?camox-draft=0190a000-0000-7000-8000-000000000000",
-    headers: { Cookie: "better-auth.session_token=valid" },
+    headers: {
+      Cookie: "better-auth.session_token=valid",
+      [DRAFT_HEADER]: "0190a000-0000-7000-8000-000000000000",
+    },
   });
   assert.equal(response?.status, 200);
   assert.deepEqual(
@@ -275,9 +282,7 @@ void test("llms.txt fails when the API isn't configured", async () => {
 void test("llms.txt is plain text that clients can cache and revalidate", async (t) => {
   let description = "Every Pokémon, described.";
   t.mock.method(globalThis, "fetch", async () =>
-    Response.json({
-      json: { projectName: "Pokédex", pages: [page("/", { metaDescription: description })] },
-    }),
+    pageListResponse([page("/", { metaDescription: description })]),
   );
   const response = await llmsTxt([defaultLayout]);
   assert.equal(response?.headers.get("Content-Type"), "text/plain; charset=utf-8");
@@ -387,4 +392,13 @@ void test("titles and descriptions can't break the index's Markdown", async (t) 
 `,
   );
   assert.deepEqual(linkedUrls(text), ["https://site.test/index.md"]);
+});
+
+void test("characters that would end a Markdown link are percent-encoded in its URL", async (t) => {
+  mockApi(t, { pages: [page("/team (old)", { metaTitle: "Old team" })] });
+  const text = await (await llmsTxt([defaultLayout, pokemonRoutes(["nidoran(f)"])]))!.text();
+  assert.deepEqual(linkedUrls(text), [
+    "https://site.test/team%20%28old%29.md",
+    "https://site.test/pokemon/nidoran%28f%29",
+  ]);
 });
