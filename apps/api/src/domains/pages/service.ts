@@ -20,6 +20,7 @@ import {
   pageServingProblems,
   servesPages,
 } from "../layouts/route-ownership";
+import { publicProjectSummary } from "../projects/public-summary";
 import { duplicatePathIds } from "./duplicate-paths";
 import { type PageView } from "./generated-seo";
 
@@ -176,9 +177,7 @@ function composePageView(args: {
   return {
     page: { ...page, blockIds: pageBlocks.map((b) => b.id) },
     projectName: project.name,
-    // `id` + `updatedAt` are enough for the SDK to build a cache-busted
-    // favicon URL (`/favicons/${id}?v=${updatedAt}`) in the page <head>.
-    project: { id: project.id, updatedAt: project.updatedAt },
+    project: publicProjectSummary(project),
     layout: layoutView(layout, layoutBlocks),
     blocks,
     repeatableItems: blocks.flatMap((block) => itemsByBlock.get(block.id) ?? []),
@@ -223,7 +222,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   return {
     page: { ...page, blockIds: pageBlockOrder.map((b) => b.id) },
     projectName: project.name,
-    project: { id: project.id, updatedAt: project.updatedAt },
+    project: publicProjectSummary(project),
     layout: layoutView(layout, layoutBlockOrder),
   };
 }, Effect.scoped);

@@ -40,6 +40,10 @@ _Avoid_: Sync secret, API key
 A code-owned description of a kind of content (a block, layout, or collection), synced into Live by a release and into a development draft by running the website locally.
 _Avoid_: Model, type, template
 
+**Definition Set**:
+All of a website's definitions taken together, with the content they declare. A release syncs one to Live, and running the website locally syncs one to a development draft.
+_Avoid_: Manifest, schema
+
 **Block Definition**:
 The code-owned description of a block type: its content schema, settings schema, defaults, and component.
 _Avoid_: Block type, component, section

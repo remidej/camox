@@ -16,6 +16,11 @@ export const api = createORPCClient<RouterClient<Router>>(link);
 
 export type Project = InferClientOutputs<RouterClient<Router>>["projects"]["list"][number];
 
+/** A project's analytics providers, a Project Setting. Each is null when it isn't set up. */
+export type ProjectAnalytics = InferClientOutputs<
+  RouterClient<Router>
+>["projects"]["getBySlug"]["analytics"];
+
 // --- Favicon helpers ---
 //
 // Favicons live in R2 keyed by projectId, served via a public endpoint with a

@@ -1,3 +1,5 @@
+import { ga4MeasurementIdSchema } from "@camox/api-contract/analytics";
+import { Alert, AlertDescription } from "@camox/ui/alert";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -24,7 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CopyIcon, EyeIcon, EyeOffIcon, Trash2Icon } from "lucide-react";
+import { CopyIcon, EyeIcon, EyeOffIcon, InfoIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
@@ -33,6 +35,7 @@ import {
   FAVICON_PLACEHOLDER_URL,
   getFaviconUrl,
   type Project,
+  type ProjectAnalytics,
   uploadFavicon,
 } from "@/lib/api";
 import { projectQueries } from "@/lib/queries";
@@ -242,6 +245,154 @@ function FaviconSection({ project }: { project: Project }) {
   );
 }
 
+function Ga4Row({
+  projectId,
+  measurementId,
+  onClose,
+}: {
+  projectId: number;
+  /** The saved measurement ID, if any. */
+  measurementId: string | undefined;
+  /** Leaves the form, once cancelled or once Google Analytics is removed. */
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (next: string | null) =>
+      api.projects.updateAnalytics({
+        id: projectId,
+        ga4: next === null ? null : { measurementId: next },
+      }),
+    onSuccess: async (_, next) => {
+      await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
+      if (next === null) onClose();
+      toast.success(next === null ? "Google Analytics removed" : "Google Analytics saved");
+    },
+    onError: (error) => {
+      console.error("Failed to save Google Analytics:", error);
+      toast.error("Could not save Google Analytics");
+    },
+  });
+  const form = useForm({
+    defaultValues: { measurementId: measurementId ?? "" },
+    onSubmit: async ({ value }) => {
+      await save.mutateAsync(value.measurementId.trim().toUpperCase()).catch(() => undefined);
+    },
+  });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void form.handleSubmit();
+      }}
+      className="space-y-4"
+    >
+      <form.Field
+        name="measurementId"
+        validators={{
+          onSubmit: ({ value }) =>
+            ga4MeasurementIdSchema.safeParse(value.trim().toUpperCase()).success
+              ? undefined
+              : "Enter a measurement ID that starts with G-, like G-A1B2C3D4E5",
+        }}
+      >
+        {(field) => (
+          <div className="space-y-2">
+            <Label htmlFor="ga4-measurement-id">Google Analytics 4 measurement ID</Label>
+            <p className="text-muted-foreground text-sm">
+              In Google Analytics, go to Admin, then Data streams, and open your website's stream.
+              The measurement ID is at the top right, starting with G-.
+            </p>
+            <Input
+              id="ga4-measurement-id"
+              className="font-mono"
+              placeholder="G-XXXXXXXXXX"
+              autoComplete="off"
+              spellCheck={false}
+              value={field.state.value}
+              onChange={(e) => field.handleChange(e.target.value)}
+              aria-invalid={!!field.state.meta.errors.length}
+            />
+            {field.state.meta.errors.length > 0 && (
+              <p className="text-destructive text-xs">{field.state.meta.errors[0]}</p>
+            )}
+          </div>
+        )}
+      </form.Field>
+      <form.Subscribe selector={(state) => [state.isDirty, state.isSubmitting]}>
+        {([isDirty, isSubmitting]) => (
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={!isDirty || isSubmitting || save.isPending}>
+              {isSubmitting && <Spinner />}
+              Save changes
+            </Button>
+            {!measurementId && (
+              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onClose}>
+                Cancel
+              </Button>
+            )}
+            {measurementId && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="ml-auto"
+                disabled={save.isPending}
+                onClick={() => save.mutate(null)}
+              >
+                <Trash2Icon />
+                Remove Google Analytics
+              </Button>
+            )}
+          </div>
+        )}
+      </form.Subscribe>
+    </form>
+  );
+}
+
+function AnalyticsSection({
+  projectId,
+  analytics,
+}: {
+  projectId: number;
+  analytics: ProjectAnalytics;
+}) {
+  const [addingGa4, setAddingGa4] = useState(false);
+  const ga4 = analytics.ga4;
+
+  return (
+    <div className="space-y-4">
+      {ga4 || addingGa4 ? (
+        <Ga4Row
+          // A saved ID starts the form afresh.
+          key={ga4?.measurementId ?? "new"}
+          projectId={projectId}
+          measurementId={ga4?.measurementId}
+          onClose={() => setAddingGa4(false)}
+        />
+      ) : (
+        <div className="space-y-3 rounded-lg border border-dashed p-6 text-center">
+          <p className="text-muted-foreground text-sm">
+            No analytics yet. Add a provider to count your website's visitors.
+          </p>
+          <Button type="button" variant="outline" onClick={() => setAddingGa4(true)}>
+            <PlusIcon />
+            Add Google Analytics 4
+          </Button>
+        </div>
+      )}
+      <Alert>
+        <InfoIcon />
+        <AlertDescription>
+          Your team's visits aren't counted. To check it works, open the site in a private window.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
 function ProjectCredentialsSection({ slug, deployToken }: { slug: string; deployToken: string }) {
   const [revealed, setRevealed] = useState(false);
 
@@ -396,6 +547,12 @@ function ProjectSettingsPage() {
         description="The icon shown in browser tabs for this project's pages."
       >
         <FaviconSection project={project} />
+      </Section>
+      <Section
+        title="Analytics"
+        description="Count your website's visitors with the analytics tools you already use."
+      >
+        <AnalyticsSection projectId={project.id} analytics={project.analytics} />
       </Section>
       <Section
         title="Project credentials"

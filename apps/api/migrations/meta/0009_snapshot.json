@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "639a0ffd-f631-4b64-8102-ecaec40b0b5e",
+  "id": "0e4aae14-3292-4270-829f-4262158818f0",
   "prevId": "5e691c0d-d265-42bb-85fd-e595bf9efaec",
   "tables": {
     "account": {
@@ -575,6 +575,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "ga4_measurement_id": {
+          "name": "ga4_measurement_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -2218,12 +2225,6 @@
           "columns": ["project_id", "created_by"],
           "isUnique": true,
           "where": "\"drafts\".\"kind\" = 'development'"
-        },
-        "drafts_catch_up_idx": {
-          "name": "drafts_catch_up_idx",
-          "columns": ["project_id"],
-          "isUnique": true,
-          "where": "\"drafts\".\"kind\" = 'regular' and \"drafts\".\"created_by\" = 'camox'"
         }
       },
       "foreignKeys": {
