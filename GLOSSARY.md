@@ -40,6 +40,10 @@ _Avoid_: Sync secret, API key
 A code-owned description of a kind of content (a block, layout, or collection), synced into Live by a release and into a development draft by running the website locally.
 _Avoid_: Model, type, template
 
+**Definition Set**:
+All of a website's definitions taken together, with the content they declare. A release syncs one to Live, and running the website locally syncs one to a development draft.
+_Avoid_: Manifest, schema
+
 **Block Definition**:
 The code-owned description of a block type: its content schema, settings schema, defaults, and component.
 _Avoid_: Block type, component, section
@@ -187,6 +191,10 @@ _Avoid_: Source language, primary language, main locale
 **Localization**:
 A content entity's copy in one locale, linked to its original in the default locale: a page, a block (including layout blocks and synced blocks' shared content), a repeatable item, or a collection record. It may diverge from its original wherever someone changed it on purpose.
 _Avoid_: Translation, variant, localized page
+
+**Bookkeeping**:
+A localization's invisible record of the source it was last translated from and what Camox wrote from that source. Comparing it with the source and the localization now tells a source change from a hand edit. Writing it is never a change or a conflict.
+_Avoid_: Translation memory, sync state, baseline
 
 ### Publishing
 

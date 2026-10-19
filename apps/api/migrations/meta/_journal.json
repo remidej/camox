@@ -54,8 +54,22 @@
     {
       "idx": 7,
       "version": "6",
-      "when": 1792438406118,
-      "tag": "0007_analytics",
+      "when": 1792439762417,
+      "tag": "0007_translation_request_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792441331500,
+      "tag": "0008_translation_bookkeeping",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792443117500,
+      "tag": "0009_analytics",
       "breakpoints": true
     }
   ]

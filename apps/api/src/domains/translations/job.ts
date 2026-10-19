@@ -3,7 +3,8 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { jobName, type TranslationJob } from "../../lib/ai-job-queue";
-import { AiModel, type TranslationText, type Translations } from "../../lib/ai-model";
+import { AiModel, type MergeText, type TranslationText } from "../../lib/ai-model";
+import type { AiCallError } from "../../lib/retry-ai-call";
 import {
   blocks,
   collectionDefinitions,
@@ -16,18 +17,23 @@ import { itemSchemas } from "../_shared/fields";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { pageValue, recordPageLayouts } from "../collections/record-pages";
 import * as overlay from "../drafts/overlay";
-import { inLocale, type Draft } from "../drafts/scope";
+import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
+import { readBookkeeping, type Values, writeBookkeeping } from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
-import { draftLocales, pendingRequest, settleTranslation } from "./service";
-import { contentTexts, slugOf } from "./texts";
+import { translateDefaults } from "./defaults";
+import { type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
+import { translationScope, type TranslationScope } from "./scope";
+import { pendingRequest, settleTranslation } from "./service";
+import type { Shape } from "./texts";
 
-// A translation job (ADR 0015): it writes an entity's localization in one locale of a draft from
-// the entity as the draft reads it in the default locale, as ordinary content through the
-// overlay. In this version a translation replaces the whole localization: text is translated,
-// everything else copied as it is, ids included. A job whose request is gone does nothing.
+// A translation job (ADR 0015): it brings an entity's localization in one locale of a draft up
+// to date with the entity as the draft reads it in the default locale, as ordinary content
+// through the overlay. It merges three ways, field by field, from the localization's bookkeeping
+// (`merge.ts`), so hand edits survive while the rest follows the source, and records what it
+// translated from and wrote in the bookkeeping. A job whose request is gone does nothing.
 
 type Row = Record<string, unknown> & { id: string };
 
@@ -45,11 +51,17 @@ const IDENTITY = new Set([
   "publishedBy",
 ]);
 
+/** Timestamps, which a localization takes from its source and never merges. */
+const TIMESTAMPS = new Set(["createdAt", "updatedAt", "contentUpdatedAt"]);
+
 const copyOf = (row: Row) =>
   Object.fromEntries(Object.entries(row).filter(([column]) => !IDENTITY.has(column)));
 
-/** Where a job reads and writes: its draft in the default locale, and in the job's locale. */
-type TranslationScope = { draft: Draft; target: Draft; from: string; to: string };
+/** What a localization merges: its columns but the overlay's own and its timestamps. */
+const valuesOf = (row: Row): Values =>
+  Object.fromEntries(
+    Object.entries(row).filter(([column]) => !IDENTITY.has(column) && !TIMESTAMPS.has(column)),
+  );
 
 /**
  * Runs a translation job, unless its request is gone because its draft ended, was emptied or
@@ -64,7 +76,8 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
   const draft = yield* draftScopeOfJob(db, job.draftId);
   const startedAt = Date.now();
   if (draft) {
-    yield* translate(db, draft, job).pipe(
+    const run = job.source === "defaults" ? translateDefaults : translate;
+    yield* run(db, draft, job).pipe(
       Effect.catchCause((cause) => Effect.logError(`[translation] ${jobName(job)} failed`, cause)),
     );
   }
@@ -76,17 +89,11 @@ const translate = Effect.fn("translation.translate")(function* (
   draft: Draft,
   job: TranslationJob,
 ) {
-  const { defaultTag, others } = yield* draftLocales(db, draft);
-  if (defaultTag === undefined || !others.includes(job.locale)) return;
-  const scope: TranslationScope = {
-    draft,
-    target: inLocale(draft, job.locale),
-    from: defaultTag,
-    to: job.locale,
-  };
+  const scope = yield* translationScope(db, draft, job.locale);
+  if (!scope) return;
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
-  const current = yield* overlay.get(db, scope.target, table, job.entityId);
+  const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
 
   // A source deleted from the default locale takes its localizations along.
   if (!source) {
@@ -95,19 +102,49 @@ const translate = Effect.fn("translation.translate")(function* (
     return;
   }
 
-  const localized = { ...copyOf(source), ...(yield* localize(db, scope, job.entity, source)) };
-  const written = current
-    ? yield* overlay.update(db, scope.target, table, job.entityId, localized)
-    : yield* overlay.insert(db, scope.target, table, { ...localized, id: job.entityId });
+  const bookkeeping = current
+    ? yield* readBookkeeping(db, scope.target, job.entity, job.entityId)
+    : undefined;
+  const shape = yield* shapeOf(db, scope, job.entity, source);
+  const merged = yield* mergeLocalization(
+    shape,
+    modelFor(scope),
+    valuesOf(source),
+    current && valuesOf(current),
+    bookkeeping,
+  );
+  if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
+  if (job.entity === "record") {
+    const record = source as typeof collectionRecords.$inferSelect;
+    yield* keepFoundByUnique(db, scope, record, shape.slugs ?? new Set(), merged);
+  }
+
+  // A localization the merge leaves as it is isn't written: only its bookkeeping changes,
+  // which sits beside content and is never a change to it (ADR 0012).
+  const localized = { ...copyOf(source), ...merged.values };
+  let written: Row | undefined;
+  if (!current) {
+    written = (yield* overlay.insert(db, scope.target, table, {
+      ...localized,
+      id: job.entityId,
+    })) as Row | undefined;
+  } else if (!sameValue(valuesOf(current), merged.values)) {
+    written = (yield* overlay.update(db, scope.target, table, job.entityId, localized)) as
+      | Row
+      | undefined;
+  }
+  yield* writeBookkeeping(db, scope.target, job.entity, job.entityId, {
+    source: valuesOf(source),
+    output: merged.output,
+  });
   if (job.entity === "page" && written) {
     yield* movePageDescendants(db, scope, written as typeof pages.$inferSelect);
   }
   // The locale's page SEO is generated from what was just written (ADR 0012).
   if (written && isGeneratedEntity(job.entity)) {
-    const row = written as Row & { projectId: number };
-    yield* requestGeneration(db, homeOf(scope.target, row.projectId), {
+    yield* requestGeneration(db, homeOf(scope.target, draft.projectId), {
       entity: job.entity,
-      row,
+      row: written,
     } as GenerationTarget);
   }
 });
@@ -117,8 +154,16 @@ const isGeneratedEntity = (
 ): entity is "page" | "block" | "repeatableItem" =>
   entity === "page" || entity === "block" || entity === "repeatableItem";
 
-/** The localized values of an entity: its source's text translated, by kind of entity. */
-const localize = Effect.fn("translation.localize")(function* (
+/** What the model is asked for a job: translations and merges from the default locale. */
+const modelFor = (scope: TranslationScope): MergeModel<AiCallError, AiModel> => ({
+  translate: (texts: TranslationText[]) =>
+    AiModel.use((model) => model.translate({ from: scope.from, to: scope.to, texts })),
+  merge: (texts: MergeText[]) =>
+    AiModel.use((model) => model.merge({ from: scope.from, to: scope.to, texts })),
+});
+
+/** What an entity's localization holds, by kind of entity, read from its stored schemas. */
+const shapeOf = Effect.fn("translation.shape")(function* (
   db: Database,
   scope: TranslationScope,
   entity: TranslationJob["entity"],
@@ -126,46 +171,59 @@ const localize = Effect.fn("translation.localize")(function* (
 ) {
   switch (entity) {
     case "page":
-      return yield* localizePage(db, scope, source as typeof pages.$inferSelect);
+      return {
+        contentSchema: undefined,
+        textColumns: { pathSegment: "slug", metaTitle: "plain", metaDescription: "plain" },
+        // Page SEO is all generated or all manual (ADR 0012), so it's merged as one unit.
+        columnGroups: [["metaTitle", "metaDescription"]],
+        derived: new Set(["fullPath"]),
+      } satisfies Shape;
     case "block":
     case "sharedContent": {
-      const row = source as Row & { projectId: number; type: string; content: unknown };
+      const row = source as Row & { projectId: number; type: string };
       const schemas = yield* loadDefinitionSchemas(
         db,
         { projectId: row.projectId, type: row.type },
         scope.draft,
       );
-      return { content: yield* translateContent(scope, schemas?.contentSchema, row.content) };
+      return { contentSchema: schemas?.contentSchema } satisfies Shape;
     }
     case "repeatableItem": {
       const item = source as typeof repeatableItems.$inferSelect;
-      const schema = yield* itemContentSchema(db, scope.draft, item);
-      return { content: yield* translateContent(scope, schema, item.content) };
+      return { contentSchema: yield* itemContentSchema(db, scope.draft, item) } satisfies Shape;
     }
-    case "record":
-      return yield* localizeRecord(db, scope, source as typeof collectionRecords.$inferSelect);
+    case "record": {
+      const record = source as typeof collectionRecords.$inferSelect;
+      const definition = yield* Effect.promise(() =>
+        db
+          .select({ contentSchema: collectionDefinitions.contentSchema })
+          .from(collectionDefinitions)
+          .where(
+            and(
+              eq(collectionDefinitions.projectId, record.projectId),
+              eq(collectionDefinitions.collectionId, record.collectionId),
+              definitionsIn(collectionDefinitions, scope.draft),
+            ),
+          )
+          .get(),
+      );
+      return {
+        contentSchema: definition?.contentSchema,
+        slugs: yield* foundByOf(db, scope, record),
+      } satisfies Shape;
+    }
   }
 });
 
-/** Asks the model for texts' translations, unless there are none to translate. */
-const translateTexts = Effect.fn("translation.texts")(function* (
-  scope: TranslationScope,
-  texts: TranslationText[],
-) {
-  if (texts.length === 0) return {} as Translations;
-  const model = yield* AiModel;
-  return yield* model.translate({ from: scope.from, to: scope.to, texts });
-});
-
-const translateContent = Effect.fn("translation.content")(function* (
-  scope: TranslationScope,
-  schema: unknown,
-  content: unknown,
-) {
-  if (content === null || typeof content !== "object" || Array.isArray(content)) return content;
-  const { texts, translated } = contentTexts(schema, content as Record<string, unknown>);
-  return translated(yield* translateTexts(scope, texts));
-});
+/**
+ * Sets a value that the job derives, such as a numbered path, in the merged values, and in what
+ * Camox wrote where the merge wrote the value itself. A value kept from a hand edit stays the
+ * hand edit's in the bookkeeping.
+ */
+function derive(merged: Merged, get: (values: Values) => unknown, set: (values: Values) => void) {
+  if (sameValue(get(merged.output), get(merged.values))) set(merged.output);
+  set(merged.values);
+}
 
 /** The content schema of an item, from its repeater in its root's definition. */
 const itemContentSchema = Effect.fn("translation.itemContentSchema")(function* (
@@ -195,38 +253,6 @@ const itemContentSchema = Effect.fn("translation.itemContentSchema")(function* (
 
 const joinPath = (parentPath: string, segment: string) =>
   `${parentPath.replace(/\/$/, "")}/${segment}`;
-
-/**
- * A page's translated path segment and SEO, and a full path under its parent's localization
- * that no other page of the locale has: a numbered segment where the translation is taken.
- */
-const localizePage = Effect.fn("translation.page")(function* (
-  db: Database,
-  scope: TranslationScope,
-  page: typeof pages.$inferSelect,
-) {
-  const texts: TranslationText[] = [];
-  if (page.pathSegment !== "")
-    texts.push({ key: "pathSegment", text: page.pathSegment, format: "slug" });
-  for (const key of ["metaTitle", "metaDescription"] as const) {
-    const text = page[key];
-    if (text) texts.push({ key, text, format: "plain" });
-  }
-  const translations = yield* translateTexts(scope, texts);
-
-  const parent =
-    page.parentPageId === null
-      ? undefined
-      : ((yield* overlay.get(db, scope.target, pages, page.parentPageId)) ??
-        (yield* overlay.get(db, scope.draft, pages, page.parentPageId)));
-  const segment = page.pathSegment === "" ? "" : slugOf(translations.pathSegment, page.pathSegment);
-  const placed = yield* placePage(db, scope, page, parent?.fullPath ?? "", segment);
-  return {
-    ...placed,
-    metaTitle: page.metaTitle && (translations.metaTitle ?? page.metaTitle),
-    metaDescription: page.metaDescription && (translations.metaDescription ?? page.metaDescription),
-  };
-});
 
 /**
  * A page localization's path segment and full path under `parentPath`: `segment`, or a numbered
@@ -290,37 +316,59 @@ const movePageDescendants = Effect.fn("translation.movePageDescendants")(functio
 });
 
 /**
- * A record's translated content. A value its record pages are found by, such as a slug, is
- * translated as a URL path segment, and gets a number where another record of the collection
- * has it in the locale, or another job claimed it.
+ * Gives a merged page localization a full path under its parent's localization that no other
+ * page of the locale has: a numbered segment where its merged segment is taken.
  */
-const localizeRecord = Effect.fn("translation.record")(function* (
+const placeLocalizedPage = Effect.fn("translation.placeLocalizedPage")(function* (
+  db: Database,
+  scope: TranslationScope,
+  id: string,
+  merged: Merged,
+) {
+  const { parentPageId, projectId } = merged.values as {
+    parentPageId: string | null;
+    projectId: number;
+  };
+  const parent =
+    parentPageId === null
+      ? undefined
+      : ((yield* overlay.get(db, scope.target, pages, parentPageId)) ??
+        (yield* overlay.get(db, scope.draft, pages, parentPageId)));
+  const segment = typeof merged.values.pathSegment === "string" ? merged.values.pathSegment : "";
+  const placed = yield* placePage(db, scope, { id, projectId }, parent?.fullPath ?? "", segment);
+  derive(
+    merged,
+    (values) => values.pathSegment,
+    (values) => Object.assign(values, placed),
+  );
+});
+
+/** The content fields a record's pages are found by, such as its slug. */
+const foundByOf = Effect.fn("translation.foundBy")(function* (
   db: Database,
   scope: TranslationScope,
   record: typeof collectionRecords.$inferSelect,
 ) {
-  const definition = yield* Effect.promise(() =>
-    db
-      .select({ contentSchema: collectionDefinitions.contentSchema })
-      .from(collectionDefinitions)
-      .where(
-        and(
-          eq(collectionDefinitions.projectId, record.projectId),
-          eq(collectionDefinitions.collectionId, record.collectionId),
-          definitionsIn(collectionDefinitions, scope.draft),
-        ),
-      )
-      .get(),
-  );
-  const foundBy = new Set(
+  return new Set(
     (yield* recordPageLayouts(db, { projectId: record.projectId, draft: scope.draft }))
       .filter((layout) => layout.collectionId === record.collectionId)
       .map((layout) => layout.field),
   );
-  const { texts, translated } = contentTexts(definition?.contentSchema, record.content, foundBy);
-  const content = translated(yield* translateTexts(scope, texts));
-  if (foundBy.size === 0) return { content };
+});
 
+/**
+ * Keeps the values a merged record localization's pages are found by (`foundBy`), such as a
+ * slug, unique within the locale: a number is added where another record of the collection has
+ * it in the locale, or another job claimed it.
+ */
+const keepFoundByUnique = Effect.fn("translation.keepFoundByUnique")(function* (
+  db: Database,
+  scope: TranslationScope,
+  record: typeof collectionRecords.$inferSelect,
+  foundBy: ReadonlySet<string>,
+  merged: Merged,
+) {
+  if (foundBy.size === 0) return;
   const others = yield* overlay.select(
     db,
     scope.target,
@@ -331,6 +379,7 @@ const localizeRecord = Effect.fn("translation.record")(function* (
       ne(collectionRecords.id, record.id),
     ),
   );
+  const content = merged.values.content as Record<string, unknown>;
   for (const field of foundBy) {
     const value = content[field];
     if (typeof value !== "string" || pageValue(content, field) === null) continue;
@@ -340,9 +389,15 @@ const localizeRecord = Effect.fn("translation.record")(function* (
       locale: scope.to,
       space: `record:${record.collectionId}:${field}`,
     };
-    content[field] = yield* claimUnique(db, space, record.id, taken, (n) =>
+    const unique = yield* claimUnique(db, space, record.id, taken, (n) =>
       n === 1 ? value : `${value}-${n}`,
     );
+    derive(
+      merged,
+      (values) => (values.content as Record<string, unknown> | undefined)?.[field],
+      (values) => {
+        values.content = { ...(values.content as Record<string, unknown>), [field]: unique };
+      },
+    );
   }
-  return { content };
 });
