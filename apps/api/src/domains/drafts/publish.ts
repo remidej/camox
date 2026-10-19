@@ -88,13 +88,20 @@ export const publishInput = z.object({ projectId: z.number(), token: z.string() 
 export const discardInput = z.object({ projectId: z.number() });
 
 const tokenSchema = z.array(
-  z.tuple([z.enum(overlay.ENTITY_KINDS), z.string(), z.number().nullable()]),
+  z.tuple([z.enum(overlay.ENTITY_KINDS), z.string(), z.number().nullable(), z.string().nullable()]),
 );
 
 function encodeToken(conflicts: overlay.StoredConflict[]): string {
   const keys: overlay.ConflictKey[] = conflicts
-    .map((conflict): overlay.ConflictKey => [conflict.entity, conflict.id, conflict.liveVersion])
-    .sort((a, b) => (`${a[0]}:${a[1]}` < `${b[0]}:${b[1]}` ? -1 : 1));
+    .map((conflict): overlay.ConflictKey => [
+      conflict.entity,
+      conflict.id,
+      conflict.liveVersion,
+      conflict.locale,
+    ])
+    .sort((a, b) =>
+      JSON.stringify([a[0], a[1], a[3]]) < JSON.stringify([b[0], b[1], b[3]]) ? -1 : 1,
+    );
   return btoa(JSON.stringify(keys));
 }
 

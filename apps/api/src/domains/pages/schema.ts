@@ -4,13 +4,14 @@ import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-c
 
 import { user } from "../auth/schema";
 import { drafts } from "../drafts/schema";
+import { INITIAL_LOCALE } from "../locales/schema";
 import { projects } from "../projects/schema";
 
 /**
  * A page. Live and every draft store pages side by side (ADR 0005), like blocks: a Live row has
  * no draft, a draft row is the draft's copy of a page, a page the draft created, or a tombstone.
- * An id is unique within Live and within each draft. Read and write pages through the draft
- * overlay.
+ * An id is unique within each locale of Live and of each draft (ADR 0015). Read and write pages
+ * through the draft overlay.
  */
 export const pages = sqliteTable(
   "pages",
@@ -27,6 +28,9 @@ export const pages = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
+    // The tag of the locale this row belongs to: an id is unique per locale (ADR 0015). The overlay
+    // sets it on every write; the default is the locale existing content was migrated to.
+    locale: text().notNull().default(INITIAL_LOCALE),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
@@ -50,10 +54,10 @@ export const pages = sqliteTable(
   },
   (table) => [
     uniqueIndex("pages_live_id_idx")
-      .on(table.id)
+      .on(table.id, table.locale)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("pages_draft_id_idx")
-      .on(table.draftId, table.id)
+      .on(table.draftId, table.id, table.locale)
       .where(sql`${table.draftId} is not null`),
     index("pages_full_path_idx").on(table.fullPath),
     index("pages_parent_idx").on(table.parentPageId),

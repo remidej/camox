@@ -10,6 +10,7 @@ import type { ServiceContext } from "../src/domains/_shared/service-context";
 import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
 import { draftOf, RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
+import { insertInitialLocale } from "../src/domains/locales/service";
 import type { ServiceError } from "../src/lib/errors";
 import { runService, type ServiceRequirements } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
@@ -83,6 +84,7 @@ export async function createProjectFixture(suffix: string) {
     })
     .returning()
     .get();
+  await insertInitialLocale(db, project.id, now);
   const layout = await db
     .insert(layouts)
     .values({

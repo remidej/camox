@@ -19,6 +19,7 @@ import {
   files,
   generatedValues,
   layouts,
+  locales,
   organizationTable,
   pages,
   projects,
@@ -37,6 +38,7 @@ import type { WriteTarget } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
+import { insertInitialLocale } from "../locales/service";
 import { itemsInProject } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
@@ -203,6 +205,8 @@ export const createProject = Effect.fn("projects.createProject")(function* (
       .get(),
   );
 
+  yield* Effect.promise(() => insertInitialLocale(ctx.db, result.id, now));
+
   return result;
 });
 
@@ -319,6 +323,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   yield* Effect.promise(() =>
     ctx.db.delete(collectionDefinitions).where(eq(collectionDefinitions.projectId, projectId)),
   );
+  yield* Effect.promise(() => ctx.db.delete(locales).where(eq(locales.projectId, projectId)));
 
   const result = yield* Effect.promise(() =>
     ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),

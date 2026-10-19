@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { check, index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
+import { INITIAL_LOCALE } from "../locales/schema";
 import { projects } from "../projects/schema";
 
 /**
@@ -11,7 +12,7 @@ import { projects } from "../projects/schema";
  * (`blockId`), or a shared content (`projectId` and `sharedContentType`).
  *
  * Live and every draft store items side by side (ADR 0005), like blocks. An id is unique within
- * Live and within each draft. Read and write items through the draft overlay.
+ * each locale of Live and of each draft (ADR 0015). Read and write items through the draft overlay.
  */
 export const repeatableItems = sqliteTable(
   "repeatable_items",
@@ -28,6 +29,9 @@ export const repeatableItems = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
+    // The tag of the locale this row belongs to: an id is unique per locale (ADR 0015). The overlay
+    // sets it on every write; the default is the locale existing content was migrated to.
+    locale: text().notNull().default(INITIAL_LOCALE),
     // No foreign key: a block id is unique only within Live or within one draft (ADR 0005).
     blockId: text("block_id"),
     // The shared content at the root of the tree, named by its project and definition name.
@@ -45,10 +49,10 @@ export const repeatableItems = sqliteTable(
   },
   (table) => [
     uniqueIndex("repeatable_items_live_id_idx")
-      .on(table.id)
+      .on(table.id, table.locale)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("repeatable_items_draft_id_idx")
-      .on(table.draftId, table.id)
+      .on(table.draftId, table.id, table.locale)
       .where(sql`${table.draftId} is not null`),
     index("repeatable_items_block_field_idx").on(table.blockId, table.fieldName),
     index("repeatable_items_block_idx").on(table.blockId),

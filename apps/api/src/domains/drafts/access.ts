@@ -12,7 +12,7 @@ import {
   UnauthenticatedError,
 } from "../../lib/errors";
 import type { Journal } from "../../lib/journal";
-import { blocks, files, member, pages, projects, repeatableItems } from "../../schema";
+import { blocks, files, locales, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
@@ -149,11 +149,15 @@ const locate = Effect.fn("access.locate")(function* (
   return { projectId: first.projectId, rows };
 });
 
-/** The row a scope reads among an entity's candidates: the draft's, else Live's; none when deleted. */
-function visibleRow(rows: Candidates["rows"], scope: DraftScope) {
-  const own = scope ? rows.find((row) => row.draftId === scope.id) : undefined;
+/**
+ * The row a scope reads among an entity's candidates, in `locale` for a localized entity: the
+ * draft's, else Live's; none when deleted.
+ */
+function visibleRow(rows: Candidates["rows"], scope: DraftScope, locale: string | null) {
+  const inLocale = rows.filter((row) => !("locale" in row) || row.locale === locale);
+  const own = scope ? inLocale.find((row) => row.draftId === scope.id) : undefined;
   if (own) return own.deleted ? undefined : own;
-  return rows.find((row) => row.draftId === null);
+  return inLocale.find((row) => row.draftId === null);
 }
 
 /**
@@ -173,18 +177,36 @@ const authorize = Effect.fn("access.authorize")(function* (ctx: AccessContext, p
       : eq(drafts.id, requested?.id ?? "");
   const row = yield* Effect.promise(() =>
     ctx.db
-      .select({ project: projects, memberId: member.id, draft: drafts })
+      .select({
+        project: projects,
+        memberId: member.id,
+        draft: drafts,
+        defaultLocale: locales.tag,
+      })
       .from(projects)
       .leftJoin(
         member,
         and(eq(member.organizationId, projects.organizationId), eq(member.userId, userId ?? "")),
       )
       .leftJoin(drafts, requested ? namedDraft : sql`0`)
+      .leftJoin(
+        locales,
+        and(
+          eq(locales.projectId, projects.id),
+          isNull(locales.draftId),
+          eq(locales.isDefault, true),
+        ),
+      )
       .where(project)
       .get(),
   );
   if (!row) return undefined;
-  return { project: row.project, member: row.memberId != null, draft: row.draft };
+  return {
+    project: row.project,
+    member: row.memberId != null,
+    draft: row.draft,
+    defaultLocale: row.defaultLocale,
+  };
 });
 
 /** Fails with the draft's outcome when it ended, and with 404 when it never existed. */
@@ -265,9 +287,10 @@ const entityIn = Effect.fn("access.entityIn")(function* (
   located: Candidates | undefined,
   project: Project,
   scope: DraftScope,
+  locale: string | null,
 ) {
   if (!located) return project;
-  const row = visibleRow(located.rows, scope);
+  const row = visibleRow(located.rows, scope, locale);
   if (!row) return undefined;
   if ("block" in ref) {
     const block = row as BlockRow;
@@ -319,7 +342,9 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
       ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
       : null;
 
-    const entity = yield* entityIn(ctx.db, ref, located, project, scope);
+    // Content in the scope's locale, or in Live's default locale (ADR 0015).
+    const locale = scope?.locale ?? authorized.defaultLocale;
+    const entity = yield* entityIn(ctx.db, ref, located, project, scope, locale);
     if (!entity) return yield* new NotFoundError();
     if (mode === "write" && !scope) return yield* new LiveReadOnlyError();
     return { user, project, scope, entity } as ContentAccess<R, M>;

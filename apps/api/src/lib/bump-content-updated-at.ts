@@ -21,7 +21,8 @@ function bumpOwnersOfBlocks(where: SQL, now: number): SQL[] {
   const liveBlocks = sql`from ${blocks} as "b" where "b"."draft_id" is null and ${where}`;
   return [
     sql`update ${pages} set "content_updated_at" = ${now}
-      where ${pages.draftId} is null and ${pages.id} in (select "b"."page_id" ${liveBlocks})`,
+      where ${pages.draftId} is null
+        and (${pages.id}, ${pages.locale}) in (select "b"."page_id", "b"."locale" ${liveBlocks})`,
     sql`update ${layouts} set "content_updated_at" = ${now}
       where exists (select 1 ${liveBlocks}
         and "b"."layout_id" = ${layouts.layoutId} and "b"."project_id" = ${layouts.projectId})`,
@@ -30,13 +31,17 @@ function bumpOwnersOfBlocks(where: SQL, now: number): SQL[] {
 
 /** Bumps the owners of the changed blocks themselves. */
 export const bumpsForBlocks = (changed: SQL, now: number) =>
-  bumpOwnersOfBlocks(sql`"b"."id" in (select "c"."id" from (${changed}) as "c")`, now);
+  bumpOwnersOfBlocks(
+    sql`("b"."id", "b"."locale") in (select "c"."id", "c"."locale" from (${changed}) as "c")`,
+    now,
+  );
 
 /** Bumps the owners of the placements of the changed shared contents' definitions. */
 export const bumpsForSharedContents = (changed: SQL, now: number) =>
   bumpOwnersOfBlocks(
     sql`exists (select 1 from (${changed}) as "c"
-      where "c"."project_id" = "b"."project_id" and "c"."type" = "b"."type")`,
+      where "c"."project_id" = "b"."project_id" and "c"."type" = "b"."type"
+        and "c"."locale" = "b"."locale")`,
     now,
   );
 
@@ -46,8 +51,9 @@ export const bumpsForSharedContents = (changed: SQL, now: number) =>
  */
 export const bumpsForRepeatableItems = (changed: SQL, now: number) =>
   bumpOwnersOfBlocks(
-    sql`("b"."id" in (select "c"."block_id" from (${changed}) as "c")
+    sql`(("b"."id", "b"."locale") in (select "c"."block_id", "c"."locale" from (${changed}) as "c")
       or exists (select 1 from (${changed}) as "c"
-        where "c"."project_id" = "b"."project_id" and "c"."shared_content_type" = "b"."type"))`,
+        where "c"."project_id" = "b"."project_id" and "c"."shared_content_type" = "b"."type"
+          and "c"."locale" = "b"."locale"))`,
     now,
   );
