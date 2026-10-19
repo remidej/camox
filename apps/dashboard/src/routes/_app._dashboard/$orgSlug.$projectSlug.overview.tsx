@@ -1,4 +1,9 @@
-import { ga4MeasurementIdSchema, posthogProjectApiKeySchema } from "@camox/api-contract/analytics";
+import {
+  ga4MeasurementIdSchema,
+  type PosthogRegion,
+  posthogProjectApiKeySchema,
+  posthogRegionSchema,
+} from "@camox/api-contract/analytics";
 import { Alert, AlertDescription } from "@camox/ui/alert";
 import {
   AlertDialog,
@@ -25,11 +30,11 @@ import { Separator } from "@camox/ui/separator";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
-import { useForm } from "@tanstack/react-form";
+import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CopyIcon, EyeIcon, EyeOffIcon, InfoIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   api,
@@ -247,49 +252,156 @@ function FaviconSection({ project }: { project: Project }) {
   );
 }
 
-function Ga4Row({
-  projectId,
-  measurementId,
-  onClose,
-}: {
+type Provider = keyof ProjectAnalytics;
+
+/** What a provider's row needs: the provider's saved settings, if any. */
+interface ProviderRowProps<P extends Provider> {
   projectId: number;
-  /** The saved measurement ID, if any. */
-  measurementId: string | undefined;
-  /** Leaves the form, once cancelled or once Google Analytics is removed. */
+  saved: NonNullable<ProjectAnalytics[P]> | undefined;
+  /** Leaves the form, once cancelled or once the provider is removed. */
   onClose: () => void;
-}) {
+}
+
+/** Saves a provider's settings, or removes the provider when given null. */
+function useSaveProvider<P extends Provider>(
+  provider: P,
+  /** The provider's name, as the toasts say it. */
+  name: string,
+  { projectId, onClose }: Pick<ProviderRowProps<P>, "projectId" | "onClose">,
+) {
   const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (next: string | null) =>
-      api.projects.updateAnalytics({
-        id: projectId,
-        ga4: next === null ? null : { measurementId: next },
-      }),
-    onSuccess: async (_, next) => {
+  return useMutation({
+    mutationFn: (settings: ProjectAnalytics[P]) =>
+      api.projects.updateAnalytics({ id: projectId, [provider]: settings } as Parameters<
+        typeof api.projects.updateAnalytics
+      >[0]),
+    onSuccess: async (_, settings) => {
       await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
-      if (next === null) onClose();
-      toast.success(next === null ? "Google Analytics removed" : "Google Analytics saved");
+      if (settings === null) onClose();
+      toast.success(settings === null ? `${name} removed` : `${name} saved`);
     },
     onError: (error) => {
-      console.error("Failed to save Google Analytics:", error);
-      toast.error("Could not save Google Analytics");
+      console.error(`Failed to save ${name}:`, error);
+      toast.error(`Could not save ${name}`);
     },
   });
-  const form = useForm({
-    defaultValues: { measurementId: measurementId ?? "" },
-    onSubmit: async ({ value }) => {
-      await save.mutateAsync(value.measurementId.trim().toUpperCase()).catch(() => undefined);
-    },
-  });
+}
 
+/**
+ * A provider's form: its fields, then Save, and either Cancel while adding it or Remove once it's
+ * saved.
+ */
+function ProviderForm({
+  name,
+  saved,
+  dirty,
+  submitting,
+  save,
+  onSubmit,
+  onCancel,
+  children,
+}: {
+  /** The provider's name, as the Remove button says it. */
+  name: string;
+  saved: boolean;
+  dirty: boolean;
+  submitting: boolean;
+  save: { isPending: boolean; mutate: (settings: null) => void };
+  onSubmit: () => void;
+  onCancel: () => void;
+  children: ReactNode;
+}) {
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        void form.handleSubmit();
+        onSubmit();
       }}
       className="space-y-4"
+    >
+      {children}
+      <div className="flex items-center gap-2">
+        <Button type="submit" disabled={!dirty || submitting || save.isPending}>
+          {submitting && <Spinner />}
+          Save changes
+        </Button>
+        {saved ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="ml-auto"
+            disabled={save.isPending}
+            onClick={() => save.mutate(null)}
+          >
+            <Trash2Icon />
+            Remove {name}
+          </Button>
+        ) : (
+          <Button type="button" variant="outline" disabled={submitting} onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+/** A monospace text input for an ID or key, with its validation error. */
+function IdInput({
+  id,
+  placeholder,
+  field,
+}: {
+  id: string;
+  placeholder: string;
+  field: {
+    state: { value: string; meta: { errors: readonly ReactNode[] } };
+    handleChange: (value: string) => void;
+  };
+}) {
+  return (
+    <>
+      <Input
+        id={id}
+        className="font-mono"
+        placeholder={placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        value={field.state.value}
+        onChange={(e) => field.handleChange(e.target.value)}
+        aria-invalid={!!field.state.meta.errors.length}
+      />
+      {field.state.meta.errors.length > 0 && (
+        <p className="text-destructive text-xs">{field.state.meta.errors[0]}</p>
+      )}
+    </>
+  );
+}
+
+function Ga4Row(props: ProviderRowProps<"ga4">) {
+  const { saved, onClose } = props;
+  const save = useSaveProvider("ga4", "Google Analytics", props);
+  const form = useForm({
+    defaultValues: { measurementId: saved?.measurementId ?? "" },
+    onSubmit: async ({ value }) => {
+      await save
+        .mutateAsync({ measurementId: value.measurementId.trim().toUpperCase() })
+        .catch(() => undefined);
+    },
+  });
+  const dirty = useStore(form.store, (state) => state.isDirty);
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
+
+  return (
+    <ProviderForm
+      name="Google Analytics"
+      saved={!!saved}
+      dirty={dirty}
+      submitting={submitting}
+      save={save}
+      onSubmit={() => void form.handleSubmit()}
+      onCancel={onClose}
     >
       <form.Field
         name="measurementId"
@@ -307,86 +419,27 @@ function Ga4Row({
               In Google Analytics, go to Admin, then Data streams, and open your website's stream.
               The measurement ID is at the top right, starting with G-.
             </p>
-            <Input
-              id="ga4-measurement-id"
-              className="font-mono"
-              placeholder="G-XXXXXXXXXX"
-              autoComplete="off"
-              spellCheck={false}
-              value={field.state.value}
-              onChange={(e) => field.handleChange(e.target.value)}
-              aria-invalid={!!field.state.meta.errors.length}
-            />
-            {field.state.meta.errors.length > 0 && (
-              <p className="text-destructive text-xs">{field.state.meta.errors[0]}</p>
-            )}
+            <IdInput id="ga4-measurement-id" placeholder="G-XXXXXXXXXX" field={field} />
           </div>
         )}
       </form.Field>
-      <form.Subscribe selector={(state) => [state.isDirty, state.isSubmitting]}>
-        {([isDirty, isSubmitting]) => (
-          <div className="flex items-center gap-2">
-            <Button type="submit" disabled={!isDirty || isSubmitting || save.isPending}>
-              {isSubmitting && <Spinner />}
-              Save changes
-            </Button>
-            {!measurementId && (
-              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onClose}>
-                Cancel
-              </Button>
-            )}
-            {measurementId && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="ml-auto"
-                disabled={save.isPending}
-                onClick={() => save.mutate(null)}
-              >
-                <Trash2Icon />
-                Remove Google Analytics
-              </Button>
-            )}
-          </div>
-        )}
-      </form.Subscribe>
-    </form>
+    </ProviderForm>
   );
 }
 
-type PosthogSettings = NonNullable<ProjectAnalytics["posthog"]>;
-type PosthogRegion = PosthogSettings["region"];
+const POSTHOG_REGION_LABELS: Record<PosthogRegion, string> = {
+  us: "US Cloud",
+  eu: "EU Cloud",
+};
 
-const POSTHOG_REGIONS: { value: PosthogRegion; label: string }[] = [
-  { value: "us", label: "US Cloud" },
-  { value: "eu", label: "EU Cloud" },
-];
+const POSTHOG_REGIONS = posthogRegionSchema.options.map((value) => ({
+  value,
+  label: POSTHOG_REGION_LABELS[value],
+}));
 
-function PosthogRow({
-  projectId,
-  saved,
-  onClose,
-}: {
-  projectId: number;
-  /** The saved key and region, if any. */
-  saved: PosthogSettings | undefined;
-  /** Leaves the form, once cancelled or once PostHog is removed. */
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (posthog: PosthogSettings | null) =>
-      api.projects.updateAnalytics({ id: projectId, posthog }),
-    onSuccess: async (_, next) => {
-      await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
-      if (next === null) onClose();
-      toast.success(next === null ? "PostHog removed" : "PostHog saved");
-    },
-    onError: (error) => {
-      console.error("Failed to save PostHog:", error);
-      toast.error("Could not save PostHog");
-    },
-  });
+function PosthogRow(props: ProviderRowProps<"posthog">) {
+  const { saved, onClose } = props;
+  const save = useSaveProvider("posthog", "PostHog", props);
   const form = useForm({
     defaultValues: {
       projectApiKey: saved?.projectApiKey ?? "",
@@ -398,15 +451,18 @@ function PosthogRow({
         .catch(() => undefined);
     },
   });
+  const dirty = useStore(form.store, (state) => state.isDirty);
+  const submitting = useStore(form.store, (state) => state.isSubmitting);
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        void form.handleSubmit();
-      }}
-      className="space-y-4"
+    <ProviderForm
+      name="PostHog"
+      saved={!!saved}
+      dirty={dirty}
+      submitting={submitting}
+      save={save}
+      onSubmit={() => void form.handleSubmit()}
+      onCancel={onClose}
     >
       <p className="text-muted-foreground text-sm">
         In PostHog, go to Project settings. The project API key starts with phc_, and the region is
@@ -426,19 +482,7 @@ function PosthogRow({
           {(field) => (
             <div className="min-w-64 flex-1 space-y-2">
               <Label htmlFor="posthog-project-api-key">PostHog project API key</Label>
-              <Input
-                id="posthog-project-api-key"
-                className="font-mono"
-                placeholder="phc_XXXXXXXXXX"
-                autoComplete="off"
-                spellCheck={false}
-                value={field.state.value}
-                onChange={(e) => field.handleChange(e.target.value)}
-                aria-invalid={!!field.state.meta.errors.length}
-              />
-              {field.state.meta.errors.length > 0 && (
-                <p className="text-destructive text-xs">{field.state.meta.errors[0]}</p>
-              )}
+              <IdInput id="posthog-project-api-key" placeholder="phc_XXXXXXXXXX" field={field} />
             </div>
           )}
         </form.Field>
@@ -468,35 +512,24 @@ function PosthogRow({
           )}
         </form.Field>
       </div>
-      <form.Subscribe selector={(state) => [state.isDirty, state.isSubmitting]}>
-        {([isDirty, isSubmitting]) => (
-          <div className="flex items-center gap-2">
-            <Button type="submit" disabled={!isDirty || isSubmitting || save.isPending}>
-              {isSubmitting && <Spinner />}
-              Save changes
-            </Button>
-            {!saved && (
-              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onClose}>
-                Cancel
-              </Button>
-            )}
-            {saved && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="ml-auto"
-                disabled={save.isPending}
-                onClick={() => save.mutate(null)}
-              >
-                <Trash2Icon />
-                Remove PostHog
-              </Button>
-            )}
-          </div>
-        )}
-      </form.Subscribe>
-    </form>
+    </ProviderForm>
   );
+}
+
+/** Each provider the Analytics section offers, in the order it lists them. */
+const PROVIDERS: {
+  [P in Provider]: { addLabel: string; Row: (props: ProviderRowProps<P>) => ReactNode };
+} = {
+  ga4: { addLabel: "Add Google Analytics 4", Row: Ga4Row },
+  posthog: { addLabel: "Add PostHog", Row: PosthogRow },
+};
+
+function ProviderRow<P extends Provider>({
+  provider,
+  ...props
+}: ProviderRowProps<P> & { provider: P }) {
+  const { Row } = PROVIDERS[provider];
+  return <Row {...props} />;
 }
 
 function AnalyticsSection({
@@ -506,51 +539,46 @@ function AnalyticsSection({
   projectId: number;
   analytics: ProjectAnalytics;
 }) {
-  const [addingGa4, setAddingGa4] = useState(false);
-  const [addingPosthog, setAddingPosthog] = useState(false);
-  const { ga4, posthog } = analytics;
-  const showGa4 = !!ga4 || addingGa4;
-  const showPosthog = !!posthog || addingPosthog;
+  const [adding, setAdding] = useState<Provider[]>([]);
+  const providers = Object.keys(PROVIDERS) as Provider[];
+  const shown = providers.filter((provider) => analytics[provider] || adding.includes(provider));
+  const addable = providers.filter((provider) => !shown.includes(provider));
 
   const addButtons = (
     <div className="flex flex-wrap justify-center gap-2">
-      {!showGa4 && (
-        <Button type="button" variant="outline" onClick={() => setAddingGa4(true)}>
+      {addable.map((provider) => (
+        <Button
+          key={provider}
+          type="button"
+          variant="outline"
+          onClick={() => setAdding((current) => [...current, provider])}
+        >
           <PlusIcon />
-          Add Google Analytics 4
+          {PROVIDERS[provider].addLabel}
         </Button>
-      )}
-      {!showPosthog && (
-        <Button type="button" variant="outline" onClick={() => setAddingPosthog(true)}>
-          <PlusIcon />
-          Add PostHog
-        </Button>
-      )}
+      ))}
     </div>
   );
 
   return (
     <div className="space-y-4">
-      {showGa4 && (
-        <Ga4Row
-          // A saved ID starts the form afresh.
-          key={ga4?.measurementId ?? "new"}
-          projectId={projectId}
-          measurementId={ga4?.measurementId}
-          onClose={() => setAddingGa4(false)}
-        />
-      )}
-      {showGa4 && showPosthog && <Separator />}
-      {showPosthog && (
-        <PosthogRow
-          // A saved key and region start the form afresh.
-          key={posthog ? `${posthog.projectApiKey}-${posthog.region}` : "new"}
-          projectId={projectId}
-          saved={posthog ?? undefined}
-          onClose={() => setAddingPosthog(false)}
-        />
-      )}
-      {!showGa4 && !showPosthog ? (
+      {shown.map((provider, index) => {
+        const saved = analytics[provider] ?? undefined;
+        return (
+          <Fragment key={provider}>
+            {index > 0 && <Separator />}
+            <ProviderRow
+              // Saved settings start the form afresh.
+              key={saved ? JSON.stringify(saved) : "new"}
+              provider={provider}
+              projectId={projectId}
+              saved={saved}
+              onClose={() => setAdding((current) => current.filter((p) => p !== provider))}
+            />
+          </Fragment>
+        );
+      })}
+      {shown.length === 0 ? (
         <div className="space-y-3 rounded-lg border border-dashed p-6 text-center">
           <p className="text-muted-foreground text-sm">
             No analytics yet. Add a provider to count your website's visitors.
@@ -558,7 +586,7 @@ function AnalyticsSection({
           {addButtons}
         </div>
       ) : (
-        (!showGa4 || !showPosthog) && <div className="flex">{addButtons}</div>
+        addable.length > 0 && <div className="flex">{addButtons}</div>
       )}
       <Alert>
         <InfoIcon />
