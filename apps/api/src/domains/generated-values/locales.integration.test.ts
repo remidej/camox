@@ -338,6 +338,8 @@ describe("publishing", () => {
 describe("the meta title blocker per locale", () => {
   it("warns while a de page's SEO is being generated, and blocks once it generated no meta title", async () => {
     const f = await fixture();
+    // The default locale's meta title doesn't stand in for the de page's.
+    await f.generateSeo(undefined, { metaTitle: "About us", metaDescription: "Who we are" });
     const pending = await f.preview();
     expect(pending.blockers).toEqual([]);
     expect(pending.warnings).toEqual([
@@ -346,8 +348,43 @@ describe("the meta title blocker per locale", () => {
 
     await f.generateSeo("de", { metaTitle: "", metaDescription: "" });
 
-    expect((await f.preview()).blockers).toEqual([
+    const blocked = await f.preview();
+    expect(blocked.blockers).toEqual([
       expect.objectContaining({ id: f.page.id, locale: "de", code: "missingMetaTitle" }),
     ]);
+    await expect(
+      call(router.drafts.publish, { projectId: f.projectId, token: blocked.token }, f.member(f.en)),
+    ).rejects.toMatchObject({ code: "PUBLISH_BLOCKED" });
+  });
+});
+
+describe("removing a locale", () => {
+  it("drops its manual alt texts once published, so adding it again starts from generated ones", async () => {
+    const f = await fixture();
+    await f.setAlt(f.de, "Unser Team");
+    await f.generateSeo("de", { metaTitle: "Über uns", metaDescription: "Wer wir sind" });
+    await f.publish(f.draft);
+
+    const removal = generateUuidv7();
+    await call(
+      router.locales.remove,
+      { projectId: f.projectId, tag: "de" },
+      f.member({ [DRAFT_HEADER]: removal, [DRAFT_CREATE_HEADER]: "1" }),
+    );
+    await f.publish(removal);
+
+    const again = generateUuidv7();
+    await call(
+      router.locales.add,
+      { projectId: f.projectId, tag: "de" },
+      f.member({ [DRAFT_HEADER]: again, [DRAFT_CREATE_HEADER]: "1" }),
+    );
+    expect(
+      await call(
+        router.files.get,
+        { id: f.file.id },
+        f.member({ [DRAFT_HEADER]: again, [LOCALE_HEADER]: "de" }),
+      ),
+    ).toMatchObject({ alt: "", aiMetadata: true });
   });
 });

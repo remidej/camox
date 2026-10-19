@@ -21,6 +21,17 @@ export type GeneratedValues = {
 export type GeneratedType = keyof GeneratedValues;
 
 /**
+ * Whether each type of value is generated in each locale, or in the default locale only, where
+ * every locale reads it (ADR 0015): summaries identify a block the same way whatever locale is
+ * open.
+ */
+export const LOCALIZED: Record<GeneratedType, boolean> = {
+  summary: false,
+  seo: true,
+  fileMetadata: true,
+};
+
+/**
  * Generated values sit beside content (ADR 0012): one per entity, type, locale, and Live or
  * draft. Summaries are generated in the default locale only; SEO and alt text in every locale. A
  * Live row has no draft; a draft row is a value the draft generated itself, which it reads over

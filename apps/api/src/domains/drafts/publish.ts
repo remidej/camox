@@ -26,12 +26,16 @@ import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import { sharedPlacementId } from "../blocks/shared-content";
-import { withFileMetadata } from "../files/generated-metadata";
+import {
+  publishStatements as filePublishStatements,
+  withFileMetadata,
+} from "../files/generated-metadata";
 import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
-import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
+import { type GenerationTarget, requestGenerations } from "../generated-values/generation";
 import * as generatedValueStatements from "../generated-values/service";
-import { defaultLocaleTag, homeOf } from "../generated-values/service";
+import { homeOf } from "../generated-values/service";
+import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
@@ -361,10 +365,10 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
     targets: GenerationTarget[],
     options?: { immediately: boolean },
   ) =>
-    Effect.forEach(
-      targets,
-      (target) => requestGeneration(ctx.db, homeOf(live, scope.projectId), target, options),
-      { concurrency: 8, discard: true },
+    requestGenerations(
+      ctx.db,
+      targets.map((target) => ({ home: homeOf(live, scope.projectId), target })),
+      options,
     );
 
   const tags = new Set(kept.flatMap((change) => localeOfChange(change) ?? []));
@@ -518,7 +522,10 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       shown,
       publishedBy: user.id,
       now: Date.now(),
-      after: generatedValueStatements.publishStatements(ctx.db, scope),
+      after: [
+        ...generatedValueStatements.publishStatements(ctx.db, scope),
+        ...filePublishStatements(scope.projectId),
+      ],
     }),
   );
   if (applied._tag === "Failure") {

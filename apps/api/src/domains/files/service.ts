@@ -15,16 +15,22 @@ import type { ServiceContext } from "../_shared/service-context";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { type Draft, draftOf, type DraftScope, inLocale, type ReadScope } from "../drafts/scope";
-import { generateNow, requestGeneration, type Stale } from "../generated-values/generation";
-import { defaultLocaleTag, homeOf, saveValue, settleRequest } from "../generated-values/service";
+import {
+  generateNow,
+  requestGeneration,
+  requestGenerations,
+  type Stale,
+} from "../generated-values/generation";
+import { homeOf, saveValue, settleRequest } from "../generated-values/service";
+import { defaultLocaleTag, otherLocaleOf } from "../locales/default-locale";
 import { INITIAL_LOCALE, locales } from "../locales/schema";
 import {
+  altGeneratedIn,
   fileView,
   metadataColumns,
   metadataGenerated,
   metadataKey,
   type MetadataWrite,
-  otherLocaleOf,
   seedMetadata,
   withFileMetadata,
 } from "./generated-metadata";
@@ -109,7 +115,8 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
   if (!file?.projectId) return null;
   const home = homeOf(scope, file.projectId);
   const locale = yield* otherLocaleOf(db, scope, file.projectId);
-  if (!metadataGenerated(file, locale) || !isRasterImage(file.mimeType)) {
+  const generated = locale === undefined ? metadataGenerated(file) : altGeneratedIn(file, locale);
+  if (!generated || !isRasterImage(file.mimeType)) {
     yield* settleRequest(db, home, metadataKey(fileId), startedAt);
     return null;
   }
@@ -446,14 +453,12 @@ const requestInOtherLocales = Effect.fn("files.requestInOtherLocales")(function*
     locales,
     and(eq(locales.projectId, file.projectId), eq(locales.isDefault, false)),
   );
-  yield* Effect.forEach(
-    others,
-    ({ tag }) =>
-      requestGeneration(db, homeOf(inLocale(draft, tag), file.projectId), {
-        entity: "file",
-        row: file,
-      }),
-    { concurrency: 8, discard: true },
+  yield* requestGenerations(
+    db,
+    others.map(({ tag }) => ({
+      home: homeOf(inLocale(draft, tag), file.projectId),
+      target: { entity: "file", row: file },
+    })),
   );
 });
 

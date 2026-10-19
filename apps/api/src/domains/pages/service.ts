@@ -500,7 +500,7 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
   const { scope } = yield* accessTo(ctx, { page: id }, "member");
 
-  // Generated values aren't per locale: the draft's, or Live's.
+  // In the scope's draft or Live, and in its locale.
   yield* generateNow(ctx.db, scope, "page", id).pipe(Effect.orDie);
   const page = yield* overlay.get(ctx.db, scope, pages, id);
   return page ? yield* shownPage(ctx, scope, page) : undefined;

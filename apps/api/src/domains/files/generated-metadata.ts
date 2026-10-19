@@ -1,21 +1,18 @@
+import { type SQL, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { InvalidInputError } from "../../lib/errors";
 import { inDefaultLocale, type ReadScope } from "../drafts/scope";
-import {
-  defaultLocaleTag,
-  readValue,
-  readValues,
-  saveValue,
-  type ValueHome,
-} from "../generated-values/service";
-import type { files } from "./schema";
+import { readValue, readValues, saveValue, type ValueHome } from "../generated-values/service";
+import { otherLocaleOf } from "../locales/default-locale";
+import { locales } from "../locales/schema";
+import { files } from "./schema";
 
 // Files are shared by every locale, but their alt text is per locale (ADR 0012, ADR 0015). In
 // the default locale, alt text and filename are one group: all generated or all manual, and
 // `null` in both columns means the generated values apply. In other locales, alt text alone is
-// generated or manual: a locale's manual alt text is in `localizedAlts`, and without one its alt
+// generated or manual: a locale's manual alt text is in `altsByLocale`, and without one its alt
 // text is generated in that locale. The filename is the default locale's everywhere.
 
 type FileRow = typeof files.$inferSelect;
@@ -32,78 +29,78 @@ export type FileView<F extends FileRow = FileRow> = Omit<F, "alt" | "filename"> 
 export const metadataKey = (fileId: string) =>
   ({ entity: "file", entityId: fileId, type: "fileMetadata" }) as const;
 
-/**
- * Whether a file's metadata is generated in a locale other than the default one, named by its
- * tag, or without one in the default locale.
- */
-export const metadataGenerated = (
-  file: Pick<FileRow, "alt" | "filename"> & Partial<Pick<FileRow, "localizedAlts">>,
-  locale?: string,
-) =>
-  locale === undefined
-    ? file.alt === null && file.filename === null
-    : file.localizedAlts?.[locale] === undefined;
+/** Whether a file's metadata group, its alt text and filename in the default locale, is generated. */
+export const metadataGenerated = (file: Pick<FileRow, "alt" | "filename">) =>
+  file.alt === null && file.filename === null;
+
+/** Whether a file's alt text in a locale other than the default one, by its tag, is generated. */
+export const altGeneratedIn = (file: Pick<FileRow, "altsByLocale">, locale: string) =>
+  file.altsByLocale[locale] === undefined;
 
 /**
- * The locale a scope reads a project's files in, when it isn't the default one: its tag, or
- * undefined in the default locale.
+ * Files with the metadata in effect for the scope, in its locale: manual or generated values.
+ * Files of several projects may be read together: each is read in its project's locales.
  */
-export const otherLocaleOf = Effect.fn("files.otherLocaleOf")(function* (
-  db: Database,
-  scope: ReadScope,
-  projectId: number,
-) {
-  const locale = scope?.locale;
-  if (locale === undefined) return undefined;
-  return locale === (yield* defaultLocaleTag(db, projectId)) ? undefined : locale;
-});
-
-/** Files with the metadata in effect for the scope, in its locale: manual or generated values. */
 export const withFileMetadata = Effect.fn("files.withFileMetadata")(function* <F extends FileRow>(
   db: Database,
   scope: ReadScope,
   rows: readonly F[],
 ) {
-  const fallback = inDefaultLocale(scope);
+  // The default locale's metadata: every locale shows its filename.
   const generated = yield* readValues(
     db,
-    fallback,
+    inDefaultLocale(scope),
     "file",
     "fileMetadata",
-    rows.filter((row) => metadataGenerated(row)).map((row) => row.id),
+    rows.filter(metadataGenerated).map((row) => row.id),
   );
   const inDefault = (row: F): FileView<F> => {
     if (!metadataGenerated(row)) {
       return { ...row, alt: row.alt ?? "", filename: row.filename ?? "", aiMetadata: false };
     }
     const value = generated.get(row.id)?.value;
-    return {
-      ...row,
-      alt: value?.alt ?? "",
-      filename: value?.filename ?? "",
-      aiMetadata: true,
-    };
+    return { ...row, alt: value?.alt ?? "", filename: value?.filename ?? "", aiMetadata: true };
   };
 
-  // Files of other projects can't be in one read: the locale is the first file's project's.
-  const locale = rows[0] ? yield* otherLocaleOf(db, scope, rows[0].projectId) : undefined;
-  if (locale === undefined) return rows.map(inDefault);
+  const localeOf = new Map<number, string | undefined>();
+  for (const projectId of new Set(rows.map((row) => row.projectId))) {
+    localeOf.set(projectId, yield* otherLocaleOf(db, scope, projectId));
+  }
+  const inOther = rows.filter((row) => {
+    const locale = localeOf.get(row.projectId);
+    return locale !== undefined && altGeneratedIn(row, locale);
+  });
   const localized = yield* readValues(
     db,
     scope,
     "file",
     "fileMetadata",
-    rows.filter((row) => metadataGenerated(row, locale)).map((row) => row.id),
+    inOther.map((row) => row.id),
   );
   return rows.map((row): FileView<F> => {
-    const { filename } = inDefault(row);
-    if (!metadataGenerated(row, locale)) {
-      return { ...row, alt: row.localizedAlts[locale]!, filename, aiMetadata: false };
+    const shown = inDefault(row);
+    const locale = localeOf.get(row.projectId);
+    if (locale === undefined) return shown;
+    if (!altGeneratedIn(row, locale)) {
+      return { ...shown, alt: row.altsByLocale[locale]!, aiMetadata: false };
     }
-    const alt = localized.get(row.id)?.value?.alt ?? "";
-    return { ...row, alt, filename, aiMetadata: true };
+    return { ...shown, alt: localized.get(row.id)?.value?.alt ?? "", aiMetadata: true };
   });
 });
+
+/**
+ * Run once Live holds what a publish leaves: drops Live files' manual alt texts in locales Live
+ * doesn't have, so a locale removed and later added again starts from generated alt text.
+ */
+export function publishStatements(projectId: number): SQL[] {
+  return [
+    sql`update ${files} set ${sql.identifier(files.altsByLocale.name)} = (
+        select coalesce(json_group_object("a"."key", "a"."value"), '{}')
+        from json_each(${files.altsByLocale}) as "a"
+        where "a"."key" in (select ${locales.tag} from ${locales} where ${locales.projectId} = ${projectId} and ${locales.draftId} is null))
+      where ${files.draftId} is null and ${files.projectId} = ${projectId} and ${files.altsByLocale} != '{}'`,
+  ];
+}
 
 /** One file with the metadata in effect for the scope. */
 export const fileView = Effect.fn("files.fileView")(function* <F extends FileRow>(
@@ -136,16 +133,16 @@ export const metadataColumns = Effect.fn("files.metadataColumns")(function* (
         message: "Every locale shares the default locale's filename: set it there",
       });
     }
-    const { [locale]: _alt, ...others } = file.localizedAlts;
+    const { [locale]: _alt, ...others } = file.altsByLocale;
     if (write.aiMetadata === true) {
-      return { columns: { localizedAlts: others }, generate: true };
+      return { columns: { altsByLocale: others }, generate: true };
     }
     if (write.alt === undefined && write.aiMetadata === undefined) {
       return { columns: {}, generate: false };
     }
     const shown = yield* fileView(db, scope, file);
     return {
-      columns: { localizedAlts: { ...others, [locale]: write.alt ?? shown.alt } },
+      columns: { altsByLocale: { ...others, [locale]: write.alt ?? shown.alt } },
       generate: false,
     };
   }

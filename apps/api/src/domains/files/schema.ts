@@ -39,7 +39,7 @@ export const files = sqliteTable(
     filename: text(),
     // Manual alt text in locales other than the default one, by tag: a locale missing here gets
     // generated alt text. Files aren't localized, and the filename is the default locale's.
-    localizedAlts: text("localized_alts", { mode: "json" })
+    altsByLocale: text("alts_by_locale", { mode: "json" })
       .$type<Record<string, string>>()
       .notNull()
       .default(sql`'{}'`),

@@ -15,17 +15,17 @@ import type { AiCallError } from "../../lib/retry-ai-call";
 import { blocks, pages, repeatableItems } from "../../schema";
 import { executeBlockSummary } from "../blocks/service";
 import * as overlay from "../drafts/overlay";
-import { inDefaultLocale, inLocale, type ReadScope } from "../drafts/scope";
+import { draftIn, inDefaultLocale, inLocale, type ReadScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
-import { metadataGenerated } from "../files/generated-metadata";
+import { altGeneratedIn, metadataGenerated } from "../files/generated-metadata";
 import type { files } from "../files/schema";
 import { executeFileMetadata } from "../files/service";
+import { otherLocale } from "../locales/default-locale";
 import { executePageSeo } from "../pages/ai";
 import { seoGenerated } from "../pages/generated-seo";
 import { executeRepeatableItemSummary } from "../repeatable-items/service";
-import type { GeneratedType } from "./schema";
+import { type GeneratedType, LOCALIZED } from "./schema";
 import {
-  defaultLocaleTag,
   homeOf,
   markRequested,
   settleFailedRequest,
@@ -40,15 +40,15 @@ import {
 // item's summary feeds its block's, which feeds its page's SEO.
 //
 // SEO and alt text are generated in each locale; summaries in the default locale only (ADR
-// 0015). An edit in another locale generates no summary: it makes its page's SEO in that locale
-// stale directly.
+// 0015), as `LOCALIZED` says of each type. An edit in another locale generates no summary: it
+// makes its page's SEO in that locale stale directly.
 
 /** What a request needs of each entity: its id, and what tells whether its group is generated. */
 type JobRows = {
   block: { id: string };
   repeatableItem: { id: string };
   page: Pick<typeof pages.$inferSelect, "id" | "metaTitle" | "metaDescription">;
-  file: Pick<typeof files.$inferSelect, "id" | "alt" | "filename" | "mimeType" | "localizedAlts">;
+  file: Pick<typeof files.$inferSelect, "id" | "alt" | "filename" | "mimeType" | "altsByLocale">;
 };
 
 /** An entity whose value to generate. */
@@ -59,8 +59,6 @@ export type Stale = { projectId: number; target: GenerationTarget };
 
 type Kind<E extends JobEntity> = {
   type: GeneratedType;
-  /** Whether the value is generated in each locale, rather than in the default locale only. */
-  localized: boolean;
   /** How long to wait for more edits before generating, unless asked for immediately. */
   debounceMs: number;
   /**
@@ -70,7 +68,8 @@ type Kind<E extends JobEntity> = {
   generated: (row: JobRows[E], locale: string | undefined) => boolean;
   /**
    * Generates the value as the scope reads it and settles the request, unless another came after
-   * `startedAt`. Returns the parent the new value made stale.
+   * `startedAt`. Returns the parent the new value made stale. A value that isn't localized is
+   * generated in the default locale.
    */
   generate: (
     db: Database,
@@ -80,26 +79,24 @@ type Kind<E extends JobEntity> = {
   ) => Effect.Effect<Stale | null, AiCallError, AiModel | Journal>;
 };
 
-// `generate` reaches the domains lazily: they request generation from this module too.
+// `generate` reaches the domains lazily: they request generation from this module too. Summary
+// executors take a draft scope, which `draftIn` narrows to: `generateNow` reads a value that
+// isn't localized in the default locale already.
 const KINDS: { [E in JobEntity]: Kind<E> } = {
   repeatableItem: {
     type: "summary",
-    localized: false,
     debounceMs: 5000,
     generated: () => true,
-    generate: (db, scope, ...rest) =>
-      executeRepeatableItemSummary(db, inDefaultLocale(scope), ...rest),
+    generate: (db, scope, ...rest) => executeRepeatableItemSummary(db, draftIn(scope), ...rest),
   },
   block: {
     type: "summary",
-    localized: false,
     debounceMs: 5000,
     generated: () => true,
-    generate: (db, scope, ...rest) => executeBlockSummary(db, inDefaultLocale(scope), ...rest),
+    generate: (db, scope, ...rest) => executeBlockSummary(db, draftIn(scope), ...rest),
   },
   page: {
     type: "seo",
-    localized: true,
     // Long enough for the edits of a page's blocks to land first.
     debounceMs: 15000,
     generated: (page) => seoGenerated(page),
@@ -107,14 +104,18 @@ const KINDS: { [E in JobEntity]: Kind<E> } = {
   },
   file: {
     type: "fileMetadata",
-    localized: true,
     debounceMs: 0,
-    generated: (file, locale) => metadataGenerated(file, locale) && isRasterImage(file.mimeType),
+    generated: (file, locale) =>
+      (locale === undefined ? metadataGenerated(file) : altGeneratedIn(file, locale)) &&
+      isRasterImage(file.mimeType),
     generate: (...args) => executeFileMetadata(...args),
   },
 };
 
 const kindOf = (entity: JobEntity) => KINDS[entity] as unknown as Kind<JobEntity>;
+
+/** Whether an entity's value is generated in each locale, or in the default locale only. */
+const localized = (entity: JobEntity) => LOCALIZED[kindOf(entity).type];
 
 const keyOf = (entity: JobEntity, entityId: string): ValueKey => ({
   entity,
@@ -154,12 +155,13 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
 ): Effect.fn.Return<void, never, GenerationScheduler | Background | Journal> {
   const kind = kindOf(target.entity);
   // The default locale is requested without a tag, so its jobs have one key.
-  const home =
-    requested.locale !== undefined &&
-    requested.locale === (yield* defaultLocaleTag(db, requested.projectId))
-      ? { projectId: requested.projectId, draftId: requested.draftId }
-      : requested;
-  if (home.locale !== undefined && !kind.localized) {
+  const locale = yield* otherLocale(db, requested.projectId, requested.locale);
+  const home: ValueHome = {
+    projectId: requested.projectId,
+    draftId: requested.draftId,
+    ...(locale !== undefined ? { locale } : {}),
+  };
+  if (home.locale !== undefined && !localized(target.entity)) {
     const scope = yield* draftScopeOfJob(db, home.draftId);
     if (scope === undefined) return;
     const page = yield* pageOf(
@@ -197,6 +199,23 @@ export const requestGeneration = Effect.fn("generation.request")(function* (
   );
 });
 
+/** One request of `requestGenerations`. */
+export type GenerationRequest = { home: ValueHome; target: GenerationTarget };
+
+/**
+ * Requests many values at once, like `requestGeneration`. Each request writes and reaches a
+ * Durable Object: a few run at a time, not one after another.
+ */
+export const requestGenerations = (
+  db: Database,
+  requests: readonly GenerationRequest[],
+  options: { immediately?: boolean } = {},
+) =>
+  Effect.forEach(requests, ({ home, target }) => requestGeneration(db, home, target, options), {
+    concurrency: 8,
+    discard: true,
+  });
+
 /**
  * Generates an entity's value now, as the scope reads it, then requests the parent it made
  * stale. A summary is generated from the default locale's content, whatever the scope's locale.
@@ -208,7 +227,7 @@ export const generateNow = Effect.fn("generation.generateNow")(function* (
   entityId: string,
   startedAt: number = Date.now(),
 ) {
-  const scope = kindOf(entity).localized ? readScope : inDefaultLocale(readScope);
+  const scope = localized(entity) ? readScope : inDefaultLocale(readScope);
   const stale = yield* kindOf(entity).generate(db, scope, entityId, startedAt);
   if (stale) yield* requestGeneration(db, homeOf(scope, stale.projectId), stale.target);
 });

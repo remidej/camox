@@ -1794,8 +1794,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "localized_alts": {
-          "name": "localized_alts",
+        "alts_by_locale": {
+          "name": "alts_by_locale",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

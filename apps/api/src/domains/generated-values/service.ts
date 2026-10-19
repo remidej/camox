@@ -7,9 +7,11 @@ import { record } from "../../lib/journal";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
+import { defaultLocaleOf } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import {
   generatedValues,
+  LOCALIZED,
   type GeneratedEntity,
   type GeneratedType,
   type GeneratedValues,
@@ -46,37 +48,15 @@ export const homeOf = (scope: ReadScope, projectId: number): ValueHome => {
   return { projectId, draftId: draftIn(scope)?.id ?? null, ...(locale ? { locale } : {}) };
 };
 
-/** The tag of a project's default locale, as a scalar subquery: drafts never change it. */
-export const defaultLocaleOf = (projectId: SQL | AnySQLiteColumn | number): SQL =>
-  sql`(select ${locales.tag} from ${locales} where ${locales.projectId} = ${projectId} and ${locales.isDefault} = 1 and ${locales.draftId} is null)`;
-
-/** The tag of a project's default locale. */
-export const defaultLocaleTag = Effect.fn("generatedValues.defaultLocaleTag")(function* (
-  db: Database,
-  projectId: number,
-) {
-  const row = yield* Effect.promise(() =>
-    db
-      .select({ tag: locales.tag })
-      .from(locales)
-      .where(
-        and(eq(locales.projectId, projectId), eq(locales.isDefault, true), isNull(locales.draftId)),
-      )
-      .get(),
-  );
-  return row?.tag;
-});
-
 /**
  * The tag of the locale a value of `type` is stored in, as SQL: the locale named, or the
- * project's default locale. Summaries are only ever in the default locale.
+ * project's default locale. A value that isn't localized is only ever in the default locale.
  */
 const valueLocale = (
   type: GeneratedType,
   locale: string | undefined,
   projectId: SQL | AnySQLiteColumn | number,
-): SQL =>
-  type === "summary" || locale === undefined ? defaultLocaleOf(projectId) : sql`${locale}`;
+): SQL => (!LOCALIZED[type] || locale === undefined ? defaultLocaleOf(projectId) : sql`${locale}`);
 
 // D1 binds at most 100 parameters per statement.
 const CHUNK = 90;

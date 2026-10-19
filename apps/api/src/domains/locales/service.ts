@@ -10,7 +10,7 @@ import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { draftOf, inLocale, type Draft, type ReadScope } from "../drafts/scope";
 import { files } from "../files/schema";
-import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
+import { type GenerationTarget, requestGenerations } from "../generated-values/generation";
 import { homeOf, retagStatements as retagValueStatements } from "../generated-values/service";
 import { pages } from "../pages/schema";
 import { INITIAL_LOCALE, locales } from "./schema";
@@ -181,17 +181,16 @@ const requestLocaleGeneration = Effect.fn("locales.requestGeneration")(function*
   scope: Draft,
 ) {
   const home = homeOf(scope, scope.projectId);
-  const localized = yield* overlay.select(db, scope, pages, eq(pages.projectId, scope.projectId));
-  const shared = yield* overlay.select(db, scope, files, eq(files.projectId, scope.projectId));
+  const pageRows = yield* overlay.select(db, scope, pages, eq(pages.projectId, scope.projectId));
+  const fileRows = yield* overlay.select(db, scope, files, eq(files.projectId, scope.projectId));
   const targets: GenerationTarget[] = [
-    ...localized.map((row) => ({ entity: "page" as const, row })),
-    ...shared.map((row) => ({ entity: "file" as const, row })),
+    ...pageRows.map((row) => ({ entity: "page" as const, row })),
+    ...fileRows.map((row) => ({ entity: "file" as const, row })),
   ];
-  // Each request writes and reaches a Durable Object: a few at a time, not one after another.
-  yield* Effect.forEach(targets, (target) => requestGeneration(db, home, target), {
-    concurrency: 8,
-    discard: true,
-  });
+  yield* requestGenerations(
+    db,
+    targets.map((target) => ({ home, target })),
+  );
 });
 
 /** The tombstone a draft stores for a Live locale with this tag, whatever its case. */
