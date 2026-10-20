@@ -59,7 +59,12 @@ export async function openPage(
   document.body.innerHTML = '<div id="root"></div>';
   /** Each call to the GA4 global the server's scripts define. */
   const gtagCalls: unknown[][] = [];
-  Object.assign(window, { gtag: (...args: unknown[]) => gtagCalls.push(args) });
+  /** Each event captured through the PostHog global the server's scripts define. */
+  const posthogCalls: unknown[][] = [];
+  Object.assign(window, {
+    gtag: (...args: unknown[]) => gtagCalls.push(args),
+    posthog: { capture: (...args: unknown[]) => posthogCalls.push(args) },
+  });
   const queryClient = new QueryClient();
   const input = (pathname: string): PageRenderInput => ({
     // The Studio's frame opens the site's document, in the page's language.
@@ -221,6 +226,7 @@ export async function openPage(
     viewport: () => viewport() as unknown as Window,
     dataRequests,
     gtagCalls,
+    posthogCalls,
     scrolls,
     fragmentScrolls,
     studioScrolls,
