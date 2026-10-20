@@ -1,4 +1,5 @@
 import {
+  type AssistantMessage,
   type FauxContentBlock,
   fauxAssistantMessage,
   fauxProvider,
@@ -41,21 +42,46 @@ export const answerNext = (
 
 /**
  * Scripts the model's next answer, held until the returned function is called, as a model still
- * writing its answer.
+ * writing its answer. Stopping the run lets go of it too.
  */
-export const holdNextAnswer = (text: string) => {
+export const holdNextAnswer = (text: string) => hold(fauxAssistantMessage([fauxText(text)]));
+
+/**
+ * Scripts the model's next answer as a code mode call running `code`, held until the returned
+ * function is called.
+ */
+export const holdNextScript = (code: string) =>
+  hold(fauxAssistantMessage([fauxToolCall("codemode", { code })], { stopReason: "toolUse" }));
+
+const hold = (message: AssistantMessage) => {
   let release!: () => void;
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
   faux.appendResponses([
-    async () => {
-      await released;
-      return fauxAssistantMessage([fauxText(text)]);
+    async (_context, options) => {
+      // Once let go, the fake provider answers an aborted call as aborted.
+      await Promise.race([
+        released,
+        new Promise((resolve) => options?.signal?.addEventListener("abort", resolve)),
+      ]);
+      return message;
     },
   ]);
   return release;
 };
+
+/**
+ * Scripts the model's next answer as a failure: `retryable` like an overloaded provider, which Pi
+ * retries, or otherwise like a request the provider turned down, which ends the turn.
+ */
+export const failNext = ({ retryable = false }: { retryable?: boolean } = {}) =>
+  faux.appendResponses([
+    fauxAssistantMessage([], {
+      stopReason: "error",
+      errorMessage: retryable ? "Provider overloaded" : "Invalid request",
+    }),
+  ]);
 
 /**
  * Scripts the model's next answer as a code mode call running `code`, after `text` when given:
@@ -70,10 +96,15 @@ export const answerWithScript = (code: string, { text }: { text?: string } = {})
 };
 
 /**
- * What the model sees when it's called: the tools it's offered, its last tool's result, and the
- * output of the last script it ran, without code mode's header.
+ * What the model sees when it's called: the editors' messages, the tools it's offered, its last
+ * tool's result, and the output of the last script it ran, without code mode's header.
  */
-export type ModelRequest = { offeredTools: string[]; lastToolResult: string; scriptOutput: string };
+export type ModelRequest = {
+  editorMessages: string[];
+  offeredTools: string[];
+  lastToolResult: string;
+  scriptOutput: string;
+};
 
 /** Scripts the model's next answer from what it sees when it's called. */
 export const answerFrom = (answer: (request: ModelRequest) => string) =>
@@ -82,10 +113,19 @@ export const answerFrom = (answer: (request: ModelRequest) => string) =>
   ]);
 
 const requestOf = (messages: readonly Message[]): ModelRequest => {
+  const editorMessages: string[] = [];
   const offered = new Set<string>();
   let lastToolResult = "";
   let scriptOutput = "";
   for (const message of messages) {
+    if (message.role === "user") {
+      const { content } = message;
+      editorMessages.push(
+        typeof content === "string"
+          ? content
+          : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+      );
+    }
     if (message.role === "system") {
       for (const tool of message.toolsAdded ?? []) offered.add(tool.name);
       for (const tool of message.toolsRemoved ?? []) offered.delete(tool.name);
@@ -97,7 +137,7 @@ const requestOf = (messages: readonly Message[]): ModelRequest => {
       if (message.toolName === "codemode") scriptOutput = texts.slice(1).join("\n");
     }
   }
-  return { offeredTools: [...offered], lastToolResult, scriptOutput };
+  return { editorMessages, offeredTools: [...offered], lastToolResult, scriptOutput };
 };
 
 /** How many times threads called the model since the test started. */

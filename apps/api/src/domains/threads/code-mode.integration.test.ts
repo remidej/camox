@@ -15,7 +15,13 @@ import {
   answerWithScript,
   forgetThreadModel,
 } from "../../../test/thread-model";
-import { connectLiveThread, signIn, type ThreadClient } from "../../../test/threads";
+import {
+  connectLiveThread,
+  lastAnswer,
+  said,
+  signIn,
+  type ThreadClient,
+} from "../../../test/threads";
 import { runService } from "../../lib/run-service";
 import { member } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -75,7 +81,7 @@ const openThread = async ({ db, memberUser, project }: Website) =>
 /** Sends `text` in `thread`, returning what the thread shows once the agent's turn ended. */
 async function ask(thread: ThreadClient, text: string): Promise<ThreadView> {
   thread.send({ type: "send", operationId: crypto.randomUUID(), text });
-  await thread.until(() => !thread.view().working && thread.view().messages.length >= 2);
+  await thread.until(() => !thread.view().running && thread.view().messages.length >= 2);
   thread.close();
   return thread.view();
 }
@@ -123,9 +129,7 @@ describe("the agent reading the website through code mode", () => {
     const view = await ask(await openThread(website), "What can you read?");
 
     expect(offered).toEqual(["codemode"]);
-    expect(view.messages.at(-1)?.text.split(", ")).toEqual(
-      expect.arrayContaining(["listPages", "getPage"]),
-    );
+    expect(lastAnswer(view)?.split(", ")).toEqual(expect.arrayContaining(["listPages", "getPage"]));
   });
 
   it("shows only the turn's final message, not what the agent writes between scripts", async () => {
@@ -138,7 +142,7 @@ describe("the agent reading the website through code mode", () => {
 
     const view = await ask(await openThread(website), "Where's our price?");
 
-    expect(view.messages.map(({ from, text }) => ({ from, text }))).toEqual([
+    expect(said(view)).toEqual([
       { from: "editor", text: "Where's our price?" },
       { from: "agent", text: "It's on your pricing page." },
     ]);
@@ -159,7 +163,7 @@ describe("the agent reading the website through code mode", () => {
 
     const view = await ask(thread, "Which pages do we have?");
 
-    expect(JSON.parse(view.messages.at(-1)!.text)).toMatchObject({ code: "FORBIDDEN" });
+    expect(JSON.parse(lastAnswer(view)!)).toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("gives scripts no way to call a model", async () => {
@@ -169,6 +173,6 @@ describe("the agent reading the website through code mode", () => {
 
     const view = await ask(await openThread(website), "Classify our pages");
 
-    expect(view.messages.at(-1)?.text).toBe("undefined");
+    expect(lastAnswer(view)).toBe("undefined");
   });
 });

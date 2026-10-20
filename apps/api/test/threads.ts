@@ -1,9 +1,10 @@
 import {
-  EMPTY_THREAD_VIEW,
+  EMPTY_THREAD_STATE,
   reduceThreadEvents,
   type ThreadClientMessage,
   type ThreadServerMessage,
   type ThreadView,
+  threadViewOf,
 } from "@camox/api-contract/threads";
 import { env } from "cloudflare:workers";
 
@@ -39,6 +40,18 @@ export const requestLiveThread = (projectId: number, token: string | null) =>
     env,
   );
 
+/** Who each message in `view` is from, and its text for an editor's or the agent's. */
+export const said = (view: ThreadView) =>
+  view.messages.map((message) =>
+    "text" in message ? { from: message.from, text: message.text } : { from: message.from },
+  );
+
+/** The text of the last message in `view`, when it's the agent's. */
+export const lastAnswer = (view: ThreadView) => {
+  const message = view.messages.at(-1);
+  return message?.from === "agent" ? message.text : undefined;
+};
+
 /** A connected thread socket, folding what it receives with the studio's own module. */
 export type ThreadClient = {
   view: () => ThreadView;
@@ -46,6 +59,8 @@ export type ThreadClient = {
   send: (message: ThreadClientMessage) => void;
   /** Waits until `check` holds for what the socket received. */
   until: (check: () => boolean) => Promise<void>;
+  /** Waits until no run is going, and the view shows `messages` messages when given. */
+  untilIdle: (messages?: number) => Promise<void>;
   close: () => void;
 };
 
@@ -55,14 +70,15 @@ export async function connectLiveThread(projectId: number, token: string): Promi
   if (!socket) throw new Error(`The thread refused the connection (${response.status})`);
   socket.accept();
 
-  let view = EMPTY_THREAD_VIEW;
+  let state = EMPTY_THREAD_STATE;
+  const view = () => threadViewOf(state);
   const frames: ThreadServerMessage[] = [];
   const waiters: (() => void)[] = [];
   socket.addEventListener("message", (event) => {
     if (typeof event.data !== "string") return;
     const frame = JSON.parse(event.data) as ThreadServerMessage;
     frames.push(frame);
-    if (frame.type === "events") view = reduceThreadEvents(view, frame.events);
+    if (frame.type === "events") state = reduceThreadEvents(state, frame.events);
     for (const wake of waiters.splice(0)) wake();
   });
 
@@ -70,7 +86,7 @@ export async function connectLiveThread(projectId: number, token: string): Promi
     const deadline = Date.now() + 10_000;
     while (!check()) {
       if (Date.now() > deadline) {
-        throw new Error(`The thread never got there: ${JSON.stringify(view)}`);
+        throw new Error(`The thread never got there: ${JSON.stringify(view())}`);
       }
       await new Promise<void>((resolve) => {
         waiters.push(resolve);
@@ -83,10 +99,14 @@ export async function connectLiveThread(projectId: number, token: string): Promi
   await until(() => frames.some((frame) => frame.type === "events"));
 
   return {
-    view: () => view,
+    view,
     frames,
     send: (message) => socket.send(JSON.stringify(message)),
     until,
+    untilIdle: (messages) =>
+      until(
+        () => !view().running && (messages === undefined || view().messages.length === messages),
+      ),
     close: () => socket.close(),
   };
 }
