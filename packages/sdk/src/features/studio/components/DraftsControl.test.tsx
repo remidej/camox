@@ -30,7 +30,7 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { toast } = await import("@camox/ui/toaster");
-const { DraftsControl } = await import("./DraftsControl");
+const { DraftPicker, PendingChanges } = await import("./DraftsControl");
 const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
@@ -160,6 +160,10 @@ async function click(element: unknown) {
 
 const trigger = () =>
   window.document.querySelector('[data-slot="dropdown-menu-trigger"]') as unknown as HTMLElement;
+const pendingButton = () =>
+  [...window.document.querySelectorAll("button")].find((button) =>
+    /^Review \d|^No pending changes$/.test(button.textContent ?? ""),
+  ) as unknown as HTMLElement | undefined;
 const menu = () => window.document.querySelector('[role="menu"]');
 const menuItems = () =>
   [...window.document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map(
@@ -219,6 +223,11 @@ async function search(text: string) {
   });
 }
 
+const discardButton = () =>
+  [...window.document.querySelectorAll('[role="dialog"] button')].find(
+    (button) => button.textContent === "Discard draft",
+  );
+
 const sheetTitle = () =>
   window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
@@ -249,7 +258,8 @@ async function render(t: test.TestContext, at: string | null) {
         <StudioScopeProvider client={client} draftScope={draftScope}>
           <AuthContext.Provider value={auth}>
             <NavigationProvider navigate={(options) => void navigations.push(options)}>
-              <DraftsControl />
+              <DraftPicker />
+              <PendingChanges />
               <Palette />
             </NavigationProvider>
           </AuthContext.Provider>
@@ -282,11 +292,11 @@ function stallingApi(t: test.TestContext, stalled: string[]) {
   });
 }
 
-void test("on Live, reads Viewing Live before anything loads", async (t) => {
+void test("on Live, reads Live before anything loads", async (t) => {
   stallingApi(t, ["projects/getBySlug"]);
   await render(t, null);
 
-  assert.equal(trigger()?.textContent, "Viewing Live");
+  assert.equal(trigger()?.textContent, "Live");
 });
 
 void test("in a regular draft, shows nothing until the draft loads rather than a placeholder", async (t) => {
@@ -307,42 +317,59 @@ void test("the localhost studio reads Development draft before anything loads", 
   assert.equal(trigger()?.textContent, "Development draft");
 });
 
-void test("on Live, reads Viewing Live and says the first edit starts a draft", async (t) => {
+void test("on Live, reads Live, says the first edit starts a draft, and shows no pending changes", async (t) => {
   mockApi(t);
   await render(t, null);
 
-  assert.equal(trigger().textContent, "Viewing Live");
+  assert.equal(trigger().textContent, "Live");
+  assert.equal(pendingButton(), undefined);
   await click(trigger());
 
   assert.match(menu()?.textContent ?? "", /Live is read-only/);
   assert.match(menu()?.textContent ?? "", /first edit starts a new draft/);
-  assert.equal(itemNamed(/Review and publish/), undefined);
 });
 
-void test("in a named draft, reads only its name", async (t) => {
+void test("in a named draft, the picker reads its name and the button its pending changes", async (t) => {
   mockApi(t);
   await render(t, spring);
 
   assert.equal(trigger().textContent, "Spring campaign");
+  assert.equal(pendingButton()?.textContent, "Review 4 changes");
 });
 
-void test("in an unnamed draft, reads only its pending change count", async (t) => {
+void test("in an unnamed draft, the picker reads its creator and date", async (t) => {
   mockApi(t);
   await render(t, adas);
 
-  assert.equal(trigger().textContent, "1 pending change");
+  assert.equal(trigger().textContent, "Ada, Oct 13");
+  assert.equal(pendingButton()?.textContent, "Review 1 change");
 });
 
-void test("in a draft, the menu starts with Review and publish, counting the changes, and Discard draft, without repeating the name", async (t) => {
+void test("a draft without changes says it has no pending changes", async (t) => {
+  mockApi(t, (path) =>
+    path === "drafts/get" ? json({ ...drafts[0], changeCount: 0 }) : undefined,
+  );
+  await render(t, spring);
+
+  assert.equal(pendingButton()?.textContent, "No pending changes");
+});
+
+void test("in a draft, the picker offers only switching, not the draft's actions", async (t) => {
   mockApi(t);
   await render(t, spring);
   await click(trigger());
 
-  const [first, second] = menuItems();
-  assert.equal(first?.textContent, "Review 4 changes and publish");
-  assert.match(second?.textContent ?? "", /Discard draft…/);
-  const beforeSwitch = (menu()?.textContent ?? "").split("Switch to")[0];
-  assert.doesNotMatch(beforeSwitch, /Spring campaign/);
+  assert.doesNotMatch(menu()?.textContent ?? "", /Review|Discard|read-only/);
+});
+
+void test("the pending changes button opens the draft's review", async (t) => {
+  mockApi(t);
+  await render(t, spring);
+
+  await click(pendingButton());
+
+  assert.equal(sheetTitle(), "Spring campaign");
+  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Publish all/);
 });
 
 void test("lists Live with its last publisher and every open regular draft with its creator, age and change count", async (t) => {
@@ -387,9 +414,9 @@ void test("picking a draft or Live navigates there", async (t) => {
 void test("discards the draft only after a second confirmation, then switches to Live", async (t) => {
   const calls = mockApi(t);
   await render(t, spring);
-  await click(trigger());
+  await click(pendingButton());
 
-  await click(itemNamed(/Discard draft…/));
+  await click(discardButton());
   assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
   const confirm = window.document.querySelector('[role="alertdialog"]');
   await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
@@ -420,12 +447,11 @@ void test("the localhost studio shows only its development draft, with nothing t
   await render(t, spring);
 
   assert.equal(trigger().textContent, "Development draft");
+  assert.equal(pendingButton()?.textContent, "Review 2 changes");
   await click(trigger());
 
-  assert.deepEqual(
-    menuItems().map((item) => item.textContent),
-    ["Review 2 changes and publish", "Discard draft…"],
-  );
+  assert.deepEqual(menuItems(), []);
+  assert.match(menu()?.textContent ?? "", /works in your development draft/);
   assert.doesNotMatch(menu()?.textContent ?? "", /Switch to|Live|Spring campaign/);
   assert.equal(calls.filter((call) => call.path === "drafts/list").length, 0);
   assert.deepEqual([...new Set(calls.map((call) => call.draft))], [DEVELOPMENT_DRAFT]);
@@ -435,9 +461,9 @@ void test("the localhost studio stays in its development draft after discarding 
   const shown = t.mock.method(toast, "success", () => "toast");
   const calls = devMode(t);
   await render(t, null);
-  await click(trigger());
+  await click(pendingButton());
 
-  await click(itemNamed(/Discard draft…/));
+  await click(discardButton());
   const confirm = window.document.querySelector('[role="alertdialog"]');
   await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
 

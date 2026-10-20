@@ -202,18 +202,20 @@ void test("names the locale viewed, and lists the project's locales, the default
   );
 });
 
+const translatingSpinner = () => trigger().querySelector('[aria-label^="Translating"]');
+
 void test("shows the draft translating while it has pending translations, and clears once they finish", async (t) => {
   mockApi(t, [en, de]);
   translatingLocales = ["de"];
   const { client } = await render(t, "/pricing", [en, de], "d1");
 
-  assert.match(trigger().textContent ?? "", /translating…/i);
+  assert.equal(translatingSpinner()?.getAttribute("aria-label"), "Translating into German (de)…");
 
   // The jobs finish: the API's realtime invalidation refreshes the draft's summary.
   translatingLocales = [];
   await React.act(() => client.invalidateQueries());
   await settle();
-  assert.doesNotMatch(trigger().textContent ?? "", /translating/i);
+  assert.equal(translatingSpinner(), null);
 });
 
 void test("shows nothing translating on Live", async (t) => {
@@ -221,7 +223,7 @@ void test("shows nothing translating on Live", async (t) => {
   translatingLocales = ["de"];
   await render(t, "/pricing", [en, de]);
 
-  assert.doesNotMatch(trigger().textContent ?? "", /translating/i);
+  assert.equal(translatingSpinner(), null);
   assert.equal(calls.filter((call) => call.path === "drafts/get").length, 0);
 });
 

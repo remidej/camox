@@ -11,7 +11,7 @@ import type { ShownRecordPage } from "../../preview/pageRecord";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
-import { DraftsControl } from "./DraftsControl";
+import { DraftPicker, PendingChanges } from "./DraftsControl";
 import { LocalePicker } from "./LocalePicker";
 import { ProjectMenu } from "./ProjectMenu";
 import { UserButton } from "./UserButton";
@@ -69,8 +69,10 @@ const Navbar = ({
   return (
     <nav className="bg-background relative flex items-center justify-between gap-4 border-b-2 px-2 py-2">
       <div className="flex flex-row gap-2">
-        <div className="flew-row flex gap-1">
+        <div className="flex items-center gap-1">
           <ProjectMenu />
+          <DraftPicker />
+          <LocalePicker recordPage={recordPage} />
         </div>
         <ul className="flex items-center gap-1">
           {getNavbarLinks().map((link, index) => {
@@ -104,8 +106,7 @@ const Navbar = ({
         </ul>
       </div>
       <div className="flex items-center gap-2">
-        <LocalePicker recordPage={recordPage} />
-        <DraftsControl />
+        <PendingChanges />
         <UserButton />
       </div>
     </nav>
