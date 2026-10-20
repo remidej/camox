@@ -4,10 +4,16 @@ import {
   threadClientMessageSchema,
   threadSenderSchema,
   type ThreadClientMessage,
+  type ThreadSender,
   type ThreadServerMessage,
 } from "@camox/api-contract/threads";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
-import { type AgentEventStream, createRegistry, Harness } from "@earendil-works/pi-durable";
+import {
+  type AgentEventStream,
+  createRegistry,
+  Harness,
+  LiveDoc,
+} from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { PiHarness } from "agents/harness/pi";
 import { type Connection, type ConnectionContext, Lifecycle } from "agents/lifecycle";
@@ -16,9 +22,11 @@ import { DurableObject } from "cloudflare:workers";
 
 import {
   studioAgentTools,
+  type ThreadActor,
   type ThreadIdentity,
   threadIdentitySchema,
   threadToolDispatch,
+  type ToolInvocation,
 } from "../domains/threads/tools";
 import { threadModel } from "../lib/thread-model";
 import type { Bindings } from "../types";
@@ -40,10 +48,19 @@ editors of a website in the Camox studio, where they message you in a thread.
 Answer in the language the editor writes in. Keep answers short and to the point, formatted in \
 Markdown when it helps.
 
-You read the website's content by running scripts with the codemode tool, which call the content \
-tools. Read before you answer: ground every answer in the website's actual content.
+You read and change the website's content by running scripts with the codemode tool, which call \
+the content tools. Read before you answer or change anything: ground your work in the website's \
+actual content. Make many changes in one script when you can.
 
 End every turn with a short summary: what you changed, and what's left for the editor to check.`;
+
+/** Where the agent works: the thread's draft, or Live, which is read-only. */
+const workplace = (identity: ThreadIdentity | undefined) =>
+  identity?.draftId
+    ? `You work in a draft: every change you make lands in it, never on Live, and editors see \
+it as you make it. You can't publish or discard the draft: an editor reviews it and decides.`
+    : `The editor is viewing Live, which is read-only: you can read the website, but not change \
+it from here.`;
 
 const parseJson = (raw: string | null): unknown => {
   if (raw === null) return undefined;
@@ -59,6 +76,11 @@ const parseClientMessage = (raw: string): ThreadClientMessage | undefined => {
   const parsed = threadClientMessageSchema.safeParse(parseJson(raw));
   return parsed.success ? parsed.data : undefined;
 };
+
+/** Whether a connection the API authorized for `named` reaches the thread `known` describes. */
+const belongsTo = (known: ThreadIdentity, named: ThreadIdentity) =>
+  known.projectId === named.projectId &&
+  (known.draftId !== null ? named.draftId === known.draftId : named.ownerId === known.ownerId);
 
 const send = (socket: WebSocket, message: ThreadServerMessage) => {
   if (socket.readyState !== OPEN) return;
@@ -101,11 +123,18 @@ export class Thread extends DurableObject<Bindings> {
       const dispatch = threadToolDispatch(
         this.env,
         (promise) => this.ctx.waitUntil(promise),
-        () => this.#identity(),
+        (invocation) => this.#actor(invocation),
       );
       this.#registry.install({
         name: "camox",
-        sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
+        sections: [
+          { key: "preamble", render: () => PREAMBLE, tag: false },
+          {
+            key: "workplace",
+            render: async () => workplace(await this.#knownIdentity()),
+            tag: false,
+          },
+        ],
         tools: await studioAgentTools(dispatch),
       });
       return Harness.open(
@@ -154,18 +183,14 @@ export class Thread extends DurableObject<Bindings> {
       connection.close(1008, "Unauthorized");
       return;
     }
-    // A thread's project and owner never change, so the first connection records them. A Live
-    // thread only ever reaches its owner, so a connection naming someone else is refused.
-    // (#409 makes a run act as the editor whose message started it.)
-    const known = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
-    if (!known.success) {
+    // The first connection records what the thread belongs to. A draft's thread reaches whoever
+    // the API let into that draft; a Live thread only ever reaches its owner.
+    const known = await this.#knownIdentity();
+    if (!known) {
       await this.ctx.storage.put(IDENTITY_KEY, identity.data);
-    } else if (
-      known.data.projectId !== identity.data.projectId ||
-      known.data.ownerId !== identity.data.ownerId
-    ) {
-      console.error("A thread refused a connection naming another project or owner", {
-        known: known.data,
+    } else if (!belongsTo(known, identity.data)) {
+      console.error("A thread refused a connection naming another project, draft or owner", {
+        known,
         named: identity.data,
       });
       connection.close(1008, "Unauthorized");
@@ -175,11 +200,45 @@ export class Thread extends DurableObject<Bindings> {
     await this.#watch(connection);
   }
 
-  /** Who the thread's tool calls act as, in which project. */
-  async #identity(): Promise<ThreadIdentity> {
-    const identity = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
-    if (!identity.success) throw new Error("The thread doesn't know its project and owner yet");
-    return identity.data;
+  /** What the thread belongs to, once its first connection recorded it. */
+  async #knownIdentity(): Promise<ThreadIdentity | undefined> {
+    const known = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
+    return known.success ? known.data : undefined;
+  }
+
+  /**
+   * Who a tool call acts as, and where: the editor whose message started the run, whoever steers
+   * it since, in the thread's draft, or on Live for a Live thread.
+   */
+  async #actor(invocation: ToolInvocation): Promise<ThreadActor> {
+    const identity = await this.#knownIdentity();
+    if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
+    const starter = await this.#runStarter(invocation);
+    return { projectId: identity.projectId, draftId: identity.draftId, userId: starter.id };
+  }
+
+  /** The sender of the message that started the run a tool call is part of. */
+  async #runStarter({ api, context }: ToolInvocation): Promise<ThreadSender> {
+    // The run's first input is the message that started it, and its entry records its sender.
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const started = live?.run?.inputs[0];
+    const pi = await this.harness.pi();
+    const submission = started && (await pi.submission(started, context));
+    const entryId = submission ? (await submission.status(context)).entry : undefined;
+    const conversation = await pi.conversation(api.conversationId, context);
+    const found =
+      entryId &&
+      (await conversation?.entries(
+        { minEntryId: entryId, maxEntryId: entryId },
+        1,
+        undefined,
+        context,
+      ));
+    const entry = found ? found.items[0] : undefined;
+    if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
+      throw new Error("The thread's run wasn't started by an editor's message");
+    }
+    return entry.data;
   }
 
   async #watch(socket: WebSocket) {

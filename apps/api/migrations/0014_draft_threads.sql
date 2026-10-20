@@ -1,0 +1,1 @@
+ALTER TABLE `drafts` ADD `thread_id` text;
