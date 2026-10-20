@@ -6,7 +6,12 @@ import { createRequestContext, type RecordLookup } from "../../core/requestConte
 
 /** A page served on Live, as the sitemap and llms.txt list it. */
 export interface LivePage {
-  /** Its path, without the runtime base path. */
+  /**
+   * Names the page whatever its locale, so its localizations share it: a curated page's id, a
+   * singleton's layout, a record page's record, or another derived page's path.
+   */
+  key: string;
+  /** Its path in its locale, without its locale's prefix or the runtime base path. */
   fullPath: string;
   layoutId: string;
   /**
@@ -22,7 +27,7 @@ export interface LivePage {
 }
 
 /** A curated page, as the API's page list returns it. */
-interface ListedPage {
+export interface ListedPage {
   id: string;
   nickname: string;
   fullPath: string;
@@ -54,6 +59,7 @@ export async function listLivePages({
     if (destination.kind === "singleton") {
       const layout = layouts.find(({ _internal }) => _internal.id === destination.layoutId)!;
       return {
+        key: destination.key,
         fullPath: destination.fullPath,
         layoutId: destination.layoutId,
         title: layout._internal.title,
@@ -62,6 +68,7 @@ export async function listLivePages({
     }
     const page = pagesById.get(destination.pageId)!;
     return {
+      key: destination.key,
       fullPath: page.fullPath,
       layoutId: page.layoutId,
       // A generated meta title is null until generation runs.
@@ -81,6 +88,9 @@ export async function listLivePages({
           throw new RouteDiscoveryError(error);
         });
         return found.map((page): LivePage => ({
+          key: page.recordId
+            ? `record:${layout._internal.id}:${page.recordId}`
+            : `derived:${page.path}`,
           fullPath: page.path,
           layoutId: layout._internal.id,
           title: page.label || page.path,
