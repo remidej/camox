@@ -393,33 +393,34 @@ function CanvasWorkspace({
   const snapTargets = canvasSnapTargets(items);
   const snapRingRef = React.useRef<HTMLDivElement>(null);
   const snapFlash = React.useRef<Animation>(null);
-  const { viewportRef, contentRef, flyTo, mirrorCamera, keepInView, fitAll } = useCanvasCamera(
-    workspaceKey,
-    snapTargets.find(({ key }) => key === selectedKey),
-    {
-      targets: snapTargets,
-      width,
-      onSelect: (key) => {
-        const block = blocksByKey.get(key);
-        if (block) return selectBlock(block);
-        const pathname = pageSlots.get(key)?.pathname;
-        if (pathname) selectPage(pathname);
+  const { viewportRef, contentRef, flyTo, mirrorCamera, keepInView, reveal, fitAll } =
+    useCanvasCamera(
+      workspaceKey,
+      snapTargets.find(({ key }) => key === selectedKey),
+      {
+        targets: snapTargets,
+        width,
+        onSelect: (key) => {
+          const block = blocksByKey.get(key);
+          if (block) return selectBlock(block);
+          const pathname = pageSlots.get(key)?.pathname;
+          if (pathname) selectPage(pathname);
+        },
+        selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
+        onDeselect: () => selectPage(localized(STUDIO_CANVAS_PATH)),
+        // The camera snapped onto an item from a scroll, swipe or zoom: flash a
+        // ring around the viewport so the snap reads as locking onto it.
+        onSnap: () => {
+          snapFlash.current =
+            snapRingRef.current?.animate(SNAP_FLASH_KEYFRAMES, SNAP_FLASH_TIMING) ?? null;
+        },
+        // The flash returns as the zoom springs back to the snap.
+        onSnapStretched: () => snapFlash.current?.cancel(),
       },
-      selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
-      onDeselect: () => selectPage(localized(STUDIO_CANVAS_PATH)),
-      // The camera snapped onto an item from a scroll, swipe or zoom: flash a
-      // ring around the viewport so the snap reads as locking onto it.
-      onSnap: () => {
-        snapFlash.current =
-          snapRingRef.current?.animate(SNAP_FLASH_KEYFRAMES, SNAP_FLASH_TIMING) ?? null;
-      },
-      // The flash returns as the zoom springs back to the snap.
-      onSnapStretched: () => snapFlash.current?.cancel(),
-    },
-  );
+    );
   const workspace = React.useMemo(
-    () => ({ workspaceKey, mirrorCamera }),
-    [workspaceKey, mirrorCamera],
+    () => ({ workspaceKey, mirrorCamera, reveal }),
+    [workspaceKey, mirrorCamera, reveal],
   );
   // A collapsing marker's area may start off-screen. Its vertical bar should take
   // the place of the marker's visible part, so pan before the collapse paints.

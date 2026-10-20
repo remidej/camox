@@ -262,7 +262,9 @@ void test("artifacts in the studio follow the Canvas", async () => {
 void test("artifacts on the Canvas know they are on the Canvas", async () => {
   previewStore.send({ type: "showCanvas" });
   const { artifacts, unmount } = await mountInStudio(({ children }) => (
-    <CanvasWorkspaceContext value={{ workspaceKey: "test", mirrorCamera: () => () => {} }}>
+    <CanvasWorkspaceContext
+      value={{ workspaceKey: "test", mirrorCamera: () => () => {}, reveal: () => {} }}
+    >
       <CompleteBlockEditingRuntimeProvider>{children}</CompleteBlockEditingRuntimeProvider>
     </CanvasWorkspaceContext>
   ));

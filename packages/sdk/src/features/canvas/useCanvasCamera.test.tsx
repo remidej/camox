@@ -1238,6 +1238,126 @@ void test("keepInView pans only to bring a world x to a screen x", async () => {
   }
 });
 
+void test("reveal pans vertically to an element in a frame, only when it mostly doesn't show", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  let resize = () => {};
+  const frames: ((time: number) => void)[] = [];
+  let time = 0;
+  const step = () => frames.shift()?.((time += 16));
+  const settle = () => {
+    for (let i = 0; i < 1000 && frames.length; i++) step();
+  };
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: (time: number) => void) => frames.push(callback),
+    cancelAnimationFrame: () => {},
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 900, height: 800 };
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("reveal", undefined, {
+      targets: [{ key: "page:1", left: 0, width: 1366 }],
+      width: 1366,
+      onSelect: () => {},
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 1366 },
+      offsetHeight: { get: () => 8000 },
+    });
+    resize();
+    const camera = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      y: parseFloat(viewport.style.getPropertyValue("--canvas-y")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    // A frame at the top of the row, which the camera moves and scales.
+    const frameElement = { getBoundingClientRect: () => ({ top: camera().y }) };
+    const blockAt = (top: number, height: number) =>
+      ({
+        ownerDocument: { defaultView: { frameElement } },
+        getBoundingClientRect: () => ({ top, height }),
+      }) as unknown as Element;
+    const screen = (top: number, height: number) => {
+      const { y, scale } = camera();
+      return { top: y + top * scale, bottom: y + (top + height) * scale };
+    };
+
+    controls.flyTo("page:1");
+    settle();
+    const fitted = camera();
+    const shown = blockAt(200, 600);
+    assert.ok(screen(200, 600).bottom < size.height, "the block shows at page fit");
+    controls.reveal(shown, true);
+    assert.deepEqual(camera(), fitted, "a block that shows keeps the camera");
+
+    const below = blockAt(5000, 600);
+    controls.reveal(below, true);
+    const revealed = camera();
+    assert.equal(revealed.x, fitted.x, "pans only vertically");
+    assert.equal(revealed.scale, fitted.scale, "keeps the zoom");
+    const { top, bottom } = screen(5000, 600);
+    assert.ok(top >= 0 && bottom <= size.height, "the block now shows in full");
+
+    // A smooth reveal eases to the same place, over more than a few frames.
+    controls.reveal(shown, true);
+    const start = camera().y;
+    controls.reveal(below);
+    for (let i = 0; i < 6; i++) step();
+    const early = camera().y;
+    assert.ok(
+      early < start && (start - early) / (start - revealed.y) < 0.25,
+      "a smooth reveal starts gently",
+    );
+    settle();
+    assert.ok(Math.abs(camera().y - revealed.y) < 0.1, "a smooth reveal lands where it pans");
+
+    // A flight in progress keeps its course.
+    controls.reveal(below, true);
+    controls.flyTo("page:1");
+    controls.reveal(below, true);
+    settle();
+    assert.deepEqual(camera(), fitted, "reveal yields to a flight");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
 void test("canvas gestures own the camera, reveal keyboard controls, and clean up animation", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas" });
   const callbacks = new Map<number, FrameRequestCallback>();
