@@ -3,6 +3,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
 
+import { TextEditorsContext } from "../../core/hooks/textEditors";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Overlays } from "../preview/components/Overlays";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
@@ -139,32 +140,34 @@ function PageFrame({
                 createPortal(
                   <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
                     <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                      <div
-                        style={{ display: "contents" }}
-                        onPointerDownCapture={activate}
-                        onFocusCapture={activate}
-                        onClickCapture={activate}
-                        // Selecting/editing must not navigate the iframe away from its portal.
-                        onClick={preventLinkNavigation}
-                      >
-                        {input.derived ? (
-                          <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
-                        ) : (
-                          <EditablePageContent />
-                        )}
-                        <PreviewFrameEffects />
-                        <Overlays
-                          frame={iframe}
-                          owner={owner}
-                          canAddBlocks={owner?.kind === "page"}
-                        />
-                        {/* This commits only after onLoad and the portal's content resolves. */}
-                        <PageContentCommitted
-                          selected={selected}
-                          frame={iframeRef}
-                          viewportHeight={viewportHeight}
-                        />
-                      </div>
+                      <TextEditorsContext value={selected}>
+                        <div
+                          style={{ display: "contents" }}
+                          onPointerDownCapture={activate}
+                          onFocusCapture={activate}
+                          onClickCapture={activate}
+                          // Selecting/editing must not navigate the iframe away from its portal.
+                          onClick={preventLinkNavigation}
+                        >
+                          {input.derived ? (
+                            <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
+                          ) : (
+                            <EditablePageContent />
+                          )}
+                          <PreviewFrameEffects />
+                          <Overlays
+                            frame={iframe}
+                            owner={owner}
+                            canAddBlocks={owner?.kind === "page"}
+                          />
+                          {/* This commits only after onLoad and the portal's content resolves. */}
+                          <PageContentCommitted
+                            selected={selected}
+                            frame={iframeRef}
+                            viewportHeight={viewportHeight}
+                          />
+                        </div>
+                      </TextEditorsContext>
                     </React.Suspense>
                   </React.Activity>,
                   mount,

@@ -41,6 +41,7 @@ import {
   resolveAssetValue,
 } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
+import { TextEditorsContext } from "../hooks/textEditors.ts";
 import { useArtifactHost, useInitialArtifactData } from "../hooks/useArtifactHost";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
@@ -860,6 +861,7 @@ export function createEditableBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const textEditor = React.use(TextEditorsContext);
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
     const pages = useEditorLinkPages();
@@ -982,22 +984,15 @@ export function createEditableBlock<
       ? repeaterContext.itemSchema?.[name]
       : (blockContext.sourceSchema ?? typeboxSchema.properties)[name];
 
+    const text = () =>
+      markdownToReactNodes(fieldValue, {
+        pages,
+        fallbackHref: currentPathname,
+        textStyle,
+        linkStyle,
+      });
     if (!isContentEditable) {
-      return (
-        <>
-          {children(
-            {
-              children: markdownToReactNodes(fieldValue, {
-                pages,
-                fallbackHref: currentPathname,
-                textStyle,
-                linkStyle,
-              }),
-            } satisfies FieldRenderProps,
-            fieldData,
-          )}
-        </>
-      );
+      return <>{children({ children: text() } satisfies FieldRenderProps, fieldData)}</>;
     }
 
     const fieldProps = {
@@ -1008,7 +1003,9 @@ export function createEditableBlock<
       onMouseEnter: handleMouseEnter,
       onMouseLeave: handleMouseLeave,
       onClickCapture: selectField,
-      children: (
+      children: !textEditor ? (
+        text()
+      ) : (
         <InlineLexicalEditor
           textStyle={textStyle}
           linkStyle={linkStyle}

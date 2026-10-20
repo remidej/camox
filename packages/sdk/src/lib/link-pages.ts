@@ -54,6 +54,14 @@ export function linkPagesIn(
 }
 
 /**
+ * Selects the page list as is. Selected values keep their identity while their content does, so
+ * fields don't re-render when a frame hydrates an equal list.
+ */
+const samePageList = (pages: Page[]) => pages;
+/** Selects only that a read loaded, so fields don't re-render as its value changes. */
+const isLoaded = () => true;
+
+/**
  * The pages a link can lead to in the locale viewed (see `linkablePages`), undefined until they
  * load. A site render seeds them, so by default the project they wait for is read from the cache
  * only: an anonymous visitor may not read the project, so fetching it would fail. The studio's
@@ -65,13 +73,18 @@ export function useLinkablePages(
 ): { locale: LocaleView; pages: Page[] | undefined; fallbackPages: Page[] | undefined } {
   const { locale } = useViewLocale();
   const fallback = linkFallbackLocale(locale);
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }), {
+  const { data: projectLoaded } = useReadQuery(reads.project({ slug: projectSlug }), {
     enabled: fetchProject,
+    select: isLoaded,
   });
-  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), { enabled: !!project });
+  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
+    enabled: !!projectLoaded,
+    select: samePageList,
+  });
   const { data: fallbackPages } = useReadQuery(reads.pageList({ projectSlug }), {
-    enabled: !!project && fallback !== null,
+    enabled: !!projectLoaded && fallback !== null,
     locale: fallback ?? undefined,
+    select: samePageList,
   });
   return { locale, pages, fallbackPages: fallback ? fallbackPages : undefined };
 }

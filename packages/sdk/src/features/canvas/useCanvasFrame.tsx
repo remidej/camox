@@ -59,11 +59,30 @@ export function useCanvasFrame({
       setFailure(toError(error));
     }
   }, [previewDocument, href]);
+  // Resting suspends the frame's sizing rather than ending it, so the frame
+  // doesn't re-measure all of its content each time it comes near again.
+  const restingRef = React.useRef(resting);
+  const sizing = React.useRef<ReturnType<typeof observeCanvasDocument>>(null);
+  React.useLayoutEffect(() => {
+    restingRef.current = resting;
+    if (!resting) sizing.current?.resume();
+  }, [resting]);
   React.useLayoutEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe || !mount || resting) return;
-    return observeCanvasDocument(iframe, mount, viewportHeight, fit);
-  }, [mount, viewportHeight, width, fit, resting]);
+    if (!iframe || !mount) return;
+    const stop = observeCanvasDocument(
+      iframe,
+      mount,
+      viewportHeight,
+      fit,
+      () => restingRef.current,
+    );
+    sizing.current = stop;
+    return () => {
+      stop();
+      sizing.current = null;
+    };
+  }, [mount, viewportHeight, width, fit]);
   React.useEffect(() => {
     if (!mount || live) return;
     return pauseCanvasDocument(mount.ownerDocument);

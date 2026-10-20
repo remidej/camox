@@ -345,7 +345,9 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   mutate("attributes", doc.documentElement, "data-camox-paused");
   assert.equal(queued, undefined, "pausing the frame does not re-measure it");
   mutate("attributes", animated, "class");
-  assert.notEqual(queued, undefined, "other content attributes re-measure");
+  assert.equal(queued, undefined, "nor do classes blocks toggle in their content");
+  mutate("childList", root);
+  assert.notEqual(queued, undefined, "new content re-measures");
   flush();
   mutate("attributes", doc.body, "style");
   assert.notEqual(queued, undefined, "the document's own inline styles re-measure");
