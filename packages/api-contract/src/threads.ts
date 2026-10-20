@@ -37,8 +37,20 @@ export type ThreadMessage =
   /** In place of the agent's message, for a turn an editor stopped: `sender` stopped it. */
   | { id: string; from: "stopped"; sender: ThreadSender };
 
+/** Where a Live thread stands with drafts, beside its transcript. */
+type ThreadDrafts = {
+  /**
+   * The draft this Live thread started with its first write, whose thread it became. The
+   * editor's studio enters the draft with the thread; their other tabs on Live move to a fresh
+   * Live thread.
+   */
+  startedDraft?: string;
+  /** The draft the editor's previous Live thread continued in, for a fresh Live thread. */
+  continuedIn?: string;
+};
+
 /** Everything the studio shows for a thread. */
-export type ThreadView = {
+export type ThreadView = ThreadDrafts & {
   messages: readonly ThreadMessage[];
   /** Whether a run is going: the agent is working on a turn, and stopping would end it. */
   running: boolean;
@@ -51,7 +63,7 @@ export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
  * and whether a run is going. The studio and the tests fold Pi's events into this, and derive
  * the view from it with `threadViewOf`, so a snapshot and the events that led to it show the same.
  */
-export type ThreadState = { steps: readonly ThreadStep[]; running: boolean };
+export type ThreadState = ThreadDrafts & { steps: readonly ThreadStep[]; running: boolean };
 
 export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
 
@@ -89,6 +101,10 @@ export type ThreadServerMessage =
   | { type: "events"; events: readonly AgentEvent[] }
   /** The thread recorded the message sent with this operation id (once, however often sent). */
   | { type: "accepted"; operationId: string }
+  /** This Live thread started a draft with its first write, and became that draft's thread. */
+  | { type: "started-draft"; draftId: string }
+  /** The editor's previous Live thread continued in this draft: this one is fresh. */
+  | { type: "continued"; draftId: string }
   | { type: "error"; operationId?: string; message: string };
 
 const textOf = (content: Message["content"]) =>
@@ -137,7 +153,7 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
  * run is over, or a later message started another run after its last model call came back
  * unfinished. While Pi retries a failed call, the run goes on, so the turn shows as working.
  */
-export function threadViewOf({ steps, running }: ThreadState): ThreadView {
+export function threadViewOf({ steps, running, ...drafts }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
   // The latest editor's message of a turn still waiting for the agent's message.
   let waiting: string | undefined;
@@ -183,7 +199,7 @@ export function threadViewOf({ steps, running }: ThreadState): ThreadView {
     }
   }
   if (!running) fail();
-  return { messages, running };
+  return { ...drafts, messages, running };
 }
 
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {
@@ -197,6 +213,7 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
   switch (event.type) {
     case "snapshot":
       return {
+        ...state,
         steps: event.entries.flatMap((entry) => threadStepOf(entry) ?? []),
         running: event.run !== undefined,
       };
@@ -218,3 +235,17 @@ export const reduceThreadEvents = (
   state: ThreadState,
   events: readonly AgentEvent[],
 ): ThreadState => events.reduce(reduceThreadState, state);
+
+/** Folds what the thread sent over its socket into the thread's state. */
+export function reduceThreadFrame(state: ThreadState, frame: ThreadServerMessage): ThreadState {
+  switch (frame.type) {
+    case "events":
+      return reduceThreadEvents(state, frame.events);
+    case "started-draft":
+      return { ...state, startedDraft: frame.draftId };
+    case "continued":
+      return { ...state, continuedIn: frame.draftId };
+    default:
+      return state;
+  }
+}

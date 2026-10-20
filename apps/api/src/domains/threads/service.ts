@@ -9,7 +9,10 @@ import { drafts } from "../drafts/schema";
 import type { DraftRequest } from "../drafts/scope";
 import { liveThreads } from "./schema";
 
-/** The id of an editor's current Live thread in a project, starting one the first time. */
+/**
+ * An editor's current Live thread in a project, starting one the first time: its id, and the
+ * draft their previous Live thread continued in, if any.
+ */
 export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
   db: Database,
   projectId: number,
@@ -23,13 +26,37 @@ export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
   );
   const thread = yield* Effect.promise(() =>
     db
-      .select({ threadId: liveThreads.threadId })
+      .select({ threadId: liveThreads.threadId, continuedIn: liveThreads.continuedIn })
       .from(liveThreads)
       .where(and(eq(liveThreads.projectId, projectId), eq(liveThreads.userId, userId)))
       .get(),
   );
   if (!thread) return yield* Effect.die(new Error("The Live thread vanished as it was started"));
-  return thread.threadId;
+  return thread;
+});
+
+/**
+ * Makes an editor's Live thread the thread of the draft its first write started: the draft
+ * records the thread, and the editor's next Live thread starts fresh, continued in the draft.
+ * Nothing is copied. Repeating it changes nothing.
+ */
+export const moveLiveThreadIntoDraft = Effect.fn("moveLiveThreadIntoDraft")(function* (
+  db: Database,
+  move: { threadId: string; draftId: string },
+) {
+  const { threadId, draftId } = move;
+  yield* Effect.promise(() =>
+    db.batch([
+      db
+        .update(drafts)
+        .set({ threadId })
+        .where(and(eq(drafts.id, draftId), isNull(drafts.threadId))),
+      db
+        .update(liveThreads)
+        .set({ threadId: generateUuidv7(), createdAt: Date.now(), continuedIn: draftId })
+        .where(eq(liveThreads.threadId, threadId)),
+    ]),
+  );
 });
 
 /**

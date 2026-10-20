@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   EDITOR_MESSAGE_ENTRY,
   isSender,
@@ -28,8 +29,11 @@ import {
 } from "agents/lifecycle";
 import { type WebSocketMessage, WebSockets } from "agents/websockets";
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 import { z } from "zod";
 
+import { createDb } from "../db";
+import { moveLiveThreadIntoDraft } from "../domains/threads/service";
 import {
   studioAgentTools,
   type ThreadActor,
@@ -47,13 +51,29 @@ export const THREAD_SENDER_HEADER = "x-camox-thread-sender";
 /** The header the API sets on a connection it forwards, naming the thread's project and owner. */
 export const THREAD_IDENTITY_HEADER = "x-camox-thread-identity";
 
+/**
+ * The header the API sets on a connection to a fresh Live thread, naming the draft the editor's
+ * previous Live thread continued in.
+ */
+export const THREAD_CONTINUED_HEADER = "x-camox-thread-continued-in";
+
 const IDENTITY_KEY = "camox.identity";
+
+/** The id of the draft a Live thread's first write starts, set aside before it's created. */
+const DRAFT_TO_START_KEY = "camox.draft-to-start";
 
 /** `WebSocket.OPEN`, which isn't defined on every runtime's global. */
 const OPEN = 1;
 
-/** What a connection carries: who sent it, and what the API authorized it to reach. */
-const participantSchema = z.object({ sender: threadSenderSchema, identity: threadIdentitySchema });
+/**
+ * What a connection carries: who sent it, what the API authorized it to reach, and for a fresh
+ * Live thread, the draft the editor's previous one continued in.
+ */
+const participantSchema = z.object({
+  sender: threadSenderSchema,
+  identity: threadIdentitySchema,
+  continuedIn: z.string().optional(),
+});
 type Participant = z.infer<typeof participantSchema>;
 
 /** What a thread nobody messaged yet shows: no messages, without opening Pi, which would store. */
@@ -90,13 +110,14 @@ actual content. Make many changes in one script when you can.
 
 End every turn with a short summary: what you changed, and what's left for the editor to check.`;
 
-/** Where the agent works: the thread's draft, or Live, which is read-only. */
+/** Where the agent works: the thread's draft, or Live, which is read-only until its first change. */
 const workplace = (identity: ThreadIdentity | undefined) =>
   identity?.draftId
     ? `You work in a draft: every change you make lands in it, never on Live, and editors see \
 it as you make it. You can't publish or discard the draft: an editor reviews it and decides.`
-    : `The editor is viewing Live, which is read-only: you can read the website, but not change \
-it from here.`;
+    : `The editor is viewing Live, which is read-only. Your first change starts a draft, where it \
+and every later change lands, never on Live; the editor's studio enters it. You can't publish or \
+discard the draft: an editor reviews it and decides.`;
 
 const parseJson = (raw: string | null): unknown => {
   if (raw === null) return undefined;
@@ -113,10 +134,15 @@ const parseClientMessage = (raw: string): ThreadClientMessage | undefined => {
   return parsed.success ? parsed.data : undefined;
 };
 
-/** Whether a connection the API authorized for `named` reaches the thread `known` describes. */
+/**
+ * Whether a connection the API authorized for `named` reaches the thread `known` describes: a
+ * draft's thread reaches whoever the API let into that draft, and a thread started on Live its
+ * owner, still on Live, even once it became a draft's.
+ */
 const belongsTo = (known: ThreadIdentity, named: ThreadIdentity) =>
   known.projectId === named.projectId &&
-  (known.draftId !== null ? named.draftId === known.draftId : named.ownerId === known.ownerId);
+  ((known.draftId !== null && named.draftId === known.draftId) ||
+    (named.draftId === null && known.ownerId !== null && named.ownerId === known.ownerId));
 
 const send = (socket: WebSocket, message: ThreadServerMessage) => {
   if (socket.readyState !== OPEN) return;
@@ -160,6 +186,8 @@ export class Thread extends DurableObject<Bindings> {
   readonly #model = threadModel(this.env);
   readonly #registry = createRegistry();
   readonly #watches = new Map<WebSocket, AgentEventStream>();
+  /** Moving into the draft a write started, which every later move waits for. */
+  #moving: Promise<void> = Promise.resolve();
 
   readonly harness = new UntilStartedPiHarness(async () => !!(await this.#knownIdentity()), {
     harness: async ({ storage, context }) => {
@@ -180,6 +208,7 @@ export class Thread extends DurableObject<Bindings> {
         this.env,
         (promise) => this.ctx.waitUntil(promise),
         (invocation) => this.#actor(invocation),
+        (draftId) => this.#startedDraft(draftId),
       );
       this.#registry.install({
         name: "camox",
@@ -233,6 +262,7 @@ export class Thread extends DurableObject<Bindings> {
     const participant = participantSchema.safeParse({
       sender: parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
       identity: parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
+      continuedIn: ctx.request.headers.get(THREAD_CONTINUED_HEADER) ?? undefined,
     });
     if (!participant.success) {
       connection.close(1008, "Unauthorized");
@@ -268,7 +298,7 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
-   * draft, or on Live for a Live thread.
+   * draft, or on Live for a Live thread, whose first write starts the draft set aside for it.
    */
   async #actor(invocation: ToolInvocation): Promise<ThreadActor> {
     const identity = await this.#knownIdentity();
@@ -277,7 +307,50 @@ export class Thread extends DurableObject<Bindings> {
     if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
       throw new Error("The thread's run wasn't started by an editor's message");
     }
-    return { projectId: identity.projectId, draftId: identity.draftId, userId: entry.data.id };
+    const actor = {
+      projectId: identity.projectId,
+      draftId: identity.draftId,
+      userId: entry.data.id,
+    };
+    if (identity.draftId) return actor;
+    return { ...actor, draftToStart: await this.#draftToStart() };
+  }
+
+  /**
+   * The draft this Live thread's first write starts, the same for every write until one goes
+   * through: writes racing in one script land in one draft.
+   */
+  async #draftToStart(): Promise<string> {
+    const known = await this.ctx.storage.get<string>(DRAFT_TO_START_KEY);
+    if (known) return known;
+    const draftId = generateUuidv7();
+    await this.ctx.storage.put(DRAFT_TO_START_KEY, draftId);
+    return draftId;
+  }
+
+  /** Moves into the draft a write started, once however many writes say so. */
+  #startedDraft(draftId: string): Promise<void> {
+    const moved = this.#moving.then(() => this.#moveIntoDraft(draftId));
+    this.#moving = moved.catch(() => undefined);
+    return moved;
+  }
+
+  /**
+   * Makes this Live thread the thread of the draft its first write started: the draft records it,
+   * its next calls act in the draft, and the editor's next Live thread starts fresh. Its sockets
+   * hear of it: the editor's studio enters the draft, and their other tabs on Live move on.
+   */
+  async #moveIntoDraft(draftId: string) {
+    const known = await this.#knownIdentity();
+    if (!known || known.draftId !== null) return;
+    // Threads are addressed by their own id (`getByName`), which names the object.
+    const threadId = this.ctx.id.name;
+    if (!threadId) throw new Error("The thread doesn't know its own id");
+    await Effect.runPromise(moveLiveThreadIntoDraft(createDb(this.env.DB), { threadId, draftId }));
+    await this.ctx.storage.put(IDENTITY_KEY, { ...known, draftId } satisfies ThreadIdentity);
+    for (const socket of this.ctx.getWebSockets()) {
+      send(socket, { type: "started-draft", draftId });
+    }
   }
 
   /**
@@ -306,9 +379,12 @@ export class Thread extends DurableObject<Bindings> {
    * Shows the thread on a socket: Pi's events once the thread started, or an empty thread before,
    * without opening Pi, which would store.
    */
-  async #show(socket: WebSocket, known: ThreadIdentity | undefined) {
-    if (known) await this.#watch(socket);
-    else send(socket, { type: "events", events: [NOT_STARTED] });
+  async #show(connection: Connection, known: ThreadIdentity | undefined) {
+    // Before the snapshot, which the studio waits for to show the thread.
+    const continuedIn = participantSchema.safeParse(connection.state).data?.continuedIn;
+    if (continuedIn) send(connection, { type: "continued", draftId: continuedIn });
+    if (known) await this.#watch(connection);
+    else send(connection, { type: "events", events: [NOT_STARTED] });
   }
 
   /**

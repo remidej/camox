@@ -1,0 +1,1 @@
+ALTER TABLE `live_threads` ADD `continued_in` text;
