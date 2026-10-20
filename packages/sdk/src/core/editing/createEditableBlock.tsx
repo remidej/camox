@@ -13,12 +13,7 @@ import * as React from "react";
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
-import {
-  blockMutations,
-  repeatableItemMutations,
-  type Page,
-  collectionMutations,
-} from "@/lib/queries";
+import { blockMutations, repeatableItemMutations, collectionMutations } from "@/lib/queries";
 
 import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { useFrame } from "../../features/preview/components/Frame";
@@ -103,6 +98,7 @@ export type {
   TextLinkStyleData,
 } from "../lib/lexicalReact";
 import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
+import { usePageLinks } from "../../lib/view-pages";
 
 /** Normalize legacy links (no `type` field) to the new union shape */
 const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
@@ -862,9 +858,7 @@ export function createEditableBlock<
     const { window: iframeWindow } = useFrame();
     const projectSlug = useProjectSlug();
     const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-    const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
-      enabled: !!project,
-    });
+    const pages = usePageLinks(projectSlug, !!project);
     const currentPathname = useLocation({ select: (l) => l.pathname });
 
     // Check if we're inside a Repeater
@@ -990,7 +984,7 @@ export function createEditableBlock<
           {children(
             {
               children: markdownToReactNodes(fieldValue, {
-                pages: pages as Page[] | undefined,
+                pages,
                 fallbackHref: currentPathname,
                 textStyle,
                 linkStyle,
@@ -1014,7 +1008,7 @@ export function createEditableBlock<
         <InlineLexicalEditor
           textStyle={textStyle}
           linkStyle={linkStyle}
-          pages={pages as Page[] | undefined}
+          pages={pages}
           fallbackHref={currentPathname}
           initialState={fieldValue}
           externalState={fieldValue}
@@ -1232,9 +1226,7 @@ export function createEditableBlock<
     const { filesMap } = useNormalizedData();
     const projectSlug = useProjectSlug();
     const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-    const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
-      enabled: !!project,
-    });
+    const pages = usePageLinks(projectSlug, !!project);
     const currentPathname = useLocation({ select: (l) => l.pathname });
     const data = artifactData(
       repeaterContext
@@ -1317,11 +1309,9 @@ export function createEditableBlock<
     const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
     const projectSlug = useProjectSlug();
     const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-    const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
-      enabled: !!project,
-    });
+    const pages = usePageLinks(projectSlug, !!project);
     const currentPathname = useLocation({ select: (l) => l.pathname });
-    const resolvedHref = resolveLinkHref(fieldValue, pages as Page[] | undefined, currentPathname);
+    const resolvedHref = resolveLinkHref(fieldValue, pages, currentPathname);
 
     const fieldId = getOverlayFieldId(blockId, String(name), { itemId: repeaterContext?.itemId });
 

@@ -13,7 +13,12 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
-import { localeHeaders, localizedPath, type LocaleView } from "../../lib/locale-path";
+import {
+  localeHeaders,
+  localizedPath,
+  type LocaleView,
+  UNNAMED_DEFAULT_LOCALE,
+} from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -240,8 +245,14 @@ export async function loadCamoxPage({
   const inDraft = { in: draftId && authCookieHeader ? draftId : null };
   const [page] = await Promise.all([
     studioCache.ensure(reads.pageStructure({ path: pathname, projectSlug }), inDraft),
-    // Links resolve against the site's pages, which a render can do without.
+    // Links resolve against the site's pages, which a render can do without. A link to a page
+    // missing from a locale leads to the default locale's page, so another locale reads both.
     studioCache.ensure(reads.pageList({ projectSlug }), inDraft).catch(() => null),
+    locale && !locale.isDefault
+      ? studioCache
+          .ensure(reads.pageList({ projectSlug }), { ...inDraft, locale: UNNAMED_DEFAULT_LOCALE })
+          .catch(() => null)
+      : null,
   ]);
   return page;
 }
@@ -266,8 +277,12 @@ export function createServerStudioCache(
   return createStudioCache({
     queryClient,
     scope: createDraftScope({ queryClient }),
-    api: (draft) =>
-      createServerApiClient(apiUrl, { authCookieHeader, draftId: draft ?? undefined, locale }),
+    api: (draft, inLocale) =>
+      createServerApiClient(apiUrl, {
+        authCookieHeader,
+        draftId: draft ?? undefined,
+        locale: inLocale,
+      }),
     ...(locale && { locale: () => locale }),
   });
 }
