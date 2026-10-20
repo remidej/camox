@@ -1,7 +1,7 @@
 import type { ThreadMessage, ThreadSender, ThreadView } from "@camox/api-contract/threads";
 import { Avatar, AvatarFallback, AvatarImage } from "@camox/ui/avatar";
 import { Bubble, BubbleContent } from "@camox/ui/bubble";
-import { Message, MessageAvatar, MessageContent } from "@camox/ui/message";
+import { Message, MessageAvatar, MessageContent, MessageHeader } from "@camox/ui/message";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -13,8 +13,17 @@ import {
 
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
-/** A thread's messages and whether the agent is working, as its view shows them. */
-export function ThreadMessages({ view }: { view: ThreadView }) {
+/**
+ * A thread's messages and whether the agent is working, as its view shows them. A draft's thread
+ * is shared, so it shows senders' names too (`showSenders`).
+ */
+export function ThreadMessages({
+  view,
+  showSenders = false,
+}: {
+  view: ThreadView;
+  showSenders?: boolean;
+}) {
   if (view.messages.length === 0 && !view.working) {
     return (
       <p
@@ -37,7 +46,7 @@ export function ThreadMessages({ view }: { view: ThreadView }) {
                 messageId={message.id}
                 scrollAnchor={message.from === "editor"}
               >
-                <ThreadMessageRow message={message} />
+                <ThreadMessageRow message={message} showSender={showSenders} />
               </MessageScrollerItem>
             ))}
             {view.working && (
@@ -53,7 +62,13 @@ export function ThreadMessages({ view }: { view: ThreadView }) {
   );
 }
 
-function ThreadMessageRow({ message }: { message: ThreadMessage }) {
+function ThreadMessageRow({
+  message,
+  showSender,
+}: {
+  message: ThreadMessage;
+  showSender: boolean;
+}) {
   if (message.from === "agent") {
     return (
       <Message>
@@ -72,6 +87,11 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
         <SenderAvatar sender={message.sender} />
       </MessageAvatar>
       <MessageContent>
+        {showSender && (
+          <MessageHeader className="text-muted-foreground text-xs">
+            {message.sender.name}
+          </MessageHeader>
+        )}
         <Bubble align="end" variant="muted">
           <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
         </Bubble>

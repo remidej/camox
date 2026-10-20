@@ -39,6 +39,25 @@ void test("a thread shows editors' messages, the agent's Markdown answers and it
   assert.match(html, /Working…/);
 });
 
+void test("a draft's thread names who sent each message; a Live thread doesn't", () => {
+  const teammate = { id: "user-2", name: "Grace Hopper", image: null };
+  const view: ThreadView = {
+    working: false,
+    messages: [
+      { id: "1", from: "editor", sender: editor, text: "Rewrite the intro" },
+      { id: "2", from: "agent", text: "Done." },
+      { id: "3", from: "editor", sender: teammate, text: "And the outro" },
+    ],
+  };
+
+  const inDraft = renderToString(<ThreadMessages view={view} showSenders />);
+  const onLive = renderToString(<ThreadMessages view={view} />);
+
+  assert.match(inDraft, />Ada Lovelace</);
+  assert.match(inDraft, />Grace Hopper</);
+  assert.doesNotMatch(onLive, />Ada Lovelace</);
+});
+
 void test("an empty thread says what the agent can do, in one line", () => {
   const html = renderToString(<ThreadMessages view={{ messages: [], working: false }} />);
 
