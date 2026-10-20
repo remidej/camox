@@ -7,14 +7,19 @@ import { promisify } from "node:util";
 
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vite-plus";
+import { unstable_readConfig } from "wrangler";
 
 const migrations = await readD1Migrations(path.join(import.meta.dirname, "migrations"));
 
+const SANDBOX_CONFIG = "sandbox/wrangler.jsonc";
+
 /**
- * Bundles the code mode sandbox Worker as Wrangler deploys it, for the tests to run it as an
- * auxiliary Worker: its entry, then QuickJS compiled as its own module.
+ * The code mode sandbox Worker as Wrangler deploys it, for the tests to run it as an auxiliary
+ * Worker: named as deployed, which the API's binding names, with its entry and QuickJS compiled
+ * as its own module.
  */
-async function bundleSandboxWorker() {
+async function sandboxWorker() {
+  const config = unstable_readConfig({ config: path.join(import.meta.dirname, SANDBOX_CONFIG) });
   const require = createRequire(import.meta.url);
   // Wrangler's exports map hides its bin, so locate it from the exported package.json.
   const wrangler = path.join(
@@ -25,11 +30,14 @@ async function bundleSandboxWorker() {
   const outdir = await mkdtemp(path.join(tmpdir(), "camox-codemode-sandbox-"));
   await promisify(execFile)(
     process.execPath,
-    [wrangler, "deploy", "--dry-run", "--config", "sandbox/wrangler.jsonc", "--outdir", outdir],
+    [wrangler, "deploy", "--dry-run", "--config", SANDBOX_CONFIG, "--outdir", outdir],
     { cwd: import.meta.dirname },
   );
   const wasm = (await readdir(outdir)).filter((file) => file.endsWith(".wasm"));
   return {
+    name: config.name,
+    compatibilityDate: config.compatibility_date,
+    durableObjects: { CODEMODE_SANDBOX: "CodemodeSandbox" },
     modulesRoot: outdir,
     modules: [
       { type: "ESModule" as const, path: path.join(outdir, "index.js") },
@@ -72,14 +80,7 @@ export default defineConfig({
             miniflare: {
               // The sandbox Worker the threads' code mode scripts run in, as deployed beside the
               // API (ADR 0018).
-              workers: [
-                {
-                  name: "camox-codemode-sandbox",
-                  ...(await bundleSandboxWorker()),
-                  compatibilityDate: "2026-03-28",
-                  durableObjects: { CODEMODE_SANDBOX: "CodemodeSandbox" },
-                },
-              ],
+              workers: [await sandboxWorker()],
               bindings: {
                 BETTER_AUTH_SECRET: "test-secret",
                 GITHUB_CLIENT_ID: "test-client-id",

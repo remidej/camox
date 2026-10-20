@@ -69,8 +69,11 @@ export const answerWithScript = (code: string, { text }: { text?: string } = {})
   faux.appendResponses([fauxAssistantMessage(content, { stopReason: "toolUse" })]);
 };
 
-/** What the model sees when it's called: the tools it's offered, and its last tool's result. */
-export type ModelRequest = { offeredTools: string[]; lastToolResult: string };
+/**
+ * What the model sees when it's called: the tools it's offered, its last tool's result, and the
+ * output of the last script it ran, without code mode's header.
+ */
+export type ModelRequest = { offeredTools: string[]; lastToolResult: string; scriptOutput: string };
 
 /** Scripts the model's next answer from what it sees when it's called. */
 export const answerFrom = (answer: (request: ModelRequest) => string) =>
@@ -81,18 +84,20 @@ export const answerFrom = (answer: (request: ModelRequest) => string) =>
 const requestOf = (messages: readonly Message[]): ModelRequest => {
   const offered = new Set<string>();
   let lastToolResult = "";
+  let scriptOutput = "";
   for (const message of messages) {
     if (message.role === "system") {
       for (const tool of message.toolsAdded ?? []) offered.add(tool.name);
       for (const tool of message.toolsRemoved ?? []) offered.delete(tool.name);
     }
     if (message.role === "toolResult") {
-      lastToolResult = message.content
-        .flatMap((part) => (part.type === "text" ? [part.text] : []))
-        .join("\n");
+      const texts = message.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+      lastToolResult = texts.join("\n");
+      // Code mode's result starts with a header of its own (outcome, wall time), then the output.
+      if (message.toolName === "codemode") scriptOutput = texts.slice(1).join("\n");
     }
   }
-  return { offeredTools: [...offered], lastToolResult };
+  return { offeredTools: [...offered], lastToolResult, scriptOutput };
 };
 
 /** How many times threads called the model since the test started. */

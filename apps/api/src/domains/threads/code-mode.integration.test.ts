@@ -1,3 +1,4 @@
+import type { ThreadView } from "@camox/api-contract/threads";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -14,7 +15,7 @@ import {
   answerWithScript,
   forgetThreadModel,
 } from "../../../test/thread-model";
-import { connectLiveThread, signIn } from "../../../test/threads";
+import { connectLiveThread, signIn, type ThreadClient } from "../../../test/threads";
 import { runService } from "../../lib/run-service";
 import { member } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -65,7 +66,21 @@ async function websiteFixture(pages: Record<string, string>) {
   return base;
 }
 
-/** A script finding the pages whose blocks mention `needle`, printing their paths. */
+type Website = Awaited<ReturnType<typeof websiteFixture>>;
+
+/** Opens the fixture member's Live thread, as their studio does. */
+const openThread = async ({ db, memberUser, project }: Website) =>
+  connectLiveThread(project.id, await signIn(db, memberUser.id));
+
+/** Sends `text` in `thread`, returning what the thread shows once the agent's turn ended. */
+async function ask(thread: ThreadClient, text: string): Promise<ThreadView> {
+  thread.send({ type: "send", operationId: crypto.randomUUID(), text });
+  await thread.until(() => !thread.view().working && thread.view().messages.length >= 2);
+  thread.close();
+  return thread.view();
+}
+
+/** A script printing the paths of the pages whose blocks mention `needle`, in order. */
 const pagesMentioning = (needle: string) => `
   const pages = await tools.listPages({});
   const found = [];
@@ -75,78 +90,64 @@ const pagesMentioning = (needle: string) => `
       found.push(page.fullPath);
     }
   }
-  text(found.join(", "));
+  text(found.sort().join(", "));
 `;
-
-const question = (text: string) => ({
-  type: "send" as const,
-  operationId: crypto.randomUUID(),
-  text,
-});
 
 describe("the agent reading the website through code mode", () => {
   it("answers a question about the website from a script reading its pages", async () => {
-    const { db, memberUser, project } = await websiteFixture({
+    const website = await websiteFixture({
       pricing: "Plans start at $9 a month.",
       about: "We build websites.",
       faq: "Is it still $9? Yes, $9 a month.",
     });
     answerWithScript(pagesMentioning("$9"));
-    answerFrom(({ lastToolResult }) => `Pages mentioning it: ${lastToolResult}`);
-    const thread = await connectLiveThread(project.id, await signIn(db, memberUser.id));
+    answerFrom(({ scriptOutput }) => `Pages mentioning it: ${scriptOutput}`);
 
-    thread.send(question("Which pages mention our old pricing of $9?"));
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    const view = await ask(await openThread(website), "Which pages mention our old pricing of $9?");
 
-    const answer = thread.view().messages.at(-1);
-    expect(answer).toMatchObject({ from: "agent" });
-    expect(answer?.text).toContain("/pricing");
-    expect(answer?.text).toContain("/faq");
-    expect(answer?.text).not.toContain("/about");
-    thread.close();
+    expect(view.messages.at(-1)).toMatchObject({
+      from: "agent",
+      text: "Pages mentioning it: /faq, /pricing",
+    });
   });
 
   it("offers the model code mode alone, its scripts reaching the content tools", async () => {
-    const { db, memberUser, project } = await websiteFixture({ pricing: "Plans start at $9." });
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
     let offered: string[] = [];
-    answerFrom(({ offeredTools, lastToolResult }) => {
+    answerFrom(({ offeredTools, scriptOutput }) => {
       offered = offeredTools;
-      return lastToolResult;
+      return scriptOutput;
     });
-    const thread = await connectLiveThread(project.id, await signIn(db, memberUser.id));
 
-    thread.send(question("What can you read?"));
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    const view = await ask(await openThread(website), "What can you read?");
 
     expect(offered).toEqual(["codemode"]);
-    expect(thread.view().messages.at(-1)?.text).toContain("listPages");
-    thread.close();
+    expect(view.messages.at(-1)?.text.split(", ")).toEqual(
+      expect.arrayContaining(["listPages", "getPage"]),
+    );
   });
 
   it("shows only the turn's final message, not what the agent writes between scripts", async () => {
-    const { db, memberUser, project } = await websiteFixture({ pricing: "Plans start at $9." });
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text((await tools.listPages({})).length);`, {
       text: "Let me count your pages first.",
     });
     answerWithScript(pagesMentioning("$9"), { text: "Now let me look for the price." });
     answerNext("It's on your pricing page.");
-    const thread = await connectLiveThread(project.id, await signIn(db, memberUser.id));
 
-    thread.send(question("Where's our price?"));
-    await thread.until(() => !thread.view().working && thread.view().messages.length >= 2);
+    const view = await ask(await openThread(website), "Where's our price?");
 
-    expect(thread.view().messages.map(({ from, text }) => ({ from, text }))).toEqual([
+    expect(view.messages.map(({ from, text }) => ({ from, text }))).toEqual([
       { from: "editor", text: "Where's our price?" },
       { from: "agent", text: "It's on your pricing page." },
     ]);
-    thread.close();
   });
 
   it("stops reading for an editor removed from the project mid-thread", async () => {
-    const { db, memberUser, project } = await websiteFixture({ pricing: "Plans start at $9." });
-    const thread = await connectLiveThread(project.id, await signIn(db, memberUser.id));
-    await db.delete(member).where(eq(member.userId, memberUser.id));
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const thread = await openThread(website);
+    await website.db.delete(member).where(eq(member.userId, website.memberUser.id));
     answerWithScript(`
       try {
         text(JSON.stringify(await tools.listPages({})));
@@ -154,27 +155,20 @@ describe("the agent reading the website through code mode", () => {
         text(error.message);
       }
     `);
-    answerFrom(({ lastToolResult }) => lastToolResult);
+    answerFrom(({ scriptOutput }) => scriptOutput);
 
-    thread.send(question("Which pages do we have?"));
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    const view = await ask(thread, "Which pages do we have?");
 
-    const answer = thread.view().messages.at(-1)?.text;
-    expect(answer).toContain('"code":"FORBIDDEN"');
-    expect(answer).not.toContain("/pricing");
-    thread.close();
+    expect(JSON.parse(view.messages.at(-1)!.text)).toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("gives scripts no way to call a model", async () => {
-    const { db, memberUser, project } = await websiteFixture({ pricing: "Plans start at $9." });
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text(typeof models);`);
-    answerFrom(({ lastToolResult }) => lastToolResult);
-    const thread = await connectLiveThread(project.id, await signIn(db, memberUser.id));
+    answerFrom(({ scriptOutput }) => scriptOutput);
 
-    thread.send(question("Classify our pages"));
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    const view = await ask(await openThread(website), "Classify our pages");
 
-    expect(thread.view().messages.at(-1)?.text).toContain("undefined");
-    thread.close();
+    expect(view.messages.at(-1)?.text).toBe("undefined");
   });
 });
