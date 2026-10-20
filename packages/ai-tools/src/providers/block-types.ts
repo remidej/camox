@@ -11,7 +11,7 @@ const describeBlockTypesToolInput = z.object({
   types: z.array(z.string()).min(1),
 });
 
-const blockTypeSummary = z.object({
+const blockDefinitionSummarySchema = z.strictObject({
   type: z.string(),
   title: z.string(),
   description: z.string(),
@@ -29,7 +29,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Block types whose `layoutOnly` is true can only appear inside layouts and are not valid for createBlock on a page. " +
       "Editing a `synced` block changes its data across all its placements in the draft.",
     inputSchema: listBlockTypesToolInput,
-    outputSchema: z.array(blockTypeSummary),
+    outputSchema: z.array(blockDefinitionSummarySchema),
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => {
       const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));
@@ -50,9 +50,12 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "this right before calling createBlock or editBlock to know what `content` and `settings` " +
       "arguments to construct. Unknown ids are reported in `notFound`.",
     inputSchema: describeBlockTypesToolInput,
-    outputSchema: z.object({
+    outputSchema: z.strictObject({
       blockTypes: z.array(
-        blockTypeSummary.extend({ contentSchema: z.unknown(), settingsSchema: z.unknown() }),
+        blockDefinitionSummarySchema.extend({
+          contentSchema: z.unknown(),
+          settingsSchema: z.unknown(),
+        }),
       ),
       notFound: z.array(z.string()),
     }),

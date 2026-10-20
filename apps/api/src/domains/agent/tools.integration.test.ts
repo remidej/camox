@@ -1,4 +1,4 @@
-import { defineTool, type ToolContext } from "@camox/ai-tools";
+import { defineTool, localesProvider, type ToolContext } from "@camox/ai-tools";
 import { call } from "@orpc/server";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
@@ -19,14 +19,19 @@ describe("AI tool outputs", () => {
     const f = await fixture();
     const tools = await call(router.agent.listTools, { projectId: f.project.id }, f.member());
 
-    expect(tools.filter((tool) => tool.outputSchema === undefined)).toEqual([]);
-    // A script creating a page reads the new page's id to add blocks to it.
+    // A script creating a page reads the new page's id to add blocks to it, and can rely on
+    // nothing beyond what's declared.
     expect(tools.find((tool) => tool.name === "createPage")?.outputSchema).toMatchObject({
       type: "object",
       properties: {
-        page: { type: "object", properties: { id: { type: "string" } } },
+        page: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          additionalProperties: false,
+        },
         fullPath: { type: "string" },
       },
+      additionalProperties: false,
     });
   });
 
@@ -51,6 +56,30 @@ describe("AI tool outputs", () => {
         code: "INVALID_OUTPUT",
         message: expect.stringContaining("countPages"),
         details: { tool: "countPages", issues: [{ path: ["count"] }] },
+      },
+    });
+  });
+
+  it("fails a tool whose handler returns fields its output doesn't declare", async () => {
+    const toolCtx = {} as ToolContext;
+    const listLocales = (await localesProvider(toolCtx)).find(
+      (tool) => tool.name === "listLocales",
+    )!;
+    // The real declaration, with a handler leaking a column the declaration leaves out.
+    const leaky = {
+      ...listLocales,
+      handler: async () => [{ tag: "en", isDefault: true, rowId: 1 }],
+    };
+
+    const response = await Effect.runPromise(
+      executeTool({ toolCtx, tools: [leaky], name: "listLocales", args: {} }),
+    );
+
+    expect(response).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_OUTPUT",
+        details: { tool: "listLocales", issues: [{ code: "unrecognized_keys", keys: ["rowId"] }] },
       },
     });
   });

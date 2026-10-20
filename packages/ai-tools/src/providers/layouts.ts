@@ -6,7 +6,7 @@ import { getLayout, listLayouts } from "../../../../apps/api/src/domains/layouts
 import { NotFoundError } from "../../../../apps/api/src/lib/errors";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import { projects } from "../../../../apps/api/src/schema";
-import { layoutBundle, layoutRow } from "../lib/outputs";
+import { layoutBundleSchema, layoutSchema } from "../lib/outputs";
 import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 
 const listLayoutsToolInput = z.object({});
@@ -22,7 +22,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "(`layoutId`), which creating a page or setting its layout takes. " +
       "Call getLayout with a layout's name to discover its block ids, types, layout slot, and content.",
     inputSchema: listLayoutsToolInput,
-    outputSchema: z.array(layoutRow),
+    outputSchema: z.array(layoutSchema),
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => runService(listLayouts(ctx, { projectId: ctx.projectId })),
   }),
@@ -33,7 +33,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "ordered blocks with ids, types, layout slot, and content, repeatableItems, and files. " +
       "Use this to discover shared navigation and footer blocks.",
     inputSchema: getLayoutToolInput,
-    outputSchema: layoutBundle,
+    outputSchema: layoutBundleSchema,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
     handler: async (input) => {
       const { layoutId } = getLayoutToolInput.parse(input);

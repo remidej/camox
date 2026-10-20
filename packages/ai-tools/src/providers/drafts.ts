@@ -8,7 +8,7 @@ import {
   publishDraft,
 } from "../../../../apps/api/src/domains/drafts/publish";
 import { runService } from "../../../../apps/api/src/lib/run-service";
-import { endedDraft, publishPreview } from "../lib/outputs";
+import { endedDraftSchema, publishPreviewSchema } from "../lib/outputs";
 import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 
 // Publishing and discarding the session's draft (ADR 0009). The draft always comes from the
@@ -28,20 +28,20 @@ const publishToolInput = z.object({
 });
 const discardInput = z.object({});
 
-const publishOutput = z.union([
-  z.object({ published: z.literal(true), ended: endedDraft.nullable() }),
-  z.object({ published: z.literal(false), reason: z.literal("empty"), message: z.string() }),
-  z.object({
+const publishResultSchema = z.union([
+  z.strictObject({ published: z.literal(true), ended: endedDraftSchema.nullable() }),
+  z.strictObject({ published: z.literal(false), reason: z.literal("empty"), message: z.string() }),
+  z.strictObject({
     published: z.literal(false),
     reason: z.literal("discarded"),
     message: z.string(),
-    ended: endedDraft,
+    ended: endedDraftSchema,
   }),
-  z.object({
+  z.strictObject({
     published: z.literal(false),
     reason: z.enum(["conflictsChanged", "blocked", "translating"]),
     message: z.string(),
-    preview: publishPreview,
+    preview: publishPreviewSchema,
   }),
 ]);
 
@@ -67,7 +67,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       PREVIEW_SHAPE +
       " Show this list to the user, then pass the token to publishDraft once they confirm.",
     inputSchema: previewInput,
-    outputSchema: publishPreview,
+    outputSchema: publishPreviewSchema,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
   }),
@@ -91,7 +91,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "nothing is published and it returns `{ published: false, reason: 'discarded', message, " +
       "ended }`.",
     inputSchema: publishToolInput,
-    outputSchema: publishOutput,
+    outputSchema: publishResultSchema,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const { token, publishAnyway } = publishToolInput.parse(input);
@@ -126,7 +126,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "stays open, emptied; any other draft ends. Live is untouched. This can't be undone, so " +
       "only discard when the user asks to. Returns `{ ended }`, null for a development draft.",
     inputSchema: discardInput,
-    outputSchema: z.object({ ended: endedDraft.nullable() }),
+    outputSchema: z.strictObject({ ended: endedDraftSchema.nullable() }),
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async () => runService(discardDraft(ctx, { projectId: ctx.projectId })),
   }),
