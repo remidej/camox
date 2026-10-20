@@ -1,4 +1,5 @@
 import { createLayout, notFound, type LayoutLoaderResult } from "camox/createLayout";
+import { useLocalizedHref } from "camox/navigation";
 
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
@@ -78,6 +79,7 @@ const discoveries = [
 ];
 
 function PokemonPage() {
+  const localized = useLocalizedHref();
   const pokemon = Layout.useData();
   const primaryType = pokemon.types[0]?.type.name ?? "normal";
   const color = typeColor(primaryType);
@@ -89,7 +91,7 @@ function PokemonPage() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-12">
         <PokedexHeader>
           <a
-            href={`/pokemon-types/${primaryType}`}
+            href={localized(`/pokemon-types/${primaryType}`)}
             className="text-muted-foreground hover:text-foreground text-sm transition-colors"
           >
             Explore {primaryType} Pokémon ↗
@@ -237,7 +239,7 @@ function PokemonPage() {
               .map((item) => (
                 <a
                   key={item.name}
-                  href={`/pokemon/${item.name}`}
+                  href={localized(`/pokemon/${item.name}`)}
                   className="group border-border bg-card hover:bg-muted focus-visible:ring-ring flex items-center gap-4 rounded-2xl border p-4 transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <img

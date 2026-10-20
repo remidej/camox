@@ -1,4 +1,5 @@
 import { createLayout, notFound, type LayoutLoaderResult } from "camox/createLayout";
+import { useLocalizedHref } from "camox/navigation";
 import { useState } from "react";
 
 import { block as footerBlock } from "../blocks/footer";
@@ -66,6 +67,7 @@ const PAGE_SIZE = 36;
 const featuredTypes = ["grass", "fire", "water", "electric", "psychic", "dragon"];
 
 function TypePage() {
+  const localized = useLocalizedHref();
   const type = Layout.useData();
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -88,7 +90,7 @@ function TypePage() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-12">
         <PokedexHeader>
           <a
-            href="/pokemon/pikachu"
+            href={localized("/pokemon/pikachu")}
             className="text-muted-foreground hover:text-foreground text-sm transition-colors"
           >
             Meet a Pokémon ↗
@@ -212,7 +214,7 @@ function TypePage() {
               {visible.map((item) => (
                 <li key={item.name}>
                   <a
-                    href={`/pokemon/${item.name}`}
+                    href={localized(`/pokemon/${item.name}`)}
                     className="group border-border bg-card hover:border-foreground/30 focus-visible:ring-ring flex h-full flex-col overflow-hidden rounded-2xl border transition-colors focus-visible:ring-2 focus-visible:outline-none"
                   >
                     <div

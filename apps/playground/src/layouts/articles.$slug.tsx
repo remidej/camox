@@ -1,4 +1,5 @@
 import { createLayout } from "camox/createLayout";
+import { useLocalizedHref } from "camox/navigation";
 
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
@@ -24,11 +25,15 @@ export const Layout = createLayout("articles.$slug")({
 });
 
 function ArticlePage() {
+  const localized = useLocalizedHref();
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
       <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-12 sm:px-8">
-        <a href="/articles" className="text-muted-foreground hover:text-foreground text-sm">
+        <a
+          href={localized("/articles")}
+          className="text-muted-foreground hover:text-foreground text-sm"
+        >
           ← All articles
         </a>
         <Layout.Item>

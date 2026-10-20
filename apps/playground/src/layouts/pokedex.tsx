@@ -1,4 +1,5 @@
 import { createLayout } from "camox/createLayout";
+import { useLocalizedHref } from "camox/navigation";
 import { useState } from "react";
 
 import { block as footerBlock } from "../blocks/footer";
@@ -38,6 +39,7 @@ export const Layout = createLayout("pokedex")({
 });
 
 function PokedexPage() {
+  const localized = useLocalizedHref();
   const pokemon = Layout.useData();
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(48);
@@ -80,7 +82,7 @@ function PokedexPage() {
           {matches.slice(0, limit).map((item) => (
             <li key={item.name}>
               <a
-                href={`/pokemon/${item.name}`}
+                href={localized(`/pokemon/${item.name}`)}
                 className="border-border bg-card hover:bg-muted flex h-full flex-col rounded-2xl border p-4"
               >
                 <span className="text-muted-foreground font-mono text-xs">

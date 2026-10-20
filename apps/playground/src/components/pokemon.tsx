@@ -1,3 +1,4 @@
+import { useLocalizedHref } from "camox/navigation";
 import { useState, type ReactNode } from "react";
 
 const typeColors: Record<string, string> = {
@@ -38,9 +39,10 @@ export function pokemonNumber(id: number) {
 }
 
 export function TypeBadge({ name }: { name: string }) {
+  const localized = useLocalizedHref();
   return (
     <a
-      href={`/pokemon-types/${name}`}
+      href={localized(`/pokemon-types/${name}`)}
       className="border-border bg-background/80 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
     >
       <span className="size-2 rounded-full" style={{ backgroundColor: typeColor(name) }} />
@@ -94,10 +96,11 @@ export function PokemonArtwork({
 }
 
 export function PokedexHeader({ children }: { children?: ReactNode }) {
+  const localized = useLocalizedHref();
   return (
     <div className="border-border mb-8 flex flex-wrap items-center justify-between gap-4 border-b pb-5 sm:mb-12">
       <a
-        href="/pokemon/pikachu"
+        href={localized("/pokemon/pikachu")}
         className="focus-visible:ring-ring inline-flex items-center gap-3 rounded-lg focus-visible:ring-2 focus-visible:outline-none"
       >
         <span
