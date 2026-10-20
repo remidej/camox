@@ -2,16 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { LOCALE_HEADER } from "@camox/api-contract/drafts";
+import * as React from "react";
 
 import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout } from "../../core/createLayout";
+import { useAlternates, useLocale, useLocalizedHref } from "../navigation/navigation";
 import { localesResponse, pageListResponse } from "./api.fixtures";
+import { renderPageWithApp } from "./pageServer";
 import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
 // Search engines learn which pages are versions of each other: every page lists the locales it
 // exists in with `hreflang`, plus `x-default` for the default locale's page, and the sitemap lists
-// every localization with the same alternates.
+// every localization with the same alternates. Layouts build a language switcher from the same
+// alternates, and links that stay in the current locale.
 
 const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
 const PRICING = "0199f0a0-0000-7000-8000-000000000001";
@@ -125,10 +129,29 @@ const articles = createCollection({
   label: "title",
 });
 
+/** A layout's language switcher, and a link that stays in the locale. */
+function LanguageSwitcher() {
+  const locale = useLocale();
+  const alternates = useAlternates();
+  const localized = useLocalizedHref();
+  return (
+    <nav data-locale={locale}>
+      {alternates.map((alternate) => (
+        <a key={alternate.locale} hrefLang={alternate.locale} href={alternate.href}>
+          {alternate.label}
+        </a>
+      ))}
+      <a rel="index" href={localized("/articles")}>
+        Articles
+      </a>
+    </nav>
+  );
+}
+
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: () => null,
+  component: LanguageSwitcher,
   buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
 };
 
@@ -274,6 +297,49 @@ void test("the sitemap lists each localization once, with its alternates, leavin
       { loc: "https://site.test/pricing", alternates: pricing },
     ],
   );
+});
+
+Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
+
+/** Renders pages with the page app, as a website's server does. */
+const withPageApp: Partial<RuntimeOptions> = {
+  renderPage: (input) => renderPageWithApp({ ...input, camoxApp: app }),
+};
+
+/** What a page's language switcher shows: its locale, its alternates and its localized link. */
+async function switcherOf(response: Response | null) {
+  assert.equal(response?.status, 200);
+  const html = await response!.text();
+  const nav = html.match(/<nav data-locale="([^"]*)">([\s\S]*?)<\/nav>/);
+  assert.ok(nav, "the layout renders its switcher");
+  return {
+    locale: nav[1],
+    alternates: [...nav[2]!.matchAll(/<a hrefLang="([^"]*)" href="([^"]*)">([^<]*)<\/a>/g)].map(
+      ([, locale, href, label]) => ({ locale, href, label }),
+    ),
+    link: nav[2]!.match(/<a rel="index" href="([^"]*)"/)?.[1],
+  };
+}
+
+void test("the alternates hook lists the locales the page exists in, labelled in their own language", async (t) => {
+  mockApi(t);
+  const german = await switcherOf(await visit("/de/articles/hallo", withPageApp));
+  assert.equal(german.locale, "de");
+  assert.deepEqual(german.alternates, [
+    { locale: "en", href: "/articles/hello", label: "English" },
+    { locale: "de", href: "/de/articles/hallo", label: "Deutsch" },
+  ]);
+  const englishOnly = await switcherOf(await visit("/articles/english-only", withPageApp));
+  assert.equal(englishOnly.locale, "en");
+  assert.deepEqual(englishOnly.alternates, [
+    { locale: "en", href: "/articles/english-only", label: "English" },
+  ]);
+});
+
+void test("the link helper keeps root-relative paths in the page's locale", async (t) => {
+  mockApi(t);
+  assert.equal((await switcherOf(await visit("/de/pokedex", withPageApp))).link, "/de/articles");
+  assert.equal((await switcherOf(await visit("/pokedex", withPageApp))).link, "/articles");
 });
 
 void test("a project with one locale lists no hreflang", async (t) => {

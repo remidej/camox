@@ -7,15 +7,10 @@ import type { Layout } from "../../core/createLayout";
 import { discoverLayoutPages } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
 import type { LayoutRequestContext } from "../../core/requestContext";
-import { localizedPath, type LocaleView } from "../../lib/locale-path";
+import { localizedPath, type LocaleView, type PageAlternate } from "../../lib/locale-path";
 import type { ListedPage, LivePage } from "./livePages";
 
-/** A page in one locale: the locale's tag and the page's path there, under the locale's prefix. */
-export interface PageAlternate {
-  locale: string;
-  /** The page's runtime path, with its locale's prefix and without the runtime base path. */
-  path: string;
-}
+export type { PageAlternate } from "../../lib/locale-path";
 
 /**
  * Which page a render shows, whatever its locale: a curated page by its id, a record page by its

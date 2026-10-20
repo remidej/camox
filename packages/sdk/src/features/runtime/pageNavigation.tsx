@@ -8,6 +8,7 @@ import { draftNamedBy, DraftScopeContext } from "../../lib/draft-scope";
 import type { LocaleView } from "../../lib/locale-path";
 import { reads } from "../../lib/studio-reads";
 import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale";
+import { PageAlternatesContext } from "../../lib/view-locale-context";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { sendPageView } from "./analytics";
 import { createPrefetchCache, listenForLinkIntent } from "./linkPrefetch";
@@ -432,6 +433,11 @@ export function PageNavigationProvider({
   // Each render's response is new JSON: keep the value while it says the same.
   const viewLocaleJson = JSON.stringify({ locale: input.locale, locales: input.locales });
   const viewLocale = React.useMemo<ViewLocale>(() => JSON.parse(viewLocaleJson), [viewLocaleJson]);
+  const alternatesJson = JSON.stringify(input.alternates ?? null);
+  const alternates = React.useMemo(
+    () => JSON.parse(alternatesJson) as PageRenderInput["alternates"] | null,
+    [alternatesJson],
+  );
   return (
     <NavigationProvider
       location={{
@@ -444,9 +450,11 @@ export function PageNavigationProvider({
       navigate={navigate}
     >
       <ViewLocaleContext value={viewLocale}>
-        <PageViewportContext value={pageViewport}>
-          <React.Fragment key={generation}>{children(input)}</React.Fragment>
-        </PageViewportContext>
+        <PageAlternatesContext value={alternates ?? null}>
+          <PageViewportContext value={pageViewport}>
+            <React.Fragment key={generation}>{children(input)}</React.Fragment>
+          </PageViewportContext>
+        </PageAlternatesContext>
       </ViewLocaleContext>
     </NavigationProvider>
   );

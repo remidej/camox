@@ -972,15 +972,19 @@ function isValidCollectionItem(app: CamoxApp | undefined, result: Record<string,
   );
 }
 
-/** Runs a code-owned page's loader. The envelope survives SSR, navigation and hydration. */
+/**
+ * Runs a code-owned page's loader in the page's locale. The envelope survives SSR, navigation and
+ * hydration, and its data renders as returned: Camox never translates it.
+ */
 async function loadLayoutResult(
   app: CamoxApp | undefined,
   match: DerivedMatch,
   context: LayoutRequestContext,
+  locale: LocaleView,
 ): Promise<AnyLayoutLoaderResult | undefined> {
   const { loader, id } = match.layout._internal;
   if (!loader) return undefined;
-  const result = await loader({ params: match.params, context });
+  const result = await loader({ params: match.params, context, locale: locale.tag });
   // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
   const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
   const record = asCollectionItem(serializedResult);
@@ -1017,6 +1021,7 @@ async function createLayoutMarkdownResponse(
       app,
       match,
       createLayoutRequestContext(options, "live", { locale }),
+      locale,
     );
     const record = asCollectionItem(result);
     const collection = record && app?.getCollectionById(record.collectionId);
@@ -1108,6 +1113,7 @@ async function createDerivedResponse(
           draftId,
           locale: located.locale,
         }),
+        located.locale,
       );
     // In a draft, the layout read settles which draft the page shows, so the loader then reads
     // records from that draft, or from Live when the draft was refused.

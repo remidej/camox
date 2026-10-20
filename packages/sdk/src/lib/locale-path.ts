@@ -23,6 +23,13 @@ export function localeHeaders(locale: LocaleView | undefined): Record<string, st
   return locale && !locale.isDefault ? { [LOCALE_HEADER]: locale.tag } : {};
 }
 
+/** A page in one locale: the locale's tag and the page's path there, under the locale's prefix. */
+export interface PageAlternate {
+  locale: string;
+  /** The page's runtime path, with its locale's prefix and without the runtime base path. */
+  path: string;
+}
+
 /** A runtime path split into the locale it names and the locale-relative path after its prefix. */
 export type LocalePath = { locale: LocaleView; path: string };
 

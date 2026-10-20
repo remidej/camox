@@ -36,6 +36,19 @@ const app = {
     },
     {
       _internal: {
+        id: "forecast",
+        kind: "singleton",
+        title: "Forecast",
+        buildMetaTitle,
+        // Data from outside Camox, which a loader fetches in the page's locale if it can.
+        loader: async ({ locale }: { locale: string }) => ({
+          kind: "data",
+          data: { summary: locale === "de" ? "Sonnig" : "Sunny" },
+        }),
+      },
+    },
+    {
+      _internal: {
         id: "pokemon.$name",
         kind: "derived",
         title: "Pokemon",
@@ -251,6 +264,14 @@ void test("singleton and derived pages under a locale's prefix render in that lo
     reads.filter((read) => read.procedure === "layouts/get").map(({ locale }) => locale),
     ["de", "de"],
   );
+});
+
+void test("a loader receives the page's locale, and its data renders as it returns it", async (t) => {
+  mockApi(t);
+  const german = await hydrationOf(await visit("/de/forecast"));
+  assert.deepEqual(german.derived?.result, { kind: "data", data: { summary: "Sonnig" } });
+  const english = await hydrationOf(await visit("/forecast"));
+  assert.deepEqual(english.derived?.result, { kind: "data", data: { summary: "Sunny" } });
 });
 
 void test("the studio's routes under a locale's prefix carry that locale", async (t) => {
