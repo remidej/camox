@@ -95,7 +95,9 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "possible while the default locale is the project's only locale, and it applies at once, " +
       "on Live and in every draft, since no content changes.",
     inputSchema: setDefaultTagInput,
-    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
+    // Not the studio agent's: it applies on Live at once, and nothing reaches Live without a
+    // person's go-ahead.
+    meta: { kind: "write", surfaces: ["cli"] },
     handler: async (input) =>
       runService(
         setDefaultLocaleTag(ctx, { ...setDefaultTagInput.parse(input), projectId: ctx.projectId }),

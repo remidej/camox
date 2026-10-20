@@ -47,9 +47,10 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "List what publishing the current draft to Live would do, without publishing. Returns " +
       "`{ blockers, conflicts, lost, warnings, changes, translating, defaultLocale, token }`. " +
       PREVIEW_SHAPE +
-      " Show this list to the user, then pass the token to publishDraft once they confirm.",
+      " Show this list to the user. `token` is the one publishDraft takes to publish exactly " +
+      "what this preview showed.",
     inputSchema: previewInput,
-    meta: { kind: "read", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
   },
   {
