@@ -1128,3 +1128,151 @@ describe("placing a block in a locale", () => {
     expect(translatingLocales).toEqual(["de"]);
   });
 });
+
+describe("the order of blocks and items in a localization", () => {
+  /** `f`'s page with three blocks in the default locale, translated into German and French. */
+  async function threeBlocks() {
+    const f = await fixture();
+    await translatedDraft(f);
+    const second = await f.tool("createBlock", {
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "One" },
+    });
+    const third = await f.tool("createBlock", {
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "Two" },
+    });
+    await f.runTranslations();
+    return { f, ids: [f.block.id, second.id as string, third.id as string] as const };
+  }
+
+  /** The ids of the page's blocks in a locale, in order. */
+  const blocksIn = async (f: Awaited<ReturnType<typeof fixture>>, locale?: string) =>
+    ((await f.tool("getPage", { id: f.page.id, locale })).blocks as { id: string }[]).map(
+      ({ id }) => id,
+    );
+
+  it("follows a reorder of the source in every locale that didn't reorder", async () => {
+    const { f, ids } = await threeBlocks();
+    const [first, second, third] = ids;
+
+    await f.tool("moveBlock", { id: third, position: "first" });
+    await f.runTranslations();
+
+    expect(await blocksIn(f, "de")).toEqual([third, first, second]);
+    expect(await blocksIn(f, "fr")).toEqual([third, first, second]);
+  });
+
+  it("keeps the order of a locale that reordered, while the others follow the source", async () => {
+    const { f, ids } = await threeBlocks();
+    const [first, second, third] = ids;
+    await f.tool("moveBlock", { id: first, position: "last", locale: "de" });
+
+    await f.tool("moveBlock", { id: third, position: "first" });
+    await f.runTranslations();
+
+    expect(await blocksIn(f, "de")).toEqual([second, third, first]);
+    expect(await blocksIn(f, "fr")).toEqual([third, first, second]);
+
+    // German keeps its order through later reorders, of the block it moved too.
+    await f.tool("moveBlock", { id: first, position: "first" });
+    await f.runTranslations();
+    await f.tool("moveBlock", { id: second, position: "first" });
+    await f.runTranslations();
+
+    expect(await blocksIn(f, "de")).toEqual([second, third, first]);
+    expect(await blocksIn(f, "fr")).toEqual([second, first, third]);
+  });
+
+  it("keeps a block only a locale has after the block it follows, and places a new block where the source has it", async () => {
+    const { f, ids } = await threeBlocks();
+    const [first, second, third] = ids;
+    const german = await f.tool("createBlock", {
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "Nur auf Deutsch" },
+      afterId: first,
+      locale: "de",
+    });
+
+    await f.tool("moveBlock", { id: first, position: "last" });
+    const added = await f.tool("createBlock", {
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "Welcome" },
+      afterId: second,
+    });
+    await f.runTranslations();
+
+    expect(await blocksIn(f)).toEqual([second, added.id, third, first]);
+    expect(await blocksIn(f, "de")).toEqual([second, added.id, third, first, german.id]);
+  });
+
+  it("follows the source in a later draft, once a draft that moved its blocks was published", async () => {
+    const { f, ids } = await threeBlocks();
+    const [first, second, third] = ids;
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token });
+    const later = { [DRAFT_HEADER]: generateUuidv7() };
+    const blocksInLater = async (locale?: string) =>
+      ((await f.tool("getPage", { id: f.page.id, locale }, later)).blocks as { id: string }[]).map(
+        ({ id }) => id,
+      );
+
+    // Reversed, German blocks move beside the one each job places, from Live's bookkeeping.
+    await f.tool(
+      "moveBlock",
+      { id: third, position: "first" },
+      { ...later, [DRAFT_CREATE_HEADER]: "1" },
+    );
+    await f.tool("moveBlock", { id: first, position: "last" }, later);
+    await f.runTranslations();
+    expect(await blocksInLater("de")).toEqual([third, second, first]);
+
+    await f.tool("moveBlock", { id: second, position: "first" }, later);
+    await f.runTranslations();
+    expect(await blocksInLater("de")).toEqual([second, third, first]);
+  });
+
+  it("compares the order of items, not their positions, so a locale whose items were rewritten still follows the source", async () => {
+    const f = await fixture();
+    await translatedDraft(f);
+    const itemsIn = async (locale?: string) =>
+      ((await f.blockIn(locale)).repeatableItems as { id: string; position: string }[]).map(
+        ({ id }) => id,
+      );
+    const firstPosition = async () => (await f.blockIn()).repeatableItems[0].position as string;
+    const [one] = await itemsIn();
+    await f.tool("editBlock", {
+      id: f.block.id,
+      content: { items: [{ _itemId: one }, { label: "Two" }, { label: "Hello" }] },
+    });
+    await f.runTranslations();
+    const [, two, three] = await itemsIn();
+    await call(
+      router.repeatableItems.updatePosition,
+      { id: three!, beforePosition: await firstPosition() },
+      f.member(f.inDraft),
+    );
+    await f.runTranslations();
+    expect(await itemsIn("de")).toEqual([three, one, two]);
+
+    // Editing an item's label in German rewrites every German item's position.
+    await f.tool("editBlock", {
+      id: f.block.id,
+      content: { items: [{ _itemId: three }, { _itemId: one, label: "Uno" }, { _itemId: two }] },
+      locale: "de",
+    });
+    await call(
+      router.repeatableItems.updatePosition,
+      { id: two!, beforePosition: await firstPosition() },
+      f.member(f.inDraft),
+    );
+    await f.runTranslations();
+
+    expect(await itemsIn()).toEqual([two, three, one]);
+    expect(await itemsIn("de")).toEqual([two, three, one]);
+  });
+});

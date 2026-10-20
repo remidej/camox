@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
+import { readInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftInLocale } from "../drafts/scope";
 import { translationBookkeeping } from "./schema";
@@ -41,6 +42,76 @@ export const readBookkeeping = Effect.fn("translation.readBookkeeping")(function
   );
   return row;
 });
+
+/** The bookkeeping of several localizations of one kind, by id, as `readBookkeeping` reads each. */
+export const readBookkeepings = Effect.fn("translation.readBookkeepings")(function* (
+  db: Database,
+  target: DraftInLocale,
+  entity: TranslatedEntity,
+  entityIds: readonly string[],
+) {
+  const rows = yield* readInChunks(entityIds, (chunk) =>
+    Effect.promise(() =>
+      db
+        .select({
+          entityId: translationBookkeeping.entityId,
+          draftId: translationBookkeeping.draftId,
+          source: translationBookkeeping.source,
+          output: translationBookkeeping.output,
+        })
+        .from(translationBookkeeping)
+        .where(
+          and(
+            eq(translationBookkeeping.entity, entity),
+            inArray(translationBookkeeping.entityId, chunk),
+            eq(translationBookkeeping.locale, target.locale),
+            or(
+              eq(translationBookkeeping.draftId, target.id),
+              isNull(translationBookkeeping.draftId),
+            ),
+          ),
+        ),
+    ),
+  );
+  const found = new Map<string, Bookkeeping>();
+  // The draft's own over Live's.
+  for (const { entityId, draftId, source, output } of rows) {
+    if (draftId !== null || !found.has(entityId)) found.set(entityId, { source, output });
+  }
+  return found;
+});
+
+/**
+ * Records in a localization's bookkeeping, in its draft, that Camox wrote its position, in one
+ * statement over the bookkeeping as it stands: a job translating the localization at the same
+ * time keeps what it records. A localization without bookkeeping gets none.
+ */
+export const writeBookkeepingPosition = Effect.fn("translation.writeBookkeepingPosition")(
+  function* (
+    db: Database,
+    target: DraftInLocale,
+    entity: TranslatedEntity,
+    entityId: string,
+    position: string,
+  ) {
+    const t = translationBookkeeping;
+    // The draft's own bookkeeping, or a copy of Live's.
+    yield* Effect.promise(() =>
+      db.run(sql`
+        insert into ${t} (project_id, draft_id, entity, entity_id, locale, source, output)
+        select ${t.projectId}, ${target.id}, ${t.entity}, ${t.entityId}, ${t.locale}, ${t.source},
+          json_set(${t.output}, '$.position', ${position})
+        from ${t}
+        where ${t.entity} = ${entity} and ${t.entityId} = ${entityId}
+          and ${t.locale} = ${target.locale}
+          and (${t.draftId} = ${target.id} or ${t.draftId} is null)
+        order by ${t.draftId} is null
+        limit 1
+        on conflict (draft_id, entity, entity_id, locale) where draft_id is not null
+          do update set output = json_set(${t.output}, '$.position', ${position})`),
+    );
+  },
+);
 
 /** Stores a localization's bookkeeping in its draft. */
 export const writeBookkeeping = Effect.fn("translation.writeBookkeeping")(function* (

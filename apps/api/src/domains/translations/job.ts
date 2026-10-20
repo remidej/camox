@@ -24,9 +24,12 @@ import { homeOf } from "../generated-values/service";
 import { readBookkeeping, type Values, writeBookkeeping } from "./bookkeeping";
 import { claimUnique, releaseClaims } from "./claims";
 import { translateDefaults } from "./defaults";
+import { isLeftOut } from "./exclusions";
 import { type Merged, mergeLocalization, type MergeModel, sameValue } from "./merge";
+import { isOrderedEntity, placeLocalizedSibling, SIBLING_ORDER_COLUMNS } from "./order";
 import { translationScope, type TranslationScope } from "./scope";
 import { pendingRequest, settleTranslation } from "./service";
+import { dropDescendants } from "./subtree";
 import type { Shape } from "./texts";
 
 // A translation job (ADR 0015): it brings an entity's localization in one locale of a draft up
@@ -95,12 +98,16 @@ const translate = Effect.fn("translation.translate")(function* (
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
   const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
 
-  // A source deleted from the default locale takes its localizations along.
+  // A source deleted from the default locale takes its localizations along, with what's
+  // beneath them in their locale.
   if (!source) {
     if (current) yield* overlay.remove(db, scope.target, table, job.entityId);
+    yield* dropDescendants(db, scope.target, { entity: job.entity, id: job.entityId });
     yield* releaseClaims(db, draft, job.locale, job.entityId);
     return;
   }
+  // A localization deleted from the locale stays deleted, and so does what's beneath it.
+  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return;
 
   const bookkeeping = current
     ? yield* readBookkeeping(db, scope.target, job.entity, job.entityId)
@@ -113,7 +120,13 @@ const translate = Effect.fn("translation.translate")(function* (
     current && valuesOf(current),
     bookkeeping,
   );
+  // The locale may have left it out while the model ran.
+  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return;
   if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
+  if (isOrderedEntity(job.entity)) {
+    const localizing = { entity: job.entity, source, current, bookkeeping };
+    yield* placeLocalizedSibling(db, scope, localizing, merged);
+  }
   if (job.entity === "record") {
     const record = source as typeof collectionRecords.$inferSelect;
     yield* keepFoundByUnique(db, scope, record, shape.slugs ?? new Set(), merged);
@@ -186,11 +199,18 @@ const shapeOf = Effect.fn("translation.shape")(function* (
         { projectId: row.projectId, type: row.type },
         scope.draft,
       );
-      return { contentSchema: schemas?.contentSchema } satisfies Shape;
+      return {
+        contentSchema: schemas?.contentSchema,
+        // A block's order merges among its siblings (`order.ts`).
+        derived: entity === "block" ? SIBLING_ORDER_COLUMNS : undefined,
+      } satisfies Shape;
     }
     case "repeatableItem": {
       const item = source as typeof repeatableItems.$inferSelect;
-      return { contentSchema: yield* itemContentSchema(db, scope.draft, item) } satisfies Shape;
+      return {
+        contentSchema: yield* itemContentSchema(db, scope.draft, item),
+        derived: SIBLING_ORDER_COLUMNS,
+      } satisfies Shape;
     }
     case "record": {
       const record = source as typeof collectionRecords.$inferSelect;

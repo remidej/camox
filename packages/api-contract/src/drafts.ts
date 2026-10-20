@@ -150,6 +150,8 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   add: true,
   remove: true,
   setDefaultTag: false,
+  listMissing: false,
+  addBack: true,
 };
 
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {

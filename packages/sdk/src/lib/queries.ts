@@ -33,6 +33,8 @@ export const collectionMutations = {
 };
 
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
+/** The pages and records deleted from a locale, as the default locale shows them. */
+export type MissingFromLocale = Awaited<ReturnType<ApiClient["locales"]["listMissing"]>>;
 
 /**
  * Sends a change to the project's favicon. Unlike content writes it carries no draft: the favicon
@@ -79,6 +81,8 @@ export const draftMutations = {
 export const localeMutations = {
   add: () => getOrpc().locales.add.mutationOptions(),
   remove: () => getOrpc().locales.remove.mutationOptions(),
+  /** Adds a page or record deleted from the locale viewed back to it. */
+  addBack: () => getOrpc().locales.addBack.mutationOptions(),
 };
 
 export const blockMutations = {

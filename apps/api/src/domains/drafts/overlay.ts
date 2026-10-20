@@ -32,6 +32,7 @@ import { layouts } from "../layouts/schema";
 import { locales } from "../locales/schema";
 import { pages } from "../pages/schema";
 import { repeatableItems } from "../repeatable-items/schema";
+import { localizationExclusions } from "../translations/schema";
 import { drafts, endedDrafts } from "./schema";
 import {
   draftIn,
@@ -120,6 +121,7 @@ export const ENTITY_KINDS = [
   "repeatableItem",
   "file",
   "record",
+  "exclusion",
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -274,6 +276,21 @@ registerContentTable(collectionRecords, {
   ],
   inProject: (projectId) => eq(collectionRecords.projectId, projectId),
   project: collectionRecords.projectId,
+});
+
+// An exclusion names the locale a localization was deleted from: removing the locale takes its
+// exclusions with it. It names its entity by id only: ids are never reused (ADR 0004).
+registerContentTable(localizationExclusions, {
+  entity: "exclusion",
+  parents: [
+    {
+      column: localizationExclusions.locale,
+      key: locales.tag,
+      within: [[localizationExclusions.projectId, locales.projectId]],
+    },
+  ],
+  inProject: (projectId) => eq(localizationExclusions.projectId, projectId),
+  project: localizationExclusions.projectId,
 });
 
 /** A localized table's `locale` column; files and locales have none. */
@@ -797,7 +814,9 @@ export function dropLocaleStatements(db: Database, draft: Draft, tag: string): B
  */
 export function localizeStatements(draft: Draft, tag: string, now: number): BatchItem[] {
   const source = draftOf(draft);
-  return localizedTables().map((table) => {
+  // Nothing is excluded from the default locale.
+  const localized = localizedTables().filter((table) => table !== localizationExclusions);
+  return localized.map((table) => {
     const t = sql.identifier(getTableName(table));
     const columns = copiedColumns(table);
     const values = columns.map((column) =>

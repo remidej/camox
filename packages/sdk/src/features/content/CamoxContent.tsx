@@ -16,6 +16,7 @@ import {
   type CollectionItemSheetTarget,
 } from "./CollectionItemSheetContext";
 import { ContentSidebar } from "./components/ContentSidebar";
+import { MissingFromLocaleGroup } from "./components/MissingFromLocale";
 import { ContentAssets } from "./ContentAssets";
 import { ContentCollection, ContentCollectionItemSheet } from "./ContentCollection";
 
@@ -35,7 +36,9 @@ export const CamoxContent = () => {
 
   return (
     <div className="flex min-h-0 flex-1 flex-row">
-      <ContentSidebar collections={[]} selectedCollectionId={null} collectionsError={false} />
+      <ContentSidebar collections={[]} selectedCollectionId={null} collectionsError={false}>
+        <MissingFromLocaleGroup collections={[]} />
+      </ContentSidebar>
       <ContentAssets />
     </div>
   );
@@ -71,7 +74,9 @@ const ExperimentalContent = () => {
           collections={collections}
           selectedCollectionId={route?.collectionId ?? null}
           collectionsError={isError}
-        />
+        >
+          <MissingFromLocaleGroup collections={collections} />
+        </ContentSidebar>
         {route && !collection ? (
           <div role={isPending ? "status" : "alert"} className="text-muted-foreground p-6 text-sm">
             {isPending ? "Loading collection…" : "Collection not found."}
