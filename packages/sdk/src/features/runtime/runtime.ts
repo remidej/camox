@@ -279,21 +279,27 @@ function withRuntimeBasePath(pathname: string, runtimeBasePath?: string): string
 interface LiveWebsite {
   app: CamoxApp | undefined;
   projectName: string;
-  /** The default locale's pages. */
-  pages: LivePage[];
   /**
    * Each of Live's locales with its pages, the default locale first. The default locale's alone
    * without `everyLocale`.
    */
-  localizations: Array<{ locale: LocaleView; pages: LivePage[] }>;
+  localizations: [LiveLocalization, ...LiveLocalization[]];
   /** The locales `localizations` lists. */
   locales: LocaleView[];
+}
+
+/** One of Live's locales with the pages it serves. */
+interface LiveLocalization {
+  locale: LocaleView;
+  pages: LivePage[];
 }
 
 /**
  * Answers with an index of the website's Live pages, or a 500 saying why they can't be listed.
  * Sitemaps and llms.txt read Live whoever asks: crawlers only ever see published content. With
- * `everyLocale`, it reads the pages of each of Live's locales.
+ * `everyLocale`, it reads the pages of each of Live's locales. Any read failing, whether Live's
+ * locales, a locale's pages or route discovery, fails the whole index: an index silently missing
+ * pages is worse than one that visibly fails.
  */
 async function respondWithLiveWebsite(
   options: RuntimeOptions,
@@ -305,11 +311,6 @@ async function respondWithLiveWebsite(
   if (!apiUrl || !projectSlug) {
     return Response.json({ message: `Camox ${name} is not configured.` }, { status: 500 });
   }
-  const locales = everyLocale
-    ? [...(await readScopeLocales({ apiUrl, projectSlug }))].sort(
-        (a, b) => Number(b.isDefault) - Number(a.isDefault),
-      )
-    : [UNNAMED_DEFAULT_LOCALE];
   const app = await options.getCamoxApp?.();
   const readLocale = async (locale: LocaleView) => {
     const api = createServerApiClient(apiUrl, { locale });
@@ -317,21 +318,30 @@ async function respondWithLiveWebsite(
     const records = createRecordLookup(options, "live", { locale });
     return { locale, projectName, pages: await listLivePages({ pages, app, records }) };
   };
+  let locales: LocaleView[];
   let localizations: Array<Awaited<ReturnType<typeof readLocale>>>;
   try {
+    locales = everyLocale
+      ? [...(await readScopeLocales({ apiUrl, projectSlug }))].sort(
+          (a, b) => Number(b.isDefault) - Number(a.isDefault),
+        )
+      : [UNNAMED_DEFAULT_LOCALE];
     localizations = await Promise.all(locales.map(readLocale));
   } catch (error) {
-    if (!(error instanceof RouteDiscoveryError)) throw error;
-    // An index silently missing pages is worse than one that visibly fails.
-    console.error(`[camox] Route discovery failed while building the ${name}.`, error.cause);
-    return Response.json({ message: `Camox ${name} failed: ${error.message}` }, { status: 500 });
+    const discovery = error instanceof RouteDiscoveryError;
+    const cause = discovery ? error.cause : error;
+    console.error(
+      `[camox] ${discovery ? "Route discovery" : "Reading Live"} failed while building the ${name}.`,
+      cause,
+    );
+    const reason = error instanceof Error ? error.message : String(error);
+    return Response.json({ message: `Camox ${name} failed: ${reason}` }, { status: 500 });
   }
-  const [main] = localizations;
+  const [defaultLocale, ...otherLocales] = localizations;
   return respond({
     app,
-    projectName: main!.projectName,
-    pages: main!.pages,
-    localizations,
+    projectName: defaultLocale!.projectName,
+    localizations: [defaultLocale!, ...otherLocales],
     locales,
   });
 }
@@ -368,7 +378,7 @@ function createLlmsTxtResponse(request: Request, options: RuntimeOptions): Promi
       request,
       formatLlmsTxt({
         projectName: website.projectName,
-        pages: website.pages,
+        pages: website.localizations[0].pages,
         layouts: (website.app?.getLayouts() ?? []).map(({ _internal }) => _internal),
         url: absoluteUrl(request, options),
       }),

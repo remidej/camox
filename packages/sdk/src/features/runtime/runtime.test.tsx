@@ -629,6 +629,30 @@ void test("sitemaps fail loudly when route discovery fails", async (t) => {
   }
 });
 
+void test("sitemaps fail loudly when Live's locales or pages can't be read", async (t) => {
+  const unavailable = () =>
+    Response.json(
+      { json: { defined: false, code: "INTERNAL_SERVER_ERROR", status: 500, message: "Down" } },
+      { status: 500 },
+    );
+  t.mock.method(console, "error", () => {});
+  for (const failing of ["/locales/list", "/listBySlug"]) {
+    t.mock.method(globalThis, "fetch", async (request: Request) =>
+      request.url.endsWith(failing)
+        ? unavailable()
+        : request.url.endsWith("/locales/list")
+          ? localesResponse(["en", "de"])
+          : pageListResponse(),
+    );
+    const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
+      apiUrl: "https://api.test",
+      projectSlug: "test",
+    });
+    assert.equal(response?.status, 500, failing);
+    assert.match(((await response!.json()) as { message: string }).message, /sitemap/);
+  }
+});
+
 void test("the routes endpoint returns a derived layout's first discovered page", async () => {
   const request = (layoutId: string, routes: () => unknown) =>
     handleCamoxRequest(new Request(`https://site.test/_camox/routes?layoutId=${layoutId}`), {
