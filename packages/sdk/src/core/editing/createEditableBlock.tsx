@@ -97,8 +97,13 @@ export type {
   TextStyleData,
   TextLinkStyleData,
 } from "../lib/lexicalReact";
-import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
-import { usePageLinks } from "../../lib/view-pages";
+import { useLinkPages } from "../../lib/link-pages";
+import { reads, useStudioCache } from "../../lib/studio-reads";
+
+/** The pages links lead to in the locale viewed, for the studio's editors, who read the project. */
+function useEditorLinkPages() {
+  return useLinkPages(useProjectSlug(), { fetchProject: true });
+}
 
 /** Normalize legacy links (no `type` field) to the new union shape */
 const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
@@ -856,9 +861,7 @@ export function createEditableBlock<
     const isContentEditable = useIsEditable(mode);
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
-    const projectSlug = useProjectSlug();
-    const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-    const pages = usePageLinks(projectSlug, !!project);
+    const pages = useEditorLinkPages();
     const currentPathname = useLocation({ select: (l) => l.pathname });
 
     // Check if we're inside a Repeater
@@ -1224,9 +1227,7 @@ export function createEditableBlock<
     };
 
     const { filesMap } = useNormalizedData();
-    const projectSlug = useProjectSlug();
-    const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-    const pages = usePageLinks(projectSlug, !!project);
+    const pages = useEditorLinkPages();
     const currentPathname = useLocation({ select: (l) => l.pathname });
     const data = artifactData(
       repeaterContext
@@ -1307,9 +1308,7 @@ export function createEditableBlock<
     const fieldValue = normalizeLinkValue(rawFieldValue as unknown as Record<string, unknown>);
     const updateBlockContent = useMutation(blockMutations.updateContent());
     const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
-    const projectSlug = useProjectSlug();
-    const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-    const pages = usePageLinks(projectSlug, !!project);
+    const pages = useEditorLinkPages();
     const currentPathname = useLocation({ select: (l) => l.pathname });
     const resolvedHref = resolveLinkHref(fieldValue, pages, currentPathname);
 

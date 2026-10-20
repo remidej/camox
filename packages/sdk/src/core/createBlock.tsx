@@ -5,13 +5,14 @@ import * as React from "react";
 
 import { useLocation, useNavigate } from "../features/navigation/navigation";
 import { useOptionalCamoxApp } from "../features/provider/components/CamoxAppContext";
+import { useProjectSlug } from "../lib/auth";
+import { useLinkPages } from "../lib/link-pages";
 import {
   isItemMarker,
   queryResultIds,
   resolveAssetValue,
   useNormalizedData,
 } from "../lib/normalized-data";
-import { useViewPages } from "../lib/view-pages";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
   ArtifactStudioContext,
@@ -233,7 +234,7 @@ function createViewBlock(options: EditableOptions) {
       });
     }
     const value = useValue(name);
-    const pages = useViewPages();
+    const pages = useLinkPages(useProjectSlug());
     const pathname = useLocation({ select: (location) => location.pathname });
     return children(
       {
@@ -289,7 +290,7 @@ function createViewBlock(options: EditableOptions) {
     const block = React.use(Context);
     const item = React.use(RepeaterContext);
     const { filesMap } = useNormalizedData();
-    const pages = useViewPages();
+    const pages = useLinkPages(useProjectSlug());
     const pathname = useLocation({ select: (location) => location.pathname });
     if (!block) throw new Error("Artifact must be used within a Block Component");
     const field = item ? item.itemSchema?.[name] : typeboxSchema.properties[name];
@@ -306,7 +307,7 @@ function createViewBlock(options: EditableOptions) {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) return editingRuntime.renderPrimitive(options, "Link", { name, children });
     const value = normalizeLinkValue((useValue(name) ?? {}) as Record<string, unknown>);
-    const pages = useViewPages();
+    const pages = useLinkPages(useProjectSlug());
     const pathname = useLocation({ select: (location) => location.pathname });
     const href = resolveLinkHref(value, pages, pathname);
     if (href == null) return value.text;
