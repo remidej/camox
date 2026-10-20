@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { z, ZodType } from "zod";
 
 import type { ServiceContext } from "../../../apps/api/src/domains/_shared/service-context";
 
@@ -17,7 +17,8 @@ export type ToolDefinition = {
   name: string;
   description: string;
   inputSchema: ZodType;
-  outputSchema?: ZodType;
+  /** The shape of the handler's result: dispatch checks every result against it. */
+  outputSchema: ZodType;
   handler: (input: unknown, ctx: ToolContext) => Promise<unknown>;
   meta: {
     /** A write changes content, so it needs a draft: Live is read-only (ADR 0003). */
@@ -33,3 +34,16 @@ export type ToolDefinition = {
 };
 
 export type ToolProvider = (ctx: ToolContext) => ToolDefinition[] | Promise<ToolDefinition[]>;
+
+/**
+ * A tool whose handler is type-checked against its output schema, so a declaration can't drift
+ * from what the handler returns without failing the type check too.
+ */
+export function defineTool<Output extends ZodType>(
+  tool: Omit<ToolDefinition, "outputSchema" | "handler"> & {
+    outputSchema: Output;
+    handler: (input: unknown, ctx: ToolContext) => Promise<z.input<Output>>;
+  },
+): ToolDefinition {
+  return tool;
+}

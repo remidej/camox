@@ -31,7 +31,7 @@ import {
   publishStatements as filePublishStatements,
   withFileMetadata,
 } from "../files/generated-metadata";
-import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
+import { checkFileProblems, FILE_PROBLEM_CODES, type Finding } from "../files/publish-checks";
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
 import { type GenerationTarget, requestGenerations } from "../generated-values/generation";
 import * as generatedValueStatements from "../generated-values/service";
@@ -45,11 +45,7 @@ import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import { catchUpPending, isCatchUpDraft } from "./catch-up";
-import {
-  checkContentProblems,
-  type ContentFinding,
-  type ContentProblemCode,
-} from "./content-checks";
+import { checkContentProblems, CONTENT_PROBLEM_CODES, type ContentFinding } from "./content-checks";
 import * as overlay from "./overlay";
 import { peopleNamed } from "./people";
 import { drafts } from "./schema";
@@ -83,12 +79,22 @@ export type Conflict = Subject &
     release: boolean;
   };
 
-export type LostChange = Subject & InLocale & { reason: "parentGone" | "writtenAfterDeletion" };
+/** Why publishing drops a change. */
+export const LOSS_REASONS = ["parentGone", "writtenAfterDeletion"] as const;
+
+export type LostChange = Subject & InLocale & { reason: (typeof LOSS_REASONS)[number] };
+
+/** What a blocker or warning is about. */
+export const PROBLEM_CODES = [
+  "definitionsDiffer",
+  ...FILE_PROBLEM_CODES,
+  ...CONTENT_PROBLEM_CODES,
+] as const;
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject &
   InLocale & {
-    code: "definitionsDiffer" | FileProblemCode | ContentProblemCode;
+    code: (typeof PROBLEM_CODES)[number];
     field: string;
     message: string;
   };
