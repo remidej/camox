@@ -162,7 +162,7 @@ const trigger = () =>
   window.document.querySelector('[data-slot="dropdown-menu-trigger"]') as unknown as HTMLElement;
 const pendingButton = () =>
   [...window.document.querySelectorAll("button")].find((button) =>
-    / pending|pending changes/.test(button.textContent ?? ""),
+    /^Review \d|^No pending changes$/.test(button.textContent ?? ""),
   ) as unknown as HTMLElement | undefined;
 const menu = () => window.document.querySelector('[role="menu"]');
 const menuItems = () =>
@@ -334,7 +334,7 @@ void test("in a named draft, the picker reads its name and the button its pendin
   await render(t, spring);
 
   assert.equal(trigger().textContent, "Spring campaign");
-  assert.equal(pendingButton()?.textContent, "4 changes pending");
+  assert.equal(pendingButton()?.textContent, "Review 4 changes");
 });
 
 void test("in an unnamed draft, the picker reads its creator and date", async (t) => {
@@ -342,7 +342,7 @@ void test("in an unnamed draft, the picker reads its creator and date", async (t
   await render(t, adas);
 
   assert.equal(trigger().textContent, "Ada, Oct 13");
-  assert.equal(pendingButton()?.textContent, "1 change pending");
+  assert.equal(pendingButton()?.textContent, "Review 1 change");
 });
 
 void test("a draft without changes says it has no pending changes", async (t) => {
@@ -447,7 +447,7 @@ void test("the localhost studio shows only its development draft, with nothing t
   await render(t, spring);
 
   assert.equal(trigger().textContent, "Development draft");
-  assert.equal(pendingButton()?.textContent, "2 changes pending");
+  assert.equal(pendingButton()?.textContent, "Review 2 changes");
   await click(trigger());
 
   assert.deepEqual(menuItems(), []);

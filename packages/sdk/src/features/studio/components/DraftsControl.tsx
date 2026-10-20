@@ -203,7 +203,7 @@ export function PendingChanges() {
     <Button type="button" onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}>
       {current.changeCount === 0
         ? "No pending changes"
-        : `${plural(current.changeCount, "change")} pending`}
+        : `Review ${plural(current.changeCount, "change")}`}
     </Button>
   );
 }
