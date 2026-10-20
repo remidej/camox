@@ -40,7 +40,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
-import { endThread, threadOfDraft } from "../threads/service";
+import { endingThread } from "../threads/service";
 import * as translationBookkeeping from "../translations/bookkeeping";
 import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
@@ -536,7 +536,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
   // Collected before the batch drops the draft's rows and replaces Live's.
   const blobs = yield* blobsOfDraft(ctx.db, scope);
   const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
-  const thread = yield* threadOfDraft(ctx.db, scope.id);
+  const thread = yield* endingThread(ctx, scope.id);
   const applied = yield* Effect.result(
     overlay.publish(ctx.db, scope, {
       shown: options.shown,
@@ -548,6 +548,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
         ...filePublishStatements(scope.projectId),
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
+        ...thread.statements,
       ],
     }),
   );
@@ -556,7 +557,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
     return { applied: false, ended: ended ?? null };
   }
 
-  yield* endThread(ctx, scope.id, thread);
+  yield* thread.end;
   yield* deleteUnreferencedBlobs(ctx, blobs);
   yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
   yield* requestLiveGeneration(ctx, scope, options.stored);
@@ -676,7 +677,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   // Collected before the cascade drops the draft's rows.
   const blobs = yield* blobsOfDraft(ctx.db, scope);
   const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
-  const thread = yield* threadOfDraft(ctx.db, scope.id);
+  const thread = yield* endingThread(ctx, scope.id);
   const result = yield* Effect.result(
     overlay.discard(ctx.db, scope, {
       discardedBy: user.id,
@@ -684,13 +685,14 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
       alongside: [
         ...generatedValueStatements.discardStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
+        ...thread.statements,
       ],
     }),
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
-    yield* endThread(ctx, scope.id, thread);
+    yield* thread.end;
     yield* deleteUnreferencedBlobs(ctx, blobs);
     yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
     yield* recordEnded(ctx, projectId, ended);

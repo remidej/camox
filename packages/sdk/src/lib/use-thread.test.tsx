@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
-import type { ThreadClientMessage, ThreadServerMessage } from "@camox/api-contract/threads";
+import {
+  THREAD_ENDED_CLOSE_CODE,
+  type ThreadClientMessage,
+  type ThreadServerMessage,
+} from "@camox/api-contract/threads";
 import { Window } from "happy-dom";
 import { act } from "react";
 
@@ -40,11 +44,16 @@ class ThreadSocket extends EventTarget {
     this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
   }
 
-  close() {
+  close(code = 1006) {
     if (this.readyState === 3) return;
     this.readyState = 3;
     // Node 22 (CI) has no global CloseEvent.
-    this.dispatchEvent(Object.assign(new Event("close"), { code: 1006, reason: "" }));
+    this.dispatchEvent(Object.assign(new Event("close"), { code, reason: "" }));
+  }
+
+  /** The thread ending with its draft, closing the socket for good. */
+  end() {
+    this.close(THREAD_ENDED_CLOSE_CODE);
   }
 }
 
@@ -120,4 +129,32 @@ void test("a message the thread turns down stops the wait and says so; only the 
   await waitFor(() => socket() !== first && socket().received.length > 0, "the studio resends");
 
   assert.deepEqual(socket().received, [stillOnItsWay]);
+});
+
+void test("the studio doesn't reconnect to a draft's thread that ended with the draft", async (t) => {
+  const { socket } = await studio(t, "019a0000-0000-7000-8000-000000000000");
+  // How long PartySocket takes to reconnect once the socket closed otherwise.
+  const dropped = socket();
+  const droppedAt = Date.now();
+  await act(async () => dropped.close());
+  await waitFor(() => socket() !== dropped && socket().readyState === 1, "the studio reconnects");
+  const reconnecting = Date.now() - droppedAt;
+
+  const ended = socket();
+  await act(async () => ended.end());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2 * reconnecting));
+  });
+
+  assert.ok(socket() === ended, "the studio left the ended thread closed");
+});
+
+void test("in dev mode, the studio moves on to the development draft's new thread", async (t) => {
+  const { socket } = await studio(t, "development");
+  const ended = socket();
+
+  await act(async () => ended.end());
+
+  await waitFor(() => socket() !== ended && socket().readyState === 1, "the studio reconnects");
+  assert.equal(new URL(socket().url).pathname, "/threads/draft/1/development");
 });

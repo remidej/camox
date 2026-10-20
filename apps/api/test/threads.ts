@@ -3,6 +3,7 @@ import {
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
   type ThreadClientMessage,
+  type ThreadSender,
   type ThreadServerMessage,
   type ThreadView,
   threadViewOf,
@@ -16,6 +17,12 @@ import type { createDb } from "../src/db";
 import { upsertBlockDefinition } from "../src/domains/block-definitions/service";
 import { blockProcedures } from "../src/domains/blocks/routes";
 import { pageProcedures } from "../src/domains/pages/routes";
+import type { ThreadIdentity } from "../src/domains/threads/tools";
+import {
+  ENDED_KEY,
+  THREAD_IDENTITY_HEADER,
+  THREAD_SENDER_HEADER,
+} from "../src/durable-objects/thread";
 import app from "../src/index";
 import { runService } from "../src/lib/run-service";
 import { drafts, session } from "../src/schema";
@@ -70,17 +77,23 @@ export const requestDraftThread = (projectId: number, draft: string, token: stri
  */
 export async function storedThreadOf(db: ReturnType<typeof createDb>, draftId: string) {
   const threadId = await threadIdOf(db, draftId);
-  return threadId ? storedThread(threadId) : { tables: [], keys: [] };
+  return threadId ? storedThread(threadId) : NOTHING_STORED;
 }
 
-/** The id of a draft's thread, once someone opened it: undefined before, or once the draft ended. */
+/** What a thread that stores nothing keeps: no tables, no keys. */
+export const NOTHING_STORED = { tables: [], keys: [] };
+
+/** What a thread that ended with its draft keeps: only the record that it ended. */
+export const ENDED_THREAD_STORED = { tables: [], keys: [ENDED_KEY] };
+
+/** The id of a draft's thread, once someone opened it: null before, or once the draft ended. */
 export async function threadIdOf(db: ReturnType<typeof createDb>, draftId: string) {
   const draft = await db
     .select({ threadId: drafts.threadId })
     .from(drafts)
     .where(eq(drafts.id, draftId))
     .get();
-  return draft?.threadId ?? undefined;
+  return draft?.threadId ?? null;
 }
 
 /** What thread `threadId` keeps in its Durable Object: the tables and keys in its storage. */
@@ -117,6 +130,8 @@ export type ThreadClient = {
   until: (check: () => boolean) => Promise<void>;
   /** Waits until no run is going, and the view shows `messages` messages when given. */
   untilIdle: (messages?: number) => Promise<void>;
+  /** The code the thread closed the socket with, once it did. */
+  closedWith: () => number | undefined;
   close: () => void;
 };
 
@@ -125,6 +140,26 @@ export const connectLiveThread = async (projectId: number, token: string) =>
 
 export const connectDraftThread = async (projectId: number, draft: string, token: string) =>
   connectThread(await requestDraftThread(projectId, draft, token));
+
+/**
+ * Opens a socket straight to thread `threadId`, as the API forwards one it authorized for
+ * `sender` in `identity`: for a connection the API let through just before the thread ended,
+ * which reaches it after.
+ */
+export const connectForwarded = async (
+  threadId: string,
+  sender: ThreadSender,
+  identity: ThreadIdentity,
+) =>
+  connectThread(
+    await env.THREAD.getByName(threadId).fetch("http://thread/", {
+      headers: {
+        Upgrade: "websocket",
+        [THREAD_SENDER_HEADER]: JSON.stringify(sender),
+        [THREAD_IDENTITY_HEADER]: JSON.stringify(identity),
+      },
+    }),
+  );
 
 async function connectThread(response: Response): Promise<ThreadClient> {
   const socket = response.webSocket;
@@ -135,6 +170,11 @@ async function connectThread(response: Response): Promise<ThreadClient> {
   const view = () => threadViewOf(state);
   const frames: ThreadServerMessage[] = [];
   const waiters: (() => void)[] = [];
+  let closedWith: number | undefined;
+  socket.addEventListener("close", (event) => {
+    closedWith = event.code;
+    for (const wake of waiters.splice(0)) wake();
+  });
   socket.addEventListener("message", (event) => {
     if (typeof event.data !== "string") return;
     const frame = JSON.parse(event.data) as ThreadServerMessage;
@@ -168,6 +208,7 @@ async function connectThread(response: Response): Promise<ThreadClient> {
       until(
         () => !view().running && (messages === undefined || view().messages.length === messages),
       ),
+    closedWith: () => closedWith,
     close: () => socket.close(),
   };
 }
