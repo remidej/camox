@@ -367,12 +367,31 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         ];
         globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
         Object.assign(globalThis, globals);
+        // Opening the Canvas for the first time in the session.
+        canvasStore.send({ type: "reset" });
         const host = dom.document.createElement("div");
         dom.document.body.append(host);
-        const root = createRoot(host as unknown as HTMLElement);
+        let root = createRoot(host as unknown as HTMLElement);
+        const blocksMarker = () =>
+          host.querySelector('[data-canvas-shelf-marker="shelf:blocks"]') as unknown as HTMLElement;
         try {
           await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
           const row = host.querySelector("[data-canvas-items]")!;
+          assert.equal(
+            blocksMarker().getAttribute("aria-expanded"),
+            "false",
+            "the Block Catalog starts collapsed",
+          );
+          assert.equal(row.querySelector("[data-canvas-block]"), null, "block frames don't mount");
+          assert.doesNotMatch(host.textContent, /Block hero/);
+          assert.deepEqual(
+            snapTargets.map(({ key }) => key),
+            [...headers.keys()],
+            "collapsed blocks are not snap targets",
+          );
+          const collapsedWidth = cameraWidth;
+          await React.act(async () => blocksMarker().click());
+          assert.equal(blocksMarker().getAttribute("aria-expanded"), "true");
           assert.deepEqual(
             [...row.querySelectorAll("[data-canvas-slot]")].map((slot) =>
               slot.getAttribute("data-canvas-slot"),
@@ -433,6 +452,37 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             headerLefts[4]! + CANVAS_SLOT_WIDTH,
             "the Canvas bounds cover Pages and blocks",
           );
+          assert.equal(
+            collapsedWidth,
+            headerLefts[2],
+            "collapsed, the Canvas bounds end at the Blocks marker",
+          );
+          await React.act(async () => blocksMarker().click());
+          assert.equal(
+            row.querySelector("[data-canvas-block]"),
+            null,
+            "collapsing unmounts blocks",
+          );
+          assert.equal(cameraWidth, collapsedWidth, "and shrinks the Canvas bounds again");
+          await React.act(async () => root.unmount());
+          root = createRoot(host as unknown as HTMLElement);
+          globals.CanvasLocation = {
+            pathname: "/camox/blocks/hero",
+            search: "",
+            hash: "",
+            source: undefined,
+          };
+          Object.assign(globalThis, globals);
+          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+          assert.equal(
+            blocksMarker().getAttribute("aria-expanded"),
+            "true",
+            "reopening the Canvas on a block expands the Block Catalog",
+          );
+          assert.equal(initialTarget?.left, headerLefts[3], "and opens the camera on the block");
+          globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+          Object.assign(globalThis, globals);
+          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
           globals.CanvasBlocks = [block("navbar", "Navbar", true)];
           Object.assign(globalThis, globals);
           await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
@@ -1117,9 +1167,10 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           "hidden Pages stay mounted",
         );
         assert.ok(frame!.closest('[data-canvas-shelf="shelf:pages"]')!.hasAttribute("inert"));
-        assert.equal(cameraWidth, expandedWidth, "the Canvas keeps its expanded bounds");
+        assert.ok(cameraWidth! < expandedWidth!, "the Canvas bounds leave out hidden Pages");
         await toggle();
         assert.equal(marker().getAttribute("aria-expanded"), "true");
+        assert.equal(cameraWidth, expandedWidth);
         assert.deepEqual(keptInView, [], "expanding does not pan");
         assert.equal(host.querySelectorAll("[data-canvas-header]").length, 2);
         assert.equal(host.querySelector('[data-canvas-pathname="/about"]'), frame);

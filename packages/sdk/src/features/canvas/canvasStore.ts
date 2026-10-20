@@ -24,6 +24,11 @@ export const canvasStore = createStore({
   },
   on: {
     reset: () => ({ views: {}, collapsedShelves: {}, moving: {}, overviewRequests: 0 }),
+    /** Sets the shelves a workspace opens with collapsed. */
+    openShelves: (context, event: { workspaceKey: string; collapsed: readonly string[] }) => ({
+      ...context,
+      collapsedShelves: { ...context.collapsedShelves, [event.workspaceKey]: event.collapsed },
+    }),
     setShelfCollapsed: (
       context,
       event: { workspaceKey: string; shelfKey: string; collapsed: boolean },
@@ -62,20 +67,41 @@ export const canvasStore = createStore({
   },
 });
 
-const noShelves: readonly string[] = [];
-
 function subscribe(onChange: () => void) {
   const subscription = canvasStore.subscribe(onChange);
   return () => subscription.unsubscribe();
 }
 
-/** The keys of a workspace's collapsed shelves. */
-export function useCollapsedShelves(workspaceKey: string): ReadonlySet<string> {
-  const keys = React.useSyncExternalStore(
+const noShelves: readonly string[] = [];
+
+/**
+ * The keys of a workspace's collapsed shelves. The first time a workspace opens
+ * in the session, `defaults` are collapsed. It always opens with the shelf
+ * holding the selection expanded, so the camera can start on the selection.
+ */
+export function useCollapsedShelves(
+  workspaceKey: string,
+  defaults: readonly string[],
+  selectedShelf: string | undefined,
+): ReadonlySet<string> {
+  const stored = React.useSyncExternalStore(
     subscribe,
-    () => canvasStore.getSnapshot().context.collapsedShelves[workspaceKey] ?? noShelves,
-    () => noShelves,
+    () => canvasStore.getSnapshot().context.collapsedShelves[workspaceKey],
+    () => undefined,
   );
+  // Shown from the first render, until the store holds them.
+  const [opening, setOpening] = React.useState<readonly string[] | null>(() =>
+    (canvasStore.getSnapshot().context.collapsedShelves[workspaceKey] ?? defaults).filter(
+      (key) => key !== selectedShelf,
+    ),
+  );
+  React.useLayoutEffect(() => {
+    if (!opening) return;
+    canvasStore.send({ type: "openShelves", workspaceKey, collapsed: opening });
+    // oxlint-disable-next-line react/set-state-in-effect -- hands the opening shelves over to the store before paint
+    setOpening(null);
+  }, [opening, workspaceKey]);
+  const keys = opening ?? stored ?? noShelves;
   return React.useMemo(() => new Set(keys), [keys]);
 }
 
