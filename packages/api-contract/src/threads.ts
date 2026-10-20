@@ -9,6 +9,9 @@ import { z } from "zod";
 /** The kind of the transcript entry recording an editor's message, with its sender as data. */
 export const EDITOR_MESSAGE_ENTRY = "camox.editor-message";
 
+/** The kind of the transcript entry recording that an editor stopped a run, with them as data. */
+export const RUN_STOPPED_ENTRY = "camox.run-stopped";
+
 /** Who sent a message in a thread. */
 export const threadSenderSchema = z.object({
   id: z.string(),
@@ -25,7 +28,14 @@ export const isSender = (data: unknown): data is ThreadSender =>
 export type ThreadMessage =
   | { id: string; from: "editor"; sender: ThreadSender; text: string }
   /** The agent's final message of a turn, in Markdown. */
-  | { id: string; from: "agent"; text: string };
+  | { id: string; from: "agent"; text: string }
+  /**
+   * In place of the agent's message, for a turn that ended without one: the model failed (after
+   * Pi's retries), or its answer was cut short. Sending again retries.
+   */
+  | { id: string; from: "failed" }
+  /** In place of the agent's message, for a turn an editor stopped. */
+  | { id: string; from: "stopped"; by: ThreadSender };
 
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
@@ -36,6 +46,26 @@ export type ThreadView = {
 
 export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], working: false };
 
+/**
+ * What a thread's view is folded from: the steps of its transcript that matter to the studio,
+ * and whether a run is going. The studio and the tests fold Pi's events into this, and derive
+ * the view from it with `threadViewOf`, so a snapshot and the events that led to it show the same.
+ */
+export type ThreadState = { steps: readonly ThreadStep[]; running: boolean };
+
+export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
+
+/** One transcript entry, as far as the studio's view is concerned. */
+type ThreadStep = { id: string } & (
+  | { type: "editor"; sender: ThreadSender; text: string }
+  | { type: "answer"; text: string }
+  /** A round of tool calls, or their results: the run goes on after it. */
+  | { type: "tools" }
+  /** A model call that ended without an answer: failed, aborted, or cut short. */
+  | { type: "unfinished" }
+  | { type: "stopped"; by: ThreadSender }
+);
+
 /** Studio → thread. */
 export const threadClientMessageSchema = z.discriminatedUnion("type", [
   /**
@@ -43,6 +73,8 @@ export const threadClientMessageSchema = z.discriminatedUnion("type", [
    * a message resent after a dropped connection is one submission.
    */
   z.object({ type: z.literal("send"), operationId: z.string().min(1), text: z.string().min(1) }),
+  /** Stops the run going, if any. What the agent changed before stays. */
+  z.object({ type: z.literal("stop") }),
   /** Asks for a fresh snapshot of the thread. */
   z.object({ type: z.literal("resync") }),
 ]);
@@ -67,60 +99,118 @@ const textOf = (content: Message["content"]) =>
         .join("")
         .trim();
 
-/**
- * The agent's final message of a turn: an answer with no tool call. Text written beside a tool
- * call, thinking, and failed, stopped or truncated attempts are never shown.
- */
-const isFinalAnswer = (message: AssistantMessage) =>
-  message.stopReason === "stop" && message.content.every((part) => part.type !== "toolCall");
+/** What an assistant message is to the thread: a final answer, a tool round, or neither. */
+function assistantStep(id: string, message: AssistantMessage): ThreadStep {
+  if (message.content.some((part) => part.type === "toolCall")) return { id, type: "tools" };
+  // Thinking is never shown. An answer cut short by the model's length limit isn't one.
+  const text = message.stopReason === "stop" ? textOf(message.content) : "";
+  return text ? { id, type: "answer", text } : { id, type: "unfinished" };
+}
 
-/** The message an entry shows, if any. */
-export function threadMessageOf(entry: EntryRecord): ThreadMessage | undefined {
+/** The step an entry is, if it's one the view depends on. */
+function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
+  const id = String(entry.id);
+  if (entry.kind === RUN_STOPPED_ENTRY && isSender(entry.data)) {
+    const { id: senderId, name, image } = entry.data;
+    return { id, type: "stopped", by: { id: senderId, name, image } };
+  }
   const message = entry.model?.find((candidate) => candidate.role !== "system");
   if (!message) return undefined;
-  const id = String(entry.id);
   if (entry.kind === EDITOR_MESSAGE_ENTRY && message.role === "user" && isSender(entry.data)) {
     const { id: senderId, name, image } = entry.data;
     return {
       id,
-      from: "editor",
+      type: "editor",
       sender: { id: senderId, name, image },
       text: textOf(message.content),
     };
   }
-  if (message.role === "assistant" && isFinalAnswer(message)) {
-    const text = textOf(message.content);
-    return text ? { id, from: "agent", text } : undefined;
-  }
+  if (message.role === "assistant") return assistantStep(id, message);
+  if (message.role === "toolResult") return { id, type: "tools" };
   return undefined;
 }
 
-const append = (view: ThreadView, entry: EntryRecord): ThreadView => {
-  const message = threadMessageOf(entry);
-  if (!message || view.messages.some((known) => known.id === message.id)) return view;
-  return { ...view, messages: [...view.messages, message] };
+/**
+ * What the studio shows for a thread. A turn starts with an editor's message, and messages sent
+ * while it runs join it. It ends with the agent's final message; text written beside tool calls
+ * is never shown. A stopped turn shows who stopped it instead, and whatever its run wrote after
+ * the stop is left out. A turn that ended without either shows a failed line in its place: its
+ * run is over, or a later message started another run after its last model call came back
+ * unfinished. While Pi retries a failed call, the run goes on, so the turn shows as working.
+ */
+export function threadViewOf({ steps, running }: ThreadState): ThreadView {
+  const messages: ThreadMessage[] = [];
+  // The latest editor's message of a turn still waiting for the agent's message.
+  let waiting: string | undefined;
+  let unfinished = false;
+  const fail = () => {
+    if (waiting !== undefined) messages.push({ id: `${waiting}:failed`, from: "failed" });
+    waiting = undefined;
+  };
+
+  for (const step of steps) {
+    switch (step.type) {
+      case "editor":
+        // Steering messages join a run between tool rounds, never after an unfinished call.
+        if (unfinished) fail();
+        messages.push({ id: step.id, from: "editor", sender: step.sender, text: step.text });
+        waiting = step.id;
+        unfinished = false;
+        break;
+      case "stopped":
+        if (waiting === undefined) break;
+        messages.push({ id: step.id, from: "stopped", by: step.by });
+        waiting = undefined;
+        unfinished = false;
+        break;
+      case "answer":
+        // A stopped turn's run may still answer before it ends.
+        if (waiting === undefined && messages.at(-1)?.from === "stopped") break;
+        messages.push({ id: step.id, from: "agent", text: step.text });
+        waiting = undefined;
+        unfinished = false;
+        break;
+      case "tools":
+        unfinished = false;
+        break;
+      case "unfinished":
+        unfinished = true;
+        break;
+    }
+  }
+  if (!running) fail();
+  return { messages, working: running };
+}
+
+const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {
+  const step = entry && threadStepOf(entry);
+  if (!step || state.steps.some((known) => known.id === step.id)) return state;
+  return { ...state, steps: [...state.steps, step] };
 };
 
-/** Folds one of Pi's agent events into the thread's view. */
-export function reduceThreadView(view: ThreadView, event: AgentEvent): ThreadView {
+/** Folds one of Pi's agent events into the thread's state. */
+export function reduceThreadState(state: ThreadState, event: AgentEvent): ThreadState {
   switch (event.type) {
     case "snapshot":
       return {
-        messages: event.entries.flatMap((entry) => threadMessageOf(entry) ?? []),
-        working: event.run !== undefined,
+        steps: event.entries.flatMap((entry) => threadStepOf(entry) ?? []),
+        running: event.run !== undefined,
       };
     case "run_start":
-      return { ...view, working: true };
+      return { ...state, running: true };
     case "run_end":
-      return { ...view, working: false };
+      return { ...state, running: false };
     case "message_end":
     case "entry_appended":
-      return append(view, event.entry);
+    case "tool_execution_end":
+      return append(state, event.entry);
     default:
-      return view;
+      return state;
   }
 }
 
-/** Folds a batch of Pi's agent events into the thread's view. */
-export const reduceThreadEvents = (view: ThreadView, events: readonly AgentEvent[]): ThreadView =>
-  events.reduce(reduceThreadView, view);
+/** Folds a batch of Pi's agent events into the thread's state. */
+export const reduceThreadEvents = (
+  state: ThreadState,
+  events: readonly AgentEvent[],
+): ThreadState => events.reduce(reduceThreadState, state);

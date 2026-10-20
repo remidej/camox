@@ -8,7 +8,7 @@ import {
   holdNextAnswer,
   threadModelCalls,
 } from "../../../test/thread-model";
-import { connectLiveThread, requestLiveThread, signIn } from "../../../test/threads";
+import { connectLiveThread, requestLiveThread, said, signIn } from "../../../test/threads";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -90,7 +90,7 @@ describe("an editor's Live thread", () => {
       () => !again.view().working && again.view().messages.some((m) => m.from === "agent"),
     );
 
-    expect(again.view().messages.map(({ from, text }) => ({ from, text }))).toEqual([
+    expect(said(again.view())).toEqual([
       { from: "editor", text: "Only once" },
       { from: "agent", text: "First answer." },
     ]);
@@ -98,7 +98,7 @@ describe("an editor's Live thread", () => {
     again.close();
   });
 
-  it("doesn't show an answer cut short as the turn's final message", async () => {
+  it("shows an answer cut short as a turn the agent couldn't finish", async () => {
     const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
     const token = await signIn(db, memberUser.id);
     answerNext("Your website has thr", { stopReason: "length" });
@@ -111,7 +111,7 @@ describe("an editor's Live thread", () => {
       ),
     );
 
-    expect(thread.view().messages.map(({ from }) => from)).toEqual(["editor"]);
+    expect(thread.view().messages.map(({ from }) => from)).toEqual(["editor", "failed"]);
     thread.close();
   });
 

@@ -1,12 +1,13 @@
 import {
-  EMPTY_THREAD_VIEW,
+  EMPTY_THREAD_STATE,
   reduceThreadEvents,
   type ThreadClientMessage,
   type ThreadServerMessage,
-  type ThreadView,
+  type ThreadState,
+  threadViewOf,
 } from "@camox/api-contract/threads";
 import { usePartySocket } from "partysocket/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiSocketOptions } from "./api-socket";
 
@@ -19,7 +20,8 @@ const OPEN = 1;
  * thread accepts it, which records it once, or turns it down. Mount it once per project.
  */
 export function useLiveThread(apiUrl: string, projectId: number) {
-  const [view, setView] = useState<ThreadView>(EMPTY_THREAD_VIEW);
+  const [state, setState] = useState<ThreadState>(EMPTY_THREAD_STATE);
+  const view = useMemo(() => threadViewOf(state), [state]);
   const [unaccepted, setUnaccepted] = useState<ReadonlyMap<string, string>>(new Map());
   const [error, setError] = useState<string>();
   const unacceptedRef = useRef(unaccepted);
@@ -48,7 +50,7 @@ export function useLiveThread(apiUrl: string, projectId: number) {
       }
       if (frame.type === "events") {
         const { events } = frame;
-        setView((current) => reduceThreadEvents(current, events));
+        setState((current) => reduceThreadEvents(current, events));
       } else if (frame.type === "accepted") {
         const { operationId } = frame;
         setUnaccepted((current) => without(current, operationId));
@@ -81,11 +83,18 @@ export function useLiveThread(apiUrl: string, projectId: number) {
     [socket],
   );
 
+  // A stop isn't resent on reconnecting: it could stop a run started since.
+  const stop = useCallback(() => transmit(socket, { type: "stop" }), [socket]);
+
   return {
     view,
     /** Whether the agent is working, or a message is still on its way to the thread. */
     working: view.working || unaccepted.size > 0,
+    /** Whether the agent is working on a run, which `stop` ends. */
+    running: view.working,
+    /** Sends a message, steering the run going if any. */
     send,
+    stop,
     /** Why the thread last turned a message down, until the editor sends another. */
     error,
   };

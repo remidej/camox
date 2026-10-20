@@ -54,6 +54,22 @@ export function ThreadMessages({ view }: { view: ThreadView }) {
 }
 
 function ThreadMessageRow({ message }: { message: ThreadMessage }) {
+  if (message.from === "stopped" || message.from === "failed") {
+    return (
+      <Message>
+        <MessageAvatar>
+          <AgentAvatar />
+        </MessageAvatar>
+        <MessageContent>
+          <p className="text-muted-foreground text-sm">
+            {message.from === "stopped"
+              ? `Stopped by ${message.by.name}`
+              : "Camox couldn’t finish this. Send your message again to retry."}
+          </p>
+        </MessageContent>
+      </Message>
+    );
+  }
   if (message.from === "agent") {
     return (
       <Message>
