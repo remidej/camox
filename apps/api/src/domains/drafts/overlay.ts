@@ -529,15 +529,15 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
     row,
     columns,
   });
-  // Every write of a localized entity in a draft, whatever wrote it: one in the default locale
-  // is translated into the draft's other locales (ADR 0015).
-  if (target !== RELEASE && typeof row.locale === "string") {
+  // Every write of a localized entity, whatever wrote it: one in the default locale is
+  // translated into the draft's other locales, or a release's into Live's (ADR 0015).
+  if (typeof row.locale === "string") {
     yield* record(db, {
       kind: "localizedWrite",
       entity,
       id: row.id,
       projectId,
-      draftId: target.id,
+      draftId: target === RELEASE ? null : target.id,
       locale: row.locale,
     });
   }
@@ -785,6 +785,33 @@ export const revert = Effect.fn("overlay.revert")(function* <T extends ContentTa
   const live = yield* liveRowFor(db, draft, table, id);
   yield* journalWrite(db, draft, table, live ?? stored, live ? "changed" : "deleted");
   return stored;
+});
+
+/**
+ * Moves the copy a draft stores of an entity onto Live's version `liveVersion`, as if it had been
+ * copied then: once a translation job merged a localization with Live's, it's no longer a
+ * conflict (ADR 0016). A later Live change makes it one again.
+ */
+export const rebase = Effect.fn("overlay.rebase")(function* <T extends ContentTable>(
+  db: Database,
+  draft: Draft,
+  table: T,
+  id: string,
+  liveVersion: number,
+) {
+  yield* Effect.promise(() =>
+    db
+      .update(table as SQLiteTable)
+      .set({ baseVersion: liveVersion } as Partial<Values<T>>)
+      .where(
+        and(
+          storedIn(table, draft),
+          eq(table.id, id),
+          inLocaleOf(table, draft),
+          sql`${table.baseVersion} is not null`,
+        ),
+      ),
+  );
 });
 
 // --- Locales (ADR 0015) ---
@@ -1113,6 +1140,13 @@ export type StoredChange = {
   row: Row<ContentTable>;
   change: "created" | "changed" | "deleted";
 };
+
+/**
+ * The tag of the locale a row is in (ADR 0015), or null for an entity stored once, like a file or
+ * a locale.
+ */
+export const localeOfRow = (row: object): string | null =>
+  "locale" in row && typeof row.locale === "string" ? row.locale : null;
 
 /** Every entity a draft stores, as created, changed or deleted. */
 export const changesOf = Effect.fn("overlay.changesOf")(function* (db: Database, scope: Draft) {

@@ -1,6 +1,6 @@
 import type { DraftKind } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -8,18 +8,19 @@ import { getAuthorizedProject, requireUser } from "../../authorization";
 import { decodeInput, InvalidInputError } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
-import { user as users } from "../auth/schema";
+import { listedChanges } from "../translations/review";
 import { translatingLocales } from "../translations/service";
 import { accessTo } from "./access";
 import * as overlay from "./overlay";
+import { peopleNamed, type Person, personOf } from "./people";
 import { drafts } from "./schema";
-import { draftIn } from "./scope";
+import { draftIn, draftOf } from "./scope";
 import { startDraft } from "./service";
 
 // The drafts the studio's control lists and switches between (ADR 0011). An unnamed draft is
 // labelled on the client from its creator and creation date; that label is never stored.
 
-export type Person = { id: string; name: string };
+export type { Person };
 
 export type DraftSummary = {
   id: string;
@@ -55,19 +56,6 @@ export const createInput = z.object({
   name: z.string().max(200).nullable().optional(),
 });
 
-const FORMER_MEMBER = "A former member";
-
-const namesOf = Effect.fn("drafts.namesOf")(function* (db: ServiceContext["db"], ids: string[]) {
-  const unique = [...new Set(ids)];
-  const rows = unique.length
-    ? yield* Effect.promise(() =>
-        db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, unique)),
-      )
-    : [];
-  const byId = new Map(rows.map((row) => [row.id, row.name]));
-  return (id: string): Person => ({ id, name: byId.get(id) ?? FORMER_MEMBER });
-});
-
 const summarize = Effect.fn("drafts.summarize")(function* (
   db: ServiceContext["db"],
   rows: (typeof drafts.$inferSelect)[],
@@ -76,7 +64,15 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     db,
     rows.map((row) => row.id),
   );
-  const person = yield* namesOf(
+  // As many changes as the draft's review lists, which leaves out what Camox wrote.
+  const changeCounts = new Map<string, number>();
+  for (const row of rows) {
+    if (!activity.has(row.id)) continue;
+    const scope = draftOf(row);
+    const listed = yield* listedChanges(db, scope, yield* overlay.changesOf(db, scope));
+    changeCounts.set(row.id, listed.length);
+  }
+  const people = yield* peopleNamed(
     db,
     rows.map((row) => row.createdBy),
   );
@@ -88,10 +84,10 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     id: row.id,
     kind: row.kind,
     name: row.name,
-    createdBy: person(row.createdBy),
+    createdBy: personOf(people, row.createdBy),
     createdAt: row.createdAt,
     lastChangedAt: activity.get(row.id)?.lastChangedAt ?? null,
-    changeCount: activity.get(row.id)?.changeCount ?? 0,
+    changeCount: changeCounts.get(row.id) ?? 0,
     translatingLocales: translating.get(row.id) ?? [],
   }));
 });
@@ -122,10 +118,10 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
 
   const latest = yield* overlay.latestLivePublish(ctx.db, projectId);
   const publisher = latest?.publishedBy ?? null;
-  const person = yield* namesOf(ctx.db, publisher ? [publisher] : []);
+  const people = yield* peopleNamed(ctx.db, publisher ? [publisher] : []);
   return {
     live: {
-      publishedBy: publisher ? person(publisher) : null,
+      publishedBy: publisher ? personOf(people, publisher) : null,
       publishedAt: latest?.publishedAt ?? null,
       release: !!latest && !publisher,
     },

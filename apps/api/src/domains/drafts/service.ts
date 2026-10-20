@@ -4,8 +4,9 @@ import { Effect } from "effect";
 
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
-import { user as users } from "../auth/schema";
+import { hasPendingTranslations } from "../translations/service";
 import * as overlay from "./overlay";
+import { peopleNamed, personOf } from "./people";
 import { drafts, endedDrafts } from "./schema";
 import { draftOf, type Draft, type DraftScope } from "./scope";
 
@@ -18,20 +19,19 @@ export const findEndedDraft = Effect.fn("findEndedDraft")(function* (
   projectId: number,
   draftId: string,
 ) {
-  const row = yield* Effect.promise(() =>
+  const ended = yield* Effect.promise(() =>
     db
-      .select({ ended: endedDrafts, name: users.name })
+      .select()
       .from(endedDrafts)
-      .leftJoin(users, eq(users.id, endedDrafts.endedBy))
       .where(and(eq(endedDrafts.id, draftId), eq(endedDrafts.projectId, projectId)))
       .get(),
   );
-  if (!row) return undefined;
-  const { ended, name } = row;
+  if (!ended) return undefined;
+  const people = yield* peopleNamed(db, [ended.endedBy]);
   return {
     draftId: ended.id,
     outcome: ended.outcome,
-    endedBy: { id: ended.endedBy, name: name ?? "A former member" },
+    endedBy: personOf(people, ended.endedBy),
     endedAt: ended.endedAt,
   } satisfies EndedDraft;
 });
@@ -58,11 +58,23 @@ export const startDraft = Effect.fn("startDraft")(function* (
   return started;
 });
 
-/** Deletes a draft in one statement, only while it stores nothing. */
+/**
+ * Deletes a draft in one statement, only while it stores nothing and has nothing left to
+ * translate. Whether it deleted it.
+ */
 export const dropIfEmpty = (db: ServiceContext["db"], scope: Draft) =>
-  Effect.promise(() =>
-    db.delete(drafts).where(and(eq(drafts.id, scope.id), not(overlay.storesAnything(scope)))),
-  );
+  Effect.promise(async () => {
+    const dropped = await db
+      .delete(drafts)
+      .where(
+        and(
+          eq(drafts.id, scope.id),
+          not(overlay.storesAnything(scope)),
+          not(hasPendingTranslations(scope.id)),
+        ),
+      );
+    return dropped.meta.changes > 0;
+  });
 
 /**
  * The scope a background job scheduled from `draftId` runs in: Live for `null`, or undefined

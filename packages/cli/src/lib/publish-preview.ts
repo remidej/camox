@@ -44,6 +44,34 @@ function section(title: string, lines: string[]): string[] {
   return [`${title} (${lines.length})`, ...lines.map((line) => `  - ${line}`), ""];
 }
 
+type Changed = PublishPreview["changes"][number];
+
+const changeLine = (change: Changed) => `${change.change} ${subject(change)}`;
+
+/**
+ * The draft's changes, under the locale each is in once the draft changes more than its default
+ * locale: the default locale first, then the others, then what every locale shares, like files.
+ */
+function changesSection(preview: PublishPreview): string[] {
+  const { changes, defaultLocale } = preview;
+  const tags = new Set(changes.map((change) => change.locale));
+  if ([...tags].every((tag) => tag === null || tag === defaultLocale)) {
+    return section("Changes", changes.map(changeLine));
+  }
+  const rank = (tag: string | null) => (tag === defaultLocale ? 0 : tag === null ? 2 : 1);
+  const ordered = [...tags].sort((a, b) => rank(a) - rank(b) || (a ?? "").localeCompare(b ?? ""));
+  return [
+    `Changes (${changes.length})`,
+    ...ordered.flatMap((tag) => [
+      `  ${tag ?? "Every locale"}`,
+      ...changes
+        .filter((change) => change.locale === tag)
+        .map((change) => `    - ${changeLine(change)}`),
+    ]),
+    "",
+  ];
+}
+
 /** The preview as text, in the order ADR 0009 lists it, ending with the token. */
 export function formatPreview(preview: PublishPreview): string {
   const lines = [
@@ -63,19 +91,26 @@ export function formatPreview(preview: PublishPreview): string {
       "Warnings: already on Live, not blocking",
       preview.warnings.map((problem) => `${subject(problem)}: ${problem.message}`),
     ),
-    ...section(
-      "Changes",
-      preview.changes.map((change) => `${change.change} ${subject(change)}`),
-    ),
+    ...changesSection(preview),
   ];
   if (preview.changes.length === 0) lines.push("Your development draft has no changes.", "");
   lines.push(`Token: ${preview.token}`, ...nextStep(preview));
   return `${lines.join("\n")}\n`;
 }
 
-/** What to do next: fix the blockers, or publish when there is something to publish. */
+/**
+ * What to do next: fix the blockers, or publish when there is something to publish, waiting for
+ * running translations or publishing anyway.
+ */
 function nextStep(preview: PublishPreview): string[] {
   if (preview.blockers.length > 0) return ["Publishing is blocked until the blockers are fixed."];
   if (preview.changes.length === 0) return [];
-  return [`Publish with: camox publish --confirm ${preview.token}`];
+  const publish = `camox publish --confirm ${preview.token}`;
+  if (preview.translating.length > 0) {
+    return [
+      `Translations into ${preview.translating.join(", ")} are still running: publish once they finish, or publish anyway and Camox finishes them in a draft of its own.`,
+      `Publish anyway with: ${publish} --anyway`,
+    ];
+  }
+  return [`Publish with: ${publish}`];
 }

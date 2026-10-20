@@ -1,5 +1,9 @@
 import type { PublishPreview } from "@camox/api-contract";
-import { CONFLICTS_CHANGED_ERROR, type EndedDraft } from "@camox/api-contract/drafts";
+import {
+  CONFLICTS_CHANGED_ERROR,
+  type EndedDraft,
+  TRANSLATIONS_PENDING_ERROR,
+} from "@camox/api-contract/drafts";
 import {
   Accordion,
   AccordionHeader,
@@ -31,6 +35,7 @@ import {
   History,
   Image,
   Info,
+  Languages,
   type LucideIcon,
   OctagonX,
   PanelsTopLeft,
@@ -48,10 +53,11 @@ import { cn } from "@/lib/utils";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
+import { localeLabel } from "../localeOptions";
 
 type Subject = PublishPreview["changes"][number];
 type Change = Subject["change"];
-type GroupKind = NonNullable<Subject["owner"]>["kind"] | "files" | "elsewhere";
+type GroupKind = NonNullable<Subject["owner"]>["kind"] | "files" | "languages" | "elsewhere";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
@@ -73,8 +79,19 @@ function problemPlace(problem: PublishPreview["blockers"][number]): string | nul
   return ownerName(problem.owner, problem.entity);
 }
 
-const groupKind = ({ owner, entity }: Subject): GroupKind =>
-  owner?.kind ?? (entity === "file" ? "files" : "elsewhere");
+const groupKind = ({ owner, entity }: Subject): GroupKind => {
+  if (owner) return owner.kind;
+  if (entity === "file") return "files";
+  return entity === "locale" ? "languages" : "elsewhere";
+};
+
+/** Where a change is listed: its page or layout, the files, or the languages for a locale. */
+const placeOf = (change: Subject) =>
+  change.entity === "locale" ? "Languages" : ownerName(change.owner, change.entity);
+
+/** What a change is listed as: a locale added or removed by its name, anything else its label. */
+const changeLabel = (change: Subject) =>
+  change.entity === "locale" ? localeLabel(change.label) : change.label;
 
 // The order of change groups: pages first, then layouts, then collections, then files.
 const GROUPS: Record<GroupKind, { rank: number; icon: LucideIcon }> = {
@@ -83,7 +100,8 @@ const GROUPS: Record<GroupKind, { rank: number; icon: LucideIcon }> = {
   syncedBlock: { rank: 2, icon: Blocks },
   collection: { rank: 3, icon: Database },
   files: { rank: 4, icon: Image },
-  elsewhere: { rank: 5, icon: Shapes },
+  languages: { rank: 5, icon: Languages },
+  elsewhere: { rank: 6, icon: Shapes },
 };
 
 const CHANGES: Record<Change, { sign: string; className: string }> = {
@@ -109,6 +127,10 @@ const TONES: Record<Tone, { card: string; icon: string }> = {
   },
   neutral: { card: "bg-muted/40", icon: "bg-muted text-muted-foreground" },
 };
+
+/** A conflict as Live's version of an entity in a locale, to tell a new one from those shown. */
+const conflictKey = (conflict: PublishPreview["conflicts"][number]) =>
+  JSON.stringify([conflict.entity, conflict.id, conflict.locale, conflict.liveVersion]);
 
 /** Who made Live's version of a conflicting entity: a member, a release, or nobody known. */
 function changedBy(conflict: PublishPreview["conflicts"][number]) {
@@ -339,19 +361,95 @@ function Insights({ preview }: { preview: PublishPreview }) {
   );
 }
 
-/**
- * The draft's changes, grouped by page, then layout, then collection. Collapsed at first: the
- * insights above are what to read before publishing.
- */
-function Changes({ changes }: { changes: PublishPreview["changes"] }) {
-  const groups = new Map<string, { kind: GroupKind; changes: PublishPreview["changes"] }>();
+type Places = Map<string, { kind: GroupKind; changes: PublishPreview["changes"] }>;
+
+/** Changes grouped by where they're listed: pages first, then layouts, then collections. */
+function placesOf(changes: PublishPreview["changes"]): Places {
+  const places: Places = new Map();
   const sorted = [...changes].sort((a, b) => GROUPS[groupKind(a)].rank - GROUPS[groupKind(b)].rank);
   for (const change of sorted) {
-    const name = ownerName(change.owner, change.entity);
-    const group = groups.get(name) ?? { kind: groupKind(change), changes: [] };
-    group.changes.push(change);
-    groups.set(name, group);
+    const name = placeOf(change);
+    const place = places.get(name) ?? { kind: groupKind(change), changes: [] };
+    place.changes.push(change);
+    places.set(name, place);
   }
+  return places;
+}
+
+/**
+ * Changes grouped by locale, the default locale first, then what's stored once, like files,
+ * under no locale. A draft changing only its default locale names no locale at all.
+ */
+function localesOf(
+  changes: PublishPreview["changes"],
+  defaultLocale: string | undefined,
+): { locale: string | null; places: Places }[] {
+  const tags = [...new Set(changes.flatMap((change) => change.locale ?? []))];
+  const onlyDefault = defaultLocale ? tags.every((tag) => tag === defaultLocale) : tags.length <= 1;
+  if (onlyDefault) return [{ locale: null, places: placesOf(changes) }];
+  const rank = (tag: string | null) => (tag === defaultLocale ? 0 : tag === null ? 2 : 1);
+  return [...tags, null]
+    .sort((a, b) => rank(a) - rank(b) || localeLabel(a ?? "").localeCompare(localeLabel(b ?? "")))
+    .map((locale) => ({
+      locale,
+      places: placesOf(changes.filter((change) => change.locale === locale)),
+    }))
+    .filter(({ places }) => places.size > 0);
+}
+
+/** The changes listed in one place. */
+function Place({
+  name,
+  place,
+}: {
+  name: string;
+  place: Places extends Map<string, infer P> ? P : never;
+}) {
+  const Icon = GROUPS[place.kind].icon;
+  return (
+    <section className="flex flex-col gap-1">
+      <h4 className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+        <Icon className="size-3.5" />
+        {name}
+      </h4>
+      <ul className="flex flex-col">
+        {place.changes.map((change) => (
+          <li
+            key={`${change.entity}:${change.id}`}
+            className="flex items-center gap-2 py-0.5 pl-5 text-sm"
+            title={change.change}
+          >
+            <span
+              aria-hidden
+              className={cn("w-2 text-center font-mono", CHANGES[change.change].className)}
+            >
+              {CHANGES[change.change].sign}
+            </span>
+            <span className="truncate" data-change-label>
+              {changeLabel(change)}
+            </span>
+            <span className="sr-only">({change.change})</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The draft's changes, grouped by locale once the draft changes more than its default locale,
+ * then by page, layout and collection. Collapsed at first: the insights above are what to read
+ * before publishing.
+ */
+function Changes({
+  changes,
+  defaultLocale,
+}: {
+  changes: PublishPreview["changes"];
+  defaultLocale: string | undefined;
+}) {
+  const groups = new Set(changes.map(placeOf));
+  const locales = localesOf(changes, defaultLocale);
 
   if (groups.size === 0) {
     return <p className="text-muted-foreground text-sm">This draft has no changes.</p>;
@@ -381,40 +479,18 @@ function Changes({ changes }: { changes: PublishPreview["changes"] }) {
         </AccordionHeader>
         <AccordionPanel>
           <div className="flex flex-col gap-4 border-t px-3 py-3">
-            {[...groups].map(([name, group]) => {
-              const Icon = GROUPS[group.kind].icon;
-              return (
-                <section key={name} className="flex flex-col gap-1">
-                  <h4 className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
-                    <Icon className="size-3.5" />
-                    {name}
-                  </h4>
-                  <ul className="flex flex-col">
-                    {group.changes.map((change) => (
-                      <li
-                        key={change.id}
-                        className="flex items-center gap-2 py-0.5 pl-5 text-sm"
-                        title={change.change}
-                      >
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "w-2 text-center font-mono",
-                            CHANGES[change.change].className,
-                          )}
-                        >
-                          {CHANGES[change.change].sign}
-                        </span>
-                        <span className="truncate" data-change-label>
-                          {change.label}
-                        </span>
-                        <span className="sr-only">({change.change})</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
+            {locales.map(({ locale, places }) => (
+              <div key={locale ?? ""} className="flex flex-col gap-4">
+                {locale && (
+                  <p className="text-sm font-medium" data-change-locale>
+                    {localeLabel(locale)}
+                  </p>
+                )}
+                {[...places].map(([name, place]) => (
+                  <Place key={name} name={name} place={place} />
+                ))}
+              </div>
+            ))}
           </div>
         </AccordionPanel>
       </AccordionItem>
@@ -526,6 +602,16 @@ export function ReviewDraftSheet({
   const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
   const leaveDraft = useLeaveDraft();
 
+  // The draft's summary follows its pending translations: the preview is read again as they
+  // settle, so publishing stops waiting once they're done.
+  const pending = draft.data?.translatingLocales.join(",");
+  const seenPending = React.useRef(pending);
+  const { refetch } = preview;
+  React.useEffect(() => {
+    if (seenPending.current !== undefined && seenPending.current !== pending) void refetch();
+    seenPending.current = pending;
+  }, [pending, refetch]);
+
   const leave = (ended: EndedDraft | null) => {
     onOpenChange(false);
     leaveDraft(ended);
@@ -544,6 +630,11 @@ export function ReviewDraftSheet({
         void preview.refetch();
         return;
       }
+      if ((error as { code?: string }).code === TRANSLATIONS_PENDING_ERROR) {
+        toast.info("Translations are still running. Wait for them, or publish anyway.");
+        void preview.refetch();
+        return;
+      }
       toast.error(error.message || "Could not publish the draft");
       void preview.refetch();
     },
@@ -551,7 +642,32 @@ export function ReviewDraftSheet({
 
   const data = preview.data;
   const busy = publish.isPending;
-  const canPublish = !!data && data.blockers.length === 0 && !busy && !preview.isFetching;
+  const ready = !!data && data.blockers.length === 0 && !busy && !preview.isFetching;
+  // Publishing waits for pending translations, so every locale goes live together (ADR 0017).
+  const translating = data?.translating ?? [];
+
+  // Publish all while translations run waits for them, then publishes the preview as it is by
+  // then. A blocker or a conflict not shown when asked stops waiting: the sheet shows them as
+  // usual, for the member to review before publishing.
+  const [waiting, setWaiting] = React.useState<{ conflicts: Set<string> } | null>(null);
+  const translated = !!data && !preview.isFetching && data.translating.length === 0;
+  if (waiting && translated) {
+    const appeared = data.conflicts.some(
+      (conflict) => !waiting.conflicts.has(conflictKey(conflict)),
+    );
+    if (data.blockers.length > 0 || appeared) setWaiting(null);
+  }
+  const { mutate } = publish;
+  React.useEffect(() => {
+    if (!waiting || !translated || !data || busy) return;
+    mutate({ projectId, token: data.token }, { onSettled: () => setWaiting(null) });
+  }, [waiting, translated, data, busy, mutate, projectId]);
+
+  const publishAll = () => {
+    if (!data) return;
+    if (translating.length === 0) return publish.mutate({ projectId, token: data.token });
+    setWaiting({ conflicts: new Set(data.conflicts.map(conflictKey)) });
+  };
 
   return (
     <>
@@ -575,7 +691,7 @@ export function ReviewDraftSheet({
             <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
               <Verdict preview={data} />
               <Insights preview={data} />
-              <Changes changes={data.changes} />
+              <Changes changes={data.changes} defaultLocale={data.defaultLocale ?? undefined} />
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center">
@@ -583,6 +699,13 @@ export function ReviewDraftSheet({
             </div>
           )}
           <div className="flex flex-col gap-3 border-t p-4">
+            {translating.length > 0 && (
+              <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                <Spinner aria-hidden className="size-3.5 shrink-0" />
+                Translating into {translating.map(localeLabel).join(", ")}…{" "}
+                {waiting ? "Publishing once translated." : "Publishing waits for it."}
+              </p>
+            )}
             {data && data.conflicts.length > 0 && (
               <p className="text-muted-foreground text-sm">
                 {plural(data.conflicts.length, "Live change")} will be overwritten
@@ -598,12 +721,24 @@ export function ReviewDraftSheet({
                 <Trash2 />
                 Discard draft
               </Button>
+              {translating.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="ml-auto"
+                  disabled={!ready}
+                  onClick={() =>
+                    data && publish.mutate({ projectId, token: data.token, publishAnyway: true })
+                  }
+                >
+                  Publish anyway
+                </Button>
+              )}
               <Button
-                className="ml-auto"
-                disabled={!canPublish}
-                onClick={() => data && publish.mutate({ projectId, token: data.token })}
+                className={cn(translating.length === 0 && "ml-auto")}
+                disabled={!ready || !!waiting}
+                onClick={publishAll}
               >
-                {publish.isPending ? <Spinner /> : null}
+                {publish.isPending || waiting ? <Spinner /> : null}
                 Publish all
               </Button>
             </div>

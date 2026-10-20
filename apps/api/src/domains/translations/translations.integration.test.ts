@@ -19,6 +19,7 @@ import {
 } from "../../../test/fixtures";
 import {
   answerEvery,
+  forgetAllScheduled,
   forgetScheduled,
   modelCalls,
   scheduled,
@@ -571,12 +572,12 @@ describe("a translation job", () => {
 
       if (outcome === "published") {
         const { token } = await f.tool("previewPublish");
-        await f.tool("publishDraft", { token });
+        await f.tool("publishDraft", { token, publishAnyway: true });
       } else {
         await call(router.drafts.discard, { projectId: f.projectId }, f.member(f.inDraft));
       }
       const asked = modelCalls().length;
-      await f.runTranslations();
+      for (const job of jobs) await runService(runAiJob(f.db, job));
 
       expect(jobs).not.toEqual([]);
       expect(modelCalls()).toHaveLength(asked);
@@ -591,9 +592,10 @@ describe("a translation job", () => {
     await f.runTranslations();
     await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, development);
 
+    const jobs = f.translationJobs();
     const { token } = await f.tool("previewPublish", {}, development);
-    await f.tool("publishDraft", { token }, development);
-    await f.runTranslations();
+    await f.tool("publishDraft", { token, publishAnyway: true }, development);
+    for (const job of jobs) await runService(runAiJob(f.db, job));
 
     // The development draft stays empty: it reads Live's German, as published.
     expect((await f.tool("previewPublish", {}, development)).changes).toEqual([]);
@@ -936,14 +938,166 @@ describe("a localization's bookkeeping", () => {
 
     const preview = await f.tool("previewPublish", {}, { [DRAFT_HEADER]: draft });
     expect(preview.conflicts).toEqual([]);
-    expect(preview.changes.map(({ locale }: { locale: string | null }) => locale).sort()).toEqual([
-      "de",
-      "en",
-    ]);
+    // German follows the source as Camox wrote it, so only the source change is listed.
+    expect(preview.changes.map(({ locale }: { locale: string | null }) => locale)).toEqual(["en"]);
     expect((await f.blockIn("fr", { [DRAFT_HEADER]: draft })).block).toMatchObject({
       settings: { size: "small" },
       content: { subtitle: "Mode d'emploi" },
     });
+  });
+});
+
+describe("the review and the change count", () => {
+  type Listed = { entity: string; id: string; locale: string | null; change: string };
+
+  /** What `f`'s draft lists for review, and the count its summary shows. */
+  async function review(f: Awaited<ReturnType<typeof fixture>>, headers: Headers = f.inDraft) {
+    const { changes } = await f.tool("previewPublish", {}, headers);
+    const { changeCount } = await call(
+      router.drafts.get,
+      { projectId: f.projectId },
+      f.member(headers),
+    );
+    return {
+      changes: (changes as Listed[]).map(({ entity, id, locale, change }) => ({
+        entity,
+        id,
+        locale,
+        change,
+      })),
+      changeCount,
+    };
+  }
+
+  /** `f` with German and French on Live, and a new draft opened. */
+  async function translatedLive(f: Awaited<ReturnType<typeof fixture>>) {
+    await translatedDraft(f);
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token });
+    const draft = generateUuidv7();
+    return {
+      starting: { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" },
+      inDraft: { [DRAFT_HEADER]: draft },
+    };
+  }
+
+  it("counts a change to one source block as one change, in a draft with three locales", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, next.starting);
+    await f.runTranslations();
+
+    expect(await f.blockIn("de", next.inDraft)).toMatchObject({
+      block: { content: { title: "Willkommen" } },
+    });
+    expect(await review(f, next.inDraft)).toEqual({
+      changes: [{ entity: "block", id: f.block.id, locale: "en", change: "changed" }],
+      changeCount: 1,
+    });
+  });
+
+  it("lists a hand edit to a localization under its locale", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { title: "Grüß Gott" }, locale: "de" },
+      next.starting,
+    );
+    await f.runTranslations();
+
+    expect(await review(f, next.inDraft)).toEqual({
+      changes: [{ entity: "block", id: f.block.id, locale: "de", change: "changed" }],
+      changeCount: 1,
+    });
+  });
+
+  it("keeps listing a hand edit to a localization after its source changes", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      next.starting,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, next.inDraft);
+    await f.runTranslations();
+
+    const { changes, changeCount } = await review(f, next.inDraft);
+    expect(changes.map(({ locale }) => locale).sort((a, b) => a!.localeCompare(b!))).toEqual([
+      "de",
+      "en",
+    ]);
+    expect(changeCount).toBe(2);
+  });
+
+  it("lists adding a locale as one change, before and after Camox translates into it", async () => {
+    const f = await fixture();
+    translateWithDictionaries();
+
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    const added = [{ entity: "locale", id: expect.any(String), locale: null, change: "created" }];
+    expect(await review(f)).toEqual({ changes: added, changeCount: 1 });
+    // The locale is named by its tag.
+    expect((await f.tool("previewPublish")).changes).toEqual([
+      expect.objectContaining({ entity: "locale", label: "de" }),
+    ]);
+
+    await f.runTranslations();
+    expect(await f.blockIn("de")).toMatchObject({ block: { content: { title: "Hallo" } } });
+    expect(await review(f)).toEqual({ changes: added, changeCount: 1 });
+  });
+
+  it("lists removing a locale as one change", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool("removeLocale", { tag: "fr" }, next.starting);
+
+    expect(await review(f, next.inDraft)).toEqual({
+      changes: [{ entity: "locale", id: expect.any(String), locale: null, change: "deleted" }],
+      changeCount: 1,
+    });
+  });
+
+  it("leaves out the localizations Camox deletes with their source", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    await f.tool("deleteBlock", { id: f.block.id }, next.starting);
+    await f.runTranslations();
+
+    const { changes, changeCount } = await review(f, next.inDraft);
+    expect(changes).toContainEqual({
+      entity: "block",
+      id: f.block.id,
+      locale: "en",
+      change: "deleted",
+    });
+    expect(changes.filter(({ locale }) => locale !== "en")).toEqual([]);
+    expect(changeCount).toBe(changes.length);
+  });
+
+  it("lists content placed in one locale only under that locale", async () => {
+    const f = await fixture();
+    const next = await translatedLive(f);
+
+    const placed = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Nur auf Deutsch" } },
+      f.member({ ...next.starting, [LOCALE_HEADER]: "de" }),
+    );
+    await f.runTranslations();
+
+    const { changes, changeCount } = await review(f, next.inDraft);
+    expect(changes).toContainEqual(
+      expect.objectContaining({ entity: "block", id: placed.id, locale: "de" }),
+    );
+    expect(changes.every(({ locale }) => locale === "de")).toBe(true);
+    expect(changeCount).toBe(changes.length);
   });
 });
 
@@ -1126,6 +1280,232 @@ describe("placing a block in a locale", () => {
       f.member(f.inDraft),
     );
     expect(translatingLocales).toEqual(["de"]);
+  });
+});
+
+describe("localization conflicts", () => {
+  /** Publishes `f`'s draft, translated into German and French, so Live holds both. */
+  async function translatedLive(f: Awaited<ReturnType<typeof fixture>>) {
+    await translatedDraft(f);
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token });
+  }
+  const newDraft = (): Headers => ({
+    [DRAFT_HEADER]: generateUuidv7(),
+    [DRAFT_CREATE_HEADER]: "1",
+  });
+  const publish = async (f: Awaited<ReturnType<typeof fixture>>, headers: Headers) => {
+    const { token } = await f.tool("previewPublish", {}, headers);
+    return f.tool("publishDraft", { token }, headers);
+  };
+  const localesOf = (listed: { locale: string | null }[]) =>
+    listed.map(({ locale }) => locale ?? "").sort((a, b) => a.localeCompare(b));
+
+  it("merges a localization Live changed since with the draft's source change, instead of showing a conflict", async () => {
+    const f = await fixture();
+    await translatedLive(f);
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      first,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, second);
+    await f.runTranslations();
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    const preview = await f.tool("previewPublish", {}, second);
+    expect(preview.conflicts).toEqual([]);
+    await f.tool("publishDraft", { token: preview.token }, second);
+    // Live's hand edit and the second draft's source change both make it to Live.
+    expect((await f.blockIn("de", {})).block.content).toMatchObject({
+      title: "Willkommen",
+      subtitle: "Handbuch",
+    });
+  });
+
+  it("still shows a default-locale conflict, and publishing it gives every locale the draft's source", async () => {
+    const f = await fixture();
+    await translatedLive(f);
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, first);
+    await f.tool("editBlock", { id: f.block.id, content: { subtitle: "One" } }, second);
+    await f.runTranslations();
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    const preview = await f.tool("previewPublish", {}, second);
+    expect(localesOf(preview.conflicts)).toEqual(["en"]);
+    await f.tool("publishDraft", { token: preview.token }, second);
+    expect((await f.blockIn(undefined, {})).block.content).toMatchObject({
+      title: "Hello",
+      subtitle: "One",
+    });
+    expect((await f.blockIn("de", {})).block.content).toMatchObject({
+      title: "Hallo",
+      subtitle: "Eins",
+    });
+    expect((await f.blockIn("fr", {})).block.content).toMatchObject({
+      title: "Bonjour",
+      subtitle: "One",
+    });
+  });
+
+  it("merges a field Live edited by hand and the draft's source changed with the model", async () => {
+    const f = await fixture();
+    await translatedLive(f);
+    answerEvery("merge", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key }) => [key, "Willkommen, Freunde"])),
+    );
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { title: "Hallo Freunde" }, locale: "de" },
+      first,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, second);
+    await f.runTranslations();
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    const merges = modelCalls().flatMap((call) => (call.method === "merge" ? [call.request] : []));
+    expect(merges).toEqual([
+      {
+        from: "en",
+        to: "de",
+        texts: [
+          {
+            key: "title",
+            format: "plain",
+            previousSource: "Hello",
+            previousTranslation: "Hallo",
+            source: "Welcome",
+            current: "Hallo Freunde",
+          },
+        ],
+      },
+    ]);
+    const preview = await f.tool("previewPublish", {}, second);
+    expect(preview.conflicts).toEqual([]);
+    await f.tool("publishDraft", { token: preview.token }, second);
+    expect((await f.blockIn("de", {})).block.content.title).toBe("Willkommen, Freunde");
+  });
+
+  it("keeps the draft's own hand edits to the localization alongside Live's", async () => {
+    const f = await fixture();
+    await translatedLive(f);
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { variant: "light" }, locale: "de" },
+      first,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, second);
+    await f.runTranslations();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Anleitung" }, locale: "de" },
+      second,
+    );
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    expect((await f.tool("previewPublish", {}, second)).conflicts).toEqual([]);
+    await publish(f, second);
+    expect((await f.blockIn("de", {})).block.content).toMatchObject({
+      title: "Willkommen",
+      subtitle: "Anleitung",
+      variant: "light",
+    });
+  });
+
+  it("keeps a hand edit on Live's localization that Camox never translated, merging it with the model", async () => {
+    const f = await fixture();
+    translateWithDictionaries();
+    // Published anyway before its translations ran: Live's German copies were never translated,
+    // and their translations wait in Camox's catch-up draft.
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    const { token } = await f.tool("previewPublish");
+    await f.tool("publishDraft", { token, publishAnyway: true });
+    forgetAllScheduled();
+    answerEvery("merge", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key, current }) => [key, current])),
+    );
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      first,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, second);
+    await f.runTranslations();
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    const merged = modelCalls()
+      .flatMap((call) => (call.method === "merge" ? call.request.texts : []))
+      .map(({ key, current }) => ({ key, current }));
+    expect(merged).toContainEqual({ key: "subtitle", current: "Handbuch" });
+    const preview = await f.tool("previewPublish", {}, second);
+    expect(preview.conflicts).toEqual([]);
+    await f.tool("publishDraft", { token: preview.token }, second);
+    expect((await f.blockIn("de", {})).block.content.subtitle).toBe("Handbuch");
+  });
+
+  it("still shows a conflict on a localization the draft only edited by hand", async () => {
+    const f = await fixture();
+    await translatedLive(f);
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      first,
+    );
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Anleitung" }, locale: "de" },
+      second,
+    );
+
+    await publish(f, first);
+    await f.runTranslations();
+
+    expect(localesOf((await f.tool("previewPublish", {}, second)).conflicts)).toEqual(["de"]);
+  });
+
+  it("shows the draft's locale as translating until its merge finishes", async () => {
+    const f = await fixture();
+    await translatedLive(f);
+    const first = newDraft();
+    const second = newDraft();
+    await f.tool(
+      "editBlock",
+      { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" },
+      first,
+    );
+    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, second);
+    await f.runTranslations();
+    const translating = async () =>
+      (await call(router.drafts.get, { projectId: f.projectId }, f.member(second)))
+        .translatingLocales;
+
+    await publish(f, first);
+    expect(await translating()).toEqual(["de"]);
+
+    await f.runTranslations();
+    expect(await translating()).toEqual([]);
   });
 });
 

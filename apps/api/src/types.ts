@@ -27,3 +27,10 @@ export type AppEnv = {
     telemetryDisabled: boolean;
   };
 };
+
+declare global {
+  namespace Cloudflare {
+    /** The Worker's bindings, as `env` from `cloudflare:workers` holds them. */
+    interface Env extends Bindings {}
+  }
+}

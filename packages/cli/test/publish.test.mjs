@@ -33,6 +33,8 @@ function freshApi() {
     published: 0,
     discarded: 0,
     toolCalls: [],
+    translating: [],
+    publishArgs: null,
   };
 }
 
@@ -67,6 +69,8 @@ function preview() {
       },
     ],
     changes: api.changes,
+    translating: api.translating,
+    defaultLocale: "en",
     token: `token-${api.liveConflicts}`,
   };
 }
@@ -100,6 +104,18 @@ function tool(name, args) {
           },
         };
       }
+      if (api.translating.length > 0 && !args.publishAnyway) {
+        return {
+          ok: true,
+          result: {
+            published: false,
+            reason: "translating",
+            message: "Translations into de are still running.",
+            preview: preview(),
+          },
+        };
+      }
+      api.publishArgs = args;
       if (api.changes.length === 0) {
         return {
           ok: true,
@@ -231,6 +247,29 @@ void test("a stale token publishes nothing, reprints the new list and fails", as
   const retried = await cli("publish", "--confirm", reprinted.token, "--json");
   assert.equal(retried.code, 0, retried.stderr);
   assert.equal(api.published, 1);
+});
+
+void test("publish --confirm while translations run publishes nothing, reprints the list and fails", async () => {
+  api.translating = ["de"];
+  const { token } = JSON.parse((await cli("publish", "--json")).stdout);
+
+  const result = await cli("publish", "--confirm", token, "--json");
+
+  assert.notEqual(result.code, 0);
+  assert.equal(api.published, 0);
+  assert.equal(JSON.parse(result.stderr).code, "TRANSLATIONS_PENDING");
+  assert.deepEqual(JSON.parse(result.stdout).translating, ["de"]);
+});
+
+void test("publish --confirm --anyway publishes while translations run", async () => {
+  api.translating = ["de"];
+  const { token } = JSON.parse((await cli("publish", "--json")).stdout);
+
+  const result = await cli("publish", "--confirm", token, "--anyway", "--json");
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(api.published, 1);
+  assert.equal(api.publishArgs.publishAnyway, true);
 });
 
 void test("publish --confirm on a draft without changes says nothing was published", async () => {

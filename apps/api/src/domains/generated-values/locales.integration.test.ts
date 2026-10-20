@@ -113,7 +113,8 @@ async function fixture() {
   const publish = async (id: string) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(id)).token },
+      // These tests don't run the translations adding a locale queues.
+      { projectId, token: (await preview(id)).token, publishAnyway: true },
       member({ [DRAFT_HEADER]: id }),
     );
 

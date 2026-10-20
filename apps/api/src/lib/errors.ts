@@ -83,6 +83,16 @@ export class PublishBlockedError extends Data.TaggedError("PublishBlockedError")
   readonly message: string;
 }> {}
 
+/**
+ * The draft still has pending translations, and the caller didn't ask to publish anyway: every
+ * locale goes live together (ADR 0017).
+ */
+export class TranslationsPendingError extends Data.TaggedError("TranslationsPendingError")<{
+  readonly message: string;
+  /** The tags of the locales still translating. */
+  readonly translating: readonly string[];
+}> {}
+
 export type ServiceError =
   | UnauthenticatedError
   | ForbiddenError
@@ -93,7 +103,8 @@ export type ServiceError =
   | LiveReadOnlyError
   | NoDevelopmentDraftError
   | ConflictsChangedError
-  | PublishBlockedError;
+  | PublishBlockedError
+  | TranslationsPendingError;
 
 // --- Helpers ---
 

@@ -207,7 +207,7 @@ The published state of the website, served to the public. Live only changes when
 _Avoid_: Production, production environment, main
 
 **Draft**:
-A named set of changes to the website's content, kept apart from Live until it is published or discarded, which ends it. Many drafts can be open at once, each started by an editor or an agent, and every member can see, edit, publish, or discard any of them. Editing while viewing Live always starts a new draft.
+A named set of changes to the website's content, kept apart from Live until it is published or discarded, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or discard any of them. Editing while viewing Live always starts a new draft.
 _Avoid_: Branch, environment, changeset, working copy
 
 **Development Draft**:
@@ -218,6 +218,14 @@ _Avoid_: Development environment, code draft, local draft
 Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, push, merge
 
+**Publish Anyway**:
+Publishing a draft while Camox is still translating it, rather than waiting for every locale to be translated. The translations left carry on in a catch-up draft.
+_Avoid_: Force publish, skip translations
+
+**Catch-up Draft**:
+A draft Camox opens to finish translations that a publish went ahead without, or to translate what a release added to Live, and publishes by itself once they're done. A project has at most one open.
+_Avoid_: Translation draft, system draft, bot draft
+
 **Discard**:
 Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes
@@ -227,7 +235,7 @@ A problem in a draft that prevents publishing it until it is fixed in the draft,
 _Avoid_: Error, validation failure
 
 **Conflict**:
-Content that a draft changes and that Live also changed or deleted after the draft first changed it.
+Content that a draft changes and that Live also changed or deleted after the draft first changed it. Camox merges a localization's conflict with Live's before publishing wherever it can tell the draft's changes from Live's.
 _Avoid_: Collision, merge conflict
 
 ### Editing

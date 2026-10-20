@@ -68,6 +68,7 @@ const drafts = [
     createdAt: Date.now() - 3 * DAY,
     lastChangedAt: Date.now() - DAY,
     changeCount: 4,
+    translatingLocales: [],
   },
   {
     id: adas,
@@ -77,6 +78,7 @@ const drafts = [
     createdAt: createdOct13,
     lastChangedAt: createdOct13,
     changeCount: 1,
+    translatingLocales: [],
   },
   {
     id: development,
@@ -86,6 +88,7 @@ const drafts = [
     createdAt: Date.now(),
     lastChangedAt: null,
     changeCount: 2,
+    translatingLocales: [],
   },
 ];
 const list = {
@@ -119,8 +122,18 @@ function mockApi(
       return json(drafts.find((draft) => draft.id === id));
     }
     if (path === "drafts/previewPublish") {
-      return json({ blockers: [], conflicts: [], lost: [], warnings: [], changes: [], token: "t" });
+      return json({
+        blockers: [],
+        conflicts: [],
+        lost: [],
+        warnings: [],
+        changes: [],
+        translating: [],
+        defaultLocale: "en",
+        token: "t",
+      });
     }
+    if (path === "locales/list") return json([{ tag: "en", isDefault: true }]);
     if (path === "drafts/discard") {
       return json({
         ended: { draftId: spring, outcome: "discarded", endedBy: remi, endedAt: Date.now() },

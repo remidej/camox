@@ -1,4 +1,5 @@
-import type { EndedDraft } from "@camox/api-contract/drafts";
+import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
+import { env, waitUntil } from "cloudflare:workers";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import {
   decodeInput,
   InvalidInputError,
   PublishBlockedError,
+  TranslationsPendingError,
 } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import {
@@ -24,7 +26,6 @@ import {
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
-import { user as users } from "../auth/schema";
 import { sharedPlacementId } from "../blocks/shared-content";
 import {
   publishStatements as filePublishStatements,
@@ -40,16 +41,20 @@ import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
 import * as translationBookkeeping from "../translations/bookkeeping";
+import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
+import { catchUpPending, isCatchUpDraft } from "./catch-up";
 import {
   checkContentProblems,
   type ContentFinding,
   type ContentProblemCode,
 } from "./content-checks";
 import * as overlay from "./overlay";
-import { draftIn, type DraftScope, inLocale, type ReadScope } from "./scope";
-import { findEndedDraft } from "./service";
+import { peopleNamed } from "./people";
+import { drafts } from "./schema";
+import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
+import { dropIfEmpty, findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
 export type { Owner, Subject, SubjectKind } from "./subjects";
@@ -94,12 +99,27 @@ export type PublishPreview = {
   lost: LostChange[];
   warnings: Problem[];
   changes: Change[];
+  /**
+   * The tags of the locales the draft still has pending translations into, sorted. Publishing
+   * waits for them unless it's asked to publish anyway (ADR 0017).
+   */
+  translating: string[];
+  /** The tag of the default locale, which the others are translated from (null: none yet). */
+  defaultLocale: string | null;
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
   token: string;
 };
 
 export const previewPublishInput = z.object({ projectId: z.number() });
-export const publishInput = z.object({ projectId: z.number(), token: z.string() });
+export const publishInput = z.object({
+  projectId: z.number(),
+  token: z.string(),
+  /**
+   * Publishes while translations are pending: Camox finishes them in a draft of its own, which it
+   * publishes once they're done (ADR 0017).
+   */
+  publishAnyway: z.boolean().optional(),
+});
 export const discardInput = z.object({ projectId: z.number() });
 
 const tokenSchema = z.array(
@@ -202,7 +222,8 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   ctx: ServiceContext,
   scope: Scope,
 ) {
-  const stored = yield* overlay.changesOf(ctx.db, scope);
+  // Localizations still holding what Camox wrote aren't listed (ADR 0015).
+  const stored = yield* listedChanges(ctx.db, scope, yield* overlay.changesOf(ctx.db, scope));
   const storedConflicts = yield* overlay.conflictsOf(ctx.db, scope);
   const losses = yield* overlay.lostOf(ctx.db, scope);
   const checked = yield* checkContentProblems(ctx, scope);
@@ -263,24 +284,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   ];
   const warnings = [...fileChecks.warnings.map(asProblem), ...checked.warnings.map(asProblem)];
 
-  const publisherIds = [
-    ...new Set(storedConflicts.flatMap((c) => (c.publishedBy ? [c.publishedBy] : []))),
-  ];
-  const publishers = publisherIds.length
-    ? yield* Effect.promise(() =>
-        ctx.db
-          .select({ id: users.id, name: users.name })
-          .from(users)
-          .where(inArray(users.id, publisherIds)),
-      )
-    : [];
-  const publisherById = new Map(publishers.map((publisher) => [publisher.id, publisher]));
+  const publishers = yield* peopleNamed(
+    ctx.db,
+    storedConflicts.flatMap((conflict) => conflict.publishedBy ?? []),
+  );
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
     ...describe(conflict.entity, conflict.id),
     locale: conflict.locale,
     liveVersion: conflict.liveVersion,
-    publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
+    publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
     release: conflict.publishedAt !== null && conflict.publishedBy === null,
   }));
@@ -299,9 +312,13 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   });
   const changes: Change[] = stored.map(({ entity, row, change }) => ({
     ...describe(entity, row.id),
-    locale: "locale" in row && typeof row.locale === "string" ? row.locale : null,
+    // A locale added or removed is named by its tag.
+    ...(entity === "locale" && { label: (row as typeof locales.$inferSelect).tag }),
+    locale: overlay.localeOfRow(row),
     change,
   }));
+
+  const translating = yield* translations.translatingLocales(ctx.db, [scope.id]);
 
   return {
     blockers,
@@ -309,6 +326,8 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     lost,
     warnings,
     changes,
+    translating: translating.get(scope.id) ?? [],
+    defaultLocale: (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null,
     token: encodeToken(storedConflicts),
   } satisfies PublishPreview;
 });
@@ -333,10 +352,6 @@ const liveRows = Effect.fn("drafts.liveRows")(function* <T extends overlay.Conte
   }
   return rows;
 });
-
-/** The tag of the locale a stored change is in, or null for an entity stored once. */
-const localeOfChange = (change: overlay.StoredChange) =>
-  "locale" in change.row && typeof change.row.locale === "string" ? change.row.locale : null;
 
 /**
  * Requests Live's generated values for everything a publish changed and the parents above it:
@@ -373,10 +388,10 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
       options,
     );
 
-  const tags = new Set(kept.flatMap((change) => localeOfChange(change) ?? []));
+  const tags = new Set(kept.flatMap((change) => overlay.localeOfRow(change.row) ?? []));
   for (const tag of liveLocales.filter((tag) => tags.has(tag))) {
     const live = liveIn(tag);
-    const inTag = kept.filter((change) => localeOfChange(change) === tag);
+    const inTag = kept.filter((change) => overlay.localeOfRow(change.row) === tag);
     const ids = (table: overlay.ContentTable) =>
       new Set(inTag.filter((change) => change.table === table).map((change) => change.row.id));
     const itemIds = ids(repeatableItems);
@@ -494,14 +509,64 @@ const nothingToPublish: PublishResult = { empty: true, ended: null };
 const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, ended });
 
 /**
- * Publishes the request's draft whole, once it has no blockers, if its conflicts are still
- * those the token was given for.
+ * Publishes a draft whose preview was checked, by `publishedBy`, if Live's conflicts are still
+ * those `shown`, and, when `translated`, while it still has nothing left to translate. Whether it
+ * applied, and how the draft ended: when it didn't apply, a concurrent publish or discard may have
+ * ended it; otherwise Live changed, or a translation was requested.
+ */
+const publishChecked = Effect.fn("drafts.publishChecked")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  options: {
+    shown: overlay.ConflictKey[];
+    publishedBy: string;
+    stored: overlay.StoredChange[];
+    /** Whether a translation requested since the check stops publishing, rather than dropping. */
+    translated?: boolean;
+  },
+) {
+  const { projectId } = scope;
+  // Collected before the batch drops the draft's rows and replaces Live's.
+  const blobs = yield* blobsOfDraft(ctx.db, scope);
+  const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
+  const applied = yield* Effect.result(
+    overlay.publish(ctx.db, scope, {
+      shown: options.shown,
+      publishedBy: options.publishedBy,
+      now: Date.now(),
+      after: [
+        ...(options.translated ? [translations.noPendingTranslationsGuard(scope.id)] : []),
+        ...generatedValueStatements.publishStatements(ctx.db, scope),
+        ...filePublishStatements(scope.projectId),
+        ...translationBookkeeping.publishStatements(scope),
+        ...translations.endStatements(ctx.db, scope.id),
+      ],
+    }),
+  );
+  if (applied._tag === "Failure") {
+    const ended = yield* findEndedDraft(ctx.db, projectId, scope.id);
+    return { applied: false, ended: ended ?? null };
+  }
+
+  yield* deleteUnreferencedBlobs(ctx, blobs);
+  yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
+  yield* requestLiveGeneration(ctx, scope, options.stored);
+  yield* translations.requestLiveMerges(ctx.db, scope, options.stored);
+  const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
+  yield* recordEnded(ctx, projectId, ended);
+  return { applied: true, ended };
+});
+
+/**
+ * Publishes the request's draft whole, once it has no blockers and no pending translations, if
+ * its conflicts are still those the token was given for. Published anyway, the translations
+ * still pending carry on in Camox's catch-up draft, against the new Live.
  */
 export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof publishInput>,
 ) {
-  const { projectId, token } = yield* decodeInput(publishInput, rawInput);
+  const { projectId, token, publishAnyway } = yield* decodeInput(publishInput, rawInput);
   const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
   if (!scope) return endedAs(earlier);
   const shown = yield* decodeToken(token);
@@ -514,39 +579,76 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       message: `The draft has ${preview.blockers.length} blocker(s) to fix before publishing`,
     });
   }
+  if (preview.translating.length > 0 && !publishAnyway) {
+    return yield* new TranslationsPendingError({
+      message: `Translations into ${preview.translating.join(", ")} are still running: wait for them, or publish anyway`,
+      translating: preview.translating,
+    });
+  }
 
   const user = yield* requireUser(ctx);
-  // Collected before the batch drops the draft's rows and replaces Live's.
-  const blobs = yield* blobsOfDraft(ctx.db, scope);
-  const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
-  const applied = yield* Effect.result(
-    overlay.publish(ctx.db, scope, {
-      shown,
-      publishedBy: user.id,
-      now: Date.now(),
-      after: [
-        ...generatedValueStatements.publishStatements(ctx.db, scope),
-        ...filePublishStatements(scope.projectId),
-        ...translationBookkeeping.publishStatements(scope),
-        ...translations.endStatements(ctx.db, scope.id),
-      ],
-    }),
-  );
-  if (applied._tag === "Failure") {
-    // A concurrent publish or discard may have ended the draft; otherwise Live changed.
-    const ended = yield* findEndedDraft(ctx.db, projectId, scope.id);
+  // Read before the batch drops them with the draft's other translation state.
+  const remaining = yield* translations.pendingRequestsOf(ctx.db, scope.id);
+  const { applied, ended } = yield* publishChecked(ctx, scope, {
+    shown,
+    publishedBy: user.id,
+    stored,
+  });
+  if (!applied) {
     if (ended) return endedAs(ended);
     return yield* new ConflictsChangedError({
       message: "Live changed since the preview. Review the new preview before publishing.",
     });
   }
-
-  yield* deleteUnreferencedBlobs(ctx, blobs);
-  yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
-  yield* requestLiveGeneration(ctx, scope, stored);
-  const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
-  yield* recordEnded(ctx, projectId, ended);
+  yield* catchUpPending(ctx.db, projectId, remaining);
   return endedAs(ended);
+});
+
+/** Camox's own context, outside any request: it acts with no session. */
+const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
+  db,
+  user: null,
+  env,
+  waitUntil,
+  client: "camox",
+  telemetryDisabled: true,
+  draft: null,
+});
+
+/**
+ * Publishes a catch-up draft once nothing is left to translate in it, as Camox (ADR 0017). It
+ * stays open, like any other draft, while it has blockers or conflicts, for a member to review;
+ * one left empty is dropped. A translation requested in it meanwhile stops publishing, and its
+ * own settling publishes the draft later. Does nothing for any other draft.
+ */
+export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(function* (
+  db: ServiceContext["db"],
+  draftId: string,
+) {
+  const row = yield* Effect.promise(() =>
+    db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
+  );
+  if (!row || !isCatchUpDraft(row)) return;
+  const translating = yield* translations.translatingLocales(db, [draftId]);
+  if (translating.has(draftId)) return;
+
+  const ctx = camoxContext(db);
+  const scope = draftOf(row);
+  const stored = yield* overlay.changesOf(db, scope);
+  if (stored.length === 0) {
+    if (yield* dropIfEmpty(db, scope)) {
+      yield* record(db, { kind: "drafts", projectId: scope.projectId });
+    }
+    return;
+  }
+  const preview = yield* computePreview(ctx, scope);
+  if (preview.blockers.length > 0 || preview.conflicts.length > 0) return;
+  yield* publishChecked(ctx, scope, {
+    shown: [],
+    publishedBy: CAMOX_ACTOR,
+    stored,
+    translated: true,
+  });
 });
 
 /**

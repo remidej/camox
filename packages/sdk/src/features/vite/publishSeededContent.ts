@@ -26,7 +26,12 @@ export async function publishSeededContent(options: {
       );
       return;
     }
-    await client.drafts.publish({ projectId: project.id, token: preview.token });
+    // Nobody reviews seeded content: Camox finishes translating it in a draft of its own.
+    await client.drafts.publish({
+      projectId: project.id,
+      token: preview.token,
+      publishAnyway: true,
+    });
     logger.info(
       `[camox] Published ${preview.changes.length} seeded change${preview.changes.length === 1 ? "" : "s"} to Live`,
       { timestamp: true },

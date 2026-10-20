@@ -1,13 +1,15 @@
 import { env } from "cloudflare:workers";
 import { Context } from "effect";
 
+import type { TranslationSettled } from "../domains/translations/service";
 import type { Bindings } from "../types";
 import { durableObjectQueue, AiJobQueue } from "./ai-job-queue";
 import { AiModel } from "./ai-model";
 import { afterResponse, Background } from "./background";
 import { openRouterModel } from "./open-router-model";
+import { withTranslationSettled } from "./translation-settled";
 
-export type AiServices = AiModel | AiJobQueue | Background;
+export type AiServices = AiModel | AiJobQueue | Background | TranslationSettled;
 
 /**
  * The model and the job queue that generated values and translations are produced with, from the
@@ -16,10 +18,12 @@ export type AiServices = AiModel | AiJobQueue | Background;
  * swap in a scripted model and a recording queue (`test/generation.ts`).
  */
 export const aiServices = (
-  bindings = env as unknown as Bindings,
+  bindings: Bindings = env,
   background: Background["Service"] = afterResponse,
 ) =>
-  Context.make(AiModel, openRouterModel(bindings.OPEN_ROUTER_API_KEY)).pipe(
-    Context.add(AiJobQueue, durableObjectQueue(bindings.AI_JOB_SCHEDULER)),
-    Context.add(Background, background),
+  withTranslationSettled(
+    Context.make(AiModel, openRouterModel(bindings.OPEN_ROUTER_API_KEY)).pipe(
+      Context.add(AiJobQueue, durableObjectQueue(bindings.AI_JOB_SCHEDULER)),
+      Context.add(Background, background),
+    ),
   );
