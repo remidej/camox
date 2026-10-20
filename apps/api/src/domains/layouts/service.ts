@@ -19,7 +19,7 @@ import { visibleIn } from "../drafts/overlay";
 import { RELEASE, type WriteTarget } from "../drafts/scope";
 import { publicProjectSummary } from "../projects/public-summary";
 import { blocksOfLayout } from "./identity";
-import type { RecordPages } from "./schema";
+import { LAYOUT_KINDS, type RecordPages } from "./schema";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -44,7 +44,7 @@ export const syncLayoutsInput = z.object({
   layouts: z.array(
     z.object({
       layoutId: z.string(),
-      kind: z.enum(["curated", "derived", "singleton"]).default("curated"),
+      kind: z.enum(LAYOUT_KINDS).default("curated"),
       description: z.string(),
       /** A derived layout's record pages: the collection they render, found by `field`. */
       recordPages: z.object({ collectionId: z.string(), field: z.string() }).optional(),

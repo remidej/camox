@@ -7,6 +7,9 @@ import { projects } from "../projects/schema";
 /** Which collection a layout's record pages render, and the field they're found by. */
 export type RecordPages = { collectionId: string; field: string };
 
+/** How a layout's pages come about: authored by editors, derived from data, or one fixed page. */
+export const LAYOUT_KINDS = ["curated", "derived", "singleton"] as const;
+
 /**
  * A layout definition, stored like block definitions: Live's have no draft, a development
  * draft's carry its id (ADR 0006). Read them through `definitionsIn`.
@@ -23,9 +26,7 @@ export const layouts = sqliteTable(
     // The layout's name, given by code. It identifies the layout within a project.
     layoutId: text("layout_id").notNull(),
     description: text(),
-    kind: text({ enum: ["curated", "derived", "singleton"] })
-      .notNull()
-      .default("curated"),
+    kind: text({ enum: LAYOUT_KINDS }).notNull().default("curated"),
     // A derived layout's record pages: each renders a record of the collection, found by the
     // plain text of its `field`. Code declares it; publishing checks values stay unique.
     recordPages: text("record_pages", { mode: "json" }).$type<RecordPages>(),

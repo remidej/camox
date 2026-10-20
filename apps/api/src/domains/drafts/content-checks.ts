@@ -49,17 +49,19 @@ import { draftOf, inLocale, type DraftScope, type ReadScope } from "./scope";
 type Scope = NonNullable<DraftScope>;
 type RecordRow = typeof collectionRecords.$inferSelect;
 
-export type ContentProblemCode =
-  | "duplicatePath"
-  | "duplicateRecordPageValue"
-  | "emptyRequiredReference"
-  | "danglingReference"
-  | "danglingPageLink"
-  | "wrongKindValue"
-  | "missingMetaTitle"
-  | "metaTitlePending"
-  | "localePrefixTaken"
-  | "duplicateLocale";
+export const CONTENT_PROBLEM_CODES = [
+  "duplicatePath",
+  "duplicateRecordPageValue",
+  "emptyRequiredReference",
+  "danglingReference",
+  "danglingPageLink",
+  "wrongKindValue",
+  "missingMetaTitle",
+  "metaTitlePending",
+  "localePrefixTaken",
+  "duplicateLocale",
+] as const;
+export type ContentProblemCode = (typeof CONTENT_PROBLEM_CODES)[number];
 
 /** An entity holding content, as previews name it. */
 type ContentEntity = Exclude<overlay.EntityKind, "file">;
