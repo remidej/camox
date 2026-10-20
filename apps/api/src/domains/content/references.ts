@@ -9,6 +9,8 @@ import { type Field, fieldsOf, isAsset, pointersOf, type ReferenceQuery } from "
 import { type ContentScope, recordsOf } from "../collections/identity";
 import { collectionRecords } from "../collections/schema";
 import type { FileView } from "../files/generated-metadata";
+import { defaultLocaleTag } from "../locales/default-locale";
+import { INITIAL_LOCALE } from "../locales/schema";
 import { selectInChunks } from "./chunks";
 import type { CollectionDefinition, Definitions } from "./definitions";
 import { resolveAssets } from "./files";
@@ -37,11 +39,21 @@ function isReference(field: Field): field is ReferenceField {
   return field.kind === "Reference" || field.kind === "ReferenceList";
 }
 
+const collators = new Map<string, Intl.Collator>();
+
 /**
- * Text order for query-backed lists: English collation, case-insensitive, numbers by value.
- * Text differing only by case compares equal, so the id tie-break keeps the order deterministic.
+ * Text order for query-backed lists in a locale: its collation, case-insensitive, numbers by
+ * value. Text differing only by case compares equal, so the id tie-break keeps the order
+ * deterministic.
  */
-const textOrder = new Intl.Collator("en", { numeric: true, sensitivity: "accent" });
+function textOrderIn(tag: string) {
+  let collator = collators.get(tag);
+  if (!collator) {
+    collator = new Intl.Collator(tag, { numeric: true, sensitivity: "accent" });
+    collators.set(tag, collator);
+  }
+  return collator;
+}
 
 /**
  * When a record was first published. A record the draft created sorts as published now, where
@@ -54,7 +66,8 @@ const firstPublished = (now: number) =>
     then ${now} else ${collectionRecords.createdAt} end)`;
 
 /**
- * The records a query-backed list resolves to, in order. `publishedAt` orders by when each
+ * The records a query-backed list resolves to, in order, among the records of the locale `at`
+ * reads, which leave out those excluded from it. `publishedAt` orders by when each
  * record was first published, so editing and republishing a record never reorders it. Empty
  * text sorts last in either direction, and ties break by record id. Without `orderBy`, records
  * keep their creation order. Ordering by time runs in SQL, so only `limit` ids load; ordering by
@@ -99,14 +112,16 @@ const queryRecordIds = Effect.fn("content.queryRecordIds")(function* (
     const text = row.value === null ? "" : lexicalStateToPlainText(row.value);
     return { id: row.id, key: text === "" ? null : text };
   });
-  keyed.sort((a, b) => compareTextKeys(a, b, sign));
+  const tag = at.draft?.locale ?? (yield* defaultLocaleTag(db, at.projectId)) ?? INITIAL_LOCALE;
+  const textOrder = textOrderIn(tag);
+  keyed.sort((a, b) => compareTextKeys(a, b, sign, textOrder));
   return keyed.slice(0, query.limit).map((candidate) => candidate.id);
 });
 
 type TextKey = { id: string; key: string | null };
 
 /** Missing text sorts last in either direction; equal text breaks by id, ascending. */
-function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1) {
+function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1, textOrder: Intl.Collator) {
   const byId = a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   if (a.key === null && b.key === null) return byId;
   if (a.key === null) return 1;

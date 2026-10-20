@@ -33,6 +33,7 @@ import {
 } from "../collections/record-pages";
 import { pagesWithDuplicatePaths } from "../pages/duplicate-paths";
 import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
+import { localizationExclusions } from "../translations/schema";
 import * as overlay from "./overlay";
 import { draftOf, inLocale, type DraftScope, type ReadScope } from "./scope";
 
@@ -349,16 +350,26 @@ type ContentPointer = Exclude<Pointer, { to: "file" }>;
  * changed blocks publishing, and so does untouched Live content pointing at what the draft
  * deletes: the draft fixes it by editing that content. Pointers Live already left dangling are
  * warnings.
+ *
+ * A record excluded from the locale is missing there, like a deleted record (ADR 0015), yet
+ * reference lists and optional references read it as left out: only a required reference to it
+ * is dangling.
  */
 function checkDanglingPointers(
   holders: Holder[],
-  exists: { draft: (key: string) => boolean; live: (key: string) => boolean },
+  exists: {
+    draft: (key: string) => boolean;
+    live: (key: string) => boolean;
+    excluded: (id: string) => boolean;
+  },
   found: Findings,
 ) {
   for (const holder of holders) {
     const missingByField = new Map<string, { title: string; missing: ContentPointer[] }>();
     for (const { field, pointer } of pointersIn(holder.schema, holder.content)) {
       if (pointer.to === "file" || exists.draft(keyOf(holder.projectId, pointer))) continue;
+      const required = field.kind === "Reference" && field.required;
+      if (pointer.to === "record" && !required && exists.excluded(pointer.id)) continue;
       const entry = missingByField.get(field.name) ?? { title: field.title, missing: [] };
       entry.missing.push(pointer);
       missingByField.set(field.name, entry);
@@ -515,9 +526,18 @@ const checkLocale = Effect.fn("drafts.checkLocale")(function* (
     draftRecords,
   );
   checkEmptyRequiredReferences(holders, found);
+  const excluded = new Set(
+    (yield* rowsIn(ctx, scope, projectId, localizationExclusions))
+      .filter((exclusion) => exclusion.entity === "record")
+      .map((exclusion) => exclusion.id),
+  );
   checkDanglingPointers(
     holders,
-    { draft: (key) => inDraft.has(key), live: (key) => onLive.has(key) },
+    {
+      draft: (key) => inDraft.has(key),
+      live: (key) => onLive.has(key),
+      excluded: (id) => excluded.has(id),
+    },
     found,
   );
   checkWrongKinds(holders, found);
