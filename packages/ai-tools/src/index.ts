@@ -1,4 +1,4 @@
-export { formatToolError } from "./errors";
+export { checkToolOutput, formatToolError } from "./errors";
 export type { ToolError } from "./errors";
 export { localeArgument } from "./lib/locale-input";
 export { rewriteAssetSchema } from "./lib/rewrite-asset-schema";
@@ -13,4 +13,5 @@ export { toolProviders } from "./registry";
 export { resolveTools } from "./resolve";
 export { toJsonSchemaTool } from "./to-json-schema";
 export type { JsonSchemaTool } from "./to-json-schema";
+export { defineTool } from "./types";
 export type { ToolContext, ToolDefinition, ToolProvider, ToolSurface } from "./types";

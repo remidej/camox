@@ -2,6 +2,7 @@ import {
   type ToolContext,
   type ToolDefinition,
   type ToolSurface,
+  checkToolOutput,
   formatToolError,
   localeArgument,
   resolveTools,
@@ -77,7 +78,8 @@ export const executeTool = Effect.fn("agent.executeTool")(function* (params: {
   }
 
   return yield* Effect.tryPromise({
-    try: async () => tool.handler(tool.inputSchema.parse(args ?? {}), toolCtx),
+    try: async () =>
+      checkToolOutput(tool, await tool.handler(tool.inputSchema.parse(args ?? {}), toolCtx)),
     catch: (err) => err,
   }).pipe(
     Effect.match({
@@ -104,9 +106,9 @@ export const listTools = Effect.fn("agent.listTools")(function* (
 });
 
 /**
- * Adapter-agnostic tool dispatch. Validates input via Zod, runs the handler,
- * and either returns the tool result or a structured error (no throw on
- * tool-side failures — the LLM/CLI consumer needs to read the error to retry).
+ * Adapter-agnostic tool dispatch. Validates input via Zod, runs the handler, checks its result
+ * against the tool's output schema, and either returns the tool result or a structured error (no
+ * throw on tool-side failures — the LLM/CLI consumer needs to read the error to retry).
  *
  * Auth and project membership are checked in `buildToolContext`, and a content write naming no
  * draft is rejected as "Live is read-only"; both surface as typed service errors so the

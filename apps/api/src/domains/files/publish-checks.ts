@@ -15,11 +15,13 @@ import { withFileMetadata } from "./generated-metadata";
 
 type Scope = NonNullable<DraftScope>;
 
-export type FileProblemCode =
-  | "emptyRequiredFile"
-  | "missingFile"
-  | "missingFileBytes"
-  | "unacceptedFileType";
+export const FILE_PROBLEM_CODES = [
+  "emptyRequiredFile",
+  "missingFile",
+  "missingFileBytes",
+  "unacceptedFileType",
+] as const;
+export type FileProblemCode = (typeof FILE_PROBLEM_CODES)[number];
 
 /** A problem found in a field of content, or in a file itself (`entity: "file"`). */
 export type Finding = {
