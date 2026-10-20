@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 import { useViewLocale } from "@/lib/view-locale-context";
 
-import { useCurrentDraftId } from "../../lib/draft-scope";
+import { useCurrentDraftId, withoutDraft } from "../../lib/draft-scope";
 import {
   reads,
   type LayoutStructure,
@@ -29,6 +29,7 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
+import { studioStore } from "../studio/studioStore";
 import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview, prefetchCanvas } from "./components/CanvasPreview";
@@ -269,6 +270,25 @@ function useShownPage(
   return current;
 }
 
+/** Remembers where the Website Section is, so that going back to it from the Studio lands there. */
+function useRememberWebsiteLocation(location: LocationState) {
+  const { locale, locales } = useViewLocale();
+  React.useEffect(() => {
+    const { pathname, search, hash } = location;
+    // Only the search is kept from it: the base just makes it a full URL.
+    const url = new URL(withoutDraft(new URL(`${pathname}${search}`, "http://camox.local").href));
+    studioStore.send({
+      type: "rememberWebsiteLocation",
+      location: {
+        locale: locale.tag,
+        path: parseLocalePath(pathname, locales).path,
+        search: url.search,
+        hash,
+      },
+    });
+  }, [location, locale.tag, locales]);
+}
+
 export const CamoxPreview = ({
   children,
   runtimeBasePath,
@@ -282,6 +302,7 @@ export const CamoxPreview = ({
 }) => {
   const camoxApp = useCamoxApp();
   const location = useLocation();
+  useRememberWebsiteLocation(location);
   const shown = useShownPage(location, derived, !!canvasOnly);
   const pathname = shown?.location.pathname;
   const shownDerived = shown?.derived;
@@ -419,15 +440,6 @@ export const PreviewShell = ({
     if (layoutId != null) return { kind: "layout", layoutId };
     return null;
   }, [pageId, layoutId]);
-
-  // Stores outlive this component; studio routes unmount it, so start over on return.
-  React.useEffect(
-    () => () => {
-      previewStore.send({ type: "reset" });
-      canvasStore.send({ type: "reset" });
-    },
-    [],
-  );
 
   React.useEffect(() => {
     if (!isMobileStudio) return;

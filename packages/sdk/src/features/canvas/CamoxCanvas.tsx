@@ -59,7 +59,7 @@ import {
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
 import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
-import { canvasStore } from "./canvasStore";
+import { canvasStore, setShelfCollapsed, useCollapsedShelves } from "./canvasStore";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { CanvasSidebar } from "./sidebar/CanvasSidebar";
 import { useCanvasCamera } from "./useCanvasCamera";
@@ -349,14 +349,9 @@ function CanvasWorkspace({
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
-  const [collapsedShelves, setCollapsedShelves] = React.useState<ReadonlySet<string>>(new Set());
-  const toggleShelf = (key: string) => {
-    setCollapsedShelves((collapsed) => {
-      const next = new Set(collapsed);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
-  };
+  const collapsedShelves = useCollapsedShelves(workspaceKey);
+  const toggleShelf = (shelfKey: string) =>
+    setShelfCollapsed(workspaceKey, shelfKey, !collapsedShelves.has(shelfKey));
   const shelves = getCanvasShelves(pages, blocks);
   const { items, markers } = positionCanvasShelves(shelves, collapsedShelves);
   // Collapsing only hides items: the Canvas keeps its expanded bounds, so the camera stays put.
@@ -436,14 +431,13 @@ function CanvasWorkspace({
     if (previousPath.current === selectedPath) return;
     // Selecting a hidden Page from outside the Canvas reveals it; the camera then flies to it.
     if (location.source !== "canvas" && hiddenSelectedShelf) {
-      // oxlint-disable-next-line react/set-state-in-effect -- reacts to a route change that also drives the camera
-      toggleShelf(hiddenSelectedShelf);
+      setShelfCollapsed(workspaceKey, hiddenSelectedShelf, false);
       return;
     }
     // A newly created page can arrive in the route before the page list refresh.
     if (location.source !== "canvas" && !selectedKey) return;
     previousPath.current = selectedPath;
-  }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf]);
+  }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf, workspaceKey]);
   // An item to fly to once its shelf is expanded and it has a place in the row.
   const [pendingFlight, setPendingFlight] = React.useState<string | null>(null);
   const pendingFlightPlaced = !!pendingFlight && positions.has(pendingFlight);

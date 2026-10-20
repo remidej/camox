@@ -204,7 +204,7 @@ const initialPreviewContext: PreviewContext = {
 export const previewStore = createStore({
   context: initialPreviewContext,
   on: {
-    /** Leaving the preview discards its session; returning starts fresh. */
+    /** Starts over, as a new Studio session does. */
     reset: () => initialPreviewContext,
     hideCanvas: (context) => {
       if (!selectIsCanvasShown({ context })) return context;
