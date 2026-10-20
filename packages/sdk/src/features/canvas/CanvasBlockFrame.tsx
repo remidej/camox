@@ -51,7 +51,8 @@ export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
     [reached, previewDocument],
   );
   return (
-    <div ref={ref}>
+    // Away from the camera, a frame that doesn't rest yet still isn't drawn.
+    <div ref={ref} style={{ visibility: near || props.selected ? undefined : "hidden" }}>
       {reached ? (
         <BlockFrame key={styles} {...props} previewDocument={previewDocument} mode={mode} />
       ) : (

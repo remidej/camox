@@ -1,4 +1,4 @@
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, replaceEqualDeep, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
@@ -77,10 +77,22 @@ export function CoreCamoxProvider({
   const seededProject = React.useRef<Project | undefined>(undefined);
   // oxlint-disable-next-line react/refs -- the cache must be seeded before children query it
   if (initialProject && seededProject.current !== initialProject) {
-    studioCache.set(reads.project({ slug: projectSlug }), initialProject);
+    // Each navigation brings the project again. Rewriting an equal project still
+    // updates every read of it, which re-renders every field of every frame.
+    const read = reads.project({ slug: projectSlug });
+    const cached = studioCache.get(read);
+    if (!cached || replaceEqualDeep(cached, initialProject) !== cached)
+      studioCache.set(read, initialProject);
     // oxlint-disable-next-line react/refs -- see above
     seededProject.current = initialProject;
   }
+
+  // The React Compiler skips this component (it reads refs while rendering), so
+  // the context value is memoized by hand: every field of every frame reads it.
+  const authContext = React.useMemo(
+    () => ({ authClient, authenticationUrl, apiUrl, projectSlug, initialAuthenticated }),
+    [authClient, authenticationUrl, apiUrl, projectSlug, initialAuthenticated],
+  );
 
   // OTT processing deliberately does not blank the public tree. Successful
   // exchange still reloads after mirroring the server cookie.
@@ -102,15 +114,7 @@ export function CoreCamoxProvider({
   return (
     <DraftScopeContext.Provider value={draftScope}>
       <StudioCacheContext.Provider value={studioCache}>
-        <AuthContext.Provider
-          value={{
-            authClient,
-            authenticationUrl,
-            apiUrl,
-            projectSlug,
-            initialAuthenticated,
-          }}
-        >
+        <AuthContext.Provider value={authContext}>
           <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
         </AuthContext.Provider>
       </StudioCacheContext.Provider>

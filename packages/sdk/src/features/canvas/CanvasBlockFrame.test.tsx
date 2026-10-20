@@ -39,6 +39,15 @@ function setUpCanvasDom() {
   // their document on removal. Tests load frames themselves.
   Object.assign(dom, { requestAnimationFrame: () => 1 });
   const observers: Observer[] = [];
+  // Animation frames run only when a test runs them.
+  let frameRequests: FrameRequestCallback[] = [];
+  const runAnimationFrames = () => {
+    for (let round = 0; round < 10 && frameRequests.length; round++) {
+      const requests = frameRequests;
+      frameRequests = [];
+      for (const request of requests) request(0);
+    }
+  };
   class TestIntersectionObserver {
     observer: Observer;
     constructor(callback: Observer["callback"], options?: IntersectionObserverInit) {
@@ -60,7 +69,7 @@ function setUpCanvasDom() {
     MutationObserver: dom.MutationObserver,
     ResizeObserver: dom.ResizeObserver,
     IntersectionObserver: TestIntersectionObserver,
-    requestAnimationFrame: () => 1,
+    requestAnimationFrame: (request: FrameRequestCallback) => frameRequests.push(request),
     cancelAnimationFrame: () => {},
     IS_REACT_ACT_ENVIRONMENT: true,
     __CAMOX_TELEMETRY_DISABLED__: true,
@@ -79,11 +88,11 @@ function setUpCanvasDom() {
       else Reflect.deleteProperty(globalThis, key);
     }
   };
-  return { dom, observers, canvas, restore };
+  return { dom, observers, canvas, restore, runAnimationFrames };
 }
 
 void test("Block Catalog frames mount near the viewport and render a live, non-editable block", async () => {
-  const { dom, observers, canvas, restore } = setUpCanvasDom();
+  const { dom, observers, canvas, restore, runAnimationFrames } = setUpCanvasDom();
   const frame = new Window({ url: "http://localhost/" });
   const { createRoot } = await import("react-dom/client");
   const { createBlock } = await import("../../core/createBlock");
@@ -234,6 +243,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     assert.equal(liveEffects, 1);
     let contentHeight = 320;
     previewRoot.getBoundingClientRect = () => new frame.DOMRect(0, 0, 1000, contentHeight);
+    await React.act(async () => runAnimationFrames());
     // Hidden content has no height of its own.
     contentHeight = 0;
     await React.act(async () => observer.callback([{ isIntersecting: false }]));
@@ -246,6 +256,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
 
     contentHeight = 400;
     await React.act(async () => observer.callback([{ isIntersecting: true }]));
+    await React.act(async () => runAnimationFrames());
     assert.notEqual(content.style.display, "none", "back near, the block shows again");
     assert.equal(liveEffects, 1);
     assert.equal(frame.document.querySelector("[data-tab]")?.textContent, "Second tab");

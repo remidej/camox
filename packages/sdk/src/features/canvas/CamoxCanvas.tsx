@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { createStore } from "@xstate/store";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -139,7 +140,14 @@ function CanvasPagePreview(props: CanvasPagePreviewProps) {
   const [loaded, setLoaded] = React.useState(false);
   if ((reached || props.selected) && !loaded) setLoaded(true);
   return (
-    <div ref={ref} style={{ minHeight: props.viewport.height }}>
+    <div
+      ref={ref}
+      style={{
+        minHeight: props.viewport.height,
+        // Away from the camera, a frame that doesn't rest yet still isn't drawn.
+        visibility: near || props.selected ? undefined : "hidden",
+      }}
+    >
       {loaded && <CanvasPageFrameLoader {...props} mode={mode} />}
     </div>
   );
@@ -260,6 +268,140 @@ function CanvasSlot({
   );
 }
 
+/**
+ * The Page whose header the pointer is over, which outlines its frame. Kept out
+ * of the Canvas's state, so hovering re-renders only the frames it outlines.
+ */
+function createCanvasHover() {
+  return createStore({
+    context: { pageKey: null as string | null },
+    on: {
+      set: (context, event: { pageKey: string | null }) =>
+        context.pageKey === event.pageKey ? context : { pageKey: event.pageKey },
+    },
+  });
+}
+type CanvasHover = ReturnType<typeof createCanvasHover>;
+
+/** A Block Catalog block's area in the Canvas row, with its frame. */
+function CanvasBlockItem({
+  itemKey,
+  block,
+  projectId,
+  runtimeBasePath,
+  viewport,
+  framed,
+  selected,
+  selectBlock,
+}: {
+  itemKey: string;
+  block: Block;
+  projectId: number;
+  runtimeBasePath: string;
+  viewport: CanvasViewport;
+  framed: boolean;
+  selected: boolean;
+  selectBlock: (block: Block) => void;
+}) {
+  return (
+    <CanvasSlot itemKey={itemKey} framed={framed}>
+      <div
+        data-canvas-block={block._internal.id}
+        className="bg-background relative shrink-0 shadow-xl ring-1 ring-black/10"
+        style={{ width: viewport.width }}
+      >
+        <CanvasFrameBoundary subject="block">
+          <CanvasBlockFrame
+            block={block}
+            projectId={projectId}
+            runtimeBasePath={runtimeBasePath}
+            width={viewport.width}
+            viewportHeight={viewport.height}
+            selected={selected}
+            onSelect={() => selectBlock(block)}
+          />
+        </CanvasFrameBoundary>
+        <CanvasPageEdge shaded={framed} />
+      </div>
+    </CanvasSlot>
+  );
+}
+
+/** A Page's area in the Canvas row, with its frame. */
+function CanvasPageItem({
+  page,
+  pathname,
+  selected,
+  previewed,
+  collapsed,
+  framed,
+  viewport,
+  runtimeBasePath,
+  onActivate,
+  selectPage,
+  hover,
+}: {
+  page: CanvasPage;
+  pathname: string | null;
+  selected: boolean;
+  previewed: boolean;
+  collapsed: boolean;
+  framed: boolean;
+  viewport: CanvasViewport;
+  runtimeBasePath: string;
+  onActivate: (pathname: string, owner: EditingOwner, release: ReleaseEditingFrame) => void;
+  selectPage: (pathname: string) => void;
+  hover: CanvasHover;
+}) {
+  const hovered = useSelector(hover, (state) => state.context.pageKey === page.key);
+  const onPageActivate: CanvasFrameActivate = (owner, source, release) => {
+    if (!pathname) return;
+    onActivate(pathname, owner, release);
+    if (source === "interaction") selectPage(pathname);
+  };
+  return (
+    <CanvasSlot itemKey={page.key} framed={framed}>
+      <div
+        data-canvas-page={page.key}
+        data-canvas-pathname={pathname}
+        {...(previewed ? { [PREVIEW_PAGE_SLOT_ATTRIBUTE]: "" } : {})}
+        className="bg-background relative shrink-0 shadow-xl ring-1 ring-black/10"
+        style={{ width: viewport.width, minHeight: viewport.height }}
+      >
+        <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
+          {previewed ? (
+            <CanvasPreviewPageSlot
+              pageId={canvasPageId(page)}
+              layoutId={canvasLayoutId(page)}
+              width={viewport.width}
+              viewportHeight={viewport.height}
+              selected={selected}
+              hovered={hovered}
+              hidden={collapsed}
+              shaded={framed}
+              onActivate={onPageActivate}
+            />
+          ) : pathname ? (
+            <CanvasPagePreview
+              hovered={hovered}
+              pathname={pathname}
+              runtimeBasePath={runtimeBasePath}
+              derivedLayoutId={derivedLayoutIdOf(page)}
+              pageId={canvasPageId(page)}
+              viewport={viewport}
+              selected={selected}
+              onActivate={onPageActivate}
+            />
+          ) : (
+            <CanvasMessage>Choose a page path above to preview this layout.</CanvasMessage>
+          )}
+        </CanvasFrameBoundary>
+        <CanvasPageEdge shaded={framed} />
+      </div>
+    </CanvasSlot>
+  );
+}
+
 /** A block header with the number of Pages placing the block. */
 function CanvasBlockUsageHeader({
   projectId,
@@ -335,7 +477,7 @@ function CanvasWorkspace({
   const navigate = useNavigate();
   const previewPageFrame = React.use(PreviewPageFrameContext);
   const localized = useLocalizedPath();
-  const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
+  const [hover] = React.useState(createCanvasHover);
   const selectedPath = location.pathname;
   const previewedPath = previewPageFrame?.pathname;
   // The camera flies to the selected item, unless it is already snapped to it.
@@ -344,6 +486,20 @@ function CanvasWorkspace({
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
   const selectBlock = (block: Block) => selectPage(localized(blockCatalogPath(block._internal.id)));
+  // Frames get selection callbacks that keep their identity across hovers and
+  // navigations, so only the frames whose own props change re-render.
+  const latestSelect = React.useRef({ selectPage, selectBlock });
+  React.useLayoutEffect(() => {
+    latestSelect.current = { selectPage, selectBlock };
+  });
+  const selectFramePage = React.useCallback(
+    (pathname: string) => latestSelect.current.selectPage(pathname),
+    [],
+  );
+  const selectFrameBlock = React.useCallback(
+    (block: Block) => latestSelect.current.selectBlock(block),
+    [],
+  );
   const workspaceKey = JSON.stringify([apiUrl, projectSlug, runtimeBasePath]);
   // Keep other derived layout previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
@@ -530,85 +686,43 @@ function CanvasWorkspace({
                   {shelf.items.map((item) => {
                     if (item.kind === "block") {
                       return (
-                        <CanvasSlot key={item.key} itemKey={item.key} framed={framed}>
-                          <div
-                            data-canvas-block={item.block._internal.id}
-                            className="bg-background relative shrink-0 shadow-xl ring-1 ring-black/10"
-                            style={{ width: viewport.width }}
-                          >
-                            <CanvasFrameBoundary subject="block">
-                              <CanvasBlockFrame
-                                block={item.block}
-                                projectId={projectId}
-                                runtimeBasePath={runtimeBasePath}
-                                width={viewport.width}
-                                viewportHeight={viewport.height}
-                                selected={item.block._internal.id === selectedBlock?._internal.id}
-                                onSelect={() => selectBlock(item.block)}
-                              />
-                            </CanvasFrameBoundary>
-                            <CanvasPageEdge shaded={framed} />
-                          </div>
-                        </CanvasSlot>
+                        <CanvasBlockItem
+                          key={item.key}
+                          itemKey={item.key}
+                          block={item.block}
+                          projectId={projectId}
+                          runtimeBasePath={runtimeBasePath}
+                          viewport={viewport}
+                          framed={framed}
+                          selected={item.block._internal.id === selectedBlock?._internal.id}
+                          selectBlock={selectFrameBlock}
+                        />
                       );
                     }
                     const slot = pageSlots.get(item.key);
                     if (!slot) return null;
                     const { page, pathname } = slot;
-                    const selected = page.key === selectedPage?.key;
-                    // The Preview's page shows the Preview's own frame, so toggling the Canvas keeps its
-                    // state. Deselecting it keeps it there too, rather than remount it.
-                    const previewed =
-                      !!previewPageFrame &&
-                      page.key === previewedPage?.key &&
-                      pathname === previewedPath;
-                    const onPageActivate: CanvasFrameActivate = (owner, source, release) => {
-                      if (!pathname) return;
-                      onActivate(pathname, owner, release);
-                      if (source === "interaction") selectPage(pathname);
-                    };
                     return (
-                      <CanvasSlot key={page.key} itemKey={page.key} framed={framed}>
-                        <div
-                          data-canvas-page={page.key}
-                          data-canvas-pathname={pathname}
-                          {...(previewed ? { [PREVIEW_PAGE_SLOT_ATTRIBUTE]: "" } : {})}
-                          className="bg-background relative shrink-0 shadow-xl ring-1 ring-black/10"
-                          style={{ width: viewport.width, minHeight: viewport.height }}
-                        >
-                          <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
-                            {previewed ? (
-                              <CanvasPreviewPageSlot
-                                pageId={canvasPageId(page)}
-                                layoutId={canvasLayoutId(page)}
-                                width={viewport.width}
-                                viewportHeight={viewport.height}
-                                selected={selected}
-                                hovered={hoveredPageKey === page.key}
-                                hidden={collapsed}
-                                shaded={framed}
-                                onActivate={onPageActivate}
-                              />
-                            ) : pathname ? (
-                              <CanvasPagePreview
-                                hovered={hoveredPageKey === page.key}
-                                pathname={pathname}
-                                runtimeBasePath={runtimeBasePath}
-                                derivedLayoutId={derivedLayoutIdOf(page)}
-                                pageId={canvasPageId(page)}
-                                viewport={viewport}
-                                selected={selected}
-                                onActivate={onPageActivate}
-                              />
-                            ) : (
-                              <CanvasMessage>
-                                Choose a page path above to preview this layout.
-                              </CanvasMessage>
-                            )}
-                          </CanvasFrameBoundary>
-                          <CanvasPageEdge shaded={framed} />
-                        </div>
-                      </CanvasSlot>
+                      <CanvasPageItem
+                        key={page.key}
+                        page={page}
+                        pathname={pathname}
+                        selected={page.key === selectedPage?.key}
+                        hover={hover}
+                        // The Preview's page shows the Preview's own frame, so toggling the Canvas keeps its
+                        // state. Deselecting it keeps it there too, rather than remount it.
+                        previewed={
+                          !!previewPageFrame &&
+                          page.key === previewedPage?.key &&
+                          pathname === previewedPath
+                        }
+                        collapsed={collapsed}
+                        framed={framed}
+                        viewport={viewport}
+                        runtimeBasePath={runtimeBasePath}
+                        onActivate={onActivate}
+                        selectPage={selectFramePage}
+                      />
                     );
                   })}
                 </div>
@@ -636,7 +750,9 @@ function CanvasWorkspace({
                   : undefined
               }
               selected={page.key === selectedPage?.key}
-              onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
+              onHoverChange={(hovered) =>
+                hover.send({ type: "set", pageKey: hovered ? page.key : null })
+              }
               onSelect={() => {
                 if (!pathname) return;
                 selectPage(pathname);

@@ -1,5 +1,5 @@
 import { useSelector } from "@xstate/store-react";
-import { useContext } from "react";
+import { useContext, useState } from "react";
 
 import { canvasStore } from "./canvasStore";
 import { CanvasWorkspaceContext } from "./canvasZoom";
@@ -26,11 +26,22 @@ export function canvasFrameMode({
   return "live";
 }
 
-export function useCanvasFrameMode(frame: { near: boolean; selected: boolean }) {
+/**
+ * A frame's mode as the camera moves. A frame that leaves the camera rests only
+ * once the camera is still: while it moves, every frame is paused anyway, and
+ * frames it passes by would otherwise stop and restart all their effects.
+ */
+export function useCanvasFrameMode({ near, selected }: { near: boolean; selected: boolean }) {
   const workspaceKey = useContext(CanvasWorkspaceContext)?.workspaceKey;
+  // Frames near the camera and not selected are paused either way: they skip
+  // re-rendering when the camera starts or stops.
   const moving = useSelector(
     canvasStore,
-    (state) => workspaceKey != null && !!state.context.moving[workspaceKey],
+    (state) => (selected || !near) && workspaceKey != null && !!state.context.moving[workspaceKey],
   );
-  return canvasFrameMode({ ...frame, moving });
+  const away = !near && !selected;
+  const [resting, setResting] = useState(away);
+  if (resting !== away && (!away || !moving)) setResting(away);
+  if (!away) return canvasFrameMode({ near, selected, moving });
+  return resting ? "resting" : "paused";
 }

@@ -264,12 +264,16 @@ function exactBottom(boxesBottom: number, ...scrollBottoms: number[]) {
 /**
  * Re-measure at a fixed baseline, not at the previous full-page height: document scrollHeight
  * is at least viewport height and therefore cannot shrink an already expanded iframe.
+ *
+ * While `suspended` (a resting frame, whose content is hidden), the frame keeps its size.
+ * Once `resume` is called, it re-measures only if its content or size changed meanwhile.
  */
 export function observeCanvasDocument(
   iframe: HTMLIFrameElement,
   root: HTMLElement,
   viewportHeight: number,
   fit: CanvasDocumentFit = "page",
+  suspended: () => boolean = () => false,
 ) {
   const doc = root.ownerDocument;
   const baseline = Math.max(1, viewportHeight);
@@ -304,6 +308,7 @@ export function observeCanvasDocument(
   });
   function measure() {
     frame = 0;
+    if (suspended()) return;
     measureCanvasDocument(iframe, root, baseline, fit);
     // Record the *final* geometry to ignore ResizeObserver notifications caused by our sizing.
     const elements = new Set<Element>([doc.body, root, ...root.querySelectorAll("*")]);
@@ -321,15 +326,23 @@ export function observeCanvasDocument(
     if (disposed || frame) return;
     frame = requestAnimationFrame(measure);
   }
-  // Animations rewrite inline styles in the content every frame. Any size they
-  // change reaches the ResizeObserver, so those alone never re-measure, and
-  // neither does pausing the frame.
+  // Hiding and showing a resting frame's content resizes it, but it measures
+  // as before unless its content changed while hidden.
+  let changedWhileSuspended = false;
+  function contentChanged() {
+    if (suspended()) changedWhileSuspended = true;
+    schedule();
+  }
+  // Animations rewrite inline styles in the content every frame, and blocks
+  // toggle classes as they react to scrolling, which a moving camera looks like.
+  // Every element of the content is observed, so any size an attribute changes
+  // reaches the ResizeObserver: those alone never re-measure, and neither does
+  // pausing the frame.
   const isUnsizedChange = (record: MutationRecord) =>
     record.type === "attributes" &&
-    ((record.attributeName === "style" && root.contains(record.target)) ||
-      record.attributeName === PREVIEW_PAUSED_ATTRIBUTE);
+    (root.contains(record.target) || record.attributeName === PREVIEW_PAUSED_ATTRIBUTE);
   const mutations = new MutationObserver((records) => {
-    if (!records.every(isUnsizedChange)) schedule();
+    if (!records.every(isUnsizedChange)) contentChanged();
   });
   mutations.observe(root, {
     subtree: true,
@@ -345,14 +358,23 @@ export function observeCanvasDocument(
   });
   mutations.observe(doc.documentElement, { attributes: true });
   mutations.observe(doc.body, { attributes: true });
-  doc.addEventListener("load", schedule, true);
-  doc.addEventListener("error", schedule, true);
-  doc.fonts?.addEventListener("loadingdone", schedule);
-  void doc.fonts?.ready.then(schedule);
+  doc.addEventListener("load", contentChanged, true);
+  doc.addEventListener("error", contentChanged, true);
+  doc.fonts?.addEventListener("loadingdone", contentChanged);
+  void doc.fonts?.ready.then(contentChanged);
   // The selected frame's readiness effect runs after this layout effect.
   // Give camera handoffs real page bounds before they reveal the workspace.
   measure();
-  return () => {
+  const resume = () => {
+    if (disposed) return;
+    requestAnimationFrame(() => {
+      if (suspended()) return;
+      if (changedWhileSuspended || [doc.body, root].some((el) => sizes.get(el) !== size(el)))
+        schedule();
+      changedWhileSuspended = false;
+    });
+  };
+  const stop = () => {
     disposed = true;
     cancelAnimationFrame(frame);
     resize.disconnect();
@@ -360,8 +382,9 @@ export function observeCanvasDocument(
     overlapChanges.disconnect();
     overlapStyle.remove();
     doc.documentElement.style.removeProperty("--camox-block-overlap");
-    doc.removeEventListener("load", schedule, true);
-    doc.removeEventListener("error", schedule, true);
-    doc.fonts?.removeEventListener("loadingdone", schedule);
+    doc.removeEventListener("load", contentChanged, true);
+    doc.removeEventListener("error", contentChanged, true);
+    doc.fonts?.removeEventListener("loadingdone", contentChanged);
   };
+  return Object.assign(stop, { resume });
 }
