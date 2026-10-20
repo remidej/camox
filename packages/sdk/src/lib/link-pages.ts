@@ -3,7 +3,7 @@ import * as React from "react";
 import { localizedPath, type LocaleView, UNNAMED_DEFAULT_LOCALE } from "./locale-path";
 import type { Page } from "./queries";
 import { reads, useReadQuery } from "./studio-reads";
-import { useViewLocale } from "./view-locale";
+import { useViewLocale } from "./view-locale-context";
 
 // Localizations keep their original's id (ADR 0015), so a page link names the same page in every
 // locale. It leads to the rendered locale's page, and to the default locale's page where that

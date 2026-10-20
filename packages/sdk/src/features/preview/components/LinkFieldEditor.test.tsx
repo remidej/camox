@@ -36,7 +36,7 @@ const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { createDraftScope } = await import("@/lib/draft-scope");
 const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
-const { ViewLocaleContext } = await import("@/lib/view-locale");
+const { ViewLocaleContext } = await import("@/lib/view-locale-context");
 const { CamoxAppProvider } = await import("@/features/provider/components/CamoxAppContext");
 const { createApp } = await import("@/core/createApp");
 
