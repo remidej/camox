@@ -1,9 +1,11 @@
 import {
   EDITOR_MESSAGE_ENTRY,
   isSender,
+  RUN_STOPPED_ENTRY,
   threadClientMessageSchema,
   threadSenderSchema,
   type ThreadClientMessage,
+  type ThreadSender,
   type ThreadServerMessage,
 } from "@camox/api-contract/threads";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
@@ -13,6 +15,7 @@ import {
   type EntryRecord,
   Harness,
   LiveDoc,
+  ROOT_CONVERSATION_ID,
   type SnapshotEvent,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
@@ -64,6 +67,16 @@ const NOT_STARTED: SnapshotEvent = {
   agent: {},
   usage: { models: {}, tools: {} },
 };
+
+/**
+ * A context that's never cancelled, which pi-durable takes on every call: chord's
+ * `BACKGROUND_CONTEXT`, which pi-durable doesn't re-export, inlined as `PiHarness` does.
+ */
+const BACKGROUND: Parameters<Harness["close"]>[0] = Object.freeze({
+  abortSignal: undefined,
+  value: () => undefined,
+  toString: () => "[Context camox thread background]",
+});
 
 const PREAMBLE = `You are Camox's agent. Camox is a content management system, and you work with the \
 editors of a website in the Camox studio, where they message you in a thread.
@@ -338,19 +351,26 @@ export class Thread extends DurableObject<Bindings> {
       return;
     }
 
+    if (message.type === "resync") {
+      await this.#show(connection, await this.#knownIdentity());
+      return;
+    }
+    const participant = participantSchema.safeParse(connection.state);
+    if (!participant.success) {
+      connection.close(1008, "Unauthorized");
+      return;
+    }
     switch (message.type) {
       case "send": {
-        const participant = participantSchema.safeParse(connection.state);
-        if (!participant.success) {
-          connection.close(1008, "Unauthorized");
-          return;
-        }
         if (!(await this.#start(participant.data))) {
           connection.close(1008, "Unauthorized");
           return;
         }
         try {
+          // A message sent while the agent works joins its run after the current round of tool
+          // calls, instead of waiting for a run of its own.
           await this.harness.submit(message.text, {
+            whenBusy: "steer",
             operationId: message.operationId,
             entry: { kind: EDITOR_MESSAGE_ENTRY, data: participant.data.sender },
           });
@@ -365,9 +385,29 @@ export class Thread extends DurableObject<Bindings> {
         }
         return;
       }
-      case "resync":
-        await this.#show(connection, await this.#knownIdentity());
+      case "stop":
+        // A thread nobody messaged has no run to stop, and opening Pi to check would store.
+        if (!(await this.#knownIdentity())) return;
+        await this.#stop(participant.data.sender);
         return;
     }
+  }
+
+  /**
+   * Stops the run going, if any, recording who stopped it. The record goes first, so the studio
+   * never sees the run end without it. What the run changed before the stop stays.
+   */
+  async #stop(sender: ThreadSender) {
+    const piSession = this.harness.session();
+    if (!(await piSession.busy())) return;
+    // The thread's transcript: Pi's root conversation.
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    // An entry of only a kind and data is appended at once, even mid-run, and the model never
+    // sees it.
+    await root?.submit(
+      { type: "write", entry: { kind: RUN_STOPPED_ENTRY, data: sender } },
+      BACKGROUND,
+    );
+    await piSession.abort();
   }
 }

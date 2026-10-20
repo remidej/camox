@@ -14,17 +14,21 @@ import {
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
 /**
- * A thread's messages and whether the agent is working, as its view shows them. A draft's thread
- * is shared, so it shows senders' names too (`showSenders`).
+ * A thread's messages, and "Working…" while a run is going or a message is still `sending`: on
+ * its way to the thread, which hasn't accepted it yet. A draft's thread is shared, so it shows
+ * senders' names too (`showSenders`).
  */
 export function ThreadMessages({
   view,
+  sending = false,
   showSenders = false,
 }: {
   view: ThreadView;
+  sending?: boolean;
   showSenders?: boolean;
 }) {
-  if (view.messages.length === 0 && !view.working) {
+  const working = view.running || sending;
+  if (view.messages.length === 0 && !working) {
     return (
       <p
         data-thread-empty
@@ -49,7 +53,7 @@ export function ThreadMessages({
                 <ThreadMessageRow message={message} showSender={showSenders} />
               </MessageScrollerItem>
             ))}
-            {view.working && (
+            {working && (
               <p role="status" className="shimmer text-muted-foreground px-10 text-sm">
                 Working…
               </p>
@@ -69,6 +73,22 @@ function ThreadMessageRow({
   message: ThreadMessage;
   showSender: boolean;
 }) {
+  if (message.from === "stopped" || message.from === "failed") {
+    return (
+      <Message>
+        <MessageAvatar>
+          <AgentAvatar />
+        </MessageAvatar>
+        <MessageContent>
+          <p className="text-muted-foreground text-sm">
+            {message.from === "stopped"
+              ? `Stopped by ${message.sender.name}`
+              : "Camox couldn’t finish this. Send your message again to retry."}
+          </p>
+        </MessageContent>
+      </Message>
+    );
+  }
   if (message.from === "agent") {
     return (
       <Message>

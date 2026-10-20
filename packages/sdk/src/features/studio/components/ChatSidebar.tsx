@@ -61,16 +61,16 @@ function Thread({
   projectId: number;
   draftId: string | null;
 }) {
-  const { view, working, send, error } = useThread(apiUrl, projectId, draftId);
+  const { view, sending, send, stop, error } = useThread(apiUrl, projectId, draftId);
   return (
     <>
-      <ThreadMessages view={{ ...view, working }} showSenders={draftId !== null} />
+      <ThreadMessages view={view} sending={sending} showSenders={draftId !== null} />
       {error && (
         <p role="alert" className="text-destructive px-4 pt-2 text-sm">
           {error}
         </p>
       )}
-      <ThreadComposer onSend={send} />
+      <ThreadComposer onSend={send} onStop={stop} running={view.running} />
     </>
   );
 }

@@ -20,8 +20,10 @@ import {
 import {
   ask,
   connectDraftThread,
+  lastAnswer,
   pagesOf,
   requestDraftThread,
+  said,
   signIn,
   storedThreadOf,
   type Website,
@@ -51,10 +53,10 @@ describe("a draft's thread", () => {
     const own = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
     const theirs = await connectDraftThread(project.id, draftId, await signIn(db, teammate.id));
     own.send({ type: "send", operationId: crypto.randomUUID(), text: "Rewrite the intro" });
-    await theirs.until(() => theirs.view().messages.length === 2 && !theirs.view().working);
+    await theirs.untilIdle(2);
     theirs.send({ type: "send", operationId: crypto.randomUUID(), text: "And the outro" });
     for (const thread of [own, theirs]) {
-      await thread.until(() => thread.view().messages.length === 4 && !thread.view().working);
+      await thread.untilIdle(4);
     }
 
     const shown = own
@@ -62,7 +64,9 @@ describe("a draft's thread", () => {
       .messages.map((message) =>
         message.from === "editor"
           ? { sender: message.sender.name, text: message.text }
-          : { agent: message.text },
+          : message.from === "agent"
+            ? { agent: message.text }
+            : { from: message.from },
       );
     expect(shown).toEqual([
       { sender: memberUser.name, text: "Rewrite the intro" },
@@ -89,8 +93,11 @@ describe("a draft's thread", () => {
     expect(await storedThreadOf(db, draftId)).toEqual({ tables: [], keys: [] });
     theirs.send({ type: "send", operationId: crypto.randomUUID(), text: "Rewrite the intro" });
 
-    await own.until(() => own.view().messages.length === 2 && !own.view().working);
-    expect(own.view().messages.map(({ text }) => text)).toEqual(["Rewrite the intro", "On it."]);
+    await own.untilIdle(2);
+    expect(said(own.view())).toEqual([
+      { from: "editor", text: "Rewrite the intro" },
+      { from: "agent", text: "On it." },
+    ]);
     expect((await storedThreadOf(db, draftId)).tables).not.toEqual([]);
     own.close();
     theirs.close();
@@ -104,14 +111,17 @@ describe("a draft's thread", () => {
     answerNext("Done.");
     const inFirst = await connectDraftThread(project.id, first, token);
     inFirst.send({ type: "send", operationId: crypto.randomUUID(), text: "Fix the typo" });
-    await inFirst.until(() => inFirst.view().messages.length === 2 && !inFirst.view().working);
+    await inFirst.untilIdle(2);
     inFirst.close();
 
     const inSecond = await connectDraftThread(project.id, second, token);
     const backInFirst = await connectDraftThread(project.id, first, token);
 
     expect(inSecond.view().messages).toEqual([]);
-    expect(backInFirst.view().messages.map(({ text }) => text)).toEqual(["Fix the typo", "Done."]);
+    expect(said(backInFirst.view())).toEqual([
+      { from: "editor", text: "Fix the typo" },
+      { from: "agent", text: "Done." },
+    ]);
     inSecond.close();
     backInFirst.close();
   });
@@ -171,7 +181,7 @@ describe("the agent changing content from a draft's thread", () => {
 
     const view = await ask(thread, "Announce our launch, and raise the price to $12");
 
-    expect(view.messages.at(-1)?.text).toBe("Created /launch and raised the price.");
+    expect(lastAnswer(view)).toBe("Created /launch and raised the price.");
     expect(await pagesOf(website, draftId)).toEqual({
       "/pricing": ["<!-- Text -->\nPlans start at $12."],
       "/launch": ["<!-- Text -->\nWe launched."],
@@ -217,7 +227,7 @@ describe("the agent changing content from a draft's thread", () => {
 
     const view = await ask(thread, "Raise the price to $12 and ship it");
 
-    expect(view.messages.at(-1)?.text).toBe("publishDraft failed, discardDraft failed");
+    expect(lastAnswer(view)).toBe("publishDraft failed, discardDraft failed");
     expect(await pagesOf(website, draftId)).toEqual({
       "/pricing": ["<!-- Text -->\nPlans start at $12."],
     });
@@ -244,7 +254,7 @@ describe("the agent changing content from a draft's thread", () => {
 
     const view = await ask(thread, "Add a launch page");
 
-    expect(view.messages.at(-1)?.text).toBe(teammate.name);
+    expect(lastAnswer(view)).toBe(teammate.name);
   });
 
   it("can't act for an editor removed from the project mid-thread", async () => {
@@ -257,7 +267,7 @@ describe("the agent changing content from a draft's thread", () => {
 
     const view = await ask(thread, "Add a launch page");
 
-    expect(view.messages.at(-1)?.text).toBe("FORBIDDEN");
+    expect(lastAnswer(view)).toBe("FORBIDDEN");
     expect(Object.keys(await pagesOf(website, draftId))).toEqual(["/pricing"]);
   });
 });
@@ -274,7 +284,7 @@ describe("a development draft's thread", () => {
       await signIn(db, memberUser.id),
     );
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Check my blocks" });
-    await thread.until(() => thread.view().messages.length === 2 && !thread.view().working);
+    await thread.untilIdle(2);
 
     expect(thread.view().messages.at(-1)).toMatchObject({
       from: "agent",

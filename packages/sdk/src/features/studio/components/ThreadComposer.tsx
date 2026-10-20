@@ -4,15 +4,23 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@camox/ui/input-group";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import { useState } from "react";
 
-/** Where an editor writes to the agent: Enter sends, Shift+Enter adds a line. */
+/**
+ * Where an editor writes to the agent: Enter sends, Shift+Enter adds a line. While a run is
+ * going, sending steers it, and a Stop button sits beside Send.
+ */
 export function ThreadComposer({
   onSend,
+  onStop,
+  running = false,
   disabled = false,
 }: {
   onSend?: (text: string) => void;
+  onStop?: () => void;
+  /** Whether a run is going, which Stop ends. */
+  running?: boolean;
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
@@ -47,14 +55,20 @@ export function ThreadComposer({
           }}
           className="max-h-48 min-h-14"
         />
-        <InputGroupAddon align="block-end">
-          <InputGroupButton
-            type="submit"
-            variant="default"
-            size="icon-sm"
-            className="ml-auto"
-            disabled={!canSend}
-          >
+        <InputGroupAddon align="block-end" className="justify-end">
+          {running && onStop && (
+            <InputGroupButton
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              disabled={disabled}
+              onClick={onStop}
+            >
+              <Square className="fill-current" />
+              <span className="sr-only">Stop</span>
+            </InputGroupButton>
+          )}
+          <InputGroupButton type="submit" variant="default" size="icon-sm" disabled={!canSend}>
             <ArrowUp />
             <span className="sr-only">Send</span>
           </InputGroupButton>
