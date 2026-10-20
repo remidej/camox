@@ -13,7 +13,7 @@ Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 const { createRoot } = await import("react-dom/client");
-const { useLiveThread } = await import("./use-live-thread");
+const { useThread } = await import("./use-thread");
 
 /** A thread's end of the socket, standing in for the API. */
 class ThreadSocket extends EventTarget {
@@ -57,13 +57,14 @@ async function waitFor(check: () => boolean, message: string) {
   assert.ok(check(), message);
 }
 
-async function studio(t: TestContext) {
+/** A studio in project 1, on Live or in `draftId`. */
+async function studio(t: TestContext, draftId: string | null = null) {
   const NativeWebSocket = globalThis.WebSocket;
   globalThis.WebSocket = ThreadSocket as never;
   ThreadSocket.opened = [];
-  let thread!: ReturnType<typeof useLiveThread>;
+  let thread!: ReturnType<typeof useThread>;
   function Studio() {
-    thread = useLiveThread("http://api.localhost:8787", 1);
+    thread = useThread("http://api.localhost:8787", 1, draftId);
     return null;
   }
   const root = createRoot(document.createElement("div"));
@@ -75,6 +76,19 @@ async function studio(t: TestContext) {
   await waitFor(() => ThreadSocket.opened.at(-1)?.readyState === 1, "the socket opens");
   return { thread: () => thread, socket: () => ThreadSocket.opened.at(-1)! };
 }
+
+void test("in a draft, the studio follows the draft's thread", async (t) => {
+  const draftId = "019a0000-0000-7000-8000-000000000000";
+  const { socket } = await studio(t, draftId);
+
+  assert.equal(new URL(socket().url).pathname, `/threads/draft/1/${draftId}`);
+});
+
+void test("in dev mode, the studio follows the development draft's thread", async (t) => {
+  const { socket } = await studio(t, "development");
+
+  assert.equal(new URL(socket().url).pathname, "/threads/draft/1/development");
+});
 
 void test("a message the thread turns down stops the wait and says so; only the others are resent", async (t) => {
   const { thread, socket } = await studio(t);

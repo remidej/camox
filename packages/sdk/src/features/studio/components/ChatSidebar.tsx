@@ -4,14 +4,15 @@ import * as React from "react";
 import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId } from "../../../lib/draft-scope";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
-import { useLiveThread } from "../../../lib/use-live-thread";
+import { useThread } from "../../../lib/use-thread";
 import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
 import { ThreadComposer } from "./ThreadComposer";
 import { ThreadMessages } from "./ThreadMessages";
 
 /**
  * Where an editor works with Camox's agent in a thread, beside every studio page except the
- * preview. On Live it shows the editor's own Live thread.
+ * preview. It follows where the studio is: the editor's own Live thread on Live, and the draft's
+ * thread in a draft.
  */
 export function ChatSidebar() {
   return (
@@ -30,15 +31,8 @@ export function ChatSidebar() {
 function CurrentThread() {
   const { apiUrl, projectSlug } = React.useContext(AuthContext)!;
   const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-  const onLive = useCurrentDraftId() === null;
+  const draftId = useCurrentDraftId();
 
-  if (!onLive) {
-    return (
-      <p className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm">
-        Threads in drafts are coming soon.
-      </p>
-    );
-  }
   if (!project) {
     return (
       <>
@@ -47,15 +41,30 @@ function CurrentThread() {
       </>
     );
   }
-  // One socket per project: switching projects starts over.
-  return <LiveThread key={project.id} apiUrl={apiUrl} projectId={project.id} />;
+  // One socket per project and draft: switching either starts over.
+  return (
+    <Thread
+      key={`${project.id}:${draftId ?? "live"}`}
+      apiUrl={apiUrl}
+      projectId={project.id}
+      draftId={draftId}
+    />
+  );
 }
 
-function LiveThread({ apiUrl, projectId }: { apiUrl: string; projectId: number }) {
-  const { view, sending, send, stop, error } = useLiveThread(apiUrl, projectId);
+function Thread({
+  apiUrl,
+  projectId,
+  draftId,
+}: {
+  apiUrl: string;
+  projectId: number;
+  draftId: string | null;
+}) {
+  const { view, sending, send, stop, error } = useThread(apiUrl, projectId, draftId);
   return (
     <>
-      <ThreadMessages view={view} sending={sending} />
+      <ThreadMessages view={view} sending={sending} showSenders={draftId !== null} />
       {error && (
         <p role="alert" className="text-destructive px-4 pt-2 text-sm">
           {error}

@@ -1,3 +1,4 @@
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import {
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
@@ -6,11 +7,24 @@ import {
   type ThreadView,
   threadViewOf,
 } from "@camox/api-contract/threads";
+import { call } from "@orpc/server";
+import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 
 import type { createDb } from "../src/db";
+import { upsertBlockDefinition } from "../src/domains/block-definitions/service";
+import { blockProcedures } from "../src/domains/blocks/routes";
+import { pageProcedures } from "../src/domains/pages/routes";
 import app from "../src/index";
-import { session } from "../src/schema";
+import { runService } from "../src/lib/run-service";
+import { drafts, session } from "../src/schema";
+import {
+  callSeedingLive,
+  createProjectFixture,
+  createRpcContext,
+  createServiceContext,
+} from "./fixtures";
 
 /** Signs `userId` in, returning the bearer token the studio would send. */
 export async function signIn(db: ReturnType<typeof createDb>, userId: string) {
@@ -27,10 +41,9 @@ export async function signIn(db: ReturnType<typeof createDb>, userId: string) {
   return token;
 }
 
-/** Opens the socket to the signed-in editor's Live thread in a project, as the studio does. */
-export const requestLiveThread = (projectId: number, token: string | null) =>
+const requestThread = (path: string, token: string | null) =>
   app.request(
-    `/threads/live/${projectId}`,
+    path,
     {
       headers: {
         Upgrade: "websocket",
@@ -39,6 +52,39 @@ export const requestLiveThread = (projectId: number, token: string | null) =>
     },
     env,
   );
+
+/** Opens the socket to the signed-in editor's Live thread in a project, as the studio does. */
+export const requestLiveThread = (projectId: number, token: string | null) =>
+  requestThread(`/threads/live/${projectId}`, token);
+
+/**
+ * Opens the socket to a draft's thread, as the studio does in that draft: `draft` is the draft's
+ * id, or `development` for the signed-in editor's development draft.
+ */
+export const requestDraftThread = (projectId: number, draft: string, token: string | null) =>
+  requestThread(`/threads/draft/${projectId}/${draft}`, token);
+
+/**
+ * What a draft's thread keeps in its Durable Object: the tables and keys in its storage, empty
+ * until the thread exists. A draft whose thread nobody reached yet has none.
+ */
+export async function storedThreadOf(db: ReturnType<typeof createDb>, draftId: string) {
+  const draft = await db
+    .select({ threadId: drafts.threadId })
+    .from(drafts)
+    .where(eq(drafts.id, draftId))
+    .get();
+  if (!draft?.threadId) return { tables: [], keys: [] };
+  return runInDurableObject(env.THREAD.getByName(draft.threadId), async (_thread, state) => ({
+    tables: state.storage.sql
+      .exec<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
+      )
+      .toArray()
+      .map(({ name }) => name),
+    keys: [...(await state.storage.list()).keys()],
+  }));
+}
 
 /** Who each message in `view` is from, and its text for an editor's or the agent's. */
 export const said = (view: ThreadView) =>
@@ -64,8 +110,13 @@ export type ThreadClient = {
   close: () => void;
 };
 
-export async function connectLiveThread(projectId: number, token: string): Promise<ThreadClient> {
-  const response = await requestLiveThread(projectId, token);
+export const connectLiveThread = async (projectId: number, token: string) =>
+  connectThread(await requestLiveThread(projectId, token));
+
+export const connectDraftThread = async (projectId: number, draft: string, token: string) =>
+  connectThread(await requestDraftThread(projectId, draft, token));
+
+async function connectThread(response: Response): Promise<ThreadClient> {
   const socket = response.webSocket;
   if (!socket) throw new Error(`The thread refused the connection (${response.status})`);
   socket.accept();
@@ -109,4 +160,70 @@ export async function connectLiveThread(projectId: number, token: string): Promi
       ),
     close: () => socket.close(),
   };
+}
+
+/**
+ * Sends `text` in `thread` and closes it once the agent's turn ended, returning what the thread
+ * showed then.
+ */
+export async function ask(thread: ThreadClient, text: string): Promise<ThreadView> {
+  const before = thread.view().messages.length;
+  thread.send({ type: "send", operationId: crypto.randomUUID(), text });
+  await thread.until(() => !thread.view().running && thread.view().messages.length >= before + 2);
+  thread.close();
+  return thread.view();
+}
+
+/** A project whose Live website has a page per `pages` entry, each with a text block. */
+export async function websiteFixture(pages: Record<string, string>) {
+  const base = await createProjectFixture(crypto.randomUUID());
+  await runService(
+    upsertBlockDefinition(createServiceContext(base.db, null), {
+      projectSlug: base.project.slug,
+      deployToken: base.project.deployToken,
+      blockId: "text",
+      title: "Text",
+      description: "A paragraph",
+      contentSchema: {
+        type: "object",
+        toMarkdown: ["{{body}}"],
+        properties: { body: { type: "string", fieldType: "String" } },
+      },
+    }),
+  );
+  const options = { context: createRpcContext(base.db, base.memberUser) };
+  for (const [pathSegment, body] of Object.entries(pages)) {
+    const { page } = await callSeedingLive(
+      pageProcedures.create,
+      { projectId: base.project.id, pathSegment, layoutId: base.layout.layoutId },
+      options,
+    );
+    await callSeedingLive(
+      blockProcedures.create,
+      { pageId: page.id, type: "text", content: { body } } as never,
+      options,
+    );
+  }
+  return base;
+}
+
+export type Website = Awaited<ReturnType<typeof websiteFixture>>;
+
+/**
+ * A website's pages by path, each with its blocks' Markdown, as the studio reads them in
+ * `draftId`, or on Live without one.
+ */
+export async function pagesOf({ db, memberUser, project }: Website, draftId?: string) {
+  const context = createRpcContext(db, memberUser, draftId ? { [DRAFT_HEADER]: draftId } : {});
+  const pages = await call(pageProcedures.list, { projectId: project.id }, { context });
+  const shown: Record<string, string[]> = {};
+  for (const page of pages) {
+    const { blocks } = await call(
+      blockProcedures.getPageMarkdown,
+      { pageId: page.id },
+      { context },
+    );
+    shown[page.fullPath] = blocks.map((block) => block.markdown);
+  }
+  return shown;
 }

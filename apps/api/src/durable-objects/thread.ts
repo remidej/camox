@@ -12,20 +12,31 @@ import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
   type AgentEventStream,
   createRegistry,
+  type EntryRecord,
   Harness,
+  LiveDoc,
   ROOT_CONVERSATION_ID,
+  type SnapshotEvent,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
-import { PiHarness } from "agents/harness/pi";
-import { type Connection, type ConnectionContext, Lifecycle } from "agents/lifecycle";
+import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
+import {
+  type CapabilityStartContext,
+  type Connection,
+  type ConnectionContext,
+  Lifecycle,
+} from "agents/lifecycle";
 import { type WebSocketMessage, WebSockets } from "agents/websockets";
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
 
 import {
   studioAgentTools,
+  type ThreadActor,
   type ThreadIdentity,
   threadIdentitySchema,
   threadToolDispatch,
+  type ToolInvocation,
 } from "../domains/threads/tools";
 import { threadModel } from "../lib/thread-model";
 import type { Bindings } from "../types";
@@ -40,6 +51,22 @@ const IDENTITY_KEY = "camox.identity";
 
 /** `WebSocket.OPEN`, which isn't defined on every runtime's global. */
 const OPEN = 1;
+
+/** What a connection carries: who sent it, and what the API authorized it to reach. */
+const participantSchema = z.object({ sender: threadSenderSchema, identity: threadIdentitySchema });
+type Participant = z.infer<typeof participantSchema>;
+
+/** What a thread nobody messaged yet shows: no messages, without opening Pi, which would store. */
+const NOT_STARTED: SnapshotEvent = {
+  type: "snapshot",
+  entries: [],
+  tools: [],
+  nestedTools: [],
+  compactions: [],
+  inbox: [],
+  agent: {},
+  usage: { models: {}, tools: {} },
+};
 
 /**
  * A context that's never cancelled, which pi-durable takes on every call: chord's
@@ -57,10 +84,19 @@ editors of a website in the Camox studio, where they message you in a thread.
 Answer in the language the editor writes in. Keep answers short and to the point, formatted in \
 Markdown when it helps.
 
-You read the website's content by running scripts with the codemode tool, which call the content \
-tools. Read before you answer: ground every answer in the website's actual content.
+You read and change the website's content by running scripts with the codemode tool, which call \
+the content tools. Read before you answer or change anything: ground your work in the website's \
+actual content. Make many changes in one script when you can.
 
 End every turn with a short summary: what you changed, and what's left for the editor to check.`;
+
+/** Where the agent works: the thread's draft, or Live, which is read-only. */
+const workplace = (identity: ThreadIdentity | undefined) =>
+  identity?.draftId
+    ? `You work in a draft: every change you make lands in it, never on Live, and editors see \
+it as you make it. You can't publish or discard the draft: an editor reviews it and decides.`
+    : `The editor is viewing Live, which is read-only: you can read the website, but not change \
+it from here.`;
 
 const parseJson = (raw: string | null): unknown => {
   if (raw === null) return undefined;
@@ -77,6 +113,11 @@ const parseClientMessage = (raw: string): ThreadClientMessage | undefined => {
   return parsed.success ? parsed.data : undefined;
 };
 
+/** Whether a connection the API authorized for `named` reaches the thread `known` describes. */
+const belongsTo = (known: ThreadIdentity, named: ThreadIdentity) =>
+  known.projectId === named.projectId &&
+  (known.draftId !== null ? named.draftId === known.draftId : named.ownerId === known.ownerId);
+
 const send = (socket: WebSocket, message: ThreadServerMessage) => {
   if (socket.readyState !== OPEN) return;
   try {
@@ -87,6 +128,23 @@ const send = (socket: WebSocket, message: ThreadServerMessage) => {
 };
 
 /**
+ * Cloudflare's `PiHarness`, leaving Pi closed when the object starts until `started` holds: Pi
+ * creates its tables as it opens, and a thread nobody messaged has no run to resume.
+ */
+class UntilStartedPiHarness extends PiHarness {
+  readonly #started: () => Promise<boolean>;
+
+  constructor(started: () => Promise<boolean>, options: PiHarnessOptions) {
+    super(options);
+    this.#started = started;
+  }
+
+  override async onStart(context: CapabilityStartContext) {
+    if (await this.#started()) await super.onStart(context);
+  }
+}
+
+/**
  * One thread with Camox's agent, addressed by the thread's own id. Pi Durable runs the agent
  * through Cloudflare's `PiHarness`, so a run is saved at every step and carries on with no client
  * connected (ADR 0018).
@@ -94,13 +152,16 @@ const send = (socket: WebSocket, message: ThreadServerMessage) => {
  * The API authorizes every connection before forwarding it here, naming the sender in
  * `THREAD_SENDER_HEADER`. Each socket gets a snapshot of Pi's agent events, then a batch per
  * commit; it sends editors' messages and can ask to resync.
+ *
+ * The thread starts with its first message: until then, connecting stores nothing, so opening a
+ * draft leaves no thread behind.
  */
 export class Thread extends DurableObject<Bindings> {
   readonly #model = threadModel(this.env);
   readonly #registry = createRegistry();
   readonly #watches = new Map<WebSocket, AgentEventStream>();
 
-  readonly harness = new PiHarness({
+  readonly harness = new UntilStartedPiHarness(async () => !!(await this.#knownIdentity()), {
     harness: async ({ storage, context }) => {
       // PiHarness opens Pi again after a failed open or `dispose()`. Installing an extension
       // replaces the one of the same name, so a second run leaves the registry as the first did.
@@ -118,11 +179,18 @@ export class Thread extends DurableObject<Bindings> {
       const dispatch = threadToolDispatch(
         this.env,
         (promise) => this.ctx.waitUntil(promise),
-        () => this.#identity(),
+        (invocation) => this.#actor(invocation),
       );
       this.#registry.install({
         name: "camox",
-        sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
+        sections: [
+          { key: "preamble", render: () => PREAMBLE, tag: false },
+          {
+            key: "workplace",
+            render: async () => workplace(await this.#knownIdentity()),
+            tag: false,
+          },
+        ],
         tools: await studioAgentTools(dispatch),
       });
       return Harness.open(
@@ -157,46 +225,102 @@ export class Thread extends DurableObject<Bindings> {
 
   /** Gives sockets that outlived the last isolate a new watch and a fresh snapshot. */
   async onStart() {
+    if (!(await this.#knownIdentity())) return;
     for (const socket of this.ctx.getWebSockets()) await this.#watch(socket);
   }
 
   async #onConnect(connection: Connection, ctx: ConnectionContext) {
-    const sender = threadSenderSchema.safeParse(
-      parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
-    );
-    const identity = threadIdentitySchema.safeParse(
-      parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
-    );
-    if (!sender.success || !identity.success) {
+    const participant = participantSchema.safeParse({
+      sender: parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
+      identity: parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
+    });
+    if (!participant.success) {
       connection.close(1008, "Unauthorized");
       return;
     }
-    // A thread's project and owner never change, so the first connection records them. A Live
-    // thread only ever reaches its owner, so a connection naming someone else is refused.
-    // (#409 makes a run act as the editor whose message started it.)
-    const known = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
-    if (!known.success) {
-      await this.ctx.storage.put(IDENTITY_KEY, identity.data);
-    } else if (
-      known.data.projectId !== identity.data.projectId ||
-      known.data.ownerId !== identity.data.ownerId
-    ) {
-      console.error("A thread refused a connection naming another project or owner", {
-        known: known.data,
-        named: identity.data,
-      });
+    const known = await this.#knownIdentity();
+    if (known && !this.#admits(known, participant.data)) {
       connection.close(1008, "Unauthorized");
       return;
     }
-    connection.setState(sender.data);
-    await this.#watch(connection);
+    connection.setState(participant.data);
+    await this.#show(connection, known);
   }
 
-  /** Who the thread's tool calls act as, in which project. */
-  async #identity(): Promise<ThreadIdentity> {
-    const identity = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
-    if (!identity.success) throw new Error("The thread doesn't know its project and owner yet");
-    return identity.data;
+  /**
+   * Whether a started thread reaches a participant: a draft's thread reaches whoever the API let
+   * into that draft; a Live thread only ever reaches its owner.
+   */
+  #admits(known: ThreadIdentity, { identity }: Participant) {
+    if (belongsTo(known, identity)) return true;
+    console.error("A thread refused a connection naming another project, draft or owner", {
+      known,
+      named: identity,
+    });
+    return false;
+  }
+
+  /** What the thread belongs to, once its first message started it. */
+  async #knownIdentity(): Promise<ThreadIdentity | undefined> {
+    const known = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
+    return known.success ? known.data : undefined;
+  }
+
+  /**
+   * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
+   * draft, or on Live for a Live thread.
+   */
+  async #actor(invocation: ToolInvocation): Promise<ThreadActor> {
+    const identity = await this.#knownIdentity();
+    if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
+    const entry = await this.#entryStartingRun(invocation);
+    if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
+      throw new Error("The thread's run wasn't started by an editor's message");
+    }
+    return { projectId: identity.projectId, draftId: identity.draftId, userId: entry.data.id };
+  }
+
+  /**
+   * The entry that started the run a tool call is part of: the entry Pi recorded for the run's
+   * first input.
+   */
+  async #entryStartingRun({ api, context }: ToolInvocation): Promise<EntryRecord | undefined> {
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const started = live?.run?.inputs[0];
+    if (!started) return undefined;
+    const pi = await this.harness.pi();
+    const submission = await pi.submission(started, context);
+    const entryId = submission && (await submission.status(context)).entry;
+    if (!entryId) return undefined;
+    const conversation = await pi.conversation(api.conversationId, context);
+    const found = await conversation?.entries(
+      { minEntryId: entryId, maxEntryId: entryId },
+      1,
+      undefined,
+      context,
+    );
+    return found?.items[0];
+  }
+
+  /**
+   * Shows the thread on a socket: Pi's events once the thread started, or an empty thread before,
+   * without opening Pi, which would store.
+   */
+  async #show(socket: WebSocket, known: ThreadIdentity | undefined) {
+    if (known) await this.#watch(socket);
+    else send(socket, { type: "events", events: [NOT_STARTED] });
+  }
+
+  /**
+   * Starts the thread with a participant's first message, unless it started: records what it
+   * belongs to, and shows Pi's events on every socket. False when it belongs to another project, draft or owner.
+   */
+  async #start(participant: Participant): Promise<boolean> {
+    const known = await this.#knownIdentity();
+    if (known) return this.#admits(known, participant);
+    await this.ctx.storage.put(IDENTITY_KEY, participant.identity);
+    for (const socket of this.ctx.getWebSockets()) await this.#watch(socket);
+    return true;
   }
 
   async #watch(socket: WebSocket) {
@@ -228,23 +352,27 @@ export class Thread extends DurableObject<Bindings> {
     }
 
     if (message.type === "resync") {
-      await this.#watch(connection);
+      await this.#show(connection, await this.#knownIdentity());
       return;
     }
-    const sender = connection.state;
-    if (!isSender(sender)) {
+    const participant = participantSchema.safeParse(connection.state);
+    if (!participant.success) {
       connection.close(1008, "Unauthorized");
       return;
     }
     switch (message.type) {
       case "send": {
+        if (!(await this.#start(participant.data))) {
+          connection.close(1008, "Unauthorized");
+          return;
+        }
         try {
           // A message sent while the agent works joins its run after the current round of tool
           // calls, instead of waiting for a run of its own.
           await this.harness.submit(message.text, {
             whenBusy: "steer",
             operationId: message.operationId,
-            entry: { kind: EDITOR_MESSAGE_ENTRY, data: sender },
+            entry: { kind: EDITOR_MESSAGE_ENTRY, data: participant.data.sender },
           });
           send(connection, { type: "accepted", operationId: message.operationId });
         } catch (error) {
@@ -258,7 +386,9 @@ export class Thread extends DurableObject<Bindings> {
         return;
       }
       case "stop":
-        await this.#stop(sender);
+        // A thread nobody messaged has no run to stop, and opening Pi to check would store.
+        if (!(await this.#knownIdentity())) return;
+        await this.#stop(participant.data.sender);
         return;
     }
   }

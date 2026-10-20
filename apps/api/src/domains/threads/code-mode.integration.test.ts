@@ -1,14 +1,7 @@
-import type { ThreadView } from "@camox/api-contract/threads";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  callSeedingLive,
-  createProjectFixture,
-  createRpcContext,
-  createServiceContext,
-} from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -16,17 +9,15 @@ import {
   forgetThreadModel,
 } from "../../../test/thread-model";
 import {
+  ask,
   connectLiveThread,
   lastAnswer,
   said,
   signIn,
-  type ThreadClient,
+  type Website,
+  websiteFixture,
 } from "../../../test/threads";
-import { runService } from "../../lib/run-service";
 import { member } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
-import { blockProcedures } from "../blocks/routes";
-import { pageProcedures } from "../pages/routes";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -39,52 +30,9 @@ afterEach(async () => {
   forgetThreadModel();
 });
 
-/** A project whose Live website has a page per `pages` entry, each with a text block. */
-async function websiteFixture(pages: Record<string, string>) {
-  const base = await createProjectFixture(crypto.randomUUID());
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "text",
-      title: "Text",
-      description: "A paragraph",
-      contentSchema: {
-        type: "object",
-        toMarkdown: ["{{body}}"],
-        properties: { body: { type: "string", fieldType: "String" } },
-      },
-    }),
-  );
-  const options = { context: createRpcContext(base.db, base.memberUser) };
-  for (const [pathSegment, body] of Object.entries(pages)) {
-    const { page } = await callSeedingLive(
-      pageProcedures.create,
-      { projectId: base.project.id, pathSegment, layoutId: base.layout.layoutId },
-      options,
-    );
-    await callSeedingLive(
-      blockProcedures.create,
-      { pageId: page.id, type: "text", content: { body } } as never,
-      options,
-    );
-  }
-  return base;
-}
-
-type Website = Awaited<ReturnType<typeof websiteFixture>>;
-
 /** Opens the fixture member's Live thread, as their studio does. */
 const openThread = async ({ db, memberUser, project }: Website) =>
   connectLiveThread(project.id, await signIn(db, memberUser.id));
-
-/** Sends `text` in `thread`, returning what the thread shows once the agent's turn ended. */
-async function ask(thread: ThreadClient, text: string): Promise<ThreadView> {
-  thread.send({ type: "send", operationId: crypto.randomUUID(), text });
-  await thread.until(() => !thread.view().running && thread.view().messages.length >= 2);
-  thread.close();
-  return thread.view();
-}
 
 /** A script printing the paths of the pages whose blocks mention `needle`, in order. */
 const pagesMentioning = (needle: string) => `

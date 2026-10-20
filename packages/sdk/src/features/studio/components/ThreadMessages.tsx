@@ -1,7 +1,7 @@
 import type { ThreadMessage, ThreadSender, ThreadView } from "@camox/api-contract/threads";
 import { Avatar, AvatarFallback, AvatarImage } from "@camox/ui/avatar";
 import { Bubble, BubbleContent } from "@camox/ui/bubble";
-import { Message, MessageAvatar, MessageContent } from "@camox/ui/message";
+import { Message, MessageAvatar, MessageContent, MessageHeader } from "@camox/ui/message";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -15,9 +15,18 @@ import { ThreadMarkdown } from "./ThreadMarkdown";
 
 /**
  * A thread's messages, and "Working…" while a run is going or a message is still `sending`: on
- * its way to the thread, which hasn't accepted it yet.
+ * its way to the thread, which hasn't accepted it yet. A draft's thread is shared, so it shows
+ * senders' names too (`showSenders`).
  */
-export function ThreadMessages({ view, sending = false }: { view: ThreadView; sending?: boolean }) {
+export function ThreadMessages({
+  view,
+  sending = false,
+  showSenders = false,
+}: {
+  view: ThreadView;
+  sending?: boolean;
+  showSenders?: boolean;
+}) {
   const working = view.running || sending;
   if (view.messages.length === 0 && !working) {
     return (
@@ -41,7 +50,7 @@ export function ThreadMessages({ view, sending = false }: { view: ThreadView; se
                 messageId={message.id}
                 scrollAnchor={message.from === "editor"}
               >
-                <ThreadMessageRow message={message} />
+                <ThreadMessageRow message={message} showSender={showSenders} />
               </MessageScrollerItem>
             ))}
             {working && (
@@ -57,7 +66,13 @@ export function ThreadMessages({ view, sending = false }: { view: ThreadView; se
   );
 }
 
-function ThreadMessageRow({ message }: { message: ThreadMessage }) {
+function ThreadMessageRow({
+  message,
+  showSender,
+}: {
+  message: ThreadMessage;
+  showSender: boolean;
+}) {
   if (message.from === "stopped" || message.from === "failed") {
     return (
       <Message>
@@ -92,6 +107,11 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
         <SenderAvatar sender={message.sender} />
       </MessageAvatar>
       <MessageContent>
+        {showSender && (
+          <MessageHeader className="text-muted-foreground text-xs">
+            {message.sender.name}
+          </MessageHeader>
+        )}
         <Bubble align="end" variant="muted">
           <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
         </Bubble>

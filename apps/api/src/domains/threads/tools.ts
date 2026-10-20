@@ -6,7 +6,11 @@ import {
   resolveTools,
   toolProviders,
 } from "@camox/ai-tools";
-import type { ToolExecutionResult, ToolRegistration } from "@earendil-works/pi-durable";
+import type {
+  ToolExecutionApi,
+  ToolExecutionResult,
+  ToolRegistration,
+} from "@earendil-works/pi-durable";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -21,36 +25,59 @@ import { dispatchTool, type ToolExecutionResponse } from "../agent/service";
 /** Threads offer the tools of Camox's own agent in the studio. */
 const SURFACE: ToolSurface = "studio-agent";
 
-/** Who a thread's tool calls act as, in which project. */
-export const threadIdentitySchema = z.object({ projectId: z.number(), ownerId: z.string() });
+/**
+ * What a thread belongs to: its project, its draft once it has one, and for a Live thread, the
+ * editor who owns it.
+ */
+export const threadIdentitySchema = z.object({
+  projectId: z.number(),
+  draftId: z.string().nullable().default(null),
+  ownerId: z.string().nullable().default(null),
+});
 export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
 
+/**
+ * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
+ * draft, or on Live.
+ */
+export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & { userId: string };
+
+/** One call of a Pi tool, as Pi hands it to the tool. */
+export type ToolInvocation = {
+  api: ToolExecutionApi;
+  context: Parameters<ToolRegistration["execute"]>[2];
+};
+
 /** Runs one of the studio agent's tools by name, as a thread's tool calls do. */
-export type ToolDispatch = (name: string, args: unknown) => Promise<ToolExecutionResponse>;
+export type ToolDispatch = (
+  name: string,
+  args: unknown,
+  invocation: ToolInvocation,
+) => Promise<ToolExecutionResponse>;
 
 /**
- * Runs the studio agent's tools as the thread's owner, in its project, building their context as
- * the agent procedures do: the owner's membership is checked on every call, so someone removed
- * from the project can't act through a thread. Analytics attribute the calls to the agent.
+ * Runs the studio agent's tools as `actor` says, building their context as the agent procedures
+ * do: the acting editor's membership is checked on every call, so someone removed from the
+ * project can't act through a run, and a write lands in the thread's draft, never on Live.
+ * Analytics attribute the calls to the agent.
  */
 export function threadToolDispatch(
   env: Bindings,
   waitUntil: (promise: Promise<unknown>) => void,
-  identity: () => Promise<ThreadIdentity>,
+  actor: (invocation: ToolInvocation) => Promise<ThreadActor>,
 ): ToolDispatch {
-  return async (name, args) => {
-    const { projectId, ownerId } = await identity();
+  return async (name, args, invocation) => {
+    const { projectId, draftId, userId } = await actor(invocation);
     const db = createDb(env.DB);
-    const owner = await db.select().from(user).where(eq(user.id, ownerId)).get();
+    const acting = await db.select().from(user).where(eq(user.id, userId)).get();
     const ctx: ServiceContext = {
       db,
-      user: owner ?? null,
+      user: acting ?? null,
       env,
       waitUntil,
       client: "camox-agent",
       telemetryDisabled: false,
-      // A Live thread reads Live.
-      draft: null,
+      draft: draftId ? { id: draftId, create: false } : null,
     };
     return Effect.runPromise(
       dispatchTool(ctx, { projectId, surface: SURFACE, name, args }).pipe(
@@ -83,8 +110,8 @@ export function toPiTool(tool: ToolDefinition, dispatch: ToolDispatch): ToolRegi
     ) as ToolRegistration["parameters"],
     callers: ["tools"],
     replay: tool.meta.kind === "read" ? "safe" : "unsafe",
-    execute: async (args) => {
-      const response = await dispatch(tool.name, args);
+    execute: async (args, api, context) => {
+      const response = await dispatch(tool.name, args, { api, context });
       if (!response.ok) {
         return { output: [{ type: "text", text: JSON.stringify(response.error) }], isError: true };
       }
@@ -100,11 +127,14 @@ const jsonSchemaOf = (schema: z.ZodType, io: "input" | "output") => {
   return json;
 };
 
-/** The tools the studio agent's scripts call. It only reads for now. */
+/**
+ * The tools the studio agent's scripts call: every tool its surface offers, which leaves out
+ * publishing and discarding.
+ */
 export async function studioAgentTools(dispatch: ToolDispatch): Promise<ToolRegistration[]> {
   // Only the declarations are read here: providers close over their context in handlers alone,
   // and these handlers never run, as `dispatch` resolves the tools again with the real context.
   const declarationsOnly = {} as ToolContext;
   const tools = await resolveTools(toolProviders, declarationsOnly, SURFACE);
-  return tools.filter((tool) => tool.meta.kind === "read").map((tool) => toPiTool(tool, dispatch));
+  return tools.map((tool) => toPiTool(tool, dispatch));
 }

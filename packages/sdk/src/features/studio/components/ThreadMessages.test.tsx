@@ -39,6 +39,25 @@ void test("a thread shows editors' messages, the agent's Markdown answers and it
   assert.match(html, /Working…/);
 });
 
+void test("a draft's thread names who sent each message; a Live thread doesn't", () => {
+  const teammate = { id: "user-2", name: "Grace Hopper", image: null };
+  const view: ThreadView = {
+    running: false,
+    messages: [
+      { id: "1", from: "editor", sender: editor, text: "Rewrite the intro" },
+      { id: "2", from: "agent", text: "Done." },
+      { id: "3", from: "editor", sender: teammate, text: "And the outro" },
+    ],
+  };
+
+  const inDraft = renderToString(<ThreadMessages view={view} showSenders />);
+  const onLive = renderToString(<ThreadMessages view={view} />);
+
+  assert.match(inDraft, />Ada Lovelace</);
+  assert.match(inDraft, />Grace Hopper</);
+  assert.doesNotMatch(onLive, />Ada Lovelace</);
+});
+
 void test("a turn without the agent's message says it was stopped, and by whom, or couldn't finish", () => {
   const view: ThreadView = {
     running: false,
