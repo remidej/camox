@@ -289,5 +289,9 @@ A human who changes content through the studio.
 _Avoid_: Author, admin, content manager
 
 **Agent**:
-A coding agent that manages content alongside editors: through the CLI, in its developer's development draft, or through AI tools in other drafts.
+An AI that manages content alongside editors: Camox's own, through threads in the studio, or a developer's coding agent, through the CLI.
 _Avoid_: Bot, assistant, AI
+
+**Thread**:
+A conversation between editors and Camox's agent in the studio. Each editor has one thread of their own while viewing Live, and each draft has at most one thread. When a thread on Live starts making changes, it becomes the thread of the draft that starts, shared with everyone in that draft.
+_Avoid_: Conversation, chat, session
