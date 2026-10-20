@@ -4,7 +4,7 @@ import { Hono } from "hono";
 
 import { isProjectMember } from "../../authorization";
 import { THREAD_SENDER_HEADER } from "../../durable-objects/thread";
-import { getProjectRoomSessionHeaders } from "../../lib/project-room-auth";
+import { getRelayedSessionHeaders } from "../../lib/relayed-session";
 import type { AppEnv } from "../../types";
 import { createAuth } from "../auth/routes";
 import { currentLiveThread } from "./service";
@@ -23,14 +23,14 @@ threadHonoRoutes.get("/live/:projectId", async (c) => {
   // WebSocket upgrades can't carry custom headers, so the studio relays its session in the query,
   // as for the project room.
   const auth = createAuth(c.var.db, c.env, new URL(c.req.url).origin);
-  const session = await auth.api.getSession({ headers: getProjectRoomSessionHeaders(c.req.raw) });
+  const session = await auth.api.getSession({ headers: getRelayedSessionHeaders(c.req.raw) });
   if (!session) return c.text("Unauthorized", 401);
   const { user } = session;
   if (!(await Effect.runPromise(isProjectMember(c.var.db, projectId, user.id)))) {
     return c.text("Forbidden", 403);
   }
 
-  const threadId = await currentLiveThread(c.var.db, projectId, user.id);
+  const threadId = await Effect.runPromise(currentLiveThread(c.var.db, projectId, user.id));
   const sender: ThreadSender = { id: user.id, name: user.name, image: user.image ?? null };
   const headers = new Headers(c.req.raw.headers);
   headers.set(THREAD_SENDER_HEADER, JSON.stringify(sender));

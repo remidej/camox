@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { getProjectRoomSessionHeaders } from "./project-room-auth";
+import { getRelayedSessionHeaders } from "./relayed-session";
 
-describe("getProjectRoomSessionHeaders", () => {
+describe("getRelayedSessionHeaders", () => {
   it("uses the relayed session instead of conflicting browser cookies", () => {
     const request = new Request(
       `http://localhost/parties/project-room/1?_authCookie=${encodeURIComponent(
@@ -16,7 +16,7 @@ describe("getProjectRoomSessionHeaders", () => {
       },
     );
 
-    const headers = getProjectRoomSessionHeaders(request);
+    const headers = getRelayedSessionHeaders(request);
 
     expect(headers.get("Cookie")).toBe("better-auth.session_token=current");
     expect(headers.has("Better-Auth-Cookie")).toBe(false);
@@ -27,7 +27,7 @@ describe("getProjectRoomSessionHeaders", () => {
       headers: { Cookie: "better-auth.session_token=current" },
     });
 
-    expect(getProjectRoomSessionHeaders(request).get("Cookie")).toBe(
+    expect(getRelayedSessionHeaders(request).get("Cookie")).toBe(
       "better-auth.session_token=current",
     );
   });

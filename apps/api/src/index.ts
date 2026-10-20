@@ -11,7 +11,7 @@ import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
 import { faviconHonoRoutes } from "./domains/projects/routes";
 import { threadHonoRoutes } from "./domains/threads/routes";
-import { getProjectRoomSessionHeaders } from "./lib/project-room-auth";
+import { getRelayedSessionHeaders } from "./lib/relayed-session";
 import { router } from "./router";
 import type { AppEnv } from "./types";
 
@@ -99,7 +99,7 @@ app.use(
 
         // WebSocket upgrades can't carry custom headers, so the client
         // relays its selected cross-domain session as a query parameter.
-        const headers = getProjectRoomSessionHeaders(req);
+        const headers = getRelayedSessionHeaders(req);
 
         const session = await auth.api.getSession({ headers });
         if (!session) return new Response("Unauthorized", { status: 401 });
