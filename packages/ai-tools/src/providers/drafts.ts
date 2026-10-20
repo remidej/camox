@@ -49,7 +49,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       PREVIEW_SHAPE +
       " Show this list to the user, then pass the token to publishDraft once they confirm.",
     inputSchema: previewInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli"] },
     handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
   },
   {
@@ -72,7 +72,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "nothing is published and it returns `{ published: false, reason: 'discarded', message, " +
       "ended }`.",
     inputSchema: publishToolInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli"] },
     handler: async (input) => {
       const { token, publishAnyway } = publishToolInput.parse(input);
       const notPublished = (reason: NotPublishedReason, message: string) =>
@@ -106,7 +106,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "stays open, emptied; any other draft ends. Live is untouched. This can't be undone, so " +
       "only discard when the user asks to. Returns `{ ended }`, null for a development draft.",
     inputSchema: discardInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli"] },
     handler: async () => runService(discardDraft(ctx, { projectId: ctx.projectId })),
   },
 ];

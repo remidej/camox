@@ -50,7 +50,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Fetch a single block by id. Returns the block (with `_itemId` markers injected for each repeatable field), the full list of `repeatableItems` (each with its own `id`), and any referenced `files`. " +
       "Use this before editing a single field inside a repeatable item — pass each item's `id` back as `_itemId` on the `editBlock` items array. Any existing item not referenced by `_itemId` in the patch is deleted, so the round-trip is the only safe way to update one item without losing the others (and their file references, settings, and positions).",
     inputSchema: getBlockToolInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const parsed = getBlockToolInput.parse(input);
       return runService(getBlock(ctx, { id: parsed.id }));
@@ -62,7 +62,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Fetch multiple blocks by id in one call. Returns an array of getBlock bundle results in the same order as the requested ids. " +
       "Use this before editing repeatable fields across several blocks so each block's `_itemId` markers can be preserved.",
     inputSchema: getBlocksToolInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const parsed = getBlocksToolInput.parse(input);
       return runService(
@@ -81,7 +81,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       " " +
       "Positioning (pass at most one): `position: 'first' | 'last'`, `afterId: <block id>`, `beforeId: <block id>`, or the lower-level `afterPosition` / `beforePosition` (fractional-index strings). Omit all to append at the end.",
     inputSchema: createBlockToolInput,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const parsed = createBlockToolInput.parse(input);
       return runService(
@@ -119,7 +119,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId. " +
       REFERENCE_VALUES,
     inputSchema: editBlockToolInput,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const parsed = editBlockToolInput.parse(input);
       return runService(editBlock(ctx, parsed));
@@ -130,7 +130,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description:
       "Move a block to a new position on its page. Positioning (pass exactly one): `position: 'first' | 'last'`, `afterId: <block id>`, `beforeId: <block id>`, or the lower-level `afterPosition` / `beforePosition` (fractional-index strings).",
     inputSchema: moveBlockToolInput,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const parsed = moveBlockToolInput.parse(input);
       return runService(
@@ -160,7 +160,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "deleteBlock",
     description: "Delete a block by id.",
     inputSchema: deleteBlockInput,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const parsed = deleteBlockInput.parse(input);
       return runService(deleteBlock(ctx, parsed));

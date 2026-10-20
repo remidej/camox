@@ -4,6 +4,9 @@ import type { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { collectionsProvider } from "../../../../../packages/ai-tools/src/providers/collections";
+import { toolProviders } from "../../../../../packages/ai-tools/src/registry";
+import { resolveTools } from "../../../../../packages/ai-tools/src/resolve";
+import type { ToolSurface } from "../../../../../packages/ai-tools/src/types";
 import { collection as customers } from "../../../../playground/src/collections/customers";
 import {
   createProjectFixture,
@@ -86,6 +89,26 @@ describe("collection record procedures", () => {
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([]);
   });
 
+  it("offers the studio agent every content tool but publishing and discarding a draft", async () => {
+    const f = await fixture();
+    const context = { ...f.context, draft: null, projectId: f.project.id };
+    const names = async (surface: ToolSurface) =>
+      (await resolveTools(toolProviders, context, surface)).map((tool) => tool.name);
+    const cli = await names("cli");
+    const studioAgent = await names("studio-agent");
+    expect(cli).toEqual(expect.arrayContaining(["publishDraft", "discardDraft"]));
+    expect(studioAgent).not.toContain("publishDraft");
+    expect(studioAgent).not.toContain("discardDraft");
+    expect(studioAgent).toEqual(
+      expect.arrayContaining(["createCollectionRecord", "deleteCollectionRecord", "editBlock"]),
+    );
+    // The CLI keeps every tool there is.
+    const all = (
+      await Promise.all(toolProviders.map(async (provider) => provider(context)))
+    ).flat();
+    expect(cli).toEqual(all.map((tool) => tool.name));
+  });
+
   it("dispatches record tools through authenticated agent routes without crossing drafts", async () => {
     const f = await fixture();
     const projectId = f.project.id;
@@ -142,7 +165,7 @@ describe("collection record procedures", () => {
     expect(await invoke(drafted, "deleteCollectionRecord", target)).toMatchObject({ ok: true });
   });
 
-  it("AI tools use validated session-scoped services and ask approval to delete", async () => {
+  it("AI tools use validated session-scoped services", async () => {
     const f = await fixture();
     // AI tools work in a draft: Live is read-only (ADR 0003).
     const context = {
@@ -157,7 +180,6 @@ describe("collection record procedures", () => {
       return result;
     };
     const run = (name: string, input: unknown) => tool(name).handler(input, context);
-    expect(tool("deleteCollectionRecord").meta.risk).toBe("requiresApproval");
     expect(await run("listCollections", {})).toMatchObject([{ collectionId: "customers" }]);
     expect(await run("getCollection", { collectionId: "customers" })).toMatchObject({
       label: "name",

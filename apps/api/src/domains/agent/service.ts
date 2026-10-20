@@ -95,7 +95,7 @@ export const listTools = Effect.fn("agent.listTools")(function* (
 ) {
   const { projectId } = yield* decodeInput(listToolsInput, rawInput);
   const toolCtx = yield* buildToolContext(ctx, projectId);
-  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx));
+  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx, "cli"));
   return tools.map(toJsonSchemaTool);
 });
 
@@ -115,7 +115,7 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   const { projectId, name, arguments: args } = yield* decodeInput(callToolInput, rawInput);
   const toolCtx = yield* buildToolContext(ctx, projectId);
 
-  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx));
+  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx, "cli"));
   const tool = findTool(tools, name);
   // Live is read-only (ADR 0003): a tool writing content needs the session to name a draft.
   if (tool?.meta.kind === "write" && !ctx.draft) return yield* new LiveReadOnlyError();
@@ -123,6 +123,6 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   const locale = tool?.meta.localized ? localeArgument(args) : undefined;
   if (locale === undefined) return yield* executeTool({ toolCtx, tools, name, args });
   const inLocale = { ...toolCtx, locale };
-  const localized = yield* Effect.promise(() => resolveTools(toolProviders, inLocale));
+  const localized = yield* Effect.promise(() => resolveTools(toolProviders, inLocale, "cli"));
   return yield* executeTool({ toolCtx: inLocale, tools: localized, name, args });
 });

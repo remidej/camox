@@ -21,7 +21,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Block types whose `layoutOnly` is true can only appear inside layouts and are not valid for createBlock on a page. " +
       "Editing a `synced` block changes its data across all its placements in the draft.",
     inputSchema: listBlockTypesToolInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => {
       const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));
       return defs.map((d) => ({
@@ -41,7 +41,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "this right before calling createBlock or editBlock to know what `content` and `settings` " +
       "arguments to construct. Unknown ids are reported in `notFound`.",
     inputSchema: describeBlockTypesToolInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async (input) => {
       const { types } = describeBlockTypesToolInput.parse(input);
       const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));

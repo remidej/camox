@@ -35,7 +35,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "the default first. Every other locale's content is a localization of the default " +
       "locale's: pass a locale's tag as `locale` to the content tools to read or write it.",
     inputSchema: listInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => runService(listLocales(ctx, { projectId: ctx.projectId })),
   },
   {
@@ -49,7 +49,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Publishing the draft puts the locale on Live. A locale whose prefix (its tag in lowercase) " +
       "is a top-level page path in the default locale blocks publishing.",
     inputSchema: addInput,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
     handler: async (input) =>
       runService(addLocale(ctx, { ...addInput.parse(input), projectId: ctx.projectId })),
   },
@@ -60,7 +60,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "locale and its content from Live for good. The default locale can't be removed. Only " +
       "remove a locale when the user asks to.",
     inputSchema: removeInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
     handler: async (input) =>
       runService(removeLocale(ctx, { ...removeInput.parse(input), projectId: ctx.projectId })),
   },
@@ -73,7 +73,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "beneath another deleted page is listed once the page above is added back, which leaves " +
       "it deleted. The default locale misses nothing.",
     inputSchema: listMissingInput,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async () => runService(listMissingFromLocale(ctx, { projectId: ctx.projectId })),
   },
   {
@@ -84,7 +84,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "and keeps translating its changes. Pages and records deleted from the locale on their " +
       "own stay deleted. listMissingFromLocale lists what can be added back.",
     inputSchema: addBackInput,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) =>
       runService(addBackToLocale(ctx, { ...addBackInput.parse(input), projectId: ctx.projectId })),
   },
@@ -95,7 +95,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "possible while the default locale is the project's only locale, and it applies at once, " +
       "on Live and in every draft, since no content changes.",
     inputSchema: setDefaultTagInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
     handler: async (input) =>
       runService(
         setDefaultLocaleTag(ctx, { ...setDefaultTagInput.parse(input), projectId: ctx.projectId }),

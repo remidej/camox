@@ -13,4 +13,4 @@ export { toolProviders } from "./registry";
 export { resolveTools } from "./resolve";
 export { toJsonSchemaTool } from "./to-json-schema";
 export type { JsonSchemaTool } from "./to-json-schema";
-export type { ToolContext, ToolDefinition, ToolProvider, ToolRisk, ToolSurface } from "./types";
+export type { ToolContext, ToolDefinition, ToolProvider, ToolSurface } from "./types";
