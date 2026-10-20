@@ -4,8 +4,6 @@ import { useLocation } from "../features/navigation/navigation";
 import { localizedPath, parseLocalePath } from "./locale-path";
 import { useViewLocale } from "./view-locale-context";
 
-export { type ViewLocale, ViewLocaleContext, useViewLocale } from "./view-locale-context";
-
 /**
  * The current location's path in the locale viewed, after its prefix (`/de/preise` is
  * `/preise`): what page paths, studio routes and the API's `path` inputs compare against.

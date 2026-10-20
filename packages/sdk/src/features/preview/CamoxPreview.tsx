@@ -10,7 +10,8 @@ import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
 import { parseLocalePath } from "@/lib/locale-path";
 import { NormalizedDataProvider, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
-import { useLocalePath, useLocalizedPath, useViewLocale } from "@/lib/view-locale";
+import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
+import { useViewLocale } from "@/lib/view-locale-context";
 
 import { useCurrentDraftId } from "../../lib/draft-scope";
 import {

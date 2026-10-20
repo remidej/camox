@@ -14,7 +14,7 @@ import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
 // Search engines learn which pages are versions of each other: every page lists the locales it
 // exists in with `hreflang`, plus `x-default` for the default locale's page, and the sitemap lists
-// every localization with the same alternates. Layouts build a language switcher from the same
+// every localization with the same alternates. Layouts build a locale switcher from the same
 // alternates, and links that stay in the current locale.
 
 const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
@@ -129,8 +129,8 @@ const articles = createCollection({
   label: "title",
 });
 
-/** A layout's language switcher, and a link that stays in the locale. */
-function LanguageSwitcher() {
+/** A layout's locale switcher, and a link that stays in the locale. */
+function LocaleSwitcher() {
   const locale = useLocale();
   const alternates = useAlternates();
   const localized = useLocalizedHref();
@@ -151,7 +151,7 @@ function LanguageSwitcher() {
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: LanguageSwitcher,
+  component: LocaleSwitcher,
   buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
 };
 
@@ -306,7 +306,7 @@ const withPageApp: Partial<RuntimeOptions> = {
   renderPage: (input) => renderPageWithApp({ ...input, camoxApp: app }),
 };
 
-/** What a page's language switcher shows: its locale, its alternates and its localized link. */
+/** What a page's locale switcher shows: its locale, its alternates and its localized link. */
 async function switcherOf(response: Response | null) {
   assert.equal(response?.status, 200);
   const html = await response!.text();

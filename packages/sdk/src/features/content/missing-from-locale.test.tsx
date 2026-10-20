@@ -35,7 +35,7 @@ const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
 const { createDraftScope } = await import("@/lib/draft-scope");
 const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
-const { ViewLocaleContext } = await import("@/lib/view-locale");
+const { ViewLocaleContext } = await import("@/lib/view-locale-context");
 
 const DRAFT = "019a0000-0000-7000-8000-000000000001";
 const project = { id: 1, slug: "site", name: "Site" };

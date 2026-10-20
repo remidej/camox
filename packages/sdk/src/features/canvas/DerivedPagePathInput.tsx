@@ -9,7 +9,7 @@ import * as React from "react";
 
 import { matchDerivedLayout, routeSegments } from "../../core/derivedRoutes";
 import { parseLocalePath } from "../../lib/locale-path";
-import { useViewLocale } from "../../lib/view-locale";
+import { useViewLocale } from "../../lib/view-locale-context";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import type { DerivedCanvasPage } from "./canvasPages";
 
