@@ -1,6 +1,6 @@
 import {
   EMPTY_THREAD_STATE,
-  reduceThreadEvents,
+  reduceThreadFrame,
   type ThreadClientMessage,
   type ThreadServerMessage,
   type ThreadState,
@@ -14,15 +14,43 @@ import { apiSocketOptions } from "./api-socket";
 /** `WebSocket.OPEN`, without reaching for a global the server doesn't have. */
 const OPEN = 1;
 
+export type UseThreadOptions = {
+  /** What to show before the thread's snapshot: what the studio showed of it elsewhere. */
+  initialState?: ThreadState;
+  /**
+   * Hears that the Live thread this studio messaged started a draft and became its thread, with
+   * what it showed of it, so the studio enters the draft with the thread.
+   */
+  onEnterDraft?: (draftId: string, state: ThreadState) => void;
+};
+
 /**
  * Follows a thread in a project over its socket, folding Pi's events into the thread's view: the
  * signed-in editor's Live thread when `draftId` is null, or the draft's thread, which `draftId`
  * names as the draft header does (`development` in dev mode). A message is resent with its
  * operation id on every reconnect until the thread accepts it, which records it once, or turns
  * it down. Mount it once per project and draft.
+ *
+ * When the Live thread starts a draft, a studio that messaged it enters the draft with it
+ * (`onEnterDraft`); any other moves on to the editor's fresh Live thread, continued in the draft.
  */
-export function useThread(apiUrl: string, projectId: number, draftId: string | null) {
-  const [state, setState] = useState<ThreadState>(EMPTY_THREAD_STATE);
+export function useThread(
+  apiUrl: string,
+  projectId: number,
+  draftId: string | null,
+  { initialState = EMPTY_THREAD_STATE, onEnterDraft }: UseThreadOptions = {},
+) {
+  const [state, setState] = useState<ThreadState>(initialState);
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  /** Whether this studio sent a message in the thread. */
+  const messagedRef = useRef(false);
+  const onEnterDraftRef = useRef(onEnterDraft);
+  useEffect(() => {
+    onEnterDraftRef.current = onEnterDraft;
+  }, [onEnterDraft]);
   const view = useMemo(() => threadViewOf(state), [state]);
   const [unaccepted, setUnaccepted] = useState<ReadonlyMap<string, string>>(new Map());
   const [error, setError] = useState<string>();
@@ -50,9 +78,17 @@ export function useThread(apiUrl: string, projectId: number, draftId: string | n
       } catch {
         return;
       }
-      if (frame.type === "events") {
-        const { events } = frame;
-        setState((current) => reduceThreadEvents(current, events));
+      if (frame.type === "started-draft") {
+        if (draftId !== null) return;
+        if (messagedRef.current) {
+          onEnterDraftRef.current?.(frame.draftId, reduceThreadFrame(stateRef.current, frame));
+          return;
+        }
+        // The thread is the draft's now: the editor's Live thread is a fresh one.
+        setState(EMPTY_THREAD_STATE);
+        socketRef.current?.reconnect();
+      } else if (frame.type === "events" || frame.type === "continued") {
+        setState((current) => reduceThreadFrame(current, frame));
       } else if (frame.type === "accepted") {
         const { operationId } = frame;
         setUnaccepted((current) => without(current, operationId));
@@ -66,6 +102,11 @@ export function useThread(apiUrl: string, projectId: number, draftId: string | n
     },
   });
 
+  const socketRef = useRef(socket);
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
+
   // A tab coming back may have missed events while the browser throttled it.
   useEffect(() => {
     const resync = () => {
@@ -78,6 +119,7 @@ export function useThread(apiUrl: string, projectId: number, draftId: string | n
   const send = useCallback(
     (text: string) => {
       const operationId = crypto.randomUUID();
+      messagedRef.current = true;
       setError(undefined);
       setUnaccepted((current) => new Map(current).set(operationId, text));
       transmit(socket, { type: "send", operationId, text });

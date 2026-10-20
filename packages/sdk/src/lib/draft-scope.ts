@@ -47,6 +47,12 @@ export interface DraftScope {
    */
   requestHeaders: (contentWrite: boolean) => DraftRequestHeaders;
   /**
+   * Enters a draft started on Live outside the studio's own writes, by the editor's Live thread,
+   * as a first write's: the URL names it in place, it starts from what Live showed, and listeners
+   * hear it `started`. Returns whether it entered it: only a studio still on Live does.
+   */
+  enterStarted: (draftId: string) => boolean;
+  /**
    * Where a link or navigation to `to` goes, naming the draft the way the URL does. A target on
    * this site keeps the viewed draft unless it names one itself, or `draft` switches to another
    * (`null` for Live). Other sites' URLs, and every URL in dev mode, are left alone. The result
@@ -160,8 +166,9 @@ export function createDraftScope({
   };
 
   /**
-   * Enters the draft the first content write created. The draft is Live plus that write, so its
-   * keys start from what Live showed, and nothing flashes empty while they refetch.
+   * Enters the draft the first content write created, the studio's or its Live thread's. The
+   * draft is Live plus that write, so its keys start from what Live showed, and nothing flashes
+   * empty while they refetch.
    */
   const enterStartedDraft = (draftId: string) => {
     pending = null;
@@ -210,6 +217,11 @@ export function createDraftScope({
     },
 
     requestHeaders: headersFor,
+    enterStarted(draftId) {
+      if (current !== null) return false;
+      enterStartedDraft(draftId);
+      return true;
+    },
     hrefFor(to, { from, draft } = {}) {
       if (developmentMode) return to;
       const base = new URL(from ?? browser?.location.href ?? "http://camox.local");

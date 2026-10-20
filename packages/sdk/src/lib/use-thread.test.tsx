@@ -58,13 +58,17 @@ async function waitFor(check: () => boolean, message: string) {
 }
 
 /** A studio in project 1, on Live or in `draftId`. */
-async function studio(t: TestContext, draftId: string | null = null) {
+async function studio(
+  t: TestContext,
+  draftId: string | null = null,
+  options: Parameters<typeof useThread>[3] = {},
+) {
   const NativeWebSocket = globalThis.WebSocket;
   globalThis.WebSocket = ThreadSocket as never;
   ThreadSocket.opened = [];
   let thread!: ReturnType<typeof useThread>;
   function Studio() {
-    thread = useThread("http://api.localhost:8787", 1, draftId);
+    thread = useThread("http://api.localhost:8787", 1, draftId, options);
     return null;
   }
   const root = createRoot(document.createElement("div"));
@@ -120,4 +124,40 @@ void test("a message the thread turns down stops the wait and says so; only the 
   await waitFor(() => socket() !== first && socket().received.length > 0, "the studio resends");
 
   assert.deepEqual(socket().received, [stillOnItsWay]);
+});
+
+const STARTED_DRAFT = "019a0000-0000-7000-8000-000000000001";
+
+void test("the studio that messaged its Live thread enters the draft the thread started", async (t) => {
+  const entered: string[] = [];
+  const { thread, socket } = await studio(t, null, {
+    onEnterDraft: (draftId) => entered.push(draftId),
+  });
+  await act(async () => thread().send("Raise the price to $12"));
+  const [sent] = socket().received;
+  assert.ok(sent?.type === "send");
+  await act(async () => socket().reply({ type: "accepted", operationId: sent.operationId }));
+
+  await act(async () => socket().reply({ type: "started-draft", draftId: STARTED_DRAFT }));
+
+  assert.deepEqual(entered, [STARTED_DRAFT]);
+  assert.equal(ThreadSocket.opened.length, 1, "the studio keeps following the thread");
+});
+
+void test("another studio on Live moves to the editor's fresh Live thread, continued in the draft", async (t) => {
+  const entered: string[] = [];
+  const { thread, socket } = await studio(t, null, {
+    onEnterDraft: (draftId) => entered.push(draftId),
+  });
+  const first = socket();
+
+  await act(async () => first.reply({ type: "started-draft", draftId: STARTED_DRAFT }));
+  await waitFor(() => socket() !== first && socket().readyState === 1, "the studio reconnects");
+  await act(async () => socket().reply({ type: "continued", draftId: STARTED_DRAFT }));
+
+  assert.equal(new URL(socket().url).pathname, "/threads/live/1");
+  assert.equal(first.readyState, 3, "the studio left the thread that moved into the draft");
+  assert.deepEqual(entered, []);
+  assert.equal(thread().view.continuedIn, STARTED_DRAFT);
+  assert.equal(thread().view.startedDraft, undefined);
 });
