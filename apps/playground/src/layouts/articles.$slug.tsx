@@ -1,6 +1,6 @@
 import { createLayout } from "camox/createLayout";
-import { useLocalizedHref } from "camox/navigation";
 
+import { block as backToArticlesBlock } from "../blocks/back-to-articles";
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
 import { collection as articles } from "../collections/articles";
@@ -10,7 +10,7 @@ export const Layout = createLayout("articles.$slug")({
   kind: "derived",
   title: "Article",
   description: "One article of the Articles collection, found by its slug.",
-  blocks: { before: [navbarBlock], after: [footerBlock] },
+  blocks: { before: [navbarBlock, backToArticlesBlock], after: [footerBlock] },
   ...articles.pages({ by: "slug", param: "slug" }),
   buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
   buildMetaDescription: ({ item }) => item.excerpt || undefined,
@@ -25,17 +25,10 @@ export const Layout = createLayout("articles.$slug")({
 });
 
 function ArticlePage() {
-  const localized = useLocalizedHref();
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-12 sm:px-8">
-        <a
-          href={localized("/articles")}
-          className="text-muted-foreground hover:text-foreground text-sm"
-        >
-          ← All articles
-        </a>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-5 pb-12 sm:px-8">
         <Layout.Item>
           {(article) => (
             <article>

@@ -3,9 +3,9 @@ import { useLocalizedHref } from "camox/navigation";
 
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
+import { block as pokedexCreditBlock } from "../blocks/pokedex-credit";
+import { block as pokedexHeaderBlock } from "../blocks/pokedex-header";
 import {
-  PokedexCredit,
-  PokedexHeader,
   PokemonArtwork,
   TypeBadge,
   pokemonName,
@@ -32,7 +32,10 @@ export const Layout = createLayout("pokemon.$name")({
   kind: "derived",
   title: "Pokémon",
   description: "Request-loaded Pokémon from PokéAPI",
-  blocks: { before: [navbarBlock], after: [footerBlock] },
+  blocks: {
+    before: [navbarBlock, pokedexHeaderBlock],
+    after: [pokedexCreditBlock, footerBlock],
+  },
   loader: async ({ params }): Promise<LayoutLoaderResult<Pokemon>> => {
     const response = await fetch(
       `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(params.name)}`,
@@ -88,16 +91,7 @@ function PokemonPage() {
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-12">
-        <PokedexHeader>
-          <a
-            href={localized(`/pokemon-types/${primaryType}`)}
-            className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-          >
-            Explore {primaryType} Pokémon ↗
-          </a>
-        </PokedexHeader>
-
+      <main className="mx-auto w-full max-w-6xl flex-1 px-5 sm:px-8">
         <section
           className="grid items-center gap-8 lg:grid-cols-2 lg:gap-16"
           aria-labelledby="pokemon-title"
@@ -267,7 +261,6 @@ function PokemonPage() {
               ))}
           </div>
         </section>
-        <PokedexCredit />
       </main>
       <Layout.AfterBlocks />
     </div>

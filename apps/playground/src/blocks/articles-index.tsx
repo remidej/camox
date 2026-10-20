@@ -1,4 +1,5 @@
 import { createBlock } from "camox/createBlock";
+import { useLocalizedHref } from "camox/navigation";
 
 import { collection as articles } from "../collections/articles";
 
@@ -23,6 +24,7 @@ const articlesIndex = createBlock({
 });
 
 function ArticlesIndexComponent() {
+  const localized = useLocalizedHref();
   return (
     <section className="bg-background py-16">
       <div className="container mx-auto max-w-3xl px-4">
@@ -36,7 +38,7 @@ function ArticlesIndexComponent() {
                 {/* The record page's URL is built from the slug in code, not stored as a link. */}
                 <article.Field name="slug">
                   {(_props, { text: slug }) => (
-                    <a href={`/articles/${slug}`} className="group block">
+                    <a href={localized(`/articles/${slug}`)} className="group block">
                       <article.Field name="title">
                         {(props) => (
                           <h2
