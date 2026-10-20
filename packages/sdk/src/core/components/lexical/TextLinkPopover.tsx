@@ -8,7 +8,7 @@ import * as React from "react";
 
 import { getPageIdFromTextLinkTarget, isValidTextLinkTarget } from "@/core/lib/textLinks";
 import { destinationTextLink } from "@/core/pageDestinations";
-import { usePageDestinations } from "@/hooks/use-page-destinations";
+import { useLinkDestinations } from "@/hooks/use-page-destinations";
 
 interface TextLinkPopoverProps {
   open: boolean;
@@ -34,7 +34,7 @@ export function TextLinkPopover({
   const [pageValue, setPageValue] = React.useState("");
   const [urlValue, setUrlValue] = React.useState("");
 
-  const pages = usePageDestinations();
+  const pages = useLinkDestinations();
   const isPageTarget =
     target != null &&
     (getPageIdFromTextLinkTarget(target) != null ||
