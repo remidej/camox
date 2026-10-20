@@ -47,6 +47,8 @@ Block names, schemas, rendering, and **default content** must work on other page
 
 Apply reference-specific content **only to instances through the CLI**, never by changing definition defaults or hardcoding it in JSX.
 
+Keep the result translatable, following [Localized code](../camox/SKILL.md#localized-code): every visible text in the shell, navigation and footer included, lives in blocks, and internal links go through `useLocalizedHref`, written without a locale prefix.
+
 ## Model repetition, not a fixed screenshot
 
 Use `field.repeater` for every repeated content structure: lists, rows, columns, tables, carousels, navigation items, and cards. Never use `field1`, `field2`, etc., or hardcoded content arrays. Nest repeaters for structures such as footer columns containing links or table rows containing cells.

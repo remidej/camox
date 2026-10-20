@@ -7,7 +7,7 @@ import { localeLabel } from "@/features/studio/localeOptions";
 import { useProjectSlug } from "@/lib/auth";
 import { type CollectionDefinition, localeMutations, type MissingFromLocale } from "@/lib/queries";
 import { reads, useReadQuery, useStudioCache } from "@/lib/studio-reads";
-import { useViewLocale } from "@/lib/view-locale";
+import { useViewLocale } from "@/lib/view-locale-context";
 
 import { ContentSidebarGroup } from "./ContentSidebarGroup";
 

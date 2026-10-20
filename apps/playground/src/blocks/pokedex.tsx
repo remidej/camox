@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createBlock } from "camox/createBlock";
+import { useLocalizedHref } from "camox/navigation";
 
 import { PokemonArtwork, pokemonName, pokemonNumber } from "../components/pokemon";
 
@@ -40,6 +41,7 @@ const pokedex = createBlock({
 });
 
 function PokedexComponent() {
+  const localized = useLocalizedHref();
   return (
     <section
       className="bg-background text-foreground border-border border-y py-16 sm:py-24"
@@ -77,7 +79,7 @@ function PokedexComponent() {
           </pokedex.Repeater>
         </ul>
         <a
-          href="/pokedex"
+          href={localized("/pokedex")}
           className="focus-visible:ring-ring mt-8 inline-flex rounded-sm font-semibold underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
         >
           Explore the full Pokédex →
@@ -97,6 +99,7 @@ interface Pokemon {
 }
 
 function PokemonSpotlight({ name }: { name: string }) {
+  const localized = useLocalizedHref();
   const slug = name.trim().toLowerCase().replace(/\s+/g, "-");
   const validName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
   const { data, isPending, error, refetch } = useQuery({
@@ -139,7 +142,7 @@ function PokemonSpotlight({ name }: { name: string }) {
 
   return (
     <a
-      href={`/pokemon/${data.name}`}
+      href={localized(`/pokemon/${data.name}`)}
       className="focus-visible:ring-ring flex flex-1 flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
       aria-label={`Explore ${pokemonName(data.name)}`}
     >

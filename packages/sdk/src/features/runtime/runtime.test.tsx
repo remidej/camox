@@ -281,11 +281,13 @@ void test("visitors and members load the same curated page, and only members wit
 });
 
 void test("sitemaps include curated pages and singleton destinations with the runtime base path and no invented lastmod", async (t) => {
-  t.mock.method(globalThis, "fetch", async () =>
-    pageListResponse([
-      { id: "1", nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
-      { id: "2", nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
-    ]),
+  t.mock.method(globalThis, "fetch", async (request: Request) =>
+    request.url.endsWith("/locales/list")
+      ? localesResponse()
+      : pageListResponse([
+          { id: "1", nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
+          { id: "2", nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
+        ]),
   );
   const response = await handleCamoxRequest(new Request("https://site.test/site/sitemap.xml"), {
     apiUrl: "https://api.test",
@@ -588,7 +590,9 @@ function appWithRoutes(routes: () => unknown) {
 }
 
 void test("sitemaps list the pages derived layouts discover, encoded and without lastmod", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => pageListResponse());
+  t.mock.method(globalThis, "fetch", async (request: Request) =>
+    request.url.endsWith("/locales/list") ? localesResponse() : pageListResponse(),
+  );
   const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
     apiUrl: "https://api.test",
     projectSlug: "test",
@@ -605,7 +609,9 @@ void test("sitemaps list the pages derived layouts discover, encoded and without
 });
 
 void test("sitemaps fail loudly when route discovery fails", async (t) => {
-  t.mock.method(globalThis, "fetch", async () => pageListResponse());
+  t.mock.method(globalThis, "fetch", async (request: Request) =>
+    request.url.endsWith("/locales/list") ? localesResponse() : pageListResponse(),
+  );
   t.mock.method(console, "error", () => {});
   for (const routes of [
     () => ({ data: [{ params: { name: "a/b" } }] }),
@@ -620,6 +626,30 @@ void test("sitemaps fail loudly when route discovery fails", async (t) => {
     });
     assert.equal(response?.status, 500);
     assert.match(((await response!.json()) as { message: string }).message, /pokemon|PokéAPI/);
+  }
+});
+
+void test("sitemaps fail loudly when Live's locales or pages can't be read", async (t) => {
+  const unavailable = () =>
+    Response.json(
+      { json: { defined: false, code: "INTERNAL_SERVER_ERROR", status: 500, message: "Down" } },
+      { status: 500 },
+    );
+  t.mock.method(console, "error", () => {});
+  for (const failing of ["/locales/list", "/listBySlug"]) {
+    t.mock.method(globalThis, "fetch", async (request: Request) =>
+      request.url.endsWith(failing)
+        ? unavailable()
+        : request.url.endsWith("/locales/list")
+          ? localesResponse(["en", "de"])
+          : pageListResponse(),
+    );
+    const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
+      apiUrl: "https://api.test",
+      projectSlug: "test",
+    });
+    assert.equal(response?.status, 500, failing);
+    assert.match(((await response!.json()) as { message: string }).message, /sitemap/);
   }
 });
 

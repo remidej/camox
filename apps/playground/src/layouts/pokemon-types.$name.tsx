@@ -1,11 +1,12 @@
 import { createLayout, notFound, type LayoutLoaderResult } from "camox/createLayout";
+import { useLocalizedHref } from "camox/navigation";
 import { useState } from "react";
 
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
+import { block as pokedexCreditBlock } from "../blocks/pokedex-credit";
+import { block as pokedexHeaderBlock } from "../blocks/pokedex-header";
 import {
-  PokedexCredit,
-  PokedexHeader,
   PokemonArtwork,
   TypeBadge,
   pokemonName,
@@ -31,7 +32,10 @@ export const Layout = createLayout("pokemon-types.$name")({
   kind: "derived",
   title: "Pokémon types",
   description: "PokéAPI type detail pages",
-  blocks: { before: [navbarBlock], after: [footerBlock] },
+  blocks: {
+    before: [navbarBlock, pokedexHeaderBlock],
+    after: [pokedexCreditBlock, footerBlock],
+  },
   loader: async ({ params }): Promise<LayoutLoaderResult<PokemonType>> => {
     const response = await fetch(
       `https://pokeapi.co/api/v2/type/${encodeURIComponent(params.name)}`,
@@ -66,6 +70,7 @@ const PAGE_SIZE = 36;
 const featuredTypes = ["grass", "fire", "water", "electric", "psychic", "dragon"];
 
 function TypePage() {
+  const localized = useLocalizedHref();
   const type = Layout.useData();
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -85,16 +90,7 @@ function TypePage() {
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-12">
-        <PokedexHeader>
-          <a
-            href="/pokemon/pikachu"
-            className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-          >
-            Meet a Pokémon ↗
-          </a>
-        </PokedexHeader>
-
+      <main className="mx-auto w-full max-w-6xl flex-1 px-5 sm:px-8">
         <section
           className="border-border relative overflow-hidden rounded-[2rem] border px-6 py-10 sm:p-12"
           style={{ background: `linear-gradient(120deg, ${color}20, ${color}04)` }}
@@ -212,7 +208,7 @@ function TypePage() {
               {visible.map((item) => (
                 <li key={item.name}>
                   <a
-                    href={`/pokemon/${item.name}`}
+                    href={localized(`/pokemon/${item.name}`)}
                     className="group border-border bg-card hover:border-foreground/30 focus-visible:ring-ring flex h-full flex-col overflow-hidden rounded-2xl border transition-colors focus-visible:ring-2 focus-visible:outline-none"
                   >
                     <div
@@ -285,7 +281,6 @@ function TypePage() {
               ))}
           </div>
         </nav>
-        <PokedexCredit />
       </main>
       <Layout.AfterBlocks />
     </div>

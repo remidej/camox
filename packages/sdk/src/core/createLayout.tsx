@@ -113,10 +113,18 @@ export interface LayoutCollectionItemResult<
   readonly [collectionFields]?: (fields: Fields) => Fields;
 }
 
-/** What `loader` receives: the page's params and the request context to pass through. */
+/**
+ * What `loader` receives: the page's params, the request context to pass through, and the
+ * page's locale.
+ */
 export interface LayoutLoaderContext<Params = Record<string, string>> {
   params: Params;
   context: LayoutRequestContext;
+  /**
+   * The tag of the locale the page renders in, such as `de`, to fetch localized data with when
+   * its source has it. Camox renders the data as returned and never translates it.
+   */
+  locale: string;
 }
 
 /** What `routes` receives: the request context to pass through. */

@@ -16,7 +16,7 @@ import {
   testStudioCache,
 } from "../../lib/draft-scope.fixtures";
 import { reads } from "../../lib/studio-reads";
-import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale";
+import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale-context";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 

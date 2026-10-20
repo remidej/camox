@@ -1,4 +1,5 @@
 import { createBlock } from "camox/createBlock";
+import { useLocalizedHref } from "camox/navigation";
 
 import { pokemonName, typeColor } from "../components/pokemon";
 
@@ -48,6 +49,7 @@ const pokedex = createBlock({
 });
 
 function PokedexComponent() {
+  const localized = useLocalizedHref();
   return (
     <section
       className="bg-background text-foreground border-border border-y py-16 sm:py-24"
@@ -77,7 +79,7 @@ function PokedexComponent() {
             return (
               <li key={type}>
                 <a
-                  href={`/pokemon-types/${type}`}
+                  href={localized(`/pokemon-types/${type}`)}
                   className="group border-border focus-visible:ring-ring flex h-full flex-col gap-6 rounded-2xl border p-5 transition-transform hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
                   style={{ background: `linear-gradient(140deg, ${color}18, ${color}04)` }}
                   aria-label={`Explore ${pokemonName(type)} Pokémon`}

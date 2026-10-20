@@ -1,10 +1,11 @@
 import { createLayout, notFound, type LayoutLoaderResult } from "camox/createLayout";
+import { useLocalizedHref } from "camox/navigation";
 
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
+import { block as pokedexCreditBlock } from "../blocks/pokedex-credit";
+import { block as pokedexHeaderBlock } from "../blocks/pokedex-header";
 import {
-  PokedexCredit,
-  PokedexHeader,
   PokemonArtwork,
   TypeBadge,
   pokemonName,
@@ -31,7 +32,10 @@ export const Layout = createLayout("pokemon.$name")({
   kind: "derived",
   title: "Pokémon",
   description: "Request-loaded Pokémon from PokéAPI",
-  blocks: { before: [navbarBlock], after: [footerBlock] },
+  blocks: {
+    before: [navbarBlock, pokedexHeaderBlock],
+    after: [pokedexCreditBlock, footerBlock],
+  },
   loader: async ({ params }): Promise<LayoutLoaderResult<Pokemon>> => {
     const response = await fetch(
       `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(params.name)}`,
@@ -78,6 +82,7 @@ const discoveries = [
 ];
 
 function PokemonPage() {
+  const localized = useLocalizedHref();
   const pokemon = Layout.useData();
   const primaryType = pokemon.types[0]?.type.name ?? "normal";
   const color = typeColor(primaryType);
@@ -86,16 +91,7 @@ function PokemonPage() {
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-12">
-        <PokedexHeader>
-          <a
-            href={`/pokemon-types/${primaryType}`}
-            className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-          >
-            Explore {primaryType} Pokémon ↗
-          </a>
-        </PokedexHeader>
-
+      <main className="mx-auto w-full max-w-6xl flex-1 px-5 sm:px-8">
         <section
           className="grid items-center gap-8 lg:grid-cols-2 lg:gap-16"
           aria-labelledby="pokemon-title"
@@ -237,7 +233,7 @@ function PokemonPage() {
               .map((item) => (
                 <a
                   key={item.name}
-                  href={`/pokemon/${item.name}`}
+                  href={localized(`/pokemon/${item.name}`)}
                   className="group border-border bg-card hover:bg-muted focus-visible:ring-ring flex items-center gap-4 rounded-2xl border p-4 transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <img
@@ -265,7 +261,6 @@ function PokemonPage() {
               ))}
           </div>
         </section>
-        <PokedexCredit />
       </main>
       <Layout.AfterBlocks />
     </div>

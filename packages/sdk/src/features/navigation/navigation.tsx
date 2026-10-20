@@ -14,6 +14,8 @@ import {
   DraftScopeContext,
   useOptionalDraftScope,
 } from "../../lib/draft-scope";
+import { localizedPath } from "../../lib/locale-path";
+import { PageAlternatesContext, useViewLocale } from "../../lib/view-locale-context";
 
 export type NavigationSource = "canvas";
 
@@ -240,6 +242,66 @@ const Link: React.ForwardRefExoticComponent<LinkProps & React.RefAttributes<HTML
     );
   });
 
+/**
+ * A page in one locale, as a locale switcher links to it: the runtime's `AlternatePath`, its path
+ * as `href`, labelled with the locale's name.
+ */
+export interface Alternate {
+  /** The locale's tag, such as `de` or `pt-BR`. */
+  locale: string;
+  /** The page's path in that locale, under the locale's prefix. */
+  href: string;
+  /** The locale's name in its own language, such as `Deutsch`. */
+  label: string;
+}
+
+/** The tag of the locale the page renders in, such as `de`. */
+function useLocale(): string {
+  return useViewLocale().locale.tag;
+}
+
+/** A locale's name in its own language (`Deutsch` for `de`), or its tag when it has none. */
+function nativeLocaleName(tag: string): string {
+  try {
+    return new Intl.DisplayNames([tag], { type: "language" }).of(tag) ?? tag;
+  } catch {
+    return tag;
+  }
+}
+
+/**
+ * The current page in every locale it exists in, the current one included, to build a locale
+ * switcher from. A locale the page was removed from isn't listed.
+ */
+function useAlternates(): Alternate[] {
+  const alternates = React.useContext(PageAlternatesContext);
+  const { locale } = useViewLocale();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  return React.useMemo(
+    () =>
+      (alternates ?? [{ locale: locale.tag, path: pathname }]).map((alternate) => ({
+        locale: alternate.locale,
+        href: alternate.path,
+        label: nativeLocaleName(alternate.locale),
+      })),
+    [alternates, locale.tag, pathname],
+  );
+}
+
+/**
+ * Keeps internal links in the current locale: the returned function adds the locale's prefix to
+ * a root-relative path (`/articles` is `/de/articles` on a `de` page). Anything else, such as
+ * `https://…`, `//…`, `#…` or `mailto:…`, is returned as is. Write paths without a prefix.
+ */
+function useLocalizedHref(): (href: string) => string {
+  const { locale } = useViewLocale();
+  return React.useCallback(
+    (href: string) =>
+      href.startsWith("/") && !href.startsWith("//") ? localizedPath(href, locale) : href,
+    [locale],
+  );
+}
+
 function Navigate({ replace, to, source }: NavigateOptions) {
   const context = React.useContext(NavigationContext);
   if (!context) return <TanStackNavigate replace={replace} to={to} />;
@@ -257,6 +319,9 @@ export {
   NavigationDisabled,
   NavigationLocation,
   NavigationProvider,
+  useAlternates,
+  useLocale,
+  useLocalizedHref,
   useLocation,
   useNavigate,
 };

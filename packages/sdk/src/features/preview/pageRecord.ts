@@ -8,7 +8,7 @@ import type { CollectionRecordId } from "@/core/requestContext";
 import { useDraftScope } from "../../lib/draft-scope";
 import { localizedPath } from "../../lib/locale-path";
 import { reads, useReadQuery } from "../../lib/studio-reads";
-import { useViewLocale } from "../../lib/view-locale";
+import { useViewLocale } from "../../lib/view-locale-context";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";

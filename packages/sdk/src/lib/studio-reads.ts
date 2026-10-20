@@ -35,7 +35,7 @@ import type {
   PageWithBlocks,
   Project,
 } from "./queries";
-import { ViewLocaleContext } from "./view-locale";
+import { ViewLocaleContext } from "./view-locale-context";
 
 /**
  * The studio's reads (ADR 0011): every query the studio caches is one entry here, which owns its

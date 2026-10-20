@@ -45,7 +45,8 @@ import { useCurrentDraftId } from "@/lib/draft-scope";
 import { type LocaleView, localizedPath } from "@/lib/locale-path";
 import { localeMutations } from "@/lib/queries";
 import { reads, useReadQuery, useStudioCache } from "@/lib/studio-reads";
-import { useLocalePath, useViewLocale } from "@/lib/view-locale";
+import { useLocalePath } from "@/lib/view-locale";
+import { useViewLocale } from "@/lib/view-locale-context";
 
 import type { ShownRecordPage } from "../../preview/pageRecord";
 import { type LocaleOption, localeLabel, localeOptions } from "../localeOptions";

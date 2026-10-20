@@ -71,6 +71,7 @@ function mockApi(
       session: request.headers.get("Better-Auth-Cookie"),
     });
     if (path.endsWith("/pages/listBySlug")) return pageListResponse(pages, projectName);
+    if (path.endsWith("/locales/list")) return localesResponse();
     if (path.endsWith("/collectionDefinitions/listRecordPageValues"))
       return Response.json({
         json: records.map((record) => ({ id: record.id, value: record.slug, label: record.label })),

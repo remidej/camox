@@ -19,8 +19,9 @@ import {
   localizedPath,
   UNNAMED_DEFAULT_LOCALE,
   parseLocalePath,
-  type LocalePath,
+  type AlternatePath,
   type LocaleView,
+  type RequestLocale,
 } from "../../lib/locale-path";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
@@ -47,6 +48,7 @@ import {
   resolveMemberProject,
   type DraftRead,
   type MemberProject,
+  type PageHead,
 } from "../routes/pageRuntime";
 import {
   matchCanvasOnlyPath,
@@ -55,6 +57,7 @@ import {
   STUDIO_CONTENT_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
+import { alternatesByPage, findAlternates, hreflangLinks, type PageIdentity } from "./alternates";
 import { type AnalyticsProviders, configuredProviders, renderAnalyticsScripts } from "./analytics";
 import { omitArtifactSources } from "./artifactSources";
 import { type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
@@ -92,6 +95,11 @@ export interface LayoutIdentity {
 type RecordSource = "draft" | "live";
 
 export interface PageRenderInput extends DraftRead {
+  /**
+   * The page in every locale it exists in, the rendered one included, which the alternates hook
+   * returns. Left out where the render shows no page.
+   */
+  alternates?: AlternatePath[];
   /**
    * The analytics providers whose scripts the server added, so the page client sends them page
    * views. Only a visitor's Live page carries them.
@@ -133,14 +141,6 @@ export interface PageRenderInput extends DraftRead {
   pathname: string;
   projectSlug: string;
   runtimeBasePath: string;
-}
-
-/**
- * A request's path in its locale: the locales of the scope it reads, the locale its path's
- * prefix names, and the locale-relative path after the prefix.
- */
-interface RequestLocale extends LocalePath {
-  locales: LocaleView[];
 }
 
 export interface RuntimeOptions {
@@ -266,35 +266,71 @@ function withRuntimeBasePath(pathname: string, runtimeBasePath?: string): string
 interface LiveWebsite {
   app: CamoxApp | undefined;
   projectName: string;
+  /**
+   * Each of Live's locales with its pages, the default locale first. The default locale's alone
+   * without `everyLocale`.
+   */
+  localizations: [LiveLocalization, ...LiveLocalization[]];
+  /** The locales `localizations` lists. */
+  locales: LocaleView[];
+}
+
+/** One of Live's locales with the pages it serves. */
+interface LiveLocalization {
+  locale: LocaleView;
   pages: LivePage[];
 }
 
 /**
  * Answers with an index of the website's Live pages, or a 500 saying why they can't be listed.
- * Sitemaps and llms.txt read Live whoever asks: crawlers only ever see published content.
+ * Sitemaps and llms.txt read Live whoever asks: crawlers only ever see published content. With
+ * `everyLocale`, it reads the pages of each of Live's locales. Any read failing, whether Live's
+ * locales, a locale's pages or route discovery, fails the whole index: an index silently missing
+ * pages is worse than one that visibly fails.
  */
 async function respondWithLiveWebsite(
   options: RuntimeOptions,
   name: string,
   respond: (website: LiveWebsite) => Response | Promise<Response>,
+  { everyLocale = false }: { everyLocale?: boolean } = {},
 ): Promise<Response> {
   const { apiUrl, projectSlug } = options;
   if (!apiUrl || !projectSlug) {
     return Response.json({ message: `Camox ${name} is not configured.` }, { status: 500 });
   }
-  const api = createServerApiClient(apiUrl);
-  const { projectName, pages } = await api.pages.listBySlug({ projectSlug });
   const app = await options.getCamoxApp?.();
-  let livePages: LivePage[];
+  const readLocale = async (locale: LocaleView) => {
+    const api = createServerApiClient(apiUrl, { locale });
+    const { projectName, pages } = await api.pages.listBySlug({ projectSlug });
+    const records = createRecordLookup(options, "live", { locale });
+    return { locale, projectName, pages: await listLivePages({ pages, app, records }) };
+  };
+  let locales: LocaleView[];
+  let localizations: Array<Awaited<ReturnType<typeof readLocale>>>;
   try {
-    livePages = await listLivePages({ pages, app, records: createRecordLookup(options, "live") });
+    locales = everyLocale
+      ? [...(await readScopeLocales({ apiUrl, projectSlug }))].sort(
+          (a, b) => Number(b.isDefault) - Number(a.isDefault),
+        )
+      : [UNNAMED_DEFAULT_LOCALE];
+    localizations = await Promise.all(locales.map(readLocale));
   } catch (error) {
-    if (!(error instanceof RouteDiscoveryError)) throw error;
-    // An index silently missing pages is worse than one that visibly fails.
-    console.error(`[camox] Route discovery failed while building the ${name}.`, error.cause);
-    return Response.json({ message: `Camox ${name} failed: ${error.message}` }, { status: 500 });
+    const discovery = error instanceof RouteDiscoveryError;
+    const cause = discovery ? error.cause : error;
+    console.error(
+      `[camox] ${discovery ? "Route discovery" : "Reading Live"} failed while building the ${name}.`,
+      cause,
+    );
+    const reason = error instanceof Error ? error.message : String(error);
+    return Response.json({ message: `Camox ${name} failed: ${reason}` }, { status: 500 });
   }
-  return respond({ app, projectName, pages: livePages });
+  const [defaultLocale, ...otherLocales] = localizations;
+  return respond({
+    app,
+    projectName: defaultLocale!.projectName,
+    localizations: [defaultLocale!, ...otherLocales],
+    locales,
+  });
 }
 
 /** A path's absolute URL, with the runtime base path. */
@@ -329,7 +365,7 @@ function createLlmsTxtResponse(request: Request, options: RuntimeOptions): Promi
       request,
       formatLlmsTxt({
         projectName: website.projectName,
-        pages: website.pages,
+        pages: website.localizations[0].pages,
         layouts: (website.app?.getLayouts() ?? []).map(({ _internal }) => _internal),
         url: absoluteUrl(request, options),
       }),
@@ -347,29 +383,47 @@ function llmsTxtLinkHeader(options: RuntimeOptions): string {
   return `<${withRuntimeBasePath(RUNTIME_ROUTE_PATHS["llms-txt"], options.runtimeBasePath)}>; rel="llms-txt"`;
 }
 
+/**
+ * One sitemap for every locale: each localization of a page once, with the page's alternates as
+ * `xhtml:link`s, as its `hreflang` links list them.
+ */
 function createSitemapResponse(request: Request, options: RuntimeOptions): Promise<Response> {
-  return respondWithLiveWebsite(options, "sitemap", (website) => {
-    const url = absoluteUrl(request, options);
-    const entries = website.pages
-      .map(({ fullPath, updatedAt }) => {
-        const lastmod =
-          updatedAt == null
-            ? ""
-            : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
-        return `  <url>
-    <loc>${escapeXml(url(fullPath))}</loc>${lastmod}
+  return respondWithLiveWebsite(
+    options,
+    "sitemap",
+    (website) => {
+      const url = absoluteUrl(request, options);
+      const alternates = alternatesByPage(website.localizations);
+      const entries = website.localizations
+        .flatMap(({ locale, pages }) =>
+          pages.map(({ key, fullPath, updatedAt }) => {
+            const lastmod =
+              updatedAt == null
+                ? ""
+                : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
+            const links = hreflangLinks(alternates.get(key) ?? [], website.locales, url)
+              .map(
+                ({ hreflang, href }) =>
+                  `\n    <xhtml:link rel="alternate" hreflang="${escapeXml(hreflang)}" href="${escapeXml(href)}"/>`,
+              )
+              .join("");
+            return `  <url>
+    <loc>${escapeXml(url(localizedPath(fullPath, locale)))}</loc>${lastmod}${links}
   </url>`;
-      })
-      .join("\n");
+          }),
+        )
+        .join("\n");
 
-    return new Response(
-      `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      return new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
 ${entries}
 </urlset>`,
-      { headers: { "Content-Type": "application/xml; charset=utf-8" } },
-    );
-  });
+        { headers: { "Content-Type": "application/xml; charset=utf-8" } },
+      );
+    },
+    { everyLocale: true },
+  );
 }
 
 /** The request's member project, if its session is valid. Without an API, nobody is a member. */
@@ -488,10 +542,12 @@ export function createPageHeadInput(head: {
       pageLinks.push({ rel: "icon", href: entry.href, "data-camox-page-head": "true" });
       continue;
     }
-    if (entry.rel === "alternate" && entry.type) {
+    // Another locale's version of the page (`hreflang`), or another format of it (`type`).
+    if (entry.rel === "alternate" && (entry.hreflang || entry.type)) {
       pageLinks.push({
         rel: "alternate",
-        type: entry.type,
+        ...(entry.hreflang && { hreflang: entry.hreflang }),
+        ...(entry.type && { type: entry.type }),
         href: entry.href,
         "data-camox-page-head": "true",
       });
@@ -616,6 +672,72 @@ function isPreviewHandoff(request: Request, options: RuntimeOptions): boolean {
   );
 }
 
+/** Who reads a page's alternates, in the scope its page was read in. */
+interface AlternatesReading {
+  /** The editor's session, which only draft reads carry. */
+  authCookieHeader?: string;
+  /** The draft the page was read in. Without it, Live. */
+  draftId?: string;
+}
+
+/**
+ * The alternates of the page a request renders, where it exists in each of the scope's locales,
+ * and its head with their `hreflang` links. Without a head, there is none to add them to.
+ */
+async function readAlternates<Head extends PageHead | null>(
+  request: Request,
+  options: RuntimeOptions,
+  {
+    located,
+    identity,
+    head,
+    ...reading
+  }: AlternatesReading & { located: RequestLocale; identity: PageIdentity; head: Head },
+): Promise<{ alternates: AlternatePath[]; head: Head }> {
+  const alternates = await findRequestAlternates(options, located, identity, reading);
+  const links = hreflangLinks(alternates, located.locales, absoluteUrl(request, options));
+  return { alternates, head: (head && withHreflangs(head, links)) as Head };
+}
+
+/** Where the page a request renders exists in each of the scope's locales: itself alone in one. */
+async function findRequestAlternates(
+  options: RuntimeOptions,
+  located: RequestLocale,
+  identity: PageIdentity,
+  { authCookieHeader, draftId }: AlternatesReading,
+): Promise<AlternatePath[]> {
+  const { apiUrl, projectSlug } = options;
+  const here = [{ locale: located.locale.tag, path: localizedPath(located.path, located.locale) }];
+  if (!apiUrl || !projectSlug || located.locales.length < 2) return here;
+  const app = await options.getCamoxApp?.();
+  const reading = { authCookieHeader: draftId ? authCookieHeader : undefined, draftId };
+  return findAlternates({
+    identity,
+    located,
+    layouts: app?.getLayouts() ?? [],
+    reads: {
+      pages: async (locale) =>
+        (
+          await createServerApiClient(apiUrl, { ...reading, locale }).pages.listBySlug({
+            projectSlug,
+          })
+        ).pages,
+      context: (locale) =>
+        createLayoutRequestContext(options, draftId ? "draft" : "live", { ...reading, locale }),
+    },
+  });
+}
+
+/** A page's head with its alternates' `hreflang` links. */
+function withHreflangs(
+  head: PageHead,
+  hreflangs: ReadonlyArray<{ hreflang: string; href: string }>,
+): PageHead {
+  if (!hreflangs.length) return head;
+  const links = hreflangs.map((link) => ({ rel: "alternate", ...link }));
+  return { ...head, links: [...(head.links ?? []), ...links] };
+}
+
 /**
  * The sign-in page a preview link opens on. No page, project or locale lookup yet: the browser
  * authenticates first, then loads the page again.
@@ -710,7 +832,13 @@ async function createPageHtmlResponse({
 
     const camoxApp = await options.getCamoxApp?.();
     const document = (await options.getDocument?.()) ?? {};
-    const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {};
+    const { alternates, head } = await readAlternates(request, options, {
+      located,
+      identity: { kind: "curated", pageId: result.data.page.page.id },
+      head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {},
+      authCookieHeader: getServerAuthCookieHeader(request.headers),
+      draftId: result.draftId,
+    });
     const dehydratedState = dehydrate(queryClient);
     const { project } = result;
     const studio = project !== undefined;
@@ -720,6 +848,7 @@ async function createPageHtmlResponse({
       result.data.page.project,
     );
     const pageRenderInput = {
+      alternates,
       project,
       presentation: studio ? "studio" : "public",
       ...(analytics && { analytics }),
@@ -841,15 +970,19 @@ function isValidCollectionItem(app: CamoxApp | undefined, result: Record<string,
   );
 }
 
-/** Runs a code-owned page's loader. The envelope survives SSR, navigation and hydration. */
+/**
+ * Runs a code-owned page's loader in the page's locale. The envelope survives SSR, navigation and
+ * hydration, and its data renders as returned: Camox never translates it.
+ */
 async function loadLayoutResult(
   app: CamoxApp | undefined,
   match: DerivedMatch,
   context: LayoutRequestContext,
+  locale: LocaleView,
 ): Promise<AnyLayoutLoaderResult | undefined> {
   const { loader, id } = match.layout._internal;
   if (!loader) return undefined;
-  const result = await loader({ params: match.params, context });
+  const result = await loader({ params: match.params, context, locale: locale.tag });
   // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
   const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
   const record = asCollectionItem(serializedResult);
@@ -886,6 +1019,7 @@ async function createLayoutMarkdownResponse(
       app,
       match,
       createLayoutRequestContext(options, "live", { locale }),
+      locale,
     );
     const record = asCollectionItem(result);
     const collection = record && app?.getCollectionById(record.collectionId);
@@ -977,6 +1111,7 @@ async function createDerivedResponse(
           draftId,
           locale: located.locale,
         }),
+        located.locale,
       );
     // In a draft, the layout read settles which draft the page shows, so the loader then reads
     // records from that draft, or from Live when the draft was refused.
@@ -1009,28 +1144,38 @@ async function createDerivedResponse(
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
-    const pageHead = buildPageHead({
-      layout: match.layout._internal,
-      pageMetaTitle: match.layout._internal.title,
-      pageMetaDescription: undefined,
-      data: serializedResult?.data,
-      // A record page's meta callbacks also get its fields as plain text.
-      item:
-        record && recordCollection
-          ? recordPlainText(recordCollection, record.data.content)
-          : undefined,
-      params: match.params,
-      projectName: shared.projectName,
-      pageFullPath: pathname,
-      origin: new URL(request.url).origin,
-      faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
-      hasMarkdown: match.layout._internal.toMarkdown !== undefined,
+    const { alternates, head: pageHead } = await readAlternates(request, options, {
+      located,
+      identity:
+        record && match.layout._internal.kind === "derived"
+          ? { kind: "record", layout: match.layout, recordId: record.data.id }
+          : { kind: "code-owned" },
+      head: buildPageHead({
+        layout: match.layout._internal,
+        pageMetaTitle: match.layout._internal.title,
+        pageMetaDescription: undefined,
+        data: serializedResult?.data,
+        // A record page's meta callbacks also get its fields as plain text.
+        item:
+          record && recordCollection
+            ? recordPlainText(recordCollection, record.data.content)
+            : undefined,
+        params: match.params,
+        projectName: shared.projectName,
+        pageFullPath: pathname,
+        origin: new URL(request.url).origin,
+        faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
+        hasMarkdown: match.layout._internal.toMarkdown !== undefined,
+      }),
+      authCookieHeader,
+      draftId: read.draftId,
     });
     // The data route only serves navigation, which never loads the scripts.
     const analytics = dataOnly
       ? undefined
       : visitorAnalytics(options, { studio, draftId: read.draftId }, shared.project);
     const input: PageRenderInput = {
+      alternates,
       project,
       presentation: studio ? "studio" : "public",
       ...(analytics && { analytics }),
@@ -1318,9 +1463,16 @@ async function createPageDataResponse({
     }
 
     const camoxApp = await options.getCamoxApp?.();
-    const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null;
+    const { alternates, head } = await readAlternates(request, options, {
+      located,
+      identity: { kind: "curated", pageId: result.data.page.page.id },
+      head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null,
+      authCookieHeader: getServerAuthCookieHeader(request.headers),
+      draftId: result.draftId,
+    });
     const dehydratedState = dehydrate(queryClient);
     const input: PageRenderInput = {
+      alternates,
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl ?? "",
       projectSlug: options.projectSlug,

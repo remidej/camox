@@ -192,6 +192,10 @@ _Avoid_: Source language, primary language, main locale
 A content entity's copy in one locale, linked to its original in the default locale: a page, a block (including layout blocks and synced blocks' shared content), a repeatable item, or a collection record. It may diverge from its original wherever someone changed it on purpose.
 _Avoid_: Translation, variant, localized page
 
+**Alternate**:
+A page as it exists in one locale, at its path under that locale's prefix. A page's alternates list every locale it exists in, its own included, and leave out locales it was removed from. The `hreflang` links, the sitemap and a locale switcher all come from them.
+_Avoid_: Translation, language version, hreflang
+
 **Bookkeeping**:
 A localization's invisible record of the source it was last translated from and what Camox wrote from that source. Comparing it with the source and the localization now tells a source change from a hand edit. Writing it is never a change or a conflict.
 _Avoid_: Translation memory, sync state, baseline

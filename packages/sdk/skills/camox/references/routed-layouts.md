@@ -49,7 +49,7 @@ function PokedexPage() {
 }
 ```
 
-- `loader` is optional. Return `{ kind: "data", data }`, synchronously or asynchronously. `layout.useData()` infers and returns the unwrapped `data`, not the envelope. It runs server-side for document requests and client navigation; the entire envelope travels through JSON to hydration. Keep data JSON-serializable (no functions, symbols, BigInt, or cyclic objects). Without a loader, `useData()` returns `undefined`.
+- `loader` is optional. Return `{ kind: "data", data }`, synchronously or asynchronously. `layout.useData()` infers and returns the unwrapped `data`, not the envelope. It runs server-side for document requests and client navigation; the entire envelope travels through JSON to hydration. Keep data JSON-serializable (no functions, symbols, BigInt, or cyclic objects). Without a loader, `useData()` returns `undefined`. The loader also receives `locale`, the page's locale tag; Camox renders its data untranslated (see [Localization](localization.md#loaders)).
 - Before/after blocks must be `layoutOnly: true`. Put editable headings, introductions, and other bespoke content in these blocks; keep structural application UI in the component. See [Block Definitions](block-definitions.md).
 - For a navbar or footer whose content must stay identical across different layouts, also set `synced: true` in its `createBlock` options. `layoutOnly: true` alone only restricts placement. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional) for sharing behavior.
 - No `children` slot or `blocks.initial`: editors do not compose or create these pages.
