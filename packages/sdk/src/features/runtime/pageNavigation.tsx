@@ -7,8 +7,11 @@ import type { CamoxApp } from "../../core/createApp";
 import { draftNamedBy, DraftScopeContext } from "../../lib/draft-scope";
 import type { LocaleView } from "../../lib/locale-path";
 import { reads } from "../../lib/studio-reads";
-import { type ViewLocale, ViewLocaleContext } from "../../lib/view-locale";
-import { PageAlternatesContext } from "../../lib/view-locale-context";
+import {
+  PageAlternatesContext,
+  type ViewLocale,
+  ViewLocaleContext,
+} from "../../lib/view-locale-context";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { sendPageView } from "./analytics";
 import { createPrefetchCache, listenForLinkIntent } from "./linkPrefetch";
@@ -50,6 +53,15 @@ function preserveStableLayoutBlockCaches(
 
 function sameLocale(a: LocaleView, b: LocaleView) {
   return a.tag === b.tag && a.isDefault === b.isDefault;
+}
+
+/**
+ * `value`, kept while it says the same: each render's response is new JSON, which would otherwise
+ * give every consumer a new value.
+ */
+function useSameJson<T>(value: T): T {
+  const json = JSON.stringify(value);
+  return React.useMemo(() => JSON.parse(json) as T, [json]);
 }
 
 function prefetchKey(pathname: string, draft: string | null) {
@@ -430,14 +442,8 @@ export function PageNavigationProvider({
   }, [navigate, initialInput.runtimeBasePath, requests]);
 
   const url = new URL(input.href);
-  // Each render's response is new JSON: keep the value while it says the same.
-  const viewLocaleJson = JSON.stringify({ locale: input.locale, locales: input.locales });
-  const viewLocale = React.useMemo<ViewLocale>(() => JSON.parse(viewLocaleJson), [viewLocaleJson]);
-  const alternatesJson = JSON.stringify(input.alternates ?? null);
-  const alternates = React.useMemo(
-    () => JSON.parse(alternatesJson) as PageRenderInput["alternates"] | null,
-    [alternatesJson],
-  );
+  const viewLocale = useSameJson<ViewLocale>({ locale: input.locale, locales: input.locales });
+  const alternates = useSameJson(input.alternates ?? null);
   return (
     <NavigationProvider
       location={{
@@ -450,7 +456,7 @@ export function PageNavigationProvider({
       navigate={navigate}
     >
       <ViewLocaleContext value={viewLocale}>
-        <PageAlternatesContext value={alternates ?? null}>
+        <PageAlternatesContext value={alternates}>
           <PageViewportContext value={pageViewport}>
             <React.Fragment key={generation}>{children(input)}</React.Fragment>
           </PageViewportContext>

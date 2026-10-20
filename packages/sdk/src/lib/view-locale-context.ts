@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { type LocaleView, type PageAlternate, UNNAMED_DEFAULT_LOCALE } from "./locale-path";
+import { type LocaleView, type AlternatePath, UNNAMED_DEFAULT_LOCALE } from "./locale-path";
 
 /**
  * The locale a render shows and the locales of the scope it reads, as the page runtime rendered
@@ -15,7 +15,7 @@ export const ViewLocaleContext = React.createContext<ViewLocale | null>(null);
  * The page a render shows in every locale it exists in, as the page runtime found it. Null where
  * the render shows no page.
  */
-export const PageAlternatesContext = React.createContext<readonly PageAlternate[] | null>(null);
+export const PageAlternatesContext = React.createContext<readonly AlternatePath[] | null>(null);
 
 /** The view of a studio mounted outside the page runtime: the default locale alone. */
 const DEFAULT_VIEW: ViewLocale = {

@@ -23,8 +23,12 @@ export function localeHeaders(locale: LocaleView | undefined): Record<string, st
   return locale && !locale.isDefault ? { [LOCALE_HEADER]: locale.tag } : {};
 }
 
-/** A page in one locale: the locale's tag and the page's path there, under the locale's prefix. */
-export interface PageAlternate {
+/**
+ * Where a page sits in one locale it exists in: the locale's tag and the page's path there, under
+ * the locale's prefix. The runtime finds them for `hreflang` links and the sitemap; the
+ * alternates hook turns each into an `Alternate` a switcher links to.
+ */
+export interface AlternatePath {
   locale: string;
   /** The page's runtime path, with its locale's prefix and without the runtime base path. */
   path: string;
@@ -32,6 +36,14 @@ export interface PageAlternate {
 
 /** A runtime path split into the locale it names and the locale-relative path after its prefix. */
 export type LocalePath = { locale: LocaleView; path: string };
+
+/**
+ * A request's path in its locale: the locales of the scope it reads, the locale its path's
+ * prefix names, and the locale-relative path after the prefix.
+ */
+export interface RequestLocale extends LocalePath {
+  locales: LocaleView[];
+}
 
 /** A locale's URL prefix: its tag in lowercase. The default locale has none. */
 export function localePrefix(locale: LocaleView): string {

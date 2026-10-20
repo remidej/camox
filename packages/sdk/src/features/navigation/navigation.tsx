@@ -242,7 +242,10 @@ const Link: React.ForwardRefExoticComponent<LinkProps & React.RefAttributes<HTML
     );
   });
 
-/** A page in one locale, as a language switcher links to it. */
+/**
+ * A page in one locale, as a locale switcher links to it: the runtime's `AlternatePath`, its path
+ * as `href`, labelled with the locale's name.
+ */
 export interface Alternate {
   /** The locale's tag, such as `de` or `pt-BR`. */
   locale: string;
@@ -267,7 +270,7 @@ function nativeLocaleName(tag: string): string {
 }
 
 /**
- * The current page in every locale it exists in, the current one included, to build a language
+ * The current page in every locale it exists in, the current one included, to build a locale
  * switcher from. A locale the page was removed from isn't listed.
  */
 function useAlternates(): Alternate[] {
@@ -287,7 +290,7 @@ function useAlternates(): Alternate[] {
 
 /**
  * Keeps internal links in the current locale: the returned function adds the locale's prefix to
- * a root-relative path (`/articles` is `/de/articles` on a German page). Anything else, such as
+ * a root-relative path (`/articles` is `/de/articles` on a `de` page). Anything else, such as
  * `https://…`, `//…`, `#…` or `mailto:…`, is returned as is. Write paths without a prefix.
  */
 function useLocalizedHref(): (href: string) => string {

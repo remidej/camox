@@ -7,10 +7,13 @@ import type { Layout } from "../../core/createLayout";
 import { discoverLayoutPages } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
 import type { LayoutRequestContext } from "../../core/requestContext";
-import { localizedPath, type LocaleView, type PageAlternate } from "../../lib/locale-path";
+import {
+  type AlternatePath,
+  localizedPath,
+  type LocaleView,
+  type RequestLocale,
+} from "../../lib/locale-path";
 import type { ListedPage, LivePage } from "./livePages";
-
-export type { PageAlternate } from "../../lib/locale-path";
 
 /**
  * Which page a render shows, whatever its locale: a curated page by its id, a record page by its
@@ -30,25 +33,21 @@ export interface LocaleReads {
 }
 
 /**
- * The locales a page exists in, in the order of `locales`, with its path in each. `path` is its
- * locale-relative path in the locale rendered. A locale that can't be read leaves the page out of
- * it rather than failing the render.
+ * The locales a page exists in, in the order of the scope's locales, with its path in each.
+ * `located` is where the render found it. A locale that can't be read leaves the page out of it
+ * rather than failing the render.
  */
 export async function findAlternates({
   identity,
-  locale,
-  locales,
-  path,
+  located: { locale, locales, path },
   layouts,
   reads,
 }: {
   identity: PageIdentity;
-  locale: LocaleView;
-  locales: readonly LocaleView[];
-  path: string;
+  located: RequestLocale;
   layouts: readonly Layout[];
   reads: LocaleReads;
-}): Promise<PageAlternate[]> {
+}): Promise<AlternatePath[]> {
   const pathIn = async (other: LocaleView): Promise<string | undefined> => {
     if (other.tag === locale.tag) return path;
     // Route patterns aren't localized: a code-owned page has the same path in every locale.
@@ -80,8 +79,8 @@ export async function findAlternates({
 /** Each page's alternates by its key, from the pages of every locale. */
 export function alternatesByPage(
   localizations: ReadonlyArray<{ locale: LocaleView; pages: readonly LivePage[] }>,
-): Map<string, PageAlternate[]> {
-  const alternates = new Map<string, PageAlternate[]>();
+): Map<string, AlternatePath[]> {
+  const alternates = new Map<string, AlternatePath[]>();
   for (const { locale, pages } of localizations)
     for (const { key, fullPath } of pages) {
       const found = alternates.get(key) ?? [];
@@ -96,7 +95,7 @@ export function alternatesByPage(
  * when it exists. None for a project with a single locale: there is nothing to tell apart.
  */
 export function hreflangLinks(
-  alternates: readonly PageAlternate[],
+  alternates: readonly AlternatePath[],
   locales: readonly LocaleView[],
   url: (path: string) => string,
 ): Array<{ hreflang: string; href: string }> {
