@@ -85,6 +85,9 @@ export class Thread extends DurableObject<Bindings> {
 
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
+      // PiHarness opens Pi again after a failed open or `dispose()`. Installing an extension
+      // replaces the one of the same name, so a second run leaves the registry as the first did.
+      //
       // The model is only offered code mode: content tools are for its scripts, which run in
       // the sandbox Worker's object for this thread and can't call a model (ADR 0018).
       this.#registry.install(
@@ -151,11 +154,24 @@ export class Thread extends DurableObject<Bindings> {
       connection.close(1008, "Unauthorized");
       return;
     }
-    connection.setState(sender.data);
-    // A thread's project and owner never change, so the first connection records them.
-    if (!(await this.ctx.storage.get(IDENTITY_KEY))) {
+    // A thread's project and owner never change, so the first connection records them. A Live
+    // thread only ever reaches its owner, so a connection naming someone else is refused.
+    // (#409 makes a run act as the editor whose message started it.)
+    const known = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
+    if (!known.success) {
       await this.ctx.storage.put(IDENTITY_KEY, identity.data);
+    } else if (
+      known.data.projectId !== identity.data.projectId ||
+      known.data.ownerId !== identity.data.ownerId
+    ) {
+      console.error("A thread refused a connection naming another project or owner", {
+        known: known.data,
+        named: identity.data,
+      });
+      connection.close(1008, "Unauthorized");
+      return;
     }
+    connection.setState(sender.data);
     await this.#watch(connection);
   }
 

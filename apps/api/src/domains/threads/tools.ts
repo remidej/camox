@@ -1,11 +1,12 @@
 import {
   type ToolContext,
   type ToolDefinition,
+  type ToolSurface,
   formatToolError,
   resolveTools,
   toolProviders,
 } from "@camox/ai-tools";
-import type { ToolRegistration } from "@earendil-works/pi-durable";
+import type { ToolExecutionResult, ToolRegistration } from "@earendil-works/pi-durable";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -17,10 +18,12 @@ import type { Bindings } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import { dispatchTool, type ToolExecutionResponse } from "../agent/service";
 
-/** Who a thread's tool calls act as, in which project. */
-export type ThreadIdentity = { projectId: number; ownerId: string };
+/** Threads offer the tools of Camox's own agent in the studio. */
+const SURFACE: ToolSurface = "studio-agent";
 
+/** Who a thread's tool calls act as, in which project. */
 export const threadIdentitySchema = z.object({ projectId: z.number(), ownerId: z.string() });
+export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
 
 /** Runs one of the studio agent's tools by name, as a thread's tool calls do. */
 export type ToolDispatch = (name: string, args: unknown) => Promise<ToolExecutionResponse>;
@@ -50,7 +53,7 @@ export function threadToolDispatch(
       draft: null,
     };
     return Effect.runPromise(
-      dispatchTool(ctx, { projectId, surface: "studio-agent", name, args }).pipe(
+      dispatchTool(ctx, { projectId, surface: SURFACE, name, args }).pipe(
         Effect.catch((error) =>
           Effect.succeed<ToolExecutionResponse>({
             ok: false,
@@ -65,9 +68,9 @@ export function threadToolDispatch(
 /**
  * One of the studio agent's tools as a Pi tool that only code mode scripts call (ADR 0018): its
  * Zod input and output as JSON Schema, which Pi turns into the scripts' TypeScript declarations.
- * Calls go through the tool dispatch, so Zod stays the authority on inputs, and a failure reaches
- * the script as its structured error. Reads are replay-safe: rerunning one after an eviction
- * changes nothing.
+ * Calls run through `dispatch`, where `dispatchTool` checks membership and Zod validates inputs,
+ * and a failure reaches the script as its structured error. Reads are replay-safe: rerunning one
+ * after an eviction changes nothing.
  */
 export function toPiTool(tool: ToolDefinition, dispatch: ToolDispatch): ToolRegistration {
   return {
@@ -85,7 +88,8 @@ export function toPiTool(tool: ToolDefinition, dispatch: ToolDispatch): ToolRegi
       if (!response.ok) {
         return { output: [{ type: "text", text: JSON.stringify(response.error) }], isError: true };
       }
-      const result = JSON.parse(JSON.stringify(response.result ?? null));
+      // The result matched the tool's output schema, which is JSON Schema, so it's JSON already.
+      const result = (response.result ?? null) as ToolExecutionResult["structuredOutput"];
       return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: result };
     },
   };
@@ -98,7 +102,9 @@ const jsonSchemaOf = (schema: z.ZodType, io: "input" | "output") => {
 
 /** The tools the studio agent's scripts call. It only reads for now. */
 export async function studioAgentTools(dispatch: ToolDispatch): Promise<ToolRegistration[]> {
-  // Providers only read their context when a tool runs, so their declarations resolve without one.
-  const tools = await resolveTools(toolProviders, {} as ToolContext, "studio-agent");
+  // Only the declarations are read here: providers close over their context in handlers alone,
+  // and these handlers never run, as `dispatch` resolves the tools again with the real context.
+  const declarationsOnly = {} as ToolContext;
+  const tools = await resolveTools(toolProviders, declarationsOnly, SURFACE);
   return tools.filter((tool) => tool.meta.kind === "read").map((tool) => toPiTool(tool, dispatch));
 }
