@@ -978,11 +978,11 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
   if (input.settings !== undefined) {
     yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
-  let result: object = {};
-  if (input.content !== undefined) {
+  let result;
+  if (input.settings === undefined) {
     result = yield* writeBlockContent(ctx, granted, input.content);
-  }
-  if (input.settings !== undefined) {
+  } else {
+    if (input.content !== undefined) yield* writeBlockContent(ctx, granted, input.content);
     result = yield* writeBlockSettings(ctx, granted, input.settings);
   }
   return withWarnings(result, artifactWarnings(schemas?.contentSchema, input.content));

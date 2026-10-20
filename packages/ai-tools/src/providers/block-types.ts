@@ -3,7 +3,7 @@ import { z } from "zod";
 import { listBlockDefinitions } from "../../../../apps/api/src/domains/block-definitions/service";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import { rewriteAssetSchema } from "../lib/rewrite-asset-schema";
-import type { ToolDefinition, ToolProvider } from "../types";
+import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 
 const listBlockTypesToolInput = z.object({});
 
@@ -11,8 +11,16 @@ const describeBlockTypesToolInput = z.object({
   types: z.array(z.string()).min(1),
 });
 
+const blockTypeSummary = z.object({
+  type: z.string(),
+  title: z.string(),
+  description: z.string(),
+  layoutOnly: z.boolean(),
+  synced: z.boolean(),
+});
+
 export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
-  {
+  defineTool({
     name: "listBlockTypes",
     description:
       "List the block types available in the current project. Returns a lightweight summary " +
@@ -21,6 +29,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Block types whose `layoutOnly` is true can only appear inside layouts and are not valid for createBlock on a page. " +
       "Editing a `synced` block changes its data across all its placements in the draft.",
     inputSchema: listBlockTypesToolInput,
+    outputSchema: z.array(blockTypeSummary),
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => {
       const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));
@@ -32,8 +41,8 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
         synced: d.synced,
       }));
     },
-  },
-  {
+  }),
+  defineTool({
     name: "describeBlockTypes",
     description:
       "Get the full definition for one or more block types — including `contentSchema` and " +
@@ -41,6 +50,12 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "this right before calling createBlock or editBlock to know what `content` and `settings` " +
       "arguments to construct. Unknown ids are reported in `notFound`.",
     inputSchema: describeBlockTypesToolInput,
+    outputSchema: z.object({
+      blockTypes: z.array(
+        blockTypeSummary.extend({ contentSchema: z.unknown(), settingsSchema: z.unknown() }),
+      ),
+      notFound: z.array(z.string()),
+    }),
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const { types } = describeBlockTypesToolInput.parse(input);
@@ -61,5 +76,5 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const notFound = types.filter((t) => !foundIds.has(t));
       return { blockTypes: found, notFound };
     },
-  },
+  }),
 ];

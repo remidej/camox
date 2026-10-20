@@ -8,7 +8,8 @@ import {
   publishDraft,
 } from "../../../../apps/api/src/domains/drafts/publish";
 import { runService } from "../../../../apps/api/src/lib/run-service";
-import type { ToolDefinition, ToolProvider } from "../types";
+import { endedDraft, publishPreview } from "../lib/outputs";
+import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 
 // Publishing and discarding the session's draft (ADR 0009). The draft always comes from the
 // request context, never from a parameter, so other surfaces can reuse these tools for other
@@ -27,6 +28,23 @@ const publishToolInput = z.object({
 });
 const discardInput = z.object({});
 
+const publishOutput = z.union([
+  z.object({ published: z.literal(true), ended: endedDraft.nullable() }),
+  z.object({ published: z.literal(false), reason: z.literal("empty"), message: z.string() }),
+  z.object({
+    published: z.literal(false),
+    reason: z.literal("discarded"),
+    message: z.string(),
+    ended: endedDraft,
+  }),
+  z.object({
+    published: z.literal(false),
+    reason: z.enum(["conflictsChanged", "blocked", "translating"]),
+    message: z.string(),
+    preview: publishPreview,
+  }),
+]);
+
 const PREVIEW_SHAPE =
   "`blockers` are problems to fix in the draft before it can be published, including " +
   "definitions that differ from Live's in a development draft, which only a release can ship " +
@@ -41,7 +59,7 @@ const PREVIEW_SHAPE =
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
 
 export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
-  {
+  defineTool({
     name: "previewPublish",
     description:
       "List what publishing the current draft to Live would do, without publishing. Returns " +
@@ -49,10 +67,11 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       PREVIEW_SHAPE +
       " Show this list to the user, then pass the token to publishDraft once they confirm.",
     inputSchema: previewInput,
+    outputSchema: publishPreview,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
-  },
-  {
+  }),
+  defineTool({
     name: "publishDraft",
     description:
       "Publish the whole current draft to Live, replacing Live's version of everything it " +
@@ -72,6 +91,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "nothing is published and it returns `{ published: false, reason: 'discarded', message, " +
       "ended }`.",
     inputSchema: publishToolInput,
+    outputSchema: publishOutput,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const { token, publishAnyway } = publishToolInput.parse(input);
@@ -98,15 +118,16 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
         ),
       );
     },
-  },
-  {
+  }),
+  defineTool({
     name: "discardDraft",
     description:
       "Discard every change in the current draft without publishing it. A development draft " +
       "stays open, emptied; any other draft ends. Live is untouched. This can't be undone, so " +
       "only discard when the user asks to. Returns `{ ended }`, null for a development draft.",
     inputSchema: discardInput,
+    outputSchema: z.object({ ended: endedDraft.nullable() }),
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async () => runService(discardDraft(ctx, { projectId: ctx.projectId })),
-  },
+  }),
 ];
