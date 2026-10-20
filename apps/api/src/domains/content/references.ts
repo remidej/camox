@@ -9,8 +9,7 @@ import { type Field, fieldsOf, isAsset, pointersOf, type ReferenceQuery } from "
 import { type ContentScope, recordsOf } from "../collections/identity";
 import { collectionRecords } from "../collections/schema";
 import type { FileView } from "../files/generated-metadata";
-import { defaultLocaleTag } from "../locales/default-locale";
-import { INITIAL_LOCALE } from "../locales/schema";
+import { localeTagOf } from "../locales/default-locale";
 import { selectInChunks } from "./chunks";
 import type { CollectionDefinition, Definitions } from "./definitions";
 import { resolveAssets } from "./files";
@@ -112,8 +111,7 @@ const queryRecordIds = Effect.fn("content.queryRecordIds")(function* (
     const text = row.value === null ? "" : lexicalStateToPlainText(row.value);
     return { id: row.id, key: text === "" ? null : text };
   });
-  const tag = at.draft?.locale ?? (yield* defaultLocaleTag(db, at.projectId)) ?? INITIAL_LOCALE;
-  const textOrder = textOrderIn(tag);
+  const textOrder = textOrderIn(yield* localeTagOf(db, at.draft, at.projectId));
   keyed.sort((a, b) => compareTextKeys(a, b, sign, textOrder));
   return keyed.slice(0, query.limit).map((candidate) => candidate.id);
 });

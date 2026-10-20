@@ -18,6 +18,7 @@ import {
 } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import {
+  type Field,
   fieldOf,
   fieldsOf,
   itemSchemas,
@@ -357,19 +358,16 @@ type ContentPointer = Exclude<Pointer, { to: "file" }>;
  */
 function checkDanglingPointers(
   holders: Holder[],
-  exists: {
-    draft: (key: string) => boolean;
-    live: (key: string) => boolean;
-    excluded: (id: string) => boolean;
-  },
+  exists: { draft: (key: string) => boolean; live: (key: string) => boolean },
+  excludedRecord: (id: string) => boolean,
   found: Findings,
 ) {
   for (const holder of holders) {
     const missingByField = new Map<string, { title: string; missing: ContentPointer[] }>();
     for (const { field, pointer } of pointersIn(holder.schema, holder.content)) {
       if (pointer.to === "file" || exists.draft(keyOf(holder.projectId, pointer))) continue;
-      const required = field.kind === "Reference" && field.required;
-      if (pointer.to === "record" && !required && exists.excluded(pointer.id)) continue;
+      if (pointer.to === "record" && !isRequiredReference(field) && excludedRecord(pointer.id))
+        continue;
       const entry = missingByField.get(field.name) ?? { title: field.title, missing: [] };
       entry.missing.push(pointer);
       missingByField.set(field.name, entry);
@@ -394,6 +392,11 @@ function checkDanglingPointers(
   }
 }
 
+/** A single reference that has to point at a record. */
+function isRequiredReference(field: Field) {
+  return field.kind === "Reference" && field.required;
+}
+
 /**
  * Required references left empty. In content the draft changed they block publishing; on Live
  * they're warnings.
@@ -402,7 +405,7 @@ function checkEmptyRequiredReferences(holders: Holder[], found: Findings) {
   for (const holder of holders) {
     const content = (holder.content ?? {}) as Record<string, unknown>;
     for (const field of fieldsOf(holder.schema)) {
-      if (field.kind !== "Reference" || !field.required) continue;
+      if (!isRequiredReference(field)) continue;
       if (pointersOf(field, content[field.name]).length > 0) continue;
       (holder.changed ? found.blockers : found.warnings).push({
         entity: holder.entity,
@@ -533,11 +536,8 @@ const checkLocale = Effect.fn("drafts.checkLocale")(function* (
   );
   checkDanglingPointers(
     holders,
-    {
-      draft: (key) => inDraft.has(key),
-      live: (key) => onLive.has(key),
-      excluded: (id) => excluded.has(id),
-    },
+    { draft: (key) => inDraft.has(key), live: (key) => onLive.has(key) },
+    (id) => excluded.has(id),
     found,
   );
   checkWrongKinds(holders, found);
