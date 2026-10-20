@@ -7,7 +7,9 @@ import {
   type ThreadView,
 } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
+import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 
 import type { createDb } from "../src/db";
 import { upsertBlockDefinition } from "../src/domains/block-definitions/service";
@@ -15,7 +17,7 @@ import { blockProcedures } from "../src/domains/blocks/routes";
 import { pageProcedures } from "../src/domains/pages/routes";
 import app from "../src/index";
 import { runService } from "../src/lib/run-service";
-import { session } from "../src/schema";
+import { drafts, session } from "../src/schema";
 import {
   callSeedingLive,
   createProjectFixture,
@@ -60,6 +62,28 @@ export const requestLiveThread = (projectId: number, token: string | null) =>
  */
 export const requestDraftThread = (projectId: number, draft: string, token: string | null) =>
   requestThread(`/threads/draft/${projectId}/${draft}`, token);
+
+/**
+ * What a draft's thread keeps in its Durable Object: the tables and keys in its storage, empty
+ * until the thread exists. A draft whose thread nobody reached yet has none.
+ */
+export async function storedThreadOf(db: ReturnType<typeof createDb>, draftId: string) {
+  const draft = await db
+    .select({ threadId: drafts.threadId })
+    .from(drafts)
+    .where(eq(drafts.id, draftId))
+    .get();
+  if (!draft?.threadId) return { tables: [], keys: [] };
+  return runInDurableObject(env.THREAD.getByName(draft.threadId), async (_thread, state) => ({
+    tables: state.storage.sql
+      .exec<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
+      )
+      .toArray()
+      .map(({ name }) => name),
+    keys: [...(await state.storage.list()).keys()],
+  }));
+}
 
 /** A connected thread socket, folding what it receives with the studio's own module. */
 export type ThreadClient = {

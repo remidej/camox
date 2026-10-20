@@ -40,7 +40,7 @@ export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
  * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
  * draft, or on Live.
  */
-export type ThreadActor = { projectId: number; draftId: string | null; userId: string };
+export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & { userId: string };
 
 /** One call of a Pi tool, as Pi hands it to the tool. */
 export type ToolInvocation = {

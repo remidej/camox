@@ -200,15 +200,25 @@ export async function seedLiveThrough<A>(
     inDraft: ServiceContext,
   ) => Effect.Effect<A, ServiceError, ServiceRequirements>,
 ): Promise<A> {
-  const draft = await ctx.db
-    .insert(drafts)
-    .values({ projectId, kind: "regular", createdBy: ctx.user!.id, createdAt: Date.now() })
-    .returning()
-    .get();
-  const scope = draftOf(draft);
-  const result = await runService(run(scope, { ...ctx, draft: { id: draft.id, create: false } }));
-  await publishThrowaway(ctx.db, draft.id);
+  const id = await startDraft(ctx.db, projectId, ctx.user!.id);
+  const scope = draftOf({ id, kind: "regular", projectId });
+  const result = await runService(run(scope, { ...ctx, draft: { id, create: false } }));
+  await publishThrowaway(ctx.db, id);
   return result;
+}
+
+/** Starts a regular draft of `projectId` as `userId`. Returns the draft's id. */
+export async function startDraft(
+  db: ReturnType<typeof createDb>,
+  projectId: number,
+  userId: string,
+) {
+  const draft = await db
+    .insert(drafts)
+    .values({ projectId, kind: "regular", createdBy: userId, createdAt: Date.now() })
+    .returning({ id: drafts.id })
+    .get();
+  return draft.id;
 }
 
 /**

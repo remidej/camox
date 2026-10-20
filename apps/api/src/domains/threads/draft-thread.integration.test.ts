@@ -1,9 +1,16 @@
 import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { addMember, createProjectFixture, openDevelopmentDraft } from "../../../test/fixtures";
+import {
+  addMember,
+  createProjectFixture,
+  openDevelopmentDraft,
+  startDraft,
+} from "../../../test/fixtures";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import {
   answerFrom,
   answerNext,
@@ -16,11 +23,11 @@ import {
   pagesOf,
   requestDraftThread,
   signIn,
+  storedThreadOf,
   type Website,
   websiteFixture,
 } from "../../../test/threads";
-import type { Database } from "../../db";
-import { drafts, member } from "../../schema";
+import { member } from "../../schema";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -32,16 +39,6 @@ afterEach(async () => {
   await abortAllDurableObjects();
   forgetThreadModel();
 });
-
-/** A regular draft of `projectId`, started by `userId`. */
-const startDraft = async (db: Database, projectId: number, userId: string) =>
-  (
-    await db
-      .insert(drafts)
-      .values({ projectId, kind: "regular", createdBy: userId, createdAt: Date.now() })
-      .returning()
-      .get()
-  ).id;
 
 describe("a draft's thread", () => {
   it("is shared by the members in the draft, showing who sent each message", async () => {
@@ -74,6 +71,27 @@ describe("a draft's thread", () => {
       { agent: "Done too." },
     ]);
     expect(theirs.view().messages).toEqual(own.view().messages);
+    own.close();
+    theirs.close();
+  });
+
+  it("only starts once someone messages it, reaching every member who opened the draft", async () => {
+    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
+    const teammate = await addMember(db, project.organizationId);
+    const draftId = await startDraft(db, project.id, memberUser.id);
+    const glance = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+    glance.close();
+    expect(await storedThreadOf(db, draftId)).toEqual({ tables: [], keys: [] });
+
+    answerNext("On it.");
+    const own = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+    const theirs = await connectDraftThread(project.id, draftId, await signIn(db, teammate.id));
+    expect(await storedThreadOf(db, draftId)).toEqual({ tables: [], keys: [] });
+    theirs.send({ type: "send", operationId: crypto.randomUUID(), text: "Rewrite the intro" });
+
+    await own.until(() => own.view().messages.length === 2 && !own.view().working);
+    expect(own.view().messages.map(({ text }) => text)).toEqual(["Rewrite the intro", "On it."]);
+    expect((await storedThreadOf(db, draftId)).tables).not.toEqual([]);
     own.close();
     theirs.close();
   });
@@ -159,6 +177,22 @@ describe("the agent changing content from a draft's thread", () => {
       "/launch": ["<!-- Text -->\nWe launched."],
     });
     expect(await pagesOf(website)).toEqual({ "/pricing": ["<!-- Text -->\nPlans start at $9."] });
+  });
+
+  it("announces a scripted write in the draft to the project's realtime room", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { draftId, thread } = await openDraftThread(website);
+    forgetSent(website.project.id);
+    answerWithScript(`
+      const { page } = await tools.createPage({ pathSegment: "launch", layoutId: "default" });
+      text(page.fullPath);
+    `);
+    answerFrom(({ scriptOutput }) => `Created ${scriptOutput}.`);
+
+    await ask(thread, "Add a launch page");
+
+    expect(refreshes(sentTo(website.project.id), draftId, queryKeys.pages.list)).toBe(true);
+    expect(refreshes(sentTo(website.project.id), null, queryKeys.pages.list)).toBe(false);
   });
 
   it("can't publish or discard the draft from a script", async () => {
@@ -261,6 +295,7 @@ describe("a development draft's thread", () => {
 
     expect(byId.status).toBe(403);
     expect(byId.webSocket).toBeNull();
+    expect(byName.status).toBe(404);
     expect(byName.webSocket).toBeNull();
   });
 });
