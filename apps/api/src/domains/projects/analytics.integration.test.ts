@@ -17,8 +17,18 @@ async function fixture() {
       { id: base.project.id, ga4: measurementId === null ? null : { measurementId } },
       as(user),
     );
+  const setPosthog = (
+    posthog: { projectApiKey: string; region: string } | null,
+    user = base.memberUser,
+  ) =>
+    call(
+      router.projects.updateAnalytics,
+      // Typed loosely on purpose, so tests can send what the API must reject.
+      { id: base.project.id, posthog: posthog as never },
+      as(user),
+    );
   const memberRead = () => call(router.projects.get, { id: base.project.id }, as(base.memberUser));
-  return { ...base, as, setGa4, memberRead };
+  return { ...base, as, setGa4, setPosthog, memberRead };
 }
 
 describe("Analytics providers", () => {
@@ -38,6 +48,64 @@ describe("Analytics providers", () => {
 
     await f.setGa4(null);
     expect((await f.memberRead()).analytics.ga4).toBeNull();
+  });
+
+  it("a member adds, changes and removes a PostHog key and region", async () => {
+    const f = await fixture();
+    expect((await f.memberRead()).analytics.posthog).toBeNull();
+
+    await f.setPosthog({ projectApiKey: "phc_abc123", region: "us" });
+    expect((await f.memberRead()).analytics.posthog).toEqual({
+      projectApiKey: "phc_abc123",
+      region: "us",
+    });
+
+    await f.setPosthog({ projectApiKey: "phc_other456", region: "eu" });
+    expect((await f.memberRead()).analytics.posthog).toEqual({
+      projectApiKey: "phc_other456",
+      region: "eu",
+    });
+
+    await f.setPosthog(null);
+    expect((await f.memberRead()).analytics.posthog).toBeNull();
+  });
+
+  it("GA4 and PostHog are set at the same time, and changing one leaves the other", async () => {
+    const f = await fixture();
+    await f.setGa4("G-ABC123XYZ9");
+    await f.setPosthog({ projectApiKey: "phc_abc123", region: "eu" });
+    expect((await f.memberRead()).analytics).toEqual({
+      ga4: { measurementId: "G-ABC123XYZ9" },
+      posthog: { projectApiKey: "phc_abc123", region: "eu" },
+    });
+
+    await f.setGa4(null);
+    expect((await f.memberRead()).analytics).toEqual({
+      ga4: null,
+      posthog: { projectApiKey: "phc_abc123", region: "eu" },
+    });
+  });
+
+  it("rejects a PostHog key without the phc_ prefix, and regions other than US or EU", async () => {
+    const f = await fixture();
+    for (const posthog of [
+      // A personal API key, which must never reach a public page.
+      { projectApiKey: "phx_abc123", region: "us" },
+      { projectApiKey: "abc123", region: "us" },
+      { projectApiKey: "phc_", region: "us" },
+      { projectApiKey: "PHC_abc123", region: "us" },
+      { projectApiKey: " phc_abc123", region: "us" },
+      { projectApiKey: "phc_abc 123", region: "us" },
+      { projectApiKey: "phc_abc123<script>", region: "us" },
+      { projectApiKey: "phc_abc123", region: "" },
+      { projectApiKey: "phc_abc123", region: "US" },
+      { projectApiKey: "phc_abc123", region: "asia" },
+    ]) {
+      await expect(f.setPosthog(posthog), JSON.stringify(posthog)).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+    }
+    expect((await f.memberRead()).analytics.posthog).toBeNull();
   });
 
   it("changing a provider bumps the project's updated time", async () => {
@@ -76,9 +144,28 @@ describe("Analytics providers", () => {
       code: "FORBIDDEN",
     });
     await expect(
+      f.setPosthog({ projectApiKey: "phc_abc123", region: "us" }, f.outsiderUser),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
       call(router.projects.get, { id: f.project.id }, f.as(f.outsiderUser)),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect((await f.memberRead()).analytics.ga4).toBeNull();
+    expect((await f.memberRead()).analytics).toEqual({ ga4: null, posthog: null });
+  });
+
+  it("forbids someone outside the project's organization from removing a provider", async () => {
+    const f = await fixture();
+    const providers = {
+      ga4: { measurementId: "G-ABC123XYZ9" },
+      posthog: { projectApiKey: "phc_abc123", region: "us" },
+    };
+    await f.setGa4(providers.ga4.measurementId);
+    await f.setPosthog(providers.posthog);
+
+    await expect(f.setGa4(null, f.outsiderUser)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(f.setPosthog(null, f.outsiderUser)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect((await f.memberRead()).analytics).toEqual(providers);
   });
 
   it("the public page data carries the providers, the same in every draft as on Live", async () => {
@@ -96,6 +183,11 @@ describe("Analytics providers", () => {
       f.as(f.memberUser, { [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" }),
     );
     await f.setGa4("G-ABC123XYZ9");
+    await f.setPosthog({ projectApiKey: "phc_abc123", region: "eu" });
+    const providers = {
+      ga4: { measurementId: "G-ABC123XYZ9" },
+      posthog: { projectApiKey: "phc_abc123", region: "eu" },
+    };
 
     const input = { projectSlug: f.project.slug, path: "/" };
     const reads = [
@@ -105,14 +197,14 @@ describe("Analytics providers", () => {
     for (const [reader, options] of reads) {
       for (const read of [router.pages.getByPath, router.pages.getStructure]) {
         const { project } = await call(read, input, options);
-        expect(project.analytics, reader).toEqual({ ga4: { measurementId: "G-ABC123XYZ9" } });
+        expect(project.analytics, reader).toEqual(providers);
       }
       const { project } = await call(
         router.layouts.get,
         { projectSlug: f.project.slug, layoutId: f.layout.layoutId },
         options,
       );
-      expect(project.analytics, reader).toEqual({ ga4: { measurementId: "G-ABC123XYZ9" } });
+      expect(project.analytics, reader).toEqual(providers);
     }
   });
 });

@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import vm from "node:vm";
 
+import type { AnalyticsProviders } from "./analytics";
 import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
 const MEASUREMENT_ID = "G-TEST123";
+const POSTHOG_KEY = "phc_test123";
+
+const BOTH: AnalyticsProviders = {
+  ga4: { measurementId: MEASUREMENT_ID },
+  posthog: { projectApiKey: POSTHOG_KEY, region: "eu" },
+};
 
 const unauthorized = () =>
   Response.json(
@@ -20,7 +27,7 @@ const unauthorized = () =>
  */
 function mockApi(
   t: { mock: { method: typeof test.mock.method } },
-  analytics: { ga4: { measurementId: string } | null } = { ga4: { measurementId: MEASUREMENT_ID } },
+  analytics: AnalyticsProviders = BOTH,
 ) {
   const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1, analytics };
   t.mock.method(globalThis, "fetch", async (request: Request) => {
@@ -134,18 +141,43 @@ function externalScripts(html: string) {
   }));
 }
 
-/** The commands the document's inline scripts queue for gtag.js, run as a browser would. */
-function gtagCommands(html: string) {
-  const context = vm.createContext({ Date }) as { window?: unknown; dataLayer?: unknown[] };
+/** Out of the scripts' realm, so they compare as plain values. */
+const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) as T;
+
+/**
+ * Runs the document's inline scripts as a browser would, and reports what they asked of each
+ * provider: the commands queued for gtag.js, the calls queued for PostHog, and the scripts they
+ * added to the page.
+ */
+function runInlineScripts(html: string) {
+  const addedScripts: { src: string; async: boolean }[] = [];
+  const document = {
+    createElement: () => ({}),
+    getElementsByTagName: () => [
+      {
+        parentNode: {
+          insertBefore: (script: { src: string; async: boolean }) => addedScripts.push(script),
+        },
+      },
+    ],
+  };
+  const context = vm.createContext({ Date, document }) as {
+    window?: unknown;
+    dataLayer?: unknown[];
+    posthog?: unknown[] & { _i?: unknown[][] };
+  };
   context.window = context;
   for (const [, attributes, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
     // External scripts, data, and the Studio's own scripts, which need a real browser.
     if (/\bsrc=|type="application\/json"|data-camox-studio/.test(attributes!)) continue;
     vm.runInContext(body!, context);
   }
-  // Out of the script's realm, so they compare as plain values.
-  const commands = (context.dataLayer ?? []).map((args) => Array.from(args as ArrayLike<unknown>));
-  return JSON.parse(JSON.stringify(commands)) as unknown[][];
+  return {
+    gtag: plain((context.dataLayer ?? []).map((args) => Array.from(args as ArrayLike<unknown>))),
+    /** Each `posthog.init` call, as `[key, config]`. */
+    posthogInits: plain((context.posthog?._i ?? []).map(([key, config]) => [key, config])),
+    addedScripts: plain(addedScripts.map(({ src, async }) => ({ src, async }))),
+  };
 }
 
 /** The render input a document hydrates with, if it has one. */
@@ -168,37 +200,84 @@ function renderInput({ body, kind }: Reply) {
   }
 }
 
-function assertCountsVisitor({ body: html, kind }: Reply, label: string) {
-  assert.equal(kind, "document", label);
+function assertLoadsGa4(html: string, label: string) {
   const gtag = externalScripts(html).find(({ src }) =>
     src.startsWith("https://www.googletagmanager.com/gtag/js"),
   );
   assert.ok(gtag, `${label}: loads gtag.js`);
   assert.equal(new URL(gtag.src).searchParams.get("id"), MEASUREMENT_ID, label);
   assert.equal(gtag.async, true, `${label}: gtag.js doesn't block the page`);
-  const config = gtagCommands(html).find(([command]) => command === "config");
+  const config = runInlineScripts(html).gtag.find(([command]) => command === "config");
   assert.deepEqual(config, ["config", MEASUREMENT_ID, { send_page_view: false }], label);
+}
+
+type PosthogRegion = NonNullable<AnalyticsProviders["posthog"]>["region"];
+
+/** PostHog Cloud's hosts in each region. */
+const POSTHOG_HOSTS: Record<PosthogRegion, { api: string; assets: string }> = {
+  us: { api: "https://us.i.posthog.com", assets: "https://us-assets.i.posthog.com" },
+  eu: { api: "https://eu.i.posthog.com", assets: "https://eu-assets.i.posthog.com" },
+};
+
+function assertLoadsPosthog(html: string, region: PosthogRegion, label: string) {
+  const { posthogInits, addedScripts } = runInlineScripts(html);
+  assert.deepEqual(
+    addedScripts,
+    [{ src: `${POSTHOG_HOSTS[region].assets}/static/array.js`, async: true }],
+    `${label}: loads PostHog from its region without blocking the page`,
+  );
+  assert.equal(posthogInits.length, 1, label);
+  const [key, config] = posthogInits[0] as [string, Record<string, unknown>];
+  assert.equal(key, POSTHOG_KEY, label);
+  assert.equal(config.api_host, POSTHOG_HOSTS[region].api, `${label}: sends to its region`);
+  assert.equal(config.capture_pageview, false, `${label}: automatic page views are off`);
+}
+
+function assertCountsVisitor({ body: html, kind }: Reply, label: string) {
+  assert.equal(kind, "document", label);
+  assertLoadsGa4(html, label);
+  assertLoadsPosthog(html, "eu", label);
   assert.deepEqual(
     hydrationInput(html)?.analytics,
-    { ga4: { measurementId: MEASUREMENT_ID } },
+    BOTH,
     `${label}: the page client sends the page views`,
   );
 }
 
 function assertCountsNobody(reply: Reply, label: string) {
-  assert.doesNotMatch(reply.body, /googletagmanager/, label);
-  if (reply.kind === "document") assert.deepEqual(gtagCommands(reply.body), [], label);
+  assert.doesNotMatch(reply.body, /googletagmanager|i\.posthog\.com/, label);
+  if (reply.kind === "document") {
+    const ran = runInlineScripts(reply.body);
+    assert.deepEqual(ran.gtag, [], label);
+    assert.deepEqual(ran.posthogInits, [], label);
+    assert.deepEqual(ran.addedScripts, [], label);
+  }
   assert.equal(renderInput(reply)?.analytics, undefined, label);
 }
 
 const PAGES = ["/about", "/pokedex"];
 
-void test("a visitor's Live page loads gtag.js with automatic page views off", async (t) => {
+void test("a visitor's Live page loads GA4 and PostHog with automatic page views off", async (t) => {
   mockApi(t);
   for (const path of PAGES) assertCountsVisitor(await request(path), path);
 });
 
-void test("a visitor whose URL names a draft they can't see gets Live, with gtag.js", async (t) => {
+void test("a visitor's Live page loads PostHog from the project's region", async (t) => {
+  for (const region of Object.keys(POSTHOG_HOSTS) as PosthogRegion[]) {
+    await t.test(region, async (st) => {
+      const providers = { ga4: null, posthog: { projectApiKey: POSTHOG_KEY, region } };
+      mockApi(st, providers);
+      for (const path of PAGES) {
+        const { body } = await request(path);
+        assertLoadsPosthog(body, region, path);
+        assert.doesNotMatch(body, /googletagmanager/, `${path}: GA4 isn't set up`);
+        assert.deepEqual(hydrationInput(body)?.analytics, providers, path);
+      }
+    });
+  }
+});
+
+void test("a visitor whose URL names a draft they can't see gets Live, with the providers", async (t) => {
   mockApi(t);
   for (const path of PAGES) assertCountsVisitor(await request(`${path}?camox-draft=d1`), path);
 });
@@ -248,7 +327,7 @@ void test("the studio, Canvas, Block Catalog, data and Markdown routes load no a
   }
 });
 
-void test("a project without a measurement ID loads no analytics", async (t) => {
-  mockApi(t, { ga4: null });
+void test("a project without providers loads no analytics", async (t) => {
+  mockApi(t, { ga4: null, posthog: null });
   for (const path of PAGES) assertCountsNobody(await request(path), path);
 });

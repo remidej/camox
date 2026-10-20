@@ -75,8 +75,15 @@
     {
       "idx": 10,
       "version": "6",
-      "when": 1792448414134,
-      "tag": "0010_localization_exclusions",
+      "when": 1792446534347,
+      "tag": "0010_posthog_analytics",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792477773117,
+      "tag": "0011_localization_exclusions",
       "breakpoints": true
     }
   ]
