@@ -43,7 +43,8 @@ class ThreadSocket extends EventTarget {
   close() {
     if (this.readyState === 3) return;
     this.readyState = 3;
-    this.dispatchEvent(new CloseEvent("close", { code: 1006 }));
+    // Node 22 (CI) has no global CloseEvent.
+    this.dispatchEvent(Object.assign(new Event("close"), { code: 1006, reason: "" }));
   }
 }
 
