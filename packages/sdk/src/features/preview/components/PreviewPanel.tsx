@@ -453,7 +453,7 @@ function PreviewPageClip({
       className={cn(
         className,
         slot &&
-          "overflow-hidden data-[canvas-pan]:pointer-events-none data-[canvas-pan]:**:pointer-events-none",
+          "overflow-clip data-[canvas-pan]:pointer-events-none data-[canvas-pan]:**:pointer-events-none",
       )}
       style={slot && rect ? { ...rect, zIndex: PREVIEW_PAGE_Z_INDEX } : undefined}
     >

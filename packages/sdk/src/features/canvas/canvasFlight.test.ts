@@ -9,7 +9,7 @@ import {
   MAX_CANVAS_ZOOM,
   type CanvasCamera,
 } from "./canvasCamera";
-import { createCanvasFlight } from "./canvasFlight";
+import { createCanvasFlight, createCanvasPan } from "./canvasFlight";
 
 const viewport = { width: 1000, height: 800 };
 const content = { width: 20000, height: 12000 };
@@ -164,4 +164,16 @@ void test("identical cameras need no animation", () => {
   const flight = createCanvasFlight(start, { ...start }, viewport, content);
   assert.equal(flight.duration, 0);
   for (const progress of [0, 0.2, 0.5, 1]) assert.deepEqual(flight.at(progress), start);
+});
+
+void test("pans ease in and out alike, at a constant zoom", () => {
+  const start = { x: 0, y: 0, scale: 0.5 };
+  const end = { x: 0, y: -2000, scale: 0.5 };
+  const pan = createCanvasPan(start, end, { width: 900, height: 800 });
+  const share = (progress: number) => pan.at(progress).y / end.y;
+  assert.ok(Math.abs(share(0.5) - 0.5) < 1e-9, "halfway in time is halfway in distance");
+  for (const progress of [0.1, 0.25, 0.4])
+    assert.ok(Math.abs(share(progress) - (1 - share(1 - progress))) < 1e-9, "symmetric");
+  assert.ok(share(0.1) < 0.1, "starts gently");
+  assert.equal(pan.at(0.3).scale, 0.5);
 });

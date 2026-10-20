@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { canvasPageIframe } from "../preview/previewPageFrame";
+import { revealScrollDelta } from "../preview/selectionReveal";
 import {
   captureViewportAnchor,
   resolveViewportAnchor,
@@ -32,7 +33,7 @@ import {
   type CanvasSnapTarget,
   type CanvasVerticalRail,
 } from "./canvasCamera";
-import { createCanvasFlight } from "./canvasFlight";
+import { createCanvasFlight, createCanvasPan } from "./canvasFlight";
 import { canvasBlockOverlap } from "./canvasFrameDocument";
 import { canvasStore } from "./canvasStore";
 
@@ -119,6 +120,7 @@ export function useCanvasCamera(
     flyTo: (key: string) => void;
     syncRow: () => void;
     keepInView: (worldX: number, screenX: number) => void;
+    reveal: (element: Element, immediate: boolean) => void;
     fitAll: () => void;
   } | null>(null);
   const flyTo = React.useCallback((key: string) => {
@@ -143,6 +145,13 @@ export function useCanvasCamera(
    */
   const keepInView = React.useCallback((worldX: number, screenX: number) => {
     flightControls.current?.keepInView(worldX, screenX);
+  }, []);
+  /**
+   * Pan vertically to an element inside a Canvas frame, such as a selected block,
+   * unless enough of it already shows. A page flight or a drag in progress keeps the camera.
+   */
+  const reveal = React.useCallback((element: Element, immediate = false) => {
+    flightControls.current?.reveal(element, immediate);
   }, []);
   /** Zoom out to the whole Canvas, keeping the selection: its caller decides what it becomes. */
   const fitAll = React.useCallback(() => {
@@ -235,6 +244,8 @@ export function useCanvasCamera(
       | {
           /** The page the flight frames, if any, snapped to on arrival. */
           page?: CanvasSnapTarget;
+          /** A pan that reveals an element, which another reveal may redirect. */
+          pan?: boolean;
           path: ReturnType<typeof createCanvasFlight>;
           startedAt?: number;
         }
@@ -537,7 +548,15 @@ export function useCanvasCamera(
       cancelCameraFlight();
       flyToCamera(() => canvasOverview(viewportSize, contentSize));
     };
-    const flyToCamera = (destinationCamera: () => CanvasCamera, page?: CanvasSnapTarget) => {
+    const startPan = (destination: CanvasCamera) => {
+      cancelCameraFlight();
+      flyToCamera(() => destination, undefined, true);
+    };
+    const flyToCamera = (
+      destinationCamera: () => CanvasCamera,
+      page?: CanvasSnapTarget,
+      pan = false,
+    ) => {
       cancelAnimationFrame(animation);
       animation = 0;
       previousTime = 0;
@@ -552,12 +571,14 @@ export function useCanvasCamera(
       updateGeometry();
       camera = constrain(camera, true);
       target = constrain(destinationCamera());
-      const path = createCanvasFlight(camera, target, viewportSize, contentSize);
+      const path = pan
+        ? createCanvasPan(camera, target, viewportSize)
+        : createCanvasFlight(camera, target, viewportSize, contentSize);
       if (reducedMotion.matches || path.duration === 0) {
         applyCamera(target, true);
         return;
       }
-      flight = { page: page && { ...page }, path };
+      flight = { page: page && { ...page }, pan, path };
       animation = requestAnimationFrame(animate);
     };
     flightControls.current = {
@@ -570,6 +591,27 @@ export function useCanvasCamera(
         fittingInitialPage = false;
         gesture = undefined;
         applyCamera({ ...camera, x }, true);
+      },
+      reveal: (element, immediate) => {
+        const frame = element.ownerDocument.defaultView?.frameElement;
+        if (!frame || (flight && !flight.pan) || pointers.size) return;
+        // Where the painted camera shows the element, in world space. Frames are
+        // scaled by the camera, while the element's rect is in its frame's pixels.
+        const rect = element.getBoundingClientRect();
+        const frameTop = frame.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+        const worldTop = (frameTop + rect.top * camera.scale - camera.y) / camera.scale;
+        // Measure against the camera's destination, so input in progress isn't undone.
+        const delta = revealScrollDelta(
+          {
+            top: target.y + worldTop * target.scale,
+            bottom: target.y + (worldTop + rect.height) * target.scale,
+          },
+          { top: 0, bottom: viewportSize.height },
+        );
+        if (!delta) return;
+        const next = { ...target, y: target.y - delta };
+        if (immediate) move(next, true);
+        else startPan(next);
       },
       syncRow: () => {
         const key = rowRef.current?.selected ?? null;
@@ -698,6 +740,7 @@ export function useCanvasCamera(
         // Iframe sizing and window resizes must not jump to the old destination.
         camera = constrain(camera, true);
         if (flight.page) startFlight(flight.page.key);
+        else if (flight.pan) startPan(target);
         else startOverviewFlight();
         return;
       }
@@ -947,6 +990,7 @@ export function useCanvasCamera(
     flyTo,
     mirrorCamera,
     keepInView,
+    reveal,
     fitAll,
   };
 }

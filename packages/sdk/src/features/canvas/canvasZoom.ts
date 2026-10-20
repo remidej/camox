@@ -7,6 +7,8 @@ type CanvasWorkspaceContext = {
   workspaceKey: string;
   /** Paints the camera onto an element outside the Canvas viewport, until the returned cleanup. */
   mirrorCamera: (element: HTMLElement) => () => void;
+  /** Pans the camera to an element inside a Canvas frame, unless enough of it shows. */
+  reveal: (element: Element, immediate?: boolean) => void;
 };
 
 export const CanvasWorkspaceContext = createContext<CanvasWorkspaceContext | null>(null);

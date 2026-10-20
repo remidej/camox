@@ -36,7 +36,9 @@ void test("canvas zoom subscribers update on scale without rerendering for pan",
   try {
     await React.act(async () => {
       root.render(
-        <CanvasWorkspaceContext value={{ workspaceKey, mirrorCamera: () => () => {} }}>
+        <CanvasWorkspaceContext
+          value={{ workspaceKey, mirrorCamera: () => () => {}, reveal: () => {} }}
+        >
           <Probe />
         </CanvasWorkspaceContext>,
       );

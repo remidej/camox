@@ -20,6 +20,11 @@ function easeInOut(progress: number) {
   return 1 - remaining ** 4 * (15 + remaining * (-24 + 10 * remaining));
 }
 
+/** Symmetric: speeds up and slows down alike, unlike a flight's long landing. */
+function easeInOutCubic(progress: number) {
+  return progress < 0.5 ? 4 * progress ** 3 : 1 - (2 - 2 * progress) ** 3 / 2;
+}
+
 function interpolate(start: number, end: number, progress: number) {
   return start * (1 - progress) + end * progress;
 }
@@ -42,6 +47,43 @@ function bezier(start: number, control: number, end: number, progress: number) {
  * control point (not just each frame) keeps the whole curve in bounds without
  * clipping its motion into hard corners. Callers supply constrained endpoints.
  */
+/** A pan takes longer the further it goes, in viewport heights, but stays brief. */
+const PAN_MIN_DURATION = 450;
+const PAN_MAX_DURATION = 900;
+const PAN_DURATION_PER_LOG_VIEWPORT = 300;
+
+/**
+ * A straight, eased pan at a constant zoom, such as one that brings a selected
+ * block into view. Unlike a flight, it never zooms out on the way.
+ */
+export function createCanvasPan(
+  start: CanvasCamera,
+  end: CanvasCamera,
+  viewport: CanvasSize,
+): { duration: number; at: (progress: number) => CanvasCamera } {
+  const distance = Math.hypot(
+    (end.x - start.x) / Math.max(1, viewport.width),
+    (end.y - start.y) / Math.max(1, viewport.height),
+  );
+  if (!distance && start.scale === end.scale) return { duration: 0, at: () => ({ ...start }) };
+  return {
+    duration: Math.min(
+      PAN_MAX_DURATION,
+      PAN_MIN_DURATION + PAN_DURATION_PER_LOG_VIEWPORT * Math.log1p(distance),
+    ),
+    at(progress) {
+      if (progress <= 0) return { ...start };
+      if (progress >= 1) return { ...end };
+      const motion = easeInOutCubic(progress);
+      return {
+        x: interpolate(start.x, end.x, motion),
+        y: interpolate(start.y, end.y, motion),
+        scale: interpolate(start.scale, end.scale, motion),
+      };
+    },
+  };
+}
+
 export function createCanvasFlight(
   start: CanvasCamera,
   end: CanvasCamera,

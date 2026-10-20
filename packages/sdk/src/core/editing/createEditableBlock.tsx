@@ -31,6 +31,7 @@ import {
 } from "../../features/preview/previewStore";
 import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
 import { registerRepeatableItem } from "../../features/preview/repeatableItemTargets";
+import { revealScrollDelta } from "../../features/preview/selectionReveal";
 import { useOptionalCamoxApp } from "../../features/provider/components/CamoxAppContext";
 import {
   LinkedRecordsProvider,
@@ -2199,24 +2200,26 @@ export function createEditableBlock<
     const overlayState = useOverlayState(isHovered, isBlockSelected);
     const ref = React.useRef<HTMLDivElement>(null);
 
-    // Track first render because we won't animate the scroll into view for it
-    const [isFirstRender, setIsFirstRender] = React.useState(true);
+    // Bring the block into view when selected, unless enough of it already shows.
+    // The Canvas pans its camera: scrolling would shift the frame inside its clip.
+    // A block selected as it mounts shows right away.
+    const canvasWorkspace = React.use(CanvasWorkspaceContext);
+    const mounted = React.useRef(false);
     React.useEffect(() => {
-      if (isFirstRender) {
-        // oxlint-disable-next-line react/set-state-in-effect -- flips after the first commit so the initial scroll is instant
-        setIsFirstRender(false);
+      const element = ref.current;
+      const immediate = !mounted.current;
+      mounted.current = true;
+      if (!isBlockSelected || !element) return;
+      if (canvasWorkspace) {
+        canvasWorkspace.reveal(element, immediate);
+        return;
       }
-    }, [isFirstRender]);
-
-    // Scroll block into view when selected
-    React.useEffect(() => {
-      if (!isBlockSelected || !ref.current) return;
-
-      ref.current.scrollIntoView({
-        behavior: isFirstRender ? "instant" : "smooth",
-        block: isFirstRender ? "start" : "nearest",
-      });
-    }, [blockData._id, isBlockSelected, isFirstRender]);
+      const view = element.ownerDocument.defaultView;
+      if (!view) return;
+      const rect = element.getBoundingClientRect();
+      const top = revealScrollDelta(rect, { top: 0, bottom: view.innerHeight });
+      if (top) view.scrollBy({ top, behavior: immediate ? "instant" : "smooth" });
+    }, [blockData._id, isBlockSelected, canvasWorkspace]);
 
     // Listen for sidebar-triggered hover messages
     const isHoveredFromSidebar = useOverlayMessage(
