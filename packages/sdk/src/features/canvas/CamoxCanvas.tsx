@@ -35,6 +35,7 @@ import {
   canvasSnapTargets,
   getBlockCatalog,
   getCanvasShelves,
+  getDefaultCollapsedShelves,
   isCanvasBlock,
   isCanvasShelfShown,
   positionCanvasShelves,
@@ -505,13 +506,19 @@ function CanvasWorkspace({
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
-  const collapsedShelves = useCollapsedShelves(workspaceKey);
+  const shelves = getCanvasShelves(pages, blocks);
+  // The selected Page or block, keyed like its item.
+  const selectedItemKey =
+    selectedPage?.key ?? (selectedBlock && canvasBlockKey(selectedBlock._internal.id));
+  const collapsedShelves = useCollapsedShelves(
+    workspaceKey,
+    getDefaultCollapsedShelves(shelves),
+    shelves.find((shelf) => shelf.items.some(({ key }) => key === selectedItemKey))?.key,
+  );
   const toggleShelf = (shelfKey: string) =>
     setShelfCollapsed(workspaceKey, shelfKey, !collapsedShelves.has(shelfKey));
-  const shelves = getCanvasShelves(pages, blocks);
-  const { items, markers } = positionCanvasShelves(shelves, collapsedShelves);
-  // Collapsing only hides items: the Canvas keeps its expanded bounds, so the camera stays put.
-  const { width } = positionCanvasShelves(shelves);
+  // The Canvas bounds span the row as shown, so zooming out to it fits collapsed shelves too.
+  const { items, markers, width } = positionCanvasShelves(shelves, collapsedShelves);
   const positions = new Map(items.map((item) => [item.key, item.left]));
   const blocksByKey = new Map(items.filter(isCanvasBlock).map((item) => [item.key, item.block]));
   // Each Page, keyed like its item, with the pathname its frame previews and
@@ -531,9 +538,6 @@ function CanvasWorkspace({
       },
     ]),
   );
-  // The selected Page or block, keyed like its item.
-  const selectedItemKey =
-    selectedPage?.key ?? (selectedBlock && canvasBlockKey(selectedBlock._internal.id));
   const selectedKey = selectedItemKey && positions.has(selectedItemKey) ? selectedItemKey : null;
   const hiddenSelectedShelf = shelves.find(
     (shelf) =>
@@ -675,7 +679,7 @@ function CanvasWorkspace({
               return (
                 // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
                 // Its items stay mounted in place, so expanding never reloads them, and
-                // keep their height, so the Canvas bounds and camera don't move.
+                // keep their height, unless the shelf unmounts them while collapsed.
                 <div
                   key={shelf.key}
                   data-canvas-shelf={shelf.key}
@@ -683,7 +687,7 @@ function CanvasWorkspace({
                   className={`flex shrink-0 items-start ${collapsed ? "invisible w-0" : ""}`}
                   style={{ gap: CANVAS_ITEM_GAP }}
                 >
-                  {shelf.items.map((item) => {
+                  {(collapsed && shelf.unmountedWhenCollapsed ? [] : shelf.items).map((item) => {
                     if (item.kind === "block") {
                       return (
                         <CanvasBlockItem

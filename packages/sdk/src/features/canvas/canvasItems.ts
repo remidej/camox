@@ -24,6 +24,10 @@ export type CanvasShelf = {
   label: string;
   items: CanvasItem[];
   shownWhenEmpty?: boolean;
+  /** Starts collapsed when the Canvas first opens, unless it holds the selection. */
+  collapsedByDefault?: boolean;
+  /** Unmounts its items while collapsed, rather than keeping them loaded for when it expands. */
+  unmountedWhenCollapsed?: boolean;
 };
 
 export type PositionedCanvasItem<T extends CanvasItem = CanvasItem> = T & {
@@ -79,6 +83,9 @@ export function getCanvasShelves(
       label: "Blocks",
       // The Block Catalog always has its place on the Canvas.
       shownWhenEmpty: true,
+      // Every block frame is a live preview: load them only when asked for.
+      collapsedByDefault: true,
+      unmountedWhenCollapsed: true,
       items: getBlockCatalog(blocks).map((block): CanvasBlockItem => ({
         kind: "block",
         key: canvasBlockKey(block._internal.id),
@@ -122,6 +129,11 @@ export function positionCanvasShelves(
   // The world-space width of the whole row; the horizontal extent of the Canvas bounds.
   const width = Math.max(0, left - CANVAS_SHELF_GAP);
   return { items, markers, width };
+}
+
+/** The shelves collapsed when the Canvas first opens in a Studio session. */
+export function getDefaultCollapsedShelves(shelves: readonly CanvasShelf[]) {
+  return shelves.filter((shelf) => shelf.collapsedByDefault).map(({ key }) => key);
 }
 
 /** Whether a shelf has a marker and a place in the row. */
