@@ -39,11 +39,22 @@ export type ImageMetadata = { alt: string; filename: string };
  */
 export type TranslationText = { key: string; text: string; format: "plain" | "html" | "slug" };
 
+/**
+ * What the model knows of the website texts are translated for, from the default locale: its
+ * name, and the title and description of the page they're on. Each is absent when unknown.
+ */
+export type TranslationContext = {
+  website?: string;
+  pageTitle?: string;
+  pageDescription?: string;
+};
+
 export type TranslationRequest = {
   /** The default locale's tag, which every locale is translated from (ADR 0015). */
   from: string;
   /** The tag of the locale to translate into. */
   to: string;
+  context: TranslationContext;
   texts: readonly TranslationText[];
 };
 
@@ -70,6 +81,7 @@ export type MergeRequest = {
   from: string;
   /** The tag of the localization's locale. */
   to: string;
+  context: TranslationContext;
   texts: readonly MergeText[];
 };
 

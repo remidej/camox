@@ -284,6 +284,40 @@ describe("adding a locale", () => {
   });
 });
 
+describe("what the model is told about the website", () => {
+  it("is the project's name and the default locale's title and description of the page the texts are on, or of the home page", async () => {
+    const f = await fixture();
+    translateWithDictionaries();
+    const { page: home } = await callSeedingLive(
+      router.pages.create,
+      { projectId: f.projectId, pathSegment: "", layoutId: f.layout.layoutId },
+      f.member(),
+    );
+    const seo = (id: string, metaTitle: string, metaDescription: string) =>
+      callSeedingLive(router.pages.setSeo, { id, metaTitle, metaDescription }, f.member());
+    await seo(home.id, "Acme", "Tools for developers");
+    await seo(f.page.id, "Pricing", "What Acme costs");
+
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    await f.runTranslations();
+
+    const contextOf = (text: string) =>
+      modelCalls().flatMap((call) =>
+        call.method === "translate" && call.request.texts.some((t) => t.text === text)
+          ? [call.request.context]
+          : [],
+      );
+    // The block is on the pricing page.
+    expect(contextOf("Hello")).toEqual([
+      { website: f.project.name, pageTitle: "Pricing", pageDescription: "What Acme costs" },
+    ]);
+    // The record is on no page.
+    expect(contextOf("First")).toEqual([
+      { website: f.project.name, pageTitle: "Acme", pageDescription: "Tools for developers" },
+    ]);
+  });
+});
+
 /** A draft of `f` holding German and French, both translated. */
 async function translatedDraft(f: Awaited<ReturnType<typeof fixture>>) {
   translateWithDictionaries();
@@ -644,6 +678,7 @@ describe("hand edits to a localization", () => {
         request: {
           from: "en",
           to: "de",
+          context: expect.any(Object),
           texts: [
             {
               key: "title",
@@ -758,6 +793,7 @@ describe("hand edits to a localization", () => {
       {
         from: "en",
         to: "de",
+        context: expect.any(Object),
         texts: [
           {
             key: "subtitle",
@@ -1380,6 +1416,7 @@ describe("localization conflicts", () => {
       {
         from: "en",
         to: "de",
+        context: expect.any(Object),
         texts: [
           {
             key: "title",

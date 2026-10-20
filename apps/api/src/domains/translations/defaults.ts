@@ -54,7 +54,7 @@ export const translateDefaults = Effect.fn("translation.defaults")(function* (
   job: TranslationJob,
 ) {
   if (job.entity !== "block" && job.entity !== "sharedContent") return;
-  const scope = yield* translationScope(db, draft, job.locale);
+  const scope = yield* translationScope(db, draft, job);
   if (!scope) return;
   const { target } = scope;
   const table = job.entity === "sharedContent" ? sharedContents : blocks;
