@@ -9,6 +9,7 @@ export default defineConfig({
       "src/drafts.ts",
       "src/icon-catalog.ts",
       "src/analytics.ts",
+      "src/threads.ts",
     ],
     format: "esm",
     platform: "neutral",

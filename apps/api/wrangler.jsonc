@@ -43,6 +43,10 @@
         "name": "ProjectRoom",
         "class_name": "ProjectRoom",
       },
+      {
+        "name": "THREAD",
+        "class_name": "Thread",
+      },
     ],
   },
   "migrations": [
@@ -53,6 +57,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["ProjectRoom"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["Thread"],
     },
   ],
   "observability": {

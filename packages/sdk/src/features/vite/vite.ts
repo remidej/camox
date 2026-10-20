@@ -176,6 +176,7 @@ export const CAMOX_OPTIMIZED_DEPS = [
   "camox > @camox/ui > clsx",
   "camox > @camox/ui > cmdk",
   "camox > @camox/ui > lucide-react",
+  "camox > @camox/ui > @shadcn/react/message-scroller",
   "camox > @camox/ui > sonner",
   "camox > @camox/ui > tailwind-merge",
   "camox > @dnd-kit/core",

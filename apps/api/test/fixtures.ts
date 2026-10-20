@@ -39,24 +39,7 @@ export async function createProjectFixture(suffix: string) {
 
   const [memberUser, outsiderUser] = await db
     .insert(user)
-    .values([
-      {
-        id: memberId,
-        name: "Member",
-        email: `member-${suffix}@example.com`,
-        emailVerified: true,
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      },
-      {
-        id: outsiderId,
-        name: "Outsider",
-        email: `outsider-${suffix}@example.com`,
-        emailVerified: true,
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      },
-    ])
+    .values([testUser(memberId, "Member"), testUser(outsiderId, "Outsider")])
     .returning();
   await db.insert(organizationTable).values({
     id: organizationId,
@@ -64,13 +47,7 @@ export async function createProjectFixture(suffix: string) {
     slug: `org-${suffix}`,
     createdAt: new Date(now),
   });
-  await db.insert(member).values({
-    id: `membership-${suffix}`,
-    organizationId,
-    userId: memberId,
-    role: "owner",
-    createdAt: new Date(now),
-  });
+  await db.insert(member).values(membership(organizationId, memberId, "owner"));
 
   const project = await db
     .insert(projects)
@@ -98,6 +75,34 @@ export async function createProjectFixture(suffix: string) {
     .get();
 
   return { db, layout, memberUser, outsiderUser, project };
+}
+
+const testUser = (id: string, name: string) => ({
+  id,
+  name,
+  email: `${id}@example.com`,
+  emailVerified: true,
+  createdAt: new Date(now),
+  updatedAt: new Date(now),
+});
+
+const membership = (organizationId: string, userId: string, role: "owner" | "member") => ({
+  id: `membership-${userId}`,
+  organizationId,
+  userId,
+  role,
+  createdAt: new Date(now),
+});
+
+/** Adds another member to an organization, as a teammate of the fixture's member. */
+export async function addMember(db: ReturnType<typeof createDb>, organizationId: string) {
+  const teammate = await db
+    .insert(user)
+    .values(testUser(`teammate-${crypto.randomUUID()}`, "Teammate"))
+    .returning()
+    .get();
+  await db.insert(member).values(membership(organizationId, teammate.id, "member"));
+  return teammate;
 }
 
 export function createServiceContext(
