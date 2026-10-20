@@ -249,7 +249,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
   }
 });
 
-void test("leaving the preview resets preview and canvas state", async () => {
+void test("leaving the preview keeps preview and canvas state for coming back", async () => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
@@ -258,7 +258,7 @@ void test("leaving the preview resets preview and canvas state", async () => {
     page: { id: "3" },
     projectName: "Test",
   } as React.ComponentProps<typeof PreviewShell>["pageData"];
-  const initialPreview = previewStore.getSnapshot().context;
+  const view = { camera: { x: 1, y: 2, scale: 0.5 }, fitted: false };
   try {
     await dom.render(
       <PreviewShell pageData={pageData}>
@@ -269,19 +269,24 @@ void test("leaving the preview resets preview and canvas state", async () => {
       previewStore.send({ type: "showCanvas" });
       previewStore.send({ type: "setViewportMode", mode: "mobile" });
       previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "9" });
+      canvasStore.send({ type: "rememberView", workspaceKey: "workspace", view });
       canvasStore.send({
-        type: "rememberView",
+        type: "setShelfCollapsed",
         workspaceKey: "workspace",
-        view: { camera: { x: 1, y: 2, scale: 0.5 }, fitted: false },
+        shelfKey: "blocks",
+        collapsed: true,
       });
     });
-    assert.equal(previewStore.getSnapshot().context.view, "canvas");
+    const shown = previewStore.getSnapshot().context;
 
     await dom.render(null);
-    assert.deepEqual(previewStore.getSnapshot().context, initialPreview);
-    assert.deepEqual(canvasStore.getSnapshot().context.views, {});
+    assert.equal(previewStore.getSnapshot().context, shown);
+    assert.deepEqual(canvasStore.getSnapshot().context.views.workspace, view);
+    assert.deepEqual(canvasStore.getSnapshot().context.collapsedShelves.workspace, ["blocks"]);
   } finally {
     await dom.close();
+    previewStore.send({ type: "reset" });
+    canvasStore.send({ type: "reset" });
   }
 });
 

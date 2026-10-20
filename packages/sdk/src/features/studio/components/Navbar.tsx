@@ -1,3 +1,4 @@
+import { useSelector } from "@xstate/store-react";
 import { Globe, Database } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
@@ -6,11 +7,13 @@ import { Link, useNavigate, type LinkProps } from "@/features/navigation/navigat
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
+import { useViewLocale } from "@/lib/view-locale-context";
 
 import type { ShownRecordPage } from "../../preview/pageRecord";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
-import { STUDIO_CONTENT_PATH } from "../routes";
+import { STUDIO_BASE_PATH, STUDIO_CONTENT_PATH } from "../routes";
+import { studioStore, type WebsiteLocation } from "../studioStore";
 import { DraftPicker, PendingChanges } from "./DraftsControl";
 import { LocalePicker } from "./LocalePicker";
 import { ProjectMenu } from "./ProjectMenu";
@@ -51,6 +54,24 @@ const links = [
 
 export const getNavbarLinks = () => links;
 
+type NavbarLink = (typeof links)[number];
+
+/**
+ * Where a navbar link goes. The Website goes back where it was last, Canvas included. In another
+ * locale since, a Studio location stays, while a page, whose path may differ there, goes home.
+ */
+function navbarHref(
+  link: NavbarLink,
+  last: WebsiteLocation | null,
+  locale: string,
+  localized: (path: string) => string,
+): string {
+  if (link !== links[0] || !last) return localized(link.to);
+  if (last.locale === locale) return `${localized(last.path)}${last.search}${last.hash}`;
+  if (last.path.startsWith(`${STUDIO_BASE_PATH}/`)) return localized(last.path);
+  return localized(link.to);
+}
+
 export const isContentNavbarPath = (pathname: string) =>
   pathname === STUDIO_CONTENT_PATH || pathname.startsWith(`${STUDIO_CONTENT_PATH}/`);
 
@@ -66,6 +87,8 @@ const Navbar = ({
 
   const pathname = useLocalePath();
   const localized = useLocalizedPath();
+  const { locale } = useViewLocale();
+  const last = useSelector(studioStore, (state) => state.context.websiteLocation);
   return (
     <nav className="bg-background relative flex items-center justify-between gap-4 border-b-2 px-2 py-2">
       <div className="flex flex-row gap-2">
@@ -83,7 +106,7 @@ const Navbar = ({
             return (
               <li key={link.to}>
                 <Link
-                  to={localized(link.to) as LinkProps["to"]}
+                  to={navbarHref(link, last, locale.tag, localized) as LinkProps["to"]}
                   className={cn(
                     // common layout styles
                     "flex gap-2 items-center rounded-md px-4 py-2 text-sm font-medium",
@@ -116,6 +139,7 @@ const Navbar = ({
 function useNavbarActions() {
   const navigate = useNavigate();
   const localized = useLocalizedPath();
+  const { locale } = useViewLocale();
 
   React.useEffect(() => {
     const actions = getNavbarLinks().map((link, index) => ({
@@ -124,7 +148,8 @@ function useNavbarActions() {
       groupLabel: "Navigation",
       checkIfAvailable: () => true,
       execute: () => {
-        void navigate({ to: localized(link.to) });
+        const last = studioStore.getSnapshot().context.websiteLocation;
+        void navigate({ to: navbarHref(link, last, locale.tag, localized) });
       },
       shortcut: { key: String(index + 1) },
       icon: link.icon,
@@ -139,7 +164,7 @@ function useNavbarActions() {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [localized, navigate]);
+  }, [locale.tag, localized, navigate]);
 }
 
 export { Navbar, useNavbarActions };
