@@ -99,6 +99,7 @@ describe("Live is read-only", () => {
         "addLocale",
         "removeLocale",
         "setDefaultLocaleTag",
+        "addBackToLocale",
       ].sort(),
     );
   });

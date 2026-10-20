@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { TRANSLATED_ENTITIES, type TranslatedEntity } from "../../lib/ai-job-queue";
-import { inChunks, selectInChunks } from "../content/chunks";
+import { readInChunks, selectInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import { type Draft, inDefaultLocale } from "../drafts/scope";
 import { defaultLocaleTag } from "../locales/default-locale";
@@ -73,7 +73,7 @@ const outputsOf = Effect.fn("translations.outputsOf")(function* (
   localizations: overlay.StoredChange[],
 ) {
   const ids = [...new Set(localizations.map((change) => change.row.id))];
-  const rows = yield* inChunks(ids, (chunk) =>
+  const rows = yield* readInChunks(ids, (chunk) =>
     Effect.promise(() =>
       db
         .select({

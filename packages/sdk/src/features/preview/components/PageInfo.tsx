@@ -196,7 +196,7 @@ const PageInfo = ({
                 className="w-full"
                 onClick={() => setIsSeoSheetOpen(true)}
               >
-                Manage SEO metadata
+                Manage page SEO
               </Button>
             </div>
             <div className="space-y-2">

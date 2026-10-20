@@ -45,6 +45,7 @@ import {
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
+import { deleteOnPurpose } from "../translations/exclusions";
 import { translatePlacedDefaults } from "../translations/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
@@ -602,7 +603,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
   // Delete unreferenced existing items: the draft's tombstone hides their nested children too.
   for (const item of scopeItems) {
     if (referenced.has(item.id)) continue;
-    writes.push(overlay.remove(ctx.db, scope, repeatableItems, item.id));
+    writes.push(deleteOnPurpose(ctx.db, scope, repeatableItems, item.id));
   }
 });
 
@@ -1120,7 +1121,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   const { scope, project } = yield* accessTo(ctx, { block: id }, "write");
 
   // In a draft, a tombstone hides the block from the draft only.
-  const result = yield* overlay.remove(ctx.db, scope, blocks, id);
+  const result = yield* deleteOnPurpose(ctx.db, scope, blocks, id);
   if (result) yield* deleteBlockDependents(ctx, scope, [result]);
   return result && (yield* shownBlock(ctx, project.id, scope, result));
 }, Effect.scoped);
@@ -1143,7 +1144,7 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   if (shown.length !== new Set(blockIds).size) return yield* new NotFoundError();
   const result: (typeof blocks.$inferSelect)[] = [];
   for (const id of blockIds) {
-    const removed = yield* overlay.remove(ctx.db, scope, blocks, id);
+    const removed = yield* deleteOnPurpose(ctx.db, scope, blocks, id);
     if (removed) result.push(removed);
   }
   yield* deleteBlockDependents(ctx, scope, result);

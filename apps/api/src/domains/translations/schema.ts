@@ -116,3 +116,51 @@ export const translationBookkeeping = sqliteTable(
     index("translation_bookkeeping_project_idx").on(table.projectId),
   ],
 );
+
+/**
+ * An exclusion: a localization deleted from its locale (ADR 0015), which translation jobs don't
+ * bring back, nor anything beneath it, however its original changes. It is keyed by the excluded
+ * entity's own id and its locale, so drafts excluding the same localization exclude it once.
+ * Exclusions are content: Live and every draft store them side by side (ADR 0005), so a draft's
+ * exclusions are changes in their locale, and publishing copies them to Live, where they stay,
+ * the exception to ADR 0008 that ADR 0015 records. Adding a localization back deletes its
+ * exclusion. Read and write exclusions through the draft overlay.
+ */
+export const localizationExclusions = sqliteTable(
+  "localization_exclusions",
+  {
+    rowId: int("row_id").primaryKey(),
+    // The excluded entity's id.
+    id: text().notNull(),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    // Live: the number of changes made to the row. Unused on draft rows (last write wins).
+    version: int().notNull().default(1),
+    // The Live version a draft copy started from. Null on Live rows and on exclusions a draft
+    // recorded.
+    baseVersion: int("base_version"),
+    // A draft's deletion of the exclusion: the localization is added back.
+    deleted: int({ mode: "boolean" }).notNull().default(false),
+    firstPublishedAt: int("first_published_at"),
+    publishedAt: int("published_at"),
+    publishedBy: text("published_by"),
+    // The tag of the locale the entity is excluded from, never the default locale's.
+    locale: text().notNull(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // The kind of the excluded entity.
+    entity: text().notNull().$type<TranslatedEntity>(),
+    createdAt: int("created_at").notNull(),
+    // On a tombstone, when the draft added the localization back.
+    updatedAt: int("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("localization_exclusions_live_id_idx")
+      .on(table.id, table.locale)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("localization_exclusions_draft_id_idx")
+      .on(table.draftId, table.id, table.locale)
+      .where(sql`${table.draftId} is not null`),
+    index("localization_exclusions_project_idx").on(table.projectId),
+  ],
+);

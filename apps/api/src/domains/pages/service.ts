@@ -21,6 +21,7 @@ import {
   servesPages,
 } from "../layouts/route-ownership";
 import { publicProjectSummary } from "../projects/public-summary";
+import { deleteOnPurpose } from "../translations/exclusions";
 import { duplicatePathIds } from "./duplicate-paths";
 import { type PageView } from "./generated-seo";
 
@@ -431,7 +432,7 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
 ) {
   const { id } = yield* decodeInput(deletePageInput, rawInput);
   const { scope } = yield* accessTo(ctx, { page: id }, "write");
-  const result = yield* overlay.remove(ctx.db, scope, pages, id);
+  const result = yield* deleteOnPurpose(ctx.db, scope, pages, id);
   return result;
 }, Effect.scoped);
 

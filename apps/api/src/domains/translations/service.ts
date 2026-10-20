@@ -12,7 +12,7 @@ import {
 } from "../../lib/ai-job-queue";
 import { Background } from "../../lib/background";
 import { Journal, record } from "../../lib/journal";
-import { inChunks } from "../content/chunks";
+import { readInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftOf, type Draft } from "../drafts/scope";
@@ -346,7 +346,7 @@ export const requestLiveMerges = Effect.fn("translations.requestLiveMerges")(fun
   for (const entity of TRANSLATED_ENTITIES) {
     const keys = changed.filter((localization) => localization.entity === entity);
     const table = overlay.contentTableOf(entity);
-    const copies = yield* inChunks(
+    const copies = yield* readInChunks(
       keys,
       (chunk) =>
         Effect.promise(() =>

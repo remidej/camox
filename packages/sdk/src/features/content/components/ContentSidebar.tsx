@@ -1,4 +1,5 @@
 import { ImageIcon, ListIcon, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Link } from "@/features/navigation/navigation";
 import { collectionContentPath, STUDIO_ASSETS_PATH } from "@/features/studio/routes";
@@ -12,10 +13,13 @@ export const ContentSidebar = ({
   collections,
   selectedCollectionId,
   collectionsError,
+  children,
 }: {
   collections: CollectionDefinition[];
   selectedCollectionId: string | null;
   collectionsError: boolean;
+  /** Groups shown after the collections. */
+  children?: ReactNode;
 }) => {
   return (
     <nav
@@ -43,6 +47,7 @@ export const ContentSidebar = ({
           ))}
         </ContentSidebarGroup>
       )}
+      {children}
       {collectionsError && (
         <p role="alert" className="text-muted-foreground px-2 text-sm">
           Could not load collections.

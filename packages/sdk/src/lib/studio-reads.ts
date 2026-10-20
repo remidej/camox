@@ -29,6 +29,7 @@ import type {
   DraftSummary,
   File,
   Layout,
+  MissingFromLocale,
   Page,
   PageStructure,
   PageWithBlocks,
@@ -168,6 +169,12 @@ export const reads = {
     everyLocale: true,
     fetch: ({ api, signal }, { projectId }) => api.locales.list({ projectId }, { signal }),
     staleTime: Infinity,
+  }),
+
+  /** The pages and records deleted from the locale viewed, which members add back to it. */
+  missingFromLocale: entry<{ projectId: number }, MissingFromLocale>({
+    key: ({ projectId }) => ["camox", "locales", "listMissing", projectId],
+    fetch: ({ api, signal }, { projectId }) => api.locales.listMissing({ projectId }, { signal }),
   }),
 
   pageList: entry<{ projectSlug: string }, Page[]>({
