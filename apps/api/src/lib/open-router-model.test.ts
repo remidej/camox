@@ -67,6 +67,7 @@ describe("translation", () => {
       openRouterModel("test-api-key").translate({
         from: "en",
         to: "de",
+        context: { website: "Acme", pageTitle: "Pricing" },
         texts: [
           { key: "title", text: "Hello", format: "plain" },
           { key: "pathSegment", text: "pricing", format: "slug" },
@@ -76,6 +77,11 @@ describe("translation", () => {
 
     // A text the model left out keeps its source; a key nobody asked for is dropped.
     expect(translations).toEqual({ title: "Hallo" });
+    // The model is told about the website, and nothing about what isn't known.
+    const prompt = chat.mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain("<name>Acme</name>");
+    expect(prompt).toContain("<page_title>Pricing</page_title>");
+    expect(prompt).not.toContain("<page_description>");
   });
 });
 
@@ -100,6 +106,7 @@ describe("merge", () => {
       openRouterModel("test-api-key").merge({
         from: "en",
         to: "de",
+        context: {},
         texts: [text("title"), text("subtitle")],
       }),
     );

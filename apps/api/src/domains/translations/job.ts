@@ -84,7 +84,7 @@ const translate = Effect.fn("translation.translate")(function* (
   draft: Draft,
   job: TranslationJob,
 ) {
-  const scope = yield* translationScope(db, draft, job.locale);
+  const scope = yield* translationScope(db, draft, job);
   if (!scope) return;
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
@@ -246,9 +246,13 @@ const isGeneratedEntity = (
 /** What the model is asked for a job: translations and merges from the default locale. */
 const modelFor = (scope: TranslationScope): MergeModel<AiCallError, AiModel> => ({
   translate: (texts: TranslationText[]) =>
-    AiModel.use((model) => model.translate({ from: scope.from, to: scope.to, texts })),
+    AiModel.use((model) =>
+      model.translate({ from: scope.from, to: scope.to, context: scope.context, texts }),
+    ),
   merge: (texts: MergeText[]) =>
-    AiModel.use((model) => model.merge({ from: scope.from, to: scope.to, texts })),
+    AiModel.use((model) =>
+      model.merge({ from: scope.from, to: scope.to, context: scope.context, texts }),
+    ),
 });
 
 /** What an entity's localization holds, by kind of entity, read from its stored schemas. */

@@ -5,7 +5,12 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import { readMetadataImage } from "../domains/files/metadata-image";
-import { AiModel, type MergeRequest, type TranslationRequest } from "./ai-model";
+import {
+  AiModel,
+  type MergeRequest,
+  type TranslationContext,
+  type TranslationRequest,
+} from "./ai-model";
 import { transformImageUrl } from "./image-transform";
 import { retryAiCall } from "./retry-ai-call";
 
@@ -124,6 +129,33 @@ function byAskedKey(asked: readonly { key: string }[], answered: { key: string; 
   );
 }
 
+/**
+ * How a translation reads: as the website's audience writes in the target locale, not word for
+ * word. People in a field often say an English term rather than its dictionary translation.
+ */
+const LOCALIZATION_CONSTRAINTS = (to: string) => outdent`
+  - Write the way the website's audience writes in the "${to}" locale, given what the website is about. Use the words they actually use: where they say an English term rather than its translation (as French developers say "token" and "codebase", not "jeton" and "base de code"), use the English term too
+  - Carry over the meaning and tone, not the wording: rephrase freely wherever a close translation would sound unnatural to them
+  - Keep brand and product names, code, URLs and placeholders such as {{name}} as they are
+`;
+
+/** What the model is told about the website, when anything is known. */
+function websiteBlock(context: TranslationContext) {
+  const lines = [
+    context.website && `<name>${context.website}</name>`,
+    context.pageTitle && `<page_title>${context.pageTitle}</page_title>`,
+    context.pageDescription && `<page_description>${context.pageDescription}</page_description>`,
+  ].filter(Boolean);
+  if (lines.length === 0) return "";
+  return outdent`
+
+    <website>
+      ${lines.join("\n  ")}
+    </website>
+    The website's name and the page the texts are on, for context only: don't translate them.
+  `;
+}
+
 const FORMAT_CONSTRAINTS = outdent`
   - "plain" texts: return plain text, without markdown
   - "html" texts: an HTML document; translate only the words people read, including titles and attributes such as alt, title and aria-label, and keep every tag, attribute name, script and style as it is
@@ -135,6 +167,7 @@ function mergePrompt(request: MergeRequest) {
     <instruction>
       A website is translated from the "${request.from}" locale into the "${request.to}" locale (BCP 47 tags). Someone edited some translated texts by hand, and their source has changed since. For each text, write the "${request.to}" text that keeps the hand edit's intent and carries over what changed in the source.
     </instruction>
+    ${websiteBlock(request.context)}
 
     <inputs>
       - "previousSource": the source text when it was last translated
@@ -146,7 +179,7 @@ function mergePrompt(request: MergeRequest) {
     <constraints>
       - Return one text per input, under its key, in the "${request.to}" locale
       - Keep what the hand edit changed in "current", unless the source's change replaces it
-      - Translate naturally, keeping the website's tone, brand and product names, code, URLs and placeholders such as {{name}}
+      ${LOCALIZATION_CONSTRAINTS(request.to)}
       ${FORMAT_CONSTRAINTS}
       - "markdown" texts: rich text as Markdown; return Markdown, keeping its paragraphs, bold and italic, and every link's target as it is
     </constraints>
@@ -158,13 +191,13 @@ function mergePrompt(request: MergeRequest) {
 function translationPrompt(request: TranslationRequest) {
   return outdent`
     <instruction>
-      Translate each text of a website from the "${request.from}" locale into the "${request.to}" locale (BCP 47 tags).
+      Translate each text of a website from the "${request.from}" locale into the "${request.to}" locale (BCP 47 tags), so it reads as if it had been written in "${request.to}" in the first place.
     </instruction>
+    ${websiteBlock(request.context)}
 
     <constraints>
       - Return one translation per text, under the text's key
-      - Translate naturally, as a native speaker would write for this website, keeping its tone
-      - Keep brand and product names, code, URLs and placeholders such as {{name}} as they are
+      ${LOCALIZATION_CONSTRAINTS(request.to)}
       ${FORMAT_CONSTRAINTS}
     </constraints>
 
