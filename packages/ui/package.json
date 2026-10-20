@@ -31,6 +31,10 @@
       "types": "./src/components/badge.tsx",
       "default": "./src/components/badge.tsx"
     },
+    "./bubble": {
+      "types": "./src/components/bubble.tsx",
+      "default": "./src/components/bubble.tsx"
+    },
     "./button-group": {
       "types": "./src/components/button-group.tsx",
       "default": "./src/components/button-group.tsx"
@@ -78,6 +82,14 @@
     "./label": {
       "types": "./src/components/label.tsx",
       "default": "./src/components/label.tsx"
+    },
+    "./message-scroller": {
+      "types": "./src/components/message-scroller.tsx",
+      "default": "./src/components/message-scroller.tsx"
+    },
+    "./message": {
+      "types": "./src/components/message.tsx",
+      "default": "./src/components/message.tsx"
     },
     "./panel": {
       "types": "./src/components/panel.tsx",
@@ -158,6 +170,10 @@
         "types": "./dist/components/badge.d.ts",
         "default": "./dist/components/badge.js"
       },
+      "./bubble": {
+        "types": "./dist/components/bubble.d.ts",
+        "default": "./dist/components/bubble.js"
+      },
       "./button-group": {
         "types": "./dist/components/button-group.d.ts",
         "default": "./dist/components/button-group.js"
@@ -205,6 +221,14 @@
       "./label": {
         "types": "./dist/components/label.d.ts",
         "default": "./dist/components/label.js"
+      },
+      "./message-scroller": {
+        "types": "./dist/components/message-scroller.d.ts",
+        "default": "./dist/components/message-scroller.js"
+      },
+      "./message": {
+        "types": "./dist/components/message.d.ts",
+        "default": "./dist/components/message.js"
       },
       "./panel": {
         "types": "./dist/components/panel.d.ts",
@@ -265,6 +289,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@shadcn/react": "^0.3.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
