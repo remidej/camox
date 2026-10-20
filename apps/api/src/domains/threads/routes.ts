@@ -1,4 +1,4 @@
-import type { ThreadSender } from "@camox/api-contract/threads";
+import type { StartedDraft, ThreadSender } from "@camox/api-contract/threads";
 import { Effect } from "effect";
 import { type Context, Hono } from "hono";
 
@@ -39,14 +39,15 @@ function forward(
   threadId: string,
   user: User,
   identity: ThreadIdentity,
-  continuedIn?: string | null,
+  continuedIn: StartedDraft | null = null,
 ) {
   const sender: ThreadSender = { id: user.id, name: user.name, image: user.image ?? null };
   const headers = new Headers(c.req.raw.headers);
   headers.set(THREAD_SENDER_HEADER, JSON.stringify(sender));
   headers.set(THREAD_IDENTITY_HEADER, JSON.stringify(identity));
-  if (continuedIn) headers.set(THREAD_CONTINUED_HEADER, continuedIn);
-  else headers.delete(THREAD_CONTINUED_HEADER);
+  // Every header the thread trusts is the API's: one the studio sent is replaced or dropped.
+  headers.delete(THREAD_CONTINUED_HEADER);
+  if (continuedIn) headers.set(THREAD_CONTINUED_HEADER, JSON.stringify(continuedIn));
   return c.env.THREAD.getByName(threadId).fetch(new Request(c.req.raw, { headers }));
 }
 

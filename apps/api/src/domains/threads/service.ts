@@ -1,4 +1,5 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import type { StartedDraft } from "@camox/api-contract/threads";
 import { and, eq, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -7,6 +8,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { accessTo } from "../drafts/access";
 import { drafts } from "../drafts/schema";
 import type { DraftRequest } from "../drafts/scope";
+import { findEndedDraft } from "../drafts/service";
 import { liveThreads } from "./schema";
 
 /**
@@ -36,27 +38,45 @@ export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
 });
 
 /**
- * Makes an editor's Live thread the thread of the draft its first write started: the draft
- * records the thread, and the editor's next Live thread starts fresh, continued in the draft.
- * Nothing is copied. Repeating it changes nothing.
+ * Gives the editor a fresh Live thread once their current one became the thread of the draft its
+ * first write started, linking to that draft. The draft recorded the thread as it was created,
+ * and nothing is copied. Repeating it changes nothing.
  */
 export const moveLiveThreadIntoDraft = Effect.fn("moveLiveThreadIntoDraft")(function* (
   db: Database,
-  move: { threadId: string; draftId: string },
+  move: { threadId: string; startedDraft: StartedDraft },
 ) {
-  const { threadId, draftId } = move;
+  const { threadId, startedDraft } = move;
   yield* Effect.promise(() =>
-    db.batch([
-      db
-        .update(drafts)
-        .set({ threadId })
-        .where(and(eq(drafts.id, draftId), isNull(drafts.threadId))),
-      db
-        .update(liveThreads)
-        .set({ threadId: generateUuidv7(), createdAt: Date.now(), continuedIn: draftId })
-        .where(eq(liveThreads.threadId, threadId)),
-    ]),
+    db
+      .update(liveThreads)
+      .set({ threadId: generateUuidv7(), createdAt: Date.now(), continuedIn: startedDraft })
+      .where(eq(liveThreads.threadId, threadId)),
   );
+});
+
+/**
+ * Where the draft a Live thread's write set out to start stands: `started` with the thread as
+ * its own, `ended` (published or discarded) since, or `unstarted` while no write created it.
+ */
+export const reservedDraftState = Effect.fn("reservedDraftState")(function* (
+  db: Database,
+  reserved: { projectId: number; draftId: string; threadId: string },
+) {
+  const { projectId, draftId, threadId } = reserved;
+  const draft = yield* Effect.promise(() =>
+    db.select({ threadId: drafts.threadId }).from(drafts).where(eq(drafts.id, draftId)).get(),
+  );
+  if (draft) {
+    // Only the thread's own writes create the draft, recording it as they do.
+    if (draft.threadId !== threadId) {
+      return yield* Effect.die(new Error("A draft set aside for a thread belongs to another"));
+    }
+    return "started" as const;
+  }
+  return (yield* findEndedDraft(db, projectId, draftId))
+    ? ("ended" as const)
+    : ("unstarted" as const);
 });
 
 /**

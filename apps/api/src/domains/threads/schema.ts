@@ -1,3 +1,4 @@
+import type { StartedDraft } from "@camox/api-contract/threads";
 import { int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { projects } from "../projects/schema";
@@ -16,10 +17,11 @@ export const liveThreads = sqliteTable(
     // The owning editor's id. No foreign key, as for drafts' creators.
     userId: text("user_id").notNull(),
     createdAt: int("created_at").notNull(),
-    // The draft the editor's previous Live thread continued in, when it started one: that thread
-    // became the draft's, and this one started fresh. No foreign key, so the link outlives the
-    // draft, which the studio then says was published or discarded.
-    continuedIn: text("continued_in"),
+    // The draft the editor's previous Live thread continued in, when it started one, with the
+    // operations of the run that started it: that thread became the draft's, and this one started
+    // fresh. No foreign key, so the link outlives the draft, which the studio then says was
+    // published or discarded.
+    continuedIn: text("continued_in", { mode: "json" }).$type<StartedDraft>(),
   },
   (table) => [uniqueIndex("live_threads_owner_idx").on(table.projectId, table.userId)],
 );

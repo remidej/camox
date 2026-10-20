@@ -87,6 +87,20 @@ export async function storedThreadOf(db: ReturnType<typeof createDb>, draftId: s
   }));
 }
 
+/** How many sockets the thread a draft records has accepted, or 0 while it records none. */
+export async function socketsOnThreadOf(db: ReturnType<typeof createDb>, draftId: string) {
+  const draft = await db
+    .select({ threadId: drafts.threadId })
+    .from(drafts)
+    .where(eq(drafts.id, draftId))
+    .get();
+  if (!draft?.threadId) return 0;
+  return runInDurableObject(
+    env.THREAD.getByName(draft.threadId),
+    async (_thread, state) => state.getWebSockets().length,
+  );
+}
+
 /** Who each message in `view` is from, and its text for an editor's or the agent's. */
 export const said = (view: ThreadView) =>
   view.messages.map((message) =>
@@ -170,10 +184,13 @@ async function connectThread(response: Response): Promise<ThreadClient> {
 export async function ask(
   thread: ThreadClient,
   text: string,
-  { keepOpen = false }: { keepOpen?: boolean } = {},
+  {
+    keepOpen = false,
+    operationId = crypto.randomUUID(),
+  }: { keepOpen?: boolean; operationId?: string } = {},
 ): Promise<ThreadView> {
   const before = thread.view().messages.length;
-  thread.send({ type: "send", operationId: crypto.randomUUID(), text });
+  thread.send({ type: "send", operationId, text });
   await thread.until(() => !thread.view().running && thread.view().messages.length >= before + 2);
   if (!keepOpen) thread.close();
   return thread.view();

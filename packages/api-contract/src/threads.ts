@@ -6,7 +6,10 @@ import { z } from "zod";
 // agent events over its socket, and this module is the one place that interprets them: the
 // studio and the API's tests fold them with the same code.
 
-/** The kind of the transcript entry recording an editor's message, with its sender as data. */
+/**
+ * The kind of the transcript entry recording an editor's message, with its sender and the
+ * operation id the studio sent it with as data (`editorMessageDataSchema`).
+ */
 export const EDITOR_MESSAGE_ENTRY = "camox.editor-message";
 
 /** The kind of the transcript entry recording that an editor stopped a run, with them as data. */
@@ -24,6 +27,22 @@ export type ThreadSender = z.infer<typeof threadSenderSchema>;
 export const isSender = (data: unknown): data is ThreadSender =>
   threadSenderSchema.safeParse(data).success;
 
+/** What an editor's message entry records: who sent it, and the operation id it was sent with. */
+export const editorMessageDataSchema = threadSenderSchema.extend({
+  operationId: z.string().optional(),
+});
+
+/**
+ * A draft a Live thread started with its first write, becoming its thread, and the operation ids
+ * of the messages of the run that made the write: the studio that sent one of them enters the
+ * draft with the thread.
+ */
+export const startedDraftSchema = z.object({
+  draftId: z.string(),
+  operationIds: z.array(z.string()),
+});
+export type StartedDraft = z.infer<typeof startedDraftSchema>;
+
 /** A message the studio shows in a thread. */
 export type ThreadMessage =
   | { id: string; from: "editor"; sender: ThreadSender; text: string }
@@ -37,20 +56,20 @@ export type ThreadMessage =
   /** In place of the agent's message, for a turn an editor stopped: `sender` stopped it. */
   | { id: string; from: "stopped"; sender: ThreadSender };
 
-/** Where a Live thread stands with drafts, beside its transcript. */
-type ThreadDrafts = {
+/** Where a Live thread's messages went when it started a draft, beside its transcript. */
+type LiveThreadHandoff = {
   /**
-   * The draft this Live thread started with its first write, whose thread it became. The
-   * editor's studio enters the draft with the thread; their other tabs on Live move to a fresh
-   * Live thread.
+   * The draft this Live thread started with its first write, whose thread it became. The studio
+   * that sent a message of that run enters the draft with the thread; other tabs on Live move to
+   * the editor's fresh Live thread.
    */
-  startedDraft?: string;
+  startedDraft?: StartedDraft;
   /** The draft the editor's previous Live thread continued in, for a fresh Live thread. */
-  continuedIn?: string;
+  continuedIn?: StartedDraft;
 };
 
 /** Everything the studio shows for a thread. */
-export type ThreadView = ThreadDrafts & {
+export type ThreadView = LiveThreadHandoff & {
   messages: readonly ThreadMessage[];
   /** Whether a run is going: the agent is working on a turn, and stopping would end it. */
   running: boolean;
@@ -63,7 +82,7 @@ export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
  * and whether a run is going. The studio and the tests fold Pi's events into this, and derive
  * the view from it with `threadViewOf`, so a snapshot and the events that led to it show the same.
  */
-export type ThreadState = ThreadDrafts & { steps: readonly ThreadStep[]; running: boolean };
+export type ThreadState = LiveThreadHandoff & { steps: readonly ThreadStep[]; running: boolean };
 
 export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
 
@@ -102,9 +121,12 @@ export type ThreadServerMessage =
   /** The thread recorded the message sent with this operation id (once, however often sent). */
   | { type: "accepted"; operationId: string }
   /** This Live thread started a draft with its first write, and became that draft's thread. */
-  | { type: "started-draft"; draftId: string }
-  /** The editor's previous Live thread continued in this draft: this one is fresh. */
-  | { type: "continued"; draftId: string }
+  | { type: "started-draft"; startedDraft: StartedDraft }
+  /**
+   * The editor's previous Live thread continued in this draft: this one is fresh. Sent before
+   * the snapshot.
+   */
+  | { type: "continued-in"; continuedIn: StartedDraft }
   | { type: "error"; operationId?: string; message: string };
 
 const textOf = (content: Message["content"]) =>
@@ -242,9 +264,9 @@ export function reduceThreadFrame(state: ThreadState, frame: ThreadServerMessage
     case "events":
       return reduceThreadEvents(state, frame.events);
     case "started-draft":
-      return { ...state, startedDraft: frame.draftId };
-    case "continued":
-      return { ...state, continuedIn: frame.draftId };
+      return { ...state, startedDraft: frame.startedDraft };
+    case "continued-in":
+      return { ...state, continuedIn: frame.continuedIn };
     default:
       return state;
   }

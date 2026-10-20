@@ -1,8 +1,11 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   EDITOR_MESSAGE_ENTRY,
+  editorMessageDataSchema,
   isSender,
   RUN_STOPPED_ENTRY,
+  type StartedDraft,
+  startedDraftSchema,
   threadClientMessageSchema,
   threadSenderSchema,
   type ThreadClientMessage,
@@ -33,7 +36,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { createDb } from "../db";
-import { moveLiveThreadIntoDraft } from "../domains/threads/service";
+import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
 import {
   studioAgentTools,
   type ThreadActor,
@@ -41,6 +44,7 @@ import {
   threadIdentitySchema,
   threadToolDispatch,
   type ToolInvocation,
+  type ToolKind,
 } from "../domains/threads/tools";
 import { threadModel } from "../lib/thread-model";
 import type { Bindings } from "../types";
@@ -53,13 +57,16 @@ export const THREAD_IDENTITY_HEADER = "x-camox-thread-identity";
 
 /**
  * The header the API sets on a connection to a fresh Live thread, naming the draft the editor's
- * previous Live thread continued in.
+ * previous Live thread continued in (a `StartedDraft`).
  */
 export const THREAD_CONTINUED_HEADER = "x-camox-thread-continued-in";
 
 const IDENTITY_KEY = "camox.identity";
 
-/** The id of the draft a Live thread's first write starts, set aside before it's created. */
+/**
+ * The draft a Live thread's first write starts, set aside before it's created, with the
+ * operations of the run whose write created it once one did (a `StartedDraft`).
+ */
 const DRAFT_TO_START_KEY = "camox.draft-to-start";
 
 /** `WebSocket.OPEN`, which isn't defined on every runtime's global. */
@@ -72,7 +79,7 @@ const OPEN = 1;
 const participantSchema = z.object({
   sender: threadSenderSchema,
   identity: threadIdentitySchema,
-  continuedIn: z.string().optional(),
+  continuedIn: startedDraftSchema.optional(),
 });
 type Participant = z.infer<typeof participantSchema>;
 
@@ -186,8 +193,10 @@ export class Thread extends DurableObject<Bindings> {
   readonly #model = threadModel(this.env);
   readonly #registry = createRegistry();
   readonly #watches = new Map<WebSocket, AgentEventStream>();
-  /** Moving into the draft a write started, which every later move waits for. */
-  #moving: Promise<void> = Promise.resolve();
+  /** Settling where the thread stands, which every later settling waits for. */
+  #settling: Promise<unknown> = Promise.resolve();
+  /** Setting aside the draft this Live thread's first write starts, shared by concurrent writes. */
+  #reserving: Promise<string> | undefined;
 
   readonly harness = new UntilStartedPiHarness(async () => !!(await this.#knownIdentity()), {
     harness: async ({ storage, context }) => {
@@ -207,8 +216,8 @@ export class Thread extends DurableObject<Bindings> {
       const dispatch = threadToolDispatch(
         this.env,
         (promise) => this.ctx.waitUntil(promise),
-        (invocation) => this.#actor(invocation),
-        (draftId) => this.#startedDraft(draftId),
+        (invocation, kind) => this.#actor(invocation, kind),
+        (invocation) => this.#wrote(invocation),
       );
       this.#registry.install({
         name: "camox",
@@ -252,9 +261,15 @@ export class Thread extends DurableObject<Bindings> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.webSockets).use(this.harness);
 
-  /** Gives sockets that outlived the last isolate a new watch and a fresh snapshot. */
+  /**
+   * Gives sockets that outlived the last isolate a new watch and a fresh snapshot, once a move
+   * into a draft an eviction cut short is finished.
+   */
   async onStart() {
     if (!(await this.#knownIdentity())) return;
+    await this.#settle().catch((error: unknown) =>
+      console.error("A thread couldn't move into the draft its write started", error),
+    );
     for (const socket of this.ctx.getWebSockets()) await this.#watch(socket);
   }
 
@@ -262,13 +277,15 @@ export class Thread extends DurableObject<Bindings> {
     const participant = participantSchema.safeParse({
       sender: parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
       identity: parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
-      continuedIn: ctx.request.headers.get(THREAD_CONTINUED_HEADER) ?? undefined,
+      continuedIn: parseJson(ctx.request.headers.get(THREAD_CONTINUED_HEADER)),
     });
     if (!participant.success) {
       connection.close(1008, "Unauthorized");
       return;
     }
-    const known = await this.#knownIdentity();
+    // A thread whose write started a draft may not have moved into it yet: a teammate opening
+    // the draft, or the editor coming back to Live, finishes the move first.
+    const known = await this.#settle();
     if (known && !this.#admits(known, participant.data)) {
       connection.close(1008, "Unauthorized");
       return;
@@ -296,14 +313,21 @@ export class Thread extends DurableObject<Bindings> {
     return known.success ? known.data : undefined;
   }
 
+  /** The thread's own id: threads are addressed by it (`getByName`), which names the object. */
+  #threadId(): string {
+    const threadId = this.ctx.id.name;
+    if (!threadId) throw new Error("The thread doesn't know its own id");
+    return threadId;
+  }
+
   /**
    * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
    * draft, or on Live for a Live thread, whose first write starts the draft set aside for it.
    */
-  async #actor(invocation: ToolInvocation): Promise<ThreadActor> {
-    const identity = await this.#knownIdentity();
+  async #actor(invocation: ToolInvocation, kind: ToolKind): Promise<ThreadActor> {
+    const identity = await this.#settle();
     if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
-    const entry = await this.#entryStartingRun(invocation);
+    const [entry] = await this.#entriesOfRun(invocation, 1);
     if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
       throw new Error("The thread's run wasn't started by an editor's message");
     }
@@ -312,67 +336,121 @@ export class Thread extends DurableObject<Bindings> {
       draftId: identity.draftId,
       userId: entry.data.id,
     };
-    if (identity.draftId) return actor;
-    return { ...actor, draftToStart: await this.#draftToStart() };
+    if (identity.draftId || kind !== "write") return actor;
+    return {
+      ...actor,
+      draftToStart: { id: await this.#draftToStart(), threadId: this.#threadId() },
+    };
+  }
+
+  /** The draft set aside for this Live thread's first write, if any. */
+  async #reservedDraft(): Promise<StartedDraft | undefined> {
+    return startedDraftSchema.safeParse(await this.ctx.storage.get(DRAFT_TO_START_KEY)).data;
   }
 
   /**
    * The draft this Live thread's first write starts, the same for every write until one goes
-   * through: writes racing in one script land in one draft.
+   * through: concurrent writes share one, so they land in one draft.
    */
-  async #draftToStart(): Promise<string> {
-    const known = await this.ctx.storage.get<string>(DRAFT_TO_START_KEY);
-    if (known) return known;
-    const draftId = generateUuidv7();
-    await this.ctx.storage.put(DRAFT_TO_START_KEY, draftId);
-    return draftId;
+  #draftToStart(): Promise<string> {
+    this.#reserving ??= (async () => {
+      const reserved = await this.#reservedDraft();
+      if (reserved) return reserved.draftId;
+      const draftId = generateUuidv7();
+      await this.ctx.storage.put(DRAFT_TO_START_KEY, { draftId, operationIds: [] });
+      return draftId;
+    })().catch((error: unknown) => {
+      this.#reserving = undefined;
+      throw error;
+    });
+    return this.#reserving;
   }
 
-  /** Moves into the draft a write started, once however many writes say so. */
-  #startedDraft(draftId: string): Promise<void> {
-    const moved = this.#moving.then(() => this.#moveIntoDraft(draftId));
-    this.#moving = moved.catch(() => undefined);
+  /**
+   * After a write on Live went through, creating the draft set aside: records the operations of
+   * its run, whose studios enter the draft, and moves into the draft.
+   */
+  async #wrote(invocation: ToolInvocation) {
+    const reserved = await this.#reservedDraft();
+    if (reserved && reserved.operationIds.length === 0) {
+      const operationIds = (await this.#entriesOfRun(invocation)).flatMap(
+        (entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? [],
+      );
+      await this.ctx.storage.put(DRAFT_TO_START_KEY, { ...reserved, operationIds });
+    }
+    await this.#settle();
+  }
+
+  /**
+   * Settles where the thread stands, one settling at a time, returning what it belongs to: a
+   * Live thread whose write started a draft moves into it, finishing a move a failure or an
+   * eviction cut short. Repeating it changes nothing.
+   */
+  #settle(): Promise<ThreadIdentity | undefined> {
+    const settled = this.#settling.then(() => this.#settleNow());
+    this.#settling = settled.catch(() => undefined);
+    return settled;
+  }
+
+  /**
+   * Makes this Live thread the thread of the draft its first write started, which recorded the
+   * thread as it was created: the thread acts in the draft from then on, and the editor's next
+   * Live thread starts fresh, linking to it. Its sockets hear of it: the studio that sent a
+   * message of the run enters the draft, and other tabs on Live move on. When the draft ended
+   * before that, the thread stays on Live and sets another aside for its next write.
+   */
+  async #settleNow(): Promise<ThreadIdentity | undefined> {
+    const known = await this.#knownIdentity();
+    if (!known || known.draftId !== null) return known;
+    const reserved = await this.#reservedDraft();
+    if (!reserved) return known;
+    const db = createDb(this.env.DB);
+    const threadId = this.#threadId();
+    const state = await Effect.runPromise(
+      reservedDraftState(db, { projectId: known.projectId, draftId: reserved.draftId, threadId }),
+    );
+    if (state === "unstarted") return known;
+    if (state === "ended") {
+      await this.ctx.storage.delete(DRAFT_TO_START_KEY);
+      this.#reserving = undefined;
+      return known;
+    }
+    await Effect.runPromise(moveLiveThreadIntoDraft(db, { threadId, startedDraft: reserved }));
+    const moved: ThreadIdentity = { ...known, draftId: reserved.draftId };
+    await this.ctx.storage.put(IDENTITY_KEY, moved);
+    for (const socket of this.ctx.getWebSockets()) {
+      send(socket, { type: "started-draft", startedDraft: reserved });
+    }
     return moved;
   }
 
   /**
-   * Makes this Live thread the thread of the draft its first write started: the draft records it,
-   * its next calls act in the draft, and the editor's next Live thread starts fresh. Its sockets
-   * hear of it: the editor's studio enters the draft, and their other tabs on Live move on.
+   * The entries Pi recorded for the inputs of the run a tool call is part of, up to `limit`: the
+   * message that started the run first, then those that steered it.
    */
-  async #moveIntoDraft(draftId: string) {
-    const known = await this.#knownIdentity();
-    if (!known || known.draftId !== null) return;
-    // Threads are addressed by their own id (`getByName`), which names the object.
-    const threadId = this.ctx.id.name;
-    if (!threadId) throw new Error("The thread doesn't know its own id");
-    await Effect.runPromise(moveLiveThreadIntoDraft(createDb(this.env.DB), { threadId, draftId }));
-    await this.ctx.storage.put(IDENTITY_KEY, { ...known, draftId } satisfies ThreadIdentity);
-    for (const socket of this.ctx.getWebSockets()) {
-      send(socket, { type: "started-draft", draftId });
-    }
-  }
-
-  /**
-   * The entry that started the run a tool call is part of: the entry Pi recorded for the run's
-   * first input.
-   */
-  async #entryStartingRun({ api, context }: ToolInvocation): Promise<EntryRecord | undefined> {
+  async #entriesOfRun(
+    { api, context }: ToolInvocation,
+    limit = Number.POSITIVE_INFINITY,
+  ): Promise<EntryRecord[]> {
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
-    const started = live?.run?.inputs[0];
-    if (!started) return undefined;
+    const inputs = live?.run?.inputs.slice(0, limit) ?? [];
+    if (inputs.length === 0) return [];
     const pi = await this.harness.pi();
-    const submission = await pi.submission(started, context);
-    const entryId = submission && (await submission.status(context)).entry;
-    if (!entryId) return undefined;
     const conversation = await pi.conversation(api.conversationId, context);
-    const found = await conversation?.entries(
-      { minEntryId: entryId, maxEntryId: entryId },
-      1,
-      undefined,
-      context,
-    );
-    return found?.items[0];
+    const entries: EntryRecord[] = [];
+    for (const input of inputs) {
+      const submission = await pi.submission(input, context);
+      const entryId = submission && (await submission.status(context)).entry;
+      if (!entryId) continue;
+      const found = await conversation?.entries(
+        { minEntryId: entryId, maxEntryId: entryId },
+        1,
+        undefined,
+        context,
+      );
+      if (found?.items[0]) entries.push(found.items[0]);
+    }
+    return entries;
   }
 
   /**
@@ -380,9 +458,17 @@ export class Thread extends DurableObject<Bindings> {
    * without opening Pi, which would store.
    */
   async #show(connection: Connection, known: ThreadIdentity | undefined) {
+    const participant = participantSchema.safeParse(connection.state).data;
     // Before the snapshot, which the studio waits for to show the thread.
-    const continuedIn = participantSchema.safeParse(connection.state).data?.continuedIn;
-    if (continuedIn) send(connection, { type: "continued", draftId: continuedIn });
+    const continuedIn = participant?.continuedIn;
+    if (continuedIn) send(connection, { type: "continued-in", continuedIn });
+    // The editor on Live reaching a thread that moved into a draft hears where it went.
+    if (known?.draftId && participant?.identity.draftId === null) {
+      const startedDraft = await this.#reservedDraft();
+      if (startedDraft?.draftId === known.draftId) {
+        send(connection, { type: "started-draft", startedDraft });
+      }
+    }
     if (known) await this.#watch(connection);
     else send(connection, { type: "events", events: [NOT_STARTED] });
   }
@@ -448,7 +534,10 @@ export class Thread extends DurableObject<Bindings> {
           await this.harness.submit(message.text, {
             whenBusy: "steer",
             operationId: message.operationId,
-            entry: { kind: EDITOR_MESSAGE_ENTRY, data: participant.data.sender },
+            entry: {
+              kind: EDITOR_MESSAGE_ENTRY,
+              data: { ...participant.data.sender, operationId: message.operationId },
+            },
           });
           send(connection, { type: "accepted", operationId: message.operationId });
         } catch (error) {

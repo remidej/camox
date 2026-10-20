@@ -18,9 +18,9 @@ export const drafts = sqliteTable(
     // The creating user's id. No foreign key, so a departed member's draft survives.
     createdBy: text("created_by").notNull(),
     createdAt: int("created_at").notNull(),
-    // The draft's thread with Camox's agent, set aside when someone first opens it there; the
-    // thread starts with its first message. It lives in its own Durable Object, addressed by
-    // this id.
+    // The draft's thread with Camox's agent, set aside when someone first opens it there, or the
+    // Live thread whose write created the draft; a thread starts with its first message. It lives
+    // in its own Durable Object, addressed by this id.
     threadId: text("thread_id"),
   },
   (table) => [

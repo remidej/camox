@@ -1,7 +1,10 @@
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { addMember } from "../../../test/fixtures";
+import { addMember, createRpcContext } from "../../../test/fixtures";
+import { failNextMove, forgetMoves, holdNextMove } from "../../../test/live-thread-moves";
 import {
   answerFrom,
   answerNext,
@@ -17,8 +20,11 @@ import {
   pagesOf,
   said,
   signIn,
+  socketsOnThreadOf,
+  type Website,
   websiteFixture,
 } from "../../../test/threads";
+import { draftProcedures } from "../drafts/routes";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -26,10 +32,27 @@ vi.mock("../../lib/thread-model", async () => {
   return { threadModel: testThreadModel };
 });
 
+// Moves into a draft fail or wait when a test asks, as D1 might.
+vi.mock("./service", async (importOriginal) => {
+  const service = await importOriginal<typeof import("./service")>();
+  const { interceptMoves: intercept } = await import("../../../test/live-thread-moves");
+  return { ...service, moveLiveThreadIntoDraft: intercept(service.moveLiveThreadIntoDraft) };
+});
+
 afterEach(async () => {
   await abortAllDurableObjects();
   forgetThreadModel();
+  forgetMoves();
 });
+
+/** Waits until `check` holds, as the thread works on its own. */
+async function until(check: () => Promise<boolean>) {
+  const deadline = Date.now() + 10_000;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("It never happened");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 const LIVE_PRICING = { "/pricing": ["<!-- Text -->\nPlans start at $9."] };
 
@@ -74,12 +97,15 @@ describe("a Live thread starting a draft", () => {
     answerWithScript(RAISE_PRICE);
     answerNext("Raised the price to $12.");
 
-    const view = await ask(thread, "Raise it to $12");
+    const operationId = crypto.randomUUID();
+
+    const view = await ask(thread, "Raise it to $12", { operationId });
 
     const [draft, ...others] = await draftsOf(website);
     expect(others).toEqual([]);
     expect(draft?.createdBy.id).toBe(website.memberUser.id);
-    expect(view.startedDraft).toBe(draft?.id);
+    // Only the message whose run wrote takes its studio into the draft.
+    expect(view.startedDraft).toEqual({ draftId: draft?.id, operationIds: [operationId] });
     expect(await pagesOf(website, draft!.id)).toEqual({
       "/pricing": ["<!-- Text -->\nPlans start at $12."],
     });
@@ -111,7 +137,7 @@ describe("a Live thread starting a draft", () => {
     const next = await connectLiveThread(website.project.id, token);
 
     expect(next.view().messages).toEqual([]);
-    expect(next.view().continuedIn).toBe(draft?.id);
+    expect(next.view().continuedIn?.draftId).toBe(draft?.id);
     // The fresh thread is the editor's Live thread: it answers on Live.
     answerNext("Plans start at $9.");
     const answered = await ask(next, "What do plans cost?");
@@ -180,4 +206,90 @@ describe("a Live thread starting a draft", () => {
     });
     expect(await pagesOf(website)).toEqual(LIVE_PRICING);
   });
+
+  it("reaches a teammate opening the draft before the thread moved into it", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const teammate = await addMember(website.db, website.project.organizationId);
+    const token = await signIn(website.db, website.memberUser.id);
+    const release = holdNextMove();
+    answerWithScript(RAISE_PRICE);
+    answerNext("Raised the price to $12.");
+    const asked = ask(await connectLiveThread(website.project.id, token), "Raise the price to $12");
+    await until(async () => (await draftsOf(website)).length > 0);
+    const [draft] = await draftsOf(website);
+
+    const opening = connectDraftThread(
+      website.project.id,
+      draft!.id,
+      await signIn(website.db, teammate.id),
+    );
+    // The editor's socket, then the teammate's, reached the thread.
+    await until(async () => (await socketsOnThreadOf(website.db, draft!.id)) === 2);
+    release();
+    const theirs = await opening;
+    await asked;
+    await theirs.untilIdle(2);
+
+    expect(said(theirs.view())).toEqual([
+      { from: "editor", text: "Raise the price to $12" },
+      { from: "agent", text: "Raised the price to $12." },
+    ]);
+    theirs.close();
+  });
+
+  it("keeps the write when moving into the draft fails, and moves when the editor returns", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    failNextMove();
+    answerWithScript(`${RAISE_PRICE} text("raised");`);
+    answerFrom(({ scriptOutput }) => `The script ${scriptOutput} the price.`);
+
+    const view = await ask(await connectLiveThread(website.project.id, token), "Raise the price");
+
+    expect(lastAnswer(view)).toBe("The script raised the price.");
+    const [draft] = await draftsOf(website);
+    expect(await pagesOf(website, draft!.id)).toEqual({
+      "/pricing": ["<!-- Text -->\nPlans start at $12."],
+    });
+    // Back on Live, the thread moves into its draft, and the editor gets a fresh one.
+    const back = await connectLiveThread(website.project.id, token);
+    await back.until(() => back.view().startedDraft?.draftId === draft?.id);
+    back.close();
+    const next = await connectLiveThread(website.project.id, token);
+    expect(next.view().messages).toEqual([]);
+    expect(next.view().continuedIn?.draftId).toBe(draft?.id);
+    next.close();
+  });
+
+  it("starts another draft when the one it started ended before the thread moved into it", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const thread = await connectLiveThread(website.project.id, token);
+    failNextMove();
+    answerWithScript(RAISE_PRICE);
+    answerNext("Raised the price.");
+    await ask(thread, "Raise the price", { keepOpen: true });
+    const [discarded] = await draftsOf(website);
+    await discard(website, discarded!.id);
+    answerWithScript(`
+      await tools.createPage({ pathSegment: "launch", layoutId: "default" });
+      text("added");
+    `);
+    answerFrom(({ scriptOutput }) => `The script ${scriptOutput} a launch page.`);
+
+    const view = await ask(thread, "Add a launch page");
+
+    expect(lastAnswer(view)).toBe("The script added a launch page.");
+    const [draft, ...others] = await draftsOf(website);
+    expect(others).toEqual([]);
+    expect(draft?.id).not.toBe(discarded?.id);
+    expect(view.startedDraft?.draftId).toBe(draft?.id);
+    expect(Object.keys(await pagesOf(website, draft!.id))).toEqual(["/pricing", "/launch"]);
+  });
 });
+
+/** Discards a draft as a member does from the studio. */
+async function discard({ db, memberUser, project }: Website, draftId: string) {
+  const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
+  await call(draftProcedures.discard, { projectId: project.id }, { context });
+}

@@ -1,74 +1,80 @@
 import {
   EMPTY_THREAD_STATE,
   reduceThreadFrame,
+  type StartedDraft,
   type ThreadClientMessage,
   type ThreadServerMessage,
   type ThreadState,
   threadViewOf,
 } from "@camox/api-contract/threads";
 import { usePartySocket } from "partysocket/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as React from "react";
 
 import { apiSocketOptions } from "./api-socket";
 
 /** `WebSocket.OPEN`, without reaching for a global the server doesn't have. */
 const OPEN = 1;
 
+/** Messages on their way to a thread, which hasn't accepted them yet, by operation id. */
+export type Unaccepted = ReadonlyMap<string, string>;
+
+/** What a studio carries into the draft its Live thread started: the thread as it showed it. */
+export type CarriedThread = { state: ThreadState; unaccepted: Unaccepted };
+
 export type UseThreadOptions = {
-  /** What to show before the thread's snapshot: what the studio showed of it elsewhere. */
-  initialState?: ThreadState;
+  /** What a studio entering the draft its Live thread started carried over from it. */
+  carried?: CarriedThread;
   /**
-   * Hears that the Live thread this studio messaged started a draft and became its thread, with
-   * what it showed of it, so the studio enters the draft with the thread.
+   * Hears that the Live thread started a draft, becoming its thread, in a run one of this
+   * studio's messages was part of, so the studio enters the draft with the thread.
    */
-  onEnterDraft?: (draftId: string, state: ThreadState) => void;
+  onEnterDraft?: (draftId: string, carried: CarriedThread) => void;
 };
 
 /**
  * Follows a thread in a project over its socket, folding Pi's events into the thread's view: the
  * signed-in editor's Live thread when `draftId` is null, or the draft's thread, which `draftId`
  * names as the draft header does (`development` in dev mode). A message is resent with its
- * operation id on every reconnect until the thread accepts it, which records it once, or turns
- * it down. Mount it once per project and draft.
+ * operation id each time the thread shows itself after the socket opens, until it accepts it,
+ * which records it once, or turns it down. Mount it once per project and draft.
  *
- * When the Live thread starts a draft, a studio that messaged it enters the draft with it
- * (`onEnterDraft`); any other moves on to the editor's fresh Live thread, continued in the draft.
+ * When the Live thread starts a draft, a studio that sent a message of the run that wrote enters
+ * the draft with it (`onEnterDraft`), even if it only hears so on reconnecting, from the editor's
+ * fresh Live thread; its messages still on their way go with it. Any other studio moves on to
+ * that fresh Live thread, continued in the draft.
  */
 export function useThread(
   apiUrl: string,
   projectId: number,
   draftId: string | null,
-  { initialState = EMPTY_THREAD_STATE, onEnterDraft }: UseThreadOptions = {},
+  { carried, onEnterDraft }: UseThreadOptions = {},
 ) {
-  const [state, setState] = useState<ThreadState>(initialState);
-  const stateRef = useRef(state);
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-  /** Whether this studio sent a message in the thread. */
-  const messagedRef = useRef(false);
-  const onEnterDraftRef = useRef(onEnterDraft);
-  useEffect(() => {
-    onEnterDraftRef.current = onEnterDraft;
-  }, [onEnterDraft]);
-  const view = useMemo(() => threadViewOf(state), [state]);
-  const [unaccepted, setUnaccepted] = useState<ReadonlyMap<string, string>>(new Map());
-  const [error, setError] = useState<string>();
-  const unacceptedRef = useRef(unaccepted);
-  useEffect(() => {
-    unacceptedRef.current = unaccepted;
-  }, [unaccepted]);
+  const [state, setState] = React.useState<ThreadState>(carried?.state ?? EMPTY_THREAD_STATE);
+  const view = React.useMemo(() => threadViewOf(state), [state]);
+  const [unaccepted, setUnaccepted] = React.useState<Unaccepted>(carried?.unaccepted ?? new Map());
+  const [error, setError] = React.useState<string>();
+  /** The operation ids of the messages this studio sent in the thread. */
+  const sent = React.useRef(new Set<string>());
+  /** Whether the thread showed itself since the socket last opened. */
+  const shown = React.useRef(false);
+  /** How many times the thread showed itself after the socket opened. */
+  const [shows, setShows] = React.useState(0);
+  /** The draft this studio enters with the thread, once it heard its message wrote. */
+  const [entering, setEntering] = React.useState<string>();
+  /**
+   * Whether the studio is leaving for that draft: it stops following the thread at once, so
+   * frames arriving before the next render leave the thread as it showed it.
+   */
+  const leaving = React.useRef(false);
 
   const socket = usePartySocket({
     ...apiSocketOptions(apiUrl),
     basePath: draftId ? `threads/draft/${projectId}/${draftId}` : `threads/live/${projectId}`,
-    // Unaccepted messages are resent on every open instead, so nothing is buffered twice.
+    // Unaccepted messages are resent once the thread shows itself instead, so nothing is
+    // buffered twice.
     maxEnqueuedMessages: 0,
-    onOpen(event) {
-      const opened = event.target as WebSocket;
-      for (const [operationId, text] of unacceptedRef.current) {
-        transmit(opened, { type: "send", operationId, text });
-      }
+    onOpen() {
+      shown.current = false;
     },
     onMessage(event) {
       if (typeof event.data !== "string") return;
@@ -78,37 +84,77 @@ export function useThread(
       } catch {
         return;
       }
-      if (frame.type === "started-draft") {
-        if (draftId !== null) return;
-        if (messagedRef.current) {
-          onEnterDraftRef.current?.(frame.draftId, reduceThreadFrame(stateRef.current, frame));
+      onFrame(frame);
+    },
+  });
+
+  /** Whether one of this studio's messages was part of the run that started `started`. */
+  const wrote = (started: StartedDraft) =>
+    draftId === null && started.operationIds.some((operationId) => sent.current.has(operationId));
+
+  const onFrame = React.useEffectEvent((frame: ThreadServerMessage) => {
+    if (leaving.current) return;
+    switch (frame.type) {
+      case "started-draft":
+      case "continued-in": {
+        const started = frame.type === "started-draft" ? frame.startedDraft : frame.continuedIn;
+        if (wrote(started)) {
+          leaving.current = true;
+          setEntering(started.draftId);
           return;
         }
-        // The thread is the draft's now: the editor's Live thread is a fresh one.
-        setState(EMPTY_THREAD_STATE);
-        socketRef.current?.reconnect();
-      } else if (frame.type === "events" || frame.type === "continued") {
+        if (frame.type === "started-draft" && draftId === null) {
+          // The thread is the draft's now: the editor's Live thread is a fresh one.
+          setState(EMPTY_THREAD_STATE);
+          socket.reconnect();
+          return;
+        }
         setState((current) => reduceThreadFrame(current, frame));
-      } else if (frame.type === "accepted") {
-        const { operationId } = frame;
-        setUnaccepted((current) => without(current, operationId));
-      } else if (frame.type === "error") {
+        return;
+      }
+      case "events":
+        setState((current) => reduceThreadFrame(current, frame));
+        // The thread shows itself with a snapshot first, after saying where the last one went.
+        if (!shown.current) {
+          shown.current = true;
+          setShows((count) => count + 1);
+        }
+        return;
+      case "accepted":
+        setUnaccepted((current) => without(current, frame.operationId));
+        return;
+      case "error": {
         console.error("[useThread]", frame.message);
         setError(frame.message);
         // The thread turned the message down: it won't take it on a resend either.
         const { operationId } = frame;
         if (operationId) setUnaccepted((current) => without(current, operationId));
+        return;
       }
-    },
+    }
   });
 
-  const socketRef = useRef(socket);
-  useEffect(() => {
-    socketRef.current = socket;
-  }, [socket]);
+  // Messages still on their way are resent once the thread showed itself: a studio leaving for
+  // the draft its message started ignores the rest, and takes them there.
+  const resendUnaccepted = React.useEffectEvent(() => {
+    for (const [operationId, text] of unaccepted) {
+      transmit(socket, { type: "send", operationId, text });
+    }
+  });
+  React.useEffect(() => {
+    if (shows > 0) resendUnaccepted();
+  }, [shows]);
+
+  // After the render folding every frame before, so the studio carries the thread whole.
+  const enterDraft = React.useEffectEvent((started: string) =>
+    onEnterDraft?.(started, { state, unaccepted }),
+  );
+  React.useEffect(() => {
+    if (entering) enterDraft(entering);
+  }, [entering]);
 
   // A tab coming back may have missed events while the browser throttled it.
-  useEffect(() => {
+  React.useEffect(() => {
     const resync = () => {
       if (document.visibilityState === "visible") transmit(socket, { type: "resync" });
     };
@@ -116,10 +162,10 @@ export function useThread(
     return () => document.removeEventListener("visibilitychange", resync);
   }, [socket]);
 
-  const send = useCallback(
+  const send = React.useCallback(
     (text: string) => {
       const operationId = crypto.randomUUID();
-      messagedRef.current = true;
+      sent.current.add(operationId);
       setError(undefined);
       setUnaccepted((current) => new Map(current).set(operationId, text));
       transmit(socket, { type: "send", operationId, text });
@@ -128,7 +174,7 @@ export function useThread(
   );
 
   // A stop isn't resent on reconnecting: it could stop a run started since.
-  const stop = useCallback(() => transmit(socket, { type: "stop" }), [socket]);
+  const stop = React.useCallback(() => transmit(socket, { type: "stop" }), [socket]);
 
   return {
     /** What the thread shows, with whether a run is going, which `stop` ends. */
@@ -150,7 +196,7 @@ function transmit(
   if (socket.readyState === OPEN) socket.send(JSON.stringify(message));
 }
 
-const without = (map: ReadonlyMap<string, string>, key: string) => {
+const without = (map: Unaccepted, key: string) => {
   const next = new Map(map);
   next.delete(key);
   return next;

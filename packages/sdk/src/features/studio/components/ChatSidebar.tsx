@@ -1,4 +1,4 @@
-import { EMPTY_THREAD_VIEW, type ThreadState } from "@camox/api-contract/threads";
+import { EMPTY_THREAD_VIEW } from "@camox/api-contract/threads";
 import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
@@ -6,7 +6,7 @@ import { useNavigate } from "@/features/navigation/navigation";
 import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId, useDraftScope } from "../../../lib/draft-scope";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
-import { useThread } from "../../../lib/use-thread";
+import { type CarriedThread, useThread } from "../../../lib/use-thread";
 import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
 import { draftLabel } from "../draftLabel";
 import { ThreadComposer } from "./ThreadComposer";
@@ -36,13 +36,16 @@ function CurrentThread() {
   const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
   const draftId = useCurrentDraftId();
   const draftScope = useDraftScope();
-  // What the Live thread showed as it entered the draft it started, so the draft's socket picks
-  // the same thread up without flashing empty.
-  const [carried, setCarried] = React.useState<{ draftId: string; state: ThreadState }>();
+  // What the Live thread showed as the studio entered the draft it started, so the draft's
+  // socket picks the same thread up without flashing empty, and sends what's still on its way.
+  const [carried, setCarried] = React.useState<{ draftId: string; thread: CarriedThread }>();
   const enterDraft = React.useCallback(
-    (started: string, { startedDraft: _entered, ...state }: ThreadState) => {
-      setCarried({ draftId: started, state });
-      if (!draftScope.enterStarted(started)) setCarried(undefined);
+    (started: string, thread: CarriedThread) => {
+      // Only a studio still on Live enters it, as for a first write.
+      if (draftScope.current() !== null) return;
+      const { startedDraft: _, continuedIn: __, ...state } = thread.state;
+      setCarried({ draftId: started, thread: { ...thread, state } });
+      draftScope.enterStarted(started);
     },
     [draftScope],
   );
@@ -70,7 +73,7 @@ function CurrentThread() {
       apiUrl={apiUrl}
       projectId={project.id}
       draftId={draftId}
-      initialState={carried?.draftId === draftId ? carried.state : undefined}
+      carried={carried?.draftId === draftId ? carried.thread : undefined}
       onEnterDraft={enterDraft}
     />
   );
@@ -80,28 +83,28 @@ function Thread({
   apiUrl,
   projectId,
   draftId,
-  initialState,
+  carried,
   onEnterDraft,
 }: {
   apiUrl: string;
   projectId: number;
   draftId: string | null;
-  initialState?: ThreadState;
-  onEnterDraft: (draftId: string, state: ThreadState) => void;
+  carried?: CarriedThread;
+  onEnterDraft: (draftId: string, carried: CarriedThread) => void;
 }) {
   const { view, sending, send, stop, error } = useThread(apiUrl, projectId, draftId, {
-    initialState,
+    carried,
     onEnterDraft,
   });
-  const continuedIn = useContinuedInLink(projectId, draftId ? undefined : view.continuedIn);
+  const messages = { view, sending, showSenders: draftId !== null };
+  const continuedIn = draftId === null ? view.continuedIn?.draftId : undefined;
   return (
     <>
-      <ThreadMessages
-        view={view}
-        sending={sending}
-        showSenders={draftId !== null}
-        continuedIn={continuedIn}
-      />
+      {continuedIn ? (
+        <ContinuedInMessages {...messages} projectId={projectId} draftId={continuedIn} />
+      ) : (
+        <ThreadMessages {...messages} />
+      )}
       {error && (
         <p role="alert" className="text-destructive px-4 pt-2 text-sm">
           {error}
@@ -112,25 +115,26 @@ function Thread({
   );
 }
 
-/** A link to the draft the editor's previous Live thread continued in, named as the drafts control names it. */
-function useContinuedInLink(
-  projectId: number,
-  draftId: string | undefined,
-): ContinuedInLink | undefined {
+/**
+ * A fresh Live thread's messages, linking to the draft the editor's previous one continued in,
+ * named as the drafts control names it.
+ */
+function ContinuedInMessages({
+  projectId,
+  draftId,
+  ...messages
+}: React.ComponentProps<typeof ThreadMessages> & { projectId: number; draftId: string }) {
   const draftScope = useDraftScope();
   const navigate = useNavigate();
-  const { data: draft } = useReadQuery(reads.draft({ projectId, draftId: draftId ?? "" }), {
-    enabled: !!draftId,
-  });
-  if (!draftId) return undefined;
-  // A draft published or discarded since has no summary left: the studio says how it ended.
-  const label = draft ? draftLabel(draft) : "a draft";
-  return {
-    label,
+  const { data: draft } = useReadQuery(reads.draft({ projectId, draftId }));
+  const link: ContinuedInLink = {
+    // A draft published or discarded since has no summary left: the studio says how it ended.
+    label: draft ? draftLabel(draft) : "a draft",
     href: draftScope.hrefFor(window.location.href, { draft: draftId }),
     onOpen: (event) => {
       event.preventDefault();
       void navigate({ to: window.location.href, draft: draftId });
     },
   };
+  return <ThreadMessages {...messages} continuedIn={link} />;
 }

@@ -38,12 +38,16 @@ export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
 
 /**
  * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
- * draft, or on Live. On Live, `draftToStart` is the draft the thread's first write starts.
+ * draft, or on Live. On Live, a write names `draftToStart`: the draft the thread's first write
+ * creates, recording the thread as its own.
  */
 export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & {
   userId: string;
-  draftToStart?: string;
+  draftToStart?: { id: string; threadId: string };
 };
+
+/** Whether a tool reads content or writes it. */
+export type ToolKind = ToolDefinition["meta"]["kind"];
 
 /** One call of a Pi tool, as Pi hands it to the tool. */
 export type ToolInvocation = {
@@ -65,18 +69,19 @@ export type ToolDispatch = (
  * Analytics attribute the calls to the agent.
  *
  * On Live, a write starts the draft `actor` names, as an editor's first write does: the write
- * creates it. Once a write went through, `started` hears of the draft before the call returns,
- * so the thread's next calls act in it.
+ * creates it. Once a write went through, `started` moves the thread into the draft before the
+ * call returns, so its next calls act in it. The write stands even if that fails: the thread
+ * moves on its next call instead.
  */
 export function threadToolDispatch(
   env: Bindings,
   waitUntil: (promise: Promise<unknown>) => void,
-  actor: (invocation: ToolInvocation) => Promise<ThreadActor>,
-  started: (draftId: string) => Promise<void>,
+  actor: (invocation: ToolInvocation, kind: ToolKind) => Promise<ThreadActor>,
+  started: (invocation: ToolInvocation) => Promise<void>,
 ): ToolDispatch {
   return async ({ name, meta }, args, invocation) => {
-    const { projectId, draftId, userId, draftToStart } = await actor(invocation);
-    const starting = !draftId && meta.kind === "write" ? draftToStart : undefined;
+    const { projectId, draftId, userId, draftToStart } = await actor(invocation, meta.kind);
+    const starting = draftId ? undefined : draftToStart;
     const db = createDb(env.DB);
     const acting = await db.select().from(user).where(eq(user.id, userId)).get();
     const ctx: ServiceContext = {
@@ -89,7 +94,7 @@ export function threadToolDispatch(
       draft: draftId
         ? { id: draftId, create: false }
         : starting
-          ? { id: starting, create: true }
+          ? { id: starting.id, create: true, threadId: starting.threadId }
           : null,
     };
     const response = await Effect.runPromise(
@@ -102,7 +107,11 @@ export function threadToolDispatch(
         ),
       ),
     );
-    if (starting && response.ok) await started(starting);
+    if (starting && response.ok) {
+      await started(invocation).catch((error: unknown) =>
+        console.error("A thread couldn't move into the draft its write started", error),
+      );
+    }
     return response;
   };
 }
