@@ -21,12 +21,16 @@ peerDependencyRules:
     vite: "*"
     vitest: "*"
 allowBuilds:
+  "@google/genai": false
   "@openrouter/sdk": true
   "@parcel/watcher": true
   core-js: true
+  core-js-pure: false
   esbuild: true
   msw: true
   nx: true
   protobufjs: true
   sharp: true
   workerd: true
+minimumReleaseAgeExclude:
+  - agents@0.29.0

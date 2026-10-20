@@ -13,6 +13,7 @@ export type Bindings = {
   OPEN_ROUTER_API_KEY: string;
   AI_JOB_SCHEDULER: DurableObjectNamespace;
   ProjectRoom: DurableObjectNamespace;
+  THREAD: DurableObjectNamespace<import("./durable-objects/thread").Thread>;
   FILES_BUCKET: R2Bucket;
   MEDIA?: MediaBinding;
 };

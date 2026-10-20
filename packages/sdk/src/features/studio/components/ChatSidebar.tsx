@@ -1,8 +1,17 @@
+import { EMPTY_THREAD_VIEW } from "@camox/api-contract/threads";
+import * as React from "react";
+
+import { AuthContext } from "../../../lib/auth";
+import { useCurrentDraftId } from "../../../lib/draft-scope";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
+import { useLiveThread } from "../../../lib/use-live-thread";
 import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
+import { ThreadComposer } from "./ThreadComposer";
+import { ThreadMessages } from "./ThreadMessages";
 
 /**
- * The Studio's chat with an Agent, beside every Studio page except the preview.
- * A placeholder for now: no messages, and its composer is disabled.
+ * The studio's chat with Camox's agent, beside every studio page except the preview. On Live it
+ * shows the editor's own Live thread.
  */
 export function ChatSidebar() {
   return (
@@ -13,21 +22,41 @@ export function ChatSidebar() {
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
       <p className="p-4 text-base font-semibold">Chat</p>
-      <section
-        aria-label="Messages"
-        className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center overflow-auto p-4 text-center text-sm"
-      >
-        Chatting with an Agent is coming soon.
-      </section>
-      <form className="p-2" onSubmit={(event) => event.preventDefault()}>
-        <textarea
-          aria-label="Message"
-          placeholder="Message an Agent…"
-          disabled
-          rows={3}
-          className="bg-muted w-full resize-none rounded-md p-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
-        />
-      </form>
+      <CurrentThread />
     </aside>
+  );
+}
+
+function CurrentThread() {
+  const { apiUrl, projectSlug } = React.useContext(AuthContext)!;
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const onLive = useCurrentDraftId() === null;
+
+  if (!onLive) {
+    return (
+      <p className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm">
+        Threads in drafts are coming soon.
+      </p>
+    );
+  }
+  if (!project) {
+    return (
+      <>
+        <ThreadMessages view={EMPTY_THREAD_VIEW} />
+        <ThreadComposer disabled />
+      </>
+    );
+  }
+  // One socket per project: switching projects starts over.
+  return <LiveThread key={project.id} apiUrl={apiUrl} projectId={project.id} />;
+}
+
+function LiveThread({ apiUrl, projectId }: { apiUrl: string; projectId: number }) {
+  const { view, working, send } = useLiveThread(apiUrl, projectId);
+  return (
+    <>
+      <ThreadMessages view={{ ...view, working }} />
+      <ThreadComposer onSend={send} />
+    </>
   );
 }

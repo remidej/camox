@@ -10,6 +10,7 @@ import { fileHonoRoutes } from "./domains/files/routes";
 import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
 import { faviconHonoRoutes } from "./domains/projects/routes";
+import { threadHonoRoutes } from "./domains/threads/routes";
 import { getProjectRoomSessionHeaders } from "./lib/project-room-auth";
 import { router } from "./router";
 import type { AppEnv } from "./types";
@@ -115,6 +116,7 @@ app.route("/api/auth", authRoutes);
 app.route("/files", fileHonoRoutes);
 app.route("/favicons", faviconHonoRoutes);
 app.route("/pages", pageHonoRoutes);
+app.route("/threads", threadHonoRoutes);
 
 // ---------------------------------------------------------------------------
 // oRPC handler (all other API procedures)
