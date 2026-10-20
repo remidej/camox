@@ -33,9 +33,10 @@ import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { ChevronDownIcon, Languages, Plus, Trash2 } from "lucide-react";
+import { ChevronsUpDown, Languages, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
@@ -58,7 +59,7 @@ import { studioStore } from "../studioStore";
  * and removing them. Switching keeps the page shown when the other language has it, and goes to
  * that language's home otherwise; the URL names the language by its prefix. Adding and removing
  * languages are content writes, so on Live they start a draft. While Camox translates the draft
- * into its languages, the picker says so, and nothing else does.
+ * into its languages, the picker shows a spinner, and nothing else does.
  */
 export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   const projectSlug = useProjectSlug();
@@ -81,7 +82,7 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   const draft = useReadQuery(reads.draft({ projectId: projectId ?? 0, draftId: draftId ?? "" }), {
     enabled: !!projectId && !!draftId,
   });
-  const translating = (draft.data?.translatingLocales.length ?? 0) > 0;
+  const translatingLocales = draft.data?.translatingLocales ?? [];
 
   // The dialogs belong to the locale they were opened in.
   React.useEffect(() => closeLocaleDialog, [viewed.tag]);
@@ -89,18 +90,16 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button type="button" variant="outline" />}>
-          <Languages aria-hidden className="text-muted-foreground size-4" />
-          <span className="max-w-40 truncate">{localeLabel(viewed.tag)}</span>
-          {translating && (
-            <span className="text-muted-foreground flex items-center gap-1 text-xs">
-              <Spinner aria-hidden className="size-3" />
-              translating…
-            </span>
+        <DropdownMenuTrigger render={<Button type="button" variant="ghost" />}>
+          {translatingLocales.length > 0 ? (
+            <TranslatingSpinner tags={translatingLocales} />
+          ) : (
+            <Languages aria-hidden className="text-muted-foreground size-4" />
           )}
-          <ChevronDownIcon aria-hidden className="size-4 opacity-50" />
+          <span className="max-w-40 truncate">{localeLabel(viewed.tag)}</span>
+          <ChevronsUpDown aria-hidden className="size-4 opacity-50" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-64" align="end">
+        <DropdownMenuContent className="w-64" align="start">
           <DropdownMenuRadioGroup
             value={viewed.tag}
             onValueChange={(tag) => {
@@ -167,6 +166,19 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
         </>
       )}
     </>
+  );
+}
+
+/** Stands for the languages icon while Camox translates the draft, naming them on hover. */
+function TranslatingSpinner({ tags }: { tags: readonly string[] }) {
+  const label = `Translating into ${tags.map(localeLabel).join(", ")}…`;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex" />}>
+        <Spinner aria-label={label} className="text-muted-foreground size-4" />
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

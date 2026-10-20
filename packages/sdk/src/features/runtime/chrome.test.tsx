@@ -12,7 +12,7 @@ import { authPageStyles } from "../../lib/auth-page-styles";
 import { handleCamoxRequest, type PageRenderInput } from "./runtime";
 
 // The URL is supplied by Vite in applications. Nothing else is mocked: render
-// the real Navbar, ProjectMenu, DraftsControl and PreviewToolbar on the server.
+// the real Navbar, ProjectMenu, DraftPicker and PreviewToolbar on the server.
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier.startsWith("virtual:camox-"))
@@ -111,7 +111,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(showCanvasLabel, /<kbd/);
   assert.match(showCanvasLabel, /class="camox-platform-mac">⌘ ↵/);
   assert.match(showCanvasLabel, /class="camox-platform-other">Ctrl ↵/);
-  assert.match(html, /Viewing Live/);
+  assert.match(html, />Live</);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
   assert.match(html, /<iframe[^>]+srcDoc=/i);
   assert.match(html, /&lt;main id=&quot;site-content&quot;/);

@@ -3,7 +3,7 @@ import { createStore } from "@xstate/store-react";
 interface StudioContext {
   isCommandPaletteOpen: boolean;
   commandPalettePages: string[];
-  /** The current draft's review, opened by the drafts control or the command palette. */
+  /** The current draft's review, opened by the pending changes button or the command palette. */
   reviewDraftSheet: { open: boolean; startRenaming: boolean };
   isDiscardDraftDialogOpen: boolean;
   /** The locale picker's dialog open: adding a locale, or removing the one viewed. */
