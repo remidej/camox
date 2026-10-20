@@ -3,11 +3,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { InvalidInputError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 import { accessTo } from "../drafts/access";
 import { drafts } from "../drafts/schema";
-import { draftIn } from "../drafts/scope";
+import type { DraftRequest } from "../drafts/scope";
 import { liveThreads } from "./schema";
 
 /** The id of an editor's current Live thread in a project, starting one the first time. */
@@ -34,18 +33,17 @@ export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
 });
 
 /**
- * The draft a member's request names, with its thread's id, starting the thread the first time
- * someone opens it: a draft has at most one thread. Content access checks the draft as for any
- * read, so only members reach a regular draft's thread, and only its developer a development
- * draft's.
+ * The draft a member's request names, with its thread's id: a draft has at most one thread. The
+ * id is set aside the first time someone opens the draft's thread, so everyone in the draft
+ * reaches the same one; the thread itself only starts with its first message. Its runs change
+ * the draft's content, so content access checks the draft as for a write: only members reach a
+ * regular draft's thread, and only its developer a development draft's.
  */
 export const draftThread = Effect.fn("draftThread")(function* (
-  ctx: ServiceContext,
+  ctx: ServiceContext & { draft: DraftRequest },
   projectId: number,
 ) {
-  const { scope } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "member"));
-  const draft = draftIn(scope);
-  if (!draft) return yield* new InvalidInputError({ message: "Live isn't a draft: name one" });
+  const { scope: draft } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "write"));
   yield* Effect.promise(() =>
     ctx.db
       .update(drafts)

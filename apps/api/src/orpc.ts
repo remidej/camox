@@ -1,15 +1,10 @@
-import {
-  DRAFT_CREATE_HEADER,
-  DRAFT_HEADER,
-  DEVELOPMENT_DRAFT,
-  LOCALE_HEADER,
-} from "@camox/api-contract/drafts";
-import { uuidv7Schema } from "@camox/api-contract/ids";
+import { LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { os, ORPCError } from "@orpc/server";
 
 import type { Database } from "./db";
 import type { Auth } from "./domains/auth/routes";
 import type { DraftRequest } from "./domains/drafts/scope";
+import { draftRequestOf, INVALID_DRAFT_HEADER } from "./lib/draft-request";
 import { LiveReadOnlyError } from "./lib/errors";
 import { toORPCError } from "./lib/run-service";
 import type { Bindings } from "./types";
@@ -35,16 +30,10 @@ export type AuthedContext = BaseContext & {
 // --- Base procedures ---
 
 /** Read the draft a request names from its headers. No header means Live (ADR 0011). */
-function draftRequestOf(headers: Headers): DraftRequest | null {
-  const id = headers.get(DRAFT_HEADER);
-  if (!id) return null;
-  if (id === DEVELOPMENT_DRAFT) return { development: true };
-  if (!uuidv7Schema.safeParse(id).success) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: `${DRAFT_HEADER} must be a UUIDv7 or "${DEVELOPMENT_DRAFT}"`,
-    });
-  }
-  return { id, create: headers.get(DRAFT_CREATE_HEADER) === "1" };
+function requestedDraft(headers: Headers): DraftRequest | null {
+  const draft = draftRequestOf(headers);
+  if (draft === "invalid") throw new ORPCError("BAD_REQUEST", { message: INVALID_DRAFT_HEADER });
+  return draft;
 }
 
 /**
@@ -68,7 +57,7 @@ export const pub = os
   .use(({ context, next }) =>
     next({
       context: {
-        draft: draftRequestOf(context.headers),
+        draft: requestedDraft(context.headers),
         locale: context.headers.get(LOCALE_HEADER) ?? undefined,
       },
     }),

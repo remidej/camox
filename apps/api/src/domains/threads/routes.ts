@@ -1,27 +1,24 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
-import { uuidv7Schema } from "@camox/api-contract/ids";
 import type { ThreadSender } from "@camox/api-contract/threads";
-import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
 import { type Context, Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import { isProjectMember } from "../../authorization";
 import { THREAD_IDENTITY_HEADER, THREAD_SENDER_HEADER } from "../../durable-objects/thread";
+import { draftRequestNamed } from "../../lib/draft-request";
 import { getRelayedSessionHeaders } from "../../lib/relayed-session";
-import { runService } from "../../lib/run-service";
+import { respondToService, routeServiceContext } from "../../lib/route-service";
 import type { AppEnv } from "../../types";
+import type { ServiceContext } from "../_shared/service-context";
 import { createAuth } from "../auth/routes";
-import type { DraftRequest } from "../drafts/scope";
 import { currentLiveThread, draftThread } from "./service";
 import type { ThreadIdentity } from "./tools";
 
 export const threadHonoRoutes = new Hono<AppEnv>();
 
-type User = { id: string; name: string; image?: string | null };
+type User = NonNullable<ServiceContext["user"]>;
 
 /** The editor signed in on a thread socket's upgrade, which relays the studio's session. */
-async function signedInEditor(c: Context<AppEnv>) {
+async function signedInEditor(c: Context<AppEnv>): Promise<User | null> {
   // WebSocket upgrades can't carry custom headers, so the studio relays its session in the query,
   // as for the project room.
   const auth = createAuth(c.var.db, c.env, new URL(c.req.url).origin);
@@ -60,43 +57,21 @@ threadHonoRoutes.get("/live/:projectId", async (c) => {
 /**
  * The socket to a draft's thread, which `draft` names as the studio's draft header does: a
  * draft's id, or `development` for the editor's development draft. Every member who can access
- * the draft connects to the same thread, started the first time someone opens it; a development
+ * the draft connects to the same thread, which starts with the first message; a development
  * draft's thread reaches its developer only.
  */
 threadHonoRoutes.get("/draft/:projectId/:draft", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") return c.text("Expected a WebSocket", 426);
   const projectId = Number(c.req.param("projectId"));
-  const named = c.req.param("draft");
-  if (!Number.isSafeInteger(projectId)) return c.text("Not found", 404);
-  let draft: DraftRequest;
-  if (named === DEVELOPMENT_DRAFT) draft = { development: true };
-  else if (uuidv7Schema.safeParse(named).success) draft = { id: named, create: false };
-  else return c.text("Not found", 404);
+  const draft = draftRequestNamed(c.req.param("draft"), false);
+  if (!Number.isSafeInteger(projectId) || !draft) return c.text("Not found", 404);
 
   const user = await signedInEditor(c);
   if (!user) return c.text("Unauthorized", 401);
-  try {
-    const opened = await runService(
-      draftThread(
-        {
-          db: c.var.db,
-          user,
-          env: c.env,
-          waitUntil: (promise) => c.executionCtx.waitUntil(promise),
-          client: c.var.client,
-          telemetryDisabled: c.var.telemetryDisabled,
-          draft,
-        },
-        projectId,
-      ),
-    );
-    return forward(c, opened.threadId, user, {
-      projectId,
-      draftId: opened.draft.id,
-      ownerId: null,
-    });
-  } catch (error) {
-    if (!(error instanceof ORPCError)) throw error;
-    return c.text(error.message, error.status as ContentfulStatusCode);
-  }
+  return respondToService(
+    c,
+    draftThread(routeServiceContext(c, user, draft), projectId),
+    ({ draft: opened, threadId }) =>
+      forward(c, threadId, user, { projectId, draftId: opened.id, ownerId: null }),
+  );
 });
