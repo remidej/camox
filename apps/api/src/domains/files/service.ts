@@ -22,8 +22,8 @@ import {
   type Stale,
 } from "../generated-values/generation";
 import { homeOf, saveValue, settleRequest } from "../generated-values/service";
-import { defaultLocaleTag, otherLocaleOf } from "../locales/default-locale";
-import { INITIAL_LOCALE, locales } from "../locales/schema";
+import { localeTagOf, otherLocaleOf } from "../locales/default-locale";
+import { locales } from "../locales/schema";
 import {
   altGeneratedIn,
   fileView,
@@ -124,7 +124,7 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
 
   const model = yield* AiModel;
   const metadata = yield* model.imageMetadata({
-    locale: locale ?? (yield* defaultLocaleTag(db, file.projectId)) ?? INITIAL_LOCALE,
+    locale: yield* localeTagOf(db, scope, file.projectId),
     url: file.url,
     mimeType: file.mimeType,
     filename: shown.filename,

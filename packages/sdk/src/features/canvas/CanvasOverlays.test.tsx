@@ -11,7 +11,8 @@ registerHooks({
     if (specifier === "virtual:camox-overlay-css") source = "export default ''";
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
     if (specifier === "@/hooks/use-page-destinations")
-      source = "export const usePageDestinations = () => []";
+      source =
+        "export const usePageDestinations = () => []; export const useLinkDestinations = () => []";
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     return nextResolve(specifier, context);
