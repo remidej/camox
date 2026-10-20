@@ -978,14 +978,16 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
   if (input.settings !== undefined) {
     yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
-  let result;
-  if (input.settings === undefined) {
-    result = yield* writeBlockContent(ctx, granted, input.content);
-  } else {
-    if (input.content !== undefined) yield* writeBlockContent(ctx, granted, input.content);
-    result = yield* writeBlockSettings(ctx, granted, input.settings);
+  // Content, then settings: the block the last write returns has both.
+  let written;
+  if (input.content !== undefined) {
+    written = yield* writeBlockContent(ctx, granted, input.content);
   }
-  return withWarnings(result, artifactWarnings(schemas?.contentSchema, input.content));
+  if (input.settings !== undefined) {
+    written = yield* writeBlockSettings(ctx, granted, input.settings);
+  }
+  // One of them was written: a call providing neither was rejected above.
+  return withWarnings(written!, artifactWarnings(schemas?.contentSchema, input.content));
 }, Effect.scoped);
 
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
