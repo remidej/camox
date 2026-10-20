@@ -51,14 +51,14 @@ describe("a run in a thread", () => {
         : "I looked at every page.",
     );
     send(thread, "Review our pages");
-    await thread.until(() => thread.view().working);
+    await thread.until(() => thread.view().running);
 
     const steer = send(thread, "Only the blog, actually");
     await thread.until(() =>
       thread.frames.some((frame) => frame.type === "accepted" && frame.operationId === steer),
     );
     release();
-    await thread.until(() => !thread.view().working);
+    await thread.untilIdle();
 
     expect(said(thread.view())).toEqual([
       { from: "editor", text: "Review our pages" },
@@ -72,17 +72,17 @@ describe("a run in a thread", () => {
     const { thread, memberUser } = await openThread();
     holdNextAnswer("I rewrote every page.");
     send(thread, "Rewrite every page");
-    await thread.until(() => thread.view().working);
+    await thread.until(() => thread.view().running);
 
     thread.send({ type: "stop" });
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
 
     expect(thread.view().messages).toEqual([
       expect.objectContaining({ from: "editor", text: "Rewrite every page" }),
       {
         id: expect.any(String),
         from: "stopped",
-        by: { id: memberUser.id, name: memberUser.name, image: null },
+        sender: { id: memberUser.id, name: memberUser.name, image: null },
       },
     ]);
     thread.close();
@@ -92,19 +92,19 @@ describe("a run in a thread", () => {
     const { thread, project, db, memberUser } = await openThread();
     answerNext("You have no pages yet.");
     send(thread, "Which pages do we have?");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
     answerWithScript(`text("Counted 0 pages");`);
     holdNextAnswer("Here's the full audit.");
     send(thread, "Audit every page");
-    await thread.until(() => thread.view().working);
+    await thread.until(() => thread.view().running);
     thread.send({ type: "stop" });
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 4);
+    await thread.untilIdle(4);
     thread.close();
 
     const again = await connectLiveThread(project.id, await signIn(db, memberUser.id));
     answerFrom(({ scriptOutput }) => `Before you stopped me: ${scriptOutput}`);
     send(again, "What did you find?");
-    await again.until(() => !again.view().working && again.view().messages.length === 6);
+    await again.untilIdle(6);
 
     expect(again.view().messages.map(({ from }) => from)).toEqual([
       "editor",
@@ -124,12 +124,12 @@ describe("a run in a thread", () => {
     const { thread } = await openThread();
     answerNext("Hello!");
     send(thread, "Hi");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
 
     thread.send({ type: "stop" });
     answerNext("Still here.");
     send(thread, "Are you there?");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 4);
+    await thread.untilIdle(4);
 
     expect(thread.view().messages.map(({ from }) => from)).toEqual([
       "editor",
@@ -145,7 +145,7 @@ describe("a run in a thread", () => {
     failNext();
 
     send(thread, "Rewrite the home page");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
 
     expect(thread.view().messages).toEqual([
       expect.objectContaining({ from: "editor", text: "Rewrite the home page" }),
@@ -158,11 +158,11 @@ describe("a run in a thread", () => {
     const { thread } = await openThread();
     failNext();
     send(thread, "Rewrite the home page");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
     answerNext("Done.");
 
     send(thread, "Rewrite the home page");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 4);
+    await thread.untilIdle(4);
 
     expect(thread.view().messages.map(({ from }) => from)).toEqual([
       "editor",
@@ -187,9 +187,9 @@ describe("a run in a thread", () => {
     );
     expect(thread.view()).toEqual({
       messages: [expect.objectContaining({ from: "editor" })],
-      working: true,
+      running: true,
     });
-    await thread.until(() => !thread.view().working);
+    await thread.untilIdle();
 
     expect(thread.view().messages.map(({ from }) => from)).toEqual(["editor", "agent"]);
     thread.close();
@@ -199,7 +199,7 @@ describe("a run in a thread", () => {
     const { thread, project, db, memberUser } = await openThread();
     failNext();
     send(thread, "Rewrite the home page");
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
     thread.close();
 
     const again = await connectLiveThread(project.id, await signIn(db, memberUser.id));

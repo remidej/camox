@@ -13,9 +13,13 @@ import {
 
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
-/** A thread's messages and whether the agent is working, as its view shows them. */
-export function ThreadMessages({ view }: { view: ThreadView }) {
-  if (view.messages.length === 0 && !view.working) {
+/**
+ * A thread's messages, and "Working…" while a run is going or a message is still `sending`: on
+ * its way to the thread, which hasn't accepted it yet.
+ */
+export function ThreadMessages({ view, sending = false }: { view: ThreadView; sending?: boolean }) {
+  const working = view.running || sending;
+  if (view.messages.length === 0 && !working) {
     return (
       <p
         data-thread-empty
@@ -40,7 +44,7 @@ export function ThreadMessages({ view }: { view: ThreadView }) {
                 <ThreadMessageRow message={message} />
               </MessageScrollerItem>
             ))}
-            {view.working && (
+            {working && (
               <p role="status" className="shimmer text-muted-foreground px-10 text-sm">
                 Working…
               </p>
@@ -63,7 +67,7 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
         <MessageContent>
           <p className="text-muted-foreground text-sm">
             {message.from === "stopped"
-              ? `Stopped by ${message.by.name}`
+              ? `Stopped by ${message.sender.name}`
               : "Camox couldn’t finish this. Send your message again to retry."}
           </p>
         </MessageContent>

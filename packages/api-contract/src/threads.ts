@@ -34,17 +34,17 @@ export type ThreadMessage =
    * Pi's retries), or its answer was cut short. Sending again retries.
    */
   | { id: string; from: "failed" }
-  /** In place of the agent's message, for a turn an editor stopped. */
-  | { id: string; from: "stopped"; by: ThreadSender };
+  /** In place of the agent's message, for a turn an editor stopped: `sender` stopped it. */
+  | { id: string; from: "stopped"; sender: ThreadSender };
 
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
   messages: readonly ThreadMessage[];
-  /** Whether the agent is working on a turn. */
-  working: boolean;
+  /** Whether a run is going: the agent is working on a turn, and stopping would end it. */
+  running: boolean;
 };
 
-export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], working: false };
+export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
 
 /**
  * What a thread's view is folded from: the steps of its transcript that matter to the studio,
@@ -63,7 +63,7 @@ type ThreadStep = { id: string } & (
   | { type: "tools" }
   /** A model call that ended without an answer: failed, aborted, or cut short. */
   | { type: "unfinished" }
-  | { type: "stopped"; by: ThreadSender }
+  | { type: "stopped"; sender: ThreadSender }
 );
 
 /** Studio → thread. */
@@ -107,23 +107,22 @@ function assistantStep(id: string, message: AssistantMessage): ThreadStep {
   return text ? { id, type: "answer", text } : { id, type: "unfinished" };
 }
 
+/** The sender an entry's data names, if any, without other fields it may carry. */
+function senderOf(data: unknown): ThreadSender | undefined {
+  if (!isSender(data)) return undefined;
+  const { id, name, image } = data;
+  return { id, name, image };
+}
+
 /** The step an entry is, if it's one the view depends on. */
 function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
   const id = String(entry.id);
-  if (entry.kind === RUN_STOPPED_ENTRY && isSender(entry.data)) {
-    const { id: senderId, name, image } = entry.data;
-    return { id, type: "stopped", by: { id: senderId, name, image } };
-  }
+  const sender = senderOf(entry.data);
+  if (entry.kind === RUN_STOPPED_ENTRY && sender) return { id, type: "stopped", sender };
   const message = entry.model?.find((candidate) => candidate.role !== "system");
   if (!message) return undefined;
-  if (entry.kind === EDITOR_MESSAGE_ENTRY && message.role === "user" && isSender(entry.data)) {
-    const { id: senderId, name, image } = entry.data;
-    return {
-      id,
-      type: "editor",
-      sender: { id: senderId, name, image },
-      text: textOf(message.content),
-    };
+  if (entry.kind === EDITOR_MESSAGE_ENTRY && message.role === "user" && sender) {
+    return { id, type: "editor", sender, text: textOf(message.content) };
   }
   if (message.role === "assistant") return assistantStep(id, message);
   if (message.role === "toolResult") return { id, type: "tools" };
@@ -143,32 +142,37 @@ export function threadViewOf({ steps, running }: ThreadState): ThreadView {
   // The latest editor's message of a turn still waiting for the agent's message.
   let waiting: string | undefined;
   let unfinished = false;
+  /** Ends the turn waiting for the agent's message, if any. */
+  const endTurn = () => {
+    waiting = undefined;
+    unfinished = false;
+  };
+  /** Ends the turn waiting for the agent's message with a failed line, if any. */
   const fail = () => {
     if (waiting !== undefined) messages.push({ id: `${waiting}:failed`, from: "failed" });
-    waiting = undefined;
+    endTurn();
   };
 
   for (const step of steps) {
     switch (step.type) {
       case "editor":
-        // Steering messages join a run between tool rounds, never after an unfinished call.
+        // Pi places a steering message only once a model call is settled: after a round of tool
+        // calls, or with the answer ending the run. Never between a failed call and its retry, so
+        // an editor's message after an unfinished call means that call's turn is over.
         if (unfinished) fail();
         messages.push({ id: step.id, from: "editor", sender: step.sender, text: step.text });
         waiting = step.id;
-        unfinished = false;
         break;
       case "stopped":
         if (waiting === undefined) break;
-        messages.push({ id: step.id, from: "stopped", by: step.by });
-        waiting = undefined;
-        unfinished = false;
+        messages.push({ id: step.id, from: "stopped", sender: step.sender });
+        endTurn();
         break;
       case "answer":
         // A stopped turn's run may still answer before it ends.
         if (waiting === undefined && messages.at(-1)?.from === "stopped") break;
         messages.push({ id: step.id, from: "agent", text: step.text });
-        waiting = undefined;
-        unfinished = false;
+        endTurn();
         break;
       case "tools":
         unfinished = false;
@@ -179,7 +183,7 @@ export function threadViewOf({ steps, running }: ThreadState): ThreadView {
     }
   }
   if (!running) fail();
-  return { messages, working: running };
+  return { messages, running };
 }
 
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {

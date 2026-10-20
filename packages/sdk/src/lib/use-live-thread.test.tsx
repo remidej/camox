@@ -94,10 +94,10 @@ void test("a message the thread turns down stops the wait and says so; only the 
   );
   assert.equal(thread().error, "The message couldn't be sent");
   await act(async () => socket().reply({ type: "accepted", operationId: onItsWay.operationId }));
-  assert.equal(thread().working, false);
+  assert.equal(thread().sending, false);
 
   await act(async () => thread().send("Still there?"));
-  assert.equal(thread().working, true);
+  assert.equal(thread().sending, true);
   assert.equal(thread().error, undefined, "sending again clears the failure");
   const stillOnItsWay = socket().received.at(-1);
   const first = socket();

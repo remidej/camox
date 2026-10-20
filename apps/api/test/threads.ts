@@ -59,6 +59,8 @@ export type ThreadClient = {
   send: (message: ThreadClientMessage) => void;
   /** Waits until `check` holds for what the socket received. */
   until: (check: () => boolean) => Promise<void>;
+  /** Waits until no run is going, and the view shows `messages` messages when given. */
+  untilIdle: (messages?: number) => Promise<void>;
   close: () => void;
 };
 
@@ -101,6 +103,10 @@ export async function connectLiveThread(projectId: number, token: string): Promi
     frames,
     send: (message) => socket.send(JSON.stringify(message)),
     until,
+    untilIdle: (messages) =>
+      until(
+        () => !view().running && (messages === undefined || view().messages.length === messages),
+      ),
     close: () => socket.close(),
   };
 }

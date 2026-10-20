@@ -52,16 +52,16 @@ function CurrentThread() {
 }
 
 function LiveThread({ apiUrl, projectId }: { apiUrl: string; projectId: number }) {
-  const { view, working, running, send, stop, error } = useLiveThread(apiUrl, projectId);
+  const { view, sending, send, stop, error } = useLiveThread(apiUrl, projectId);
   return (
     <>
-      <ThreadMessages view={{ ...view, working }} />
+      <ThreadMessages view={view} sending={sending} />
       {error && (
         <p role="alert" className="text-destructive px-4 pt-2 text-sm">
           {error}
         </p>
       )}
-      <ThreadComposer onSend={send} onStop={stop} running={running} />
+      <ThreadComposer onSend={send} onStop={stop} running={view.running} />
     </>
   );
 }

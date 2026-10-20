@@ -28,7 +28,7 @@ describe("an editor's Live thread", () => {
     answerNext("Your website has **three** pages.", { thinking: "Let me count the pages." });
 
     const thread = await connectLiveThread(project.id, token);
-    expect(thread.view()).toEqual({ messages: [], working: false });
+    expect(thread.view()).toEqual({ messages: [], running: false });
 
     thread.send({
       type: "send",
@@ -36,7 +36,7 @@ describe("an editor's Live thread", () => {
       text: "How many pages are there?",
     });
     await thread.until(() => thread.view().messages.some((message) => message.from === "agent"));
-    await thread.until(() => !thread.view().working);
+    await thread.untilIdle();
 
     expect(thread.view().messages).toEqual([
       {
@@ -56,17 +56,17 @@ describe("an editor's Live thread", () => {
     const release = holdNextAnswer("Done thinking.");
     const first = await connectLiveThread(project.id, token);
     first.send({ type: "send", operationId: crypto.randomUUID(), text: "Take your time" });
-    await first.until(() => first.view().working);
+    await first.until(() => first.view().running);
     first.close();
 
     const again = await connectLiveThread(project.id, token);
 
     expect(again.view()).toEqual({
       messages: [expect.objectContaining({ from: "editor", text: "Take your time" })],
-      working: true,
+      running: true,
     });
     release();
-    await again.until(() => !again.view().working);
+    await again.untilIdle();
     expect(again.view().messages.at(-1)).toMatchObject({ from: "agent", text: "Done thinking." });
     again.close();
   });
@@ -87,7 +87,7 @@ describe("an editor's Live thread", () => {
     again.send({ type: "send", operationId, text: "Only once" });
     await again.until(() => again.frames.some((frame) => frame.type === "accepted"));
     await again.until(
-      () => !again.view().working && again.view().messages.some((m) => m.from === "agent"),
+      () => !again.view().running && again.view().messages.some((m) => m.from === "agent"),
     );
 
     expect(said(again.view())).toEqual([
@@ -125,7 +125,7 @@ describe("an editor's Live thread", () => {
     await thread.until(() => thread.frames.some((frame) => frame.type === "error"));
     const operationId = crypto.randomUUID();
     thread.send({ type: "send", operationId, text: "Hello" });
-    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+    await thread.untilIdle(2);
 
     expect(
       thread.frames.filter((frame) => frame.type === "error" || frame.type === "accepted"),
@@ -162,7 +162,7 @@ describe("an editor's Live thread", () => {
     answerNext("Hello!");
     const own = await connectLiveThread(project.id, await signIn(db, memberUser.id));
     own.send({ type: "send", operationId: crypto.randomUUID(), text: "Hi" });
-    await own.until(() => own.view().messages.length === 2 && !own.view().working);
+    await own.untilIdle(2);
 
     const theirs = await connectLiveThread(project.id, await signIn(db, teammate.id));
 

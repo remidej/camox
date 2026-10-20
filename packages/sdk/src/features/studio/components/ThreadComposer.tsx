@@ -19,7 +19,7 @@ export function ThreadComposer({
 }: {
   onSend?: (text: string) => void;
   onStop?: () => void;
-  /** Whether the agent is working on a run. */
+  /** Whether a run is going, which Stop ends. */
   running?: boolean;
   disabled?: boolean;
 }) {

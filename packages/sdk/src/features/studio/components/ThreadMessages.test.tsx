@@ -12,7 +12,7 @@ const editor = { id: "user-1", name: "Ada Lovelace", image: null };
 
 void test("a thread shows editors' messages, the agent's Markdown answers and its work", () => {
   const view: ThreadView = {
-    working: true,
+    running: true,
     messages: [
       { id: "1", from: "editor", sender: editor, text: "Which pages mention <pricing>?" },
       {
@@ -41,12 +41,12 @@ void test("a thread shows editors' messages, the agent's Markdown answers and it
 
 void test("a turn without the agent's message says it was stopped, and by whom, or couldn't finish", () => {
   const view: ThreadView = {
-    working: false,
+    running: false,
     messages: [
       { id: "1", from: "editor", sender: editor, text: "Rewrite every page" },
-      { id: "2", from: "stopped", by: { id: "user-2", name: "Grace Hopper", image: null } },
+      { id: "2", from: "stopped", sender: { id: "user-2", name: "Grace Hopper", image: null } },
       { id: "3", from: "editor", sender: editor, text: "Rewrite the home page" },
-      { id: "3:failed", from: "failed" },
+      { id: "4", from: "failed" },
     ],
   };
 
@@ -58,8 +58,15 @@ void test("a turn without the agent's message says it was stopped, and by whom, 
 });
 
 void test("an empty thread says what the agent can do, in one line", () => {
-  const html = renderToString(<ThreadMessages view={{ messages: [], working: false }} />);
+  const html = renderToString(<ThreadMessages view={{ messages: [], running: false }} />);
 
   assert.match(html, /data-thread-empty/);
   assert.doesNotMatch(html, /Working…/);
+});
+
+void test("a message still on its way to the thread shows the agent working before its run starts", () => {
+  const html = renderToString(<ThreadMessages view={{ messages: [], running: false }} sending />);
+
+  assert.doesNotMatch(html, /data-thread-empty/);
+  assert.match(html, /Working…/);
 });

@@ -87,11 +87,10 @@ export function useLiveThread(apiUrl: string, projectId: number) {
   const stop = useCallback(() => transmit(socket, { type: "stop" }), [socket]);
 
   return {
+    /** What the thread shows, with whether a run is going, which `stop` ends. */
     view,
-    /** Whether the agent is working, or a message is still on its way to the thread. */
-    working: view.working || unaccepted.size > 0,
-    /** Whether the agent is working on a run, which `stop` ends. */
-    running: view.working,
+    /** Whether a message is still on its way to the thread, which hasn't accepted it yet. */
+    sending: unaccepted.size > 0,
     /** Sends a message, steering the run going if any. */
     send,
     stop,

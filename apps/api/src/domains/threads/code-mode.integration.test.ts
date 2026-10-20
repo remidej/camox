@@ -81,7 +81,7 @@ const openThread = async ({ db, memberUser, project }: Website) =>
 /** Sends `text` in `thread`, returning what the thread shows once the agent's turn ended. */
 async function ask(thread: ThreadClient, text: string): Promise<ThreadView> {
   thread.send({ type: "send", operationId: crypto.randomUUID(), text });
-  await thread.until(() => !thread.view().working && thread.view().messages.length >= 2);
+  await thread.until(() => !thread.view().running && thread.view().messages.length >= 2);
   thread.close();
   return thread.view();
 }

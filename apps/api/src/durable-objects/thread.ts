@@ -227,13 +227,17 @@ export class Thread extends DurableObject<Bindings> {
       return;
     }
 
+    if (message.type === "resync") {
+      await this.#watch(connection);
+      return;
+    }
+    const sender = connection.state;
+    if (!isSender(sender)) {
+      connection.close(1008, "Unauthorized");
+      return;
+    }
     switch (message.type) {
       case "send": {
-        const sender = connection.state;
-        if (!isSender(sender)) {
-          connection.close(1008, "Unauthorized");
-          return;
-        }
         try {
           // A message sent while the agent works joins its run after the current round of tool
           // calls, instead of waiting for a run of its own.
@@ -253,17 +257,8 @@ export class Thread extends DurableObject<Bindings> {
         }
         return;
       }
-      case "stop": {
-        const sender = connection.state;
-        if (!isSender(sender)) {
-          connection.close(1008, "Unauthorized");
-          return;
-        }
+      case "stop":
         await this.#stop(sender);
-        return;
-      }
-      case "resync":
-        await this.#watch(connection);
         return;
     }
   }
@@ -273,17 +268,16 @@ export class Thread extends DurableObject<Bindings> {
    * never sees the run end without it. What the run changed before the stop stays.
    */
   async #stop(sender: ThreadSender) {
-    const session = this.harness.session();
-    if (!(await session.busy())) return;
-    const conversation = await (
-      await this.harness.pi()
-    ).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    const piSession = this.harness.session();
+    if (!(await piSession.busy())) return;
+    // The thread's transcript: Pi's root conversation.
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
     // An entry of only a kind and data is appended at once, even mid-run, and the model never
     // sees it.
-    await conversation?.submit(
+    await root?.submit(
       { type: "write", entry: { kind: RUN_STOPPED_ENTRY, data: sender } },
       BACKGROUND,
     );
-    await session.abort();
+    await piSession.abort();
   }
 }
