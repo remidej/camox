@@ -18,6 +18,15 @@ Read only the references needed for the current task. Do not preload every refer
 - Share content across layouts with `synced: true`, independently of `layoutOnly`:
   [Synced blocks](references/block-definitions.md#synced-blocks-synced-optional).
 
+## Localized code
+
+Every block, layout and component renders in every locale the project publishes:
+
+- Put every visible text in blocks, layout blocks included. Camox translates block content, never JSX.
+- Pass internal links through `useLocalizedHref` from `camox/navigation`, and write paths without a locale prefix.
+
+For a language switcher, a loader fetching localized data, or the details of either rule: [Localization](references/localization.md).
+
 ## Specialized block work
 
 - DOM listeners, scrolling, browser scripts, or third-party widgets:

@@ -246,7 +246,7 @@ For `textStyle` and `linkStyle`, read [Field styling](field-styling.md).
 
 ### Links — `block.Link`
 
-Use `Link` from `camox/navigation`, not `<a>`, for client-side internal navigation. `props` supplies `to`, `target`, and `rel`; raw `data` exposes `{ text, href, newTab }`.
+Use `Link` from `camox/navigation`, not `<a>`, for client-side internal navigation. `props` supplies `to`, `target`, and `rel`; raw `data` exposes `{ text, href, newTab }`. Render link fields as they come; a path written in code goes through `useLocalizedHref` (see [Localization](localization.md#internal-links-stay-in-the-locale)).
 
 ```tsx
 import { Link } from "camox/navigation";
