@@ -58,3 +58,38 @@ export const draftThread = Effect.fn("draftThread")(function* (
   }
   return { draft, threadId: row.threadId };
 });
+
+/** The id of a draft's thread, if anyone opened it, read before the draft ends. */
+export const threadOfDraft = Effect.fn("threadOfDraft")(function* (db: Database, draftId: string) {
+  const row = yield* Effect.promise(() =>
+    db.select({ threadId: drafts.threadId }).from(drafts).where(eq(drafts.id, draftId)).get(),
+  );
+  return row?.threadId ?? null;
+});
+
+/**
+ * Ends a draft's thread once the draft was published or discarded, `threadId` as read before:
+ * the thread wipes what it stored. A development draft stays open, so its thread is emptied:
+ * the draft lets go of it first, so the next one to open the draft's thread starts a new one,
+ * and the ended thread is never reached again. The draft ended either way, so a thread that
+ * couldn't be reached is only reported.
+ */
+export const endThread = Effect.fn("endThread")(function* (
+  ctx: Pick<ServiceContext, "db" | "env">,
+  draftId: string,
+  threadId: string | null,
+) {
+  if (!threadId) return;
+  // A no-op for a regular draft, which ended with its row.
+  yield* Effect.promise(() =>
+    ctx.db
+      .update(drafts)
+      .set({ threadId: null })
+      .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
+  );
+  yield* Effect.promise(() =>
+    ctx.env.THREAD.getByName(threadId)
+      .end()
+      .catch((error: unknown) => console.error("A thread didn't end with its draft", error)),
+  );
+});

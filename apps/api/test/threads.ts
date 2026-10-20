@@ -69,13 +69,23 @@ export const requestDraftThread = (projectId: number, draft: string, token: stri
  * until the thread exists. A draft whose thread nobody reached yet has none.
  */
 export async function storedThreadOf(db: ReturnType<typeof createDb>, draftId: string) {
+  const threadId = await threadIdOf(db, draftId);
+  return threadId ? storedThread(threadId) : { tables: [], keys: [] };
+}
+
+/** The id of a draft's thread, once someone opened it: undefined before, or once the draft ended. */
+export async function threadIdOf(db: ReturnType<typeof createDb>, draftId: string) {
   const draft = await db
     .select({ threadId: drafts.threadId })
     .from(drafts)
     .where(eq(drafts.id, draftId))
     .get();
-  if (!draft?.threadId) return { tables: [], keys: [] };
-  return runInDurableObject(env.THREAD.getByName(draft.threadId), async (_thread, state) => ({
+  return draft?.threadId ?? undefined;
+}
+
+/** What thread `threadId` keeps in its Durable Object: the tables and keys in its storage. */
+export function storedThread(threadId: string) {
+  return runInDurableObject(env.THREAD.getByName(threadId), async (_thread, state) => ({
     tables: state.storage.sql
       .exec<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",

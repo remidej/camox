@@ -223,6 +223,18 @@ export class Thread extends DurableObject<Bindings> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.webSockets).use(this.harness);
 
+  /** Whether the thread ended with its draft, wiping its storage: see `end()`. */
+  #ended = false;
+
+  /**
+   * Lifecycle's alarm, which wakes Pi's runs, unless the thread ended: an alarm already on its
+   * way when it did would look for the jobs its storage no longer has.
+   */
+  async alarm() {
+    if (this.#ended) return;
+    await this.lifecycle.alarm();
+  }
+
   /** Gives sockets that outlived the last isolate a new watch and a fresh snapshot. */
   async onStart() {
     if (!(await this.#knownIdentity())) return;
@@ -391,6 +403,34 @@ export class Thread extends DurableObject<Bindings> {
         await this.#stop(participant.data.sender);
         return;
     }
+  }
+
+  /**
+   * Ends the thread with its draft, wiping everything it stored, since Pi can't delete a
+   * conversation yet: the run going stops, and studios still open on it see an empty thread
+   * before their sockets close. The sandbox's object for the thread stores nothing.
+   *
+   * An ended thread is never reached again: its draft no longer names it, and a development
+   * draft, which stays open, gets a new thread. So the object isn't reset (resetting would fail
+   * whatever reached it next): nothing comes to open Pi again, and its alarm does nothing.
+   */
+  async end() {
+    this.#ended = true;
+    if (await this.#knownIdentity()) {
+      try {
+        await this.harness.session().abort();
+      } catch (error) {
+        console.warn("A thread couldn't stop its run as it ended", error);
+      }
+    }
+    for (const socket of this.ctx.getWebSockets()) {
+      await this.#unwatch(socket);
+      send(socket, { type: "events", events: [NOT_STARTED] });
+      socket.close(1000, "The thread ended");
+    }
+    await this.lifecycle.disableAlarms();
+    await this.lifecycle.dispose();
+    await this.ctx.storage.deleteAll();
   }
 
   /**
