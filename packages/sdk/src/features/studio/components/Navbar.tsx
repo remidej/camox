@@ -1,6 +1,4 @@
-import { Button } from "@camox/ui/button";
-import { Kbd } from "@camox/ui/kbd";
-import { Globe, SearchIcon, Database } from "lucide-react";
+import { Globe, Database } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
 
@@ -9,12 +7,10 @@ import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
-import { PlatformLabel } from "../../../components/PlatformLabel";
 import type { ShownRecordPage } from "../../preview/pageRecord";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
-import { studioStore } from "../studioStore";
 import { DraftsControl } from "./DraftsControl";
 import { LocalePicker } from "./LocalePicker";
 import { ProjectMenu } from "./ProjectMenu";
@@ -110,13 +106,6 @@ const Navbar = ({
       <div className="flex items-center gap-2">
         <LocalePicker recordPage={recordPage} />
         <DraftsControl />
-        <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
-          <SearchIcon className="text-muted-foreground size-4" />
-          <span className="text-muted-foreground">Quick find</span>
-          <Kbd className="ml-4">
-            <PlatformLabel mac="⌘ K" other="Ctrl K" />
-          </Kbd>
-        </Button>
         <UserButton />
       </div>
     </nav>
