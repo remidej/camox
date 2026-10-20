@@ -62,8 +62,11 @@ jobs:
           VITE_API_URL: https://api.camox.dev
 
       - name: Validate API bundle before changing production
-        run: pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
+        run: |
+          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config sandbox/wrangler.jsonc
+          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
 
+      # Deploys the code mode sandbox Worker first, as the API binds its Durable Object.
       - name: Migrate database and deploy API
         run: pnpm --filter @camox/api deploy
         env:

@@ -3,11 +3,12 @@ import { Effect } from "effect";
 import { Hono } from "hono";
 
 import { isProjectMember } from "../../authorization";
-import { THREAD_SENDER_HEADER } from "../../durable-objects/thread";
+import { THREAD_IDENTITY_HEADER, THREAD_SENDER_HEADER } from "../../durable-objects/thread";
 import { getRelayedSessionHeaders } from "../../lib/relayed-session";
 import type { AppEnv } from "../../types";
 import { createAuth } from "../auth/routes";
 import { currentLiveThread } from "./service";
+import type { ThreadIdentity } from "./tools";
 
 export const threadHonoRoutes = new Hono<AppEnv>();
 
@@ -34,5 +35,7 @@ threadHonoRoutes.get("/live/:projectId", async (c) => {
   const sender: ThreadSender = { id: user.id, name: user.name, image: user.image ?? null };
   const headers = new Headers(c.req.raw.headers);
   headers.set(THREAD_SENDER_HEADER, JSON.stringify(sender));
+  const identity: ThreadIdentity = { projectId, ownerId: user.id };
+  headers.set(THREAD_IDENTITY_HEADER, JSON.stringify(identity));
   return c.env.THREAD.getByName(threadId).fetch(new Request(c.req.raw, { headers }));
 });

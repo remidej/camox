@@ -119,9 +119,23 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   rawInput: z.input<typeof callToolInput>,
 ) {
   const { projectId, name, arguments: args } = yield* decodeInput(callToolInput, rawInput);
+  return yield* dispatchTool(ctx, { projectId, surface: SURFACE, name, args });
+});
+
+/**
+ * Calls a tool a surface offers, acting as the context's user in a project: what the agent
+ * procedures and the agent's threads share. Membership is checked on every call, a write naming
+ * no draft is rejected (Live is read-only), and a localized tool acts in the locale its
+ * arguments name.
+ */
+export const dispatchTool = Effect.fn("agent.dispatchTool")(function* (
+  ctx: ServiceContext,
+  call: { projectId: number; surface: ToolSurface; name: string; args: unknown },
+) {
+  const { projectId, surface, name, args } = call;
   const toolCtx = yield* buildToolContext(ctx, projectId);
 
-  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx, SURFACE));
+  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx, surface));
   const tool = findTool(tools, name);
   // Live is read-only (ADR 0003): a tool writing content needs the session to name a draft.
   if (tool?.meta.kind === "write" && !ctx.draft) return yield* new LiveReadOnlyError();
@@ -129,6 +143,6 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   const locale = tool?.meta.localized ? localeArgument(args) : undefined;
   if (locale === undefined) return yield* executeTool({ toolCtx, tools, name, args });
   const inLocale = { ...toolCtx, locale };
-  const localized = yield* Effect.promise(() => resolveTools(toolProviders, inLocale, SURFACE));
+  const localized = yield* Effect.promise(() => resolveTools(toolProviders, inLocale, surface));
   return yield* executeTool({ toolCtx: inLocale, tools: localized, name, args });
 });

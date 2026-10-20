@@ -16,6 +16,11 @@ for (let attempt = 0; attempt < 3; attempt++) {
   const args = [
     wranglerBin,
     "dev",
+    // The API first, then the sandbox Worker it binds for the agent's code mode (ADR 0018).
+    "--config",
+    "wrangler.jsonc",
+    "--config",
+    "sandbox/wrangler.jsonc",
     "--port",
     port,
     "--ip",

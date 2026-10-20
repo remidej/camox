@@ -6,17 +6,30 @@ import {
   type ThreadClientMessage,
   type ThreadServerMessage,
 } from "@camox/api-contract/threads";
+import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import { type AgentEventStream, createRegistry, Harness } from "@earendil-works/pi-durable";
+import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { PiHarness } from "agents/harness/pi";
 import { type Connection, type ConnectionContext, Lifecycle } from "agents/lifecycle";
 import { type WebSocketMessage, WebSockets } from "agents/websockets";
 import { DurableObject } from "cloudflare:workers";
 
+import {
+  studioAgentTools,
+  type ThreadIdentity,
+  threadIdentitySchema,
+  threadToolDispatch,
+} from "../domains/threads/tools";
 import { threadModel } from "../lib/thread-model";
 import type { Bindings } from "../types";
 
 /** The header the API sets on a connection it forwards, naming the signed-in sender. */
 export const THREAD_SENDER_HEADER = "x-camox-thread-sender";
+
+/** The header the API sets on a connection it forwards, naming the thread's project and owner. */
+export const THREAD_IDENTITY_HEADER = "x-camox-thread-identity";
+
+const IDENTITY_KEY = "camox.identity";
 
 /** `WebSocket.OPEN`, which isn't defined on every runtime's global. */
 const OPEN = 1;
@@ -26,6 +39,9 @@ editors of a website in the Camox studio, where they message you in a thread.
 
 Answer in the language the editor writes in. Keep answers short and to the point, formatted in \
 Markdown when it helps.
+
+You read the website's content by running scripts with the codemode tool, which call the content \
+tools. Read before you answer: ground every answer in the website's actual content.
 
 End every turn with a short summary: what you changed, and what's left for the editor to check.`;
 
@@ -68,11 +84,29 @@ export class Thread extends DurableObject<Bindings> {
   readonly #watches = new Map<WebSocket, AgentEventStream>();
 
   readonly harness = new PiHarness({
-    harness: ({ storage, context }) => {
+    harness: async ({ storage, context }) => {
+      // PiHarness opens Pi again after a failed open or `dispose()`. Installing an extension
+      // replaces the one of the same name, so a second run leaves the registry as the first did.
+      //
+      // The model is only offered code mode: content tools are for its scripts, which run in
+      // the sandbox Worker's object for this thread and can't call a model (ADR 0018).
+      this.#registry.install(
+        createCodemodeExtension({
+          sandbox: new RemoteCodemodeSandbox({
+            remote: () => this.env.CODEMODE_SANDBOX.getByName(this.ctx.id.toString()),
+          }),
+          models: false,
+        }),
+      );
+      const dispatch = threadToolDispatch(
+        this.env,
+        (promise) => this.ctx.waitUntil(promise),
+        () => this.#identity(),
+      );
       this.#registry.install({
         name: "camox",
         sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
-        tools: [],
+        tools: await studioAgentTools(dispatch),
       });
       return Harness.open(
         storage,
@@ -113,12 +147,39 @@ export class Thread extends DurableObject<Bindings> {
     const sender = threadSenderSchema.safeParse(
       parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
     );
-    if (!sender.success) {
+    const identity = threadIdentitySchema.safeParse(
+      parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
+    );
+    if (!sender.success || !identity.success) {
+      connection.close(1008, "Unauthorized");
+      return;
+    }
+    // A thread's project and owner never change, so the first connection records them. A Live
+    // thread only ever reaches its owner, so a connection naming someone else is refused.
+    // (#409 makes a run act as the editor whose message started it.)
+    const known = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
+    if (!known.success) {
+      await this.ctx.storage.put(IDENTITY_KEY, identity.data);
+    } else if (
+      known.data.projectId !== identity.data.projectId ||
+      known.data.ownerId !== identity.data.ownerId
+    ) {
+      console.error("A thread refused a connection naming another project or owner", {
+        known: known.data,
+        named: identity.data,
+      });
       connection.close(1008, "Unauthorized");
       return;
     }
     connection.setState(sender.data);
     await this.#watch(connection);
+  }
+
+  /** Who the thread's tool calls act as, in which project. */
+  async #identity(): Promise<ThreadIdentity> {
+    const identity = threadIdentitySchema.safeParse(await this.ctx.storage.get(IDENTITY_KEY));
+    if (!identity.success) throw new Error("The thread doesn't know its project and owner yet");
+    return identity.data;
   }
 
   async #watch(socket: WebSocket) {

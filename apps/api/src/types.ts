@@ -14,6 +14,10 @@ export type Bindings = {
   AI_JOB_SCHEDULER: DurableObjectNamespace;
   ProjectRoom: DurableObjectNamespace;
   THREAD: DurableObjectNamespace<import("./durable-objects/thread").Thread>;
+  /** The sandbox Worker's Durable Object running code mode scripts, one per thread (ADR 0018). */
+  CODEMODE_SANDBOX: DurableObjectNamespace<
+    import("@earendil-works/pi-codemode/cloudflare").CodemodeSandboxDurableObject
+  >;
   FILES_BUCKET: R2Bucket;
   MEDIA?: MediaBinding;
 };
