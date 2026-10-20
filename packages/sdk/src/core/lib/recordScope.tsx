@@ -1,8 +1,9 @@
 import * as React from "react";
 
 import { useLocation } from "../../features/navigation/navigation";
+import { useProjectSlug } from "../../lib/auth";
+import { useLinkPages } from "../../lib/link-pages";
 import { resolveAssetValue, useNormalizedData } from "../../lib/normalized-data";
-import { useViewPages } from "../../lib/view-pages";
 import { fieldPlainText } from "../recordItem";
 import type { FileValue, ImageValue } from "./contentType";
 import { renderImagePlaceholder } from "./imagePlaceholder";
@@ -34,7 +35,7 @@ function useFieldValue(name: string) {
 
 const Field = ({ name, textStyle, linkStyle, children }: any) => {
   const value = useFieldValue(name);
-  const pages = useViewPages();
+  const pages = useLinkPages(useProjectSlug());
   const pathname = useLocation({ select: (location) => location.pathname });
   return children(
     {

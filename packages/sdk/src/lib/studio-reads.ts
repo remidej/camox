@@ -782,13 +782,21 @@ export function useRead<T>(read: Read<T, any> | null): T | null {
   return data;
 }
 
-/** A read's query, without suspending: pending until it loads, or while not `enabled`. */
+/**
+ * A read's query, without suspending: pending until it loads, or while not `enabled`. It reads in
+ * the locale the caller's render shows, unless `locale` names another.
+ */
 export function useReadQuery<T, S = T>(
   read: Read<T, any>,
-  { enabled, select }: { enabled?: boolean; select?: (value: T) => S } = {},
+  {
+    enabled,
+    select,
+    locale,
+  }: { enabled?: boolean; select?: (value: T) => S; locale?: LocaleView } = {},
 ): UseQueryResult<S> {
-  const inDraft = useShownTarget();
+  const shown = useShownTarget();
   const cache = useStudioCache();
+  const inDraft = locale ? { ...shown, locale } : shown;
   return useQuery({ ...cache.options(read, inDraft), enabled, select });
 }
 

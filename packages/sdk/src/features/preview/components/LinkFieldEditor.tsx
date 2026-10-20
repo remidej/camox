@@ -18,7 +18,7 @@ import * as React from "react";
 import type { LinkValue } from "@/core/lib/contentType.ts";
 import { destinationLink } from "@/core/pageDestinations";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
-import { usePageDestinations } from "@/hooks/use-page-destinations";
+import { useLinkDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------------------------------
@@ -57,7 +57,7 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
 
   const [pagePickerOpen, setPagePickerOpen] = React.useState(false);
 
-  const pages = usePageDestinations();
+  const pages = useLinkDestinations();
   const selectedPage = pages.find((page) => {
     if (linkValue.type === "page")
       return page.kind === "curated" && String(page.pageId) === linkValue.pageId;
