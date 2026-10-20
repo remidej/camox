@@ -47,6 +47,13 @@
         "name": "THREAD",
         "class_name": "Thread",
       },
+      // Runs the threads' code mode scripts in its own Worker (sandbox/wrangler.jsonc), so a
+      // script that computes doesn't hold up a thread (ADR 0018).
+      {
+        "name": "CODEMODE_SANDBOX",
+        "class_name": "CodemodeSandbox",
+        "script_name": "camox-codemode-sandbox",
+      },
     ],
   },
   "migrations": [

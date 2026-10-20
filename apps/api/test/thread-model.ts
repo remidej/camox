@@ -1,4 +1,12 @@
-import { fauxAssistantMessage, fauxProvider, fauxText, fauxThinking } from "@earendil-works/pi-ai";
+import {
+  type FauxContentBlock,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxText,
+  fauxThinking,
+  fauxToolCall,
+  type Message,
+} from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 
 import type { ThreadModel } from "../src/lib/thread-model";
@@ -47,6 +55,44 @@ export const holdNextAnswer = (text: string) => {
     },
   ]);
   return release;
+};
+
+/**
+ * Scripts the model's next answer as a code mode call running `code`, after `text` when given:
+ * what the agent writes between its tool calls.
+ */
+export const answerWithScript = (code: string, { text }: { text?: string } = {}) => {
+  const content: FauxContentBlock[] = [
+    ...(text ? [fauxText(text)] : []),
+    fauxToolCall("codemode", { code }),
+  ];
+  faux.appendResponses([fauxAssistantMessage(content, { stopReason: "toolUse" })]);
+};
+
+/** What the model sees when it's called: the tools it's offered, and its last tool's result. */
+export type ModelRequest = { offeredTools: string[]; lastToolResult: string };
+
+/** Scripts the model's next answer from what it sees when it's called. */
+export const answerFrom = (answer: (request: ModelRequest) => string) =>
+  faux.appendResponses([
+    (context) => fauxAssistantMessage([fauxText(answer(requestOf(context.messages)))]),
+  ]);
+
+const requestOf = (messages: readonly Message[]): ModelRequest => {
+  const offered = new Set<string>();
+  let lastToolResult = "";
+  for (const message of messages) {
+    if (message.role === "system") {
+      for (const tool of message.toolsAdded ?? []) offered.add(tool.name);
+      for (const tool of message.toolsRemoved ?? []) offered.delete(tool.name);
+    }
+    if (message.role === "toolResult") {
+      lastToolResult = message.content
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n");
+    }
+  }
+  return { offeredTools: [...offered], lastToolResult };
 };
 
 /** How many times threads called the model since the test started. */

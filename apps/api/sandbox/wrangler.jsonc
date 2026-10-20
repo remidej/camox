@@ -1,0 +1,19 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Deployed beside the API, which binds its Durable Object by this name.
+  "name": "camox-codemode-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-28",
+  "workers_dev": false,
+  "preview_urls": false,
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CodemodeSandbox"] }],
+  // Above the VM's interrupt budget, so a script that never yields fails alone instead of
+  // resetting the object.
+  "limits": { "cpu_ms": 60000 },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+}
