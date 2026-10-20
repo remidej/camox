@@ -41,7 +41,7 @@ describe("AI tool outputs", () => {
       description: "Count the project's pages.",
       inputSchema: z.object({}),
       outputSchema: z.object({ count: z.number() }),
-      meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+      meta: { kind: "read", surfaces: ["cli"] },
       // A handler drifting from its declaration, as the type check can't see through `unknown`.
       handler: async () => ({ count: "three" }) as unknown as { count: number },
     });

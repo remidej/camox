@@ -65,10 +65,11 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "List what publishing the current draft to Live would do, without publishing. Returns " +
       "`{ blockers, conflicts, lost, warnings, changes, translating, defaultLocale, token }`. " +
       PREVIEW_SHAPE +
-      " Show this list to the user, then pass the token to publishDraft once they confirm.",
+      " Show this list to the user. `token` is the one publishDraft takes to publish exactly " +
+      "what this preview showed.",
     inputSchema: previewInput,
     outputSchema: publishPreviewSchema,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
   }),
   defineTool({
@@ -92,7 +93,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "ended }`.",
     inputSchema: publishToolInput,
     outputSchema: publishResultSchema,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli"] },
     handler: async (input) => {
       const { token, publishAnyway } = publishToolInput.parse(input);
       const notPublished = (reason: NotPublishedReason, message: string) =>
@@ -127,7 +128,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "only discard when the user asks to. Returns `{ ended }`, null for a development draft.",
     inputSchema: discardInput,
     outputSchema: z.strictObject({ ended: endedDraftSchema.nullable() }),
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli"] },
     handler: async () => runService(discardDraft(ctx, { projectId: ctx.projectId })),
   }),
 ];

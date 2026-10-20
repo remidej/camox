@@ -30,7 +30,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Editing a `synced` block changes its data across all its placements in the draft.",
     inputSchema: listBlockTypesToolInput,
     outputSchema: z.array(blockDefinitionSummarySchema),
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => {
       const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));
       return defs.map((d) => ({
@@ -59,7 +59,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       ),
       notFound: z.array(z.string()),
     }),
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async (input) => {
       const { types } = describeBlockTypesToolInput.parse(input);
       const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));

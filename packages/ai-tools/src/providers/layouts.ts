@@ -23,7 +23,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Call getLayout with a layout's name to discover its block ids, types, layout slot, and content.",
     inputSchema: listLayoutsToolInput,
     outputSchema: z.array(layoutSchema),
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => runService(listLayouts(ctx, { projectId: ctx.projectId })),
   }),
   defineTool({
@@ -34,7 +34,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Use this to discover shared navigation and footer blocks.",
     inputSchema: getLayoutToolInput,
     outputSchema: layoutBundleSchema,
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) => {
       const { layoutId } = getLayoutToolInput.parse(input);
       return runService(

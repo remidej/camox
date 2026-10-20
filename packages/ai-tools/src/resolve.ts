@@ -1,5 +1,5 @@
 import { withLocaleInput } from "./lib/locale-input";
-import type { ToolContext, ToolDefinition, ToolProvider } from "./types";
+import type { ToolContext, ToolDefinition, ToolProvider, ToolSurface } from "./types";
 
 /**
  * A localized tool taking its `locale` too. The locale reaches it through its context, so its
@@ -16,11 +16,15 @@ function localized(tool: ToolDefinition): ToolDefinition {
   };
 }
 
-/** The tools of every provider. */
+/** The tools a surface may call, from every provider. */
 export async function resolveTools(
   providers: ToolProvider[],
   ctx: ToolContext,
+  surface: ToolSurface,
 ): Promise<ToolDefinition[]> {
   const lists = await Promise.all(providers.map(async (p) => p(ctx)));
-  return lists.flat().map((tool) => (tool.meta.localized ? localized(tool) : tool));
+  return lists
+    .flat()
+    .filter((tool) => tool.meta.surfaces.includes(surface))
+    .map((tool) => (tool.meta.localized ? localized(tool) : tool));
 }

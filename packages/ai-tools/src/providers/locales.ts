@@ -37,7 +37,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "locale's: pass a locale's tag as `locale` to the content tools to read or write it.",
     inputSchema: listInput,
     outputSchema: z.array(localeSchema),
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () => runService(listLocales(ctx, { projectId: ctx.projectId })),
   }),
   defineTool({
@@ -52,7 +52,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "is a top-level page path in the default locale blocks publishing.",
     inputSchema: addInput,
     outputSchema: localeSchema,
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
     handler: async (input) =>
       runService(addLocale(ctx, { ...addInput.parse(input), projectId: ctx.projectId })),
   }),
@@ -64,7 +64,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "remove a locale when the user asks to.",
     inputSchema: removeInput,
     outputSchema: localeSchema,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
     handler: async (input) =>
       runService(removeLocale(ctx, { ...removeInput.parse(input), projectId: ctx.projectId })),
   }),
@@ -85,7 +85,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
         z.strictObject({ id: z.string(), collectionId: z.string(), label: z.string() }),
       ),
     }),
-    meta: { kind: "read", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async () => runService(listMissingFromLocale(ctx, { projectId: ctx.projectId })),
   }),
   defineTool({
@@ -97,7 +97,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "own stay deleted. listMissingFromLocale lists what can be added back.",
     inputSchema: addBackInput,
     outputSchema: z.strictObject({ entity: z.enum(["page", "record"]), id: z.string() }),
-    meta: { kind: "write", risk: "safe", surfaces: ["cli"], localized: true },
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"], localized: true },
     handler: async (input) =>
       runService(addBackToLocale(ctx, { ...addBackInput.parse(input), projectId: ctx.projectId })),
   }),
@@ -109,7 +109,9 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "on Live and in every draft, since no content changes.",
     inputSchema: setDefaultTagInput,
     outputSchema: localeSchema,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    // Not the studio agent's: it applies on Live at once, and nothing reaches Live without a
+    // person's go-ahead.
+    meta: { kind: "write", surfaces: ["cli"] },
     handler: async (input) =>
       runService(
         setDefaultLocaleTag(ctx, { ...setDefaultTagInput.parse(input), projectId: ctx.projectId }),

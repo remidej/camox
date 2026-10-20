@@ -9,9 +9,8 @@ export type ToolContext = ServiceContext & {
   projectId: number;
 };
 
-export type ToolSurface = "cli";
-
-export type ToolRisk = "safe" | "requiresApproval";
+/** An interface offering tools: the CLI, for coding agents, or Camox's own agent in the studio. */
+export type ToolSurface = "cli" | "studio-agent";
 
 export type ToolDefinition = {
   name: string;
@@ -28,7 +27,7 @@ export type ToolDefinition = {
      * and acts in the default locale without one.
      */
     localized?: boolean;
-    risk: ToolRisk;
+    /** The interfaces that may call the tool. */
     surfaces: ToolSurface[];
   };
 };
