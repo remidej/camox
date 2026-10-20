@@ -3,7 +3,7 @@ import type { InvalidationMessage, ProjectRoomMessage } from "@camox/api-contrac
 import { usePartySocket } from "partysocket/react";
 import { useRef } from "react";
 
-import { getAuthCookieHeader } from "./auth";
+import { apiSocketOptions } from "./api-socket";
 import type { StudioCache } from "./studio-reads";
 
 const DEBOUNCE_MS = 300;
@@ -22,17 +22,11 @@ export function useProjectRoom(
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pendingRef = useRef<InvalidationMessage[]>([]);
 
-  const host = apiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-
   usePartySocket({
-    host,
-    // Match the API transport instead of PartySocket's hostname-based guess:
-    // custom *.localhost names otherwise default to TLS against our HTTP server.
-    protocol: new URL(apiUrl).protocol === "http:" ? "ws" : "wss",
+    ...apiSocketOptions(apiUrl),
     party: "project-room",
     room: String(projectId ?? ""),
     prefix: "parties",
-    query: () => ({ _authCookie: getAuthCookieHeader() }),
     enabled: !!projectId,
     onOpen() {
       if (process.env.NODE_ENV !== "production") {

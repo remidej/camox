@@ -5,10 +5,10 @@ import {
   type ThreadServerMessage,
   type ThreadView,
 } from "@camox/api-contract/threads";
-import { useWebSocket } from "partysocket/react";
+import { usePartySocket } from "partysocket/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getAuthCookieHeader } from "./auth";
+import { apiSocketOptions } from "./api-socket";
 
 /** `WebSocket.OPEN`, without reaching for a global the server doesn't have. */
 const OPEN = 1;
@@ -16,17 +16,20 @@ const OPEN = 1;
 /**
  * Follows the signed-in editor's Live thread in a project over its socket, folding Pi's events
  * into the thread's view. A message is resent with its operation id on every reconnect until the
- * thread accepts it, which records it once. Mount it once per project.
+ * thread accepts it, which records it once, or turns it down. Mount it once per project.
  */
 export function useLiveThread(apiUrl: string, projectId: number) {
   const [view, setView] = useState<ThreadView>(EMPTY_THREAD_VIEW);
   const [unaccepted, setUnaccepted] = useState<ReadonlyMap<string, string>>(new Map());
+  const [error, setError] = useState<string>();
   const unacceptedRef = useRef(unaccepted);
   useEffect(() => {
     unacceptedRef.current = unaccepted;
   }, [unaccepted]);
 
-  const socket = useWebSocket(() => liveThreadUrl(apiUrl, projectId), undefined, {
+  const socket = usePartySocket({
+    ...apiSocketOptions(apiUrl),
+    basePath: `threads/live/${projectId}`,
     // Unaccepted messages are resent on every open instead, so nothing is buffered twice.
     maxEnqueuedMessages: 0,
     onOpen(event) {
@@ -51,6 +54,10 @@ export function useLiveThread(apiUrl: string, projectId: number) {
         setUnaccepted((current) => without(current, operationId));
       } else if (frame.type === "error") {
         console.error("[useLiveThread]", frame.message);
+        setError(frame.message);
+        // The thread turned the message down: it won't take it on a resend either.
+        const { operationId } = frame;
+        if (operationId) setUnaccepted((current) => without(current, operationId));
       }
     },
   });
@@ -67,6 +74,7 @@ export function useLiveThread(apiUrl: string, projectId: number) {
   const send = useCallback(
     (text: string) => {
       const operationId = crypto.randomUUID();
+      setError(undefined);
       setUnaccepted((current) => new Map(current).set(operationId, text));
       transmit(socket, { type: "send", operationId, text });
     },
@@ -78,15 +86,9 @@ export function useLiveThread(apiUrl: string, projectId: number) {
     /** Whether the agent is working, or a message is still on its way to the thread. */
     working: view.working || unaccepted.size > 0,
     send,
+    /** Why the thread last turned a message down, until the editor sends another. */
+    error,
   };
-}
-
-function liveThreadUrl(apiUrl: string, projectId: number) {
-  const url = new URL(`threads/live/${projectId}`, apiUrl.replace(/\/*$/, "/"));
-  url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-  // WebSocket upgrades can't carry custom headers, so the session is relayed in the query.
-  url.searchParams.set("_authCookie", getAuthCookieHeader());
-  return url.href;
 }
 
 function transmit(

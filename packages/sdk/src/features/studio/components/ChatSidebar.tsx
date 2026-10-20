@@ -10,8 +10,8 @@ import { ThreadComposer } from "./ThreadComposer";
 import { ThreadMessages } from "./ThreadMessages";
 
 /**
- * The studio's chat with Camox's agent, beside every studio page except the preview. On Live it
- * shows the editor's own Live thread.
+ * Where an editor works with Camox's agent in a thread, beside every studio page except the
+ * preview. On Live it shows the editor's own Live thread.
  */
 export function ChatSidebar() {
   return (
@@ -52,10 +52,15 @@ function CurrentThread() {
 }
 
 function LiveThread({ apiUrl, projectId }: { apiUrl: string; projectId: number }) {
-  const { view, working, send } = useLiveThread(apiUrl, projectId);
+  const { view, working, send, error } = useLiveThread(apiUrl, projectId);
   return (
     <>
       <ThreadMessages view={{ ...view, working }} />
+      {error && (
+        <p role="alert" className="text-destructive px-4 pt-2 text-sm">
+          {error}
+        </p>
+      )}
       <ThreadComposer onSend={send} />
     </>
   );
