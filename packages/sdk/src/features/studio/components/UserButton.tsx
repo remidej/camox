@@ -7,20 +7,23 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
 import { useSelector } from "@xstate/store-react";
-import { Check, EyeOff, LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
+import { Check, Command, EyeOff, LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { useAuthContext, useAuthState } from "@/lib/auth";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
+import { PlatformLabel } from "../../../components/PlatformLabel";
 import { previewStore, selectIsCanvasShown } from "../../preview/previewStore";
 import { STUDIO_BASE_PATH } from "../routes";
+import { studioStore } from "../studioStore";
 import { useApplyTheme } from "../useTheme";
 
 export const UserButton = () => {
@@ -135,6 +138,13 @@ function AuthenticatedUserButton({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuItem onClick={() => studioStore.send({ type: "openCommandPalette" })}>
+          <Command />
+          <span>Command palette</span>
+          <DropdownMenuShortcut>
+            <PlatformLabel mac="⌘ K" other="Ctrl K" />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuItem disabled={isPreviewPage && isCanvasShown} onClick={hideCamoxUi}>
           <EyeOff />
           <span>Hide Camox UI</span>

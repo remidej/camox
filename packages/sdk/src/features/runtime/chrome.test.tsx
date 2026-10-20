@@ -103,7 +103,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
   );
   assert.match(html, /My actual project/);
-  assert.match(html, /Quick find/);
   assert.match(html, /Show canvas/);
   const showCanvasLabel =
     html.match(/<label[^>]*for="show-canvas"[^>]*>([\s\S]*?)<\/label>/)?.[1] ?? "";
@@ -112,8 +111,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(showCanvasLabel, /<kbd/);
   assert.match(showCanvasLabel, /class="camox-platform-mac">⌘ ↵/);
   assert.match(showCanvasLabel, /class="camox-platform-other">Ctrl ↵/);
-  assert.match(html, /class="camox-platform-mac">⌘ K/);
-  assert.match(html, /class="camox-platform-other">Ctrl K/);
   assert.match(html, /Viewing Live/);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
   assert.match(html, /<iframe[^>]+srcDoc=/i);
@@ -136,7 +133,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     }),
   );
   assert.match(studioHtml, /My actual project/);
-  assert.match(studioHtml, /Quick find/);
   assert.doesNotMatch(studioHtml, /camox-loading/);
   assert.match(studioHtml, /data-chat-sidebar/);
 
@@ -192,7 +188,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
           camoxApp,
         }),
       );
-      assert.match(canvasHtml, /My actual project|Quick find/);
+      assert.match(canvasHtml, /My actual project/);
       assert.match(canvasHtml, /<div hidden=""[^>]*><menu role="toolbar"/);
       // Navbar and command actions share the same ungated navigation.
       assert.deepEqual(
@@ -216,5 +212,5 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       camoxApp,
     }),
   );
-  assert.doesNotMatch(publicHtml, /Quick find|Show canvas|My actual project|studio.css/);
+  assert.doesNotMatch(publicHtml, /Show canvas|My actual project|studio.css/);
 });
