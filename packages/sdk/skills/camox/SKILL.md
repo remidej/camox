@@ -25,7 +25,7 @@ Every block, layout and component renders in every locale the project publishes:
 - Put every visible text in blocks, layout blocks included. Camox translates block content, never JSX.
 - Pass internal links through `useLocalizedHref` from `camox/navigation`, and write paths without a locale prefix.
 
-For a language switcher, a loader fetching localized data, or the details of either rule: [Localization](references/localization.md).
+For a locale switcher, a loader fetching localized data, or the details of either rule: [Localization](references/localization.md).
 
 ## Specialized block work
 

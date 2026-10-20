@@ -8,7 +8,7 @@ Every text a visitor can read is block content, layout blocks included: navbar a
 
 ## Internal links stay in the locale
 
-Write root-relative paths without a locale prefix, and pass them through `useLocalizedHref` from `camox/navigation`. On a German page, `/articles` becomes `/de/articles`; on a default-locale page it stays `/articles`. External URLs, `#anchors` and `mailto:` links come back as is.
+Write root-relative paths without a locale prefix, and pass them through `useLocalizedHref` from `camox/navigation`. On a `de` page, `/articles` becomes `/de/articles`; on a default-locale page it stays `/articles`. External URLs, `#anchors` and `mailto:` links come back as is.
 
 ```tsx
 import { Link, useLocalizedHref } from "camox/navigation";
@@ -21,14 +21,14 @@ function BackToArticles({ children }: { children: React.ReactNode }) {
 
 Link fields and `camox:page:` text links already resolve per locale: render them as they come. The locale's prefix comes from the helper alone, so a `/de` written into code or content links German visitors to `/de/de/...` and English visitors to German.
 
-## Language switcher
+## Locale switcher
 
 `useAlternates()` returns the current page in every locale it exists in, the current one included, as `{ locale, href, label }`. `label` is the locale's name in its own language (`Deutsch`, `français`), from `Intl.DisplayNames`; capitalize it with CSS if the design needs it. A locale the page was removed from isn't listed, so the switcher never links to a 404. `useLocale()` returns the current locale's tag, such as `de`.
 
 ```tsx
 import { Link, useAlternates, useLocale } from "camox/navigation";
 
-function LanguageSwitcher() {
+function LocaleSwitcher() {
   const current = useLocale();
   const alternates = useAlternates();
   if (alternates.length < 2) return null;
