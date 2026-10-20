@@ -1,7 +1,9 @@
 import {
   EDITOR_MESSAGE_ENTRY,
+  isSender,
+  threadClientMessageSchema,
+  threadSenderSchema,
   type ThreadClientMessage,
-  type ThreadSender,
   type ThreadServerMessage,
 } from "@camox/api-contract/threads";
 import { type AgentEventStream, createRegistry, Harness } from "@earendil-works/pi-durable";
@@ -26,6 +28,21 @@ Answer in the language the editor writes in. Keep answers short and to the point
 Markdown when it helps.
 
 End every turn with a short summary: what you changed, and what's left for the editor to check.`;
+
+const parseJson = (raw: string | null): unknown => {
+  if (raw === null) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+};
+
+/** A studio's frame, or undefined when it isn't one. */
+const parseClientMessage = (raw: string): ThreadClientMessage | undefined => {
+  const parsed = threadClientMessageSchema.safeParse(parseJson(raw));
+  return parsed.success ? parsed.data : undefined;
+};
 
 const send = (socket: WebSocket, message: ThreadServerMessage) => {
   if (socket.readyState !== OPEN) return;
@@ -93,12 +110,14 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   async #onConnect(connection: Connection, ctx: ConnectionContext) {
-    const sender = ctx.request.headers.get(THREAD_SENDER_HEADER);
-    if (!sender) {
+    const sender = threadSenderSchema.safeParse(
+      parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
+    );
+    if (!sender.success) {
       connection.close(1008, "Unauthorized");
       return;
     }
-    connection.setState(JSON.parse(sender) as ThreadSender);
+    connection.setState(sender.data);
     await this.#watch(connection);
   }
 
@@ -124,18 +143,19 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   async #onMessage(connection: Connection, raw: WebSocketMessage) {
-    if (typeof raw !== "string") return;
-    let message: ThreadClientMessage;
-    try {
-      message = JSON.parse(raw) as ThreadClientMessage;
-    } catch {
+    const message = typeof raw === "string" ? parseClientMessage(raw) : undefined;
+    if (!message) {
       send(connection, { type: "error", message: "Malformed message" });
       return;
     }
 
     switch (message.type) {
       case "send": {
-        const sender = connection.state as ThreadSender;
+        const sender = connection.state;
+        if (!isSender(sender)) {
+          connection.close(1008, "Unauthorized");
+          return;
+        }
         try {
           await this.harness.submit(message.text, {
             operationId: message.operationId,

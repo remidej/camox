@@ -21,9 +21,14 @@ export const testThreadModel = (): ThreadModel => {
  * Scripts the model's next answer, after `thinking` when given. An unscripted call fails like an
  * unreachable model.
  */
-export const answerNext = (text: string, { thinking }: { thinking?: string } = {}) =>
+export const answerNext = (
+  text: string,
+  { thinking, stopReason }: { thinking?: string; stopReason?: "stop" | "length" } = {},
+) =>
   faux.appendResponses([
-    fauxAssistantMessage([...(thinking ? [fauxThinking(thinking)] : []), fauxText(text)]),
+    fauxAssistantMessage([...(thinking ? [fauxThinking(thinking)] : []), fauxText(text)], {
+      stopReason,
+    }),
   ]);
 
 /**

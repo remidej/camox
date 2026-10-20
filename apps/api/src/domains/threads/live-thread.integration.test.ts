@@ -1,14 +1,14 @@
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { addMember, createProjectFixture } from "../../../test/fixtures";
 import {
   answerNext,
   forgetThreadModel,
   holdNextAnswer,
   threadModelCalls,
 } from "../../../test/thread-model";
-import { addMember, connectLiveThread, requestLiveThread, signIn } from "../../../test/threads";
+import { connectLiveThread, requestLiveThread, signIn } from "../../../test/threads";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -96,6 +96,45 @@ describe("an editor's Live thread", () => {
     ]);
     expect(threadModelCalls()).toBe(1);
     again.close();
+  });
+
+  it("doesn't show an answer cut short as the turn's final message", async () => {
+    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
+    const token = await signIn(db, memberUser.id);
+    answerNext("Your website has thr", { stopReason: "length" });
+    const thread = await connectLiveThread(project.id, token);
+
+    thread.send({ type: "send", operationId: crypto.randomUUID(), text: "How many pages?" });
+    await thread.until(() =>
+      thread.frames.some(
+        (frame) => frame.type === "events" && frame.events.some((e) => e.type === "run_end"),
+      ),
+    );
+
+    expect(thread.view().messages.map(({ from }) => from)).toEqual(["editor"]);
+    thread.close();
+  });
+
+  it("turns down a malformed message, and still takes the next one", async () => {
+    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
+    const token = await signIn(db, memberUser.id);
+    answerNext("Got it.");
+    const thread = await connectLiveThread(project.id, token);
+
+    thread.send({ type: "send", text: "No operation id" } as never);
+    await thread.until(() => thread.frames.some((frame) => frame.type === "error"));
+    const operationId = crypto.randomUUID();
+    thread.send({ type: "send", operationId, text: "Hello" });
+    await thread.until(() => !thread.view().working && thread.view().messages.length === 2);
+
+    expect(
+      thread.frames.filter((frame) => frame.type === "error" || frame.type === "accepted"),
+    ).toEqual([
+      { type: "error", message: expect.any(String) },
+      { type: "accepted", operationId },
+    ]);
+    expect(threadModelCalls()).toBe(1);
+    thread.close();
   });
 
   it("refuses someone who isn't a project member", async () => {

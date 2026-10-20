@@ -9,7 +9,7 @@ import { env } from "cloudflare:workers";
 
 import type { createDb } from "../src/db";
 import app from "../src/index";
-import { member, session, user } from "../src/schema";
+import { session } from "../src/schema";
 
 /** Signs `userId` in, returning the bearer token the studio would send. */
 export async function signIn(db: ReturnType<typeof createDb>, userId: string) {
@@ -24,32 +24,6 @@ export async function signIn(db: ReturnType<typeof createDb>, userId: string) {
     updatedAt: now,
   });
   return token;
-}
-
-/** Adds another member to an organization, as a teammate of the fixture's member. */
-export async function addMember(db: ReturnType<typeof createDb>, organizationId: string) {
-  const id = `teammate-${crypto.randomUUID()}`;
-  const now = new Date();
-  const teammate = await db
-    .insert(user)
-    .values({
-      id,
-      name: "Teammate",
-      email: `${id}@example.com`,
-      emailVerified: true,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
-  await db.insert(member).values({
-    id: `membership-${id}`,
-    organizationId,
-    userId: id,
-    role: "member",
-    createdAt: now,
-  });
-  return teammate;
 }
 
 /** Opens the socket to the signed-in editor's Live thread in a project, as the studio does. */
