@@ -28,6 +28,9 @@ registerHooks({
         export const useReadQuery = (read, options) => globalThis.CanvasQueryProbe({...read, ...options});
         export const useReadQueries = (list, combine) => combine(list.map(() => ({})));
         export const useStudioCache = () => ({});`;
+    // No derived layout has a discovered page.
+    if (specifier.endsWith("/useDiscoveredPreviewPaths"))
+      source = "export const useDiscoveredPreviewPaths = () => new Map()";
     if (specifier.endsWith("/auth"))
       source = `export const useProjectSlug = () => "site";
         export const useAuthContext = () => ({apiUrl: "", projectSlug: "site"});`;
