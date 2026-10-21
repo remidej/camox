@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,9 +10,8 @@ import { setTimeout } from "node:timers/promises";
 import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/node";
-import { createLogger, createServer } from "vite-plus";
+import { createLogger, createServer, resolveConfig } from "vite-plus";
 
-import { syncDefinitionsToApi } from "./definitionsSync";
 import { type CamoxPluginOptions, camox } from "./vite";
 
 type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["afterSync"]>;
@@ -40,23 +40,32 @@ async function devCheckout(
       [AUTHENTICATION_URL]: { token: "dev-session", name: "Dev", email: "dev@camox.dev" },
     }),
   );
-  await mkdir(join(root, "src/camox"), { recursive: true });
+  await mkdir(join(root, "src/blocks"), { recursive: true });
   await writeFile(
-    join(root, "src/camox/app.ts"),
-    `export const camoxApp = {
-      getBlocks: () => [],
-      getSerializableLayoutDefinitions: () => [],
-      getSerializableCollectionDefinitions: () => [],
-      getInitialPageBundles: () => null,
-    };`,
+    join(root, "src/blocks/hero.ts"),
+    `import { createBlock } from "camox/createBlock";
+
+export const block = createBlock({
+  id: "hero",
+  title: "Hero",
+  description: "Opens the page",
+  content: (field) => ({ title: field.string({ default: "Welcome" }) }),
+  component: () => null,
+  toMarkdown: (content) => [content.title],
+});
+`,
   );
 
   const requests: { path: string; headers: IncomingHttpHeaders }[] = [];
+  /** The block ids each `blockDefinitions.sync` received, in order. */
+  const syncedBlockIds: string[][] = [];
   const base = os.$context<{ headers: IncomingHttpHeaders }>();
   const router = {
     blockDefinitions: {
-      sync: base.handler(({ context }) => {
+      sync: base.handler(({ context, input }) => {
         requests.push({ path: "blockDefinitions.sync", headers: context.headers });
+        const { definitions } = input as { definitions: { blockId: string }[] };
+        syncedBlockIds.push(definitions.map((definition) => definition.blockId));
         return { results: [], draftCreated, deletedDefinitionTypes: [] };
       }),
     },
@@ -123,7 +132,13 @@ async function devCheckout(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { root, apiUrl: `http://127.0.0.1:${address.port}`, requests, cleanups };
+  return {
+    root,
+    apiUrl: `http://127.0.0.1:${address.port}`,
+    requests,
+    syncedBlockIds,
+    cleanups,
+  };
 }
 
 async function startDevServer(
@@ -149,7 +164,6 @@ async function startDevServer(
         _internal: {
           apiUrl: checkout.apiUrl,
           authenticationUrl: AUTHENTICATION_URL,
-          disableCodeGen: true,
           afterSync,
           seedLiveDeployToken,
         },
@@ -196,6 +210,15 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
   assert.ok(!logs.some((line) => line.includes("Created your development draft")));
 });
 
+void test("the dev server syncs the app's blocks without writing an app file", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+
+  await waitFor(() => logs.some((line) => line.includes("Synced 1 block definition")), logs);
+  assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
+  assert.ok(!existsSync(join(checkout.root, "src/camox/app.ts")));
+});
+
 void test("the dev server says when its first sync created the development draft", async (t) => {
   const checkout = await devCheckout(t, { draftCreated: true });
   const { logs } = await startDevServer(checkout, () => {});
@@ -205,24 +228,37 @@ void test("the dev server says when its first sync created the development draft
   assert.ok(logs.some((line) => line.includes("Running Camox app (your development draft)")));
 });
 
-void test("a release syncs Live's definitions: its requests name no draft", async (t) => {
+void test("a release syncs the app's blocks to Live: its requests name no draft", async (t) => {
   const checkout = await devCheckout(t);
-  const camoxApp = {
-    getBlocks: () => [],
-    getSerializableLayoutDefinitions: () => [],
-    getSerializableCollectionDefinitions: () => [],
-    getInitialPageBundles: async () => null,
-  } as unknown as Parameters<typeof syncDefinitionsToApi>[0]["camoxApp"];
-
-  await syncDefinitionsToApi({
-    camoxApp,
+  for (const [name, value] of Object.entries({
+    CAMOX_INTERNAL_RELEASE: "1",
+    CAMOX_DEPLOY_TOKEN: "deploy-token",
+  })) {
+    const previous = process.env[name];
+    process.env[name] = value;
+    t.after(() => {
+      if (previous === undefined) delete process.env[name];
+      else process.env[name] = previous;
+    });
+  }
+  const plugin = camox({
     projectSlug: "checkout",
-    apiUrl: checkout.apiUrl,
-    autoCreate: false,
-    deployToken: "deploy-token",
-    logger: createLogger("silent"),
+    _internal: { apiUrl: checkout.apiUrl, authenticationUrl: AUTHENTICATION_URL },
   });
+  // Resolving the config runs the plugin's config hooks the way `vite build` does.
+  await resolveConfig(
+    {
+      configFile: false,
+      root: checkout.root,
+      logLevel: "silent",
+      plugins: [{ name: "vite-plugin-cloudflare" }, plugin],
+    },
+    "build",
+  );
 
+  await (plugin.closeBundle as () => Promise<void>)();
+
+  assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
   assert.deepEqual(
     checkout.requests.map(({ path, headers }) => ({ path, draft: headers[DRAFT_HEADER] })),
     [

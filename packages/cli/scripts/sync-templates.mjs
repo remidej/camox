@@ -22,7 +22,6 @@ const EXCLUDED_PATHS = new Set([
   ".env.local",
   ".gitignore",
   "src/routeTree.gen.ts",
-  "src/camox/app.ts",
   "src/routes/_camox.tsx",
   "src/routes/_camox",
 ]);
