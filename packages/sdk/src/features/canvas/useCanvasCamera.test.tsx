@@ -605,14 +605,13 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     assert.equal(read().x, fitted.x, "snap entry centers horizontally");
     assert.ok(Math.abs(read().y - beforeSnap.y) < 1e-8, "entry retains vertical reading position");
     const beforeZoom = read();
+    // The zoom landing on its target may move the anchor by a fraction of a screen pixel.
     const checkAnchor = () => {
       const next = read();
-      assert.ok(
-        Math.abs((400 - next.x) / next.scale - (400 - beforeZoom.x) / beforeZoom.scale) < 1e-8,
-      );
-      assert.ok(
-        Math.abs((300 - next.y) / next.scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
-      );
+      const drift = (screen: number, from: number, to: number) =>
+        Math.abs((screen - to) / next.scale - (screen - from) / beforeZoom.scale) * next.scale;
+      assert.ok(drift(400, beforeZoom.x, next.x) < 0.5);
+      assert.ok(drift(300, beforeZoom.y, next.y) < 0.5);
     };
     for (let count = 0; count < 20; count++) wheel(0, -1, { ctrlKey: true });
     flush();
@@ -1488,8 +1487,9 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
       const currentScale = Number(style.getPropertyValue("--canvas-zoom"));
       const currentX = parseFloat(style.getPropertyValue("--canvas-x"));
       const currentY = parseFloat(style.getPropertyValue("--canvas-y"));
-      assert.ok(Math.abs((500 - currentX) / currentScale - anchor) < 0.0001);
-      assert.ok(Math.abs((300 - currentY) / currentScale - anchorY) < 0.0001);
+      // The zoom landing on its target may move the anchor by a fraction of a screen pixel.
+      assert.ok(Math.abs((500 - currentX) / currentScale - anchor) * currentScale < 0.5);
+      assert.ok(Math.abs((300 - currentY) / currentScale - anchorY) * currentScale < 0.5);
     });
     const scale = Number(style.getPropertyValue("--canvas-zoom"));
     const x = parseFloat(style.getPropertyValue("--canvas-x"));
@@ -2161,6 +2161,125 @@ void test("the editor's own pans and zooms report themselves; flights and resize
     pointer("pointermove", 200);
     pointer("pointerup", 200);
     assert.ok(moves > 4, "dragging pans");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("a zoom springing back while a pan goes on lands, so the zoom stops changing", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  let time = 1000;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: false }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 1600, height: 900 };
+  const pages = [
+    { key: "first", left: 0, width: 1366 },
+    { key: "middle", left: 1606, width: 1366 },
+    { key: "last", left: 3212, width: 1366 },
+  ];
+  function Fixture() {
+    const { viewportRef, contentRef } = useCanvasCamera("spring-back-pan", pages[1], {
+      targets: pages,
+      onSelect: () => {},
+    });
+    return (
+      <div ref={viewportRef}>
+        <div ref={contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+      setPointerCapture: { value: () => {} },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 4578 },
+      offsetHeight: { get: () => 20000 },
+    });
+    resize();
+    const frame = () => {
+      time += 16;
+      const batch = [...callbacks.values()];
+      callbacks.clear();
+      batch.forEach((callback) => callback(time));
+    };
+    const flush = () => {
+      for (let count = 0; callbacks.size && count < 200; count++) frame();
+    };
+    const wheel = (dx: number, dy: number, modifiers: { ctrlKey?: boolean } = {}) => {
+      const event = new dom.MouseEvent("wheel", { clientX: 800, clientY: 300, ...modifiers });
+      time += 16;
+      Object.defineProperties(event, {
+        deltaX: { value: dx },
+        deltaY: { value: dy },
+        deltaMode: { value: 0 },
+        timeStamp: { value: time },
+      });
+      viewport.dispatchEvent(event);
+    };
+    const zoom = () => viewport.style.getPropertyValue("--canvas-zoom");
+    const x = () => parseFloat(viewport.style.getPropertyValue("--canvas-x"));
+
+    // Pinch out past the zoom floor, which stretches the view.
+    for (let step = 0; step < 40; step++) {
+      wheel(0, 20, { ctrlKey: true });
+      frame();
+    }
+    flush();
+    const stretched = Number(zoom());
+    // The pinch ends and the view springs back, while the editor keeps panning.
+    t.mock.timers.tick(200);
+    const zooms: string[] = [];
+    const xs: number[] = [];
+    for (let step = 0; step < 90; step++) {
+      wheel(step % 30 < 15 ? 12 : -12, 0);
+      frame();
+      zooms.push(zoom());
+      xs.push(x());
+    }
+    assert.ok(Number(zooms.at(-1)) > stretched, "the view springs back from the stretch");
+    const late = zooms.slice(45);
+    assert.equal(new Set(late).size, 1, "the zoom has landed, so it stops changing");
+    assert.ok(new Set(xs.slice(45)).size > 1, "while the pan keeps moving the camera");
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();
