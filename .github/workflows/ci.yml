@@ -34,6 +34,9 @@ jobs:
 
       - run: pnpm --filter @camox/template-default test:production
 
+      # Refreshes a local stand-in for template-default, installing from npm.
+      - run: pnpm --filter @camox/cli test:network
+
   # Each test file boots its own workerd, so the suite is CPU-bound; one runner per
   # shard (the test-shard-* targets in apps/api/package.json) splits that cost.
   api-test:

@@ -32,7 +32,8 @@
     "build": "node scripts/sync-templates.mjs && vp pack",
     "dev": "node scripts/sync-templates.mjs --watch --build",
     "setup:template-artifacts": "bash scripts/setup-template-artifacts.sh",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:network": "node --test test/network/*.test.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
