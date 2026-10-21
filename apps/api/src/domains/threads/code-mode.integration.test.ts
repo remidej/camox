@@ -21,7 +21,7 @@ import {
 } from "../../../test/threads";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { member, pages } from "../../schema";
+import { blocks, member, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
@@ -239,6 +239,46 @@ describe("the agent reading the website through code mode", () => {
 
     expect(touchedOf(thread).map(({ touches }) => touches)).toEqual([
       [{ entity: "synced-block", blockType: "navbar", kind: "edited", locale: "en" }],
+    ]);
+    thread.close();
+  });
+
+  it("reports a Layout's block by its Layout", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const now = Date.now();
+    const footer = await website.db
+      .insert(blocks)
+      .values({
+        projectId: website.project.id,
+        layoutId: website.layout.layoutId,
+        type: "text",
+        slot: "after",
+        content: { body: "© Acme" },
+        position: "a0",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const thread = await openThread(website);
+    answerWithScript(`
+      const layout = await tools.getLayout({ layoutId: "default" });
+      await tools.editBlock({ id: layout.blocks[0].id, content: { body: "© Acme Inc" } });
+    `);
+    answerNext("Updated the footer.");
+
+    await ask(thread, "Rename us in the footer", { keepOpen: true });
+
+    expect(touchedOf(thread).map(({ touches }) => touches)).toEqual([
+      [
+        {
+          entity: "layout",
+          layoutId: website.layout.layoutId,
+          blockId: footer.id,
+          kind: "edited",
+          locale: "en",
+        },
+      ],
     ]);
     thread.close();
   });
