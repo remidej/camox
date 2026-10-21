@@ -1,4 +1,5 @@
 import type { DraftOutcome } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   and,
   eq,
@@ -37,6 +38,7 @@ import { drafts, endedDrafts } from "./schema";
 import {
   draftIn,
   draftOf,
+  readScopeOf,
   RELEASE,
   type Draft,
   type DraftScope,
@@ -474,22 +476,16 @@ const liveRowFor = <T extends ContentTable>(db: Database, draft: Draft, table: T
   storedRow(db, null, draft, table, id);
 
 /**
- * Runs a table's Live follow-ups for one Live entity, as it is now: before a release changes it,
- * and again after.
+ * The statements running a table's Live follow-ups for one Live entity, as it is when they run:
+ * planned before a release changes it, and again after.
  */
-const followLiveChange = Effect.fn("overlay.followLiveChange")(function* (
-  db: Database,
-  table: ContentTable,
-  id: string,
-) {
+function liveFollowUps(table: ContentTable, id: string): BatchItem[] {
   const { afterLiveChange } = registrationOf(table);
-  if (!afterLiveChange) return;
+  if (!afterLiveChange) return [];
   // A release writes in the default locale.
   const changed = sql`select * from ${table} where ${and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))}`;
-  for (const statement of afterLiveChange(changed, Date.now())) {
-    yield* Effect.promise(() => db.run(statement));
-  }
-});
+  return afterLiveChange(changed, Date.now());
+}
 
 /** The project a Live row belongs to: its own, or for an item, its block's. */
 const projectOfLive = Effect.fn("overlay.projectOfLive")(function* (
@@ -503,63 +499,244 @@ const projectOfLive = Effect.fn("overlay.projectOfLive")(function* (
 });
 
 /**
- * Records a write in the journal: the entity as written, or as it was before its deletion. Every
- * overlay write records itself, so that what changed reaches the project's viewers.
+ * The project a written entity belongs to: the draft's, or for a release, the one `projectId`
+ * names, else the Live row's own. Undefined for a Live item whose block is gone.
  */
+const projectOfWrite = (
+  db: Database,
+  target: WriteTarget,
+  row: Record<string, unknown>,
+  projectId?: number,
+): Effect.Effect<number | undefined> => {
+  if (target !== RELEASE) return Effect.succeed(target.projectId);
+  if (projectId !== undefined) return Effect.succeed(projectId);
+  return projectOfLive(db, row);
+};
+
+/**
+ * What the journal records for a write: the entity as written, or as it was before its deletion.
+ * Every overlay write records itself, so that what changed reaches the project's viewers.
+ */
+function contentChanges(
+  target: WriteTarget,
+  projectId: number | undefined,
+  table: ContentTable,
+  written: object,
+  change: Extract<Change, { kind: "content" }>["change"],
+  columns?: string[],
+): Change[] {
+  // A Live item whose block is gone shows nowhere: no project's viewers read it.
+  if (projectId === undefined) return [];
+  const row = written as Record<string, unknown> & { id: string };
+  const { entity } = registrationOf(table);
+  const draftId = target === RELEASE ? null : target.id;
+  const changes: Change[] = [
+    { kind: "content", entity, id: row.id, projectId, draftId, change, row, columns },
+  ];
+  // Every write of a localized entity, whatever wrote it: one in the default locale is
+  // translated into the draft's other locales, or a release's into Live's (ADR 0015).
+  if (typeof row.locale === "string") {
+    changes.push({
+      kind: "localizedWrite",
+      entity,
+      id: row.id,
+      projectId,
+      draftId,
+      locale: row.locale,
+    });
+  }
+  return changes;
+}
+
+/** Records a write in the journal, as `contentChanges` describes it. */
 const journalWrite = Effect.fn("overlay.journalWrite")(function* (
   db: Database,
   target: WriteTarget,
   table: ContentTable,
   written: object,
   change: Extract<Change, { kind: "content" }>["change"],
-  columns?: string[],
 ) {
-  const row = written as Record<string, unknown> & { id: string };
-  const projectId = target === RELEASE ? yield* projectOfLive(db, row) : target.projectId;
-  // A Live item whose block is gone shows nowhere: no project's viewers read it.
-  if (projectId === undefined) return;
-  const { entity } = registrationOf(table);
-  yield* record(db, {
-    kind: "content",
-    entity,
-    id: row.id,
-    projectId,
-    draftId: target === RELEASE ? null : target.id,
-    change,
-    row,
-    columns,
-  });
-  // Every write of a localized entity, whatever wrote it: one in the default locale is
-  // translated into the draft's other locales, or a release's into Live's (ADR 0015).
-  if (typeof row.locale === "string") {
-    yield* record(db, {
-      kind: "localizedWrite",
-      entity,
-      id: row.id,
-      projectId,
-      draftId: target === RELEASE ? null : target.id,
-      locale: row.locale,
-    });
+  const projectId = yield* projectOfWrite(db, target, written as Record<string, unknown>);
+  for (const entry of contentChanges(target, projectId, table, written, change)) {
+    yield* record(db, entry);
   }
+});
+
+// --- Planned writes ---
+//
+// A write is planned before it runs: its reads happen while planning, and it comes out as the
+// statements to run, what the journal records once they ran, and what the write returns. Ids
+// are picked while planning, so a later statement can name a row an earlier one creates.
+// Running several planned writes as one batch makes them atomic, the way publishing is. Since
+// no statement runs before the batch does, each write is planned from the state before the
+// batch: a plan doesn't see its own writes. `insert`, `update` and `remove` plan one write and
+// run it at once.
+
+/** A write planned but not run yet. */
+export type Planned<A> = {
+  /** The statements to run, in order, as one batch or as part of a larger one. */
+  statements: BatchItem[];
+  /** What the journal records once the statements ran. */
+  changes: Change[];
+  /** What the write returns, as planned: rows with the ids they get, but no `rowId`. */
+  result: A;
+};
+
+/** A plan writing nothing. */
+export const nothingPlanned = <A>(result: A): Planned<A> => ({
+  statements: [],
+  changes: [],
+  result,
+});
+
+/**
+ * Collects planned writes into one plan, in order: `add` takes a write's statements and changes
+ * and returns its result, `done` closes the plan with its own result.
+ */
+export function planner() {
+  const statements: BatchItem[] = [];
+  const changes: Change[] = [];
+  return {
+    add<A>(planned: Planned<A>): A {
+      statements.push(...planned.statements);
+      changes.push(...planned.changes);
+      return planned.result;
+    },
+    done<A>(result: A): Planned<A> {
+      return { statements, changes, result };
+    },
+  };
+}
+
+/** Runs a plan's statements as one batch, then records its changes. Returns its result. */
+export const runPlanned = Effect.fn("overlay.runPlanned")(function* <A>(
+  db: Database,
+  planned: Planned<A>,
+) {
+  if (planned.statements.length > 0) yield* runStatements(db, planned.statements);
+  for (const change of planned.changes) yield* record(db, change);
+  return planned.result;
+});
+
+/** The default locale's tag in a project, as Live or a draft reads its locales. */
+const defaultLocaleTag = Effect.fn("overlay.defaultLocaleTag")(function* (
+  db: Database,
+  projectId: number,
+  draft: Draft | null,
+) {
+  const row = yield* Effect.promise(() =>
+    db
+      .select({ tag: locales.tag })
+      .from(locales)
+      .where(
+        and(
+          eq(locales.projectId, projectId),
+          eq(locales.isDefault, true),
+          visibleIn(locales, draft),
+        ),
+      )
+      .get(),
+  );
+  if (!row) return yield* Effect.die(new Error(`Project ${projectId} has no default locale.`));
+  return row.tag;
 });
 
 /**
  * The locale a new entity of a localized table is created in, as insert values: the draft's
- * locale, or the default locale of the entity's project. Empty for other tables.
+ * locale, or the default locale of the entity's project. Empty for other tables, and for a Live
+ * item whose block is gone, which keeps the column's default.
  */
 const localeOfWrite = Effect.fn("overlay.localeOfWrite")(function* (
   db: Database,
   target: WriteTarget,
   table: ContentTable,
-  values: Record<string, unknown>,
-) {
+  projectId: number | undefined,
+): Effect.fn.Return<{ locale?: string }> {
   if (!localeColumn(table)) return {};
   if (target !== RELEASE) {
-    return { locale: target.locale ?? defaultLocaleOf(target.projectId, target) };
+    return { locale: target.locale ?? (yield* defaultLocaleTag(db, target.projectId, target)) };
   }
-  const projectId = yield* projectOfLive(db, values);
-  // An item whose block is gone keeps the column's default.
-  return projectId === undefined ? {} : { locale: defaultLocaleOf(projectId, null) };
+  if (projectId === undefined) return {};
+  return { locale: yield* defaultLocaleTag(db, projectId, null) };
+});
+
+/** The row a scope stores for an entity in a locale, tombstone included. */
+const storedInLocale = <T extends ContentTable>(
+  db: Database,
+  stored: DraftScope,
+  table: T,
+  id: string,
+  locale: string | null,
+) => {
+  const column = localeColumn(table);
+  const inLocale = column && locale !== null ? eq(column, locale) : undefined;
+  return Effect.promise(
+    () =>
+      db
+        .select()
+        .from(table as SQLiteTable)
+        .where(and(storedIn(table, stored), eq(table.id, id), inLocale))
+        .get() as Promise<Row<T> | undefined>,
+  );
+};
+
+/** The row a planned write stores, read back once it ran. */
+const storedAfter = <T extends ContentTable>(
+  db: Database,
+  target: WriteTarget,
+  table: T,
+  planned: Row<T>,
+) => storedInLocale(db, readScopeOf(target), table, planned.id, localeOfRow(planned));
+
+/**
+ * Plans creating an entity in the target, in its locale, with a fresh id unless `values` names
+ * one. Plans nothing, returning undefined, when the target already reads an entity with this id,
+ * or a draft deleted it. A release's entity is published by no member, now. A release finds the
+ * entity's project in its values, or for an item in its block: `projectId` names it when the
+ * block is created in the same batch.
+ */
+export const planInsert = Effect.fn("overlay.planInsert")(function* <T extends ContentTable>(
+  db: Database,
+  target: WriteTarget,
+  table: T,
+  values: Patch<T> & { id?: string },
+  options: { projectId?: number } = {},
+) {
+  const projectId = yield* projectOfWrite(db, target, values, options.projectId);
+  const locale = yield* localeOfWrite(db, target, table, projectId);
+  if (values.id !== undefined) {
+    const tag = locale.locale ?? null;
+    const stored = yield* storedInLocale(db, readScopeOf(target), table, values.id, tag);
+    const live =
+      target === RELEASE ? undefined : yield* storedInLocale(db, null, table, values.id, tag);
+    if (stored || live) return nothingPlanned<Row<T> | undefined>(undefined);
+  }
+  const now = Date.now();
+  const bookkept =
+    target === RELEASE
+      ? {
+          draftId: null,
+          baseVersion: null,
+          deleted: false,
+          firstPublishedAt: now,
+          publishedAt: now,
+          publishedBy: null,
+        }
+      : { draftId: target.id, baseVersion: null, deleted: false };
+  const row = { ...values, id: values.id ?? generateUuidv7(), ...locale, ...bookkept };
+  const statements: BatchItem[] = [
+    db
+      .insert(table as SQLiteTable)
+      .values(row as Values<T>)
+      .onConflictDoNothing(),
+  ];
+  if (target === RELEASE) statements.push(...liveFollowUps(table, row.id));
+  const planned = { version: 1, ...row } as unknown as Row<T>;
+  return {
+    statements,
+    changes: contentChanges(target, projectId, table, planned, "created"),
+    result: planned as Row<T> | undefined,
+  } satisfies Planned<Row<T> | undefined>;
 });
 
 /**
@@ -572,51 +749,91 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
   table: T,
   values: Patch<T> & { id?: string },
 ) {
-  const locale = yield* localeOfWrite(db, target, table, values);
+  const planned = yield* planInsert(db, target, table, values);
+  if (!planned.result) return undefined;
+  yield* runPlanned(db, planned);
+  return yield* storedAfter(db, target, table, planned.result);
+});
+
+/**
+ * Plans changing an entity as the target reads it. A release counts a change on Live's
+ * `version`, so drafts that copied the entity see a conflict. In a draft, the first write copies
+ * the whole Live entity, recording the version it copied. Plans nothing, returning undefined,
+ * when the target reads no entity with this id.
+ */
+export const planUpdate = Effect.fn("overlay.planUpdate")(function* <T extends ContentTable>(
+  db: Database,
+  target: WriteTarget,
+  table: T,
+  id: string,
+  patch: Patch<T>,
+) {
+  const columns = Object.keys(patch);
   if (target === RELEASE) {
+    const current = yield* getStored(db, null, table, id);
+    if (!current) return nothingPlanned<Row<T> | undefined>(undefined);
     const now = Date.now();
-    const row = (yield* Effect.promise(() =>
+    const statements: BatchItem[] = [
+      ...liveFollowUps(table, id),
       db
-        .insert(table as SQLiteTable)
-        .values({
-          ...values,
-          ...locale,
-          draftId: null,
-          baseVersion: null,
-          deleted: false,
-          firstPublishedAt: now,
+        .update(table as SQLiteTable)
+        .set({
+          ...patch,
+          version: sql`${table.version} + 1`,
           publishedAt: now,
           publishedBy: null,
-        } as Values<T>)
-        .onConflictDoNothing()
-        .returning()
-        .get(),
-    )) as Row<T> | undefined;
-    if (!row) return row;
-    yield* followLiveChange(db, table, row.id);
-    yield* journalWrite(db, target, table, row, "created");
-    return row;
+        } as Partial<Values<T>>)
+        .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))),
+      ...liveFollowUps(table, id),
+    ];
+    const row = {
+      ...current,
+      ...patch,
+      version: current.version + 1,
+      publishedAt: now,
+      publishedBy: null,
+    } as Row<T>;
+    const projectId = yield* projectOfLive(db, row);
+    return {
+      statements,
+      changes: contentChanges(target, projectId, table, row, "changed", columns),
+      result: row as Row<T> | undefined,
+    } satisfies Planned<Row<T> | undefined>;
   }
-  if (values.id !== undefined) {
-    const taken = yield* liveRowFor(db, target, table, values.id);
-    if (taken) return undefined;
+  const stored = yield* getStored(db, target, table, id);
+  if (stored?.deleted) return nothingPlanned<Row<T> | undefined>(undefined);
+  const statements: BatchItem[] = [];
+  let row: Row<T>;
+  if (stored) {
+    row = { ...stored, ...patch } as Row<T>;
+  } else {
+    const live = yield* liveRowFor(db, target, table, id);
+    if (!live) return nothingPlanned<Row<T> | undefined>(undefined);
+    const copy = copyIntoDraft(db, target, table, live, patch);
+    statements.push(copy.statement);
+    row = copy.row as Row<T>;
   }
-  const row = (yield* Effect.promise(() =>
-    db
-      .insert(table as SQLiteTable)
-      .values({
-        ...values,
-        ...locale,
-        draftId: target.id,
-        baseVersion: null,
-        deleted: false,
-      } as Values<T>)
-      .onConflictDoNothing()
-      .returning()
-      .get(),
-  )) as Row<T> | undefined;
-  if (row) yield* journalWrite(db, target, table, row, "created");
-  return row;
+  // Patches the draft's copy, also when a concurrent write copied it first.
+  if (columns.length > 0) {
+    statements.push(
+      db
+        .update(table as SQLiteTable)
+        .set(patch as Partial<Values<T>>)
+        .where(
+          and(
+            storedIn(table, target),
+            eq(table.id, id),
+            inLocaleOf(table, target),
+            eq(table.deleted, false),
+          ),
+        ),
+    );
+  }
+  return {
+    statements,
+    changes: contentChanges(target, target.projectId, table, row, "changed", columns),
+    result: row as Row<T> | undefined,
+  } satisfies Planned<Row<T> | undefined>;
 });
 
 /**
@@ -632,91 +849,78 @@ export const update = Effect.fn("overlay.update")(function* <T extends ContentTa
   id: string,
   patch: Patch<T>,
 ) {
-  if (target === RELEASE) {
-    yield* followLiveChange(db, table, id);
-    const row = (yield* Effect.promise(() =>
-      db
-        .update(table as SQLiteTable)
-        .set({
-          ...patch,
-          version: sql`${table.version} + 1`,
-          publishedAt: Date.now(),
-          publishedBy: null,
-        } as Partial<Values<T>>)
-        .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null)))
-        .returning()
-        .get(),
-    )) as Row<T> | undefined;
-    if (!row) return row;
-    yield* followLiveChange(db, table, id);
-    yield* journalWrite(db, target, table, row, "changed", Object.keys(patch));
-    return row;
-  }
-  const row = yield* updateInDraft(db, target, table, id, patch);
-  if (row) yield* journalWrite(db, target, table, row, "changed", Object.keys(patch));
-  return row;
-});
-
-/** Changes an entity in a draft, copying it from Live on the first write. */
-const updateInDraft = Effect.fn("overlay.updateInDraft")(function* <T extends ContentTable>(
-  db: Database,
-  draft: Draft,
-  table: T,
-  id: string,
-  patch: Patch<T>,
-) {
-  const stored = yield* getStored(db, draft, table, id);
-  if (stored?.deleted) return undefined;
-  if (!stored) {
-    const copy = yield* copyIntoDraft(db, draft, table, id, patch);
-    if (!copy.taken) return copy.row as Row<T> | undefined;
-  }
-  return (yield* Effect.promise(() =>
-    db
-      .update(table as SQLiteTable)
-      .set(patch as Partial<Values<T>>)
-      .where(
-        and(
-          storedIn(table, draft),
-          eq(table.id, id),
-          inLocaleOf(table, draft),
-          eq(table.deleted, false),
-        ),
-      )
-      .returning()
-      .get(),
-  )) as Row<T> | undefined;
+  const planned = yield* planUpdate(db, target, table, id, patch);
+  if (!planned.result) return undefined;
+  yield* runPlanned(db, planned);
+  return yield* storedAfter(db, target, table, planned.result);
 });
 
 /**
- * Copies a Live entity into a draft with changes applied: the copy, or no row when Live has no
- * such entity. `taken` when a concurrent write copied it first, so the caller patches that copy.
+ * The statement copying a Live entity into a draft with changes applied, and the copy as
+ * planned. A concurrent write that copied it first keeps its own copy.
  */
-const copyIntoDraft = Effect.fn("overlay.copyIntoDraft")(function* (
+function copyIntoDraft<T extends ContentTable>(
   db: Database,
   draft: Draft,
-  table: ContentTable,
-  id: string,
+  table: T,
+  live: Row<T>,
   changes: Record<string, unknown>,
-): Effect.fn.Return<{ taken: true } | { taken: false; row: Row<ContentTable> | undefined }> {
-  const live = yield* liveRowFor(db, draft, table, id);
-  if (!live) return { taken: false, row: undefined };
+) {
   const { rowId: _rowId, ...entity } = live as Record<string, unknown>;
-  const copy = yield* Effect.promise(() =>
+  const row = { ...entity, ...changes, draftId: draft.id, baseVersion: live.version };
+  const statement = db
+    .insert(table as SQLiteTable)
+    .values(row as Values<T>)
+    .onConflictDoNothing();
+  return { statement, row };
+}
+
+/**
+ * Plans deleting an entity as the target reads it, returning the row the target read. A release
+ * deletes Live's row. In a draft, an entity the draft created is deleted and any other gets a
+ * tombstone. Only the entity goes: callers remove its descendants. Plans nothing, returning
+ * undefined, when the target reads no entity with this id.
+ */
+export const planRemove = Effect.fn("overlay.planRemove")(function* <T extends ContentTable>(
+  db: Database,
+  target: WriteTarget,
+  table: T,
+  id: string,
+) {
+  const shown = (yield* get(db, readScopeOf(target), table, id)) as Row<T> | undefined;
+  if (!shown) return nothingPlanned<Row<T> | undefined>(undefined);
+  const projectId = yield* projectOfWrite(db, target, shown);
+  const planned = (statements: BatchItem[]) =>
+    ({
+      statements,
+      changes: contentChanges(target, projectId, table, shown, "deleted"),
+      result: shown as Row<T> | undefined,
+    }) satisfies Planned<Row<T> | undefined>;
+  if (target === RELEASE) {
+    return planned([
+      ...liveFollowUps(table, id),
+      db
+        .delete(table as SQLiteTable)
+        .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))),
+    ]);
+  }
+  const stored = and(storedIn(table, target), eq(table.id, id), inLocaleOf(table, target));
+  if (shown.draftId === target.id && shown.baseVersion == null) {
+    return planned([db.delete(table as SQLiteTable).where(stored)]);
+  }
+  const statements: BatchItem[] = [];
+  if (shown.draftId !== target.id) {
+    statements.push(copyIntoDraft(db, target, table, shown, { deleted: true }).statement);
+  }
+  // Marks the draft's copy, also when a concurrent write copied it first. The time tells Live
+  // descendants written since, which publishing loses, from older ones.
+  statements.push(
     db
-      .insert(table as SQLiteTable)
-      .values({
-        ...entity,
-        ...changes,
-        draftId: draft.id,
-        baseVersion: live.version,
-      } as Values<ContentTable>)
-      .onConflictDoNothing()
-      .returning()
-      .get(),
+      .update(table as SQLiteTable)
+      .set({ deleted: true, updatedAt: Date.now() } as Partial<Values<T>>)
+      .where(stored),
   );
-  if (!copy) return { taken: true };
-  return { taken: false, row: copy as Row<ContentTable> };
+  return planned(statements);
 });
 
 /**
@@ -730,39 +934,7 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
   table: T,
   id: string,
 ) {
-  if (target === RELEASE) {
-    const shown = yield* get(db, null, table, id);
-    if (!shown) return undefined;
-    yield* followLiveChange(db, table, id);
-    yield* Effect.promise(() =>
-      db
-        .delete(table as SQLiteTable)
-        .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))),
-    );
-    yield* journalWrite(db, target, table, shown, "deleted");
-    return shown;
-  }
-  const shown = yield* get(db, target, table, id);
-  if (!shown) return undefined;
-  yield* journalWrite(db, target, table, shown, "deleted");
-  if (shown.draftId === target.id && shown.baseVersion == null) {
-    yield* Effect.promise(() =>
-      db
-        .delete(table as SQLiteTable)
-        .where(and(storedIn(table, target), eq(table.id, id), inLocaleOf(table, target))),
-    );
-    return shown;
-  }
-  if (shown.draftId !== target.id) yield* copyIntoDraft(db, target, table, id, { deleted: true });
-  // Marks the draft's copy, also when a concurrent write copied it first. The time tells Live
-  // descendants written since, which publishing loses, from older ones.
-  yield* Effect.promise(() =>
-    db
-      .update(table as SQLiteTable)
-      .set({ deleted: true, updatedAt: Date.now() } as Partial<Values<T>>)
-      .where(and(storedIn(table, target), eq(table.id, id), inLocaleOf(table, target))),
-  );
-  return shown;
+  return yield* runPlanned(db, yield* planRemove(db, target, table, id));
 });
 
 /**

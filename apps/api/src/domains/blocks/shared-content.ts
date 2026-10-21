@@ -2,7 +2,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import type { Journal } from "../../lib/journal";
 import { blocks, repeatableItems, sharedContentId, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
@@ -48,16 +47,17 @@ export function definitionOf(block: { projectId: number; type: string }): Defini
 export const findSharedContent = (db: Database, scope: ReadScope, key: DefinitionKey) =>
   overlay.get(db, scope, sharedContents, sharedContentId(key));
 
-const insertSharedContent = Effect.fn("insertSharedContent")(function* (
+/** Plans creating a definition's shared content in a target. */
+const planSharedContentInsert = (
   db: Database,
   target: WriteTarget,
   key: DefinitionKey,
   data: { content: unknown; settings: unknown },
-) {
+) => {
   const now = Date.now();
   const row = { id: sharedContentId(key), ...key, ...data, createdAt: now, updatedAt: now };
-  yield* overlay.insert(db, target, sharedContents, row);
-});
+  return overlay.planInsert(db, target, sharedContents, row);
+};
 
 /**
  * Where a block's content, settings and items live, as a scope reads them: its synced
@@ -189,8 +189,8 @@ type ItemValues = Pick<
   "parentItemId" | "fieldName" | "content" | "settings" | "position"
 >;
 
-/** Creates an item with a fresh id in a write target. Returns its id. */
-const insertItem = Effect.fn("insertItem")(function* (
+/** Plans creating an item with a fresh id in a write target. Returns its id. */
+const planItem = Effect.fn("planItem")(function* (
   db: Database,
   target: WriteTarget,
   root: ItemRoot,
@@ -198,41 +198,48 @@ const insertItem = Effect.fn("insertItem")(function* (
   now: number,
 ) {
   const row = { ...values, ...rootColumns(root), createdAt: now, updatedAt: now };
-  const inserted = yield* overlay.insert(db, target, repeatableItems, row);
-  return inserted!.id;
+  const planned = yield* overlay.planInsert(db, target, repeatableItems, row);
+  return { ...planned, result: planned.result!.id };
 });
 
-/** Copies an item tree under another root in a target with fresh ids, parents before children. */
-const copyItemTree = Effect.fn("copyItemTree")(function* (
+/**
+ * Plans copying an item tree under another root in a target with fresh ids, parents before
+ * children.
+ */
+const planItemTreeCopy = Effect.fn("planItemTreeCopy")(function* (
   db: Database,
   target: WriteTarget,
   items: readonly ItemRow[],
   root: ItemRoot,
   now: number,
 ) {
+  const plan = overlay.planner();
   const copyChildren = (
     parentId: string | null,
     copiedParentId: string | null,
-  ): Effect.Effect<void, never, Journal> =>
+  ): Effect.Effect<void> =>
     Effect.gen(function* () {
       for (const item of items.filter((candidate) => candidate.parentItemId === parentId)) {
-        const copiedId = yield* insertItem(
-          db,
-          target,
-          root,
-          {
-            parentItemId: copiedParentId,
-            fieldName: item.fieldName,
-            content: item.content,
-            settings: item.settings,
-            position: item.position,
-          },
-          now,
+        const copiedId = plan.add(
+          yield* planItem(
+            db,
+            target,
+            root,
+            {
+              parentItemId: copiedParentId,
+              fieldName: item.fieldName,
+              content: item.content,
+              settings: item.settings,
+              position: item.position,
+            },
+            now,
+          ),
         );
         yield* copyChildren(item.id, copiedId);
       }
     });
   yield* copyChildren(null, null);
+  return plan.done(undefined);
 });
 
 /** The content a definition's defaults give a new block, with its repeatable item seeds. */
@@ -257,35 +264,44 @@ const defaultBundle = Effect.fn("defaultBundle")(function* (
   );
 });
 
-/** Shared content from the definition's defaults, with their repeatable items, in a target. */
-const sharedContentFromDefaults = Effect.fn("sharedContentFromDefaults")(function* (
+/**
+ * Plans shared content from the definition's defaults, with their repeatable items, in a
+ * target.
+ */
+const planSharedContentFromDefaults = Effect.fn("planSharedContentFromDefaults")(function* (
   db: Database,
   target: WriteTarget,
   key: DefinitionKey,
 ) {
   const now = Date.now();
+  const plan = overlay.planner();
   const defaults = yield* defaultBundle(db, readScopeOf(target), key);
-  yield* insertSharedContent(db, target, key, {
-    content: defaults.content,
-    settings: defaults.settings ?? null,
-  });
+  plan.add(
+    yield* planSharedContentInsert(db, target, key, {
+      content: defaults.content,
+      settings: defaults.settings ?? null,
+    }),
+  );
   const ids = new Map<string, string>();
   for (const seed of defaults.seeds) {
-    const id = yield* insertItem(
-      db,
-      target,
-      { sharedContent: key },
-      {
-        parentItemId: seed.parentTempId ? (ids.get(seed.parentTempId) ?? null) : null,
-        fieldName: seed.fieldName,
-        content: seed.content,
-        settings: seed.settings ?? null,
-        position: seed.position,
-      },
-      now,
+    const id = plan.add(
+      yield* planItem(
+        db,
+        target,
+        { sharedContent: key },
+        {
+          parentItemId: seed.parentTempId ? (ids.get(seed.parentTempId) ?? null) : null,
+          fieldName: seed.fieldName,
+          content: seed.content,
+          settings: seed.settings ?? null,
+          position: seed.position,
+        },
+        now,
+      ),
     );
     ids.set(seed.tempId, id);
   }
+  return plan.done(undefined);
 });
 
 /** The items of a placement as a scope reads them. */
@@ -293,48 +309,54 @@ const itemsOfPlacements = (db: Database, scope: ReadScope, placementIds: string[
   overlay.select(db, scope, repeatableItems, inArray(repeatableItems.blockId, placementIds));
 
 /**
- * Shared content taken from a placement, as a target reads it: its content, and its items, which
- * keep their ids. On Live, moving items under the shared content is a change drafts that copied
- * them see; in a draft, the items moved are draft rows.
+ * Plans shared content taken from a placement, as a target reads it: its content, and its items,
+ * which keep their ids. On Live, moving items under the shared content is a change drafts that
+ * copied them see; in a draft, the items moved are draft rows.
  */
-const sharedContentFromPlacement = Effect.fn("sharedContentFromPlacement")(function* (
+const planSharedContentFromPlacement = Effect.fn("planSharedContentFromPlacement")(function* (
   db: Database,
   target: WriteTarget,
   placement: BlockRow,
 ) {
+  const plan = overlay.planner();
   const key = definitionOf(placement);
   const { content, settings } = placement;
-  yield* insertSharedContent(db, target, key, { content, settings });
+  plan.add(yield* planSharedContentInsert(db, target, key, { content, settings }));
   const moved = rootColumns({ sharedContent: key });
   for (const item of yield* itemsOfPlacements(db, readScopeOf(target), [placement.id])) {
-    yield* overlay.update(db, target, repeatableItems, item.id, moved);
+    plan.add(yield* overlay.planUpdate(db, target, repeatableItems, item.id, moved));
   }
+  return plan.done(undefined);
 });
 
-/** Deletes items as a target reads them: Live's rows, or a draft's tombstones. */
-const removeItems = Effect.fn("removeItems")(function* (
+/** Plans deleting items as a target reads them: Live's rows, or a draft's tombstones. */
+const planItemsRemoval = Effect.fn("planItemsRemoval")(function* (
   db: Database,
   target: WriteTarget,
   items: readonly ItemRow[],
 ) {
-  for (const item of items) yield* overlay.remove(db, target, repeatableItems, item.id);
+  const plan = overlay.planner();
+  for (const item of items) {
+    plan.add(yield* overlay.planRemove(db, target, repeatableItems, item.id));
+  }
+  return plan.done(undefined);
 });
 
 /**
- * Becoming synced (ADR 0007), in the scope whose definitions changed: Live for a release, a
- * development draft for dev mode. The shared content is taken from the most recently published
+ * Plans becoming synced (ADR 0007), in the scope whose definitions changed: Live for a release,
+ * a development draft for dev mode. The shared content is taken from the most recently published
  * placement, items included, or from the definition's defaults when there is none. Every
  * placement's own content is cleared. On Live that is a change drafts that copied a placement
  * see as a conflict; in a draft it writes draft rows.
  */
-const becomeSynced = Effect.fn("becomeSynced")(function* (
+const planBecomingSynced = Effect.fn("planBecomingSynced")(function* (
   db: Database,
   target: WriteTarget,
   key: DefinitionKey,
 ) {
   const scope = readScopeOf(target);
   const placements = yield* placementsOf(db, scope, key);
-  if (placements.length === 0) return yield* sharedContentFromDefaults(db, target, key);
+  if (placements.length === 0) return yield* planSharedContentFromDefaults(db, target, key);
 
   const placementIds = placements.map((block) => block.id);
   const items = yield* itemsOfPlacements(db, scope, placementIds);
@@ -361,58 +383,65 @@ const becomeSynced = Effect.fn("becomeSynced")(function* (
     return aUpdated >= bUpdated;
   };
   const latest = placements.reduce((best, block) => (later(block, best) ? block : best));
-  yield* sharedContentFromPlacement(db, target, latest);
-  yield* removeItems(
-    db,
-    target,
-    items.filter((item) => item.blockId !== latest.id),
+  const plan = overlay.planner();
+  plan.add(yield* planSharedContentFromPlacement(db, target, latest));
+  plan.add(
+    yield* planItemsRemoval(
+      db,
+      target,
+      items.filter((item) => item.blockId !== latest.id),
+    ),
   );
   for (const placement of placements) {
-    yield* overlay.update(db, target, blocks, placement.id, clearedPlacement);
+    plan.add(yield* overlay.planUpdate(db, target, blocks, placement.id, clearedPlacement));
   }
+  return plan.done(undefined);
 });
 
 /**
- * No longer synced (ADR 0007), in the scope whose definitions changed: every placement gets its
- * own copy of the shared content, with fresh ids for the copied repeatable items, and the shared
- * content is deleted. On Live, drafts that copied a placement see the change as a conflict; in a
- * draft it writes draft rows and tombstones.
+ * Plans no longer being synced (ADR 0007), in the scope whose definitions changed: every
+ * placement gets its own copy of the shared content, with fresh ids for the copied repeatable
+ * items, and the shared content is deleted. On Live, drafts that copied a placement see the
+ * change as a conflict; in a draft it writes draft rows and tombstones.
  */
-const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
+const planStoppingBeingSynced = Effect.fn("planStoppingBeingSynced")(function* (
   db: Database,
   target: WriteTarget,
   shared: SharedContentRow,
 ) {
   const now = Date.now();
+  const plan = overlay.planner();
   const scope = readScopeOf(target);
   const key = definitionOf(shared);
   const root: ItemRoot = { sharedContent: key };
   const items = yield* overlay.select(db, scope, repeatableItems, itemsUnder(root));
   for (const placement of yield* placementsOf(db, scope, key)) {
     const copied = { content: shared.content, settings: shared.settings };
-    yield* overlay.update(db, target, blocks, placement.id, copied);
-    yield* copyItemTree(db, target, items, { blockId: placement.id }, now);
+    plan.add(yield* overlay.planUpdate(db, target, blocks, placement.id, copied));
+    plan.add(yield* planItemTreeCopy(db, target, items, { blockId: placement.id }, now));
   }
-  yield* removeItems(db, target, items);
-  yield* overlay.remove(db, target, sharedContents, shared.id);
+  plan.add(yield* planItemsRemoval(db, target, items));
+  plan.add(yield* overlay.planRemove(db, target, sharedContents, shared.id));
+  return plan.done(undefined);
 });
 
 /**
- * Brings a definition's shared content in line with its synced flag, in the scope whose
+ * Plans bringing a definition's shared content in line with its synced flag, in the scope whose
  * definitions changed: a synced definition without shared content becomes synced, and shared
  * content of a definition that isn't synced is copied back into its placements.
  */
-const alignSharedContent = Effect.fn("alignSharedContent")(function* (
+const planSharedContentAlignment = Effect.fn("planSharedContentAlignment")(function* (
   ctx: ServiceContext,
   { target, key, synced, seedFromDefaults }: SyncedFlag & { seedFromDefaults: boolean },
 ) {
   const scope = readScopeOf(target);
   const shared = yield* findSharedContent(ctx.db, scope, key);
-  if (shared && !synced) yield* stopBeingSynced(ctx.db, target, shared);
+  if (shared && !synced) return yield* planStoppingBeingSynced(ctx.db, target, shared);
   if (!shared && synced) {
     const placed = (yield* placementsOf(ctx.db, scope, key)).length > 0;
-    if (placed || seedFromDefaults) yield* becomeSynced(ctx.db, target, key);
+    if (placed || seedFromDefaults) return yield* planBecomingSynced(ctx.db, target, key);
   }
+  return overlay.nothingPlanned(undefined);
 });
 
 /**
@@ -421,13 +450,35 @@ const alignSharedContent = Effect.fn("alignSharedContent")(function* (
  */
 type SyncedFlag = { target: WriteTarget; projectId: number; key: DefinitionKey; synced: boolean };
 
+/**
+ * Plans what a definition sync changing a definition's synced flag writes, from the state before
+ * the sync's own writes.
+ */
+export const planSyncedFlagChange = Effect.fn("blocks.planSyncedFlagChange")(function* (
+  ctx: ServiceContext,
+  flag: SyncedFlag,
+) {
+  return yield* planSharedContentAlignment(ctx, { ...flag, seedFromDefaults: true });
+});
+
 /** A definition sync changed a definition's synced flag. */
 export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(function* (
   ctx: ServiceContext,
   flag: SyncedFlag,
 ) {
-  yield* alignSharedContent(ctx, { ...flag, seedFromDefaults: true });
+  yield* overlay.runPlanned(ctx.db, yield* planSyncedFlagChange(ctx, flag));
 });
+
+/**
+ * Plans what a definition sync creating a definition writes, maybe for one coming back to
+ * content stored under its name. A new synced definition that isn't placed yet gets its shared
+ * content from its first placement, like a layout declaring it, rather than from its defaults.
+ */
+export const planNewDefinitionSyncedFlag = Effect.fn("blocks.planNewDefinitionSyncedFlag")(
+  function* (ctx: ServiceContext, flag: SyncedFlag) {
+    return yield* planSharedContentAlignment(ctx, { ...flag, seedFromDefaults: false });
+  },
+);
 
 /**
  * A definition sync created a definition, maybe one coming back to content stored under its
@@ -436,9 +487,41 @@ export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(f
  */
 export const applyNewDefinitionSyncedFlag = Effect.fn("blocks.applyNewDefinitionSyncedFlag")(
   function* (ctx: ServiceContext, flag: SyncedFlag) {
-    yield* alignSharedContent(ctx, { ...flag, seedFromDefaults: false });
+    yield* overlay.runPlanned(ctx.db, yield* planNewDefinitionSyncedFlag(ctx, flag));
   },
 );
+
+/**
+ * Plans making a new placement, written to `target`, show its definition's shared content as
+ * that target reads it. The placement's own content seeds the shared content when a synced
+ * definition has none yet, and is dropped otherwise. Tells which happens: the placement keeps
+ * its `own` content, `seeded` the shared content, or `adopted` existing shared content.
+ *
+ * The placement's items, and the placement itself for clearing it, are read from the target: a
+ * placement inserted in the same batch has neither yet, so plan it already cleared.
+ */
+export const planSharedContentAdoption = Effect.fn("blocks.planSharedContentAdoption")(function* (
+  ctx: ServiceContext,
+  target: WriteTarget,
+  block: BlockRow,
+) {
+  const plan = overlay.planner();
+  const scope = readScopeOf(target);
+  const key = definitionOf(block);
+  const clear = overlay.planUpdate(ctx.db, target, blocks, block.id, clearedPlacement);
+  if (yield* findSharedContent(ctx.db, scope, key)) {
+    const items = yield* itemsOfPlacements(ctx.db, scope, [block.id]);
+    plan.add(yield* planItemsRemoval(ctx.db, target, items));
+    plan.add(yield* clear);
+    return plan.done("adopted" as const);
+  }
+  if (!(yield* findDefinition(ctx.db, key, scope))?.synced) {
+    return overlay.nothingPlanned("own" as const);
+  }
+  plan.add(yield* planSharedContentFromPlacement(ctx.db, target, block));
+  plan.add(yield* clear);
+  return plan.done("seeded" as const);
+});
 
 /**
  * Makes a new placement, written to `target`, show its definition's shared content as that
@@ -451,18 +534,7 @@ export const adoptSharedContent = Effect.fn("blocks.adoptSharedContent")(functio
   target: WriteTarget,
   block: BlockRow,
 ) {
-  const scope = readScopeOf(target);
-  const key = definitionOf(block);
-  const clear = overlay.update(ctx.db, target, blocks, block.id, clearedPlacement);
-  if (yield* findSharedContent(ctx.db, scope, key)) {
-    yield* removeItems(ctx.db, target, yield* itemsOfPlacements(ctx.db, scope, [block.id]));
-    yield* clear;
-    return "adopted" as const;
-  }
-  if (!(yield* findDefinition(ctx.db, key, scope))?.synced) return "own" as const;
-  yield* sharedContentFromPlacement(ctx.db, target, block);
-  yield* clear;
-  return "seeded" as const;
+  return yield* overlay.runPlanned(ctx.db, yield* planSharedContentAdoption(ctx, target, block));
 });
 
 /**
