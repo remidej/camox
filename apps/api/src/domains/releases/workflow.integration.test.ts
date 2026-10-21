@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture } from "../../../test/fixtures";
-import { releases } from "../../schema";
+import { projects, releases } from "../../schema";
 
 // A push to a project's repo releases it: the release Workflow installs, runs `camox release`
 // and deploys the project's Worker, each in a sandbox, and records the release as a row.
@@ -63,11 +63,6 @@ function pushEvent(repo: string, ref: string, commit: string) {
   };
 }
 
-async function project() {
-  const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
-  return { db, project };
-}
-
 /** Starts the release Workflow the way the push event does, and waits for it to end. */
 async function receivePush(
   event: ReturnType<typeof pushEvent>,
@@ -85,7 +80,9 @@ async function receivePush(
 
 describe("a push to a project's main branch", () => {
   it("releases the project and records the release as succeeded", async () => {
-    const { db, project: released } = await project();
+    const { db, project: released } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
     const commit = commitSha();
     await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 
@@ -115,7 +112,9 @@ describe("a push to a project's main branch", () => {
   });
 
   it("gives the Deploy Token only to `camox release`, and Camox's Cloudflare token only to the deploy", async () => {
-    const { project: released } = await project();
+    const { project: released } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
     const commit = commitSha();
     await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 
@@ -133,7 +132,9 @@ describe("a push to a project's main branch", () => {
   });
 
   it("records the release as failed at the step that gave up", async () => {
-    const { db, project: failing } = await project();
+    const { db, project: failing } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
     const commit = commitSha();
     await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
     await fakes.failCommand(failing.uuid, "wrangler deploy", Infinity);
@@ -157,7 +158,9 @@ describe("a push to a project's main branch", () => {
   });
 
   it("succeeds once when a step fails and its retry passes", async () => {
-    const { db, project: flaky } = await project();
+    const { db, project: flaky } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
     const commit = commitSha();
     await fakes.push(flaky.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
     await fakes.failCommand(flaky.uuid, "camox release", 1);
@@ -169,11 +172,47 @@ describe("a push to a project's main branch", () => {
     const commands = (await fakes.commandsRun(flaky.uuid)).map(({ command }) => command);
     expect(commands.filter((command) => command === "pnpm exec camox release")).toHaveLength(2);
   });
+
+  it("records a failed release that is re-run and passes as succeeded", async () => {
+    const { db, project: rerun } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const commit = commitSha();
+    await fakes.push(rerun.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+    // Fails every attempt of the first run, so that it gives up, then passes on the re-run.
+    await fakes.failCommand(rerun.uuid, "wrangler deploy", 3);
+    const instanceId = crypto.randomUUID();
+    await using instance = await introspectWorkflowInstance(env.RELEASE_WORKFLOW, instanceId);
+    await instance.modify(async (m) => {
+      await m.disableRetryDelays();
+    });
+    const run = await env.RELEASE_WORKFLOW.create({
+      id: instanceId,
+      params: pushEvent(rerun.uuid, "refs/heads/main", commit),
+    });
+    await instance.waitForStatus("errored");
+
+    const before = Date.now();
+    await run.restart();
+    await instance.waitForStatus("complete");
+
+    const rows = await db.select().from(releases).where(eq(releases.projectId, rerun.id));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        status: "succeeded",
+        failedStep: null,
+        workflowInstanceId: instanceId,
+      }),
+    ]);
+    expect(rows[0]!.startedAt).toBeGreaterThanOrEqual(before);
+  });
 });
 
 describe("a push that isn't a release", () => {
   it("starts nothing for a branch other than main", async () => {
-    const { db, project: wip } = await project();
+    const { db, project: wip } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
     const commit = commitSha();
     await fakes.push(wip.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 
@@ -184,6 +223,12 @@ describe("a push that isn't a release", () => {
   });
 
   it("starts nothing for a repo that isn't a project's, such as the Template's", async () => {
+    // Even a project row with that name doesn't release it: only a Project ID names a project's
+    // repo and Worker, and the deploy's `--name` comes from it.
+    const { db, project: misnamed } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    await db.update(projects).set({ uuid: "template-default" }).where(eq(projects.id, misnamed.id));
     const commit = commitSha();
     await fakes.push("template-default", commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 

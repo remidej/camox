@@ -27,7 +27,6 @@ export type Bindings = {
   SANDBOX: DurableObjectNamespace<import("@cloudflare/ci/worker").CiSandbox>;
   /** Where the release sandboxes keep their workspace snapshots, which cache installs. */
   BACKUP_BUCKET: R2Bucket;
-  BACKUP_BUCKET_NAME: string;
   /** Camox's Cloudflare account, which serves every project's Worker. */
   CLOUDFLARE_ACCOUNT_ID: string;
   /** The Cloudflare API token that can deploy to the `production` dispatch namespace. */

@@ -19,7 +19,7 @@ The Workflow runs on `@cloudflare/ci`. Each step after the first runs in its own
 
 Live gets the new definitions before the new code is deployed. If the deploy fails for good, Live briefly has definitions the served code lacks, until the release is re-run or a fix is pushed.
 
-The row ends `succeeded`, or `failed` with the step that gave up. Its `workflow_instance_id` names the Workflow instance, where the logs are. A project serves the `camox` version of its last succeeded release, so the projects serving an SDK older than a version are a query on `releases` (ADR 0019).
+The row ends `succeeded`, or `failed` with the step that gave up. Its `workflow_instance_id` names the Workflow instance, where the logs are. Restarting the instance re-runs the release and starts its row over as `running`. A project serves the `camox` version of its last succeeded release, so the projects serving an SDK older than a version are a query on `releases` (ADR 0019).
 
 ## Secrets
 

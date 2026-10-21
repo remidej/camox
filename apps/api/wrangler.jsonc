@@ -7,7 +7,6 @@
   "routes": [{ "pattern": "api.camox.dev", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.dev",
-    "BACKUP_BUCKET_NAME": "camox-release-cache",
   },
   "send_email": [
     {
