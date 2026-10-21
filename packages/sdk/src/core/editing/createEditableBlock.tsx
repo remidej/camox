@@ -41,7 +41,6 @@ import {
   resolveAssetValue,
 } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
-import { TextEditorsContext } from "../hooks/textEditors.ts";
 import { useArtifactHost, useInitialArtifactData } from "../hooks/useArtifactHost";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
@@ -861,7 +860,6 @@ export function createEditableBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
-    const textEditor = React.use(TextEditorsContext);
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
     const pages = useEditorLinkPages();
@@ -1003,9 +1001,7 @@ export function createEditableBlock<
       onMouseEnter: handleMouseEnter,
       onMouseLeave: handleMouseLeave,
       onClickCapture: selectField,
-      children: !textEditor ? (
-        text()
-      ) : (
+      children: (
         <InlineLexicalEditor
           textStyle={textStyle}
           linkStyle={linkStyle}

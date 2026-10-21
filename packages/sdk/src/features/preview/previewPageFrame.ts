@@ -17,6 +17,8 @@ export interface PreviewPageSlot {
   width: number;
   viewportHeight: number;
   mode: CanvasFrameMode;
+  /** Whether the Page is selected. Only the selected Page offers visual editing. */
+  selected: boolean;
   /** Whether the Page's shelf is collapsed, which hides the frame with the rest of the shelf. */
   hidden: boolean;
   workspace: React.ContextType<typeof CanvasWorkspaceContext>;

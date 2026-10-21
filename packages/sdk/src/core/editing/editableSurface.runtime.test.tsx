@@ -7,13 +7,13 @@ import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
 
+import { previewStore } from "../../features/preview/previewStore";
 import { initApiClient } from "../../lib/api-client";
 import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
-import { TextEditorsContext } from "../hooks/textEditors";
 
-// Exercise the real editable field. The harness substitutes only network/auth/iframe
-// boundaries, the selection owner and Lexical's input surface.
+// Exercise the real editable field and editability check. The harness substitutes only
+// network/auth/iframe boundaries, the selection owner and Lexical's input surface.
 Object.assign(globalThis, {
   React,
   __CAMOX_TELEMETRY_DISABLED__: true,
@@ -21,6 +21,10 @@ Object.assign(globalThis, {
 initApiClient("http://localhost:8788", testDraftScope());
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (context.parentURL?.endsWith("/useIsEditable.ts") && specifier === "@/lib/auth") {
+      const body = "export const useIsAuthenticated = () => true";
+      return { url: `data:text/javascript,${encodeURIComponent(body)}`, shortCircuit: true };
+    }
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
@@ -29,7 +33,6 @@ registerHooks({
         "export const useLocation = () => '/'; export const useNavigate = () => () => {}",
       "../../features/preview/components/Frame":
         "export const useFrame = () => ({window: globalThis.window ?? null})",
-      "../hooks/useIsEditable.ts": "export const useIsEditable = mode => mode === 'site'",
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => () => {};
         export const usePreviewTargetSelection = () => null;
@@ -47,8 +50,9 @@ registerHooks({
   },
 });
 const { createEditableBlock } = await import("./createEditableBlock");
+const { EditableSurfaceContext } = await import("../hooks/useIsEditable");
 
-void test("a frame without text editors shows its text as the site does, and stays targetable", async () => {
+void test("an unselected Canvas Page shows its text as the site does, with no visual editing", async () => {
   const block = createEditableBlock({
     id: "heading",
     title: "",
@@ -65,12 +69,13 @@ void test("a frame without text editors shows its text as the site does, and sta
   window.document.body.appendChild(host);
   const root = createRoot(host as unknown as Element);
   const client = new QueryClient();
-  const render = (editors: boolean) =>
+  previewStore.send({ type: "showCanvas" });
+  const render = (selected: boolean) =>
     act(async () =>
       root.render(
         <StudioQueryClientProvider client={client}>
           <NormalizedDataProvider files={[]} blocks={[]} repeatableItems={[]}>
-            <TextEditorsContext value={editors}>
+            <EditableSurfaceContext value={selected}>
               <block._internal.Component
                 mode="site"
                 blockData={{
@@ -80,7 +85,7 @@ void test("a frame without text editors shows its text as the site does, and sta
                   content: { title: "Hello" },
                 }}
               />
-            </TextEditorsContext>
+            </EditableSurfaceContext>
           </NormalizedDataProvider>
         </StudioQueryClientProvider>,
       ),
@@ -90,11 +95,8 @@ void test("a frame without text editors shows its text as the site does, and sta
     const heading = host.querySelector("h1")!;
     assert.equal(heading.textContent, "Hello");
     assert.equal(heading.querySelector("[data-editor]"), null, "no editor starts");
-    assert.equal(
-      heading.getAttribute("data-camox-field-id"),
-      "1__title",
-      "overlays find the field",
-    );
+    assert.equal(heading.getAttribute("data-camox-field-id"), null, "clicks can't target it");
+    assert.equal(host.querySelector("[data-camox-block-id]"), null, "nor its block");
 
     await render(true);
     assert.equal(
@@ -102,6 +104,7 @@ void test("a frame without text editors shows its text as the site does, and sta
       heading,
       "selecting the frame keeps the field's element",
     );
+    assert.equal(heading.getAttribute("data-camox-field-id"), "1__title", "makes it targetable");
     assert.equal(
       heading.querySelector("[data-editor]")?.textContent,
       "Hello",
@@ -109,6 +112,7 @@ void test("a frame without text editors shows its text as the site does, and sta
     );
   } finally {
     await act(async () => root.unmount());
+    previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
 });

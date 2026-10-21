@@ -74,6 +74,7 @@ export function CanvasPreviewPageSlot({
       width,
       viewportHeight,
       mode,
+      selected,
       hidden,
       workspace,
       onInteract,
