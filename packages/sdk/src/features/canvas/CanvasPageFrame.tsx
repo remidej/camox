@@ -3,7 +3,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
 
-import { TextEditorsContext } from "../../core/hooks/textEditors";
+import { EditableSurfaceContext } from "../../core/hooks/useIsEditable";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Overlays } from "../preview/components/Overlays";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
@@ -140,7 +140,9 @@ function PageFrame({
                 createPortal(
                   <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
                     <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                      <TextEditorsContext value={selected}>
+                      {/* Only the selected Page offers visual editing. The others render
+                          as the site does, still live, and a click only selects the Page. */}
+                      <EditableSurfaceContext value={selected}>
                         <div
                           style={{ display: "contents" }}
                           onPointerDownCapture={activate}
@@ -167,7 +169,7 @@ function PageFrame({
                             viewportHeight={viewportHeight}
                           />
                         </div>
-                      </TextEditorsContext>
+                      </EditableSurfaceContext>
                     </React.Suspense>
                   </React.Activity>,
                   mount,

@@ -5,9 +5,9 @@ import { previewStore, selectIsCanvasShown } from "@/features/preview/previewSto
 import { useIsAuthenticated } from "@/lib/auth";
 
 /**
- * Whether the surrounding frame offers editing while the Canvas shows. The Preview page
- * frame only does once it shows in the Canvas: it keeps the editing runtime
- * either way, so that toggling the Canvas never remounts the page.
+ * Whether the surrounding frame offers editing while the Canvas shows. Only the selected
+ * Page's frame does: the others render as the site does, so a click on them only selects
+ * the Page. Frames keep the editing runtime either way, so toggling never remounts the page.
  */
 export const EditableSurfaceContext = React.createContext(true);
 

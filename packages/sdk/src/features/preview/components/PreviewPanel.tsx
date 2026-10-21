@@ -297,10 +297,10 @@ const PreviewPanel = ({
     [frame],
   );
   // The same tree in every placement, so toggling the Canvas never remounts the page: the
-  // editing runtime stays, and the Canvas placement only makes it editable.
+  // editing runtime stays, and only the selected Page's placement makes it editable.
   const pageContent = (
     <NavigationLocation location={pageLocation}>
-      <EditableSurfaceContext value={!!placed}>
+      <EditableSurfaceContext value={!!placed?.selected}>
         <CanvasWorkspaceContext value={placed?.workspace ?? null}>
           {/* Like any Canvas frame, it never navigates the Studio from the Canvas. */}
           <NavigationDisabled disabled={!!placed}>
