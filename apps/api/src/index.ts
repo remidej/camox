@@ -1,9 +1,11 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { RPCHandler } from "@orpc/server/fetch";
+import { Effect } from "effect";
 import { Hono } from "hono";
-import { partyserverMiddleware } from "hono-party";
 import { cors } from "hono/cors";
+import { routePartykitRequest } from "partyserver";
 
+import { isProjectMember } from "./authorization";
 import { createDb } from "./db";
 import { authRoutes, createAuth } from "./domains/auth/routes";
 import { fileHonoRoutes } from "./domains/files/routes";
@@ -87,26 +89,35 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-// PartyServer — intercepts WebSocket upgrade requests for real-time invalidation
-app.use(
-  "*",
-  partyserverMiddleware<AppEnv>({
-    options: {
-      onBeforeConnect: async (req, _lobby, c) => {
-        const db = createDb(c.env.DB);
-        const url = new URL(req.url);
-        const auth = createAuth(db, c.env, url.origin);
+// The project rooms' sockets (ADR 0011). PartyServer routes `/parties/<namespace>/<name>` to any
+// Durable Object binding, so only project rooms go through, and only for members of the room's
+// project. Their refusals reach the client as they are, rather than falling through to the
+// routes below.
+app.use("*", async (c, next) => {
+  const response = await routePartykitRequest(c.req.raw, c.env, {
+    onBeforeConnect: async (req, lobby) => {
+      if (lobby.className !== "ProjectRoom") return new Response("Not found", { status: 404 });
+      // A room is named after its project's id.
+      const projectId = /^[1-9]\d*$/.test(lobby.name) ? Number(lobby.name) : NaN;
+      if (!Number.isSafeInteger(projectId)) return new Response("Not found", { status: 404 });
 
-        // WebSocket upgrades can't carry custom headers, so the client
-        // relays its selected cross-domain session as a query parameter.
-        const headers = getRelayedSessionHeaders(req);
+      const db = createDb(c.env.DB);
+      const auth = createAuth(db, c.env, new URL(req.url).origin);
 
-        const session = await auth.api.getSession({ headers });
-        if (!session) return new Response("Unauthorized", { status: 401 });
-      },
+      // WebSocket upgrades can't carry custom headers, so the client
+      // relays its selected cross-domain session as a query parameter.
+      const session = await auth.api.getSession({ headers: getRelayedSessionHeaders(req) });
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      // The same answer for a project that doesn't exist, so outsiders can't probe for ids.
+      if (!(await Effect.runPromise(isProjectMember(db, projectId, session.user.id)))) {
+        return new Response("Forbidden", { status: 403 });
+      }
     },
-  }),
-);
+    // Rooms are only reached over WebSockets: plain requests never reach a Durable Object.
+    onBeforeRequest: () => new Response("Not found", { status: 404 }),
+  });
+  return response ?? next();
+});
 
 // ---------------------------------------------------------------------------
 // Hono routes (auth, file upload/serve)
