@@ -504,12 +504,20 @@ export function useCanvasCamera(
       const elapsed = previousTime ? Math.min(64, time - previousTime) : 16;
       previousTime = time;
       const amount = reducedMotion.matches ? 1 : 1 - Math.exp(-elapsed / 55);
-      camera = {
-        x: camera.x + (target.x - camera.x) * amount,
-        y: camera.y + (target.y - camera.y) * amount,
-        scale: camera.scale + (target.scale - camera.scale) * amount,
+      // Each value lands on its target on its own: a zoom still creeping toward
+      // its target while a pan goes on would restyle the whole Canvas every frame.
+      const approach = (from: number, to: number, epsilon: number) => {
+        const next = from + (to - from) * amount;
+        return Math.abs(next - to) < epsilon ? to : next;
       };
-      camera = constrain(camera, true);
+      camera = constrain(
+        {
+          x: approach(camera.x, target.x, 0.05),
+          y: approach(camera.y, target.y, 0.05),
+          scale: approach(camera.scale, target.scale, 0.0001),
+        },
+        true,
+      );
       const settled =
         Math.abs(camera.x - target.x) < 0.05 &&
         Math.abs(camera.y - target.y) < 0.05 &&
