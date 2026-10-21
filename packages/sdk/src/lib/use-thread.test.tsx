@@ -7,6 +7,7 @@ import {
   type ThreadClientMessage,
   type ThreadServerMessage,
   threadViewOf,
+  type TouchedBatch,
 } from "@camox/api-contract/threads";
 import { Window } from "happy-dom";
 import { act } from "react";
@@ -20,6 +21,7 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { useThread } = await import("./use-thread");
+type CarriedThread = import("./use-thread").CarriedThread;
 
 /** A thread's end of the socket, standing in for the API. */
 class ThreadSocket extends EventTarget {
@@ -307,4 +309,79 @@ void test("in dev mode, the studio moves on to the development draft's new threa
 
   await waitFor(() => socket() !== ended && socket().readyState === 1, "the studio reconnects");
   assert.equal(new URL(socket().url).pathname, "/threads/draft/1/development");
+});
+
+/** What a script adding a hero block to a page touched. */
+const ADDED_HERO: Pick<TouchedBatch, "touches"> = {
+  touches: [{ entity: "page", pageId: "page-1", blockId: "block-1", kind: "created" }],
+};
+
+void test("the studio reports what a run with one of its messages touched", async (t) => {
+  const { thread, socket } = await studio(t, STARTED_DRAFT);
+  await act(async () => thread().send("Add a hero"));
+  const sent = socket().received.at(-1);
+  assert.ok(sent?.type === "send");
+  assert.equal(thread().touched, undefined, "nothing is touched yet");
+
+  const touched = { operationIds: ["teammate", sent.operationId], ...ADDED_HERO };
+  await act(async () => socket().reply({ type: "touched", touched }));
+
+  assert.deepEqual(thread().touched?.batch, touched);
+});
+
+void test("the studio leaves out what teammates' runs touched", async (t) => {
+  const { thread, socket } = await studio(t, STARTED_DRAFT);
+  await act(async () => thread().send("Add a hero"));
+  const sent = socket().received.at(-1);
+  assert.ok(sent?.type === "send");
+  const ours = { operationIds: [sent.operationId], ...ADDED_HERO };
+  await act(async () => socket().reply({ type: "touched", touched: ours }));
+
+  await act(async () =>
+    socket().reply({ type: "touched", touched: { operationIds: ["teammate"], ...ADDED_HERO } }),
+  );
+
+  assert.deepEqual(thread().touched?.batch, ours, "the studio still shows its own run's");
+  assert.equal(thread().touched?.sequence, 1, "the teammate's run reported nothing new");
+});
+
+/** A studio on Live whose message's first write started a draft, as it enters that draft. */
+async function enteringStudio(t: TestContext) {
+  const carried: CarriedThread[] = [];
+  const live = await studio(t, null, { onEnterDraft: (_, thread) => carried.push(thread) });
+  await act(async () => live.thread().send("Add a hero"));
+  const sent = live.socket().received.at(-1);
+  assert.ok(sent?.type === "send");
+  const { operationId } = sent;
+  const startedDraft = { draftId: STARTED_DRAFT, operationIds: [operationId] };
+  const touched = { operationIds: [operationId], ...ADDED_HERO };
+  // The script that wrote ends as the thread moves into the draft.
+  await act(async () => {
+    live.socket().reply({ type: "accepted", operationId });
+    live.socket().reply(snapshotOf([{ text: "Add a hero", operationId }]));
+    live.socket().reply({ type: "started-draft", startedDraft });
+    live.socket().reply({ type: "touched", touched });
+  });
+  assert.equal(carried.length, 1, "the studio enters the draft");
+  assert.equal(live.thread().touched, undefined, "the studio follows it in the draft, not on Live");
+  const draft = await studio(t, STARTED_DRAFT, { carried: carried[0] });
+  return { ...draft, operationId, touched };
+}
+
+void test("the studio entering the draft its Live thread started follows what the write touched there", async (t) => {
+  const { thread, touched } = await enteringStudio(t);
+
+  assert.deepEqual(thread().touched?.batch, touched);
+});
+
+void test("in the draft its Live thread started, the studio follows the rest of its run", async (t) => {
+  const { thread, socket, operationId } = await enteringStudio(t);
+  const next = {
+    operationIds: [operationId],
+    touches: [{ entity: "page", pageId: "page-2", kind: "settings" }],
+  } satisfies TouchedBatch;
+
+  await act(async () => socket().reply({ type: "touched", touched: next }));
+
+  assert.deepEqual(thread().touched?.batch, next);
 });

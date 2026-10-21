@@ -17,7 +17,11 @@ import {
 import { localizedPath } from "../../lib/locale-path";
 import { PageAlternatesContext, useViewLocale } from "../../lib/view-locale-context";
 
-export type NavigationSource = "canvas";
+/**
+ * Who made a navigation: the Canvas itself, or following the agent through the Studio. A
+ * navigation without one is the editor's, from anywhere else.
+ */
+export type NavigationSource = "canvas" | "follow";
 
 export interface LocationState {
   hash: string;
