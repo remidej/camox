@@ -1,3 +1,4 @@
+import { Badge } from "@camox/ui/badge";
 import { Button } from "@camox/ui/button";
 import {
   DropdownMenu,
@@ -116,7 +117,10 @@ export function DraftPicker() {
           {/* Green on Live, blue in a draft. */}
           <span
             aria-hidden
-            className={cn("size-2 shrink-0 rounded-full", draftId ? "bg-blue-500" : "bg-green-500")}
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              draftId ? "bg-blue-500" : "bg-emerald-500",
+            )}
           />
           <span className="max-w-48 truncate">
             {!draftId ? "Live" : developmentMode ? "Development draft" : draftLabel(current!)}
@@ -200,10 +204,15 @@ export function PendingChanges() {
   if (!current) return null;
 
   return (
-    <Button type="button" onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}>
-      {current.changeCount === 0
-        ? "No pending changes"
-        : `Review ${plural(current.changeCount, "change")}`}
+    <Button
+      type="button"
+      aria-label={`Review ${plural(current.changeCount, "change")}`}
+      onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}
+    >
+      Review changes
+      <Badge className="bg-primary-foreground/20 text-primary-foreground min-w-5 px-1.5 tabular-nums">
+        {current.changeCount}
+      </Badge>
     </Button>
   );
 }

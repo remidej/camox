@@ -1,3 +1,4 @@
+import { buttonVariants } from "@camox/ui/button";
 import { useSelector } from "@xstate/store-react";
 import { Globe, Database } from "lucide-react";
 import type * as icons from "lucide-react";
@@ -25,7 +26,7 @@ const links = [
     title: "Website",
     children: (
       <>
-        <Globe className="h-4 w-4" />
+        <Globe />
         Website
       </>
     ),
@@ -37,7 +38,7 @@ const links = [
     title: "Content",
     children: (
       <>
-        <Database className="h-4 w-4" />
+        <Database />
         Content
       </>
     ),
@@ -108,18 +109,14 @@ const Navbar = ({
                 <Link
                   to={navbarHref(link, last, locale.tag, localized) as LinkProps["to"]}
                   className={cn(
-                    // common layout styles
-                    "flex gap-2 items-center rounded-md px-4 py-2 text-sm font-medium",
-                    // interaction styles
-                    "hover:bg-accent hover:text-accent-foreground outline-none transition-[color,box-shadow] focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
-                    // active style
+                    // Shaped like the pickers beside it.
+                    buttonVariants({ variant: "ghost" }),
                     isWebsiteActive || isContentActive
-                      ? "bg-accent hover:bg-accent text-accent-foreground"
-                      : "text-muted-foreground",
+                      ? "bg-muted text-foreground dark:bg-muted/50"
+                      : // Hover only shades the background, so it never reads as active.
+                        "text-muted-foreground hover:text-muted-foreground",
                   )}
-                  activeProps={{
-                    className: "bg-accent hover:bg-accent text-accent-foreground!",
-                  }}
+                  activeProps={{ className: "bg-muted text-foreground! dark:bg-muted/50" }}
                 >
                   {link.children}
                 </Link>
