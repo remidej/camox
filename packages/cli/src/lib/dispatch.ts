@@ -94,7 +94,8 @@ export async function resolveCommandContext(opts: Pick<DispatchOptions, "project
     throw err;
   }
 
-  const slug = opts.projectFlag?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectSlug;
+  const project =
+    opts.projectFlag?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectId;
 
   const token = readAuthTokenForUrl(runtime.authenticationUrl, opts.cwd);
   if (!token) {
@@ -107,7 +108,7 @@ export async function resolveCommandContext(opts: Pick<DispatchOptions, "project
     );
   }
 
-  const projectId = await resolveProjectId(token.token, slug, runtime.apiUrl);
+  const projectId = await resolveProjectId(token.token, project, runtime.apiUrl);
   return {
     token: token.token,
     apiUrl: runtime.apiUrl,

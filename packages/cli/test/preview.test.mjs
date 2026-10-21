@@ -45,7 +45,7 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
     await writeFile(
       join(root, "node_modules/.camox/runtime.json"),
       JSON.stringify({
-        projectSlug: "test",
+        projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
         apiUrl,
         authenticationUrl: "https://auth.example.test",
       }),
@@ -73,7 +73,7 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
       assert.equal(url.pathname, "/about");
       assert.equal(url.searchParams.get("ott"), "single-use-secret");
       assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")), {
-        projectSlug: "test",
+        projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
         apiUrl,
       });
       assert.doesNotMatch(result.stdout, /long-lived-secret/);

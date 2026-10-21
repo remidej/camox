@@ -104,7 +104,11 @@ before(async () => {
   );
   await writeFile(
     join(home, "node_modules/.camox/runtime.json"),
-    JSON.stringify({ projectSlug: "test", apiUrl: origin, authenticationUrl: origin }),
+    JSON.stringify({
+      projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
+      apiUrl: origin,
+      authenticationUrl: origin,
+    }),
   );
 });
 

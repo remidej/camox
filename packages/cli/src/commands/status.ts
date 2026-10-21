@@ -37,11 +37,12 @@ type DevelopmentDraftStatus =
 async function developmentDraftStatus(params: {
   token: string;
   apiUrl: string;
-  slug: string;
+  /** A Project ID or a Project Slug. */
+  project: string;
   disableTelemetry?: boolean;
 }): Promise<DevelopmentDraftStatus> {
   try {
-    const project = await getProject(params.token, params.slug, params.apiUrl);
+    const project = await getProject(params.token, params.project, params.apiUrl);
     const draft = await getDevelopmentDraft({ ...params, projectId: project.id });
     return { exists: true, changeCount: draft.changeCount };
   } catch (err) {
@@ -74,18 +75,18 @@ export async function handler(args: Args): Promise<never> {
     throw err;
   }
 
-  const slug = args.project?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectSlug;
+  const project = args.project?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectId;
   const token = readAuthTokenForUrl(runtime.authenticationUrl, args.cwd);
   const developmentDraft = token
     ? await developmentDraftStatus({
         token: token.token,
         apiUrl: runtime.apiUrl,
-        slug,
+        project,
         disableTelemetry: runtime.disableTelemetry,
       })
     : null;
   const status = {
-    projectSlug: slug,
+    project,
     // Every command works in the caller's development draft (ADR 0010).
     draft: DEVELOPMENT_DRAFT,
     developmentDraft,
@@ -101,7 +102,7 @@ export async function handler(args: Args): Promise<never> {
   }
 
   const lines = [
-    `project:     ${status.projectSlug}`,
+    `project:     ${status.project}`,
     `draft:       ${describeDraft(developmentDraft, status.authenticationUrl)}`,
     `api:         ${status.apiUrl}`,
     `auth:        ${status.authenticationUrl}`,

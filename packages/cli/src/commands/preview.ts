@@ -45,7 +45,7 @@ export async function handler(args: Args): Promise<void> {
       return;
     }
     const target = {
-      projectId: runtime.projectSlug,
+      projectId: runtime.projectId,
       apiUrl: normalizeUrl(runtime.apiUrl),
     };
     const signInUrl = await createPreviewSignInUrl(url.href, target, auth.token);

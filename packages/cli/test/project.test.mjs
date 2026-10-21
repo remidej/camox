@@ -13,6 +13,8 @@ const exec = promisify(execFile);
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
 // A Project ID, as the API mints it: a lowercase UUIDv7.
 const PROJECT_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a70";
+// The Project ID the camox() config names, which the Vite plugin writes to runtime.json.
+const RUNTIME_PROJECT_ID = "01a15fff-627b-7fa1-938b-93ab659c1acc";
 const calls = [];
 let home;
 let server;
@@ -50,7 +52,7 @@ before(async () => {
   await writeFile(
     join(home, "node_modules/.camox/runtime.json"),
     JSON.stringify({
-      projectSlug: "test",
+      projectId: RUNTIME_PROJECT_ID,
       apiUrl: origin,
       authenticationUrl: origin,
       disableTelemetry: true,
@@ -89,6 +91,20 @@ function listPages(value, via) {
     ? cli(["pages", "list", "--project", value, "--json"])
     : cli(["pages", "list", "--json"], { CAMOX_PROJECT: value });
 }
+
+void test("with neither --project nor CAMOX_PROJECT, the CLI targets runtime.json's Project ID", async () => {
+  const result = await cli(["pages", "list", "--json"]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(lastProjectLookup(), { projectUuid: RUNTIME_PROJECT_ID });
+  assert.equal(calls.at(-1).input.projectId, 7);
+});
+
+void test("status names and checks runtime.json's project by its Project ID by default", async () => {
+  const result = await cli(["status", "--json"]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(lastProjectLookup(), { projectUuid: RUNTIME_PROJECT_ID });
+  assert.equal(JSON.parse(result.stdout).project, RUNTIME_PROJECT_ID);
+});
 
 for (const via of ["--project", "CAMOX_PROJECT"]) {
   void test(`${via} targets a project by its Project ID`, async () => {
