@@ -12,7 +12,7 @@ import { string } from "@optique/core/valueparser";
 import { callToolResult } from "../lib/dispatch";
 import { type OutputMode, isJsonMode, printError, printResult } from "../lib/output";
 import { type PublishPreview, formatPreview } from "../lib/publish-preview";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, projectFlag } from "../lib/runtime-options";
 
 // Publishing the development draft to Live (ADR 0009, ADR 0010): without `--confirm` it prints
 // what publishing would do and a token; with the token it publishes, unless Live changed since
@@ -31,7 +31,7 @@ export const parser = command(
       description: message`With --confirm, publish while translations are still running: Camox finishes them in a draft of its own and publishes it once they're done.`,
     }),
     cwd: cwdFlag,
-    project: optional(option("--project", string({ metavar: "SLUG" }))),
+    project: projectFlag,
     json: option("--json"),
   }),
   {

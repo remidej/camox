@@ -1,17 +1,15 @@
 import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
-import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
 import { string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import type { OutputMode } from "../lib/output";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, projectFlag } from "../lib/runtime-options";
 
 // Locales are content (ADR 0015): adding and removing one changes the development draft, and
 // publishing it puts the change on Live.
 
-const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
 const tagFlag = option("--tag", string({ metavar: "TAG" }), {
   description: message`A BCP 47 language tag, such as de, pt-BR or fr-CA.`,
