@@ -1,6 +1,8 @@
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import {
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
+  THREAD_ENDED_CLOSE_CODE,
   type ThreadClientMessage,
   type ThreadServerMessage,
   type ThreadState,
@@ -19,7 +21,8 @@ const OPEN = 1;
  * signed-in editor's Live thread when `draftId` is null, or the draft's thread, which `draftId`
  * names as the draft header does (`development` in dev mode). A message is resent with its
  * operation id on every reconnect until the thread accepts it, which records it once, or turns
- * it down. Mount it once per project and draft.
+ * it down. A thread that ended with its draft isn't reconnected to, but for a development
+ * draft's, which moves on to the draft's new thread. Mount it once per project and draft.
  */
 export function useThread(apiUrl: string, projectId: number, draftId: string | null) {
   const [state, setState] = useState<ThreadState>(EMPTY_THREAD_STATE);
@@ -36,6 +39,14 @@ export function useThread(apiUrl: string, projectId: number, draftId: string | n
     basePath: draftId ? `threads/draft/${projectId}/${draftId}` : `threads/live/${projectId}`,
     // Unaccepted messages are resent on every open instead, so nothing is buffered twice.
     maxEnqueuedMessages: 0,
+    // A thread that ended with its draft is deleted: reconnecting would reach nothing.
+    shouldReconnectOnClose: (event) => event.code !== THREAD_ENDED_CLOSE_CODE,
+    onClose(event) {
+      // A development draft stays open, and its new thread starts empty: move on to it at once.
+      if (event.code === THREAD_ENDED_CLOSE_CODE && draftId === DEVELOPMENT_DRAFT) {
+        socket.reconnect();
+      }
+    },
     onOpen(event) {
       const opened = event.target as WebSocket;
       for (const [operationId, text] of unacceptedRef.current) {
