@@ -96,9 +96,6 @@ importers:
       hono:
         specifier: ^4.13.13
         version: 4.13.13
-      hono-party:
-        specifier: ^2.1.0
-        version: 2.1.0(@cloudflare/workers-types@5.20261016.1)(hono@4.13.13)(partyserver@0.5.10(@cloudflare/workers-types@5.20261016.1))
       outdent:
         specifier: ^0.8.0
         version: 0.8.0
@@ -6257,13 +6254,6 @@ packages:
 
   hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
-
-  hono-party@2.1.0:
-    resolution: {integrity: sha512-kMeOhQRm8kSRD7shVP4Rru4rZgfzGuB2g0sOWBM4Un6J/0Yd6LqWto9PjnbBl9Zg0g+TVFsgxnJqZ7D72oA/0A==}
-    peerDependencies:
-      '@cloudflare/workers-types': ^4.20260424.1
-      hono: ^4.6.17
-      partyserver: '>=0.2.0 <1.0.0'
 
   hono@4.13.13:
     resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
@@ -13718,12 +13708,6 @@ snapshots:
   hoist-non-react-statics@3.3.2:
     dependencies:
       react-is: 16.13.1
-
-  hono-party@2.1.0(@cloudflare/workers-types@5.20261016.1)(hono@4.13.13)(partyserver@0.5.10(@cloudflare/workers-types@5.20261016.1)):
-    dependencies:
-      '@cloudflare/workers-types': 5.20261016.1
-      hono: 4.13.13
-      partyserver: 0.5.10(@cloudflare/workers-types@5.20261016.1)
 
   hono@4.13.13: {}
 
