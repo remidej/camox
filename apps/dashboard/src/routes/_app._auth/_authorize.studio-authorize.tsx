@@ -1,7 +1,7 @@
 import { Button } from "@camox/ui/button";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { LayoutDashboard } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { z } from "zod";
 
 import { authClient } from "@/lib/auth-client";
@@ -68,25 +68,16 @@ function StudioAuthorizePage() {
         <LayoutDashboard className="text-muted-foreground size-8" />
       </div>
       {status === "authorizing" ? (
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">Signing in to Camox Studio</h1>
-          <p className="text-muted-foreground">Taking you back to {origin}…</p>
-        </div>
+        <Heading title="Signing in to Camox Studio">Taking you back to {origin}…</Heading>
       ) : status === "refused" ? (
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">Unable to sign in</h1>
-          <p className="text-muted-foreground">
-            Camox Studio can't sign in on{" "}
-            <span className="text-foreground font-medium">{origin}</span>. It only signs in on the
-            sites of projects you're a member of.
-          </p>
-        </div>
+        <Heading title="Unable to sign in">
+          Camox Studio can't sign in on{" "}
+          <span className="text-foreground font-medium">{origin}</span>. It only signs in on the
+          sites of projects you're a member of.
+        </Heading>
       ) : (
         <>
-          <div className="flex flex-col gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">Unable to sign in</h1>
-            <p className="text-muted-foreground">Something went wrong. Please try again.</p>
-          </div>
+          <Heading title="Unable to sign in">Something went wrong. Please try again.</Heading>
           <Button
             className="w-full"
             onClick={() => {
@@ -98,6 +89,15 @@ function StudioAuthorizePage() {
           </Button>
         </>
       )}
+    </div>
+  );
+}
+
+function Heading({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+      <p className="text-muted-foreground">{children}</p>
     </div>
   );
 }
