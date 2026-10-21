@@ -7,6 +7,7 @@
   "routes": [{ "pattern": "api.camox.dev", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.dev",
+    "BACKUP_BUCKET_NAME": "camox-release-cache",
   },
   "send_email": [
     {
@@ -27,6 +28,12 @@
     {
       "binding": "FILES_BUCKET",
       "bucket_name": "camox-files",
+    },
+    // The release sandboxes' workspace snapshots, which cache each project's install on its
+    // lockfile. The release sandbox Worker writes them; the Workflow looks up the cache.
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "camox-release-cache",
     },
   ],
   "media": {
@@ -54,8 +61,36 @@
         "class_name": "CodemodeSandbox",
         "script_name": "camox-codemode-sandbox",
       },
+      // The Container sandboxes each release step runs in, in their own Worker
+      // (release-sandbox/wrangler.jsonc), which deploys their image.
+      {
+        "name": "SANDBOX",
+        "class_name": "CiSandbox",
+        "script_name": "camox-release-sandbox",
+      },
     ],
   },
+  // A push to a project's repo releases it (src/domains/releases/README.md). The event filter can
+  // only name the namespace, so the Workflow skips other branches and repos that aren't a
+  // project's, such as `template-default`.
+  "triggers": {
+    "events": [
+      {
+        "type": "cf.artifacts.repo.pushed",
+        "filter": { "namespace": "projects" },
+        "targets": [{ "type": "workflow", "workflow_name": "camox-release" }],
+      },
+    ],
+  },
+  "workflows": [
+    {
+      "name": "camox-release",
+      "binding": "RELEASE_WORKFLOW",
+      "class_name": "ReleaseWorkflow",
+    },
+  ],
+  // Remote even in local dev, as Cloudflare Artifacts has no local simulator.
+  "artifacts": [{ "binding": "ARTIFACTS", "namespace": "projects", "remote": true }],
   "migrations": [
     {
       "tag": "v1",

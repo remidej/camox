@@ -72,12 +72,14 @@ jobs:
       - name: Validate API bundle before changing production
         run: |
           pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config sandbox/wrangler.jsonc
+          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config release-sandbox/wrangler.jsonc
           pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
 
       - name: Validate dispatch Worker bundle before changing production
         run: pnpm --filter @camox/dispatch exec wrangler deploy --dry-run --minify
 
-      # Deploys the code mode sandbox Worker first, as the API binds its Durable Object.
+      # Deploys the code mode and release sandbox Workers first, as the API binds their Durable
+      # Objects. Building the release sandbox's Container image needs Docker, which the runner has.
       - name: Migrate database and deploy API
         run: pnpm --filter @camox/api deploy
         env:
