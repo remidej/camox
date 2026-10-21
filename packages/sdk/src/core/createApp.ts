@@ -110,6 +110,21 @@ export function createApp({
 
   const fontLinks = artifactFontLinks(document);
 
+  /** Loads the initial blocks' modules: only syncing needs them, never a page. */
+  const getHomepage = async () => {
+    const layout = layoutsWithInitialBlocks[0];
+    if (layout) {
+      return {
+        layoutId: layout._internal.id,
+        blocks: await layout._internal.loadInitialBlockBundles!(),
+        hasInitialBlocks: true,
+      };
+    }
+    const fallback = layouts.find((layout) => layout._internal.kind === "curated");
+    if (!fallback) return null;
+    return { layoutId: fallback._internal.id, blocks: [], hasInitialBlocks: false };
+  };
+
   return {
     /** The document's font links as HTML, for artifacts to load before their source. */
     getArtifactFontLinks() {
@@ -120,15 +135,6 @@ export function createApp({
     },
     getCollectionById(id: string) {
       return collectionsMap.get(id);
-    },
-    getSerializableCollectionDefinitions() {
-      return Array.from(collectionsMap.values()).map(({ _internal }) => ({
-        collectionId: _internal.id,
-        title: _internal.title,
-        description: _internal.description,
-        label: _internal.label,
-        contentSchema: JSON.parse(JSON.stringify(_internal.contentSchema)),
-      }));
     },
     /** The loaded blocks: every block after `loadAllBlocks`. */
     getBlocks() {
@@ -154,41 +160,58 @@ export function createApp({
     getLayoutById(id: string) {
       return layoutsMap.get(id);
     },
-    getSerializableDefinitions() {
-      return Array.from(blocksMap.values()).map((block) => ({
-        blockId: block._internal.id,
-        title: block._internal.title,
-        description: block._internal.description,
-        contentSchema: block._internal.contentSchema,
-        settingsSchema: block._internal.settingsSchema,
-        layoutOnly: block._internal.layoutOnly || undefined,
-        synced: block._internal.synced,
-      }));
-    },
-    getSerializableLayoutDefinitions() {
-      return Array.from(layoutsMap.values()).map((layout) => ({
+    /**
+     * The website's Definition Set: every block (lazy ones included, layout-only ones only when a
+     * layout declares them), layout and collection definition, and the homepage they declare.
+     * Never calls the network; the API computes schema hashes on write.
+     */
+    async getDefinitionSet() {
+      await loadAllBlocks();
+      const layoutDefinitions = Array.from(layoutsMap.values()).map((layout) => ({
         layoutId: layout._internal.id,
         kind: layout._internal.kind,
         description: layout._internal.description,
         blocks: layout._internal.blockDefinitions,
         ...(layout._internal.recordPages && { recordPages: layout._internal.recordPages }),
       }));
-    },
-    /** Loads the initial blocks' modules: only syncing needs them, never a page. */
-    async getInitialPageBundles() {
-      const layout = layoutsWithInitialBlocks[0];
-      if (layout) {
-        return {
-          layoutId: layout._internal.id,
-          blocks: await layout._internal.loadInitialBlockBundles!(),
-          hasInitialBlocks: true,
-        };
-      }
-      const fallback = layouts.find((layout) => layout._internal.kind === "curated");
-      if (!fallback) return null;
-      return { layoutId: fallback._internal.id, blocks: [], hasInitialBlocks: false };
+      const typesUsedInLayouts = new Set(
+        layoutDefinitions.flatMap((layout) => layout.blocks.map((block) => block.type)),
+      );
+      // Layout-only blocks mean nothing unless a layout places them: syncing the others would
+      // leave definitions no editor can ever add.
+      const blockDefinitions = Array.from(blocksMap.values())
+        .filter(
+          (block) => !block._internal.layoutOnly || typesUsedInLayouts.has(block._internal.id),
+        )
+        .map(({ _internal }) => ({
+          blockId: _internal.id,
+          title: _internal.title,
+          description: _internal.description,
+          contentSchema: _internal.contentSchema,
+          settingsSchema: _internal.settingsSchema,
+          defaultContent: _internal.getInitialContent(),
+          defaultSettings: _internal.getInitialSettings(),
+          layoutOnly: _internal.layoutOnly || undefined,
+          synced: _internal.synced,
+        }));
+      const collectionDefinitions = Array.from(collectionsMap.values()).map(({ _internal }) => ({
+        collectionId: _internal.id,
+        title: _internal.title,
+        description: _internal.description,
+        label: _internal.label,
+        contentSchema: JSON.parse(JSON.stringify(_internal.contentSchema)),
+      }));
+      return {
+        blocks: blockDefinitions,
+        layouts: layoutDefinitions,
+        collections: collectionDefinitions,
+        homepage: await getHomepage(),
+      };
     },
   };
 }
 
 export type CamoxApp = ReturnType<typeof createApp>;
+
+/** All of a website's definitions taken together, with the content they declare. */
+export type DefinitionSet = Awaited<ReturnType<CamoxApp["getDefinitionSet"]>>;

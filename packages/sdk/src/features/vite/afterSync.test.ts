@@ -44,10 +44,7 @@ async function devCheckout(
   await writeFile(
     join(root, "src/camox/app.ts"),
     `export const camoxApp = {
-      getBlocks: () => [],
-      getSerializableLayoutDefinitions: () => [],
-      getSerializableCollectionDefinitions: () => [],
-      getInitialPageBundles: () => null,
+      getDefinitionSet: async () => ({ blocks: [], layouts: [], collections: [], homepage: null }),
     };`,
   );
 
@@ -208,11 +205,8 @@ void test("the dev server says when its first sync created the development draft
 void test("a release syncs Live's definitions: its requests name no draft", async (t) => {
   const checkout = await devCheckout(t);
   const camoxApp = {
-    getBlocks: () => [],
-    getSerializableLayoutDefinitions: () => [],
-    getSerializableCollectionDefinitions: () => [],
-    getInitialPageBundles: async () => null,
-  } as unknown as Parameters<typeof syncDefinitionsToApi>[0]["camoxApp"];
+    getDefinitionSet: async () => ({ blocks: [], layouts: [], collections: [], homepage: null }),
+  };
 
   await syncDefinitionsToApi({
     camoxApp,

@@ -37,7 +37,7 @@ void test("initial blocks load only when the initial page is seeded, in order", 
   const app = createApp({ blocks: [], layouts: [curatedLayout([load("hero"), load("faq")])] });
 
   assert.deepEqual(imported, []);
-  const initialPage = await app.getInitialPageBundles();
+  const initialPage = (await app.getDefinitionSet()).homepage;
 
   assert.equal(initialPage?.layoutId, "default");
   assert.equal(initialPage?.hasInitialBlocks, true);
@@ -56,7 +56,7 @@ void test("a layout-only initial block is rejected when the initial page is seed
     layouts: [curatedLayout([async () => ({ block: block("navbar", true) })])],
   });
 
-  await assert.rejects(app.getInitialPageBundles(), /must NOT be `layoutOnly: true`.*"navbar"/);
+  await assert.rejects(app.getDefinitionSet(), /must NOT be `layoutOnly: true`.*"navbar"/);
 });
 
 void test("only one layout may define initial blocks", () => {
