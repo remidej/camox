@@ -69,7 +69,7 @@ export function ThreadMessages({
               </MessageScrollerItem>
             ))}
             {working && (
-              <p role="status" className="shimmer text-muted-foreground px-10 text-sm">
+              <p role="status" className="shimmer text-muted-foreground text-sm">
                 Working…
               </p>
             )}
@@ -91,9 +91,6 @@ function ThreadMessageRow({
   if (message.from === "stopped" || message.from === "failed") {
     return (
       <Message>
-        <MessageAvatar>
-          <AgentAvatar />
-        </MessageAvatar>
         <MessageContent>
           <p className="text-muted-foreground text-sm">
             {message.from === "stopped"
@@ -107,9 +104,6 @@ function ThreadMessageRow({
   if (message.from === "agent") {
     return (
       <Message>
-        <MessageAvatar>
-          <AgentAvatar />
-        </MessageAvatar>
         <MessageContent>
           <ThreadMarkdown text={message.text} />
         </MessageContent>
@@ -127,7 +121,7 @@ function ThreadMessageRow({
             {message.sender.name}
           </MessageHeader>
         )}
-        <Bubble align="end" variant="muted">
+        <Bubble align="end" variant="muted" className="max-w-full">
           <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
         </Bubble>
       </MessageContent>
@@ -159,26 +153,6 @@ function SenderAvatar({ sender }: { sender: ThreadSender }) {
     <Avatar>
       {sender.image && <AvatarImage src={sender.image} alt={sender.name} />}
       <AvatarFallback>{initials(sender.name)}</AvatarFallback>
-    </Avatar>
-  );
-}
-
-/** The agent's avatar: Camox's logo. */
-function AgentAvatar() {
-  return (
-    <Avatar className="bg-background">
-      <svg
-        role="img"
-        aria-label="Camox"
-        viewBox="0 0 191.03 132"
-        className="m-auto size-5"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M0 22.55A22.55 22.55 0 0 1 22.55 0L90.19 0A5.32 5.32 0 0 1 95.52 5.32L95.52 36.48L36.48 36.48L36.48 95.52L5.32 95.52A5.32 5.32 0 0 1 0 90.19ZM95.52 36.48L181.48 36.48A5.32 5.32 0 0 1 186.01 44.61L138.61 121.31A22.55 22.55 0 0 1 119.43 132L41.81 132A5.32 5.32 0 0 1 36.48 126.68L36.48 95.52L95.52 95.52Z"
-          fill="#00BC7D"
-        />
-      </svg>
     </Avatar>
   );
 }

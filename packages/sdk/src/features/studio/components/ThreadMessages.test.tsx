@@ -30,12 +30,12 @@ void test("a thread shows editors' messages, the agent's Markdown answers and it
   assert.match(html, /Which pages mention &lt;pricing&gt;\?/);
   assert.match(html, /Rewrite them/);
   assert.equal(html.match(/>AL</g)?.length, 2);
-  // The agent's answer is Markdown, never raw HTML, beside the Camox logo.
+  // The agent's answer is Markdown, never raw HTML, with no avatar: the sidebar is narrow.
   assert.match(html, /<strong[^>]*>Home<\/strong>/);
   assert.match(html, /<li[^>]*>.*Home/);
   assert.match(html, /<a [^>]*href="https:\/\/example.com\/plans"[^>]*>Plans<\/a>/);
   assert.doesNotMatch(html, /<script>/);
-  assert.match(html, /aria-label="Camox"/);
+  assert.doesNotMatch(html, /aria-label="Camox"/);
   assert.match(html, /Working…/);
 });
 
