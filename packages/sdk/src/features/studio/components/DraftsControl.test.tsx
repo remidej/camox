@@ -414,6 +414,83 @@ void test("picking a draft or Live navigates there", async (t) => {
   );
 });
 
+const renameButton = (label: string) =>
+  [...window.document.querySelectorAll('[role="menu"] button')].find(
+    (button) => button.getAttribute("aria-label") === `Rename "${label}"`,
+  );
+const renameDialog = () =>
+  [...window.document.querySelectorAll('[role="dialog"]')].find(
+    (dialog) => dialog.querySelector('[data-slot="dialog-title"]')?.textContent === "Rename draft",
+  );
+const renameInput = () =>
+  renameDialog()?.querySelector('input[aria-label="Draft name"]') as unknown as
+    | HTMLInputElement
+    | undefined;
+
+/** Types into an input React controls, through the native setter its value tracker ignores. */
+async function type(input: HTMLInputElement | undefined, text: string) {
+  assert.ok(input, "expected an input to type into");
+  await React.act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
+    setValue.set!.call(input, text);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+async function submitRename() {
+  const form = renameDialog()?.querySelector("form");
+  assert.ok(form, "expected the rename form");
+  await React.act(async () => {
+    form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }) as never);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+void test("renaming another draft from the picker asks for its name, selected, and renames that draft without switching", async (t) => {
+  const calls = mockApi(t, (path) =>
+    path === "drafts/rename" ? json({ ...drafts[1], name: "Autumn sale" }) : undefined,
+  );
+  const { navigations } = await render(t, spring);
+  await click(trigger());
+
+  await click(renameButton("Ada, Oct 13"));
+  assert.equal(menu(), null);
+  assert.equal(renameInput()?.value, "");
+  await type(renameInput(), "Autumn sale");
+  await submitRename();
+
+  assert.deepEqual(
+    calls.filter((call) => call.path === "drafts/rename"),
+    [{ path: "drafts/rename", input: { projectId: 1, name: "Autumn sale" }, draft: adas }],
+  );
+  assert.equal(renameDialog(), undefined);
+  assert.deepEqual(navigations, []);
+  assert.equal(trigger().textContent, "Spring campaign");
+});
+
+void test("the rename dialog starts from the draft's name, selected to type over", async (t) => {
+  mockApi(t);
+  await render(t, null);
+  await click(trigger());
+
+  await click(renameButton("Spring campaign"));
+
+  const input = renameInput();
+  assert.equal(input?.value, "Spring campaign");
+  assert.equal(window.document.activeElement, input);
+  assert.equal(input?.selectionStart, 0);
+  assert.equal(input?.selectionEnd, "Spring campaign".length);
+});
+
+void test("the picker offers no rename for Live", async (t) => {
+  mockApi(t);
+  await render(t, null);
+  await click(trigger());
+
+  assert.equal(itemNamed(/^Live/)?.querySelector("button"), null);
+});
+
 void test("discards the draft only after a second confirmation, then switches to Live", async (t) => {
   const calls = mockApi(t);
   await render(t, spring);
@@ -504,7 +581,7 @@ void test("the palette's Review and publish opens the draft's review", async (t)
   assert.equal(palette(), null);
   assert.equal(sheetTitle(), "Spring campaign");
   assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Publish all/);
-  assert.equal(window.document.querySelector('input[aria-label="Draft name"]'), null);
+  assert.notEqual(window.document.activeElement, nameInput());
 });
 
 void test("the palette's Discard draft… asks for confirmation without discarding", async (t) => {
@@ -518,13 +595,17 @@ void test("the palette's Discard draft… asks for confirmation without discardi
   assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
 });
 
-void test("the palette's Rename draft… opens the review with the draft's name being edited", async (t) => {
+void test("the palette's Rename draft… opens the review with the draft's name focused and selected", async (t) => {
   mockApi(t);
   await render(t, spring);
 
   await runCommand("Rename draft…");
 
-  assert.equal(nameInput()?.value, "Spring campaign");
+  const input = nameInput();
+  assert.equal(input?.value, "Spring campaign");
+  assert.equal(window.document.activeElement, input);
+  assert.equal(input?.selectionStart, 0);
+  assert.equal(input?.selectionEnd, "Spring campaign".length);
 });
 
 void test("the palette's Switch to Live leaves the draft for the same page", async (t) => {

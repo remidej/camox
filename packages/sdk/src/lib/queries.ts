@@ -72,7 +72,6 @@ export const projectMutations = {
 };
 
 export const draftMutations = {
-  rename: () => getOrpc().drafts.rename.mutationOptions(),
   publish: () => getOrpc().drafts.publish.mutationOptions(),
   discard: () => getOrpc().drafts.discard.mutationOptions(),
 };
