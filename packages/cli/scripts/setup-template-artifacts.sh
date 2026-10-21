@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Sets up the Artifacts namespace and the read-only `template-default` repo that new projects fork,
-# then pushes the Template into it once. Safe to re-run: each step checks what exists before
+# Sets up the Cloudflare Artifacts namespace and the read-only `template-default` repo that new
+# projects fork, then pushes the Template into it once. Safe to re-run: each step checks what exists before
 # changing anything. README.md explains each step.
 #
 # Needs the `cf` CLI signed in to Camox's account (`cf auth whoami`), jq, git, and the workspace's
 # dependencies installed (`pnpm install`).
 set -euo pipefail
 
-NAMESPACE="${ARTIFACTS_NAMESPACE:-projects}"
+NAMESPACE="projects"
 REPO="template-default"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -21,7 +21,7 @@ for tool in cf jq git node pnpm; do
   command -v "$tool" >/dev/null || fail "$tool is not installed."
 done
 
-step "Artifacts namespace '$NAMESPACE'"
+step "Cloudflare Artifacts namespace '$NAMESPACE'"
 if cf artifacts namespaces get "$NAMESPACE" >/dev/null 2>&1; then
   echo "Exists."
 else
@@ -42,7 +42,7 @@ else
   echo "Created."
 fi
 jq -e '.read_only' <<<"$repo" >/dev/null ||
-  fail "$REPO exists but isn't read-only, and Artifacts can't change that. Delete it
+  fail "$REPO exists but isn't read-only, and Cloudflare Artifacts can't change that. Delete it
   (cf artifacts namespaces repos delete $REPO --namespace $NAMESPACE --force), then re-run."
 
 step "The Template in '$REPO'"

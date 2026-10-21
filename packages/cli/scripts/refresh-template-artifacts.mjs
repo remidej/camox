@@ -5,28 +5,24 @@
 //
 //   node packages/cli/scripts/refresh-template-artifacts.mjs [--camox-version X.Y.Z] [--remote URL]
 //
-// Without `--remote`, it pushes to Artifacts, with CLOUDFLARE_ACCOUNT_ID and a
-// CLOUDFLARE_API_TOKEN allowed to edit Artifacts (see README.md). `--remote` pushes to any Git
-// remote instead, such as a local bare repo, authenticated by the repo token in
-// ARTIFACTS_GIT_TOKEN if it's set. `--camox-version` defaults to
-// packages/sdk's version, which is the published one once the release workflow has published it.
-import { execFile } from "node:child_process";
+// Without `--remote`, it pushes to Cloudflare Artifacts, with CLOUDFLARE_ACCOUNT_ID and a
+// CLOUDFLARE_API_TOKEN allowed to edit Cloudflare Artifacts (see README.md). `--remote` pushes to
+// any Git remote instead, such as a local bare repo, authenticated by the repo token in
+// ARTIFACTS_GIT_TOKEN if it's set. `--camox-version` defaults to packages/sdk's version, which is
+// the published one once the `publish` job of .github/workflows/deploy.yml has published it.
 import { cpSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs, promisify } from "node:util";
+import { parseArgs } from "node:util";
 
-import { copyTemplateSource, makeStandalone, readCatalog } from "../src/lib/template.ts";
+import { copyTemplateSource, makeStandalone, readWorkspaceCatalog } from "../src/lib/template.ts";
+import { installLockfile, run } from "./install-lockfile.mjs";
 
-const exec = promisify(execFile);
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
-const NAMESPACE = process.env.ARTIFACTS_NAMESPACE || "projects";
+const NAMESPACE = "projects";
 const REPO = "template-default";
 const BRANCH = "main";
-// npm can take a while to serve a version it has just published.
-const INSTALL_ATTEMPTS = 10;
-const INSTALL_RETRY_DELAY_MS = 30_000;
 
 const { values: args } = parseArgs({
   options: { remote: { type: "string" }, "camox-version": { type: "string" } },
@@ -37,7 +33,7 @@ const camoxVersion =
 
 const log = (message) => console.info(`[refresh-template] ${message}`);
 
-/** Calls the Artifacts REST API and unwraps Cloudflare's envelope. */
+/** Calls the Cloudflare Artifacts REST API and unwraps Cloudflare's envelope. */
 async function artifacts(method, route, body) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const token = process.env.CLOUDFLARE_API_TOKEN;
@@ -55,7 +51,9 @@ async function artifacts(method, route, body) {
   const envelope = await response.json().catch(() => null);
   if (!response.ok || !envelope?.success) {
     const errors = envelope?.errors?.map((e) => `${e.code} ${e.message}`).join(", ");
-    throw new Error(`Artifacts ${method} ${route} failed (${response.status}): ${errors ?? ""}`);
+    throw new Error(
+      `Cloudflare Artifacts ${method} ${route} failed (${response.status}): ${errors ?? ""}`,
+    );
   }
   return envelope.result;
 }
@@ -82,23 +80,6 @@ async function resolveRemote() {
   return { url: repo.remote, env: gitTokenEnv(plaintext) };
 }
 
-function run(bin, argv, options) {
-  return exec(bin, argv, { maxBuffer: 64 * 1024 * 1024, ...options });
-}
-
-async function installLockfile(dir) {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await run("pnpm", ["install", "--lockfile-only"], { cwd: dir });
-      return;
-    } catch (error) {
-      if (attempt === INSTALL_ATTEMPTS) throw error;
-      log(`Resolving camox@${camoxVersion} failed, retrying (${attempt}/${INSTALL_ATTEMPTS})...`);
-      await new Promise((resolve) => setTimeout(resolve, INSTALL_RETRY_DELAY_MS));
-    }
-  }
-}
-
 async function main() {
   const remote = await resolveRemote();
   const git = (cwd, argv) =>
@@ -114,8 +95,11 @@ async function main() {
     const copy = path.join(workDir, "copy");
     await git(workDir, ["clone", "--quiet", remote.url, clone]);
 
-    const catalog = readCatalog(readFileSync(path.join(REPO_ROOT, "pnpm-workspace.yaml"), "utf-8"));
-    copyTemplateSource(path.join(REPO_ROOT, "apps/template-default"), copy, catalog);
+    copyTemplateSource(
+      path.join(REPO_ROOT, "apps/template-default"),
+      copy,
+      readWorkspaceCatalog(REPO_ROOT),
+    );
     makeStandalone(copy, { camoxVersion, packageManager: "pnpm" });
     renameSync(path.join(clone, ".git"), path.join(copy, ".git"));
     // Starting from the previous lockfile keeps every dependency that didn't change where it was.
@@ -123,7 +107,10 @@ async function main() {
     if (existsSync(previousLockfile)) cpSync(previousLockfile, path.join(copy, "pnpm-lock.yaml"));
 
     log(`Resolving the Template's dependencies at camox@${camoxVersion}...`);
-    await installLockfile(copy);
+    await installLockfile(copy, {
+      onRetry: (attempt, attempts) =>
+        log(`npm doesn't serve camox@${camoxVersion} yet, retrying (${attempt}/${attempts})...`),
+    });
 
     await git(copy, ["checkout", "--quiet", "-B", BRANCH]);
     await git(copy, ["add", "--all"]);
