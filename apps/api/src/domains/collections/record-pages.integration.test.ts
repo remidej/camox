@@ -45,7 +45,7 @@ async function fixture(suffix: string) {
   const base = await createProjectFixture(`record-pages-${suffix}`);
   const ctx = createServiceContext(base.db, base.memberUser);
   const publicCtx = createServiceContext(base.db, null);
-  const scope = { projectSlug: base.project.slug, collectionId: "articles" };
+  const scope = { projectUuid: base.project.uuid, collectionId: "articles" };
   await syncDefinitionSet(base.db, base.project, {
     collections: [definition, authorsDefinition],
   });

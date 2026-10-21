@@ -106,7 +106,7 @@ async function fixture() {
     call(
       router.definitions.sync,
       {
-        projectSlug: project.slug,
+        projectUuid: project.uuid,
         autoCreate: true,
         definitionSet: definitionSet(definitions, layouts),
       },
@@ -208,7 +208,7 @@ describe("development drafts", () => {
     await expect(
       call(
         router.definitions.sync,
-        { projectSlug: f.project.slug, autoCreate: true, definitionSet },
+        { projectUuid: f.project.uuid, autoCreate: true, definitionSet },
         f.as(f.me),
       ),
     ).rejects.toMatchObject({ status: 403 });
@@ -216,7 +216,7 @@ describe("development drafts", () => {
       call(
         router.definitions.sync,
         {
-          projectSlug: f.project.slug,
+          projectUuid: f.project.uuid,
           deployToken: f.project.deployToken,
           autoCreate: false,
           definitionSet,
@@ -347,7 +347,7 @@ describe("development drafts", () => {
     const layoutIn = (headers: Record<string, string>) =>
       call(
         router.layouts.get,
-        { projectSlug: f.project.slug, layoutId: "default" },
+        { projectUuid: f.project.uuid, layoutId: "default" },
         f.as(f.me, headers),
       );
     expect((await layoutIn(development)).blocks.map((block) => block.type)).toEqual(["navbar"]);

@@ -84,7 +84,7 @@ async function fixture() {
     (
       await call(
         router.pages.getStructure,
-        { projectSlug: base.project.slug, path: "/" },
+        { projectUuid: base.project.uuid, path: "/" },
         member(headers),
       )
     ).page.blockIds;
@@ -210,7 +210,7 @@ describe("block procedures in the draft a request names", () => {
       byPath: (
         await call(
           router.pages.getByPath,
-          { projectSlug: project.slug, path: "/" },
+          { projectUuid: project.uuid, path: "/" },
           member(headers),
         )
       ).blocks.map((shown) => shown.content.title),

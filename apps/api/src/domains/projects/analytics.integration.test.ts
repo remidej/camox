@@ -189,7 +189,7 @@ describe("Analytics providers", () => {
       posthog: { projectApiKey: "phc_abc123", region: "eu" },
     };
 
-    const input = { projectSlug: f.project.slug, path: "/" };
+    const input = { projectUuid: f.project.uuid, path: "/" };
     const reads = [
       ["Live, as a visitor", f.as(null)],
       ["a draft, as a member", f.as(f.memberUser, { [DRAFT_HEADER]: draftId })],
@@ -201,7 +201,7 @@ describe("Analytics providers", () => {
       }
       const { project } = await call(
         router.layouts.get,
-        { projectSlug: f.project.slug, layoutId: f.layout.layoutId },
+        { projectUuid: f.project.uuid, layoutId: f.layout.layoutId },
         options,
       );
       expect(project.analytics, reader).toEqual(providers);

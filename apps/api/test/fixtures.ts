@@ -274,18 +274,15 @@ export type TestDefinitionSet = Partial<z.input<typeof definitionSetInput>>;
  * Syncs a whole Definition Set through `definitions.sync`, the way the website's code reaches the
  * API: a release to Live with the project's deploy token, or, signed in `as` a member, dev mode
  * into their development draft, which the sync creates when missing (ADR 0006). A set declaring
- * no layouts leaves the target's layouts, like the fixture's `default` one, as they are. The
- * project is named by its Project Slug, or by its Project ID `byProjectId`.
+ * no layouts leaves the target's layouts, like the fixture's `default` one, as they are.
  */
 export function syncDefinitionSet(
   db: ReturnType<typeof createDb>,
-  project: { slug: string; uuid?: string; deployToken: string | null },
+  project: { uuid: string; deployToken: string | null },
   set: TestDefinitionSet,
-  options: { as?: ServiceContext["user"]; byProjectId?: boolean } = {},
+  options: { as?: ServiceContext["user"] } = {},
 ) {
-  const named = options.byProjectId
-    ? { projectUuid: project.uuid! }
-    : { projectSlug: project.slug };
+  const named = { projectUuid: project.uuid };
   const definitionSet = {
     blocks: set.blocks ?? [],
     layouts: set.layouts ?? [],

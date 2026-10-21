@@ -104,7 +104,7 @@ async function fixture() {
   const layoutBlocks = async (layoutId: string, headers: Record<string, string> = {}) => {
     const layout = await call(
       router.layouts.get,
-      { projectSlug: project.slug, layoutId },
+      { projectUuid: project.uuid, layoutId },
       member(headers),
     );
     return layout.blocks;
