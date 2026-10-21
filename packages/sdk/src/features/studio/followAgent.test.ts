@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 
 import type { Touch, TouchedBatch } from "@camox/api-contract/threads";
 
-import type { NavigateOptions } from "../navigation/navigation";
+import type { NavigateOptions, NavigationSource } from "../navigation/navigation";
 import { previewStore } from "../preview/previewStore";
 import {
   createFollowAgent,
@@ -93,11 +93,17 @@ function setUp(t: TestContext, where: Partial<FollowWhere> = {}) {
     where: initial,
   });
   t.after(() => follow.dispose());
-  /** Where the Studio is once a navigation commits, its frame not active yet. */
-  const arrive = (page: FollowPage) => {
+  /**
+   * Where the Studio is once a navigation commits, its frame not active yet: following's own,
+   * unless another source made it.
+   */
+  const arrive = (
+    page: FollowPage,
+    { source }: { source?: NavigationSource } = { source: "follow" },
+  ) => {
     current = {
       ...current,
-      location: { ...current.location, pathname: page.pathname! },
+      location: { ...current.location, pathname: page.pathname!, source },
       pageKey: page.key,
     };
     follow.update(current);
@@ -329,4 +335,59 @@ void test("a touched block that shows above the selected one later takes the sel
   };
   update({ pages: [home, withIntro, contact, landing, pricing] });
   assert.deepEqual(selection(), { type: "block", blockId: "intro" });
+});
+
+void test("the editor selecting something themselves stops following; its own selections and frames clearing them don't", (t) => {
+  const { follow, navigations, arrive, activate, selection } = setUp(t);
+  activate(home);
+  follow.receive(batch(pageTouch("home", "hero")));
+  follow.receive(batch(pageTouch("about", "team")));
+  arrive(about);
+  // The home page's frame is released, clearing the selection, then about's claims it.
+  previewStore.send({ type: "clearSelection" });
+  activate(about);
+  assert.deepEqual(selection(), { type: "block", blockId: "team" });
+  follow.receive(batch(pageTouch("about", "story")));
+  assert.deepEqual(selection(), { type: "block", blockId: "story" });
+  // The editor picks a field of the selected block.
+  previewStore.send({
+    type: "selectBlockField",
+    kind: "page",
+    pageId: "about",
+    blockId: "story",
+    fieldName: "title",
+    fieldType: "String",
+  });
+  follow.receive(batch(pageTouch("about", "team")));
+  follow.receive(batch(pageTouch("contact", "form")));
+  t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+  assert.deepEqual(
+    navigations.map(({ to }) => to),
+    ["/about?camox-draft=d1"],
+  );
+  assert.equal(selection()?.type, "block-field");
+});
+
+void test("the editor going to another page themselves stops following; following's own navigations and content changes don't", (t) => {
+  for (const source of ["canvas", undefined] as const) {
+    const { follow, navigations, arrive, update } = setUp(t);
+    follow.receive(batch(pageTouch("about", "team")));
+    arrive(about);
+    update({ pages: [...PAGES] });
+    t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+    follow.receive(batch(pageTouch("contact", "form")));
+    assert.equal(navigations.at(-1)?.to, "/contact?camox-draft=d1");
+    arrive(contact);
+    // The editor picks a page in the Canvas Navigator, or goes back in their browser's history.
+    arrive(landing, { source });
+    t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+    follow.receive(batch(pageTouch("about", "story")));
+    t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+    assert.deepEqual(
+      navigations.map(({ to }) => to),
+      ["/about?camox-draft=d1", "/contact?camox-draft=d1"],
+    );
+    follow.dispose();
+    t.mock.timers.reset();
+  }
 });

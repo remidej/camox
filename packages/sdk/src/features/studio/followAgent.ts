@@ -1,6 +1,6 @@
 import type { Touch, TouchedBatch } from "@camox/api-contract/threads";
 
-import type { NavigateOptions } from "../navigation/navigation";
+import type { NavigateOptions, NavigationSource } from "../navigation/navigation";
 import { previewStore, sameEditingOwner, type EditingOwner } from "../preview/previewStore";
 
 /**
@@ -30,7 +30,8 @@ export interface FollowWhere {
   pages: readonly FollowPage[];
   /** The viewed Locale's tag. */
   locale: string;
-  location: { pathname: string; search: string };
+  /** The location, with the source of the navigation that led there. */
+  location: { pathname: string; search: string; source?: NavigationSource };
   /** The key of the Page the editor is on, if any. */
   pageKey: string | null;
   /** The path of a block definition's Block Catalog item, in the viewed Locale. */
@@ -197,6 +198,13 @@ export function createFollowAgent({
   /** The block following last selected, to move to a topmost one that shows later. */
   let selected: { page: PageRef; blockIds: readonly string[]; blockId: string } | null = null;
 
+  /** The block following selected last, whichever page it's on, to tell the editor's apart. */
+  let ownSelection: { owner: EditingOwner; blockId: string } | null = null;
+  const sendFocusedBlock = (owner: EditingOwner, blockId: string) => {
+    ownSelection = { owner, blockId };
+    previewStore.send({ type: "setFocusedBlock", ...owner, blockId });
+  };
+
   const here = () =>
     where.pageKey ? where.pages.find((page) => page.key === where.pageKey) : undefined;
 
@@ -211,7 +219,7 @@ export function createFollowAgent({
     pendingBlocks = null;
     if (!blockId) return;
     selected = { page: ref, blockIds, blockId };
-    previewStore.send({ type: "setFocusedBlock", ...page.owner, blockId });
+    sendFocusedBlock(page.owner, blockId);
   };
 
   /** Reselects when a touched block above the selected one shows, while the selection is ours. */
@@ -226,7 +234,7 @@ export function createFollowAgent({
     const blockId = topmostBlock(page, selected.blockIds);
     if (!blockId || blockId === selected.blockId) return;
     selected = { ...selected, blockId };
-    previewStore.send({ type: "setFocusedBlock", ...page.owner, blockId });
+    sendFocusedBlock(page.owner, blockId);
   };
 
   const clearTimer = () => {
@@ -263,9 +271,35 @@ export function createFollowAgent({
     void navigate({ to: `${pathname}${where.location.search}`, replace: true, source: "follow" });
   };
 
-  const subscription = previewStore.subscribe(selectPendingBlocks);
+  /**
+   * Whether the editor selected something themselves: a selection following didn't make.
+   * Clearing it isn't one, as frames do when the Canvas mounts or a navigation releases them.
+   */
+  const editorSelected = () => {
+    const { editingContext } = previewStore.getSnapshot().context;
+    const selection = editingContext?.selection;
+    if (!selection) return false;
+    return !(
+      ownSelection &&
+      selection.type === "block" &&
+      selection.blockId === ownSelection.blockId &&
+      sameEditingOwner(editingContext, ownSelection.owner)
+    );
+  };
 
-  return {
+  let lastSelection = previewStore.getSnapshot().context.editingContext?.selection ?? null;
+  const subscription = previewStore.subscribe(({ context }) => {
+    const selection = context.editingContext?.selection ?? null;
+    const changed = selection !== lastSelection;
+    lastSelection = selection;
+    if (changed && editorSelected()) {
+      follow.takeOver();
+      return;
+    }
+    selectPendingBlocks();
+  });
+
+  const follow: FollowAgent = {
     receive(batch) {
       if (!following) return;
       const destination = destinationOf(where, batch);
@@ -286,7 +320,10 @@ export function createFollowAgent({
       goToPending();
     },
     update(next) {
+      // The editor went to another page themselves: from the Canvas, a link or their history.
+      const navigated = next.location.pathname !== where.location.pathname;
       where = next;
+      if (navigated && next.location.source !== "follow") follow.takeOver();
       goToPending();
       selectPendingBlocks();
       reselectTopmost();
@@ -306,4 +343,5 @@ export function createFollowAgent({
       subscription.unsubscribe();
     },
   };
+  return follow;
 }
