@@ -2,7 +2,7 @@
 
 ## Package releases with release-please
 
-`.github/workflows/release.yml` runs on pushes to `main` and uses
+`.github/workflows/deploy.yml` runs on pushes to `main` and uses
 [release-please](https://github.com/googleapis/release-please) to prepare version
 bumps and changelogs from Conventional Commits.
 
@@ -24,9 +24,14 @@ bumps and changelogs from Conventional Commits.
 2. A maintainer reviews the proposed versions and release notes, then merges
    the release PR when ready to publish.
 3. The resulting push to `main` creates the root GitHub release. The workflow's
-   `publish` job runs only when release-please reports `release_created`.
+   `publish` job runs only when release-please reports `release_created`, and
+   only once the production deployment of the same commit has succeeded, so no
+   published SDK is ahead of the deployed API (ADR 0019).
 4. It builds workspace packages and publishes, in order: `@camox/api-contract`,
    `@camox/ui`, `@camox/cli`, `create-camox`, and `camox`.
+5. The `refresh-template` job then pushes the Template at the published version
+   to `template-default` on Cloudflare Artifacts, which new projects fork
+   (`packages/cli/scripts/README.md`).
 
 `release-please-config.json` links the root and these five packages into one
 version group. Package-specific GitHub releases are disabled with
@@ -65,7 +70,7 @@ include the regenerated route tree in the same commit. Do not edit it manually.
 ## Production deployment
 
 `.github/workflows/deploy.yml` deploys API, dashboard, and landing on pushes to
-`main`, independently of npm releases. It can also be rerun manually on `main`.
+`main`, before any npm release of the same commit. It can also be rerun manually on `main`.
 Active deployments are not canceled by new commits; only the newest pending run
 is retained. Avoid concurrent manual deployments from your machine.
 
@@ -76,7 +81,8 @@ to `main`, and add these environment secrets (repository secrets also work):
 
 - `CLOUDFLARE_API_TOKEN`: scoped to the production account, with Workers deployment,
   D1 migration, R2 binding, and production zone route permissions required by the
-  Wrangler configurations. Include permission to manage Workers custom domains.
+  Wrangler configurations. Include permission to manage Workers custom domains,
+  and Account › Artifacts › Edit for refreshing `template-default`.
 - `CLOUDFLARE_ACCOUNT_ID`: the account containing the Workers and D1 database.
 - `CAMOX_DEPLOY_TOKEN`: the landing project's production deploy token, used by
   `camox release` to sync its definitions.
@@ -153,7 +159,7 @@ and reset the local D1. Commit the SQL together with `migrations/meta`.
 
 Internal apps use `workspace:*` dependencies. The workflow builds SDK, CLI, UI,
 and API contract from the deployed commit; no npm publication is necessary.
-Public npm releases remain controlled by `.github/workflows/release.yml`.
+Public npm releases are the `release-please` and `publish` jobs of the same workflow.
 The production API must still support older published SDKs used by customers.
 
 GitHub does not normally trigger another workflow for commits pushed using its
