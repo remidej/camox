@@ -531,7 +531,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
         };
 
         await syncDefinitionsToApi({
-          camoxApp: camoxModule.camoxApp,
+          definitionSet: await camoxModule.camoxApp.getDefinitionSet(),
           projectSlug: options.projectSlug,
           apiUrl,
           autoCreate: false,

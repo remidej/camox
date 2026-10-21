@@ -18,6 +18,27 @@ type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["after
 
 const AUTHENTICATION_URL = "http://dashboard.test";
 
+function greetingModule(greeting: string) {
+  return `export const greeting = ${JSON.stringify(greeting)};\n`;
+}
+
+/** A block module whose title defaults to the shared greeting. */
+function blockModule(id: string, { component = "() => null" } = {}) {
+  return `import { createBlock } from "camox/createBlock";
+
+import { greeting } from "../fields/greeting";
+
+export const block = createBlock({
+  id: ${JSON.stringify(id)},
+  title: ${JSON.stringify(id)},
+  description: "A block",
+  content: (field) => ({ title: field.string({ default: greeting }) }),
+  component: ${component},
+  toMarkdown: (content) => [content.title],
+});
+`;
+}
+
 /**
  * A checkout with a minimal Camox app and a dev session, plus a fake API that
  * accepts definition sync unless `failCollectionSync` is set.
@@ -41,32 +62,37 @@ async function devCheckout(
     }),
   );
   await mkdir(join(root, "src/blocks"), { recursive: true });
-  await writeFile(
-    join(root, "src/blocks/hero.ts"),
-    `import { createBlock } from "camox/createBlock";
-
-export const block = createBlock({
-  id: "hero",
-  title: "Hero",
-  description: "Opens the page",
-  content: (field) => ({ title: field.string({ default: "Welcome" }) }),
-  component: () => null,
-  toMarkdown: (content) => [content.title],
-});
-`,
-  );
+  await mkdir(join(root, "src/fields"), { recursive: true });
+  // A module the block's schema imports, like a shared field set.
+  await writeFile(join(root, "src/fields/greeting.ts"), greetingModule("Welcome"));
+  await writeFile(join(root, "src/blocks/hero.ts"), blockModule("hero"));
 
   const requests: { path: string; headers: IncomingHttpHeaders }[] = [];
   /** The block ids each `blockDefinitions.sync` received, in order. */
   const syncedBlockIds: string[][] = [];
+  /** Each block's default title, per `blockDefinitions.sync`, in order. */
+  const syncedDefaultTitles: Record<string, unknown>[] = [];
   const base = os.$context<{ headers: IncomingHttpHeaders }>();
   const router = {
     blockDefinitions: {
       sync: base.handler(({ context, input }) => {
         requests.push({ path: "blockDefinitions.sync", headers: context.headers });
-        const { definitions } = input as { definitions: { blockId: string }[] };
-        syncedBlockIds.push(definitions.map((definition) => definition.blockId));
+        const { definitions } = input as {
+          definitions: { blockId: string; defaultContent?: { title?: unknown } }[];
+        };
+        syncedBlockIds.push(definitions.map((definition) => definition.blockId).sort());
+        syncedDefaultTitles.push(
+          Object.fromEntries(definitions.map((d) => [d.blockId, d.defaultContent?.title])),
+        );
         return { results: [], draftCreated, deletedDefinitionTypes: [] };
+      }),
+      upsert: base.handler(({ context }) => {
+        requests.push({ path: "blockDefinitions.upsert", headers: context.headers });
+        return { action: "updated" };
+      }),
+      delete: base.handler(({ context }) => {
+        requests.push({ path: "blockDefinitions.delete", headers: context.headers });
+        return { deleted: true };
       }),
     },
     collectionDefinitions: {
@@ -137,6 +163,7 @@ export const block = createBlock({
     apiUrl: `http://127.0.0.1:${address.port}`,
     requests,
     syncedBlockIds,
+    syncedDefaultTitles,
     cleanups,
   };
 }
@@ -346,4 +373,65 @@ void test("seeded content stays in the development draft when publishing it is b
   await waitFor(() => logs.some((line) => line.includes("publishing is blocked")), logs);
   assert.ok(logs.some((line) => line.includes("The page needs a meta title")));
   assert.ok(!checkout.requests.some((r) => r.path === "drafts.publish"));
+});
+
+/** How many whole-set syncs reached the API's block definitions, judging by the dev logs. */
+function syncCount(logs: string[]) {
+  return logs.filter((line) => /Synced \d+ block definition/.test(line)).length;
+}
+
+/** Long enough for the dev server to notice a file change and finish any sync it causes. */
+const SETTLE_MS = 600;
+
+void test("changing a module a block's schema imports syncs the new Definition Set", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+  await waitFor(() => syncCount(logs) === 1, logs);
+
+  await writeFile(join(checkout.root, "src/fields/greeting.ts"), greetingModule("Hello"));
+
+  await waitFor(() => syncCount(logs) === 2, logs);
+  assert.deepEqual(checkout.syncedDefaultTitles, [{ hero: "Welcome" }, { hero: "Hello" }]);
+});
+
+void test("a change that leaves the Definition Set equal sends no sync", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+  await waitFor(() => syncCount(logs) === 1, logs);
+  const requestsAfterFirstSync = checkout.requests.length;
+
+  // Styling work: the component changes, no definition does.
+  await writeFile(
+    join(checkout.root, "src/blocks/hero.ts"),
+    blockModule("hero", { component: '() => "styled"' }),
+  );
+  await setTimeout(SETTLE_MS);
+  assert.equal(checkout.requests.length, requestsAfterFirstSync);
+
+  // A definition change afterwards still syncs, so the dev server was watching all along.
+  await writeFile(join(checkout.root, "src/fields/greeting.ts"), greetingModule("Hello"));
+  await waitFor(() => syncCount(logs) === 2, logs);
+  assert.deepEqual(checkout.syncedDefaultTitles, [{ hero: "Welcome" }, { hero: "Hello" }]);
+});
+
+void test("adding or deleting a block file leads to one whole-set sync each", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+  await waitFor(() => syncCount(logs) === 1, logs);
+
+  await writeFile(join(checkout.root, "src/blocks/cta.ts"), blockModule("cta"));
+  await waitFor(() => syncCount(logs) === 2, logs);
+  await setTimeout(SETTLE_MS);
+
+  await rm(join(checkout.root, "src/blocks/cta.ts"));
+  await waitFor(() => syncCount(logs) === 3, logs);
+  await setTimeout(SETTLE_MS);
+
+  assert.deepEqual(checkout.syncedBlockIds, [["hero"], ["cta", "hero"], ["hero"]]);
+  assert.ok(
+    !checkout.requests.some(
+      (r) => r.path === "blockDefinitions.upsert" || r.path === "blockDefinitions.delete",
+    ),
+    requestLog(checkout.requests).join("\n"),
+  );
 });
