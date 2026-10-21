@@ -220,6 +220,20 @@ void test("a page the agent created is gone to once it shows on the Canvas", (t)
   assert.equal(navigations.at(-1)?.to, "/careers?camox-draft=d1");
 });
 
+void test("a destination whose page doesn't show within the minimum stay is dropped", (t) => {
+  const { follow, navigations, update } = setUp(t);
+  follow.receive(batch(pageTouch("careers", undefined, "created")));
+  t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+  const careers: FollowPage = {
+    key: "page:careers",
+    pathname: "/careers",
+    owner: { kind: "page", pageId: "careers" },
+    layoutId: "main",
+  };
+  update({ pages: [...PAGES, careers] });
+  assert.deepEqual(navigations, []);
+});
+
 void test("a Synced Block's shared content stays on the editor's page if placed there, else goes to the Block Catalog", (t) => {
   const { follow, navigations, activate, selection } = setUp(t);
   activate(home);

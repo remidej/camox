@@ -196,6 +196,8 @@ export function createFollowAgent({
   let arrivedAt = -Infinity;
   /** The latest destination on another page, waiting for the minimum stay or for its page. */
   let pending: Destination | null = null;
+  /** When the pending destination's page has to show by, once following could go there. */
+  let pendingUntil = 0;
   let timer: unknown = null;
   /** Blocks to select once their page's editing frame is active. */
   let pendingBlocks: { page: PageRef; blockIds: readonly string[] } | null = null;
@@ -259,10 +261,15 @@ export function createFollowAgent({
       }
       return;
     }
+    // A page the agent just created shows once the page list refreshes: one that takes longer
+    // than the minimum stay to show isn't worth leaving for any more.
+    if (clock.now() >= pendingUntil) {
+      pending = null;
+      return;
+    }
     let pathname: string | null | undefined;
     if (pending.kind === "catalog") pathname = where.blockCatalogPath(pending.blockType);
     else pathname = findPage(where, pending.page)?.pathname;
-    // A page the agent just created shows once the page list refreshes.
     if (!pathname) return;
     const destination = pending;
     pending = null;
@@ -321,6 +328,7 @@ export function createFollowAgent({
         return;
       }
       pending = destination;
+      pendingUntil = Math.max(clock.now(), arrivedAt + FOLLOW_MINIMUM_STAY) + FOLLOW_MINIMUM_STAY;
       goToPending();
     },
     update(next) {
