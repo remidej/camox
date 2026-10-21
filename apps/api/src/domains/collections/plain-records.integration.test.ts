@@ -7,6 +7,8 @@ import {
   createServiceContext,
   seedLiveThrough,
   inScope,
+  syncDefinitionSet,
+  type TestDefinitionSet,
 } from "../../../test/fixtures";
 import type { ServiceError } from "../../lib/errors";
 import type { Journal } from "../../lib/journal";
@@ -25,7 +27,6 @@ import {
   findRecordsByField,
   getCollectionRecord,
   getRecordUsageCount,
-  syncCollectionDefinitions,
 } from "./service";
 
 const reference = (collectionId: string) => ({
@@ -35,7 +36,7 @@ const reference = (collectionId: string) => ({
   default: null,
 });
 
-const collections: Parameters<typeof syncCollectionDefinitions>[1]["definitions"] = [
+const collections: NonNullable<TestDefinitionSet["collections"]> = [
   {
     collectionId: "authors",
     title: "Authors",
@@ -85,6 +86,8 @@ const imageSchema = {
 async function fixture() {
   const base = await createProjectFixture(`plain-records-${crypto.randomUUID()}`);
   const ctx = createServiceContext(base.db, base.memberUser);
+  // Before the block definitions written below, which a release would replace.
+  await syncDefinitionSet(base.db, base.project, { collections });
   const page = await base.db
     .insert(pages)
     .values({
@@ -133,14 +136,6 @@ async function fixture() {
     createdAt: 1,
     updatedAt: 1,
   });
-  await runService(
-    syncCollectionDefinitions(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions: collections,
-    }),
-  );
   // Writes reach Live by publishing a throwaway draft (ADR 0009).
   const live = <A>(run: (inDraft: ServiceContext) => Effect.Effect<A, ServiceError, Journal>) =>
     seedLiveThrough(ctx, base.project.id, (_draft, inDraft) => run(inDraft));

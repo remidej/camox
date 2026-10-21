@@ -242,13 +242,25 @@ const planItemTreeCopy = Effect.fn("planItemTreeCopy")(function* (
   return plan.done(undefined);
 });
 
-/** The content a definition's defaults give a new block, with its repeatable item seeds. */
+/** What of a block definition its defaults are built from. */
+export type DefinitionDefaults = {
+  contentSchema: unknown;
+  settingsSchema?: unknown;
+  defaultContent?: unknown;
+  defaultSettings?: unknown;
+};
+
+/**
+ * The content a definition's defaults give a new block, with its repeatable item seeds: those of
+ * `incoming`, the definition a sync writes, else of the definition the scope reads.
+ */
 const defaultBundle = Effect.fn("defaultBundle")(function* (
   db: Database,
   scope: ReadScope,
   key: DefinitionKey,
+  incoming?: DefinitionDefaults,
 ) {
-  const definition = yield* findDefinition(db, key, scope);
+  const definition = incoming ?? (yield* findDefinition(db, key, scope));
   return yield* prepareBlockContent(
     definition?.defaultContent ?? undefined,
     definition?.defaultSettings ?? undefined,
@@ -272,10 +284,11 @@ const planSharedContentFromDefaults = Effect.fn("planSharedContentFromDefaults")
   db: Database,
   target: WriteTarget,
   key: DefinitionKey,
+  incoming?: DefinitionDefaults,
 ) {
   const now = Date.now();
   const plan = overlay.planner();
-  const defaults = yield* defaultBundle(db, readScopeOf(target), key);
+  const defaults = yield* defaultBundle(db, readScopeOf(target), key, incoming);
   plan.add(
     yield* planSharedContentInsert(db, target, key, {
       content: defaults.content,
@@ -353,10 +366,13 @@ const planBecomingSynced = Effect.fn("planBecomingSynced")(function* (
   db: Database,
   target: WriteTarget,
   key: DefinitionKey,
+  incoming?: DefinitionDefaults,
 ) {
   const scope = readScopeOf(target);
   const placements = yield* placementsOf(db, scope, key);
-  if (placements.length === 0) return yield* planSharedContentFromDefaults(db, target, key);
+  if (placements.length === 0) {
+    return yield* planSharedContentFromDefaults(db, target, key, incoming);
+  }
 
   const placementIds = placements.map((block) => block.id);
   const items = yield* itemsOfPlacements(db, scope, placementIds);
@@ -428,31 +444,45 @@ const planStoppingBeingSynced = Effect.fn("planStoppingBeingSynced")(function* (
 /**
  * Plans bringing a definition's shared content in line with its synced flag, in the scope whose
  * definitions changed: a synced definition without shared content becomes synced, and shared
- * content of a definition that isn't synced is copied back into its placements.
+ * content of a definition that isn't synced is copied back into its placements. Tells whether
+ * the definition has shared content once the plan ran.
  */
 const planSharedContentAlignment = Effect.fn("planSharedContentAlignment")(function* (
   ctx: ServiceContext,
-  { target, key, synced, seedFromDefaults }: SyncedFlag & { seedFromDefaults: boolean },
+  { target, key, synced, defaults, seedFromDefaults }: SyncedFlag & { seedFromDefaults: boolean },
 ) {
   const scope = readScopeOf(target);
   const shared = yield* findSharedContent(ctx.db, scope, key);
-  if (shared && !synced) return yield* planStoppingBeingSynced(ctx.db, target, shared);
+  if (shared && !synced) {
+    const planned = yield* planStoppingBeingSynced(ctx.db, target, shared);
+    return { ...planned, result: false };
+  }
   if (!shared && synced) {
     const placed = (yield* placementsOf(ctx.db, scope, key)).length > 0;
-    if (placed || seedFromDefaults) return yield* planBecomingSynced(ctx.db, target, key);
+    if (placed || seedFromDefaults) {
+      const planned = yield* planBecomingSynced(ctx.db, target, key, defaults);
+      return { ...planned, result: true };
+    }
   }
-  return overlay.nothingPlanned(undefined);
+  return overlay.nothingPlanned(!!shared);
 });
 
 /**
  * A definition's synced flag, in the target whose definitions a sync writes: Live for a release,
- * a development draft for dev mode (ADR 0006).
+ * a development draft for dev mode (ADR 0006). `defaults` are the definition's as the sync
+ * writes it, which shared content built from defaults starts from.
  */
-type SyncedFlag = { target: WriteTarget; projectId: number; key: DefinitionKey; synced: boolean };
+type SyncedFlag = {
+  target: WriteTarget;
+  projectId: number;
+  key: DefinitionKey;
+  synced: boolean;
+  defaults: DefinitionDefaults;
+};
 
 /**
  * Plans what a definition sync changing a definition's synced flag writes, from the state before
- * the sync's own writes.
+ * the sync's own writes. Tells whether the definition has shared content once the plan ran.
  */
 export const planSyncedFlagChange = Effect.fn("blocks.planSyncedFlagChange")(function* (
   ctx: ServiceContext,
@@ -461,18 +491,11 @@ export const planSyncedFlagChange = Effect.fn("blocks.planSyncedFlagChange")(fun
   return yield* planSharedContentAlignment(ctx, { ...flag, seedFromDefaults: true });
 });
 
-/** A definition sync changed a definition's synced flag. */
-export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(function* (
-  ctx: ServiceContext,
-  flag: SyncedFlag,
-) {
-  yield* overlay.runPlanned(ctx.db, yield* planSyncedFlagChange(ctx, flag));
-});
-
 /**
  * Plans what a definition sync creating a definition writes, maybe for one coming back to
  * content stored under its name. A new synced definition that isn't placed yet gets its shared
  * content from its first placement, like a layout declaring it, rather than from its defaults.
+ * Tells whether the definition has shared content once the plan ran.
  */
 export const planNewDefinitionSyncedFlag = Effect.fn("blocks.planNewDefinitionSyncedFlag")(
   function* (ctx: ServiceContext, flag: SyncedFlag) {
@@ -480,16 +503,82 @@ export const planNewDefinitionSyncedFlag = Effect.fn("blocks.planNewDefinitionSy
   },
 );
 
+/** A repeatable item a definition sync declares, under a placement, by temporary ids. */
+export type DeclaredItem = {
+  tempId: string;
+  parentTempId: string | null;
+  fieldName: string;
+  content: unknown;
+  settings?: unknown;
+  position: string;
+};
+
 /**
- * A definition sync created a definition, maybe one coming back to content stored under its
- * name. A new synced definition that isn't placed yet gets its shared content from its first
- * placement, like a layout declaring it, rather than from its defaults.
+ * Plans a new placement a definition sync declares (a layout's block, or the homepage's), with
+ * its repeatable items, in the sync's target. The sync knows its definition as it will be once
+ * its batch ran, which the target can't tell yet: whether it is `synced`, and whether it
+ * `hasSharedContent`. Then, like `planSharedContentAdoption`, the placement keeps its `own`
+ * content, `seeded` the shared content, or `adopted` existing shared content: a placement
+ * showing shared content is created cleared, without items of its own.
  */
-export const applyNewDefinitionSyncedFlag = Effect.fn("blocks.applyNewDefinitionSyncedFlag")(
-  function* (ctx: ServiceContext, flag: SyncedFlag) {
-    yield* overlay.runPlanned(ctx.db, yield* planNewDefinitionSyncedFlag(ctx, flag));
-  },
-);
+export const planDeclaredPlacement = Effect.fn("blocks.planDeclaredPlacement")(function* (
+  db: Database,
+  target: WriteTarget,
+  values: Pick<
+    typeof blocks.$inferInsert,
+    "projectId" | "pageId" | "layoutId" | "type" | "content" | "settings" | "slot" | "position"
+  >,
+  items: readonly DeclaredItem[],
+  definition: { synced: boolean; hasSharedContent: boolean },
+) {
+  const now = Date.now();
+  const plan = overlay.planner();
+  const timestamps = { createdAt: now, updatedAt: now };
+  const key = definitionOf(values);
+  const adoption = definition.hasSharedContent
+    ? ("adopted" as const)
+    : definition.synced
+      ? ("seeded" as const)
+      : ("own" as const);
+  const own = { content: values.content, settings: values.settings ?? null };
+  if (adoption === "seeded") plan.add(yield* planSharedContentInsert(db, target, key, own));
+  // A fresh id, so the target can't already hold the block or its items.
+  const block = plan.add(
+    yield* overlay.planInsert(db, target, blocks, {
+      ...values,
+      ...(adoption === "own" ? own : clearedPlacement),
+      ...timestamps,
+    }),
+  )!;
+  const root: ItemRoot = adoption === "seeded" ? { sharedContent: key } : { blockId: block.id };
+  const planned: ItemRow[] = [];
+  if (adoption !== "adopted") {
+    const ids = new Map<string, string>();
+    for (const item of items) {
+      const row = plan.add(
+        yield* overlay.planInsert(
+          db,
+          target,
+          repeatableItems,
+          {
+            ...rootColumns(root),
+            parentItemId: item.parentTempId ? (ids.get(item.parentTempId) ?? null) : null,
+            fieldName: item.fieldName,
+            content: item.content,
+            settings: item.settings ?? null,
+            position: item.position,
+            ...timestamps,
+          },
+          // The block is created in the same batch, so its project can't be read from it.
+          { projectId: values.projectId },
+        ),
+      )!;
+      ids.set(item.tempId, row.id);
+      planned.push(row);
+    }
+  }
+  return plan.done({ block, items: planned, adoption });
+});
 
 /**
  * Plans making a new placement, written to `target`, show its definition's shared content as

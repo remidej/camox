@@ -7,6 +7,7 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
@@ -16,7 +17,6 @@ import {
   findRecordsByField,
   listRecordPageValues,
   recordMarkdown,
-  syncCollectionDefinitions,
 } from "./service";
 import { collectionDefinitionInput } from "./validation";
 
@@ -46,14 +46,9 @@ async function fixture(suffix: string) {
   const ctx = createServiceContext(base.db, base.memberUser);
   const publicCtx = createServiceContext(base.db, null);
   const scope = { projectSlug: base.project.slug, collectionId: "articles" };
-  await runService(
-    syncCollectionDefinitions(publicCtx, {
-      projectSlug: base.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions: [definition, authorsDefinition],
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, {
+    collections: [definition, authorsDefinition],
+  });
   // Record writes reach Live by publishing a throwaway draft (ADR 0009).
   const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
     seedLiveThrough(ctx, base.project.id, run);
@@ -143,12 +138,11 @@ describe("finding the records a record page renders", () => {
     const f = await fixture("isolation");
     const live = await f.create({});
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [definition, authorsDefinition],
-      }),
+    await syncDefinitionSet(
+      f.db,
+      f.project,
+      { collections: [definition, authorsDefinition] },
+      { as: f.memberUser },
     );
     // Live's record shows through in the development draft.
     expect((await f.find("hello", devCtx)).map((record) => record.id)).toEqual([live.id]);
@@ -179,12 +173,11 @@ describe("listing the records that can have a page", () => {
     const f = await fixture("list-label");
     const record = await f.create({ title: "Live title", slug: "labelled" });
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [definition, authorsDefinition],
-      }),
+    await syncDefinitionSet(
+      f.db,
+      f.project,
+      { collections: [definition, authorsDefinition] },
+      { as: f.memberUser },
     );
     await runService(
       editRecord(devCtx, {
@@ -220,12 +213,11 @@ describe("listing the records that can have a page", () => {
     const f = await fixture("list-isolation");
     const live = await f.create({});
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [definition, authorsDefinition],
-      }),
+    await syncDefinitionSet(
+      f.db,
+      f.project,
+      { collections: [definition, authorsDefinition] },
+      { as: f.memberUser },
     );
     // Live's record shows through in the development draft; the draft's own stays out of Live.
     const drafted = await runService(

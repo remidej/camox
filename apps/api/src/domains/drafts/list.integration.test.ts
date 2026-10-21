@@ -7,16 +7,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
   openDevelopmentDraft,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { refreshes, sentTo } from "../../../test/project-rooms";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { drafts, member, pages, user } from "../../schema";
-import { syncBlockDefinitions } from "../block-definitions/service";
-import { syncLayouts } from "../layouts/service";
 
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
@@ -202,39 +199,25 @@ describe("listing drafts", () => {
     const draft = generateUuidv7();
     await createBlock(me, startingDraft(draft));
     await publish(draft);
-    const build = createServiceContext(db, null);
-    const token = {
-      projectSlug: project.slug,
-      deployToken: project.deployToken,
-      autoCreate: false,
-    };
-    await runService(
-      syncBlockDefinitions(build, {
-        ...token,
-        definitions: [
-          {
-            blockId: "banner",
-            title: "Banner",
-            description: "Banner",
-            layoutOnly: true,
-            contentSchema: { type: "object", properties: {}, toMarkdown: [] },
-          },
-        ],
-      }),
-    );
     const before = Date.now();
-    await runService(
-      syncLayouts(build, {
-        ...token,
-        layouts: [
-          {
-            layoutId: "default",
-            description: "default",
-            blocks: [{ type: "banner", content: {} }],
-          },
-        ],
-      }),
-    );
+    await syncDefinitionSet(db, project, {
+      blocks: [
+        {
+          blockId: "banner",
+          title: "Banner",
+          description: "Banner",
+          layoutOnly: true,
+          contentSchema: { type: "object", properties: {}, toMarkdown: [] },
+        },
+      ],
+      layouts: [
+        {
+          layoutId: "default",
+          description: "default",
+          blocks: [{ type: "banner", content: {} }],
+        },
+      ],
+    });
 
     const { live } = await list();
 

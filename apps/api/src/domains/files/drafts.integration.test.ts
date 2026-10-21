@@ -12,13 +12,12 @@ import {
   createServiceContext,
   callSeedingLive,
   seedLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { forgetScheduled, scheduledFor } from "../../../test/generation";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, drafts, files, pages } from "../../schema";
 import type { AppEnv } from "../../types";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { fileHonoRoutes } from "./routes";
 
 type FileRow = typeof files.$inferSelect;
@@ -37,32 +36,30 @@ const imageField = (required: boolean) => ({
   required,
 });
 
+const hero = {
+  blockId: "hero",
+  title: "Hero",
+  description: "Hero",
+  contentSchema: {
+    type: "object",
+    properties: {
+      title: { fieldType: "String", type: "string" },
+      image: imageField(true),
+      datasheet: {
+        fieldType: "File",
+        type: "object",
+        properties: { url: { type: "string" } },
+        accept: ["application/pdf"],
+      },
+    },
+    toMarkdown: ["# {{title}}"],
+  },
+};
+
 async function fixture() {
   const base = await createProjectFixture(`files-drafts-${crypto.randomUUID()}`);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { fieldType: "String", type: "string" },
-          image: imageField(true),
-          datasheet: {
-            fieldType: "File",
-            type: "object",
-            properties: { url: { type: "string" } },
-            accept: ["application/pdf"],
-          },
-        },
-        toMarkdown: ["# {{title}}"],
-      },
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, { blocks: [hero] });
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)
@@ -452,36 +449,30 @@ describe("files in drafts", () => {
 
   it("a record in a draft can use a file uploaded in the same draft, and shows the draft's bytes", async () => {
     const f = await fixture();
-    await call(
-      router.collectionDefinitions.sync,
-      {
-        projectSlug: f.project.slug,
-        deployToken: f.project.deployToken,
-        autoCreate: false,
-        definitions: [
-          {
-            collectionId: "people",
-            title: "People",
-            description: "",
-            label: "name",
-            contentSchema: {
-              type: "object",
-              properties: {
-                name: { type: "string", fieldType: "String" },
-                photo: {
-                  fieldType: "Image",
-                  type: "object",
-                  properties: { url: { type: "string" } },
-                },
+    await syncDefinitionSet(f.db, f.project, {
+      blocks: [hero],
+      collections: [
+        {
+          collectionId: "people",
+          title: "People",
+          description: "",
+          label: "name",
+          contentSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", fieldType: "String" },
+              photo: {
+                fieldType: "Image",
+                type: "object",
+                properties: { url: { type: "string" } },
               },
-              required: ["name", "photo"],
-              additionalProperties: false,
             },
+            required: ["name", "photo"],
+            additionalProperties: false,
           },
-        ],
-      },
-      { context: createRpcContext(f.db, null) },
-    );
+        },
+      ],
+    });
     const draftId = generateUuidv7();
     const photo = await f.upload(startingDraft(draftId), { bytes: "portrait" });
     const people = { projectSlug: f.project.slug, collectionId: "people" };
@@ -531,60 +522,50 @@ describe("file checks beyond blocks", () => {
    */
   async function withHolders() {
     const f = await fixture();
-    const definitionContext = createServiceContext(f.db, null);
-    const define = (blockId: string, synced: boolean, properties: Record<string, unknown>) =>
-      runService(
-        upsertBlockDefinition(definitionContext, {
-          projectSlug: f.project.slug,
-          deployToken: f.project.deployToken,
-          blockId,
-          title: blockId,
-          description: blockId,
-          synced,
-          contentSchema: { type: "object", properties, toMarkdown: [`# ${blockId}`] },
-        }),
-      );
-    await define("cards", false, {
-      cards: {
-        fieldType: "Repeater",
-        type: "array",
-        items: { type: "object", properties: assetFields },
-      },
+    const define = (blockId: string, synced: boolean, properties: Record<string, unknown>) => ({
+      blockId,
+      title: blockId,
+      description: blockId,
+      synced,
+      contentSchema: { type: "object", properties, toMarkdown: [`# ${blockId}`] },
     });
-    await define("banner", true, assetFields);
-    await call(
-      router.collectionDefinitions.sync,
-      {
-        projectSlug: f.project.slug,
-        deployToken: f.project.deployToken,
-        autoCreate: false,
-        definitions: [
-          {
-            collectionId: "people",
-            title: "People",
-            description: "",
-            label: "name",
-            contentSchema: {
-              type: "object",
-              // Collection fields are never required.
-              properties: {
-                name: { type: "string", fieldType: "String" },
-                ...assetFields,
-                photo: {
-                  fieldType: "Image",
-                  type: "object",
-                  properties: { url: { type: "string" } },
-                  accept: ["image/*"],
-                },
-              },
-              required: ["name", "photo", "sheet"],
-              additionalProperties: false,
-            },
+    await syncDefinitionSet(f.db, f.project, {
+      blocks: [
+        hero,
+        define("cards", false, {
+          cards: {
+            fieldType: "Repeater",
+            type: "array",
+            items: { type: "object", properties: assetFields },
           },
-        ],
-      },
-      { context: createRpcContext(f.db, null) },
-    );
+        }),
+        define("banner", true, assetFields),
+      ],
+      collections: [
+        {
+          collectionId: "people",
+          title: "People",
+          description: "",
+          label: "name",
+          contentSchema: {
+            type: "object",
+            // Collection fields are never required.
+            properties: {
+              name: { type: "string", fieldType: "String" },
+              ...assetFields,
+              photo: {
+                fieldType: "Image",
+                type: "object",
+                properties: { url: { type: "string" } },
+                accept: ["image/*"],
+              },
+            },
+            required: ["name", "photo", "sheet"],
+            additionalProperties: false,
+          },
+        },
+      ],
+    });
     const [page] = await f.db.select().from(pages).where(eq(pages.projectId, f.project.id));
     const cards = await callSeedingLive(
       router.blocks.create,

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
+  syncDefinitionSet,
   createServiceContext,
   callSeedingLive,
 } from "../../../test/fixtures";
@@ -11,7 +12,6 @@ import { lexicalStateToMarkdown, markdownToLexicalState } from "../../lib/lexica
 import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
 import { callTool } from "../agent/service";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { blockProcedures as blockRoutes } from "../blocks/routes";
 import { repeatableItemProcedures as itemRoutes } from "../repeatable-items/routes";
 import { pageProcedures as pageRoutes } from "./routes";
@@ -38,41 +38,41 @@ async function fixture() {
       updatedAt: new Date(),
     },
   };
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "list",
-      title: "List",
-      description: "A titled list",
-      contentSchema: {
-        type: "object",
-        toMarkdown: ["{{cta}}"],
-        properties: {
-          body: { type: "string", fieldType: "String" },
-          cta: {
-            type: "object",
-            fieldType: "Link",
-            properties: {
-              type: { type: "string", enum: ["external", "page"] },
-              text: { type: "string" },
-              href: { type: "string" },
-              pageId: { type: "string" },
-              newTab: { type: "boolean" },
-            },
-          },
-          entries: {
-            type: "array",
-            fieldType: "Repeater",
-            items: {
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "list",
+        title: "List",
+        description: "A titled list",
+        contentSchema: {
+          type: "object",
+          toMarkdown: ["{{cta}}"],
+          properties: {
+            body: { type: "string", fieldType: "String" },
+            cta: {
               type: "object",
-              properties: { title: { type: "string", default: "Entry" } },
+              fieldType: "Link",
+              properties: {
+                type: { type: "string", enum: ["external", "page"] },
+                text: { type: "string" },
+                href: { type: "string" },
+                pageId: { type: "string" },
+                newTab: { type: "boolean" },
+              },
+            },
+            entries: {
+              type: "array",
+              fieldType: "Repeater",
+              items: {
+                type: "object",
+                properties: { title: { type: "string", default: "Entry" } },
+              },
             },
           },
         },
       },
-    }),
-  );
+    ],
+  });
   const options = { context };
   const { page } = await callSeedingLive(
     pageRoutes.create,

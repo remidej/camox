@@ -7,35 +7,32 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, forgetScheduled, modelCalls, scheduledFor } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { drafts, generatedValues, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { runGenerationJob } from "./generation";
 
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
+const hero = {
+  blockId: "hero",
+  title: "Hero",
+  description: "Hero",
+  contentSchema: {
+    type: "object",
+    properties: { title: { fieldType: "String", type: "string" } },
+    toMarkdown: ["# {{title}}"],
+  },
+};
+
 async function fixture() {
   const base = await createProjectFixture(`generated-values-${crypto.randomUUID()}`);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: { title: { fieldType: "String", type: "string" } },
-        toMarkdown: ["# {{title}}"],
-      },
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, { blocks: [hero] });
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)
@@ -173,20 +170,21 @@ describe("summaries in drafts", () => {
 
   it("come with a synced placement's shared content when generated through it", async () => {
     const { db, project, page, member } = await fixture();
-    await runService(
-      upsertBlockDefinition(createServiceContext(db, null), {
-        projectSlug: project.slug,
-        deployToken: project.deployToken,
-        blockId: "banner",
-        title: "Banner",
-        description: "Banner",
-        synced: true,
-        contentSchema: {
-          type: "object",
-          properties: { title: { fieldType: "String", type: "string" } },
+    await syncDefinitionSet(db, project, {
+      blocks: [
+        hero,
+        {
+          blockId: "banner",
+          title: "Banner",
+          description: "Banner",
+          synced: true,
+          contentSchema: {
+            type: "object",
+            properties: { title: { fieldType: "String", type: "string" } },
+          },
         },
-      }),
-    );
+      ],
+    });
     const placement = await callSeedingLive(
       router.blocks.create,
       { pageId: page.id, type: "banner", content: { title: "Shared" } },

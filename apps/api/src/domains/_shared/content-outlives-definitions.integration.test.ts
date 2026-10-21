@@ -5,6 +5,8 @@ import {
   createProjectFixture,
   createServiceContext,
   callSeedingLive,
+  syncDefinitionSet,
+  type TestDefinitionSet,
 } from "../../../test/fixtures";
 import type { BaseContext } from "../../orpc";
 import { router } from "../../router";
@@ -65,36 +67,31 @@ async function fixture() {
     },
   };
   const options = { context };
-  const releaseOptions = {
-    context: { ...context, user: null, session: null } satisfies BaseContext,
+  // The Definition Set Live holds: each release changes one part and sends the whole set.
+  const released: Required<Omit<TestDefinitionSet, "homepage">> = {
+    blocks: [],
+    layouts: [],
+    collections: [],
+  };
+  const releaseSet = (changes: Partial<typeof released>) => {
+    Object.assign(released, changes);
+    return syncDefinitionSet(base.db, base.project, released);
   };
   const release = {
     blocks: (definitions: Definition[]) =>
-      call(
-        router.blockDefinitions.sync,
-        {
-          projectSlug: base.project.slug,
-          deployToken: base.project.deployToken,
-          autoCreate: false,
-          definitions: definitions.map((definition) => ({
-            title: definition.blockId,
-            description: "",
-            ...definition,
-          })),
-        },
-        releaseOptions,
-      ),
+      releaseSet({
+        blocks: definitions.map((definition) => ({
+          title: definition.blockId,
+          description: "",
+          ...definition,
+        })),
+      }),
     layouts: (layouts: { layoutId: string; kind?: "curated" | "derived" | "singleton" }[]) =>
-      call(
-        router.layouts.sync,
-        {
-          projectSlug: base.project.slug,
-          deployToken: base.project.deployToken,
-          autoCreate: false,
-          layouts: layouts.map((layout) => ({ description: "", blocks: [], ...layout })),
-        },
-        releaseOptions,
-      ),
+      releaseSet({
+        layouts: layouts.map((layout) => ({ description: "", blocks: [], ...layout })),
+      }),
+    collections: (definitions: unknown[]) =>
+      releaseSet({ collections: definitions as Required<TestDefinitionSet>["collections"] }),
   };
   await release.blocks([hero, cards({ cards: cardsRepeater })]);
   const { page } = await callSeedingLive(
@@ -432,7 +429,7 @@ describe("pages whose layout is gone", () => {
   it("are served again once moved to a curated layout", async () => {
     const f = await fixture();
     const sync = await f.release.layouts([{ layoutId: "other" }]);
-    const other = sync.layouts.find((result) => result.layout.layoutId === "other")!.layout;
+    const other = sync.layouts!.layouts.find((result) => result.layoutId === "other")!;
     await callSeedingLive(
       router.pages.setLayout,
       { id: f.page.id, layoutId: other.layoutId },
@@ -491,17 +488,7 @@ describe("collection records", () => {
 
   async function collectionFixture() {
     const f = await fixture();
-    const syncCollections = (definitions: unknown[]) =>
-      call(
-        router.collectionDefinitions.sync,
-        {
-          projectSlug: f.project.slug,
-          deployToken: f.project.deployToken,
-          autoCreate: false,
-          definitions: definitions as never,
-        },
-        { context: { ...f.options.context, user: null, session: null } },
-      );
+    const syncCollections = f.release.collections;
     await syncCollections([withRole]);
     await f.release.blocks([hero, cards({ cards: cardsRepeater }), profile]);
     const scope = { projectSlug: f.project.slug, collectionId: "people" };
@@ -645,7 +632,7 @@ describe("blocks of a removed block definition", () => {
     );
 
     const sync = await f.release.blocks([hero]);
-    expect(sync.deletedDefinitionTypes).toEqual(["cards"]);
+    expect(sync.blocks.deletedDefinitionTypes).toEqual(["cards"]);
 
     const page = await call(
       router.pages.getByPath,

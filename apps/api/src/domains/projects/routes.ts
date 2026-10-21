@@ -6,19 +6,12 @@ import { getAuthorizedProject } from "../../authorization";
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
-import { authed, pub } from "../../orpc";
+import { authed } from "../../orpc";
 import { projects } from "../../schema";
 import type { AppEnv } from "../../types";
 import * as service from "./service";
 
-// Public procedures
-
-const initializeContent = pub
-  .input(service.initializeProjectContentInput)
-  .handler(({ context, input }) => runService(service.initializeProjectContent(context, input)));
-
 // Protected procedures
-
 const list = authed
   .input(service.listProjectsInput)
   .handler(({ context, input }) => runService(service.listProjects(context, input)));
@@ -67,7 +60,6 @@ export const projectProcedures = {
   update,
   updateAnalytics,
   delete: deleteFn,
-  initializeContent,
 };
 
 // --- Hono routes (favicon binary serving + multipart upload) ---

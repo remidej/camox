@@ -6,40 +6,40 @@ import {
   createServiceContext,
   seedLiveThrough,
   inScope,
+  syncDefinitionSet,
+  type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { createPage, listPages, setPageLayout, updatePage } from "../pages/service";
 import { blocksOfLayout, layoutNamed } from "./identity";
-import { getLayout, syncLayouts } from "./service";
+import { getLayout } from "./service";
 
 async function setup(suffix: string) {
   const fixture = await createProjectFixture(suffix);
   const ctx = createServiceContext(fixture.db, fixture.memberUser);
-  const definitions: Parameters<typeof syncLayouts>[1]["layouts"] = [
+  const definitions: NonNullable<TestDefinitionSet["layouts"]> = [
     { layoutId: "default", kind: "curated" as const, description: "", blocks: [] },
     { layoutId: "pokedex", kind: "singleton" as const, description: "", blocks: [] },
     { layoutId: "pokemon.$name", kind: "derived" as const, description: "", blocks: [] },
   ];
+  // The block definitions Live holds, which every release sends alongside its layouts.
+  const blockDefinitions: NonNullable<TestDefinitionSet["blocks"]> = [];
+  const define = (definition: (typeof blockDefinitions)[number]) => {
+    blockDefinitions.push(definition);
+    return syncDefinitionSet(fixture.db, fixture.project, { blocks: blockDefinitions });
+  };
   const sync = (defs = definitions) =>
-    runService(
-      syncLayouts(createServiceContext(fixture.db, null), {
-        projectSlug: fixture.project.slug,
-        deployToken: "test-deploy-token",
-        autoCreate: false,
-        layouts: defs,
-      }),
-    );
-  return { ...fixture, ctx, definitions, sync };
+    syncDefinitionSet(fixture.db, fixture.project, { blocks: blockDefinitions, layouts: defs });
+  return { ...fixture, ctx, definitions, define, sync };
 }
 
 describe("singleton page ownership", () => {
   it("syncs kinds and prevents curated creation, layout assignment, and URL moves", async () => {
     const { db, ctx, project, layout, sync } = await setup("singleton-ownership");
-    const result = await sync();
-    const singleton = result.layouts.find((item) => item.layout.kind === "singleton")!.layout;
-    const derived = result.layouts.find((item) => item.layout.kind === "derived")!.layout;
+    await sync();
+    const singleton = { projectId: project.id, layoutId: "pokedex" };
+    const derived = { projectId: project.id, layoutId: "pokemon.$name" };
     expect(await db.select().from(pages).where(eq(pages.projectId, project.id))).toEqual([]);
     for (const record of [singleton, derived]) {
       await expect(
@@ -150,25 +150,21 @@ describe("singleton page ownership", () => {
   });
 
   it("serves current singleton blocks to everyone and releases removed routes", async () => {
-    const { ctx, project, layout, definitions, sync, db } = await setup("singleton-reads");
-    await runService(
-      upsertBlockDefinition(createServiceContext(db, null), {
-        projectSlug: project.slug,
-        deployToken: "test-deploy-token",
-        blockId: "intro",
-        title: "Intro",
-        description: "",
-        contentSchema: { type: "object", properties: { title: { type: "string" } } },
-      }),
-    );
-    const result = await sync([
+    const { ctx, project, layout, definitions, define, sync, db } = await setup("singleton-reads");
+    await define({
+      blockId: "intro",
+      title: "Intro",
+      description: "",
+      contentSchema: { type: "object", properties: { title: { type: "string" } } },
+    });
+    await sync([
       definitions[0],
       {
         ...definitions[1],
         blocks: [{ type: "intro", slot: "before" as const, content: { title: "First" } }],
       },
     ]);
-    const singleton = result.layouts.find((item) => item.layout.kind === "singleton")!.layout;
+    const singleton = { projectId: project.id, layoutId: "pokedex" };
     const input = { projectSlug: project.slug, layoutId: "pokedex" };
     await db
       .update(blocks)

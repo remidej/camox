@@ -7,14 +7,13 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerEvery, forgetScheduled, scheduled } from "../../../test/generation";
 import { isTranslationJob } from "../../lib/ai-job-queue";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { addLocalizationBack } from "./exclusions";
 
 // Localizations can differ from the default locale in structure on purpose (ADR 0015): content
@@ -41,54 +40,45 @@ async function fixture() {
   const base = await createProjectFixture(`diverge-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const { slug: projectSlug, deployToken } = project;
-  await runService(
-    upsertBlockDefinition(createServiceContext(db, null), {
-      projectSlug,
-      deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { type: "string", fieldType: "String" },
-          items: {
-            type: "array",
-            fieldType: "Repeater",
+  const projectSlug = project.slug;
+  await syncDefinitionSet(db, project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", fieldType: "String" },
             items: {
-              type: "object",
-              properties: { label: { type: "string", fieldType: "String" } },
+              type: "array",
+              fieldType: "Repeater",
+              items: {
+                type: "object",
+                properties: { label: { type: "string", fieldType: "String" } },
+              },
             },
           },
+          toMarkdown: ["# {{title}}"],
         },
-        toMarkdown: ["# {{title}}"],
       },
-    }),
-  );
-  await call(
-    router.collectionDefinitions.sync,
-    {
-      projectSlug,
-      deployToken,
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "articles",
-          title: "Articles",
-          description: "",
-          label: "title",
-          contentSchema: {
-            type: "object",
-            properties: { title: { type: "string", fieldType: "String" } },
-            required: ["title"],
-            additionalProperties: false,
-          },
+    ],
+    collections: [
+      {
+        collectionId: "articles",
+        title: "Articles",
+        description: "",
+        label: "title",
+        contentSchema: {
+          type: "object",
+          properties: { title: { type: "string", fieldType: "String" } },
+          required: ["title"],
+          additionalProperties: false,
         },
-      ],
-    },
-    { context: createRpcContext(db, null) },
-  );
+      },
+    ],
+  });
 
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(db, memberUser, headers),

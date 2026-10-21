@@ -5,13 +5,12 @@ import { collection as customers } from "../../../../playground/src/collections/
 import {
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { callTool } from "../agent/service";
 import { collectionDefinitionProcedures as routes } from "./routes";
-import { syncCollectionDefinitions } from "./service";
 
 // Independent of the shared schema: version nibble 7, RFC 4122 variant.
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -22,14 +21,9 @@ async function fixture() {
   const base = await createProjectFixture(`identity-${crypto.randomUUID()}`);
   const context = createRpcContext(base.db, base.memberUser);
   const { id, ...definition } = customers._internal;
-  await runService(
-    syncCollectionDefinitions(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, {
+    collections: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
+  });
   return {
     ...base,
     options: { context },

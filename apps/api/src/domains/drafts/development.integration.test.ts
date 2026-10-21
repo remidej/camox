@@ -13,13 +13,10 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, drafts, member, pages, sharedContents, user } from "../../schema";
-import { syncBlockDefinitions } from "../block-definitions/service";
-import { syncLayouts } from "../layouts/service";
 
 // Development drafts (ADR 0006): each member's dev mode syncs the definitions of their local
 // code into their own development draft, which holds content like any draft and publishes once
@@ -88,40 +85,33 @@ async function fixture() {
     context: createRpcContext(db, who, headers),
   });
   const me = base.memberUser;
-  const token = { projectSlug: project.slug, autoCreate: false };
+  const definitionSet = (definitions: Definition[], layouts: Layouts) => ({
+    blocks: definitionsInput(definitions),
+    layouts: layoutsInput(layouts),
+    collections: [],
+    homepage: null,
+  });
 
   /** A release: the site's build syncing Live's definitions with the deploy token. */
   const release = async (definitions: Definition[], layouts: Layouts = { default: [] }) => {
-    const build = createServiceContext(db, null);
-    const deployToken = project.deployToken;
-    await runService(
-      syncBlockDefinitions(build, {
-        ...token,
-        deployToken,
-        definitions: definitionsInput(definitions),
-      }),
-    );
-    await runService(syncLayouts(build, { ...token, deployToken, layouts: layoutsInput(layouts) }));
+    await syncDefinitionSet(db, project, definitionSet(definitions, layouts));
   };
 
   /** Dev mode syncing local code, with the member's session and `x-camox-draft: development`. */
-  const devSync = async (
+  const devSync = (
     definitions: Definition[],
     layouts: Layouts = { default: [] },
     who: typeof ada = me,
-  ) => {
-    const synced = await call(
-      router.blockDefinitions.sync,
-      { ...token, autoCreate: true, definitions: definitionsInput(definitions) },
+  ) =>
+    call(
+      router.definitions.sync,
+      {
+        projectSlug: project.slug,
+        autoCreate: true,
+        definitionSet: definitionSet(definitions, layouts),
+      },
       as(who, development),
     );
-    await call(
-      router.layouts.sync,
-      { ...token, autoCreate: true, layouts: layoutsInput(layouts) },
-      as(who, development),
-    );
-    return synced;
-  };
 
   const now = Date.now();
   const page = await db
@@ -214,21 +204,22 @@ describe("development drafts", () => {
 
   it("refuse a session sync naming no development draft, and a release naming one", async () => {
     const f = await fixture();
+    const definitionSet = { blocks: [], layouts: [], collections: [], homepage: null };
     await expect(
       call(
-        router.blockDefinitions.sync,
-        { projectSlug: f.project.slug, autoCreate: true, definitions: [] },
+        router.definitions.sync,
+        { projectSlug: f.project.slug, autoCreate: true, definitionSet },
         f.as(f.me),
       ),
     ).rejects.toMatchObject({ status: 403 });
     await expect(
       call(
-        router.blockDefinitions.sync,
+        router.definitions.sync,
         {
           projectSlug: f.project.slug,
           deployToken: f.project.deployToken,
           autoCreate: false,
-          definitions: [],
+          definitionSet,
         },
         f.as(null, development),
       ),

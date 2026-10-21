@@ -6,13 +6,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 
 type Headers = Record<string, string>;
 /** Headers naming a draft, creating it when missing. */
@@ -22,31 +20,31 @@ const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
 async function fixture() {
   const base = await createProjectFixture(`synced-drafts-${crypto.randomUUID()}`);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "navbar",
-      title: "Navbar",
-      description: "Navigation",
-      synced: true,
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { fieldType: "String", type: "string" },
-          links: {
-            fieldType: "Repeater",
-            type: "array",
-            items: {
-              type: "object",
-              properties: { label: { fieldType: "String", type: "string" } },
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "navbar",
+        title: "Navbar",
+        description: "Navigation",
+        synced: true,
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { fieldType: "String", type: "string" },
+            links: {
+              fieldType: "Repeater",
+              type: "array",
+              items: {
+                type: "object",
+                properties: { label: { fieldType: "String", type: "string" } },
+              },
             },
           },
+          toMarkdown: ["# {{title}}"],
         },
-        toMarkdown: ["# {{title}}"],
       },
-    }),
-  );
+    ],
+  });
   const now = Date.now();
   const createPage = (fullPath: string) =>
     base.db

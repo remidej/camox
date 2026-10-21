@@ -8,10 +8,9 @@ import {
   seedLive,
   seedLiveThrough,
   inScope,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { createBlock, deleteBlock, updateBlockContent } from "../blocks/service";
 import { updatePage } from "../pages/service";
 
@@ -25,21 +24,21 @@ async function fixture(suffix: string, { synced = false } = {}) {
   const base = await createProjectFixture(suffix);
   const { db, project, layout } = base;
   const ctx = createServiceContext(db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(db, null), {
-      projectSlug: project.slug,
-      deployToken: project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      synced,
-      contentSchema: {
-        type: "object",
-        properties: { title: { fieldType: "String", type: "string" } },
-        toMarkdown: ["# {{title}}"],
+  await syncDefinitionSet(db, project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        synced,
+        contentSchema: {
+          type: "object",
+          properties: { title: { fieldType: "String", type: "string" } },
+          toMarkdown: ["# {{title}}"],
+        },
       },
-    }),
-  );
+    ],
+  });
   const addPage = (fullPath: string) =>
     seedLive(db, pages, {
       projectId: project.id,

@@ -9,12 +9,11 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   openDevelopmentDraft,
   seedLive,
+  syncDefinitionSet,
 } from "../../test/fixtures";
 import { forgetSent, refreshes, sentTo } from "../../test/project-rooms";
-import { upsertBlockDefinition } from "../domains/block-definitions/service";
 import * as overlay from "../domains/drafts/overlay";
 import { router } from "../router";
 import { blocks, drafts, files, pages } from "../schema";
@@ -36,20 +35,20 @@ async function fixture() {
     createdAt: now,
     updatedAt: now,
   });
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: { title: { fieldType: "String", type: "string" } },
-        toMarkdown: ["# {{title}}"],
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: { title: { fieldType: "String", type: "string" } },
+          toMarkdown: ["# {{title}}"],
+        },
       },
-    }),
-  );
+    ],
+  });
   const page = await seedLive(base.db, pages, {
     projectId,
     layoutId: base.layout.layoutId,
@@ -212,18 +211,23 @@ describe("a definitions sync in a development draft", () => {
 
     const sent = await sentBy(() =>
       call(
-        router.blockDefinitions.sync,
+        router.definitions.sync,
         {
           projectSlug: project.slug,
           autoCreate: false,
-          definitions: [
-            {
-              blockId: "hero",
-              title: "Hero",
-              description: "A new description",
-              contentSchema: { type: "object", properties: {} },
-            },
-          ],
+          definitionSet: {
+            blocks: [
+              {
+                blockId: "hero",
+                title: "Hero",
+                description: "A new description",
+                contentSchema: { type: "object", properties: {} },
+              },
+            ],
+            layouts: [],
+            collections: [],
+            homepage: null,
+          },
         },
         { context },
       ),

@@ -3,13 +3,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
+  syncDefinitionSet,
   createServiceContext,
   seedLiveThrough,
   inScope,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import {
   createBlock,
   getBlock,
@@ -21,29 +21,29 @@ import {
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Reusable hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { fieldType: "String", type: "string", default: "Welcome" },
-          cta: { fieldType: "Link", default: { text: "Learn more", href: "/about" } },
-          items: {
-            fieldType: "Repeater",
-            minItems: 1,
-            items: { properties: { title: { default: "Item" } } },
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Reusable hero",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { fieldType: "String", type: "string", default: "Welcome" },
+            cta: { fieldType: "Link", default: { text: "Learn more", href: "/about" } },
+            items: {
+              fieldType: "Repeater",
+              minItems: 1,
+              items: { properties: { title: { default: "Item" } } },
+            },
           },
+          toMarkdown: ["# {{title}}", "{{cta}}"],
         },
-        toMarkdown: ["# {{title}}", "{{cta}}"],
+        settingsSchema: { properties: { visible: { default: true } } },
       },
-      settingsSchema: { properties: { visible: { default: true } } },
-    }),
-  );
+    ],
+  });
   const now = Date.now();
   const page = await base.db
     .insert(pages)

@@ -7,14 +7,13 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, forgetScheduled, modelCalls, scheduledFor } from "../../../test/generation";
 import type { GenerationJob } from "../../lib/ai-job-queue";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { files } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { runGenerationJob } from "./generation";
 
 // Generated values follow the locale (ADR 0012, ADR 0015): SEO and alt text are generated per
@@ -30,20 +29,20 @@ async function fixture() {
   const base = await createProjectFixture(`generated-locales-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  await runService(
-    upsertBlockDefinition(createServiceContext(db, null), {
-      projectSlug: project.slug,
-      deployToken: project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: { title: { fieldType: "String", type: "string" } },
-        toMarkdown: ["# {{title}}"],
+  await syncDefinitionSet(db, project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: { title: { fieldType: "String", type: "string" } },
+          toMarkdown: ["# {{title}}"],
+        },
       },
-    }),
-  );
+    ],
+  });
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(db, memberUser, headers),
   });

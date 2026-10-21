@@ -5,14 +5,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
+  syncDefinitionSet,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { layouts } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 
 type Headers = Record<string, string>;
 /** Headers naming a draft, creating it when missing. */
@@ -22,30 +20,30 @@ const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
 async function fixture() {
   const base = await createProjectFixture(`page-drafts-${crypto.randomUUID()}`);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { fieldType: "String", type: "string" },
-          links: {
-            fieldType: "Repeater",
-            type: "array",
-            items: {
-              type: "object",
-              properties: { label: { fieldType: "String", type: "string" } },
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { fieldType: "String", type: "string" },
+            links: {
+              fieldType: "Repeater",
+              type: "array",
+              items: {
+                type: "object",
+                properties: { label: { fieldType: "String", type: "string" } },
+              },
             },
           },
+          toMarkdown: ["# {{title}}"],
         },
-        toMarkdown: ["# {{title}}"],
       },
-    }),
-  );
+    ],
+  });
   const projectId = base.project.id;
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(base.db, base.memberUser, headers),

@@ -5,16 +5,16 @@ import {
   createServiceContext,
   seedLiveThrough,
   inScope,
+  syncDefinitionSet,
 } from "../../test/fixtures";
 import { runService } from "../lib/run-service";
-import { listBlockDefinitions, syncBlockDefinitions } from "./block-definitions/service";
+import { listBlockDefinitions } from "./block-definitions/service";
 import {
   createRecord,
   getCollectionRecord,
   listCollectionDefinitions,
-  syncCollectionDefinitions,
 } from "./collections/service";
-import { listLayouts, syncLayouts } from "./layouts/service";
+import { listLayouts } from "./layouts/service";
 import { createPage, getPage, listPages, setPageLayout } from "./pages/service";
 
 const contentSchema = {
@@ -49,25 +49,12 @@ function collectionDefinition(collectionId: string) {
 async function setup(suffix: string) {
   const fixture = await createProjectFixture(`definition-names-${suffix}`);
   const ctx = createServiceContext(fixture.db, fixture.memberUser);
-  const release = createServiceContext(fixture.db, null);
-  const scope = {
-    projectSlug: fixture.project.slug,
-    deployToken: "test-deploy-token",
-    autoCreate: false,
-  };
   const sync = async (names: { blocks: string[]; layouts: string[]; collections: string[] }) => {
-    await runService(
-      syncBlockDefinitions(release, { ...scope, definitions: names.blocks.map(blockDefinition) }),
-    );
-    await runService(
-      syncLayouts(release, { ...scope, layouts: names.layouts.map(layoutDefinition) }),
-    );
-    await runService(
-      syncCollectionDefinitions(release, {
-        ...scope,
-        definitions: names.collections.map(collectionDefinition),
-      }),
-    );
+    await syncDefinitionSet(fixture.db, fixture.project, {
+      blocks: names.blocks.map(blockDefinition),
+      layouts: names.layouts.map(layoutDefinition),
+      collections: names.collections.map(collectionDefinition),
+    });
   };
   const definitions = async () => ({
     blocks: await runService(listBlockDefinitions(ctx, { projectId: fixture.project.id })),

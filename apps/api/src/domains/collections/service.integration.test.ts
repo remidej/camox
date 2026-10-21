@@ -1,4 +1,6 @@
+import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import type { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
@@ -6,13 +8,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { collection as articles } from "../../../../playground/src/collections/articles";
 import {
   createProjectFixture,
+  createRpcContext,
   createServiceContext,
   seedLiveThrough,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import type { ServiceError } from "../../lib/errors";
 import type { Journal } from "../../lib/journal";
 import { markdownToLexicalState, plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
+import { router } from "../../router";
 import { files, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { deleteProject } from "../projects/service";
@@ -25,7 +30,6 @@ import {
   getCollectionRecord,
   listCollectionDefinitions,
   listCollectionRecords,
-  syncCollectionDefinitions,
 } from "./service";
 import { collectionDefinitionInput } from "./validation";
 
@@ -56,14 +60,22 @@ async function fixture(suffix: string) {
   const ctx = createServiceContext(base.db, base.memberUser);
   const publicCtx = createServiceContext(base.db, null);
   const scope = { projectSlug: base.project.slug, collectionId: "articles" };
-  const sync = (definitions = [definition]) =>
-    runService(
-      syncCollectionDefinitions(publicCtx, {
+  const sync = async (definitions = [definition]) =>
+    (await syncDefinitionSet(base.db, base.project, { collections: definitions })).collections;
+  /** Dev mode syncs the member's development draft, creating it when `autoCreate` lets it. */
+  const syncDevelopment = (definitions: (typeof definition)[], autoCreate = true) =>
+    call(
+      router.definitions.sync,
+      {
         projectSlug: base.project.slug,
-        deployToken: "test-deploy-token",
-        autoCreate: false,
-        definitions,
-      }),
+        autoCreate,
+        definitionSet: { blocks: [], layouts: [], collections: definitions, homepage: null },
+      },
+      {
+        context: createRpcContext(base.db, base.memberUser, {
+          [DRAFT_HEADER]: DEVELOPMENT_DRAFT,
+        }),
+      },
     );
   const insertFile = (name: string, mimeType = "image/png") =>
     base.db
@@ -86,7 +98,7 @@ async function fixture(suffix: string) {
   const live = <A>(run: (inDraft: ServiceContext) => Effect.Effect<A, ServiceError, Journal>) =>
     seedLiveThrough(ctx, base.project.id, (_draft, inDraft) => run(inDraft));
   await sync();
-  return { ...base, ctx, publicCtx, scope, sync, insertFile, live };
+  return { ...base, ctx, publicCtx, scope, sync, syncDevelopment, insertFile, live };
 }
 
 describe("authenticated collection browsing", () => {
@@ -151,26 +163,14 @@ describe("authenticated collection browsing", () => {
 
     // The development draft has its own definitions, separate from Live's.
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [],
-      }),
-    );
+    await f.syncDevelopment([]);
     await expect(runService(getCollectionDefinition(devCtx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
       title: definition.title,
     });
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: false,
-        definitions: [{ ...definition, title: "Development articles" }],
-      }),
-    );
+    await f.syncDevelopment([{ ...definition, title: "Development articles" }], false);
     expect(await runService(getCollectionDefinition(devCtx, f.scope))).toMatchObject({
       title: "Development articles",
       contentSchema: definition.contentSchema,
@@ -178,13 +178,7 @@ describe("authenticated collection browsing", () => {
     expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
       title: definition.title,
     });
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: false,
-        definitions: [],
-      }),
-    );
+    await f.syncDevelopment([], false);
     await expect(runService(getCollectionDefinition(devCtx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
@@ -214,9 +208,7 @@ describe("authenticated collection browsing", () => {
     ).toEqual([metadata(definition)]);
     // The development draft lists its own definitions; Live keeps its.
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, { ...input, autoCreate: true, definitions: [newer] }),
-    );
+    await f.syncDevelopment([newer]);
     expect(await runService(listCollectionDefinitions(devCtx, input))).toEqual([metadata(newer)]);
     expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([
       metadata(newer),
@@ -294,13 +286,7 @@ describe("authenticated collection browsing", () => {
       await runService(listCollectionRecords(f.ctx, { ...f.scope, collectionId: "other" })),
     ).toEqual([]);
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [definition],
-      }),
-    );
+    await f.syncDevelopment([definition]);
     // Live's records show through in the development draft; its own stay out of Live.
     const live = await runService(listCollectionRecords(f.ctx, f.scope));
     expect(await runService(listCollectionRecords(devCtx, f.scope))).toEqual(live);
@@ -563,11 +549,7 @@ describe("collection record lifecycle", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     // A development draft whose code doesn't define the collection can't reach its records.
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    const syncDevelopment = (autoCreate: boolean, definitions: (typeof definition)[]) =>
-      runService(
-        syncCollectionDefinitions(devCtx, { projectSlug: f.project.slug, autoCreate, definitions }),
-      );
-    await syncDevelopment(true, []);
+    await f.syncDevelopment([]);
     await expect(runService(getCollectionRecord(devCtx, input))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
@@ -575,7 +557,7 @@ describe("collection record lifecycle", () => {
       code: "NOT_FOUND",
     });
     // Once it does, Live's record shows through, and deleting it there leaves Live's in place.
-    await syncDevelopment(false, [definition]);
+    await f.syncDevelopment([definition], false);
     expect(await runService(getCollectionRecord(devCtx, input))).toEqual(record);
     await runService(deleteRecord(devCtx, input));
     await expect(runService(getCollectionRecord(devCtx, input))).rejects.toMatchObject({
@@ -620,24 +602,19 @@ describe("collection record lifecycle", () => {
 
   it("syncs reversibly and authorizes sync", async () => {
     const f = await fixture("sync");
-    await expect(
-      runService(
-        syncCollectionDefinitions(f.publicCtx, {
+    const unauthorizedSync = (user: typeof f.memberUser | null) =>
+      call(
+        router.definitions.sync,
+        {
           projectSlug: f.project.slug,
           autoCreate: false,
-          definitions: [definition],
-        }),
-      ),
-    ).rejects.toThrow();
-    await expect(
-      runService(
-        syncCollectionDefinitions(f.ctx, {
-          projectSlug: f.project.slug,
-          autoCreate: false,
-          definitions: [definition],
-        }),
-      ),
-    ).rejects.toThrow();
+          definitionSet: { blocks: [], layouts: [], collections: [definition], homepage: null },
+        },
+        { context: createRpcContext(f.db, user) },
+      );
+    // Neither anonymous without the deploy token, nor a member naming no development draft.
+    await expect(unauthorizedSync(null)).rejects.toThrow();
+    await expect(unauthorizedSync(f.memberUser)).rejects.toThrow();
     await expect(f.sync([{ ...definition, label: "cover" }])).rejects.toThrow();
     await expect(f.sync([definition, definition])).rejects.toThrow();
     const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));

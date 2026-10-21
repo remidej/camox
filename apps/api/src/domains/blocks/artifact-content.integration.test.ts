@@ -6,10 +6,14 @@ import {
   ARTIFACT_MAX_LENGTH,
   contentFieldBuilder as field,
 } from "../../../../../packages/sdk/src/core/lib/contentType";
-import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  inScope,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { createRepeatableItem, updateRepeatableItemContent } from "../repeatable-items/service";
 import { createBlock, editBlock, updateBlockContent } from "./service";
 
@@ -20,29 +24,29 @@ const tooLarge = `${fits}x`;
 async function fixture(suffix: string) {
   const base = await createProjectFixture(`artifact-${suffix}`);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "visual",
-      title: "Visual",
-      description: "Artifact validation fixture",
-      contentSchema: {
-        type: "object",
-        properties: {
-          visual: field.artifact({ size: "fill" }),
-          scenes: {
-            type: "array",
-            fieldType: "Repeater",
-            items: {
-              type: "object",
-              properties: { scene: field.artifact({ size: "content" }) },
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "visual",
+        title: "Visual",
+        description: "Artifact validation fixture",
+        contentSchema: {
+          type: "object",
+          properties: {
+            visual: field.artifact({ size: "fill" }),
+            scenes: {
+              type: "array",
+              fieldType: "Repeater",
+              items: {
+                type: "object",
+                properties: { scene: field.artifact({ size: "content" }) },
+              },
             },
           },
         },
       },
-    }),
-  );
+    ],
+  });
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)

@@ -12,13 +12,10 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   openDevelopmentDraft,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { upsertBlockDefinition } from "../block-definitions/service";
-import { syncLayouts } from "../layouts/service";
 
 // Adding and removing locales (ADR 0015), as an agent does through the AI tools in its
 // development draft (ADR 0010), and as the studio does through the API.
@@ -38,98 +35,77 @@ async function fixture() {
   const base = await createProjectFixture(`locales-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const { slug: projectSlug, deployToken } = project;
-  const release = createServiceContext(db, null);
-  await runService(
-    upsertBlockDefinition(release, {
-      projectSlug,
-      deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { type: "string", fieldType: "String" },
-          link: {
-            fieldType: "Link",
-            title: "Link",
-            type: "object",
-            properties: {
-              type: { type: "string", enum: ["external", "page"] },
-              text: { type: "string" },
-              href: { type: "string" },
-              pageId: { type: "string" },
-            },
-            default: { type: "external", text: "", href: "" },
-          },
-          items: {
-            type: "array",
-            fieldType: "Repeater",
-            items: {
+  const projectSlug = project.slug;
+  await syncDefinitionSet(db, project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", fieldType: "String" },
+            link: {
+              fieldType: "Link",
+              title: "Link",
               type: "object",
-              properties: { label: { type: "string", fieldType: "String" } },
+              properties: {
+                type: { type: "string", enum: ["external", "page"] },
+                text: { type: "string" },
+                href: { type: "string" },
+                pageId: { type: "string" },
+              },
+              default: { type: "external", text: "", href: "" },
+            },
+            items: {
+              type: "array",
+              fieldType: "Repeater",
+              items: {
+                type: "object",
+                properties: { label: { type: "string", fieldType: "String" } },
+              },
             },
           },
+          toMarkdown: ["# {{title}}"],
         },
-        toMarkdown: ["# {{title}}"],
       },
-    }),
-  );
-  await runService(
-    upsertBlockDefinition(release, {
-      projectSlug,
-      deployToken,
-      blockId: "navbar",
-      title: "Navbar",
-      description: "Navbar",
-      synced: true,
-      contentSchema: {
-        type: "object",
-        properties: { brand: { type: "string", fieldType: "String" } },
-        toMarkdown: ["{{brand}}"],
+      {
+        blockId: "navbar",
+        title: "Navbar",
+        description: "Navbar",
+        synced: true,
+        contentSchema: {
+          type: "object",
+          properties: { brand: { type: "string", fieldType: "String" } },
+          toMarkdown: ["{{brand}}"],
+        },
       },
-    }),
-  );
-  await runService(
-    syncLayouts(release, {
-      projectSlug,
-      deployToken,
-      autoCreate: false,
-      layouts: [
-        {
-          layoutId: base.layout.layoutId,
-          description: "Layout",
-          blocks: [
-            { type: "navbar", slot: "before", content: { brand: "Acme" }, repeatableItems: [] },
-          ],
+    ],
+    layouts: [
+      {
+        layoutId: base.layout.layoutId,
+        description: "Layout",
+        blocks: [
+          { type: "navbar", slot: "before", content: { brand: "Acme" }, repeatableItems: [] },
+        ],
+      },
+    ],
+    collections: [
+      {
+        collectionId: "articles",
+        title: "Articles",
+        description: "",
+        label: "title",
+        contentSchema: {
+          type: "object",
+          properties: { title: { type: "string", fieldType: "String" } },
+          required: ["title"],
+          additionalProperties: false,
         },
-      ],
-    }),
-  );
-  await call(
-    router.collectionDefinitions.sync,
-    {
-      projectSlug,
-      deployToken,
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "articles",
-          title: "Articles",
-          description: "",
-          label: "title",
-          contentSchema: {
-            type: "object",
-            properties: { title: { type: "string", fieldType: "String" } },
-            required: ["title"],
-            additionalProperties: false,
-          },
-        },
-      ],
-    },
-    { context: createRpcContext(db, null) },
-  );
+      },
+    ],
+  });
 
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(db, memberUser, headers),

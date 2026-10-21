@@ -3,7 +3,12 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture, createRpcContext, callSeedingLive } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  callSeedingLive,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import { router } from "../../router";
 import { blockDefinitions, pages } from "../../schema";
 import type { ResolvedReference } from "../content/reader";
@@ -49,36 +54,29 @@ async function fixture() {
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(base.db, base.memberUser, headers),
   });
-  await call(
-    router.collectionDefinitions.sync,
-    {
-      projectSlug,
-      deployToken: base.project.deployToken,
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "authors",
-          title: "Authors",
-          description: "",
-          label: "name",
-          contentSchema: {
-            type: "object",
-            properties: { name: { type: "string", fieldType: "String" } },
-            required: ["name"],
-            additionalProperties: false,
-          },
+  await syncDefinitionSet(base.db, base.project, {
+    collections: [
+      {
+        collectionId: "authors",
+        title: "Authors",
+        description: "",
+        label: "name",
+        contentSchema: {
+          type: "object",
+          properties: { name: { type: "string", fieldType: "String" } },
+          required: ["name"],
+          additionalProperties: false,
         },
-        {
-          collectionId: "articles",
-          title: "Articles",
-          description: "",
-          label: "title",
-          contentSchema: articleSchema,
-        },
-      ],
-    },
-    { context: createRpcContext(base.db, null) },
-  );
+      },
+      {
+        collectionId: "articles",
+        title: "Articles",
+        description: "",
+        label: "title",
+        contentSchema: articleSchema,
+      },
+    ],
+  });
   const page = await base.db
     .insert(pages)
     .values({

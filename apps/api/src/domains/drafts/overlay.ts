@@ -589,6 +589,13 @@ export const nothingPlanned = <A>(result: A): Planned<A> => ({
   result,
 });
 
+/** A plan of statements that write no content entity, so the journal records nothing for them. */
+export const plannedStatements = (...statements: BatchItem[]): Planned<void> => ({
+  statements,
+  changes: [],
+  result: undefined,
+});
+
 /**
  * Collects planned writes into one plan, in order: `add` takes a write's statements and changes
  * and returns its result, `done` closes the plan with its own result.

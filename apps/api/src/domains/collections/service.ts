@@ -3,7 +3,7 @@ import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
+import type { SyncTarget } from "../../authorization";
 import {
   ConflictError,
   decodeInput,
@@ -28,28 +28,27 @@ import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record
 import { collectionDefinitions, collectionRecords } from "./schema";
 import { collectionDefinitionInput, validateContent } from "./validation";
 
-export const syncCollectionDefinitionsInput = z
-  .object({
-    projectSlug: z.string(),
-    deployToken: z.string().optional(),
-    autoCreate: z.boolean(),
-    definitions: z.array(collectionDefinitionInput),
-  })
-  .strict();
+type CollectionDefinitionInput = z.infer<typeof collectionDefinitionInput>;
 
-/** Sync code-defined collection schemas. */
-export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDefinitions")(
-  function* (ctx: ServiceContext, rawInput: z.input<typeof syncCollectionDefinitionsInput>) {
-    const input = yield* decodeInput(syncCollectionDefinitionsInput, rawInput);
-    for (const definition of input.definitions) {
-      definition.contentSchema = JSON.parse(stableStringify(definition.contentSchema));
-    }
-    if (new Set(input.definitions.map((d) => d.collectionId)).size !== input.definitions.length) {
+/**
+ * Fails on collection definitions that can't be synced together, before any write: duplicate ids,
+ * or a reference to a collection not synced alongside. Returns them with their content schemas in
+ * a stable key order.
+ */
+export const validateCollectionDefinitions = Effect.fn("collections.validateDefinitions")(
+  function* (definitions: readonly CollectionDefinitionInput[]) {
+    const normalized = definitions.map((definition) => ({
+      ...definition,
+      contentSchema: JSON.parse(
+        stableStringify(definition.contentSchema),
+      ) as CollectionDefinitionInput["contentSchema"],
+    }));
+    if (new Set(normalized.map((d) => d.collectionId)).size !== normalized.length) {
       return yield* new InvalidInputError({ message: "Duplicate collection IDs" });
     }
     // A collection references only collections synced alongside it.
-    const synced = new Set(input.definitions.map((d) => d.collectionId));
-    for (const definition of input.definitions) {
+    const synced = new Set(normalized.map((d) => d.collectionId));
+    for (const definition of normalized) {
       for (const [key, field] of Object.entries(definition.contentSchema.properties)) {
         if (field.collectionId === undefined || synced.has(field.collectionId)) continue;
         return yield* new InvalidInputError({
@@ -57,76 +56,80 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
         });
       }
     }
-    // A release writes Live; dev mode writes the caller's development draft (ADR 0006).
-    const target = yield* assertSyncAccess(
-      ctx.db,
-      input.projectSlug,
-      { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
-      { create: input.autoCreate },
-    );
-    const { project } = target;
-    const draftId = definitionsDraftOf(target.scope);
-    const scope = and(
-      eq(collectionDefinitions.projectId, project.id),
-      definitionsIn(collectionDefinitions, target.scope),
-    );
-    const hashes = yield* Effect.promise(() =>
-      Promise.all(input.definitions.map((definition) => collectionSchemaHash(definition))),
-    );
-    const existing = yield* Effect.promise(() =>
-      ctx.db.select().from(collectionDefinitions).where(scope),
-    );
-    // Content never blocks a sync: records keep their stored shape and conform on read.
-    // A collection code no longer declares goes. Its records stay stored under its name, hidden
-    // because nothing reads a collection without a definition, and come back with it (ADR 0007).
-    const statements = [
-      ctx.db.delete(collectionDefinitions).where(
-        and(
-          scope,
-          input.definitions.length
-            ? notInArray(
-                collectionDefinitions.collectionId,
-                input.definitions.map((definition) => definition.collectionId),
-              )
-            : undefined,
-        ),
-      ),
-      ...input.definitions.map((definition, index) =>
-        ctx.db
-          .insert(collectionDefinitions)
-          .values({
-            ...definition,
-            schemaHash: hashes[index]!,
-            draftId,
-            projectId: project.id,
-          })
-          .onConflictDoUpdate(
-            draftId === null
-              ? {
-                  target: [collectionDefinitions.projectId, collectionDefinitions.collectionId],
-                  targetWhere: sql`${collectionDefinitions.draftId} is null`,
-                  set: { ...definition, schemaHash: hashes[index]! },
-                }
-              : {
-                  target: [collectionDefinitions.draftId, collectionDefinitions.collectionId],
-                  targetWhere: sql`${collectionDefinitions.draftId} is not null`,
-                  set: { ...definition, schemaHash: hashes[index]! },
-                },
-          ),
-      ),
-    ] as const;
-    yield* Effect.promise(() => ctx.db.batch(statements));
-    yield* recordDefinitionsSynced(ctx.db, target);
-    return {
-      count: input.definitions.length,
-      retired: existing
-        .filter(
-          (d) => !input.definitions.some((incoming) => incoming.collectionId === d.collectionId),
-        )
-        .map((d) => d.collectionId),
-    };
+    return normalized;
   },
 );
+
+/**
+ * Plans replacing the code-defined collection schemas of a sync's target: Live for a release, the
+ * development draft for dev mode (ADR 0006). Tells which collections it retires.
+ */
+export const planCollectionDefinitions = Effect.fn("collections.planDefinitions")(function* (
+  ctx: ServiceContext,
+  target: Pick<SyncTarget, "project" | "scope">,
+  definitions: readonly CollectionDefinitionInput[],
+) {
+  const { project } = target;
+  const draftId = definitionsDraftOf(target.scope);
+  const scope = and(
+    eq(collectionDefinitions.projectId, project.id),
+    definitionsIn(collectionDefinitions, target.scope),
+  );
+  const hashes = yield* Effect.promise(() =>
+    Promise.all(definitions.map((definition) => collectionSchemaHash(definition))),
+  );
+  const existing = yield* Effect.promise(() =>
+    ctx.db.select().from(collectionDefinitions).where(scope),
+  );
+  // Content never blocks a sync: records keep their stored shape and conform on read.
+  // A collection code no longer declares goes. Its records stay stored under its name, hidden
+  // because nothing reads a collection without a definition, and come back with it (ADR 0007).
+  const planned = overlay.plannedStatements(
+    ctx.db.delete(collectionDefinitions).where(
+      and(
+        scope,
+        definitions.length
+          ? notInArray(
+              collectionDefinitions.collectionId,
+              definitions.map((definition) => definition.collectionId),
+            )
+          : undefined,
+      ),
+    ),
+    ...definitions.map((definition, index) =>
+      ctx.db
+        .insert(collectionDefinitions)
+        .values({
+          ...definition,
+          schemaHash: hashes[index]!,
+          draftId,
+          projectId: project.id,
+        })
+        .onConflictDoUpdate(
+          draftId === null
+            ? {
+                target: [collectionDefinitions.projectId, collectionDefinitions.collectionId],
+                targetWhere: sql`${collectionDefinitions.draftId} is null`,
+                set: { ...definition, schemaHash: hashes[index]! },
+              }
+            : {
+                target: [collectionDefinitions.draftId, collectionDefinitions.collectionId],
+                targetWhere: sql`${collectionDefinitions.draftId} is not null`,
+                set: { ...definition, schemaHash: hashes[index]! },
+              },
+        ),
+    ),
+  );
+  return {
+    ...planned,
+    result: {
+      count: definitions.length,
+      retired: existing
+        .filter((d) => !definitions.some((incoming) => incoming.collectionId === d.collectionId))
+        .map((d) => d.collectionId),
+    },
+  };
+});
 
 export const listCollectionDefinitionsInput = z.object({ projectSlug: z.string() }).strict();
 export const listCollectionRecordsInput = listCollectionDefinitionsInput.extend({

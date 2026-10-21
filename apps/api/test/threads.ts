@@ -15,7 +15,6 @@ import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 
 import type { createDb } from "../src/db";
-import { upsertBlockDefinition } from "../src/domains/block-definitions/service";
 import { blockProcedures } from "../src/domains/blocks/routes";
 import { draftProcedures } from "../src/domains/drafts/routes";
 import { pageProcedures } from "../src/domains/pages/routes";
@@ -26,13 +25,12 @@ import {
   THREAD_SENDER_HEADER,
 } from "../src/durable-objects/thread";
 import app from "../src/index";
-import { runService } from "../src/lib/run-service";
 import { drafts, session } from "../src/schema";
 import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
+  syncDefinitionSet,
 } from "./fixtures";
 
 /** Signs `userId` in, returning the bearer token the studio would send. */
@@ -252,23 +250,22 @@ export async function ask(
   return thread.view();
 }
 
+/** The text block every page of `websiteFixture` holds. */
+export const textDefinition = {
+  blockId: "text",
+  title: "Text",
+  description: "A paragraph",
+  contentSchema: {
+    type: "object",
+    toMarkdown: ["{{body}}"],
+    properties: { body: { type: "string", fieldType: "String" } },
+  },
+};
+
 /** A project whose Live website has a page per `pages` entry, each with a text block. */
 export async function websiteFixture(pages: Record<string, string>) {
   const base = await createProjectFixture(crypto.randomUUID());
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "text",
-      title: "Text",
-      description: "A paragraph",
-      contentSchema: {
-        type: "object",
-        toMarkdown: ["{{body}}"],
-        properties: { body: { type: "string", fieldType: "String" } },
-      },
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, { blocks: [textDefinition] });
   const options = { context: createRpcContext(base.db, base.memberUser) };
   for (const [pathSegment, body] of Object.entries(pages)) {
     const { page } = await callSeedingLive(

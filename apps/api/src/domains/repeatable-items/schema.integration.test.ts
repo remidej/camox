@@ -1,10 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  inScope,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, drafts, layouts, pages, repeatableItems } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import {
   createRepeatableItem,
   deleteRepeatableItem,
@@ -32,37 +36,37 @@ const child = {
 async function fixture(suffix: string) {
   const base = await createProjectFixture(`direct-schema-${suffix}`);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "list",
-      title: "List",
-      description: "Direct item validation",
-      contentSchema: {
-        type: "object",
-        properties: {
-          entries: {
-            type: "array",
-            fieldType: "Repeater",
-            minItems: 1,
-            maxItems: 2,
-            itemSettingsSchema: settingsSchema,
-            items: {
-              type: "object",
-              required: ["title", "count"],
-              properties: {
-                title: { type: "string", default: "Entry" },
-                count: { type: "number", minimum: 0 },
-                children: child,
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "list",
+        title: "List",
+        description: "Direct item validation",
+        contentSchema: {
+          type: "object",
+          properties: {
+            entries: {
+              type: "array",
+              fieldType: "Repeater",
+              minItems: 1,
+              maxItems: 2,
+              itemSettingsSchema: settingsSchema,
+              items: {
+                type: "object",
+                required: ["title", "count"],
+                properties: {
+                  title: { type: "string", default: "Entry" },
+                  count: { type: "number", minimum: 0 },
+                  children: child,
+                },
+                allOf: [{ properties: { title: { minLength: 2 } } }],
               },
-              allOf: [{ properties: { title: { minLength: 2 } } }],
             },
           },
         },
       },
-    }),
-  );
+    ],
+  });
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)
