@@ -53,25 +53,32 @@ export async function createPreviewSignInUrl(
     throw new Error("Preview requires an http(s) loopback URL without credentials.");
   }
   installLocalhostDns(new URL(target.apiUrl).hostname);
-  const response = await fetch(`${normalizeUrl(target.apiUrl)}/api/auth/one-time-token/generate`, {
-    headers: { Authorization: `Bearer ${authToken}` },
-    redirect: "error",
-    signal,
-  });
+  url.searchParams.set(
+    "camox-preview",
+    JSON.stringify({ ...target, apiUrl: normalizeUrl(target.apiUrl) }),
+  );
+  // The API checks the callback, and the session it signs in there is the studio's alone.
+  const response = await fetch(
+    `${normalizeUrl(target.apiUrl)}/api/auth/cross-domain/studio-authorize`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ callback: url.href }),
+      redirect: "error",
+      signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Could not create preview sign-in (${response.status}). Check your session with camox login.`,
     );
   }
-  const data = (await response.json()) as { token?: unknown };
-  if (typeof data.token !== "string" || !data.token) {
+  const data = (await response.json()) as { url?: unknown };
+  const token = typeof data.url === "string" ? URL.parse(data.url)?.searchParams.get("ott") : null;
+  if (!token) {
     throw new Error("Authentication backend returned no one-time token.");
   }
-  url.searchParams.set(
-    "camox-preview",
-    JSON.stringify({ ...target, apiUrl: normalizeUrl(target.apiUrl) }),
-  );
-  url.searchParams.set("ott", data.token);
+  url.searchParams.set("ott", token);
   return url.href;
 }
 

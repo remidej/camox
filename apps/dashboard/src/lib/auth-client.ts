@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeader } from "@tanstack/react-start/server";
-import { oneTimeTokenClient, organizationClient } from "better-auth/client/plugins";
+import { organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
 import { apiFetch } from "./api-fetch";
@@ -12,7 +12,7 @@ export const authClient = createAuthClient({
     import.meta.env.DEV && import.meta.env.SSR,
   ),
   fetchOptions: { customFetchImpl: apiFetch },
-  plugins: [organizationClient(), oneTimeTokenClient()],
+  plugins: [organizationClient()],
 });
 
 export const { useSession, signIn, signUp, signOut } = authClient;

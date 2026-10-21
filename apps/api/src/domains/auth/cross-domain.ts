@@ -3,12 +3,14 @@ import {
   APIError,
   createAuthEndpoint,
   createAuthMiddleware,
+  getSessionFromCtx,
   sessionMiddleware,
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { generateRandomString } from "better-auth/crypto";
-import { oneTimeToken as oneTimeTokenPlugin } from "better-auth/plugins";
 import { z } from "zod";
+
+import { isLocalCallback } from "./studio-hosts";
 
 export function resolveCallbackURL(
   callbackURL: string | undefined,
@@ -21,6 +23,72 @@ export function resolveCallbackURL(
   if (!baseURL) return callbackURL;
 
   return new URL(callbackURL, baseURL).toString();
+}
+
+/** How long a one-time token waits to be exchanged. */
+const ONE_TIME_TOKEN_TTL_MS = 3 * 60 * 1000;
+
+const STUDIO_SESSION_REFUSED = "A studio session can't sign anything else in";
+
+const oneTimeTokenIdentifier = (token: string) => `one-time-token:${token}`;
+
+/** What a one-time token exchanges for: a new session of the minting session's user. */
+const grantSchema = z.object({ sessionToken: z.string(), studio: z.boolean() });
+type Grant = z.infer<typeof grantSchema>;
+
+function parseGrant(value: string): Grant | null {
+  try {
+    return grantSchema.parse(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a session is the studio's on a site, whose scripts can read it. It mints no one-time
+ * tokens and reads no other session, so revoking it signs the user out of that site alone.
+ */
+function isStudioSession(session: object | undefined) {
+  return Boolean(session && "studio" in session && session.studio);
+}
+
+/**
+ * An endpoint that hands the signed-in user's `callback` a one-time token, when `isAllowed` accepts
+ * it, as the callback URL with `?ott=`. `studio` makes the token exchange for a studio session.
+ */
+function authorizeCallback<Path extends string>(
+  path: Path,
+  {
+    isAllowed,
+    studio,
+  }: { isAllowed: (callback: URL, userId: string) => Promise<boolean>; studio: boolean },
+) {
+  return createAuthEndpoint(
+    path,
+    {
+      method: "POST",
+      body: z.object({ callback: z.string() }),
+      use: [sessionMiddleware],
+    },
+    async (ctx) => {
+      const { session, user } = ctx.context.session;
+      if (isStudioSession(session)) {
+        throw new APIError("FORBIDDEN", { message: STUDIO_SESSION_REFUSED });
+      }
+      const callback = URL.parse(ctx.body.callback);
+      if (!callback || !(await isAllowed(callback, user.id))) {
+        throw new APIError("FORBIDDEN", { message: "Camox can't sign in at this callback" });
+      }
+      const token = generateRandomString(32);
+      await ctx.context.internalAdapter.createVerificationValue({
+        value: JSON.stringify({ sessionToken: session.token, studio } satisfies Grant),
+        identifier: oneTimeTokenIdentifier(token),
+        expiresAt: new Date(Date.now() + ONE_TIME_TOKEN_TTL_MS),
+      });
+      callback.searchParams.set("ott", token);
+      return ctx.json({ url: callback.toString() });
+    },
+  );
 }
 
 /**
@@ -36,12 +104,11 @@ export function resolveCallbackURL(
  *    `Set-Better-Auth-Cookie` header so the client can persist them in
  *    localStorage.
  * 3. Rewriting relative callback URLs to absolute URLs using `siteUrl`.
- * 4. Generating a one-time token after OAuth callbacks and redirecting
- *    to the site with `?ott=<token>` so the frontend can exchange it
- *    for a session.
- * 5. Handing the studio a one-time token only for a host `isStudioHost`
- *    accepts, and exchanging one-time tokens for a new session of their
- *    own, so a site's session signs out and is revoked on its own.
+ * 4. Handing one-time tokens only to callbacks the API checks: the studio's
+ *    on a host `isStudioHost` accepts, or the CLI's and dev servers' on this
+ *    computer. Each token exchanges for a new session of its own, so a site's
+ *    session signs out and is revoked on its own, and a studio session, which
+ *    the site's scripts can read, can't mint more.
  *
  * Adapted from `@convex-dev/better-auth/plugins/cross-domain`.
  */
@@ -53,8 +120,6 @@ export function crossDomain({
   /** Whether the studio at this callback may get a session for this user. */
   isStudioHost: (callback: URL, userId: string) => Promise<boolean>;
 }) {
-  const oneTimeToken = oneTimeTokenPlugin();
-
   const getRequestOrigin = (ctx: { headers?: Headers; request?: Request }) => {
     return ctx.request?.headers.get("origin") ?? ctx.headers?.get("origin") ?? undefined;
   };
@@ -148,37 +213,14 @@ export function crossDomain({
           ctx.setHeader("Set-Better-Auth-Cookie", setCookie);
         }),
       },
-      // After OAuth / magic-link callbacks, generate a one-time token and
-      // redirect to the site URL with `?ott=<token>`
+      // A studio session's scripts could read the tokens of the user's other sessions, the
+      // dashboard's among them, which would outlive revoking the studio's.
       {
-        matcher: (ctx) =>
-          Boolean(
-            (ctx.path?.startsWith("/callback") ||
-              ctx.path?.startsWith("/oauth2/callback") ||
-              ctx.path?.startsWith("/magic-link/verify")) &&
-            !isExpoNative(ctx),
-          ),
+        matcher: (ctx) => ctx.path === "/list-sessions",
         handler: createAuthMiddleware(async (ctx) => {
-          const session = ctx.context.newSession;
-          if (!session) {
-            ctx.context.logger.error("No session found");
-            return;
+          if (isStudioSession((await getSessionFromCtx(ctx))?.session)) {
+            throw new APIError("FORBIDDEN", { message: STUDIO_SESSION_REFUSED });
           }
-          const token = generateRandomString(32);
-          const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
-          await ctx.context.internalAdapter.createVerificationValue({
-            value: session.session.token,
-            identifier: `one-time-token:${token}`,
-            expiresAt,
-          });
-          const redirectTo = ctx.context.responseHeaders?.get("location");
-          if (!redirectTo) {
-            ctx.context.logger.error("No redirect to found");
-            return;
-          }
-          const url = new URL(redirectTo);
-          url.searchParams.set("ott", token);
-          throw ctx.redirect(url.toString());
         }),
       },
     ],
@@ -204,35 +246,31 @@ export function crossDomain({
       };
     },
     hooks,
+    schema: {
+      session: {
+        fields: {
+          studio: { type: "boolean", required: false, input: false },
+        },
+      },
+    },
     endpoints: {
-      generateOneTimeToken: oneTimeToken.endpoints.generateOneTimeToken,
       /**
-       * What the dashboard's /studio-authorize page calls: the studio's callback URL with a
-       * one-time token, when the signed-in user may use the studio on its host.
+       * What the dashboard's /studio-authorize page and `camox preview` call: the studio's callback
+       * URL with a one-time token, when the signed-in user may use the studio on its host. The
+       * token exchanges for a studio session.
        */
-      authorizeStudio: createAuthEndpoint(
-        "/cross-domain/studio-authorize",
-        {
-          method: "POST",
-          body: z.object({ callback: z.string() }),
-          use: [sessionMiddleware],
-        },
-        async (ctx) => {
-          const { session, user } = ctx.context.session;
-          const callback = URL.parse(ctx.body.callback);
-          if (!callback || !(await isStudioHost(callback, user.id))) {
-            throw new APIError("FORBIDDEN", { message: "The studio can't sign in on this host" });
-          }
-          const token = generateRandomString(32);
-          await ctx.context.internalAdapter.createVerificationValue({
-            value: session.token,
-            identifier: `one-time-token:${token}`,
-            expiresAt: new Date(Date.now() + 3 * 60 * 1000),
-          });
-          callback.searchParams.set("ott", token);
-          return ctx.json({ url: callback.toString() });
-        },
-      ),
+      authorizeStudio: authorizeCallback("/cross-domain/studio-authorize", {
+        isAllowed: isStudioHost,
+        studio: true,
+      }),
+      /**
+       * What the dashboard's /cli-authorize and /dev-authorize pages call: a callback on this
+       * computer, the CLI's or a dev server's, with a one-time token for a session of their own.
+       */
+      authorizeLocal: authorizeCallback("/cross-domain/local-authorize", {
+        isAllowed: async (callback) => isLocalCallback(callback),
+        studio: false,
+      }),
       /**
        * Exchanges a one-time token for a new session of the token's user, rather than the session
        * that minted it: signing out where it lands leaves the dashboard signed in.
@@ -245,15 +283,20 @@ export function crossDomain({
         },
         async (ctx) => {
           const verification = await ctx.context.internalAdapter.consumeVerificationValue(
-            `one-time-token:${ctx.body.token}`,
+            oneTimeTokenIdentifier(ctx.body.token),
           );
-          if (!verification) throw new APIError("BAD_REQUEST", { message: "Invalid token" });
-          const minting = await ctx.context.internalAdapter.findSession(verification.value);
-          if (!minting || minting.session.expiresAt < new Date()) {
+          const grant = verification && parseGrant(verification.value);
+          if (!grant) throw new APIError("BAD_REQUEST", { message: "Invalid token" });
+          const mintingSession = await ctx.context.internalAdapter.findSession(grant.sessionToken);
+          if (!mintingSession || mintingSession.session.expiresAt < new Date()) {
             throw new APIError("BAD_REQUEST", { message: "Session expired" });
           }
-          const session = await ctx.context.internalAdapter.createSession(minting.user.id);
-          const signedIn = { session, user: minting.user };
+          const session = await ctx.context.internalAdapter.createSession(
+            mintingSession.user.id,
+            false,
+            grant.studio ? { studio: true } : undefined,
+          );
+          const signedIn = { session, user: mintingSession.user };
           await setSessionCookie(ctx, signedIn);
           return ctx.json(signedIn);
         },

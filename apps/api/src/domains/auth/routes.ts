@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import slugify from "slugify";
 
 import type { Database } from "../../db";
+import { isLoopbackHostname } from "../../lib/loopback";
 import {
   user,
   session,
@@ -45,8 +46,7 @@ export function getCookieDomain(siteUrl: string): string | undefined {
   try {
     const siteHost = new URL(siteUrl).hostname;
     // Worktrees share cookies across ports, never across checkout hostnames.
-    if (siteHost === "localhost" || siteHost.endsWith(".localhost")) return undefined;
-    if (siteHost === "127.0.0.1" || siteHost === "[::1]") return undefined;
+    if (isLoopbackHostname(siteHost)) return undefined;
     if (siteHost === "camox.dev" || siteHost.endsWith(".camox.dev")) return ".camox.dev";
     return `.${siteHost}`;
   } catch {

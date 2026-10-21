@@ -23,20 +23,21 @@ export const Route = createFileRoute("/_app/_auth/_authorize/cli-authorize")({
 
 function CliAuthorizePage() {
   const { callback } = Route.useSearch();
-  const [status, setStatus] = useState<"idle" | "authorizing" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "authorizing" | "refused" | "error">("idle");
 
   async function handleAuthorize() {
     setStatus("authorizing");
     try {
-      const result = await authClient.oneTimeToken.generate();
-      const token = result?.data?.token;
-      if (!token) {
-        setStatus("error");
+      // The API only hands a token to a callback on this computer, where the CLI listens.
+      const { data, error } = await authClient.$fetch<{ url: string }>(
+        "/cross-domain/local-authorize",
+        { method: "POST", body: { callback } },
+      );
+      if (data?.url) {
+        window.location.href = data.url;
         return;
       }
-      const url = new URL(callback);
-      url.searchParams.set("ott", token);
-      window.location.href = url.toString();
+      setStatus(error?.status === 403 ? "refused" : "error");
     } catch {
       setStatus("error");
     }
@@ -53,11 +54,20 @@ function CliAuthorizePage() {
           The Camox CLI is requesting permission to perform actions on your behalf.
         </p>
       </div>
-      {status === "error" ? (
+      {status === "refused" ? (
+        <p className="text-destructive text-sm">
+          This link doesn&apos;t lead back to the Camox CLI on this computer. Run the CLI command
+          again.
+        </p>
+      ) : status === "error" ? (
         <p className="text-destructive text-sm">Something went wrong. Please try again.</p>
       ) : null}
       <div className="flex w-full flex-col gap-2">
-        <Button onClick={handleAuthorize} disabled={status === "authorizing"} className="w-full">
+        <Button
+          onClick={handleAuthorize}
+          disabled={status === "authorizing" || status === "refused"}
+          className="w-full"
+        >
           {status === "authorizing" ? "Authorizing…" : "Authorize"}
         </Button>
       </div>

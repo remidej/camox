@@ -1,9 +1,8 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { createProjectFixture, createSessionFixture } from "../../../test/fixtures";
 import { createDb } from "../../db";
-import { session } from "../../schema";
 import type { Bindings } from "../../types";
 import { createAuth, getCookieDomain } from "./routes";
 
@@ -30,19 +29,10 @@ describe("organization invitations", () => {
     const suffix = crypto.randomUUID();
     const { memberUser, project } = await createProjectFixture(suffix);
     const db = createDb(env.DB);
-    const sessionToken = `session-${suffix}`;
-    const send = vi.fn().mockResolvedValue({});
-    const now = new Date();
-
-    await db.insert(session).values({
-      id: `session-id-${suffix}`,
-      token: sessionToken,
-      userId: memberUser.id,
+    const sessionToken = await createSessionFixture(memberUser.id, {
       activeOrganizationId: project.organizationId,
-      expiresAt: new Date(now.getTime() + 60_000),
-      createdAt: now,
-      updatedAt: now,
     });
+    const send = vi.fn().mockResolvedValue({});
 
     const auth = createAuth(
       db,
