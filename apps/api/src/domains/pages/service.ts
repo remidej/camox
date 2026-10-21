@@ -45,11 +45,11 @@ function deriveDefaultPageNickname(pathSegment: string) {
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
-export const getPageByPathInput = namingProject({ path: z.string() });
-export const getPageStructureInput = namingProject({ path: z.string() });
+export const getPageByPathInput = namingProject(z.object({ path: z.string() }));
+export const getPageStructureInput = namingProject(z.object({ path: z.string() }));
 export const listPagesInput = z.object({ projectId: z.number() });
 /** A project's pages, by Project ID despite the name: the slug is ADR 0019's bridge. */
-export const listPagesBySlugInput = namingProject({});
+export const listPagesBySlugInput = namingProject(z.object({}));
 export const getPageInput = z.union([
   z.object({ id: uuidv7Schema }),
   z.object({ projectId: z.number(), path: z.string() }),

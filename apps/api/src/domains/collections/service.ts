@@ -22,7 +22,7 @@ import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type AccessMode, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { ReadScope } from "../drafts/scope";
-import { namesOneProject, projectNames, projectRefOf, type ProjectRef } from "../projects/ref";
+import { namingProject, projectRefOf, type ProjectRef } from "../projects/ref";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { recordsOf } from "./identity";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
@@ -146,19 +146,16 @@ export const collectionFields = {
   createRecord: inCollectionFields.extend({ id: uuidv7Schema.optional(), content: z.unknown() }),
   editRecord: recordFields.extend({ content: z.unknown() }),
 };
-/** `fields`, naming their project. */
-const naming = <S extends z.ZodRawShape>(fields: z.ZodObject<S, z.core.$strict>) =>
-  namesOneProject(fields.extend(projectNames));
 
-export const listCollectionDefinitionsInput = naming(collectionFields.list);
-export const listCollectionRecordsInput = naming(inCollectionFields);
+export const listCollectionDefinitionsInput = namingProject(collectionFields.list);
+export const listCollectionRecordsInput = namingProject(inCollectionFields);
 export const getCollectionDefinitionInput = listCollectionRecordsInput;
 const scopeInput = listCollectionRecordsInput;
-const recordInput = naming(recordFields);
+const recordInput = namingProject(recordFields);
 export const getCollectionRecordInput = recordInput;
 export const getRecordUsageCountInput = recordInput;
-export const createRecordInput = naming(collectionFields.createRecord);
-export const editRecordInput = naming(collectionFields.editRecord);
+export const createRecordInput = namingProject(collectionFields.createRecord);
+export const editRecordInput = namingProject(collectionFields.editRecord);
 export const deleteRecordInput = recordInput;
 
 type Definition = typeof collectionDefinitions.$inferSelect;
@@ -401,8 +398,8 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
 });
 
 const pageValueFields = inCollectionFields.extend({ field: z.string() });
-export const listRecordPageValuesInput = naming(pageValueFields);
-export const findRecordsByFieldInput = naming(pageValueFields.extend({ value: z.string() }));
+export const listRecordPageValuesInput = namingProject(pageValueFields);
+export const findRecordsByFieldInput = namingProject(pageValueFields.extend({ value: z.string() }));
 
 /**
  * Each record with its String field's plain text, when that text can be a path segment, and its
@@ -472,7 +469,7 @@ export const listRecordPageValues = Effect.fn("collections.listRecordPageValues"
   );
 });
 
-export const recordMarkdownInput = naming(
+export const recordMarkdownInput = namingProject(
   recordFields.extend({ toMarkdown: z.array(z.string().max(10_000)).max(200) }),
 );
 

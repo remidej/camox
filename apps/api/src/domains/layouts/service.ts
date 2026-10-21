@@ -26,7 +26,7 @@ import { LAYOUT_KINDS, type RecordPages } from "./schema";
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
-export const getLayoutInput = namingProject({ layoutId: z.string() });
+export const getLayoutInput = namingProject(z.object({ layoutId: z.string() }));
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
 

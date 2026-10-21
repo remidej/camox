@@ -11,33 +11,31 @@ import { projects } from "./schema";
  */
 export type ProjectRef = { projectUuid: string } | { projectSlug: string };
 
-type ProjectNames = { projectUuid?: string; projectSlug?: string };
+/** The names of a project an input holds, once checked to be exactly one. */
+type OneProjectName =
+  | { projectUuid: string; projectSlug?: undefined }
+  | { projectUuid?: undefined; projectSlug: string };
 
-/** The fields an input names its project by: exactly one of them, `namesOneProject` checks. */
-export const projectNames = {
-  projectUuid: projectIdSchema.optional(),
-  projectSlug: z.string().optional(),
+/** `fields`, naming one project by exactly one of its Project ID and its Project Slug. */
+export const namingProject = <S extends z.ZodRawShape, C extends z.core.$ZodObjectConfig>(
+  fields: z.ZodObject<S, C>,
+) => {
+  const named = fields.extend({
+    projectUuid: projectIdSchema.optional(),
+    projectSlug: z.string().optional(),
+  });
+  return named.refine(
+    (input): input is z.output<typeof named> & OneProjectName =>
+      (input.projectUuid === undefined) !== (input.projectSlug === undefined),
+    "Name the project by exactly one of its Project ID (projectUuid) and its Project Slug",
+  );
 };
 
-/** Whether `names` holds exactly one name of a project. */
-export const isOneProject = ({ projectUuid, projectSlug }: ProjectNames) =>
-  (projectUuid === undefined) !== (projectSlug === undefined);
-
-export const oneProjectError = {
-  message: "Name the project by exactly one of its Project ID (projectUuid) and its Project Slug",
-};
-
-/** `schema`, holding `projectNames`, requiring exactly one of them. */
-export const namesOneProject = <S extends z.ZodType>(schema: S) =>
-  schema.refine((input) => isOneProject(input as ProjectNames), oneProjectError) as S;
-
-/** An input naming one project (see `ProjectRef`), with `shape`. */
-export const namingProject = <S extends z.ZodRawShape>(shape: S) =>
-  namesOneProject(z.object({ ...projectNames, ...shape }));
-
-/** The project an input `namesOneProject` names. */
-export const projectRefOf = ({ projectUuid, projectSlug }: ProjectNames): ProjectRef =>
-  projectUuid === undefined ? { projectSlug: projectSlug! } : { projectUuid };
+/** The project an input `namingProject` checked names. */
+export const projectRefOf = (names: OneProjectName): ProjectRef =>
+  names.projectUuid === undefined
+    ? { projectSlug: names.projectSlug }
+    : { projectUuid: names.projectUuid };
 
 /** The condition selecting the project `ref` names. */
 export const projectNamed = (ref: ProjectRef) =>

@@ -44,7 +44,10 @@ const tagSchema = z
   .describe('A BCP 47 language tag, such as "de" or "pt-BR".');
 
 /** A project by its internal id, or as a website's code names it. */
-export const listLocalesInput = z.union([z.object({ projectId: z.number() }), namingProject({})]);
+export const listLocalesInput = z.union([
+  z.object({ projectId: z.number() }),
+  namingProject(z.object({})),
+]);
 export const addLocaleInput = z.object({ projectId: z.number(), tag: tagSchema });
 export const removeLocaleInput = z.object({ projectId: z.number(), tag: tagSchema });
 export const setDefaultLocaleTagInput = z.object({ projectId: z.number(), tag: tagSchema });

@@ -77,7 +77,7 @@ const repeatableItemSeedSchema = z.object({
 
 export const getBlockInput = z.object({ id: uuidv7Schema });
 export const getPageMarkdownInput = z.object({ pageId: uuidv7Schema });
-export const getLayoutMarkdownInput = namingProject({ layoutId: z.string() });
+export const getLayoutMarkdownInput = namingProject(z.object({ layoutId: z.string() }));
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
 // A Block Definition within a project.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });

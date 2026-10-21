@@ -32,11 +32,13 @@ export const definitionSetInput = z.object({
   homepage: homepageInput.nullable(),
 });
 
-export const syncDefinitionsInput = namingProject({
-  deployToken: z.string().optional(),
-  autoCreate: z.boolean(),
-  definitionSet: definitionSetInput,
-});
+export const syncDefinitionsInput = namingProject(
+  z.object({
+    deployToken: z.string().optional(),
+    autoCreate: z.boolean(),
+    definitionSet: definitionSetInput,
+  }),
+);
 
 // --- Writes ---
 
