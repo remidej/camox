@@ -35,7 +35,7 @@ before(async () => {
     const input = body ? JSON.parse(body).json : undefined;
     calls.push({ url: req.url, headers: req.headers, input });
     res.setHeader("Content-Type", "application/json");
-    if (req.url.startsWith("/rpc/projects/getBySlug")) {
+    if (req.url.startsWith("/rpc/projects/getBy")) {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }
@@ -62,7 +62,7 @@ before(async () => {
   await writeFile(
     join(home, "node_modules/.camox/runtime.json"),
     JSON.stringify({
-      projectSlug: "test",
+      projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
       apiUrl: origin,
       authenticationUrl: origin,
       disableTelemetry: true,

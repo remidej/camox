@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { useProjectSlug } from "../../lib/auth";
+import { useProjectUuid } from "../../lib/auth";
 import { NormalizedDataProvider, usePageBlocks } from "../../lib/normalized-data";
 import { reads, useRead } from "../../lib/studio-reads";
 import { useLocalePath } from "../../lib/view-locale";
@@ -42,9 +42,9 @@ function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout"
 /** A curated page as visitors see it, without editing. */
 export function CuratedPageContent() {
   const pathname = useLocalePath();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const camoxApp = useCamoxApp();
-  const pageData = useRead(reads.pageStructure({ path: pathname, projectSlug }));
+  const pageData = useRead(reads.pageStructure({ path: pathname, projectUuid }));
   const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } =
     usePageBlocks(pageData);
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;

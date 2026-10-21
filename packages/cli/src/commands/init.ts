@@ -55,9 +55,12 @@ class CommandError extends Error {
   }
 }
 
-/** Replaces the template's placeholder slug, marked by a comment the CLI drops. */
-function replaceProjectSlug(source: string, slug: string) {
-  return source.replace(/"[^"]*"(,?)[ \t]*\/\/[ \t]*camox-cli:replace-slug.*$/gm, `"${slug}"$1`);
+/** Replaces the template's placeholder Project ID, marked by a comment the CLI drops. */
+function replaceProjectId(source: string, projectId: string) {
+  return source.replace(
+    /"[^"]*"(,?)[ \t]*\/\/[ \t]*camox-cli:replace-project-id.*$/gm,
+    `"${projectId}"$1`,
+  );
 }
 
 function onCancel() {
@@ -261,7 +264,7 @@ export async function init() {
   // Create project on API
   const s0 = p.spinner();
   s0.start("Creating project...");
-  let project: { slug: string };
+  let project: { slug: string; uuid: string };
   try {
     project = await createProject(auth.token, name, projectSlug, orgId);
     s0.stop(`Project created with slug: ${project.slug}`);
@@ -297,8 +300,8 @@ export async function init() {
   // a real app in the monorepo) marked with comments that the CLI processes.
   const viteConfigPath = path.join(targetDir, "vite.config.ts");
   let viteConfig = fs.readFileSync(viteConfigPath, "utf-8");
-  // Replace the placeholder slug with the user's project slug, dropping the marker comment.
-  viteConfig = replaceProjectSlug(viteConfig, project.slug);
+  // Replace the placeholder Project ID with the new project's, dropping the marker comment.
+  viteConfig = replaceProjectId(viteConfig, project.uuid);
   // Strip dev-only blocks (e.g. _internal apiUrl/authenticationUrl pointing at local services).
   viteConfig = viteConfig.replace(
     /^[ \t]*\/\/[ \t]*camox-cli:dev-only-start[ \t]*\r?\n[\s\S]*?^[ \t]*\/\/[ \t]*camox-cli:dev-only-end[ \t]*\r?\n/gm,
@@ -306,11 +309,11 @@ export async function init() {
   );
   fs.writeFileSync(viteConfigPath, viteConfig);
 
-  // The Worker is named after the project.
+  // The Worker is named the project's Project ID, which the dispatch Worker calls.
   const wranglerConfigPath = path.join(targetDir, "wrangler.jsonc");
   fs.writeFileSync(
     wranglerConfigPath,
-    replaceProjectSlug(fs.readFileSync(wranglerConfigPath, "utf-8"), project.slug),
+    replaceProjectId(fs.readFileSync(wranglerConfigPath, "utf-8"), project.uuid),
   );
 
   // Rewrite package.json: the template ships with workspace placeholders

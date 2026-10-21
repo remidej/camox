@@ -54,7 +54,7 @@ void test("preview authenticates before loading the page", async (t) => {
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
       pageClientEntryUrl: "/client.js",
       renderPage: async (input) => {
         assert.equal(input.previewHandoff, true);
@@ -79,7 +79,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     calls.push(path);
-    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (path.endsWith("/getByUuid")) return Response.json({ json: project });
     if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath")) {
       const body = (await request.json()) as { json: { path: string } };
@@ -120,7 +120,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () => app,
     stylesheetUrl: "/site.css",
     studioStylesheetUrl: "/studio.css",
@@ -215,7 +215,7 @@ void test("visitors and members load the same curated page, and only members wit
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/getBySlug")) {
+    if (path.endsWith("/getByUuid")) {
       assert.match(
         request.headers.get("Better-Auth-Cookie") ?? "",
         /^(?:__Secure-)?better-auth.session_token=valid$/,
@@ -225,7 +225,7 @@ void test("visitors and members load the same curated page, and only members wit
     if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath")) {
       const { json: input } = (await request.json()) as { json: { path: string } };
-      assert.deepEqual(input, { path: "/new-curated-page", projectSlug: "test" });
+      assert.deepEqual(input, { path: "/new-curated-page", projectUuid: "test" });
       pageReads.push(request.headers.get("Better-Auth-Cookie"));
       return Response.json({
         json: {
@@ -244,7 +244,7 @@ void test("visitors and members load the same curated page, and only members wit
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     renderPage: async (input) =>
       `<main>${input.loaderData ? "Page" : "No"} for ${input.presentation}</main>`,
   };
@@ -291,7 +291,7 @@ void test("sitemaps include curated pages and singleton destinations with the ru
   );
   const response = await handleCamoxRequest(new Request("https://site.test/site/sitemap.xml"), {
     apiUrl: "https://api.test",
-    projectSlug: "test",
+    projectUuid: "test",
     runtimeBasePath: "/site",
     getCamoxApp: async () => app,
   });
@@ -323,7 +323,7 @@ void test("expired studio auth clears the mirrored cookie without granting chrom
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
     },
   );
   assert.equal(((await response!.json()) as PageRenderInput).presentation, "public");
@@ -342,7 +342,7 @@ void test("anonymous studio navigation never validates a missing cookie or grant
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
     },
   );
   const input = (await response!.json()) as PageRenderInput;
@@ -354,7 +354,7 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (path.endsWith("/getByUuid")) return Response.json({ json: project });
     throw new Error(`Unexpected API request ${path}`);
   });
   const blocks = [
@@ -364,7 +364,7 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     runtimeBasePath: "/site",
     pageClientEntryUrl: "/page-client.js",
     studioClientEntryUrl: "/studio-client.js",
@@ -481,13 +481,13 @@ void test("public Markdown responses read the page without a session", async (t)
     new Request("https://site.test/about", {
       headers: { Accept: "text/markdown", Cookie: "better-auth.session_token=valid" },
     }),
-    { apiUrl: "https://api.test", projectSlug: "test" },
+    { apiUrl: "https://api.test", projectUuid: "test" },
   );
   assert.equal(markdownBody(await response!.text()), "# About");
   assert.deepEqual(requested, [
     {
       path: "/rpc/pages/getByPath",
-      input: { path: "/about", projectSlug: "test" },
+      input: { path: "/about", projectUuid: "test" },
       session: null,
     },
     { path: "/rpc/blocks/getPageMarkdown", input: { pageId: "7" }, session: null },
@@ -514,7 +514,7 @@ void test("a page's .md URL serves its Markdown whatever the request accepts", a
   const request = (path: string) =>
     handleCamoxRequest(new Request(`https://site.test${path}`, { headers: { Accept: "*/*" } }), {
       apiUrl: "https://api.test",
-      projectSlug: "test",
+      projectUuid: "test",
     });
 
   for (const path of ["/index.md", "/blog/post.md"]) {
@@ -557,7 +557,7 @@ void test("a curated page's Markdown opens with its head's title and description
   };
   const response = await handleCamoxRequest(new Request("https://site.test/blog/post.md"), {
     apiUrl: "https://api.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () =>
       ({
         getLayouts: () => [],
@@ -595,7 +595,7 @@ void test("sitemaps list the pages derived layouts discover, encoded and without
   );
   const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
     apiUrl: "https://api.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () =>
       appWithRoutes(async () => ({
         data: [{ params: { name: "pikachu" } }, { params: { name: "mr mime" } }],
@@ -621,7 +621,7 @@ void test("sitemaps fail loudly when route discovery fails", async (t) => {
   ]) {
     const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
       apiUrl: "https://api.test",
-      projectSlug: "test",
+      projectUuid: "test",
       getCamoxApp: async () => appWithRoutes(routes),
     });
     assert.equal(response?.status, 500);
@@ -646,7 +646,7 @@ void test("sitemaps fail loudly when Live's locales or pages can't be read", asy
     );
     const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
       apiUrl: "https://api.test",
-      projectSlug: "test",
+      projectUuid: "test",
     });
     assert.equal(response?.status, 500, failing);
     assert.match(((await response!.json()) as { message: string }).message, /sitemap/);
@@ -672,7 +672,7 @@ async function renderPageWithBlocks(chunks: Record<string, string[]> | null) {
   const response = await handleCamoxRequest(new Request("http://localhost:3000/about"), {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     pageClientEntryUrl: "/client.js",
     getCamoxApp: async () => app,
     renderPage: async () => "<main>Site content</main>",
@@ -770,7 +770,7 @@ void test("a public page's hydration data leaves out the artifact sources its fr
   const response = await handleCamoxRequest(new Request("http://localhost:3000/about"), {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     pageClientEntryUrl: "/client.js",
     getCamoxApp: async () => app,
     renderPage: async () => renderToString(<iframe {...artifactFrameProps(source)} />),

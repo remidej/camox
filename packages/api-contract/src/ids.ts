@@ -4,6 +4,14 @@ import { z } from "zod";
 export const uuidv7Schema = /* @__PURE__ */ z.uuidv7();
 
 /**
+ * A Project ID: a UUIDv7 in lowercase only, the form the project's Worker is named by, so an
+ * uppercase one fails here rather than silently naming no project.
+ */
+export const projectIdSchema = /* @__PURE__ */ z
+  .uuidv7()
+  .regex(/^[0-9a-f-]+$/, "A Project ID is a UUIDv7 in lowercase");
+
+/**
  * `uuidv7Schema` as JSON Schema, for content schemas. Written out rather than derived, so site
  * bundles, which need only this, leave zod out.
  */

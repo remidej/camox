@@ -21,6 +21,7 @@ import {
   servesPages,
 } from "../layouts/route-ownership";
 import { publicProjectSummary } from "../projects/public-summary";
+import { namingProject, projectRefOf } from "../projects/ref";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { duplicatePathIds } from "./duplicate-paths";
 import { type PageView } from "./generated-seo";
@@ -44,10 +45,11 @@ function deriveDefaultPageNickname(pathSegment: string) {
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
-export const getPageByPathInput = z.object({ projectSlug: z.string(), path: z.string() });
-export const getPageStructureInput = z.object({ projectSlug: z.string(), path: z.string() });
+export const getPageByPathInput = namingProject(z.object({ path: z.string() }));
+export const getPageStructureInput = namingProject(z.object({ path: z.string() }));
 export const listPagesInput = z.object({ projectId: z.number() });
-export const listPagesBySlugInput = z.object({ projectSlug: z.string() });
+/** A project's pages, by Project ID despite the name: the slug is ADR 0019's bridge. */
+export const listPagesBySlugInput = namingProject(z.object({}));
 export const getPageInput = z.union([
   z.object({ id: uuidv7Schema }),
   z.object({ projectId: z.number(), path: z.string() }),
@@ -190,8 +192,8 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageByPathInput>,
 ) {
-  const { path, projectSlug } = yield* decodeInput(getPageByPathInput, rawInput);
-  const access = yield* accessTo(ctx, { projectSlug }, "public");
+  const { path, ...named } = yield* decodeInput(getPageByPathInput, rawInput);
+  const access = yield* accessTo(ctx, projectRefOf(named), "public");
   const { scope } = access;
   const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
   const reader = contentReader(ctx, { projectId: project.id, draft: scope });
@@ -207,8 +209,8 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageStructureInput>,
 ) {
-  const { path, projectSlug } = yield* decodeInput(getPageStructureInput, rawInput);
-  const access = yield* accessTo(ctx, { projectSlug }, "public");
+  const { path, ...named } = yield* decodeInput(getPageStructureInput, rawInput);
+  const access = yield* accessTo(ctx, projectRefOf(named), "public");
   const { scope } = access;
   const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
   const page = yield* shownPage(ctx, scope, stored);
@@ -269,8 +271,8 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listPagesBySlugInput>,
 ) {
-  const { projectSlug } = yield* decodeInput(listPagesBySlugInput, rawInput);
-  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
+  const named = yield* decodeInput(listPagesBySlugInput, rawInput);
+  const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
   const rows = (yield* pagesIn(ctx, scope, project.id)).filter(
     (page) => page.projectId === project.id,
   );

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { projectIdSchema } from "@camox/api-contract/ids";
 import { ZodError, z } from "zod";
 
 import { installLocalhostDns } from "./local-dns";
@@ -15,7 +16,8 @@ import { installLocalhostDns } from "./local-dns";
  * `z.infer` so the two never drift.
  */
 export const runtimeSchema = z.object({
-  projectSlug: z.string().min(1),
+  /** The Project ID the camox() config names: the project commands target by default. */
+  projectId: projectIdSchema,
   apiUrl: z.string().url(),
   authenticationUrl: z.string().url(),
   disableTelemetry: z.boolean().optional().default(false),

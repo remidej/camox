@@ -95,7 +95,7 @@ void test("public scopes render source fields and labels, never fabricate missin
     renderToStaticMarkup(
       <StudioQueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider
-          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+          value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
         >
           <NavigationProvider>
             <NormalizedDataProvider
@@ -241,7 +241,7 @@ void test("reference lists render each resolved record in stored order and nothi
     renderToStaticMarkup(
       <StudioQueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider
-          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+          value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
         >
           <NavigationProvider>
             <NormalizedDataProvider
@@ -444,7 +444,7 @@ void test("repeatable items render the records they link, at any repeater depth"
   const html = renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
-        value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+        value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
       >
         <NavigationProvider>
           <NormalizedDataProvider
@@ -519,7 +519,7 @@ void test("placed records render the records they link, and nothing a hop furthe
   const html = renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
-        value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+        value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
       >
         <NavigationProvider>
           <NormalizedDataProvider

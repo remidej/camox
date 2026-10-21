@@ -1,14 +1,12 @@
 import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
-import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
 import { string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import type { OutputMode } from "../lib/output";
-import { cwdFlag, localeFlag } from "../lib/runtime-options";
+import { cwdFlag, localeFlag, projectFlag } from "../lib/runtime-options";
 
-const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
 
 const list = command(

@@ -47,7 +47,7 @@ export function PageApp({
                 camoxApp={camoxApp}
                 authenticationUrl={input.authenticationUrl}
                 apiUrl={input.apiUrl}
-                projectSlug={input.projectSlug}
+                projectUuid={input.projectUuid}
                 initialAuthenticated={input.presentation === "studio"}
                 initialProject={currentInput.project}
               >

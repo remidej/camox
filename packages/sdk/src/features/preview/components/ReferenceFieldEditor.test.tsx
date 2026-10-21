@@ -111,11 +111,11 @@ async function renderReference(
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
   testStudioCache(client).set(
-    reads.records({ projectSlug: "site", collectionId: "customers" }),
+    reads.records({ projectUuid: "site", collectionId: "customers" }),
     options.records ?? defaultRecords,
   );
   testStudioCache(client).set(
-    reads.collection({ projectSlug: "site", collectionId: "customers" }),
+    reads.collection({ projectUuid: "site", collectionId: "customers" }),
     {
       collectionId: "customers",
       title: "Customers",
@@ -169,7 +169,7 @@ async function renderReference(
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
-            projectSlug: "site",
+            projectUuid: "site",
             apiUrl: "http://localhost:8788",
             authenticationUrl: "http://localhost:3290",
             authClient: createCamoxAuthClient("http://localhost:8788"),
@@ -325,7 +325,7 @@ void test("Create item prefills the label from the search, links the saved recor
     return Response.json({ json: null });
   });
   const { ContentCollectionItemSheet } = await import("@/features/content/ContentCollection");
-  const view = await renderReference({ sheet: <ContentCollectionItemSheet projectSlug="site" /> });
+  const view = await renderReference({ sheet: <ContentCollectionItemSheet projectUuid="site" /> });
   const nameField = () => document.querySelector<HTMLTextAreaElement>("#collection-name");
   const createFromSearch = async (search: string) => {
     await view.click("Select item");
@@ -354,7 +354,7 @@ void test("Create item prefills the label from the search, links the saved recor
     });
     assert.deepEqual(created, [
       {
-        projectSlug: "site",
+        projectUuid: "site",
         collectionId: "customers",
         content: { name: "Acme", company: "", logo: null },
       },

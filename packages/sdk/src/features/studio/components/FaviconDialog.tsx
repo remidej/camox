@@ -79,8 +79,8 @@ function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => vo
   }, [pendingUrl]);
 
   const onSuccess = async () => {
-    await studioCache.invalidate(reads.project({ slug: project.slug }));
-    const updated = studioCache.get(reads.project({ slug: project.slug }));
+    await studioCache.invalidate(reads.project({ projectUuid: project.uuid }));
+    const updated = studioCache.get(reads.project({ projectUuid: project.uuid }));
     refreshDocumentFavicon(buildFaviconUrl(getApiUrl(), updated ?? project));
     toast.success(pending?.type === "remove" ? "Favicon removed" : "Favicon updated");
     onSaved();

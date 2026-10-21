@@ -48,7 +48,7 @@ registerHooks({
       source = "export const toast = Object.assign(() => {}, { error: () => {} })";
     if (context.parentURL?.includes("/canvas/sidebar/")) {
       if (specifier.endsWith("/auth"))
-        source = 'export const useProjectSlug = () => "test-project"';
+        source = 'export const useProjectUuid = () => "test-project"';
       if (specifier.endsWith("/CreatePageModal"))
         source = `${probeImports}
           export function CreatePageModal() {
@@ -113,7 +113,7 @@ async function setup() {
   const calls: unknown[] = [];
   const api = {
     pages: {
-      getStructure: async (input: { path: string; projectSlug: string }) => {
+      getStructure: async (input: { path: string; projectUuid: string }) => {
         calls.push(input);
         return pageStructure(input.path);
       },
@@ -125,7 +125,7 @@ async function setup() {
         ] ?? [],
     },
     layouts: {
-      get: async (input: { layoutId: string; projectSlug: string }) => {
+      get: async (input: { layoutId: string; projectUuid: string }) => {
         calls.push(input);
         return {
           layout: { id: "12", layoutId: input.layoutId, beforeBlockIds: ["42"], afterBlockIds: [] },
@@ -265,7 +265,7 @@ void test("curated sidebar shares the selected path cache and forwards sidebar/d
       "a curated page shows its blocks, then what's about it",
     );
     assert.equal(dom.mount.querySelectorAll("aside").length, 1);
-    assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project" }]);
+    assert.deepEqual(dom.calls, [{ path: "/", projectUuid: "test-project" }]);
     assert.deepEqual(clientPage(dom.client, "/"), pageStructure("/"));
     assert.equal(dom.mount.querySelector("[data-add-block]")?.getAttribute("data-add-block"), "/");
     assert.equal(
@@ -304,7 +304,7 @@ void test("curated sidebar shares the selected path cache and forwards sidebar/d
 });
 
 function clientPage(client: QueryClient, path: string) {
-  return testStudioCache(client).get(reads.pageStructure({ path, projectSlug: "test-project" }));
+  return testStudioCache(client).get(reads.pageStructure({ path, projectUuid: "test-project" }));
 }
 
 void test("singleton and derived layout sidebars load shared layouts, seed their blocks, and use full URL pages", async () => {
@@ -328,8 +328,8 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
       assert.ok(dom.mount.querySelector("[data-create-page]"));
     }
     assert.deepEqual(dom.calls, [
-      { layoutId: "about", projectSlug: "test-project" },
-      { layoutId: "articles.$slug", projectSlug: "test-project" },
+      { layoutId: "about", projectUuid: "test-project" },
+      { layoutId: "articles.$slug", projectUuid: "test-project" },
     ]);
     assert.deepEqual(testStudioCache(dom.client).get(reads.blockBundle("42")), {
       block: { id: "42", content: { text: "layout" } },

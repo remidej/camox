@@ -28,7 +28,7 @@ registerHooks({
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
-      "@/lib/auth": "export const useProjectSlug = () => 'test'",
+      "@/lib/auth": "export const useProjectUuid = () => 'test'",
       "@/features/navigation/navigation":
         "export const useLocation = () => '/'; export const useNavigate = () => () => {}",
       "../../features/preview/components/Frame":

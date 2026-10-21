@@ -59,7 +59,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       return refused(404, NO_DEVELOPMENT_DRAFT_ERROR, undefined);
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
     const source = draft ? `draft ${draft}` : "Live";
-    if (url.pathname.endsWith("/getBySlug")) {
+    if (url.pathname.endsWith("/getByUuid")) {
       if (!session) return unauthorized();
       return Response.json({ json: project });
     }
@@ -142,7 +142,7 @@ const pokedex = {
 const runtimeOptions: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   getCamoxApp: async () =>
     ({
       getLayouts: () => [pokedex],

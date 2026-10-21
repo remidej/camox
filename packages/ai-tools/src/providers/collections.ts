@@ -7,12 +7,12 @@ import { runService } from "../../../../apps/api/src/lib/run-service";
 import { collectionRecordSchema } from "../lib/outputs";
 import { defineTool, type ToolProvider } from "../types";
 
-const listInput = collections.listCollectionDefinitionsInput.omit({ projectSlug: true });
-const definitionInput = collections.getCollectionDefinitionInput.omit({ projectSlug: true });
-const recordInput = collections.getCollectionRecordInput.omit({ projectSlug: true });
-const createInput = collections.createRecordInput.omit({ projectSlug: true });
-const editInput = collections.editRecordInput.omit({ projectSlug: true });
-const deleteInput = collections.deleteRecordInput.omit({ projectSlug: true });
+const listInput = collections.collectionFields.list;
+const definitionInput = collections.collectionFields.collection;
+const recordInput = collections.collectionFields.record;
+const createInput = collections.collectionFields.createRecord;
+const editInput = collections.collectionFields.editRecord;
+const deleteInput = collections.collectionFields.record;
 
 const collectionSummarySchema = z.strictObject({
   collectionId: z.string(),

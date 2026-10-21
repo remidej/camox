@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
 import { latestContent, type ReferenceRecord } from "../lib/reference";
@@ -21,10 +21,10 @@ export function useLatestRecord({
   labelField: string;
   loaded: LoadedRecord | undefined;
 }): ReferenceRecord | undefined {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   // Only what saves store: the record page's loader read the record already.
   const { data: saved } = useReadQuery(
-    reads.record({ projectSlug, collectionId, id: loaded?.id ?? "" }),
+    reads.record({ projectUuid, collectionId, id: loaded?.id ?? "" }),
     {
       enabled: false,
     },

@@ -63,7 +63,7 @@ async function renderContentPage(client: QueryClient, pathname: string) {
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
-            projectSlug: "site",
+            projectUuid: "site",
             apiUrl: "http://localhost:8788",
             authenticationUrl: "http://localhost:3290",
             authClient: createCamoxAuthClient("http://localhost:8788"),
@@ -101,7 +101,7 @@ void test("collections are hidden and not queried when experimental UI is unset 
           false,
         );
         // Cached collection data must not bypass the feature gate either.
-        testStudioCache(client).set(reads.collectionList({ projectSlug: "site" }), collections);
+        testStudioCache(client).set(reads.collectionList({ projectUuid: "site" }), collections);
         assert.doesNotMatch(await renderContentPage(client, pathname), /Collections|Articles/);
         client.clear();
       }
@@ -125,7 +125,7 @@ void test("content index does not render Assets before redirecting", async () =>
 void test("the assets empty view offers a multi-file upload control", async () => {
   const client = new QueryClient();
   try {
-    testStudioCache(client).set(reads.project({ slug: "site" }), {
+    testStudioCache(client).set(reads.project({ projectUuid: "site" }), {
       id: 1,
       slug: "site",
       name: "Site",
@@ -152,13 +152,13 @@ void test("experimental UI enables collection browsing and the new-item form", a
   const client = new QueryClient();
   try {
     Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
-    testStudioCache(client).set(reads.collectionList({ projectSlug: "site" }), collections);
+    testStudioCache(client).set(reads.collectionList({ projectUuid: "site" }), collections);
     testStudioCache(client).set(
-      reads.records({ projectSlug: "site", collectionId: "articles" }),
+      reads.records({ projectUuid: "site", collectionId: "articles" }),
       [],
     );
     testStudioCache(client).set(
-      reads.collection({ projectSlug: "site", collectionId: "articles" }),
+      reads.collection({ projectUuid: "site", collectionId: "articles" }),
       {
         ...collections[0],
         contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
@@ -212,7 +212,7 @@ function renderCollection(collection: CollectionDefinition, client: QueryClient)
     withNavigation(
       <StudioQueryClientProvider client={client}>
         <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
-          <ContentCollection projectSlug="site" collection={collection} />
+          <ContentCollection projectUuid="site" collection={collection} />
         </CollectionItemSheetProvider>
       </StudioQueryClientProvider>,
     ),
@@ -223,7 +223,7 @@ void test("each empty collection has its own title and empty view", () => {
   const client = new QueryClient();
   for (const collection of collections) {
     testStudioCache(client).set(
-      reads.records({ projectSlug: "site", collectionId: collection.collectionId }),
+      reads.records({ projectUuid: "site", collectionId: collection.collectionId }),
       [],
     );
     const html = renderCollection(collection, client);
@@ -238,7 +238,7 @@ void test("each empty collection has its own title and empty view", () => {
 
 void test("nonempty collections render record labels rather than an empty state", () => {
   const client = new QueryClient();
-  testStudioCache(client).set(reads.records({ projectSlug: "site", collectionId: "articles" }), [
+  testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "articles" }), [
     { id: "one", label: "First article" },
     { id: "two", label: "" },
     { id: "three", label: "Edited article" },
@@ -264,7 +264,7 @@ void test("loading and failures are not presented as an empty collection", async
   assert.match(renderCollection(collections[0], client), /Loading items/);
   await assert.rejects(
     client.fetchQuery({
-      queryKey: readKey(reads.records({ projectSlug: "site", collectionId: "articles" })),
+      queryKey: readKey(reads.records({ projectUuid: "site", collectionId: "articles" })),
       queryFn: () => Promise.reject(new Error("Offline")),
     }),
   );
@@ -276,37 +276,37 @@ void test("loading and failures are not presented as an empty collection", async
 });
 
 void test("collection query keys isolate projects and collections", () => {
-  const first = readKey(reads.records({ projectSlug: "site", collectionId: "articles" }));
+  const first = readKey(reads.records({ projectUuid: "site", collectionId: "articles" }));
   assert.notDeepEqual(
     first,
-    readKey(reads.records({ projectSlug: "other-site", collectionId: "articles" })),
+    readKey(reads.records({ projectUuid: "other-site", collectionId: "articles" })),
   );
   assert.notDeepEqual(
     first,
-    readKey(reads.records({ projectSlug: "site", collectionId: "authors" })),
+    readKey(reads.records({ projectUuid: "site", collectionId: "authors" })),
   );
   assert.notDeepEqual(
-    readKey(reads.collection({ projectSlug: "site", collectionId: "articles" })),
+    readKey(reads.collection({ projectUuid: "site", collectionId: "articles" })),
     first,
   );
   const record = readKey(
     reads.record({
-      projectSlug: "site",
+      projectUuid: "site",
       collectionId: "articles",
       id: "one",
     }),
   );
   assert.notDeepEqual(
     record,
-    readKey(reads.record({ projectSlug: "site", collectionId: "articles", id: "two" })),
+    readKey(reads.record({ projectUuid: "site", collectionId: "articles", id: "two" })),
   );
   assert.notDeepEqual(
     record,
-    readKey(reads.record({ projectSlug: "other-site", collectionId: "articles", id: "one" })),
+    readKey(reads.record({ projectUuid: "other-site", collectionId: "articles", id: "one" })),
   );
   assert.notDeepEqual(
     record,
-    readKey(reads.record({ projectSlug: "site", collectionId: "authors", id: "one" })),
+    readKey(reads.record({ projectUuid: "site", collectionId: "authors", id: "one" })),
   );
 });
 
@@ -331,7 +331,7 @@ void test("collection paths identify list and new routes, including encoded IDs"
 
 void test("the new item route builds editable fields and media editors from the collection schema", () => {
   const client = new QueryClient();
-  testStudioCache(client).set(reads.collection({ projectSlug: "site", collectionId: "articles" }), {
+  testStudioCache(client).set(reads.collection({ projectUuid: "site", collectionId: "articles" }), {
     ...collections[0],
     contentSchema: {
       properties: {
@@ -355,14 +355,14 @@ void test("the new item route builds editable fields and media editors from the 
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
-            projectSlug: "site",
+            projectUuid: "site",
             apiUrl: "http://localhost:8788",
             authenticationUrl: "http://localhost:3290",
             authClient: createCamoxAuthClient("http://localhost:8788"),
           }}
         >
           <ContentCollectionItemEditor
-            projectSlug="site"
+            projectUuid="site"
             collectionId="articles"
             onSaved={() => {}}
           />
@@ -407,15 +407,15 @@ void test("collection item controls open the shared create and edit sheet", asyn
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  testStudioCache(client).set(reads.collection({ projectSlug: "site", collectionId: "articles" }), {
+  testStudioCache(client).set(reads.collection({ projectUuid: "site", collectionId: "articles" }), {
     ...collections[0],
     contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
   });
-  testStudioCache(client).set(reads.records({ projectSlug: "site", collectionId: "articles" }), [
+  testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "articles" }), [
     { id: "one", label: "First article" },
   ]);
   testStudioCache(client).set(
-    reads.record({ projectSlug: "site", collectionId: "articles", id: "one" }),
+    reads.record({ projectUuid: "site", collectionId: "articles", id: "one" }),
     {
       id: "one",
       content: { title: "Existing article" },
@@ -443,7 +443,7 @@ void test("collection item controls open the shared create and edit sheet", asyn
       root.render(
         <StudioQueryClientProvider client={client}>
           <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
-            <ContentCollection projectSlug="site" collection={collections[0]} />
+            <ContentCollection projectUuid="site" collection={collections[0]} />
             <SheetTargetProbe />
           </CollectionItemSheetProvider>
         </StudioQueryClientProvider>,
@@ -617,19 +617,19 @@ void test("collection forms create and edit records, invalidate lists, and retai
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
     testStudioCache(client, { draftScope: inDraft }).set(
-      reads.collection({ projectSlug: "site", collectionId: "articles" }),
+      reads.collection({ projectUuid: "site", collectionId: "articles" }),
       {
         ...collections[0],
         contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
       },
     );
     testStudioCache(client, { draftScope: inDraft }).set(
-      reads.records({ projectSlug: "site", collectionId: "articles" }),
+      reads.records({ projectUuid: "site", collectionId: "articles" }),
       [],
     );
     if (editing)
       testStudioCache(client, { draftScope: inDraft }).set(
-        reads.record({ projectSlug: "site", collectionId: "articles", id }),
+        reads.record({ projectUuid: "site", collectionId: "articles", id }),
         {
           id,
           content: { title: "Existing article" },
@@ -650,7 +650,7 @@ void test("collection forms create and edit records, invalidate lists, and retai
           >
             <StudioQueryClientProvider client={client} draftScope={inDraft}>
               <ContentCollectionItemEditor
-                projectSlug="site"
+                projectUuid="site"
                 collectionId="articles"
                 itemId={editing ? id : undefined}
                 onSaved={() => {
@@ -684,7 +684,7 @@ void test("collection forms create and edit records, invalidate lists, and retai
       const call = calls.at(-1)!;
       assert.ok(call.path.endsWith(editing ? "/editRecord" : "/createRecord"));
       assert.deepEqual(call.input, {
-        projectSlug: "site",
+        projectUuid: "site",
         collectionId: "articles",
         content: { title: editing ? "Existing article" : "New article" },
         ...(editing ? { id } : {}),
@@ -693,7 +693,7 @@ void test("collection forms create and edit records, invalidate lists, and retai
       assert.equal(
         client.getQueryState(
           readKey(
-            reads.records({ projectSlug: "site", collectionId: "articles" }),
+            reads.records({ projectUuid: "site", collectionId: "articles" }),
             inDraft.current(),
           ),
         )?.isInvalidated,
@@ -751,7 +751,7 @@ void test("forms save the record without publishing, and refetches never replace
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
     testStudioCache(client).set(
-      reads.collection({ projectSlug: "site", collectionId: "articles" }),
+      reads.collection({ projectUuid: "site", collectionId: "articles" }),
       {
         ...collections[0],
         contentSchema: { properties: { title: { fieldType: "String", default: "Article" } } },
@@ -759,7 +759,7 @@ void test("forms save the record without publishing, and refetches never replace
     );
     if (editing)
       testStudioCache(client).set(
-        reads.record({ projectSlug: "site", collectionId: "articles", id }),
+        reads.record({ projectUuid: "site", collectionId: "articles", id }),
         {
           id,
           content: { title: "Article" },
@@ -790,7 +790,7 @@ void test("forms save the record without publishing, and refetches never replace
           >
             <StudioQueryClientProvider client={client}>
               <ContentCollectionItemEditor
-                projectSlug="site"
+                projectUuid="site"
                 collectionId="articles"
                 itemId={editing ? id : undefined}
                 onSaved={() => {
@@ -812,7 +812,7 @@ void test("forms save the record without publishing, and refetches never replace
       // A refetch must not replace what the form is about to save.
       await act(async () =>
         testStudioCache(client).set(
-          reads.record({ projectSlug: "site", collectionId: "articles", id }),
+          reads.record({ projectUuid: "site", collectionId: "articles", id }),
           {
             id,
             content: { title: "Someone else's edit" },
@@ -832,7 +832,7 @@ void test("forms save the record without publishing, and refetches never replace
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
       assert.deepEqual(
         testStudioCache(client).get(
-          reads.record({ projectSlug: "site", collectionId: "articles", id }),
+          reads.record({ projectUuid: "site", collectionId: "articles", id }),
         )?.content,
         { title: "Article" },
       );

@@ -94,7 +94,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     const locale = request.headers.get(LOCALE_HEADER) ?? "en";
     const scope = request.headers.get(DRAFT_HEADER) === DRAFT ? "draft" : "live";
     if (url.pathname.endsWith("/locales/list")) return localesResponse(["en", "de"]);
-    if (url.pathname.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (url.pathname.endsWith("/getByUuid")) return Response.json({ json: project });
     if (url.pathname.endsWith("/listBySlug"))
       return pageListResponse(
         PAGES[scope][locale]!.map((page) => ({ ...page, updatedAt: 1, layoutId: "default" })),
@@ -142,7 +142,7 @@ async function visit(path: string, headers: Record<string, string> = {}) {
   const response = await handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () => camoxApp,
     renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
   });

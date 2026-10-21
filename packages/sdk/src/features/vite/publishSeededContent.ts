@@ -10,12 +10,12 @@ import type { ServerApiClient } from "../../lib/api-client-server";
 export async function publishSeededContent(options: {
   /** Sends the dev session and names the development draft. */
   client: ServerApiClient;
-  projectSlug: string;
+  projectUuid: string;
   logger: Logger;
 }): Promise<void> {
-  const { client, projectSlug, logger } = options;
+  const { client, projectUuid, logger } = options;
   try {
-    const project = await client.projects.getBySlug({ slug: projectSlug });
+    const project = await client.projects.getByUuid({ projectUuid });
     const preview = await client.drafts.previewPublish({ projectId: project.id });
     if (preview.changes.length === 0) return;
     if (preview.blockers.length > 0) {

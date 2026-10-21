@@ -116,7 +116,7 @@ function render(result: AnyLayoutLoaderResult | undefined) {
   return renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
-        value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+        value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
       >
         <NavigationProvider>
           <CamoxAppProvider app={app}>

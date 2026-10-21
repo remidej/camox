@@ -6,7 +6,7 @@ import { CollectionItemSheetProvider } from "@/features/content/CollectionItemSh
 import { ContentCollectionItemSheet } from "@/features/content/ContentCollection";
 import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
-import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
+import { useIsAuthenticated, useProjectUuid } from "@/lib/auth";
 import { parseLocalePath } from "@/lib/locale-path";
 import { NormalizedDataProvider, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
@@ -70,8 +70,8 @@ function useIsMobileStudio() {
 /** The page the Preview shows: as the server rendered it, then following edits. */
 export function usePreviewedPage() {
   const pathname = useLocalePath();
-  const projectSlug = useProjectSlug();
-  return useRead(reads.pageStructure({ path: pathname, projectSlug }));
+  const projectUuid = useProjectUuid();
+  return useRead(reads.pageStructure({ path: pathname, projectUuid }));
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -211,13 +211,13 @@ export const PageContent = () => {
  * Canvas-only location, opened first, has no page to show.
  */
 function pageRead(
-  projectSlug: string,
+  projectUuid: string,
   pathname: string | undefined,
   derived: PageRenderInput["derived"] | undefined,
 ): Read<PageStructure | LayoutStructure, unknown> | null {
   if (pathname === undefined) return null;
-  if (derived) return reads.layoutStructure({ projectSlug, layoutId: derived.layoutId });
-  return reads.pageStructure({ path: pathname, projectSlug });
+  if (derived) return reads.layoutStructure({ projectUuid, layoutId: derived.layoutId });
+  return reads.pageStructure({ path: pathname, projectUuid });
 }
 
 function useRefreshMemberRead(read: Read<unknown, unknown> | null) {
@@ -306,25 +306,25 @@ export const CamoxPreview = ({
   const shown = useShownPage(location, derived, !!canvasOnly);
   const pathname = shown?.location.pathname;
   const shownDerived = shown?.derived;
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const { locales } = useViewLocale();
   // The API reads a page by its path in the locale shown, after the locale's prefix.
   const shownPath = pathname === undefined ? undefined : parseLocalePath(pathname, locales).path;
   // All route kinds resolve through one component so selecting a layout frame, a
   // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
-  const shownRead = pageRead(projectSlug, shownPath, shownDerived);
+  const shownRead = pageRead(projectUuid, shownPath, shownDerived);
   const data = useRead(shownRead);
   useRefreshMemberRead(shownRead);
   // A code-owned page's loader runs again after record edits and publication.
   const derivedResult = useDerivedPageResult({
-    projectSlug,
+    projectUuid,
     runtimeBasePath: runtimeBasePath ?? "",
     pathname: pathname ?? location.pathname,
     loaded: shownDerived ? { result: shownDerived.result } : undefined,
   });
   const pageRecord = getPageRecord(derivedResult);
   useFollowPageRecord({
-    projectSlug,
+    projectUuid,
     runtimeBasePath: runtimeBasePath ?? "",
     layoutId: shownDerived?.layoutId,
     record: pageRecord,
@@ -386,7 +386,7 @@ function useCanvasOnlyLocation(
  * Once the signed-in Studio is idle, loads what showing the Canvas waits for: its code, and
  * the project and page list it lays out. The first show then skips most of its loading.
  */
-function usePrefetchCanvas(enabled: boolean, projectSlug: string) {
+function usePrefetchCanvas(enabled: boolean, projectUuid: string) {
   const queryClient = useQueryClient();
   const studioCache = useStudioCache();
   React.useEffect(() => {
@@ -394,8 +394,8 @@ function usePrefetchCanvas(enabled: boolean, projectSlug: string) {
     const prefetch = async () => {
       prefetchCanvas();
       // Failures go unreported here: the Canvas loads these again when shown, and reports them.
-      await queryClient.prefetchQuery(studioCache.options(reads.project({ slug: projectSlug })));
-      await queryClient.prefetchQuery(studioCache.options(reads.pageList({ projectSlug })));
+      await queryClient.prefetchQuery(studioCache.options(reads.project({ projectUuid })));
+      await queryClient.prefetchQuery(studioCache.options(reads.pageList({ projectUuid })));
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(() => void prefetch(), { timeout: 5000 });
@@ -403,7 +403,7 @@ function usePrefetchCanvas(enabled: boolean, projectSlug: string) {
     }
     const id = window.setTimeout(() => void prefetch(), 2000);
     return () => window.clearTimeout(id);
-  }, [enabled, projectSlug, queryClient, studioCache]);
+  }, [enabled, projectUuid, queryClient, studioCache]);
 }
 
 /** Studio chrome is shared; only curated previews require a Camox page record. */
@@ -424,12 +424,12 @@ export const PreviewShell = ({
   runtimeBasePath?: string;
 }) => {
   const isAuthenticated = useIsAuthenticated();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const isMobileStudio = useIsMobileStudio();
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
   usePreviewViewportActions();
   const isCanvasEnabled = !isMobileStudio && isCanvasShown;
-  usePrefetchCanvas(isAuthenticated && !isMobileStudio, projectSlug);
+  usePrefetchCanvas(isAuthenticated && !isMobileStudio, projectUuid);
   const { pathname } = useLocation();
 
   // A Canvas-only location edits no page, even while the Preview still shows the last one.
@@ -540,7 +540,7 @@ export const PreviewShell = ({
           )}
         </div>
       </PreviewEditingOwnerContext>
-      <ContentCollectionItemSheet projectSlug={projectSlug} />
+      <ContentCollectionItemSheet projectUuid={projectUuid} />
     </CollectionItemSheetProvider>
   );
 };

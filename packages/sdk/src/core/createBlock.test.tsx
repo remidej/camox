@@ -89,16 +89,16 @@ void test("a link field renders a link to an existing page and plain text for a 
   });
   const render = (pageId: string) => {
     const queryClient = new QueryClient();
-    testStudioCache(queryClient).set(reads.project({ slug: "test" }), {
+    testStudioCache(queryClient).set(reads.project({ projectUuid: "test" }), {
       id: projectId,
     } as never);
-    testStudioCache(queryClient).set(reads.pageList({ projectSlug: "site" }), [
+    testStudioCache(queryClient).set(reads.pageList({ projectUuid: "site" }), [
       { id: existingPageId, fullPath: "/pricing" },
     ]);
     return renderToStaticMarkup(
       <StudioQueryClientProvider client={queryClient}>
         <AuthContext.Provider
-          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+          value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
         >
           <NavigationProvider>
             <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>

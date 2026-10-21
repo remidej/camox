@@ -41,7 +41,7 @@ import * as React from "react";
 
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { useCurrentDraftId } from "@/lib/draft-scope";
 import { type LocaleView, localizedPath } from "@/lib/locale-path";
 import { localeMutations } from "@/lib/queries";
@@ -62,10 +62,12 @@ import { studioStore } from "../studioStore";
  * into its languages, the picker shows a spinner, and nothing else does.
  */
 export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const view = useViewLocale();
   const dialog = useSelector(studioStore, (state) => state.context.localeDialog);
-  const project = useReadQuery(reads.project({ slug: projectSlug }), { enabled: !!projectSlug });
+  const project = useReadQuery(reads.project({ projectUuid }), {
+    enabled: !!projectUuid,
+  });
   const projectId = project.data?.id;
   const list = useReadQuery(reads.localeList({ projectId: projectId ?? 0 }), {
     enabled: !!projectId,
@@ -190,7 +192,7 @@ function TranslatingSpinner({ tags }: { tags: readonly string[] }) {
 function useSwitchLocale(recordPage: ShownRecordPage | undefined) {
   const navigate = useNavigate();
   const cache = useStudioCache();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const view = useViewLocale();
   const path = useLocalePath();
   const search = useLocation({ select: (location) => location.search });
@@ -201,11 +203,11 @@ function useSwitchLocale(recordPage: ShownRecordPage | undefined) {
       if (target.tag === view.locale.tag && target.isDefault === view.locale.isDefault) return;
       // A locale whose pages can't be read leaves nothing to match: the switch goes home.
       const pagesIn = (locale: LocaleView) =>
-        cache.ensure(reads.pageList({ projectSlug }), { locale }).catch(() => []);
+        cache.ensure(reads.pageList({ projectUuid }), { locale }).catch(() => []);
       // The record's slug may have changed since: its page is found again, not from the cache.
       const recordPath = recordPage
         ? cache
-            .reload(reads.discoveredPath({ projectSlug, ...recordPage }), { locale: target })
+            .reload(reads.discoveredPath({ projectUuid, ...recordPage }), { locale: target })
             .catch(() => null)
         : null;
       const [shown, other] = await Promise.all([pagesIn(view.locale), pagesIn(target)]);
@@ -220,7 +222,7 @@ function useSwitchLocale(recordPage: ShownRecordPage | undefined) {
       });
       await navigate({ to: `${localizedPath(next, target)}${search}` });
     },
-    [cache, destinations, navigate, path, projectSlug, recordPage, search, view.locale],
+    [cache, destinations, navigate, path, projectUuid, recordPage, search, view.locale],
   );
 }
 

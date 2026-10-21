@@ -1,4 +1,4 @@
-import { type CallToolParams, type CallToolResponse, callTool, getProjectBySlug } from "./api";
+import { type CallToolParams, type CallToolResponse, callTool, getProject } from "./api";
 import { readAuthTokenForUrl } from "./auth";
 import {
   type CliError,
@@ -46,16 +46,15 @@ function fail(err: CliError, code: number): never {
   process.exit(code);
 }
 
-async function resolveProjectId(token: string, slug: string, apiUrl: string): Promise<number> {
+async function resolveProjectId(token: string, project: string, apiUrl: string): Promise<number> {
   try {
-    const project = await getProjectBySlug(token, slug, apiUrl);
-    return project.id;
+    return (await getProject(token, project, apiUrl)).id;
   } catch (err) {
     if (isNoDevelopmentDraft(err)) return fail(NO_DEVELOPMENT_DRAFT_CLI_ERROR, 2);
     return fail(
       {
         code: "PROJECT_LOOKUP_FAILED",
-        message: `Could not load project "${slug}".`,
+        message: `Could not load project "${project}".`,
         details: err instanceof Error ? err.message : String(err),
       },
       2,
@@ -77,8 +76,8 @@ async function callRemote(params: CallToolParams): Promise<CallToolResponse> {
  * auth/project resolution failure.
  *
  * Project, apiUrl, and authenticationUrl come from the vite plugin's
- * `node_modules/.camox/runtime.json` sidecar. `--project <slug>` and
- * `CAMOX_PROJECT` may override the slug. Every request names the caller's
+ * `node_modules/.camox/runtime.json` sidecar. `--project` and `CAMOX_PROJECT`
+ * may override the project, by its Project ID or its Project Slug. Every request names the caller's
  * development draft (ADR 0010); no command takes a draft, Live or production flag.
  */
 export async function resolveCommandContext(opts: Pick<DispatchOptions, "projectFlag" | "cwd">) {
@@ -95,7 +94,8 @@ export async function resolveCommandContext(opts: Pick<DispatchOptions, "project
     throw err;
   }
 
-  const slug = opts.projectFlag?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectSlug;
+  const project =
+    opts.projectFlag?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectId;
 
   const token = readAuthTokenForUrl(runtime.authenticationUrl, opts.cwd);
   if (!token) {
@@ -108,7 +108,7 @@ export async function resolveCommandContext(opts: Pick<DispatchOptions, "project
     );
   }
 
-  const projectId = await resolveProjectId(token.token, slug, runtime.apiUrl);
+  const projectId = await resolveProjectId(token.token, project, runtime.apiUrl);
   return {
     token: token.token,
     apiUrl: runtime.apiUrl,
