@@ -52,13 +52,16 @@ function changed(before: unknown, after: unknown) {
   return before !== after && replaceEqualDeep(before, after) !== before;
 }
 
-/** The longest a capture waits for the Page's reads to finish fetching. */
+/** The longest a capture waits for fetches to finish. */
 const FETCH_WAIT_MS = 5000;
 
-/** Resolves once none of `queries` is fetching, or after `FETCH_WAIT_MS`. */
-function settledReads(queryClient: QueryClient, queries: Query[]) {
-  const fetching = () => queries.some((query) => query.state.fetchStatus === "fetching");
-  if (!fetching()) return Promise.resolve();
+/**
+ * Resolves once nothing is fetching, or after `FETCH_WAIT_MS`. Blocks load their own data through
+ * the same cache, and a refreshing Page refetches what changed: until those arrive, the frame
+ * shows them loading, or out of date.
+ */
+function fetchesDone(queryClient: QueryClient) {
+  if (!queryClient.isFetching()) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const done = () => {
       clearTimeout(timer);
@@ -67,9 +70,17 @@ function settledReads(queryClient: QueryClient, queries: Query[]) {
     };
     const timer = setTimeout(done, FETCH_WAIT_MS);
     const unsubscribe = queryClient.getQueryCache().subscribe(() => {
-      if (!fetching()) done();
+      if (!queryClient.isFetching()) done();
     });
   });
+}
+
+/** Resolves after the frame renders twice more, so what arrived last is on screen. */
+function framesRendered(frame: HTMLIFrameElement) {
+  const view = frame.contentDocument?.defaultView;
+  if (!view) return Promise.resolve();
+  const next = () => new Promise((resolve) => view.requestAnimationFrame(resolve));
+  return next().then(next);
 }
 
 /** The values a query key names, at any depth. */
@@ -216,6 +227,9 @@ export function createCanvasThumbnails(
     ) {
       const generation = (generations.get(key) ?? 0) + 1;
       generations.set(key, generation);
+      await fetchesDone(queryClient);
+      await framesRendered(frame);
+      if (generations.get(key) !== generation) return;
       const root = frame.contentDocument?.body;
       const allTokens = new Set(tokens);
       root
@@ -228,11 +242,6 @@ export function createCanvasThumbnails(
         if (keyValues(query.queryKey).some((value) => allTokens.has(value)))
           reads.set(query, query.state.data);
       }
-      // A refreshing Page refetches what changed: its frame only shows it once that arrives,
-      // which will settle the frame again, and capture it then.
-      await settledReads(queryClient, Array.from(reads.keys()));
-      for (const [query, data] of reads) if (changed(data, query.state.data)) return;
-      if (generations.get(key) !== generation) return;
       const captured = await capturer.capture(frame, options);
       if (generations.get(key) !== generation) return;
       const url = URL.createObjectURL(captured.blob);

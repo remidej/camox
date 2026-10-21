@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 
 import { createCanvasThumbnails } from "./canvasThumbnails";
@@ -68,7 +68,11 @@ void test("an image keeps the reads it used cached, so their changes still reach
   const blockKey = ["blocks", "get", "block-1"];
   queryClient.setQueryDefaults(blockKey, { gcTime: 0 });
   queryClient.setQueryData(blockKey, { title: "Hello" });
+  // The Page's frame uses the read until its image replaces it.
+  const frameUse = new QueryObserver(queryClient, { queryKey: blockKey, enabled: false });
+  const unmountFrame = frameUse.subscribe(() => {});
   await capture();
+  unmountFrame();
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(queryClient.getQueryCache().find({ queryKey: blockKey }), "the read stays cached");
   await queryClient.invalidateQueries({ queryKey: blockKey });
@@ -113,11 +117,13 @@ void test("only the latest capture of a Page becomes its image", async () => {
   });
   const disconnect = thumbnails.connect();
   const frame = { contentDocument: new Window().document } as unknown as HTMLIFrameElement;
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const drawing = async (count: number) => {
+    while (pending.length < count) await new Promise((resolve) => setTimeout(resolve, 5));
+  };
   const older = thumbnails.capture("about", frame, [], { scale: 1 });
-  await tick();
+  await drawing(1);
   const newer = thumbnails.capture("about", frame, [], { scale: 1 });
-  await tick();
+  await drawing(2);
   assert.equal(pending.length, 2, "both captures are drawing");
   pending[1](200);
   await newer;
@@ -127,11 +133,12 @@ void test("only the latest capture of a Page becomes its image", async () => {
   disconnect();
 });
 
-void test("a capture waits for its Page's reads to refetch, and leaves it to the next if they changed", async () => {
+void test("a capture waits for fetches to finish, then draws what they brought", async () => {
   const { queryClient, thumbnails, capture, captures, disconnect } = setup();
   const blockKey = ["blocks", "get", "block-1"];
   queryClient.setQueryData(blockKey, { title: "Hello" });
   let answer: (value: unknown) => void = () => {};
+  // Like a refreshing Page refetching its block, or a block loading its own data.
   const refetch = queryClient.fetchQuery({
     queryKey: blockKey,
     queryFn: () => new Promise((resolve) => (answer = resolve)),
@@ -139,13 +146,11 @@ void test("a capture waits for its Page's reads to refetch, and leaves it to the
   });
   const captured = capture();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(captures.length, 0, "nothing is drawn while a read refetches");
+  assert.equal(captures.length, 0, "nothing is drawn while anything fetches");
   answer({ title: "Hello again" });
   await refetch;
   await captured;
-  assert.equal(captures.length, 0, "the frame doesn't show the new data yet");
-  assert.equal(thumbnails.get("about"), null);
-  await capture();
-  assert.equal(captures.length, 1, "the next capture draws");
+  assert.equal(captures.length, 1);
+  assert.equal(thumbnails.get("about")?.stale, false, "the image holds what the fetch brought");
   disconnect();
 });
