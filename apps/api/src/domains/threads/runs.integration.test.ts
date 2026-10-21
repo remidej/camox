@@ -11,7 +11,15 @@ import {
   holdNextAnswer,
   holdNextScript,
 } from "../../../test/thread-model";
-import { connectLiveThread, said, signIn, type ThreadClient } from "../../../test/threads";
+import {
+  connectDraftThread,
+  connectLiveThread,
+  lastAnswer,
+  said,
+  signIn,
+  type ThreadClient,
+  touchedOf,
+} from "../../../test/threads";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -66,6 +74,50 @@ describe("a run in a thread", () => {
       { from: "agent", text: "I looked at the blog only." },
     ]);
     thread.close();
+  });
+
+  it("reports what each writing script of a run touched as it ends", async () => {
+    const { thread } = await openThread();
+    answerWithScript(`
+      const { page } = await tools.createPage({ pathSegment: "launch", layoutId: "default" });
+      text(page.id);
+    `);
+    answerWithScript(`
+      const { page } = await tools.createPage({ pathSegment: "about", layoutId: "default" });
+      text(page.id);
+    `);
+    answerFrom(({ scriptOutput }) => scriptOutput);
+    const operationId = send(thread, "Add a launch page, then an about page");
+    await thread.untilIdle(2);
+
+    const pagesCreated = touchedOf(thread).map(({ operationIds, touches }) => ({
+      operationIds,
+      pages: touches.map((touch) => touch.entity === "page" && touch.pageId),
+    }));
+    expect(pagesCreated).toEqual([
+      { operationIds: [operationId], pages: [expect.any(String)] },
+      { operationIds: [operationId], pages: [lastAnswer(thread.view())] },
+    ]);
+    expect(pagesCreated[0]?.pages).not.toEqual(pagesCreated[1]?.pages);
+    thread.close();
+  });
+
+  it("gives a reconnecting socket no touches from before", async () => {
+    const { thread, project, db, memberUser } = await openThread();
+    answerWithScript(`await tools.createPage({ pathSegment: "launch", layoutId: "default" });`);
+    answerNext("Added a launch page.");
+    send(thread, "Add a launch page");
+    await thread.untilIdle(2);
+    expect(touchedOf(thread)).toHaveLength(1);
+    thread.close();
+
+    // The write started a draft, which the thread moved into.
+    const draftId = thread.view().startedDraft!.draftId;
+    const again = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+    await again.untilIdle(2);
+
+    expect(touchedOf(again)).toEqual([]);
+    again.close();
   });
 
   it("ends a run an editor stops, saying who stopped it", async () => {

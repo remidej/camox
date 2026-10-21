@@ -12,6 +12,9 @@ import {
   type ThreadClientMessage,
   type ThreadSender,
   type ThreadServerMessage,
+  type Touch,
+  type TouchedBatch,
+  touchedBatchSchema,
 } from "@camox/api-contract/threads";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
@@ -22,6 +25,8 @@ import {
   LiveDoc,
   ROOT_CONVERSATION_ID,
   type SnapshotEvent,
+  type ToolRegistration,
+  wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
@@ -69,6 +74,39 @@ const IDENTITY_KEY = "camox.identity";
  * operations of the run whose write created it once one did (a `StartedDraft`).
  */
 const DRAFT_TO_START_KEY = "camox.draft-to-start";
+
+/**
+ * The prefix of the keys holding what a running script's writes touched, one key per write:
+ * followed by the script's call id, then the write's place among the script's calls.
+ */
+const TOUCHES_PREFIX = "camox.touches:";
+
+/**
+ * Touches of the script whose first write started the draft, kept for the editor's studio
+ * entering it when it had no socket open as the script ended: see `#reportTouches`.
+ */
+const HAND_OFF_KEY = "camox.touches-hand-off";
+
+/**
+ * How long touches kept for a studio entering the draft wait for it: about as long as entering
+ * takes, so a studio coming back later doesn't follow a run long done.
+ */
+const HAND_OFF_MS = 30_000;
+
+const handOffSchema = z.object({
+  draftId: z.string(),
+  editorId: z.string(),
+  touched: touchedBatchSchema,
+  until: z.number(),
+});
+type HandOff = z.infer<typeof handOffSchema>;
+
+/** The operation ids of the editors' messages among a run's entries. */
+const operationIdsOf = (entries: EntryRecord[]) =>
+  entries.flatMap((entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? []);
+
+/** Code mode's tool, which runs the model's scripts: wrapped by its name. */
+const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
 
 /** The key recording that the thread ended with its draft, all a thread keeps once it did. */
 export const ENDED_KEY = "camox.ended";
@@ -222,6 +260,7 @@ export class Thread extends DurableObject<Bindings> {
         (promise) => this.ctx.waitUntil(promise),
         (invocation, kind) => this.#actor(invocation, kind),
         (invocation) => this.#wrote(invocation),
+        (invocation, touches) => this.#touched(invocation, touches),
       );
       this.#registry.install({
         name: "camox",
@@ -234,6 +273,21 @@ export class Thread extends DurableObject<Bindings> {
           },
         ],
         tools: await studioAgentTools(dispatch),
+        // Once a script ends, failed or not, the studios hear what its writes touched.
+        wraps: [
+          wrapTool(CODEMODE_TOOL, (tool) => ({
+            ...tool,
+            execute: async (args, api, context) => {
+              try {
+                return await tool.execute(args, api, context);
+              } finally {
+                await this.#reportTouches({ api, context }).catch((error: unknown) =>
+                  console.error("A thread couldn't report what a script touched", error),
+                );
+              }
+            },
+          })),
+        ],
       });
       return Harness.open(
         storage,
@@ -402,12 +456,85 @@ export class Thread extends DurableObject<Bindings> {
   async #wrote(invocation: ToolInvocation) {
     const reserved = await this.#reservedDraft();
     if (reserved && reserved.operationIds.length === 0) {
-      const operationIds = (await this.#entriesOfRun(invocation)).flatMap(
-        (entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? [],
-      );
+      const operationIds = operationIdsOf(await this.#entriesOfRun(invocation));
       await this.ctx.storage.put(DRAFT_TO_START_KEY, { ...reserved, operationIds });
     }
     await this.#settle();
+  }
+
+  /**
+   * Records what a script's write touched, until the script ends: Pi names a nested call
+   * `<script's call id>/c<place among its calls>`. Kept in storage, so a script an eviction
+   * replays still reports the writes it won't run again.
+   */
+  async #touched({ api }: ToolInvocation, touches: Touch[]) {
+    const nested = /^(.+)\/c(\d+)$/.exec(api.callId);
+    if (!nested) return;
+    const [, script, place] = nested;
+    await this.ctx.storage.put(`${TOUCHES_PREFIX}${script}:${place!.padStart(10, "0")}`, touches);
+  }
+
+  /**
+   * Sends every socket what the script ending touched, with the operations of its run, the way
+   * `started-draft` names them: only the studio that sent one of them follows it. Nothing for a
+   * script with no successful write. Live only: no snapshot replays it.
+   *
+   * One exception: a script whose first write on Live started the draft may end while the
+   * editor's studio, having left Live for the draft, has no socket open. Its touches then wait for
+   * that studio's socket in the draft, for `HAND_OFF_MS`, and reach it once.
+   */
+  async #reportTouches(invocation: ToolInvocation) {
+    const recorded = await this.ctx.storage.list<Touch[]>({
+      prefix: `${TOUCHES_PREFIX}${invocation.api.callId}:`,
+    });
+    if (recorded.size === 0) return;
+    const entries = await this.#entriesOfRun(invocation);
+    const touched: TouchedBatch = {
+      operationIds: operationIdsOf(entries),
+      touches: [...recorded.values()].flat(),
+    };
+    const editorId = threadSenderSchema.safeParse(entries[0]?.data).data?.id;
+    let reached = false;
+    for (const connection of this.webSockets.getConnections()) {
+      send(connection, { type: "touched", touched });
+      const participant = participantSchema.safeParse(connection.state).data;
+      if (connection.readyState === OPEN && participant?.sender.id === editorId) reached = true;
+    }
+    if (!reached && editorId) await this.#holdForHandOff(editorId, touched);
+    await this.ctx.storage.delete([...recorded.keys()]);
+  }
+
+  /** Keeps touches for the editor whose run started the draft, as `#reportTouches` says. */
+  async #holdForHandOff(editorId: string, touched: TouchedBatch) {
+    const known = await this.#knownIdentity();
+    const started = await this.#reservedDraft();
+    if (!known?.draftId || started?.draftId !== known.draftId) return;
+    if (!touched.operationIds.some((id) => started.operationIds.includes(id))) return;
+    const handOff: HandOff = {
+      draftId: known.draftId,
+      editorId,
+      touched,
+      until: Date.now() + HAND_OFF_MS,
+    };
+    await this.ctx.storage.put(HAND_OFF_KEY, handOff);
+  }
+
+  /** Hands a socket the touches kept for its studio, if any, once. */
+  async #handOver(connection: Connection, participant: Participant | undefined) {
+    const handOff = handOffSchema.safeParse(await this.ctx.storage.get(HAND_OFF_KEY)).data;
+    if (!handOff) return;
+    if (Date.now() > handOff.until) {
+      await this.ctx.storage.delete(HAND_OFF_KEY);
+      return;
+    }
+    if (
+      participant?.identity.draftId !== handOff.draftId ||
+      participant.sender.id !== handOff.editorId
+    ) {
+      return;
+    }
+    await this.ctx.storage.delete(HAND_OFF_KEY);
+    send(connection, { type: "touched", touched: handOff.touched });
   }
 
   /**
@@ -498,8 +625,10 @@ export class Thread extends DurableObject<Bindings> {
         send(connection, { type: "started-draft", startedDraft });
       }
     }
-    if (known) await this.#watch(connection);
-    else send(connection, { type: "events", events: [NOT_STARTED] });
+    if (known) {
+      await this.#watch(connection);
+      await this.#handOver(connection, participant);
+    } else send(connection, { type: "events", events: [NOT_STARTED] });
   }
 
   /**

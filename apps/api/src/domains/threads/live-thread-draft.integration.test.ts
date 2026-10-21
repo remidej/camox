@@ -21,6 +21,7 @@ import {
   said,
   signIn,
   socketsOnThreadOf,
+  touchedOf,
   type Website,
   websiteFixture,
 } from "../../../test/threads";
@@ -146,6 +147,59 @@ describe("a Live thread starting a draft", () => {
       { from: "agent", text: "Plans start at $9." },
     ]);
     expect((await draftsOf(website)).map(({ id }) => id)).toEqual([draft?.id]);
+  });
+
+  it("reports the first write's touches for the message whose run started the draft", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const thread = await connectLiveThread(website.project.id, token);
+    answerWithScript(`${RAISE_PRICE} text(pricing.page.id);`);
+    answerFrom(({ scriptOutput }) => scriptOutput);
+
+    const view = await ask(thread, "Raise the price to $12", { keepOpen: true });
+
+    const [batch, ...others] = touchedOf(thread);
+    expect(others).toEqual([]);
+    expect(batch?.operationIds).toEqual(view.startedDraft?.operationIds);
+    expect(batch?.touches).toEqual([
+      expect.objectContaining({ entity: "page", pageId: lastAnswer(view), kind: "edited" }),
+    ]);
+    thread.close();
+  });
+
+  it("hands the first write's touches to the editor's studio entering the draft once the script ended", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const release = holdNextMove();
+    answerWithScript(`${RAISE_PRICE} text(pricing.page.id);`);
+    answerFrom(({ scriptOutput }) => scriptOutput);
+    const operationId = crypto.randomUUID();
+    const live = await connectLiveThread(website.project.id, token);
+    live.send({ type: "send", operationId, text: "Raise the price to $12" });
+    await until(async () => (await draftsOf(website)).length > 0);
+    const [draft] = await draftsOf(website);
+    // The studio left Live for the draft before the script ended.
+    live.close();
+    release();
+    await until(
+      async () => (await pagesOf(website, draft!.id))["/pricing"]?.[0]?.includes("$12") ?? false,
+    );
+
+    const inDraft = await connectDraftThread(website.project.id, draft!.id, token);
+    await inDraft.untilIdle(2);
+    await inDraft.until(() => touchedOf(inDraft).length > 0);
+
+    expect(touchedOf(inDraft)).toEqual([
+      {
+        operationIds: [operationId],
+        touches: [expect.objectContaining({ pageId: lastAnswer(inDraft.view()), kind: "edited" })],
+      },
+    ]);
+    // Handed over once: no reconnection replays it.
+    inDraft.close();
+    const again = await connectDraftThread(website.project.id, draft!.id, token);
+    expect(touchedOf(again)).toEqual([]);
+    again.close();
   });
 
   it("takes the editor's follow-up from Live into its draft", async () => {
