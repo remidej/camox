@@ -1,11 +1,8 @@
-import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
-import { layouts } from "../../schema";
-import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   blockDefinitionInput,
@@ -16,7 +13,7 @@ import { planCollectionDefinitions, validateCollectionDefinitions } from "../col
 import { collectionDefinitionInput } from "../collections/validation";
 import * as overlay from "../drafts/overlay";
 import { requestGeneration } from "../generated-values/generation";
-import { layoutDefinitionInput, planLayouts } from "../layouts/service";
+import { layoutDefinitionInput, planLayouts, targetLayouts } from "../layouts/service";
 import { homepageInput, planHomepage } from "../projects/service";
 
 // --- Input Schemas ---
@@ -76,28 +73,17 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
   const blocks = plan.add(yield* planBlockDefinitions(ctx, target, set.blocks, now));
   const collectionsResult = plan.add(yield* planCollectionDefinitions(ctx, target, collections));
   const synced = { definitions: blocks.definitions, collections: collectionIds };
-  // A set declaring no layouts leaves the target's layouts as they are, as syncs always did.
-  const layoutsResult =
-    set.layouts.length > 0
-      ? plan.add(yield* planLayouts(ctx, target, set.layouts, synced, now))
-      : null;
+  // ADR 0006 has dev mode replace the draft's whole definition set, but a set declaring no
+  // layouts deliberately leaves the target's layouts (and their layout-only cleanup) as they
+  // are: the SDK before definitions.sync skipped layouts.sync for an app without layouts.
+  const declaresLayouts = set.layouts.length > 0;
+  const layoutsResult = declaresLayouts
+    ? plan.add(yield* planLayouts(ctx, target, set.layouts, synced, now))
+    : null;
   const homepage = set.homepage
     ? plan.add(
         yield* planHomepage(ctx, target, set.homepage, {
-          layouts:
-            set.layouts.length > 0
-              ? set.layouts
-              : yield* Effect.promise(() =>
-                  ctx.db
-                    .select({ layoutId: layouts.layoutId, kind: layouts.kind })
-                    .from(layouts)
-                    .where(
-                      and(
-                        eq(layouts.projectId, target.project.id),
-                        definitionsIn(layouts, target.scope),
-                      ),
-                    ),
-                ),
+          layouts: declaresLayouts ? set.layouts : yield* targetLayouts(ctx, target),
           ...synced,
         }),
       )

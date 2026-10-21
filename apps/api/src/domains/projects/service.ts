@@ -24,6 +24,7 @@ import {
 } from "../../schema";
 import { type Field, fieldsOf, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
+import type { SyncedDefinitions } from "../block-definitions/service";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { planDeclaredPlacement } from "../blocks/shared-content";
 import { validateReferenceValues } from "../collections/references";
@@ -32,7 +33,6 @@ import { visibleIn } from "../drafts/overlay";
 import { optimizedVideoKey } from "../files/video-optimization";
 import type { GenerationRequest } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
-import type { SyncedDefinitions } from "../layouts/service";
 import { repeatableItemSeedSchema } from "../layouts/service";
 import { insertInitialLocale } from "../locales/service";
 import { itemsInProject } from "../repeatable-items/roots";

@@ -94,7 +94,7 @@ export const validateBlockDefinitions = Effect.fn("blockDefinitions.validate")(f
 });
 
 /** A block definition as its target holds it once a sync ran. */
-export type SyncedDefinition = {
+type SyncedDefinition = {
   contentSchema: unknown;
   settingsSchema: unknown;
   synced: boolean;
@@ -102,6 +102,9 @@ export type SyncedDefinition = {
   /** Whether its shared content exists once the sync's block definitions are written. */
   hasSharedContent: boolean;
 };
+
+/** The block definitions of a sync's target as they are once its batch ran, by name. */
+export type SyncedDefinitions = Map<string, SyncedDefinition>;
 
 /**
  * Plans replacing the whole set of block definitions in a sync's target: Live for a release, or
@@ -134,7 +137,21 @@ export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function*
     eq(sharedContents.projectId, projectId),
   );
   const sharedTypes = new Set(shared.map((row) => row.type));
-  const synced = new Map<string, SyncedDefinition>();
+  const synced: SyncedDefinitions = new Map();
+  const keep = (
+    type: string,
+    columns: Pick<SyncedDefinition, "contentSchema" | "settingsSchema" | "synced"> & {
+      layoutOnly: boolean | null;
+    },
+    hasSharedContent: boolean,
+  ) =>
+    synced.set(type, {
+      contentSchema: columns.contentSchema,
+      settingsSchema: columns.settingsSchema,
+      synced: columns.synced,
+      layoutOnly: !!columns.layoutOnly,
+      hasSharedContent,
+    });
 
   for (const def of definitions) {
     const key = { projectId, type: def.blockId };
@@ -171,13 +188,7 @@ export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function*
         hasSharedContent = plan.add(yield* planSyncedFlagChange(ctx, flag));
       }
     }
-    synced.set(def.blockId, {
-      contentSchema: fields.contentSchema,
-      settingsSchema: fields.settingsSchema,
-      synced: fields.synced,
-      layoutOnly: !!fields.layoutOnly,
-      hasSharedContent,
-    });
+    keep(def.blockId, fields, hasSharedContent);
   }
 
   // Reconcile orphans: definitions still in the set whose block files are gone from code.
@@ -187,13 +198,7 @@ export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function*
   for (const row of existing) {
     if (synced.has(row.blockId)) continue;
     if (row.layoutOnly) {
-      synced.set(row.blockId, {
-        contentSchema: row.contentSchema,
-        settingsSchema: row.settingsSchema,
-        synced: row.synced,
-        layoutOnly: true,
-        hasSharedContent: sharedTypes.has(row.blockId),
-      });
+      keep(row.blockId, row, sharedTypes.has(row.blockId));
       continue;
     }
     // Blocks of a removed definition stay stored under its name, render nothing, and come

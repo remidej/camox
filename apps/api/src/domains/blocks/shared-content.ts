@@ -243,7 +243,7 @@ const planItemTreeCopy = Effect.fn("planItemTreeCopy")(function* (
 });
 
 /** What of a block definition its defaults are built from. */
-export type DefinitionDefaults = {
+type DefinitionDefaults = {
   contentSchema: unknown;
   settingsSchema?: unknown;
   defaultContent?: unknown;
@@ -504,7 +504,7 @@ export const planNewDefinitionSyncedFlag = Effect.fn("blocks.planNewDefinitionSy
 );
 
 /** A repeatable item a definition sync declares, under a placement, by temporary ids. */
-export type DeclaredItem = {
+type DeclaredItem = {
   tempId: string;
   parentTempId: string | null;
   fieldName: string;
@@ -589,7 +589,7 @@ export const planDeclaredPlacement = Effect.fn("blocks.planDeclaredPlacement")(f
  * The placement's items, and the placement itself for clearing it, are read from the target: a
  * placement inserted in the same batch has neither yet, so plan it already cleared.
  */
-export const planSharedContentAdoption = Effect.fn("blocks.planSharedContentAdoption")(function* (
+const planSharedContentAdoption = Effect.fn("blocks.planSharedContentAdoption")(function* (
   ctx: ServiceContext,
   target: WriteTarget,
   block: BlockRow,

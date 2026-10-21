@@ -573,7 +573,7 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
 // run it at once.
 
 /** A write planned but not run yet. */
-export type Planned<A> = {
+type Planned<A> = {
   /** The statements to run, in order, as one batch or as part of a larger one. */
   statements: BatchItem[];
   /** What the journal records once the statements ran. */

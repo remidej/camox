@@ -180,6 +180,7 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   addBack: true,
 };
 
+// `definitions` is absent: its sync is a release or a dev sync, never a studio content write.
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCK_WRITES,
   locales: LOCALE_WRITES,

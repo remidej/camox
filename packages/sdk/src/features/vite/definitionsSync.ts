@@ -64,6 +64,16 @@ function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string)
   );
 }
 
+/** `count` of `noun`, pluralized: "1 block", "2 blocks". */
+function counted(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** Names quoted and listed: `"hero", "footer"`. */
+function quoted(names: readonly string[]) {
+  return names.map((name) => `"${name}"`).join(", ");
+}
+
 /**
  * Send a Definition Set to the API: Live's for a release, the development draft's in dev mode.
  * It goes in one `definitions.sync` call, which either fully applies it or changes nothing.
@@ -89,22 +99,18 @@ export async function syncDefinitionsToApi(options: {
       throwSyncTargetNotFoundError(projectSlug, deployToken);
     throw error;
   }
-  const { blocks: definitions, layouts: layoutDefinitions, homepage: initialPage } = definitionSet;
-
   if (result.draftCreated) {
     logger.info("[camox] Created your development draft", { timestamp: true });
   }
 
-  logger.info(
-    `[camox] Synced ${definitions.length} block definition${definitions.length === 1 ? "" : "s"}`,
-    { timestamp: true },
-  );
+  logger.info(`[camox] Synced ${counted(result.blocks.count, "block definition")}`, {
+    timestamp: true,
+  });
 
   const { deletedDefinitionTypes } = result.blocks;
   if (deletedDefinitionTypes.length > 0) {
-    const blockList = deletedDefinitionTypes.map((t) => `"${t}"`).join(", ");
     logger.info(
-      `[camox] Removed ${deletedDefinitionTypes.length} block definition${deletedDefinitionTypes.length === 1 ? "" : "s"} no longer in code: ${blockList}. Their blocks are kept and render nothing until the definition comes back.`,
+      `[camox] Removed ${counted(deletedDefinitionTypes.length, "block definition")} no longer in code: ${quoted(deletedDefinitionTypes)}. Their blocks are kept and render nothing until the definition comes back.`,
       { timestamp: true },
     );
   }
@@ -120,29 +126,26 @@ export async function syncDefinitionsToApi(options: {
 
   const layoutSyncResults = result.layouts;
   if (layoutSyncResults) {
-    logger.info(
-      `[camox] Synced ${layoutDefinitions.length} layout${layoutDefinitions.length === 1 ? "" : "s"} to Camox API`,
-      { timestamp: true },
-    );
+    logger.info(`[camox] Synced ${counted(layoutSyncResults.count, "layout")} to Camox API`, {
+      timestamp: true,
+    });
     for (const layout of layoutSyncResults.layouts) {
-      if (layout.wasExisting && layout.createdBlockTypes.length > 0) {
-        const blockList = layout.createdBlockTypes.map((t) => `"${t}"`).join(", ");
+      const { layoutId, createdBlockTypes, removedBlockTypes, skippedOrphanTypes } = layout;
+      if (layout.wasExisting && createdBlockTypes.length > 0) {
         logger.info(
-          `[camox] Added ${layout.createdBlockTypes.length} block${layout.createdBlockTypes.length === 1 ? "" : "s"} to existing layout "${layout.layoutId}": ${blockList}`,
+          `[camox] Added ${counted(createdBlockTypes.length, "block")} to existing layout "${layoutId}": ${quoted(createdBlockTypes)}`,
           { timestamp: true },
         );
       }
-      if (layout.removedBlockTypes.length > 0) {
-        const blockList = layout.removedBlockTypes.map((t) => `"${t}"`).join(", ");
+      if (removedBlockTypes.length > 0) {
         logger.info(
-          `[camox] Removed ${layout.removedBlockTypes.length} layoutOnly block${layout.removedBlockTypes.length === 1 ? "" : "s"} from layout "${layout.layoutId}": ${blockList}`,
+          `[camox] Removed ${counted(removedBlockTypes.length, "layoutOnly block")} from layout "${layoutId}": ${quoted(removedBlockTypes)}`,
           { timestamp: true },
         );
       }
-      if (layout.skippedOrphanTypes.length > 0) {
-        const blockList = layout.skippedOrphanTypes.map((t) => `"${t}"`).join(", ");
+      if (skippedOrphanTypes.length > 0) {
         logger.info(
-          `[camox] Layout "${layout.layoutId}" has ${layout.skippedOrphanTypes.length} block${layout.skippedOrphanTypes.length === 1 ? "" : "s"} still in DB but removed from code: ${blockList} (kept because not layoutOnly)`,
+          `[camox] Layout "${layoutId}" has ${counted(skippedOrphanTypes.length, "block")} still in DB but removed from code: ${quoted(skippedOrphanTypes)} (kept because not layoutOnly)`,
           { timestamp: true },
         );
       }
@@ -153,20 +156,21 @@ export async function syncDefinitionsToApi(options: {
         { timestamp: true },
       );
     }
-    if (layoutSyncResults.deletedDefinitionTypes.length > 0) {
-      const blockList = layoutSyncResults.deletedDefinitionTypes.map((t) => `"${t}"`).join(", ");
+    const unused = layoutSyncResults.deletedDefinitionTypes;
+    if (unused.length > 0) {
       logger.info(
-        `[camox] Removed ${layoutSyncResults.deletedDefinitionTypes.length} layoutOnly block definition${layoutSyncResults.deletedDefinitionTypes.length === 1 ? "" : "s"} (no layout uses ${layoutSyncResults.deletedDefinitionTypes.length === 1 ? "it" : "them"} anymore): ${blockList}`,
+        `[camox] Removed ${counted(unused.length, "layoutOnly block definition")} (no layout uses ${unused.length === 1 ? "it" : "them"} anymore): ${quoted(unused)}`,
         { timestamp: true },
       );
     }
   }
 
   // The homepage is only created for a fresh project or draft.
-  if (initialPage && result.homepage?.created) {
-    if (initialPage.hasInitialBlocks) {
+  const { homepage } = definitionSet;
+  if (homepage && result.homepage?.created) {
+    if (homepage.hasInitialBlocks) {
       logger.info(
-        `[camox] Initialized content: homepage with ${result.homepage.blockCount} block${result.homepage.blockCount === 1 ? "" : "s"}`,
+        `[camox] Initialized content: homepage with ${counted(result.homepage.blockCount, "block")}`,
         { timestamp: true },
       );
     } else {
@@ -321,7 +325,7 @@ export async function syncDefinitions(
     timer = setTimeout(() => {
       running = running.then(() =>
         sync().catch((error: unknown) => {
-          logger.error(`[camox] Failed to sync definitions: ${String(error)}`, {
+          logger.error(`[camox] Failed to sync block definitions: ${String(error)}`, {
             timestamp: true,
           });
         }),

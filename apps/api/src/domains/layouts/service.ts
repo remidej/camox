@@ -9,7 +9,7 @@ import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { layoutSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
-import type { SyncedDefinition } from "../block-definitions/service";
+import type { SyncedDefinitions } from "../block-definitions/service";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { planDeclaredPlacement } from "../blocks/shared-content";
 import { validateReferenceValues } from "../collections/references";
@@ -128,11 +128,21 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
 
 // --- Definition sync ---
 
+/** The layouts a sync's target holds before its batch runs: their ids and kinds. */
+export const targetLayouts = Effect.fn("layouts.targetLayouts")(function* (
+  ctx: ServiceContext,
+  { project, scope }: Pick<SyncTarget, "project" | "scope">,
+) {
+  return yield* Effect.promise(() =>
+    ctx.db
+      .select({ layoutId: layouts.layoutId, kind: layouts.kind })
+      .from(layouts)
+      .where(and(eq(layouts.projectId, project.id), definitionsIn(layouts, scope))),
+  );
+});
+
 type LayoutRow = typeof layouts.$inferSelect;
 type LayoutDefinition = z.infer<typeof layoutDefinitionInput>;
-
-/** The block definitions of a sync's target as they are once its batch ran, by name. */
-export type SyncedDefinitions = Map<string, SyncedDefinition>;
 
 /** Plans updating a synced layout. Syncing an unchanged layout writes nothing to it. */
 const planLayoutUpdate = Effect.fn("layouts.planLayoutUpdate")(function* (
