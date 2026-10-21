@@ -1,9 +1,13 @@
 import { spawn } from "node:child_process";
-import { readFileSync, watch } from "node:fs";
+import { watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { copyTemplateSource, isExcludedTemplatePath, readCatalog } from "../src/lib/template.ts";
+import {
+  copyTemplateSource,
+  isExcludedTemplatePath,
+  readWorkspaceCatalog,
+} from "../src/lib/template.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -11,7 +15,7 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const TEMPLATES = [{ src: "apps/template-default", dest: "packages/cli/templates/default" }];
 
 function syncAll() {
-  const catalog = readCatalog(readFileSync(path.join(REPO_ROOT, "pnpm-workspace.yaml"), "utf-8"));
+  const catalog = readWorkspaceCatalog(REPO_ROOT);
   for (const { src, dest } of TEMPLATES) {
     copyTemplateSource(path.join(REPO_ROOT, src), path.join(REPO_ROOT, dest), catalog);
   }

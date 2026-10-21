@@ -2,7 +2,7 @@
  * The one transformation that turns the monorepo's Template (`apps/template-default`) into a
  * standalone project. The CLI applies it in two halves: `copyTemplateSource` when it builds the
  * copy it ships, and `makeStandalone` when `camox init` scaffolds a project. The script that
- * refreshes `template-default` on Artifacts applies both, so the two copies can't drift.
+ * refreshes `template-default` on Cloudflare Artifacts applies both, so the two copies can't drift.
  *
  * Node runs the build scripts straight from this file, so it may only import `node:` modules and
  * other such files, with their `.ts` extension.
@@ -56,6 +56,19 @@ export function readCatalog(workspaceYaml: string): Record<string, string> {
   return catalog;
 }
 
+/** Reads the default `catalog:` map of the monorepo at `repoRoot`. */
+export function readWorkspaceCatalog(repoRoot: string) {
+  return readCatalog(fs.readFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "utf-8"));
+}
+
+/** Rewrites `dir`'s `package.json` after `mutate` changes it in place. */
+function updatePackageJson(dir: string, mutate: (pkg: Record<string, any>) => void) {
+  const pkgPath = path.join(dir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  mutate(pkg);
+  fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+}
+
 /**
  * Copies the Template without its excluded files, replacing `catalog:` ranges with the
  * workspace catalog's, since a project lives outside the workspace.
@@ -70,16 +83,15 @@ export function copyTemplateSource(src: string, dest: string, catalog: Record<st
     },
   });
 
-  const pkgPath = path.join(dest, "package.json");
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
-    for (const [name, range] of Object.entries<string>(pkg[field] ?? {})) {
-      if (range !== "catalog:") continue;
-      if (!catalog[name]) throw new Error(`[template] No catalog entry for "${name}".`);
-      pkg[field][name] = catalog[name];
+  updatePackageJson(dest, (pkg) => {
+    for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+      for (const [name, range] of Object.entries<string>(pkg[field] ?? {})) {
+        if (range !== "catalog:") continue;
+        if (!catalog[name]) throw new Error(`[template] No catalog entry for "${name}".`);
+        pkg[field][name] = catalog[name];
+      }
     }
-  }
-  fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  });
 }
 
 const DEV_ONLY_BLOCK =
@@ -135,12 +147,11 @@ export function makeStandalone(
     fs.readFileSync(viteConfigPath, "utf-8").replace(DEV_ONLY_BLOCK, ""),
   );
 
-  const pkgPath = path.join(dir, "package.json");
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  delete pkg.version;
-  pkg.dependencies.camox = `^${options.camoxVersion}`;
-  pkg.packageManager = packageManagerVersions[options.packageManager];
-  fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  updatePackageJson(dir, (pkg) => {
+    delete pkg.version;
+    pkg.dependencies.camox = `^${options.camoxVersion}`;
+    pkg.packageManager = packageManagerVersions[options.packageManager];
+  });
 
   if (options.packageManager === "pnpm") {
     fs.writeFileSync(path.join(dir, "pnpm-workspace.yaml"), PNPM_WORKSPACE);
@@ -152,4 +163,15 @@ export function makeStandalone(
 /** Replaces the Template's placeholder slug, marked by a comment this drops. */
 export function replaceProjectSlug(source: string, slug: string) {
   return source.replace(/"[^"]*"(,?)[ \t]*\/\/[ \t]*camox-cli:replace-slug.*$/gm, `"${slug}"$1`);
+}
+
+/** Names a standalone project, and the Worker it deploys as, after its slug. */
+export function personalize(dir: string, slug: string) {
+  updatePackageJson(dir, (pkg) => {
+    pkg.name = slug;
+  });
+  for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
+    const filePath = path.join(dir, file);
+    fs.writeFileSync(filePath, replaceProjectSlug(fs.readFileSync(filePath, "utf-8"), slug));
+  }
 }

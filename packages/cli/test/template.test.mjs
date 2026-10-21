@@ -9,7 +9,9 @@ import { fileURLToPath } from "node:url";
 import {
   copyTemplateSource,
   makeStandalone,
+  personalize,
   readCatalog,
+  readWorkspaceCatalog,
   replaceProjectSlug,
 } from "../src/lib/template.ts";
 
@@ -166,8 +168,7 @@ void test("replacing the slug drops its marker", () => {
 
 void test("the Template becomes a standalone project with no workspace or development-only leftovers", async () => {
   const dest = join(root, "real-template");
-  const workspaceYaml = await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf-8");
-  copyTemplateSource(join(repoRoot, "apps/template-default"), dest, readCatalog(workspaceYaml));
+  copyTemplateSource(join(repoRoot, "apps/template-default"), dest, readWorkspaceCatalog(repoRoot));
   makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
 
   const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
@@ -179,5 +180,20 @@ void test("the Template becomes a standalone project with no workspace or develo
   for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
     const content = await readFile(join(dest, file), "utf-8");
     assert.doesNotMatch(content, /camox-cli:dev-only|_internal|CAMOX_DEV_/, file);
+  }
+});
+
+void test("a project made from the Template is named after its slug", async () => {
+  const dest = join(root, "personalized");
+  copyTemplateSource(join(repoRoot, "apps/template-default"), dest, readWorkspaceCatalog(repoRoot));
+  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
+  personalize(dest, "acme");
+
+  const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
+  assert.equal(pkg.name, "acme");
+  for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
+    const content = await readFile(join(dest, file), "utf-8");
+    assert.match(content, /"acme"/, file);
+    assert.doesNotMatch(content, /camox-cli:replace-slug/, file);
   }
 });

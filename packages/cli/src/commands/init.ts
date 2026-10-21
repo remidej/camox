@@ -17,7 +17,7 @@ import {
   setActiveOrganization,
 } from "../lib/api";
 import { getOrAuthenticate, readAuthToken } from "../lib/auth";
-import { makeStandalone, replaceProjectSlug } from "../lib/template";
+import { makeStandalone, personalize } from "../lib/template";
 import { type PackageManager, type PackageManagerCommand, copyDir, pmCommands } from "../lib/utils";
 
 export const parser = command(
@@ -273,19 +273,7 @@ export async function init() {
     "{{projectName}}": name,
   });
   makeStandalone(targetDir, { camoxVersion: ownPkg.version, packageManager: pm });
-
-  // The project and its Worker are named after its slug.
-  const pkgPath = path.join(targetDir, "package.json");
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  pkg.name = project.slug;
-  fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
-    const filePath = path.join(targetDir, file);
-    fs.writeFileSync(
-      filePath,
-      replaceProjectSlug(fs.readFileSync(filePath, "utf-8"), project.slug),
-    );
-  }
+  personalize(targetDir, project.slug);
 
   s.stop("Project scaffolded!");
 
