@@ -26,7 +26,7 @@ async function fixture() {
   await syncDefinitionSet(base.db, base.project, {
     collections: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
   });
-  return { ...base, context, scope: { projectSlug: base.project.slug, collectionId: id } };
+  return { ...base, context, scope: { projectUuid: base.project.uuid, collectionId: id } };
 }
 
 describe("collection record procedures", () => {
@@ -182,7 +182,7 @@ describe("collection record procedures", () => {
     await expect(
       run("createCollectionRecord", { collectionId: "customers", content: { name: "" } }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(run("listCollections", { projectSlug: "foreign" })).rejects.toThrow();
+    await expect(run("listCollections", { projectUuid: generateUuidv7() })).rejects.toThrow();
     const created = (await run("createCollectionRecord", {
       collectionId: "customers",
       content: { name: "Ada", company: "Engines", logo: null },

@@ -352,7 +352,7 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
     let located: Candidates | undefined;
     let where: SQL;
     if ("project" in ref) where = eq(projects.id, ref.project);
-    else if ("projectUuid" in ref || "projectSlug" in ref) where = projectNamed(ref);
+    else if ("projectUuid" in ref) where = projectNamed(ref);
     else {
       located = yield* locate(ctx, ref);
       if (!located) return yield* new NotFoundError();

@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -124,7 +125,7 @@ describe("standalone shared layout reads", () => {
       })
       .returning()
       .get();
-    const input = { projectSlug: project.slug, layoutId: layout.layoutId };
+    const input = { projectUuid: project.uuid, layoutId: layout.layoutId };
     const readTool = () =>
       runService(
         callTool(ctx, {
@@ -209,7 +210,7 @@ describe("standalone shared layout reads", () => {
 
   it("returns not found for a missing layout or project", async () => {
     const { db, layout, memberUser, project } = await createProjectFixture("layout-access");
-    const input = { projectSlug: project.slug, layoutId: layout.layoutId };
+    const input = { projectUuid: project.uuid, layoutId: layout.layoutId };
     const ctx = createServiceContext(db, memberUser);
     await expect(
       runService(getLayout(inScope(ctx, null), { ...input, layoutId: "missing" })),
@@ -217,7 +218,7 @@ describe("standalone shared layout reads", () => {
       status: 404,
     });
     await expect(
-      runService(getLayout(inScope(ctx, null), { ...input, projectSlug: "missing" })),
+      runService(getLayout(inScope(ctx, null), { ...input, projectUuid: generateUuidv7() })),
     ).rejects.toMatchObject({
       status: 404,
     });

@@ -25,7 +25,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
   // Never accept a caller-supplied project scope. Membership is checked here and
   // by each service; the session's draft is passed through unchanged.
   const scope = getProject(ctx, { id: ctx.projectId }).pipe(
-    Effect.map((project) => ({ projectSlug: project.slug })),
+    Effect.map((project) => ({ projectUuid: project.uuid })),
   );
   return [
     defineTool({

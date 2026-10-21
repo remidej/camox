@@ -101,7 +101,7 @@ describe("createBlock defaults", () => {
     const publicCtx = createServiceContext(db, null);
     const markdown = await runService(
       getLayoutMarkdown(inScope(publicCtx, null), {
-        projectSlug: project.slug,
+        projectUuid: project.uuid,
         layoutId: layout.layoutId,
       }),
     );

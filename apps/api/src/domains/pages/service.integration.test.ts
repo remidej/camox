@@ -30,7 +30,7 @@ describe("page persistence", () => {
       runService(
         assertSyncAccess(
           db,
-          { projectSlug: project.slug },
+          { projectUuid: project.uuid },
           {
             user: null,
             draft: null,
@@ -44,7 +44,7 @@ describe("page persistence", () => {
       runService(
         assertSyncAccess(
           db,
-          { projectSlug: project.slug },
+          { projectUuid: project.uuid },
           {
             user: null,
             draft: { development: true },
@@ -98,7 +98,7 @@ describe("page persistence", () => {
       .get();
     const read = (ctx: typeof memberCtx) =>
       runService(
-        getPageByPath(inScope(ctx, null), { projectSlug: project.slug, path: page.fullPath }),
+        getPageByPath(inScope(ctx, null), { projectUuid: project.uuid, path: page.fullPath }),
       );
 
     expect((await read(visitorCtx)).blocks[0].content).toEqual({ title: "First title" });
@@ -147,7 +147,7 @@ describe("page persistence", () => {
 
     const list = await runService(
       listPagesBySlug(inScope(createServiceContext(db, null), null), {
-        projectSlug: project.slug,
+        projectUuid: project.uuid,
       }),
     );
 

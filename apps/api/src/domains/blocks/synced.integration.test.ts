@@ -449,7 +449,7 @@ describe("reading a synced placement", () => {
     expect(
       (
         await runService(
-          getLayoutMarkdown(inScope(ctx, null), { projectSlug: project.slug, layoutId: "other" }),
+          getLayoutMarkdown(inScope(ctx, null), { projectUuid: project.uuid, layoutId: "other" }),
         )
       ).before,
     ).toContain("# Shared title");

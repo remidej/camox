@@ -59,7 +59,7 @@ async function fixture(suffix: string) {
   const base = await createProjectFixture(`collections-${suffix}`);
   const ctx = createServiceContext(base.db, base.memberUser);
   const publicCtx = createServiceContext(base.db, null);
-  const scope = { projectSlug: base.project.slug, collectionId: "articles" };
+  const scope = { projectUuid: base.project.uuid, collectionId: "articles" };
   const sync = async (definitions = [definition]) =>
     (await syncDefinitionSet(base.db, base.project, { collections: definitions })).collections;
   /** Dev mode syncs the member's development draft, creating it when `autoCreate` lets it. */
@@ -67,7 +67,7 @@ async function fixture(suffix: string) {
     call(
       router.definitions.sync,
       {
-        projectSlug: base.project.slug,
+        projectUuid: base.project.uuid,
         autoCreate,
         definitionSet: { blocks: [], layouts: [], collections: definitions, homepage: null },
       },
@@ -189,7 +189,7 @@ describe("authenticated collection browsing", () => {
 
   it("lists the definitions code declares in the request's project and draft, newest first", async () => {
     const f = await fixture("browse");
-    const input = { projectSlug: f.project.slug };
+    const input = { projectUuid: f.project.uuid };
     const newer = { ...definition, collectionId: "newer", title: "Newer" };
     await f.sync([definition, newer]);
     const metadata = ({ collectionId, title, description, label }: typeof definition) => ({
@@ -204,7 +204,7 @@ describe("authenticated collection browsing", () => {
     ]);
     const other = await fixture("browse-other");
     expect(
-      await runService(listCollectionDefinitions(other.ctx, { projectSlug: other.project.slug })),
+      await runService(listCollectionDefinitions(other.ctx, { projectUuid: other.project.uuid })),
     ).toEqual([metadata(definition)]);
     // The development draft lists its own definitions; Live keeps its.
     const devCtx = { ...f.ctx, draft: { development: true as const } };
@@ -250,7 +250,7 @@ describe("authenticated collection browsing", () => {
     for (const ctx of [f.publicCtx, createServiceContext(f.db, f.outsiderUser)]) {
       const code = ctx.user ? "FORBIDDEN" : "UNAUTHORIZED";
       await expect(
-        runService(listCollectionDefinitions(ctx, { projectSlug: f.project.slug })),
+        runService(listCollectionDefinitions(ctx, { projectUuid: f.project.uuid })),
       ).rejects.toMatchObject({ code });
       await expect(runService(getCollectionDefinition(ctx, f.scope))).rejects.toMatchObject({
         code,
@@ -258,7 +258,7 @@ describe("authenticated collection browsing", () => {
       await expect(runService(listCollectionRecords(ctx, f.scope))).rejects.toMatchObject({ code });
     }
     await expect(
-      runService(listCollectionDefinitions(f.ctx, { projectSlug: "missing" })),
+      runService(listCollectionDefinitions(f.ctx, { projectUuid: generateUuidv7() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
       runService(listCollectionRecords(f.ctx, { ...f.scope, collectionId: "missing" })),
@@ -606,7 +606,7 @@ describe("collection record lifecycle", () => {
       call(
         router.definitions.sync,
         {
-          projectSlug: f.project.slug,
+          projectUuid: f.project.uuid,
           autoCreate: false,
           definitionSet: { blocks: [], layouts: [], collections: [definition], homepage: null },
         },

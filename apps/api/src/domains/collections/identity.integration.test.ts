@@ -29,7 +29,7 @@ async function fixture() {
     options: { context },
     // AI tools write content, so they run in a draft: Live is read-only.
     toolContext: { ...context, draft: { id: generateUuidv7(), create: true } },
-    scope: { projectSlug: base.project.slug, collectionId: id },
+    scope: { projectUuid: base.project.uuid, collectionId: id },
   };
 }
 

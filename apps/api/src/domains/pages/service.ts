@@ -48,7 +48,7 @@ function deriveDefaultPageNickname(pathSegment: string) {
 export const getPageByPathInput = namingProject(z.object({ path: z.string() }));
 export const getPageStructureInput = namingProject(z.object({ path: z.string() }));
 export const listPagesInput = z.object({ projectId: z.number() });
-/** A project's pages, by Project ID despite the name: the slug is ADR 0019's bridge. */
+/** A project's pages, named by Project ID despite the procedure's name. */
 export const listPagesBySlugInput = namingProject(z.object({}));
 export const getPageInput = z.union([
   z.object({ id: uuidv7Schema }),

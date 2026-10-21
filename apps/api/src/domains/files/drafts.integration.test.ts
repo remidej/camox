@@ -475,7 +475,7 @@ describe("files in drafts", () => {
     });
     const draftId = generateUuidv7();
     const photo = await f.upload(startingDraft(draftId), { bytes: "portrait" });
-    const people = { projectSlug: f.project.slug, collectionId: "people" };
+    const people = { projectUuid: f.project.uuid, collectionId: "people" };
     const ada = await callSeedingLive(
       router.collectionDefinitions.createRecord,
       { ...people, content: { name: "Ada", photo: { _fileId: photo.id } } },
@@ -596,7 +596,7 @@ describe("file checks beyond blocks", () => {
       const person = await callSeedingLive(
         router.collectionDefinitions.createRecord,
         {
-          projectSlug: f.project.slug,
+          projectUuid: f.project.uuid,
           collectionId: "people",
           content: { name: "Ada", ...content },
         },

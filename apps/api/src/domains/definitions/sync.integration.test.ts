@@ -106,7 +106,7 @@ async function fixture() {
     const layouts = await call(router.layouts.list, { projectId: project.id }, member(headers));
     const collections = await call(
       router.collectionDefinitions.list,
-      { projectSlug: project.slug },
+      { projectUuid: project.uuid },
       member(headers),
     );
     const pages = await call(router.pages.list, { projectId: project.id }, member(headers));
@@ -114,7 +114,7 @@ async function fixture() {
       layouts.map(async ({ layoutId }) => {
         const layout = await call(
           router.layouts.get,
-          { projectSlug: project.slug, layoutId },
+          { projectUuid: project.uuid, layoutId },
           member(headers),
         );
         return { layoutId, blocks: layout.blocks.map((b) => ({ type: b.type, ...b.content })) };
@@ -124,7 +124,7 @@ async function fixture() {
       pages.map(async (page) => {
         const view = await call(
           router.pages.getByPath,
-          { projectSlug: project.slug, path: page.fullPath },
+          { projectUuid: project.uuid, path: page.fullPath },
           member(headers),
         );
         const blocks = view.blocks.filter((b) => view.page.blockIds.includes(b.id));
@@ -143,7 +143,7 @@ async function fixture() {
   const liveAuthor = (name: string) =>
     seedLiveThrough(createServiceContext(db, memberUser), project.id, (_draft, c) =>
       createRecord(c, {
-        projectSlug: project.slug,
+        projectUuid: project.uuid,
         collectionId: "authors",
         content: { name },
       }),
@@ -246,7 +246,7 @@ describe("definitions.sync", () => {
     expect((await stateOf()).definitions).toEqual(["footer", "hero", "navbar"]);
     const landing = await call(
       router.layouts.get,
-      { projectSlug: project.slug, layoutId: "landing" },
+      { projectUuid: project.uuid, layoutId: "landing" },
       member(),
     );
     expect(landing.blocks).toEqual([
@@ -394,7 +394,7 @@ describe("definitions.sync", () => {
       call(
         router.definitions.sync,
         {
-          projectSlug: project.slug,
+          projectUuid: project.uuid,
           autoCreate: false,
           definitionSet: {
             blocks: [],

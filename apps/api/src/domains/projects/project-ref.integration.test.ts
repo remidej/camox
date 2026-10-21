@@ -11,9 +11,10 @@ import {
   type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
+import type { ProjectRef } from "./ref";
 
-// A website's code names its project by its Project ID. Older SDKs still name it by its Project
-// Slug, which the API accepts as a bridge until every project is upgraded (ADR 0019).
+// A website's code, the studio and the CLI name a project by its Project ID. Its Project Slug is
+// only an address, which the inputs they send don't take.
 
 const navbar = (brand: string): TestDefinitionSet => ({
   blocks: [
@@ -42,11 +43,11 @@ async function fixture() {
   const base = await createProjectFixture(`project-ref-${crypto.randomUUID()}`);
   const { db, project } = base;
   const visitor = () => ({ context: createRpcContext(db, null) });
-  /** The brands the default layout shows, read by slug: in Live, or as `context` reads it. */
+  /** The brands the default layout shows: in Live, or as `context` reads it. */
   const brands = async (context = visitor()) => {
     const layout = await call(
       router.layouts.get,
-      { projectSlug: project.slug, layoutId: "default" },
+      { projectUuid: project.uuid, layoutId: "default" },
       context,
     );
     return layout.blocks.map((block) => (block.content as { brand: string }).brand);
@@ -61,7 +62,7 @@ describe("A project named by its Project ID", () => {
   it("gets its definitions released to Live with the Deploy Token", async () => {
     const f = await fixture();
 
-    await syncDefinitionSet(f.db, f.project, navbar("Acme"), { byProjectId: true });
+    await syncDefinitionSet(f.db, f.project, navbar("Acme"));
 
     expect(await f.brands()).toEqual(["Acme"]);
   });
@@ -70,9 +71,9 @@ describe("A project named by its Project ID", () => {
     const f = await fixture();
     const project = { ...f.project, deployToken: "wrong-deploy-token" };
 
-    await expect(
-      syncDefinitionSet(f.db, project, navbar("Acme"), { byProjectId: true }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(syncDefinitionSet(f.db, project, navbar("Acme"))).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
     expect(await f.brands()).toEqual([]);
   });
 
@@ -81,7 +82,6 @@ describe("A project named by its Project ID", () => {
 
     await syncDefinitionSet(f.db, f.project, navbar("Local"), {
       as: f.memberUser,
-      byProjectId: true,
     });
 
     expect(await f.brands(f.inDevelopmentDraft())).toEqual(["Local"]);
@@ -150,19 +150,19 @@ async function fixtureWithContent() {
   );
   const record = await callSeedingLive(
     router.collectionDefinitions.createRecord,
-    { projectSlug: project.slug, collectionId: "articles", content: { title: "First" } },
+    { projectUuid: project.uuid, collectionId: "articles", content: { title: "First" } },
     member(),
   );
   const byId = { projectUuid: project.uuid };
-  const bySlug = { projectSlug: project.slug };
+  // The project named by its slug, which the inputs' types don't allow.
+  const bySlug = { projectSlug: project.slug } as unknown as ProjectRef;
   return { ...f, record, member, byId, bySlug };
 }
 
-type Named = { projectUuid: string } | { projectSlug: string };
 type Content = Awaited<ReturnType<typeof fixtureWithContent>>;
 
 /** The public reads a website's Worker makes, each naming the project as `named`. */
-const publicReads: Record<string, (f: Content, named: Named) => Promise<unknown>> = {
+const publicReads: Record<string, (f: Content, named: ProjectRef) => Promise<unknown>> = {
   "pages.getByPath": (f, named) =>
     call(router.pages.getByPath, { ...named, path: "/pricing" }, f.visitor()),
   "pages.getStructure": (f, named) =>
@@ -194,7 +194,7 @@ const publicReads: Record<string, (f: Content, named: Named) => Promise<unknown>
 };
 
 /** The studio's collection reads, as a member, each naming the project as `named`. */
-const memberReads: Record<string, (f: Content, named: Named) => Promise<unknown>> = {
+const memberReads: Record<string, (f: Content, named: ProjectRef) => Promise<unknown>> = {
   "collectionDefinitions.list": (f, named) =>
     call(router.collectionDefinitions.list, named, f.member()),
   "collectionDefinitions.get": (f, named) =>
@@ -219,16 +219,19 @@ const memberReads: Record<string, (f: Content, named: Named) => Promise<unknown>
     ),
 };
 
-describe("A read naming the project by its Project ID", () => {
+describe("A read naming the project", () => {
   const reads = { ...publicReads, ...memberReads };
-  it.each(Object.keys(reads))("%s returns what it returns for the slug", async (name) => {
+
+  it.each(Object.keys(reads))("%s finds it by its Project ID", async (name) => {
     const f = await fixtureWithContent();
-    const read = reads[name]!;
 
-    const bySlug = await read(f, f.bySlug);
+    expect(await reads[name]!(f, f.byId)).toBeTruthy();
+  });
 
-    expect(bySlug).toBeTruthy();
-    expect(await read(f, f.byId)).toEqual(bySlug);
+  it.each(Object.keys(reads))("%s is rejected when it names it by its slug", async (name) => {
+    const f = await fixtureWithContent();
+
+    await expect(reads[name]!(f, f.bySlug)).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
 
@@ -236,10 +239,7 @@ describe("A project's name in an input", () => {
   const invalidNames: Record<string, (project: { uuid: string; slug: string }) => object> = {
     "an uppercase Project ID": ({ uuid }) => ({ projectUuid: uuid.toUpperCase() }),
     "a Project ID that isn't a UUIDv7": () => ({ projectUuid: crypto.randomUUID() }),
-    "both the Project ID and the slug": ({ uuid, slug }) => ({
-      projectUuid: uuid,
-      projectSlug: slug,
-    }),
+    "its slug": ({ slug }) => ({ projectSlug: slug }),
     "no name at all": () => ({}),
   };
   const procedures: Record<string, (f: Content, names: object) => Promise<unknown>> = {
@@ -247,7 +247,7 @@ describe("A project's name in an input", () => {
       call(
         router.definitions.sync,
         {
-          ...names,
+          ...(names as ProjectRef),
           deployToken: f.project.deployToken,
           autoCreate: false,
           definitionSet: { blocks: [], layouts: [], collections: [], homepage: null },
@@ -255,9 +255,9 @@ describe("A project's name in an input", () => {
         f.visitor(),
       ),
     "pages.getByPath": (f, names) =>
-      call(router.pages.getByPath, { ...names, path: "/pricing" }, f.visitor()),
+      call(router.pages.getByPath, { ...(names as ProjectRef), path: "/pricing" }, f.visitor()),
     "collectionDefinitions.list": (f, names) =>
-      call(router.collectionDefinitions.list, names, f.member()),
+      call(router.collectionDefinitions.list, names as ProjectRef, f.member()),
   };
   const cases = Object.keys(invalidNames).flatMap((names) =>
     Object.keys(procedures).map((procedure) => [names, procedure] as const),

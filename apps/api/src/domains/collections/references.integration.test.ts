@@ -43,7 +43,7 @@ async function fixture(assets = false) {
   const f = await createProjectFixture(`references-${crypto.randomUUID()}`);
   const ctx = createServiceContext(f.db, f.memberUser);
   const publicCtx = createServiceContext(f.db, null);
-  const scope = { projectSlug: f.project.slug, collectionId: "customers" };
+  const scope = { projectUuid: f.project.uuid, collectionId: "customers" };
   // Content writes reach Live by publishing a throwaway draft (ADR 0009).
   const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
     seedLiveThrough(ctx, f.project.id, run);
@@ -180,7 +180,7 @@ describe("single collection references", () => {
     for (const ctx of [f.ctx, f.publicCtx]) {
       const block = await runService(getBlock(inScope(ctx, null), { id: f.block.id }));
       const page = await runService(
-        getPageByPath(inScope(ctx, null), { projectSlug: f.project.slug, path: "/reference" }),
+        getPageByPath(inScope(ctx, null), { projectUuid: f.project.uuid, path: "/reference" }),
       );
       for (const result of [block, page]) {
         expect(result.files.map((file) => file.id).sort()).toEqual(
@@ -207,7 +207,7 @@ describe("single collection references", () => {
       .where(eq(blocks.id, f.block.id));
     for (const ctx of [f.ctx, f.publicCtx]) {
       const layout = await runService(
-        getLayout(inScope(ctx, null), { projectSlug: f.project.slug, layoutId: "default" }),
+        getLayout(inScope(ctx, null), { projectUuid: f.project.uuid, layoutId: "default" }),
       );
       expect(layout.files.map((file) => file.id).sort()).toEqual(
         managed.map((file) => file.id).sort(),
@@ -293,7 +293,7 @@ describe("single collection references", () => {
       customer(
         (
           await runService(
-            getLayout(inScope(ctx, null), { projectSlug: f.project.slug, layoutId: "default" }),
+            getLayout(inScope(ctx, null), { projectUuid: f.project.uuid, layoutId: "default" }),
           )
         ).blocks[0],
       )?.content.name;
@@ -470,7 +470,7 @@ describe("reference lists", () => {
     for (const ctx of [f.ctx, f.publicCtx]) {
       expect(await f.listIds(ctx)).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
       const page = await runService(
-        getPageByPath(inScope(ctx, null), { projectSlug: f.project.slug, path: "/reference" }),
+        getPageByPath(inScope(ctx, null), { projectUuid: f.project.uuid, path: "/reference" }),
       );
       expect(f.ids(page.blocks.find((block) => block.id === f.list.id)?.references)).toEqual([
         f.gamma.id,
@@ -728,7 +728,7 @@ describe("references in repeatable items", () => {
       expect((await quote())?.id).toBe(f.beta.id);
       const page = await runService(
         getPageByPath(inScope(f.publicCtx, null), {
-          projectSlug: f.project.slug,
+          projectUuid: f.project.uuid,
           path: "/reference",
         }),
       );
@@ -804,8 +804,8 @@ async function relationFixture() {
     coauthors: collectionReferenceList("authors"),
   });
   await sync([authorsDefinition, articlesDefinition]);
-  const authors = { projectSlug: f.project.slug, collectionId: "authors" };
-  const articles = { projectSlug: f.project.slug, collectionId: "articles" };
+  const authors = { projectUuid: f.project.uuid, collectionId: "authors" };
+  const articles = { projectUuid: f.project.uuid, collectionId: "articles" };
   const jane = await live((_draft, c) =>
     createRecord(c, { ...authors, content: { name: "Jane", favorite: null } }),
   );
@@ -1009,7 +1009,7 @@ async function queryFixture() {
   // Content writes reach Live by publishing a throwaway draft (ADR 0009).
   const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
     seedLiveThrough(ctx, f.project.id, run);
-  const scope = { projectSlug: f.project.slug, collectionId: "articles" };
+  const scope = { projectUuid: f.project.uuid, collectionId: "articles" };
   await syncDefinitionSet(f.db, f.project, {
     collections: [
       {
@@ -1393,7 +1393,7 @@ describe("query-backed reference lists", () => {
       expect(await f.titles("byTitle", reader)).toEqual(["Bravo", "Charlie", "Delta", "Echo", ""]);
     }
     const live = await runService(
-      getPageByPath(inScope(f.publicCtx, null), { projectSlug: f.project.slug, path: "/articles" }),
+      getPageByPath(inScope(f.publicCtx, null), { projectUuid: f.project.uuid, path: "/articles" }),
     );
     const block = live.blocks.find((candidate) => candidate.id === f.block.id)!;
     expect((block.references.byTitle as ResolvedReference[]).map((r) => r.label)).toEqual([

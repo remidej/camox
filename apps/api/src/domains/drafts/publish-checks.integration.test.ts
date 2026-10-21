@@ -59,7 +59,7 @@ const authors = {
 async function fixture() {
   const base = await createProjectFixture(`publish-checks-${crypto.randomUUID()}`);
   const projectId = base.project.id;
-  const projectSlug = base.project.slug;
+  const projectUuid = base.project.uuid;
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(base.db, base.memberUser, headers),
   });
@@ -174,25 +174,25 @@ async function fixture() {
   const createAuthor = (name: string, mentor: string | null = null, headers: Headers = {}) =>
     callSeedingLive(
       router.collectionDefinitions.createRecord,
-      { projectSlug, collectionId: "authors", content: { name, mentor } },
+      { projectUuid, collectionId: "authors", content: { name, mentor } },
       member(headers),
     );
   const deleteAuthor = (id: string, headers: Headers = {}) =>
     callSeedingLive(
       router.collectionDefinitions.deleteRecord,
-      { projectSlug, collectionId: "authors", id },
+      { projectUuid, collectionId: "authors", id },
       member(headers),
     );
   const listAuthors = (headers: Headers = {}) =>
     call(
       router.collectionDefinitions.listRecords,
-      { projectSlug, collectionId: "authors" },
+      { projectUuid, collectionId: "authors" },
       member(headers),
     );
   const getAuthor = (id: string, headers: Headers = {}) =>
     call(
       router.collectionDefinitions.getRecord,
-      { projectSlug, collectionId: "authors", id },
+      { projectUuid, collectionId: "authors", id },
       member(headers),
     );
   const createByline = (pageId: string, content: Record<string, unknown>) =>

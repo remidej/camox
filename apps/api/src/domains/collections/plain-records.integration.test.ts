@@ -154,8 +154,8 @@ async function fixture() {
     const scope = { id: draft.id, kind: draft.kind, projectId: draft.projectId };
     return { scope, ctx: { ...ctx, draft: { id: draft.id, create: false } } };
   };
-  const authors = { projectSlug: base.project.slug, collectionId: "authors" };
-  const articles = { projectSlug: base.project.slug, collectionId: "articles" };
+  const authors = { projectUuid: base.project.uuid, collectionId: "authors" };
+  const articles = { projectUuid: base.project.uuid, collectionId: "articles" };
   const createAuthor = (name: string, portrait: unknown = null) =>
     live((c) => createRecord(c, { ...authors, content: { name, portrait } }));
   const createArticle = (title: string, author: string | null) =>

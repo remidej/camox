@@ -225,7 +225,7 @@ describe("blocks in a draft", () => {
     const titlesOnPage = async (scope: DraftScope) =>
       (
         await runService(
-          getPageByPath(inScope(ctx, scope), { projectSlug: project.slug, path: "/" }),
+          getPageByPath(inScope(ctx, scope), { projectUuid: project.uuid, path: "/" }),
         )
       ).blocks.map((shown) => (shown.content as { title: string }).title);
     expect(await titlesOnPage(draft)).toEqual(["Draft"]);

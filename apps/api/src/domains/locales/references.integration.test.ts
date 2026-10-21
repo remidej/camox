@@ -40,7 +40,7 @@ async function fixture(titles: [string, string, string]) {
   const base = await createProjectFixture(`locale-references-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const projectSlug = project.slug;
+  const projectUuid = project.uuid;
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(db, memberUser, headers),
   });
@@ -120,7 +120,7 @@ async function fixture(titles: [string, string, string]) {
     articles.push(
       await callSeedingLive(
         router.collectionDefinitions.createRecord,
-        { projectSlug, collectionId: "articles", content: { title } },
+        { projectUuid, collectionId: "articles", content: { title } },
         member(),
       ),
     );
@@ -191,7 +191,7 @@ async function fixture(titles: [string, string, string]) {
 
   return {
     ...base,
-    projectSlug,
+    projectUuid,
     member,
     tool,
     publish,
