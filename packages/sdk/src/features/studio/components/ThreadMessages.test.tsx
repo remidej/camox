@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { ThreadView } from "@camox/api-contract/threads";
+import { Window } from "happy-dom";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
 
@@ -115,4 +116,26 @@ void test("a message still on its way to the thread shows the agent working befo
 
   assert.doesNotMatch(html, /data-thread-empty/);
   assert.match(html, /Working…/);
+});
+
+void test("a message sent while the agent works is appended last, so the scroller brings it into view", () => {
+  // The scroller anchors an editor's message near the top only when it's appended after every
+  // row it already had: nothing else may follow the messages, not even the agent's work.
+  const view: ThreadView = {
+    running: true,
+    messages: [
+      { id: "1", from: "editor", sender: editor, text: "Rewrite the intro" },
+      { id: "2", from: "editor", sender: editor, text: "And the outro" },
+    ],
+  };
+  const { document } = new Window();
+  document.body.innerHTML = renderToString(<ThreadMessages view={view} />);
+
+  const content = document.querySelector('[data-slot="message-scroller-content"]')!;
+  const rows = [...content.children].filter((row) => !row.hasAttribute("hidden"));
+  assert.deepEqual(
+    rows.map((row) => row.getAttribute("data-message-id")),
+    ["1", "2"],
+  );
+  assert.match(rows.at(-1)!.textContent, /Working…/);
 });

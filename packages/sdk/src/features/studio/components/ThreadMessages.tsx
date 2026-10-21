@@ -59,25 +59,35 @@ export function ThreadMessages({
         <MessageScrollerViewport>
           <MessageScrollerContent className="flex flex-col gap-4 p-3">
             {continuedIn && <ContinuedIn link={continuedIn} />}
-            {view.messages.map((message) => (
+            {view.messages.map((message, index) => (
               <MessageScrollerItem
                 key={message.id}
                 messageId={message.id}
                 scrollAnchor={message.from === "editor"}
+                className="flex flex-col gap-4"
               >
                 <ThreadMessageRow message={message} showSender={showSenders} />
+                {working && index === view.messages.length - 1 && <Working />}
               </MessageScrollerItem>
             ))}
-            {working && (
-              <p role="status" className="shimmer text-muted-foreground text-sm">
-                Working…
-              </p>
-            )}
+            {working && view.messages.length === 0 && <Working />}
           </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton />
       </MessageScroller>
     </MessageScrollerProvider>
+  );
+}
+
+/**
+ * Shown in the last message, not after it: the scroller only brings a message the editor just
+ * sent into view when it's appended last, and it arrives while the agent is already working.
+ */
+function Working() {
+  return (
+    <p role="status" className="shimmer text-muted-foreground text-sm">
+      Working…
+    </p>
   );
 }
 
