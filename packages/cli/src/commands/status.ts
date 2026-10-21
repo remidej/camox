@@ -1,10 +1,8 @@
 import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { object } from "@optique/core/constructs";
-import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { string } from "@optique/core/valueparser";
 
-import { getDevelopmentDraft, getProjectBySlug } from "../lib/api";
+import { getDevelopmentDraft, getProject } from "../lib/api";
 import { readAuthTokenForUrl } from "../lib/auth";
 import { isNoDevelopmentDraft, printError } from "../lib/output";
 import {
@@ -13,14 +11,14 @@ import {
   RuntimeNotFoundError,
   loadRuntime,
 } from "../lib/runtime";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, projectFlag } from "../lib/runtime-options";
 
 export const parser = command(
   "status",
   object({
     command: constant("status" as const),
     cwd: cwdFlag,
-    project: optional(option("--project", string({ metavar: "SLUG" }))),
+    project: projectFlag,
     json: option("--json"),
   }),
 );
@@ -43,7 +41,7 @@ async function developmentDraftStatus(params: {
   disableTelemetry?: boolean;
 }): Promise<DevelopmentDraftStatus> {
   try {
-    const project = await getProjectBySlug(params.token, params.slug, params.apiUrl);
+    const project = await getProject(params.token, params.slug, params.apiUrl);
     const draft = await getDevelopmentDraft({ ...params, projectId: project.id });
     return { exists: true, changeCount: draft.changeCount };
   } catch (err) {
