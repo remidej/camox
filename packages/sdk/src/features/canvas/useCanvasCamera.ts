@@ -100,6 +100,8 @@ export interface CanvasCameraRow {
   selected?: string | null;
   /** The camera left the selected item's snap, so it is no longer selected. */
   onDeselect?: () => void;
+  /** The editor panned or zoomed the camera themselves, as opposed to a flight or a resize. */
+  onEditorMove?: () => void;
 }
 
 /** Animate only the camera's CSS properties; page trees never rerender on pan/zoom. */
@@ -770,6 +772,7 @@ export function useCanvasCamera(
       const dx = canvasWheelDelta(event.deltaX, event.deltaMode, viewport.clientWidth);
       const dy = canvasWheelDelta(event.deltaY, event.deltaMode, viewport.clientHeight);
       if (!dx && !dy) return;
+      rowRef.current?.onEditorMove?.();
       // Interrupt before computing intent so input starts at the painted view,
       // not the offscreen destination of an unfinished navigation.
       cancelCameraFlight();
@@ -824,6 +827,7 @@ export function useCanvasCamera(
       const next = localPoint(event.clientX, event.clientY);
       const other = [...pointers.entries()].find(([id]) => id !== event.pointerId)?.[1];
       pointers.set(event.pointerId, next);
+      rowRef.current?.onEditorMove?.();
       if (!other) {
         move(
           pan(
@@ -917,6 +921,7 @@ export function useCanvasCamera(
       if (factor) {
         gesture = undefined;
         event.preventDefault();
+        rowRef.current?.onEditorMove?.();
         move(zoom(target, center, factor, event.timeStamp));
         return;
       }
@@ -924,6 +929,7 @@ export function useCanvasCamera(
         endZoom();
         gesture = undefined;
         event.preventDefault();
+        rowRef.current?.onEditorMove?.();
         move(canvasOverview(viewportSize, contentSize));
         return;
       }
@@ -936,6 +942,7 @@ export function useCanvasCamera(
       const direction = directions[event.key];
       if (!direction) return;
       event.preventDefault();
+      rowRef.current?.onEditorMove?.();
       endZoom();
       move(pan(target, direction, event.timeStamp, "keyboard"));
     };
