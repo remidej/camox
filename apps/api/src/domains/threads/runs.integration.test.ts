@@ -17,6 +17,7 @@ import {
   lastAnswer,
   said,
   signIn,
+  storedThreadOf,
   type ThreadClient,
   touchedOf,
 } from "../../../test/threads";
@@ -26,6 +27,35 @@ vi.mock("../../lib/thread-model", async () => {
   const { testThreadModel } = await import("../../../test/thread-model");
   return { threadModel: testThreadModel };
 });
+
+/** Tool calls the test holds by tool name, until it lets them go. */
+const held = vi.hoisted(() => new Map<string, Promise<void>>());
+
+// A held tool call waits before it runs, so a script can be stopped mid-way.
+vi.mock("../agent/service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent/service")>();
+  const { Effect } = await import("effect");
+  const dispatchTool: typeof actual.dispatchTool = (ctx, call) =>
+    Effect.promise(() => held.get(call.name) ?? Promise.resolve()).pipe(
+      Effect.andThen(actual.dispatchTool(ctx, call)),
+    );
+  return { ...actual, dispatchTool };
+});
+
+/** Holds the next calls to the tool `name` until the returned function is called. */
+const holdTool = (name: string) => {
+  let release!: () => void;
+  held.set(
+    name,
+    new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  );
+  return () => {
+    held.delete(name);
+    release();
+  };
+};
 
 afterEach(async () => {
   await abortAllDurableObjects();
@@ -118,6 +148,70 @@ describe("a run in a thread", () => {
 
     expect(touchedOf(again)).toEqual([]);
     again.close();
+  });
+
+  it("reports the writes of a script an editor stops, keeping none of them", async () => {
+    const { thread, db } = await openThread();
+    const release = holdTool("listPages");
+    answerWithScript(`
+      await tools.createPage({ pathSegment: "launch", layoutId: "default" });
+      await tools.listPages({});
+    `);
+    const operationId = send(thread, "Add a launch page, then check every page");
+    try {
+      // The write started a draft; the script waits on its read.
+      await thread.until(() => thread.frames.some((frame) => frame.type === "started-draft"));
+      thread.send({ type: "stop" });
+      // The run ends once the call it waits on returns.
+      await thread.until(() => thread.view().messages.some(({ from }) => from === "stopped"));
+    } finally {
+      release();
+    }
+    await thread.untilIdle(2);
+
+    expect(touchedOf(thread)).toEqual([
+      {
+        operationIds: [operationId],
+        touches: [expect.objectContaining({ entity: "page", kind: "created" })],
+      },
+    ]);
+    const { keys } = await storedThreadOf(db, thread.view().startedDraft!.draftId);
+    expect(keys.filter((key) => key.startsWith("camox.touches:"))).toEqual([]);
+    thread.close();
+  });
+
+  it("reports a write that goes through after its script was stopped, keeping none of it", async () => {
+    const { thread, db } = await openThread();
+    const release = holdTool("createBlock");
+    answerWithScript(`
+      const { page } = await tools.createPage({ pathSegment: "launch", layoutId: "default" });
+      await tools.createBlock({ pageId: page.id, type: "text", content: { body: "Hi" } });
+    `);
+    const operationId = send(thread, "Add a launch page with an intro");
+    try {
+      await thread.until(() => thread.frames.some((frame) => frame.type === "started-draft"));
+      thread.send({ type: "stop" });
+      // The run ends once the call it waits on returns.
+      await thread.until(() => thread.view().messages.some(({ from }) => from === "stopped"));
+    } finally {
+      release();
+    }
+    await thread.untilIdle(2);
+    await thread.until(() => touchedOf(thread).flatMap(({ touches }) => touches).length === 2);
+
+    expect(touchedOf(thread)).toEqual([
+      {
+        operationIds: [operationId],
+        touches: [expect.objectContaining({ entity: "page", kind: "created" })],
+      },
+      {
+        operationIds: [operationId],
+        touches: [expect.objectContaining({ entity: "page", blockId: expect.any(String) })],
+      },
+    ]);
+    const { keys } = await storedThreadOf(db, thread.view().startedDraft!.draftId);
+    expect(keys.filter((key) => key.startsWith("camox.touches:"))).toEqual([]);
+    thread.close();
   });
 
   it("ends a run an editor stops, saying who stopped it", async () => {

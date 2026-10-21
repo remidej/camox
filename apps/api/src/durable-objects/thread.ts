@@ -239,6 +239,11 @@ export class Thread extends DurableObject<Bindings> {
   #settling: Promise<unknown> = Promise.resolve();
   /** Setting aside the draft this Live thread's first write starts, shared by concurrent writes. */
   #reserving: Promise<string> | undefined;
+  /**
+   * The call ids of the scripts that reported what they touched. A write still going as its
+   * script was stopped lands after the report: it reports itself.
+   */
+  readonly #reportedScripts = new Set<string>();
 
   readonly harness = new UntilStartedPiHarness(async () => !!(await this.#knownIdentity()), {
     harness: async ({ storage, context }) => {
@@ -465,12 +470,17 @@ export class Thread extends DurableObject<Bindings> {
   /**
    * Records what a script's write touched, until the script ends: Pi names a nested call
    * `<script's call id>/c<place among its calls>`. Kept in storage, so a script an eviction
-   * replays still reports the writes it won't run again.
+   * replays still reports the writes it won't run again. A write landing after its script
+   * reported, as one still going when the editor stopped the run does, reports itself.
    */
-  async #touched({ api }: ToolInvocation, touches: Touch[]) {
-    const nested = /^(.+)\/c(\d+)$/.exec(api.callId);
+  async #touched(invocation: ToolInvocation, touches: Touch[]) {
+    const nested = /^(.+)\/c(\d+)$/.exec(invocation.api.callId);
     if (!nested) return;
     const [, script, place] = nested;
+    if (this.#reportedScripts.has(script!)) {
+      await this.#sendTouches(invocation, touches);
+      return;
+    }
     await this.ctx.storage.put(`${TOUCHES_PREFIX}${script}:${place!.padStart(10, "0")}`, touches);
   }
 
@@ -484,15 +494,23 @@ export class Thread extends DurableObject<Bindings> {
    * that studio's socket in the draft, for `HAND_OFF_MS`, and reach it once.
    */
   async #reportTouches(invocation: ToolInvocation) {
+    // Writes landing from now on report themselves, rather than wait for a report that's over.
+    this.#reportedScripts.add(invocation.api.callId);
     const recorded = await this.ctx.storage.list<Touch[]>({
       prefix: `${TOUCHES_PREFIX}${invocation.api.callId}:`,
     });
     if (recorded.size === 0) return;
+    try {
+      await this.#sendTouches(invocation, [...recorded.values()].flat());
+    } finally {
+      await this.ctx.storage.delete([...recorded.keys()]);
+    }
+  }
+
+  /** Sends what a script, or a write of it, touched, as `#reportTouches` says. */
+  async #sendTouches(invocation: ToolInvocation, touches: Touch[]) {
     const entries = await this.#entriesOfRun(invocation);
-    const touched: TouchedBatch = {
-      operationIds: operationIdsOf(entries),
-      touches: [...recorded.values()].flat(),
-    };
+    const touched: TouchedBatch = { operationIds: operationIdsOf(entries), touches };
     const editorId = threadSenderSchema.safeParse(entries[0]?.data).data?.id;
     let reached = false;
     for (const connection of this.webSockets.getConnections()) {
@@ -501,7 +519,6 @@ export class Thread extends DurableObject<Bindings> {
       if (connection.readyState === OPEN && participant?.sender.id === editorId) reached = true;
     }
     if (!reached && editorId) await this.#holdForHandOff(editorId, touched);
-    await this.ctx.storage.delete([...recorded.keys()]);
   }
 
   /** Keeps touches for the editor whose run started the draft, as `#reportTouches` says. */
