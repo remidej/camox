@@ -22,6 +22,7 @@ import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type AccessMode, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { ReadScope } from "../drafts/scope";
+import { namesOneProject, projectNames, projectRefOf, type ProjectRef } from "../projects/ref";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { recordsOf } from "./identity";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
@@ -131,21 +132,33 @@ export const planCollectionDefinitions = Effect.fn("collections.planDefinitions"
   };
 });
 
-export const listCollectionDefinitionsInput = z.object({ projectSlug: z.string() }).strict();
-export const listCollectionRecordsInput = listCollectionDefinitionsInput.extend({
-  collectionId: z.string(),
-});
+const inCollectionFields = z.object({ collectionId: z.string() }).strict();
+const recordFields = inCollectionFields.extend({ id: uuidv7Schema });
+/**
+ * What collection inputs hold besides the project they name, for agent tools, which name the
+ * project of their session.
+ */
+export const collectionFields = {
+  list: z.object({}).strict(),
+  collection: inCollectionFields,
+  record: recordFields,
+  /** The server mints the id; a client may mint one for an optimistic insert. */
+  createRecord: inCollectionFields.extend({ id: uuidv7Schema.optional(), content: z.unknown() }),
+  editRecord: recordFields.extend({ content: z.unknown() }),
+};
+/** `fields`, naming their project. */
+const naming = <S extends z.ZodRawShape>(fields: z.ZodObject<S, z.core.$strict>) =>
+  namesOneProject(fields.extend(projectNames));
+
+export const listCollectionDefinitionsInput = naming(collectionFields.list);
+export const listCollectionRecordsInput = naming(inCollectionFields);
 export const getCollectionDefinitionInput = listCollectionRecordsInput;
 const scopeInput = listCollectionRecordsInput;
-const recordInput = scopeInput.extend({ id: uuidv7Schema });
+const recordInput = naming(recordFields);
 export const getCollectionRecordInput = recordInput;
 export const getRecordUsageCountInput = recordInput;
-/** The server mints the id; a client may mint one for an optimistic insert. */
-export const createRecordInput = scopeInput.extend({
-  id: uuidv7Schema.optional(),
-  content: z.unknown(),
-});
-export const editRecordInput = recordInput.extend({ content: z.unknown() });
+export const createRecordInput = naming(collectionFields.createRecord);
+export const editRecordInput = naming(collectionFields.editRecord);
 export const deleteRecordInput = recordInput;
 
 type Definition = typeof collectionDefinitions.$inferSelect;
@@ -239,7 +252,7 @@ export const getRecordUsageCount = Effect.fn("collections.getRecordUsageCount")(
 export const listCollectionDefinitions = Effect.fn("collections.listCollectionDefinitions")(
   function* (ctx: ServiceContext, rawInput: z.input<typeof listCollectionDefinitionsInput>) {
     const input = yield* decodeInput(listCollectionDefinitionsInput, rawInput);
-    const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, "member");
+    const { project, scope } = yield* accessTo(ctx, projectRefOf(input), "member");
     return yield* Effect.promise(() =>
       ctx.db
         .select({
@@ -267,7 +280,7 @@ export const getCollectionDefinition = Effect.fn("collections.getCollectionDefin
   rawInput: z.input<typeof getCollectionDefinitionInput>,
 ) {
   const input = yield* decodeInput(getCollectionDefinitionInput, rawInput);
-  const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, "member");
+  const { project, scope } = yield* accessTo(ctx, projectRefOf(input), "member");
   const reader = contentReader(ctx, { projectId: project.id, draft: scope });
   const definition = yield* reader.collection(input.collectionId);
   if (!definition) return yield* new NotFoundError();
@@ -338,13 +351,13 @@ const inCollection = <A, M extends AccessMode>(
   input: z.infer<typeof scopeInput>,
   mode: M,
   run: (collection: {
-    definition: Definition & { draft: ContentAccess<{ projectSlug: string }, M>["scope"] };
+    definition: Definition & { draft: ContentAccess<ProjectRef, M>["scope"] };
     reader: ContentReader;
   }) => Effect.Effect<A, ServiceError, Journal>,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, mode);
+      const { project, scope } = yield* accessTo(ctx, projectRefOf(input), mode);
       const reader = contentReader(ctx, { projectId: project.id, draft: scope });
       const definition = yield* reader.collection(input.collectionId);
       if (!definition) return yield* new NotFoundError();
@@ -387,8 +400,9 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
   );
 });
 
-export const listRecordPageValuesInput = scopeInput.extend({ field: z.string() });
-export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value: z.string() });
+const pageValueFields = inCollectionFields.extend({ field: z.string() });
+export const listRecordPageValuesInput = naming(pageValueFields);
+export const findRecordsByFieldInput = naming(pageValueFields.extend({ value: z.string() }));
 
 /**
  * Each record with its String field's plain text, when that text can be a path segment, and its
@@ -458,9 +472,9 @@ export const listRecordPageValues = Effect.fn("collections.listRecordPageValues"
   );
 });
 
-export const recordMarkdownInput = recordInput.extend({
-  toMarkdown: z.array(z.string().max(10_000)).max(200),
-});
+export const recordMarkdownInput = naming(
+  recordFields.extend({ toMarkdown: z.array(z.string().max(10_000)).max(200) }),
+);
 
 /**
  * A record page's Markdown: the layout's `toMarkdown` lines, filled with the record's fields

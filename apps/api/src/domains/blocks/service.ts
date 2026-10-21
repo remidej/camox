@@ -44,6 +44,7 @@ import {
 } from "../generated-values/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
+import { namingProject, projectRefOf } from "../projects/ref";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { translatePlacedDefaults } from "../translations/service";
@@ -76,10 +77,7 @@ const repeatableItemSeedSchema = z.object({
 
 export const getBlockInput = z.object({ id: uuidv7Schema });
 export const getPageMarkdownInput = z.object({ pageId: uuidv7Schema });
-export const getLayoutMarkdownInput = z.object({
-  projectSlug: z.string(),
-  layoutId: z.string(),
-});
+export const getLayoutMarkdownInput = namingProject({ layoutId: z.string() });
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
 // A Block Definition within a project.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
@@ -680,8 +678,8 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutMarkdownInput>,
 ) {
-  const { projectSlug, layoutId } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
-  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
+  const { layoutId, ...named } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
+  const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()

@@ -14,6 +14,7 @@ import { collectionDefinitionInput } from "../collections/validation";
 import * as overlay from "../drafts/overlay";
 import { requestGeneration } from "../generated-values/generation";
 import { layoutDefinitionInput, planLayouts, targetLayouts } from "../layouts/service";
+import { namingProject, projectRefOf } from "../projects/ref";
 import { homepageInput, planHomepage } from "../projects/service";
 
 // --- Input Schemas ---
@@ -31,8 +32,7 @@ export const definitionSetInput = z.object({
   homepage: homepageInput.nullable(),
 });
 
-export const syncDefinitionsInput = z.object({
-  projectSlug: z.string(),
+export const syncDefinitionsInput = namingProject({
   deployToken: z.string().optional(),
   autoCreate: z.boolean(),
   definitionSet: definitionSetInput,
@@ -60,7 +60,7 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
   // Outside the batch: a sync that fails later leaves the development draft it created, empty.
   const target = yield* assertSyncAccess(
     ctx.db,
-    input.projectSlug,
+    projectRefOf(input),
     { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
     { create: input.autoCreate },
   );

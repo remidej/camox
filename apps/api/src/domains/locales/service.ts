@@ -13,6 +13,7 @@ import { files } from "../files/schema";
 import { type GenerationTarget, requestGenerations } from "../generated-values/generation";
 import { homeOf, retagStatements as retagValueStatements } from "../generated-values/service";
 import { pages } from "../pages/schema";
+import { namingProject, projectRefOf, type ProjectRef } from "../projects/ref";
 import * as translations from "../translations/service";
 import { INITIAL_LOCALE, locales } from "./schema";
 
@@ -42,11 +43,8 @@ const tagSchema = z
   .min(1)
   .describe('A BCP 47 language tag, such as "de" or "pt-BR".');
 
-/** A project by id, or by slug as a website's runtime knows it. */
-export const listLocalesInput = z.union([
-  z.object({ projectId: z.number() }),
-  z.object({ projectSlug: z.string() }),
-]);
+/** A project by its internal id, or as a website's code names it. */
+export const listLocalesInput = z.union([z.object({ projectId: z.number() }), namingProject({})]);
 export const addLocaleInput = z.object({ projectId: z.number(), tag: tagSchema });
 export const removeLocaleInput = z.object({ projectId: z.number(), tag: tagSchema });
 export const setDefaultLocaleTagInput = z.object({ projectId: z.number(), tag: tagSchema });
@@ -98,7 +96,7 @@ const withTag = (rows: LocaleRow[], tag: string) =>
  */
 const projectAccess = <M extends "public" | "member" | "write">(
   ctx: ServiceContext,
-  project: number | { projectSlug: string },
+  project: number | ProjectRef,
   mode: M,
 ) =>
   accessTo(
@@ -116,7 +114,7 @@ export const listLocales = Effect.fn("locales.list")(function* (
 ) {
   const input = yield* decodeInput(listLocalesInput, rawInput);
   const { scope, project } = yield* Effect.scoped(
-    projectAccess(ctx, "projectId" in input ? input.projectId : input, "public"),
+    projectAccess(ctx, "projectId" in input ? input.projectId : projectRefOf(input), "public"),
   );
   return (yield* localesIn(ctx.db, scope, project.id)).map(view);
 });

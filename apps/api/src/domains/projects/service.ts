@@ -37,6 +37,7 @@ import { repeatableItemSeedSchema } from "../layouts/service";
 import { insertInitialLocale } from "../locales/service";
 import { itemsInProject } from "../repeatable-items/roots";
 import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analytics";
+import { isOneProject, oneProjectError, projectNamed, projectNames, projectRefOf } from "./ref";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -44,7 +45,13 @@ import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analyt
 
 export const listProjectsInput = z.object({ organizationId: z.string() });
 export const getFirstProjectInput = z.object({ organizationId: z.string() });
-export const getProjectBySlugInput = z.object({ slug: z.string() });
+/** A project by its Project ID, or by its Project Slug, as the dashboard's URLs name it. */
+export const getProjectBySlugInput = z
+  .object({ projectUuid: projectNames.projectUuid, slug: z.string().optional() })
+  .refine(
+    ({ projectUuid, slug }) => isOneProject({ projectUuid, projectSlug: slug }),
+    oneProjectError,
+  );
 export const getProjectInput = z.object({ id: z.number() });
 export const checkProjectSlugAvailabilityInput = z.object({ slug: z.string() });
 export const createProjectInput = z.object({
@@ -119,7 +126,7 @@ export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function*
   rawInput: z.input<typeof getProjectBySlugInput>,
 ) {
   const user = yield* requireUser(ctx);
-  const { slug } = yield* decodeInput(getProjectBySlugInput, rawInput);
+  const { projectUuid, slug } = yield* decodeInput(getProjectBySlugInput, rawInput);
   const result = yield* Effect.promise(() =>
     ctx.db
       .select({
@@ -128,7 +135,7 @@ export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function*
       })
       .from(projects)
       .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
-      .where(eq(projects.slug, slug))
+      .where(projectNamed(projectRefOf({ projectUuid, projectSlug: slug })))
       .get(),
   );
   if (!result) return yield* new NotFoundError();
