@@ -20,7 +20,7 @@ export interface CoreCamoxProviderProps {
   authenticationUrl: string;
   camoxApp: CamoxApp;
   children: React.ReactNode;
-  projectSlug: string;
+  projectUuid: string;
   initialAuthenticated?: boolean;
   initialProject?: Project;
 }
@@ -42,7 +42,7 @@ export function CoreCamoxProvider({
   authenticationUrl,
   camoxApp,
   children,
-  projectSlug,
+  projectUuid,
   initialAuthenticated = false,
   initialProject,
 }: CoreCamoxProviderProps) {
@@ -79,7 +79,7 @@ export function CoreCamoxProvider({
   if (initialProject && seededProject.current !== initialProject) {
     // Each navigation brings the project again. Rewriting an equal project still
     // updates every read of it, which re-renders every field of every frame.
-    const read = reads.project({ slug: projectSlug });
+    const read = reads.project({ projectUuid: projectUuid });
     const cached = studioCache.get(read);
     if (!cached || replaceEqualDeep(cached, initialProject) !== cached)
       studioCache.set(read, initialProject);
@@ -90,13 +90,17 @@ export function CoreCamoxProvider({
   // The React Compiler skips this component (it reads refs while rendering), so
   // the context value is memoized by hand: every field of every frame reads it.
   const authContext = React.useMemo(
-    () => ({ authClient, authenticationUrl, apiUrl, projectSlug, initialAuthenticated }),
-    [authClient, authenticationUrl, apiUrl, projectSlug, initialAuthenticated],
+    () => ({ authClient, authenticationUrl, apiUrl, projectUuid, initialAuthenticated }),
+    [authClient, authenticationUrl, apiUrl, projectUuid, initialAuthenticated],
   );
 
   // OTT processing deliberately does not blank the public tree. Successful
   // exchange still reloads after mirroring the server cookie.
-  const { ready, error } = useProcessOtt(authClient, { projectSlug, apiUrl }, initialAuthenticated);
+  const { ready, error } = useProcessOtt(
+    authClient,
+    { projectId: projectUuid, apiUrl },
+    initialAuthenticated,
+  );
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- reads window.location after hydration

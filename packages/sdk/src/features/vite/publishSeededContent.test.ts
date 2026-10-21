@@ -38,7 +38,7 @@ void test("publishes seeded content while its translations still run", async () 
 
   await publishSeededContent({
     client,
-    projectSlug: "test",
+    projectUuid: "test",
     logger: createLogger("silent"),
   });
 

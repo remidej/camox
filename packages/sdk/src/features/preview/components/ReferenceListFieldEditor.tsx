@@ -25,7 +25,7 @@ import { collectionField, type ReferenceQuery } from "@/core/lib/contentType";
 import { referenceListIds } from "@/core/lib/reference";
 import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
@@ -210,11 +210,11 @@ export function ReferenceListFieldEditor({
   /** Offer Create item in the picker; off where the create sheet would replace a form. */
   allowCreate?: boolean;
 }) {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const collection = useCamoxApp().getCollectionById(collectionId);
   const collectionTitle = collection?._internal.title ?? collectionId;
   const sheet = useCollectionItemSheet();
-  const records = useReadQuery(reads.records({ projectSlug, collectionId }), { enabled: !drill });
+  const records = useReadQuery(reads.records({ projectUuid, collectionId }), { enabled: !drill });
   const storedIds = referenceListIds(value);
   // The order shown while a write is in flight, so dragged cards don't snap back.
   const [pendingIds, setPendingIds] = React.useState<string[] | null>(null);

@@ -14,7 +14,7 @@ interface CamoxProviderProps {
   authenticationUrl: string;
   camoxApp: CamoxApp;
   children: React.ReactNode;
-  projectSlug: string;
+  projectUuid: string;
 }
 
 function UnauthenticatedExperience({ children }: { children: React.ReactNode }) {

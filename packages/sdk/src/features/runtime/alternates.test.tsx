@@ -172,7 +172,7 @@ const app = createApp({
 const options: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   getCamoxApp: async () => app,
   renderPage: async () => "<main></main>",
 };

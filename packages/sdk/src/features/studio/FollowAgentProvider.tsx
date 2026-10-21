@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { useProjectSlug } from "../../lib/auth";
+import { useProjectUuid } from "../../lib/auth";
 import { parseLocalePath } from "../../lib/locale-path";
 import { reads, useReadQueries, useReadQuery } from "../../lib/studio-reads";
 import { useLocalizedPath } from "../../lib/view-locale";
@@ -27,14 +27,14 @@ const NO_BLOCK_IDS: readonly string[] = [];
  * arrives.
  */
 function useCurrentPageBlocks(page: CanvasPage | undefined, path: string) {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const pageId = canvasPageId(page);
   const layoutId = page && page.kind !== "curated" ? page.layoutId : undefined;
-  const { data: pageStructure } = useReadQuery(reads.pageStructure({ path, projectSlug }), {
+  const { data: pageStructure } = useReadQuery(reads.pageStructure({ path, projectUuid }), {
     enabled: !!pageId,
   });
   const { data: layout } = useReadQuery(
-    reads.layoutStructure({ projectSlug, layoutId: layoutId ?? "" }),
+    reads.layoutStructure({ projectUuid, layoutId: layoutId ?? "" }),
     { enabled: !!layoutId },
   );
   const structure = pageId
@@ -69,12 +69,12 @@ function useCurrentPageBlocks(page: CanvasPage | undefined, path: string) {
 /** Where the editor is, and the Studio content following locates the agent's touches with. */
 function useFollowWhere(runtimeBasePath: string): FollowWhere {
   const app = useCamoxApp();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const location = useLocation();
   const { locale, locales } = useViewLocale();
   const localized = useLocalizedPath();
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-  const { data: pageList } = useReadQuery(reads.pageList({ projectSlug }), {
+  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: pageList } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);

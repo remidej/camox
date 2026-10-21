@@ -19,6 +19,7 @@ import { type CamoxPluginOptions, camox } from "./vite";
 type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["afterSync"]>;
 
 const AUTHENTICATION_URL = "http://dashboard.test";
+const CHECKOUT_PROJECT_ID = "01a15fff-627b-7fa1-938b-93ab659c1acc";
 
 function greetingModule(greeting: string) {
   return `export const greeting = ${JSON.stringify(greeting)};\n`;
@@ -70,7 +71,7 @@ async function devCheckout(
   await writeFile(join(root, "src/fields/greeting.ts"), greetingModule("Welcome"));
   await writeFile(join(root, "src/blocks/hero.ts"), blockModule("hero"));
 
-  const requests: { path: string; headers: IncomingHttpHeaders }[] = [];
+  const requests: { path: string; headers: IncomingHttpHeaders; input?: unknown }[] = [];
   /** The block ids each `definitions.sync` received, in order. */
   const syncedBlockIds: string[][] = [];
   /** Each block's default title, per `definitions.sync`, in order. */
@@ -79,7 +80,7 @@ async function devCheckout(
   const router = {
     definitions: {
       sync: base.handler(({ context, input }) => {
-        requests.push({ path: "definitions.sync", headers: context.headers });
+        requests.push({ path: "definitions.sync", headers: context.headers, input });
         if (failSync) throw new Error("definition sync failed");
         const { blocks } = (input as { definitionSet: DefinitionSet }).definitionSet;
         syncedBlockIds.push(blocks.map((definition) => definition.blockId).sort());
@@ -99,14 +100,14 @@ async function devCheckout(
       }),
     },
     collectionDefinitions: {
-      list: base.handler(({ context }) => {
-        requests.push({ path: "collectionDefinitions.list", headers: context.headers });
+      list: base.handler(({ context, input }) => {
+        requests.push({ path: "collectionDefinitions.list", headers: context.headers, input });
         return [];
       }),
     },
     pages: {
-      listBySlug: base.handler(({ context }) => {
-        requests.push({ path: "pages.listBySlug", headers: context.headers });
+      listBySlug: base.handler(({ context, input }) => {
+        requests.push({ path: "pages.listBySlug", headers: context.headers, input });
         return {
           projectName: "Test project",
           pages: Array.from({ length: livePages }, (_, id) => ({ id })),
@@ -114,7 +115,10 @@ async function devCheckout(
       }),
     },
     projects: {
-      getBySlug: base.handler(() => ({ id: 1 })),
+      getBySlug: base.handler(({ context, input }) => {
+        requests.push({ path: "projects.getBySlug", headers: context.headers, input });
+        return { id: 1 };
+      }),
     },
     drafts: {
       previewPublish: base.handler(({ context }) => {
@@ -185,7 +189,7 @@ async function startDevServer(
       // Sync runs in Node, so these tests need no Worker: only the name Camox checks for.
       { name: "vite-plugin-cloudflare" },
       camox({
-        projectSlug: "checkout",
+        projectId: CHECKOUT_PROJECT_ID,
         _internal: {
           apiUrl: checkout.apiUrl,
           authenticationUrl: AUTHENTICATION_URL,
@@ -210,13 +214,13 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
   const calls: Parameters<AfterSync>[0][] = [];
   const { logs } = await startDevServer(checkout, async (context) => {
     calls.push(context);
-    await context.client.collectionDefinitions.list({ projectSlug: context.projectSlug });
+    await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
   });
 
   const afterSync = () => checkout.requests.find((r) => r.path === "collectionDefinitions.list");
   await waitFor(() => !!afterSync(), logs);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.projectSlug, "checkout");
+  assert.equal(calls[0]!.projectUuid, CHECKOUT_PROJECT_ID);
   assert.ok(logs.some((line) => line.includes("Synced 0 collection definitions")));
   assert.deepEqual(
     checkout.requests.map(({ path, headers }) => ({
@@ -265,7 +269,7 @@ void test("a release syncs the app's blocks to Live: its requests name no draft"
     });
   }
   const plugin = camox({
-    projectSlug: "checkout",
+    projectId: CHECKOUT_PROJECT_ID,
     _internal: { apiUrl: checkout.apiUrl, authenticationUrl: AUTHENTICATION_URL },
   });
   // Resolving the config runs the plugin's config hooks the way `vite build` does.
@@ -321,7 +325,7 @@ void test("on an empty Live, the dev server releases first and publishes what af
   const { logs } = await startDevServer(
     checkout,
     async (context) => {
-      await context.client.collectionDefinitions.list({ projectSlug: context.projectSlug });
+      await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
     },
     "deploy-token",
   );
@@ -332,9 +336,43 @@ void test("on an empty Live, the dev server releases first and publishes what af
     "definitions.sync live",
     `definitions.sync ${DEVELOPMENT_DRAFT}`,
     `collectionDefinitions.list ${DEVELOPMENT_DRAFT}`,
+    `projects.getBySlug ${DEVELOPMENT_DRAFT}`,
     `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
     `drafts.publish ${DEVELOPMENT_DRAFT}`,
   ]);
+});
+
+void test("seeding an empty Live names the project by its Project ID, never its slug", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(
+    checkout,
+    async (context) => {
+      await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
+    },
+    "deploy-token",
+  );
+
+  await waitFor(() => checkout.requests.some((r) => r.path === "drafts.publish"), logs);
+  // Drafts are named by the project's integer id, which the project load returned.
+  const namingProject = checkout.requests.filter(({ path }) => !path.startsWith("drafts."));
+  assert.deepEqual(
+    namingProject.map(({ path, input }) => {
+      const { projectUuid, projectSlug, slug } = input as Record<string, unknown>;
+      return { path, projectUuid, projectSlug, slug };
+    }),
+    [
+      "pages.listBySlug",
+      "definitions.sync",
+      "definitions.sync",
+      "collectionDefinitions.list",
+      "projects.getBySlug",
+    ].map((path) => ({
+      path,
+      projectUuid: CHECKOUT_PROJECT_ID,
+      projectSlug: undefined,
+      slug: undefined,
+    })),
+  );
 });
 
 void test("when Live has pages, the dev server neither releases nor publishes", async (t) => {

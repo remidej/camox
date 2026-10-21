@@ -19,7 +19,7 @@ const config = defineConfig({
     tailwindcss(),
     cloudflare(),
     camox({
-      projectSlug: "camox-landing",
+      projectId: "01a15fff-627a-72f1-ba3b-dc5fde0bbb45",
     }),
     react({ compiler: true }),
   ],

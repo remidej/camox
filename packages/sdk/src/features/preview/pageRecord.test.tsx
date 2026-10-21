@@ -41,7 +41,7 @@ async function renderPreview(t: TestContext, title: string) {
   });
   const client = new QueryClient();
   // The server filled in the result it rendered the page with.
-  const derivedPage = { projectSlug: "site", runtimeBasePath: "", pathname: "/articles/hello" };
+  const derivedPage = { projectUuid: "site", runtimeBasePath: "", pathname: "/articles/hello" };
   testStudioCache(client).set(reads.derivedPageData(derivedPage), record("Server draft"));
   const { createRoot } = await import("react-dom/client");
   const host = document.createElement("div");
@@ -49,7 +49,7 @@ async function renderPreview(t: TestContext, title: string) {
   const root = createRoot(host);
   function Title() {
     const result = useDerivedPageResult({
-      projectSlug: "site",
+      projectUuid: "site",
       runtimeBasePath: "",
       pathname: "/articles/hello",
       // What the server rendered the page with.
@@ -99,7 +99,7 @@ async function renderRecordPage(t: TestContext, pathname: string, view?: ViewLoc
   const root = createRoot(host);
   function Studio() {
     useFollowPageRecord({
-      projectSlug: "site",
+      projectUuid: "site",
       runtimeBasePath: "",
       layoutId: "articles.$slug",
       record: ARTICLE,
@@ -133,7 +133,7 @@ async function renderRecordPage(t: TestContext, pathname: string, view?: ViewLoc
     site.articlePath = `/articles/${slug}`;
     await act(async () =>
       testStudioCache(client).set(
-        reads.record({ projectSlug: "site", collectionId: ARTICLE.collectionId, id: ARTICLE.id }),
+        reads.record({ projectUuid: "site", collectionId: ARTICLE.collectionId, id: ARTICLE.id }),
         { id: ARTICLE.id, content: { slug }, createdAt: 1000, updatedAt },
         { locale: view?.locale },
       ),

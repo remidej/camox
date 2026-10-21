@@ -45,18 +45,18 @@ export function shownRecordPage(
  * editing or publishing records loads it again.
  */
 export function useDerivedPageResult({
-  projectSlug,
+  projectUuid,
   runtimeBasePath,
   pathname,
   loaded,
 }: {
-  projectSlug: string;
+  projectUuid: string;
   runtimeBasePath: string;
   pathname: string;
   loaded: { result: AnyLayoutLoaderResult | undefined } | undefined;
 }): AnyLayoutLoaderResult | undefined {
   // The server rendered the page with its result, which it filled in for the studio too.
-  const { data } = useReadQuery(reads.derivedPageData({ projectSlug, runtimeBasePath, pathname }), {
+  const { data } = useReadQuery(reads.derivedPageData({ projectUuid, runtimeBasePath, pathname }), {
     enabled: loaded != null,
   });
   // Until the read loads, the result the server rendered with stands in for it.
@@ -70,12 +70,12 @@ export function useDerivedPageResult({
  * page is found by (its slug) moves the Studio to the new URL rather than leaving it on a 404.
  */
 export function useFollowPageRecord({
-  projectSlug,
+  projectUuid,
   runtimeBasePath,
   layoutId,
   record,
 }: {
-  projectSlug: string;
+  projectUuid: string;
   runtimeBasePath: string;
   /** The derived layout rendering the page. */
   layoutId: string | undefined;
@@ -85,7 +85,7 @@ export function useFollowPageRecord({
   const navigate = useNavigate();
   const draftScope = useDraftScope();
   const { data: savedAt } = useReadQuery(
-    reads.record({ projectSlug, collectionId: record?.collectionId ?? "", id: record?.id ?? "" }),
+    reads.record({ projectUuid, collectionId: record?.collectionId ?? "", id: record?.id ?? "" }),
     { enabled: false, select: (saved) => saved.updatedAt },
   );
   const { locale } = useViewLocale();

@@ -29,7 +29,7 @@ registerHooks({
           "export const useLocation = () => ({pathname: globalThis.testPathname ?? '/', search: '', hash: ''}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }",
         "@/hooks/use-page-destinations": "export const usePageDestinations = () => []",
         "@/lib/auth":
-          "export const useIsAuthenticated = () => true; export const useProjectSlug = () => 'test'",
+          "export const useIsAuthenticated = () => true; export const useProjectUuid = () => 'test'",
         "@/lib/normalized-data":
           "export const NormalizedDataProvider = ({children}) => children; export const usePageBlocks = () => ({})",
         "@/lib/queries": "export const blockQueries = {}",
@@ -305,8 +305,8 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   };
   // What the server filled in for each page it rendered.
   const cache = testStudioCache(client);
-  cache.set(reads.pageStructure({ path: "/", projectSlug: "test" }), { page: { id: 3 } });
-  cache.set(reads.layoutStructure({ projectSlug: "test", layoutId: "article" }), layout);
+  cache.set(reads.pageStructure({ path: "/", projectUuid: "test" }), { page: { id: 3 } });
+  cache.set(reads.layoutStructure({ projectUuid: "test", layoutId: "article" }), layout);
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
@@ -350,7 +350,7 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   const { CamoxPreview } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  testStudioCache(client).set(reads.pageStructure({ path: "/", projectSlug: "test" }), {
+  testStudioCache(client).set(reads.pageStructure({ path: "/", projectUuid: "test" }), {
     page: { id: 3 },
   });
   type Props = React.ComponentProps<typeof CamoxPreview>;
@@ -389,7 +389,7 @@ void test("hiding the Canvas after selecting nothing goes back to the last page"
   const { CamoxPreview } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  testStudioCache(client).set(reads.pageStructure({ path: "/about", projectSlug: "test" }), {
+  testStudioCache(client).set(reads.pageStructure({ path: "/about", projectUuid: "test" }), {
     page: { id: 3 },
   });
   const navigations: { to: string; replace?: boolean }[] = [];

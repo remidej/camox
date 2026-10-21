@@ -98,7 +98,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
 const runtimeOptions: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   getCamoxApp: async () => sourceReportingApp(),
   renderPage: async (input) => `<main>${JSON.stringify(input.derived?.result?.data)}</main>`,
 };

@@ -99,7 +99,7 @@ async function render(
     authClient: {} as never,
     authenticationUrl: "",
     apiUrl: "http://api.test",
-    projectSlug: project.slug,
+    projectUuid: project.slug,
   };
   const pathname = locale.isDefault
     ? "/camox/content/assets"

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
+import { projectIdSchema } from "@camox/api-contract/ids";
 import {
   type Logger,
   type Plugin,
@@ -76,7 +77,7 @@ type StoredAuth = NonNullable<ReturnType<typeof readAuthTokenForUrl>>;
 
 /**
  * Drop a sidecar at `<root>/node_modules/.camox/runtime.json` so the `camox`
- * CLI can pick up the same projectSlug / apiUrl / authenticationUrl the
+ * CLI can pick up the same Project ID / apiUrl / authenticationUrl the
  * plugin actually used. The CLI treats the vite config as the source of
  * truth for those values — there is no other reliable way to recover them
  * from outside vite. No draft is written here: the CLI always works in the
@@ -85,7 +86,7 @@ type StoredAuth = NonNullable<ReturnType<typeof readAuthTokenForUrl>>;
 function writeRuntimeSidecar(
   root: string,
   data: {
-    projectSlug: string;
+    projectId: string;
     apiUrl: string;
     authenticationUrl: string;
     disableTelemetry: boolean;
@@ -100,13 +101,17 @@ function writeRuntimeSidecar(
 export interface CamoxAfterSyncContext {
   /** Sends the dev session and reads and writes the developer's development draft. */
   client: ServerApiClient;
-  projectSlug: string;
+  /** The project's Project ID, which API inputs name `projectUuid`. */
+  projectUuid: string;
   logger: Logger;
 }
 
 export interface CamoxPluginOptions {
-  /** Stable, human-readable slug identifying this project (e.g. "prestigious-impala-84") */
-  projectSlug: string;
+  /**
+   * The project's Project ID, shown in the Camox dashboard: a lowercase UUIDv7 that never changes
+   * (e.g. "01a15fff-627b-7fa1-938b-93ab659c1acc").
+   */
+  projectId: string;
   /** Iconify collection available to all icon fields. */
   icons?: string;
   /** Disable telemetry collection (default: false) */
@@ -244,7 +249,28 @@ export const CAMOX_WORKER_OPTIMIZED_DEPS = [
   "camox > @unhead/react/server",
 ];
 
+/**
+ * The Project ID a config names, refused on startup when it is missing or malformed, or when the
+ * config still names its project by its Project Slug.
+ */
+function projectIdOf(options: CamoxPluginOptions): string {
+  if ("projectSlug" in options) {
+    throw new Error(
+      "Camox: `projectSlug` was replaced by `projectId`. Replace it in your camox() config with " +
+        "the Project ID shown in the Camox dashboard, on your project's page.",
+    );
+  }
+  if (!projectIdSchema.safeParse(options.projectId).success) {
+    throw new Error(
+      `Camox: ${JSON.stringify(options.projectId)} is not a Project ID. Copy your project's ` +
+        "Project ID, a lowercase UUIDv7, from the Camox dashboard into your camox() config.",
+    );
+  }
+  return options.projectId;
+}
+
 export function camox(options: CamoxPluginOptions): Plugin {
+  const projectUuid = projectIdOf(options);
   const apiUrl = options._internal?.apiUrl ?? PRODUCTION_API_URL;
   const authenticationUrl = options._internal?.authenticationUrl ?? DEFAULT_AUTHENTICATION_URL;
   const enableTanstackDevtools = options._internal?.enableTanstackDevtools ?? false;
@@ -346,7 +372,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
           __CAMOX_DEVELOPMENT_DRAFT__: JSON.stringify(!isRelease),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),
-          __CAMOX_PROJECT_SLUG__: JSON.stringify(options.projectSlug),
+          __CAMOX_PROJECT_ID__: JSON.stringify(projectUuid),
         },
         environments: {
           client: {
@@ -417,7 +443,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
       const routesDir = resolve(config.root, "src/routes");
 
       writeRuntimeSidecar(config.root, {
-        projectSlug: options.projectSlug,
+        projectId: projectUuid,
         apiUrl,
         authenticationUrl,
         disableTelemetry: !!options.disableTelemetry,
@@ -456,7 +482,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
 
       if (localAuth?.email) {
         installDevSignInLink(server, {
-          projectSlug: options.projectSlug,
+          projectUuid,
           apiUrl,
           authToken: localAuth.token,
           open: options._internal?.devSignIn?.open,
@@ -475,7 +501,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
         if (!localAuth) return;
         const authToken = localAuth.token;
         void syncDefinitions(server, {
-          projectSlug: options.projectSlug,
+          projectUuid,
           apiUrl,
           autoCreate: true,
           authToken,
@@ -484,7 +510,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
           if (!synced) return;
           const context = {
             client: createServerApiClient(apiUrl, authToken, DEVELOPMENT_DRAFT),
-            projectSlug: options.projectSlug,
+            projectUuid,
             logger: server.config.logger,
           };
           const afterSync = options._internal?.afterSync;
@@ -532,7 +558,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
 
         await syncDefinitionsToApi({
           definitionSet: await camoxModule.camoxApp.getDefinitionSet(),
-          projectSlug: options.projectSlug,
+          projectUuid,
           apiUrl,
           autoCreate: false,
           deployToken,

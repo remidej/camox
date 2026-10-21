@@ -38,7 +38,7 @@ export function MobilePreviewDrawer({
   const [isDragging, setIsDragging] = React.useState(false);
   const [screen, setScreen] = React.useState<DrawerScreen>("root");
   const authCtx = useAuthContext();
-  const { data: project } = useReadQuery(reads.project({ slug: authCtx.projectSlug }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid: authCtx.projectUuid }));
   const dragStartRef = React.useRef({ y: 0, height: COLLAPSED_HEIGHT });
   const dragDistanceRef = React.useRef(0);
   const rootContentRef = React.useRef<HTMLDivElement>(null);

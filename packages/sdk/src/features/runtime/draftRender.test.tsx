@@ -86,7 +86,7 @@ async function request(path: string) {
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
       getCamoxApp: async () => camoxApp,
       renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
     },

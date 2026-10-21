@@ -8,12 +8,12 @@ const GLOBE_SOURCE = new URL("./artifacts/globe.html", import.meta.url);
 
 /** The page and block endpoints the seeder needs, as exposed by the plugin's authed API client. */
 export interface HeroGlobeContext {
-  projectSlug: string;
+  projectUuid: string;
   logger: { info: (message: string) => void };
   client: {
     pages: {
       getByPath: (input: {
-        projectSlug: string;
+        projectUuid: string;
         path: string;
       }) => Promise<{ blocks: readonly { id: string; type: string; content: unknown }[] }>;
     };
@@ -24,8 +24,8 @@ export interface HeroGlobeContext {
 }
 
 /** Fills empty globes on the home page's heroes; a globe that has a source is left alone. */
-export async function seedHeroGlobe({ client, projectSlug, logger }: HeroGlobeContext) {
-  const page = await client.pages.getByPath({ projectSlug, path: "/" });
+export async function seedHeroGlobe({ client, projectUuid, logger }: HeroGlobeContext) {
+  const page = await client.pages.getByPath({ projectUuid, path: "/" });
   const heroes = page.blocks.filter(
     (block) => block.type === "hero" && !(block.content as { globe?: unknown } | null)?.globe,
   );

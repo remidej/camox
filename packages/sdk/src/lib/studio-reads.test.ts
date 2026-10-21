@@ -90,7 +90,7 @@ function pageWithLinkedRecords() {
   } as unknown as PageWithBlocks;
 }
 
-const home = reads.pageStructure({ path: "/", projectSlug: "site" });
+const home = reads.pageStructure({ path: "/", projectUuid: "site" });
 
 void test("a page read in full fills each block's bundle with the files of the records its block and items link", () => {
   const { cache } = openCache();
@@ -126,7 +126,7 @@ void test("reads are keyed under the draft the studio views, and shared reads un
   const key = cache.options(reads.blockBundle("b")).queryKey;
   assert.deepEqual(key.slice(0, queryKeys.blocks.get("b").length), queryKeys.blocks.get("b"));
   assert.equal(key.at(-1), "d1");
-  assert.deepEqual(cache.options(reads.project({ slug: "site" })).queryKey, [
+  assert.deepEqual(cache.options(reads.project({ projectUuid: "site" })).queryKey, [
     "camox",
     "projects",
     "getBySlug",
@@ -182,7 +182,7 @@ void test("route discovery reads the locale its key names, which only a non-defa
     },
   });
   const discovery = reads.discoveredPath({
-    projectSlug: "site",
+    projectUuid: "site",
     runtimeBasePath: "",
     layoutId: "articles.$slug",
   });

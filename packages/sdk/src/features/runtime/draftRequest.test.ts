@@ -142,7 +142,7 @@ const pokedex = {
 const runtimeOptions: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   getCamoxApp: async () =>
     ({
       getLayouts: () => [pokedex],

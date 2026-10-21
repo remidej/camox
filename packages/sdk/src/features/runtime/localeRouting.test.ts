@@ -136,7 +136,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
 const options: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   getCamoxApp: async () => app,
   getDocument: async () => ({ htmlAttrs: { lang: "x-site", class: "dark" } }),
   renderPage: async (input) => `<main>${input.locale.tag}</main>`,

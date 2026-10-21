@@ -92,7 +92,7 @@ const hero = { _internal: { id: "hero", title: "Hero" } };
 const runtimeOptions: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   pageClientEntryUrl: "/client.js",
   getCamoxApp: async () =>
     ({

@@ -43,7 +43,7 @@ interface LoadPageOptions {
   locale?: LocaleView;
   /** The page's path in its locale, after the locale's prefix. */
   pathname: string;
-  projectSlug: string;
+  projectUuid: string;
   queryClient: QueryClient;
 }
 
@@ -57,7 +57,7 @@ interface LoadPageForRequestOptions {
   origin: string;
   /** The page's path in its locale, after the locale's prefix. */
   pathname: string;
-  projectSlug: string;
+  projectUuid: string;
   queryClient: QueryClient;
 }
 
@@ -233,7 +233,7 @@ export async function loadCamoxPage({
   draftId,
   locale,
   pathname,
-  projectSlug,
+  projectUuid,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
   const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader, locale });
@@ -241,13 +241,13 @@ export async function loadCamoxPage({
   const inDraft = { in: draftId && authCookieHeader ? draftId : null };
   const fallback = locale && linkFallbackLocale(locale);
   const [page] = await Promise.all([
-    studioCache.ensure(reads.pageStructure({ path: pathname, projectSlug }), inDraft),
+    studioCache.ensure(reads.pageStructure({ path: pathname, projectUuid }), inDraft),
     // Links resolve against the site's pages, and the pages they fall back to, which a render can
     // do without.
-    studioCache.ensure(reads.pageList({ projectSlug }), inDraft).catch(() => null),
+    studioCache.ensure(reads.pageList({ projectUuid }), inDraft).catch(() => null),
     fallback &&
       studioCache
-        .ensure(reads.pageList({ projectSlug }), { ...inDraft, locale: fallback })
+        .ensure(reads.pageList({ projectUuid }), { ...inDraft, locale: fallback })
         .catch(() => null),
   ]);
   return page;
@@ -291,19 +291,19 @@ export async function readScopeLocales({
   apiUrl,
   authCookieHeader,
   draftId,
-  projectSlug,
+  projectUuid,
 }: {
   apiUrl: string;
   authCookieHeader?: string;
   draftId?: string;
-  projectSlug: string;
+  projectUuid: string;
 }): Promise<LocaleView[]> {
   // The API checks the session is a member's: a refusal reads Live's.
   const { value } = await readDraftOrLive(draftId, !!authCookieHeader, (readDraftId) =>
     createServerApiClient(apiUrl, {
       authCookieHeader: readDraftId ? authCookieHeader : undefined,
       draftId: readDraftId,
-    }).locales.list({ projectSlug }),
+    }).locales.list({ projectUuid }),
   );
   return value;
 }
@@ -316,17 +316,17 @@ export async function readScopeLocales({
 export async function resolveMemberProject({
   apiUrl,
   authCookieHeader,
-  projectSlug,
+  projectUuid,
 }: {
   apiUrl: string;
   authCookieHeader?: string;
-  projectSlug: string;
+  projectUuid: string;
 }): Promise<{ project?: MemberProject; clearAuthCookie: boolean }> {
   if (!authCookieHeader) return { clearAuthCookie: false };
   try {
     const project = await createServerApiClient(apiUrl, {
       authCookieHeader,
-    }).projects.getBySlug({ slug: projectSlug });
+    }).projects.getBySlug({ projectUuid });
     return { project, clearAuthCookie: false };
   } catch (error) {
     if (!isAuthSessionError(error)) throw error;
@@ -367,7 +367,7 @@ export async function loadCamoxPageForRequest({
   locale,
   origin,
   pathname,
-  projectSlug,
+  projectUuid,
   queryClient,
 }: LoadPageForRequestOptions): Promise<LoadPageForRequestResult> {
   // Without a draft in the URL, every reader sees Live. The session decides whether the Studio
@@ -375,7 +375,7 @@ export async function loadCamoxPageForRequest({
   const member = await resolveMemberProject({
     apiUrl,
     authCookieHeader,
-    projectSlug,
+    projectUuid,
   });
   if (member.clearAuthCookie) console.warn("[camox] Ignoring stale camox_auth_cookie.");
   const { value: page, ...read } = await readDraftOrLive(draftId, !!member.project, (readDraftId) =>
@@ -385,7 +385,7 @@ export async function loadCamoxPageForRequest({
       draftId: readDraftId,
       locale,
       pathname,
-      projectSlug,
+      projectUuid,
       queryClient,
     }),
   );
@@ -402,7 +402,7 @@ export async function createMarkdownResponse({
   camoxApp,
   locale,
   pathname,
-  projectSlug,
+  projectUuid,
   request,
   url,
   onNotFound,
@@ -414,7 +414,7 @@ export async function createMarkdownResponse({
   locale?: LocaleView;
   /** The page's path in its locale. Without it, the request's path. */
   pathname?: string;
-  projectSlug: string;
+  projectUuid: string;
   request: Request;
   /** The page's absolute URL, which the front matter states. */
   url: string;
@@ -424,7 +424,7 @@ export async function createMarkdownResponse({
   const api = createServerApiClient(apiUrl, { locale });
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
-    const page = await api.pages.getByPath({ path: requestPathname, projectSlug });
+    const page = await api.pages.getByPath({ path: requestPathname, projectUuid });
     const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
     if (!markdown) return null;
 

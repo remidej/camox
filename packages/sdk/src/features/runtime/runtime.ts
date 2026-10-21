@@ -139,7 +139,7 @@ export interface PageRenderInput extends DraftRead {
    * `parseLocalePath(pathname, locales).path`.
    */
   pathname: string;
-  projectSlug: string;
+  projectUuid: string;
   runtimeBasePath: string;
 }
 
@@ -162,7 +162,7 @@ export interface RuntimeOptions {
   studioClientEntryUrl?: string;
   getCamoxApp?: () => Promise<CamoxApp>;
   getDocument?: () => Promise<CamoxDocument>;
-  projectSlug?: string;
+  projectUuid?: string;
   renderPage?: (input: PageRenderInput) => Promise<string>;
   renderStudio?: (input: StudioRenderInput) => Promise<string>;
   runtimeBasePath?: string;
@@ -294,14 +294,14 @@ async function respondWithLiveWebsite(
   respond: (website: LiveWebsite) => Response | Promise<Response>,
   { everyLocale = false }: { everyLocale?: boolean } = {},
 ): Promise<Response> {
-  const { apiUrl, projectSlug } = options;
-  if (!apiUrl || !projectSlug) {
+  const { apiUrl, projectUuid } = options;
+  if (!apiUrl || !projectUuid) {
     return Response.json({ message: `Camox ${name} is not configured.` }, { status: 500 });
   }
   const app = await options.getCamoxApp?.();
   const readLocale = async (locale: LocaleView) => {
     const api = createServerApiClient(apiUrl, { locale });
-    const { projectName, pages } = await api.pages.listBySlug({ projectSlug });
+    const { projectName, pages } = await api.pages.listBySlug({ projectUuid });
     const records = createRecordLookup(options, "live", { locale });
     return { locale, projectName, pages: await listLivePages({ pages, app, records }) };
   };
@@ -309,7 +309,7 @@ async function respondWithLiveWebsite(
   let localizations: Array<Awaited<ReturnType<typeof readLocale>>>;
   try {
     locales = everyLocale
-      ? [...(await readScopeLocales({ apiUrl, projectSlug }))].sort(
+      ? [...(await readScopeLocales({ apiUrl, projectUuid }))].sort(
           (a, b) => Number(b.isDefault) - Number(a.isDefault),
         )
       : [UNNAMED_DEFAULT_LOCALE];
@@ -431,11 +431,11 @@ async function resolveRequestMember(
   request: Request,
   options: RuntimeOptions,
 ): Promise<{ project?: MemberProject; clearAuthCookie: boolean }> {
-  if (!options.apiUrl || !options.projectSlug) return { clearAuthCookie: false };
+  if (!options.apiUrl || !options.projectUuid) return { clearAuthCookie: false };
   return resolveMemberProject({
     apiUrl: options.apiUrl,
     authCookieHeader: getServerAuthCookieHeader(request.headers),
-    projectSlug: options.projectSlug,
+    projectUuid: options.projectUuid,
   });
 }
 
@@ -667,7 +667,7 @@ function isPreviewHandoff(request: Request, options: RuntimeOptions): boolean {
     searchParams.has("ott") &&
     !!options.apiUrl &&
     !!options.authenticationUrl &&
-    !!options.projectSlug &&
+    !!options.projectUuid &&
     !!options.renderPage
   );
 }
@@ -706,9 +706,9 @@ async function findRequestAlternates(
   identity: PageIdentity,
   { authCookieHeader, draftId }: AlternatesReading,
 ): Promise<AlternatePath[]> {
-  const { apiUrl, projectSlug } = options;
+  const { apiUrl, projectUuid } = options;
   const here = [{ locale: located.locale.tag, path: localizedPath(located.path, located.locale) }];
-  if (!apiUrl || !projectSlug || located.locales.length < 2) return here;
+  if (!apiUrl || !projectUuid || located.locales.length < 2) return here;
   const app = await options.getCamoxApp?.();
   const reading = { authCookieHeader: draftId ? authCookieHeader : undefined, draftId };
   return findAlternates({
@@ -719,7 +719,7 @@ async function findRequestAlternates(
       pages: async (locale) =>
         (
           await createServerApiClient(apiUrl, { ...reading, locale }).pages.listBySlug({
-            projectSlug,
+            projectUuid,
           })
         ).pages,
       context: (locale) =>
@@ -758,7 +758,7 @@ async function createPreviewHandoffResponse({
     presentation: "public",
     apiUrl: options.apiUrl!,
     authenticationUrl: options.authenticationUrl!,
-    projectSlug: options.projectSlug!,
+    projectUuid: options.projectUuid!,
     href: request.url,
     pathname,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
@@ -797,7 +797,7 @@ async function createPageHtmlResponse({
   if (
     !options.apiUrl ||
     !options.authenticationUrl ||
-    !options.projectSlug ||
+    !options.projectUuid ||
     !options.renderPage
   ) {
     return createPageDataResponse({ options, pathname, located, request });
@@ -817,7 +817,7 @@ async function createPageHtmlResponse({
       locale: located.locale,
       origin: new URL(request.url).origin,
       pathname: located.path,
-      projectSlug: options.projectSlug,
+      projectUuid: options.projectUuid,
       queryClient,
     });
     const headers = new Headers({
@@ -862,7 +862,7 @@ async function createPageHtmlResponse({
       layoutIdentity: getLayoutIdentity(result.data.page.layout),
       loaderData: result.data,
       pathname,
-      projectSlug: options.projectSlug,
+      projectUuid: options.projectUuid,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
       locale: located.locale,
       locales: located.locales,
@@ -941,17 +941,17 @@ function createRecordLookup(
   source: RecordSource,
   { authCookieHeader, draftId, locale }: RecordReading = {},
 ): RecordLookup | undefined {
-  const { apiUrl, projectSlug } = options;
-  if (!apiUrl || !projectSlug) return undefined;
+  const { apiUrl, projectUuid } = options;
+  if (!apiUrl || !projectUuid) return undefined;
   const api = createServerApiClient(apiUrl, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
     draftId,
     locale,
   });
   return {
-    findByField: (input) => api.collectionDefinitions.findRecordsByField({ ...input, projectSlug }),
+    findByField: (input) => api.collectionDefinitions.findRecordsByField({ ...input, projectUuid }),
     listPageValues: (input) =>
-      api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug }),
+      api.collectionDefinitions.listRecordPageValues({ ...input, projectUuid }),
   };
 }
 
@@ -1008,8 +1008,8 @@ async function createLayoutMarkdownResponse(
   page: { pathname: string; url: string },
 ): Promise<Response | null> {
   const { toMarkdown, id } = match.layout._internal;
-  const { apiUrl, projectSlug } = options;
-  if (!toMarkdown || !apiUrl || !projectSlug) return null;
+  const { apiUrl, projectUuid } = options;
+  if (!toMarkdown || !apiUrl || !projectUuid) return null;
   const api = createServerApiClient(apiUrl, { locale });
   const app = await options.getCamoxApp?.();
   /** The layout's own Markdown, between its before and after blocks, and what built it. */
@@ -1031,7 +1031,7 @@ async function createLayoutMarkdownResponse(
       toMarkdown({ data, params: match.params, item }),
     );
     const body = await api.collectionDefinitions.recordMarkdown({
-      projectSlug,
+      projectUuid,
       collectionId: record.collectionId,
       id: data.id,
       toMarkdown: template,
@@ -1045,7 +1045,7 @@ async function createLayoutMarkdownResponse(
     if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
   }
-  const slots = await api.blocks.getLayoutMarkdown({ projectSlug, layoutId: id }).catch((error) => {
+  const slots = await api.blocks.getLayoutMarkdown({ projectUuid, layoutId: id }).catch((error) => {
     // A layout that was never synced has no blocks yet.
     if (isNotFoundError(error)) return { before: "", after: "", projectName: "" };
     throw error;
@@ -1100,7 +1100,7 @@ async function createDerivedResponse(
           authCookieHeader,
           draftId,
           locale: located.locale,
-        }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
+        }).layouts.get({ projectUuid: options.projectUuid!, layoutId: match.layout._internal.id }),
       );
     const runLoader = (draftId?: string) =>
       loadLayoutResult(
@@ -1125,16 +1125,16 @@ async function createDerivedResponse(
       authCookieHeader,
       locale: located.locale,
     });
-    const projectSlug = options.projectSlug!;
+    const projectUuid = options.projectUuid!;
     const shownIn = { in: read.draftId ?? null };
     studioCache.land(
-      reads.layoutStructure({ projectSlug, layoutId: match.layout._internal.id }),
+      reads.layoutStructure({ projectUuid, layoutId: match.layout._internal.id }),
       shared,
       shownIn,
     );
     studioCache.set(
       reads.derivedPageData({
-        projectSlug,
+        projectUuid,
         runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
         pathname,
       }),
@@ -1181,7 +1181,7 @@ async function createDerivedResponse(
       ...(analytics && { analytics }),
       apiUrl: options.apiUrl!,
       authenticationUrl: options.authenticationUrl!,
-      projectSlug: options.projectSlug!,
+      projectUuid: options.projectUuid!,
       dehydratedState: dehydrate(queryClient),
       draftId: read.draftId,
       refusedDraft: read.refusedDraft,
@@ -1255,7 +1255,7 @@ async function createStudioHtmlResponse({
   if (
     !options.apiUrl ||
     !options.authenticationUrl ||
-    !options.projectSlug ||
+    !options.projectUuid ||
     (!dataOnly && !options.renderStudio)
   ) {
     return Response.json(
@@ -1278,7 +1278,7 @@ async function createStudioHtmlResponse({
     dehydratedState: dehydrate(queryClient),
     href: new URL(request.url).href,
     pathname,
-    projectSlug: options.projectSlug,
+    projectUuid: options.projectUuid,
     routeKind: match.kind,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
     locale: located.locale,
@@ -1365,7 +1365,7 @@ async function createCanvasOnlyResponse({
   if (
     !options.apiUrl ||
     !options.authenticationUrl ||
-    !options.projectSlug ||
+    !options.projectUuid ||
     (!dataOnly && !options.renderPage)
   ) {
     return Response.json(
@@ -1382,7 +1382,7 @@ async function createCanvasOnlyResponse({
     presentation: studio ? "studio" : "public",
     apiUrl: options.apiUrl,
     authenticationUrl: options.authenticationUrl,
-    projectSlug: options.projectSlug,
+    projectUuid: options.projectUuid,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
     locale: located.locale,
     locales: located.locales,
@@ -1431,7 +1431,7 @@ async function createPageDataResponse({
   located: RequestLocale;
   request: Request;
 }): Promise<Response> {
-  if (!options.apiUrl || !options.projectSlug) {
+  if (!options.apiUrl || !options.projectUuid) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
   }
 
@@ -1450,7 +1450,7 @@ async function createPageDataResponse({
       locale: located.locale,
       origin: new URL(request.url).origin,
       pathname: located.path,
-      projectSlug: options.projectSlug,
+      projectUuid: options.projectUuid,
       queryClient,
     });
     const headers = new Headers({
@@ -1475,7 +1475,7 @@ async function createPageDataResponse({
       alternates,
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl ?? "",
-      projectSlug: options.projectSlug,
+      projectUuid: options.projectUuid,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
       locale: located.locale,
       locales: located.locales,
@@ -1561,11 +1561,11 @@ export async function handleCamoxRequest(
   }
 
   // Agents reach the Markdown Representation by asking for it, or at the page's `.md` URL.
-  const { apiUrl, projectSlug } = options;
+  const { apiUrl, projectUuid } = options;
   const markdownPathname = parseMarkdownPath(pathname);
   if (
     apiUrl &&
-    projectSlug &&
+    projectUuid &&
     (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? ""))
   ) {
     // Markdown is a public output: it reads Live, whoever asks.
@@ -1574,7 +1574,7 @@ export async function handleCamoxRequest(
     });
     if (markdownPathname || matchLocalizedRoute(located.path)?.kind === "page") {
       const markdownResponse = await createPageMarkdownResponse(
-        { ...options, apiUrl, projectSlug },
+        { ...options, apiUrl, projectUuid },
         located,
         { pathname: markdownPathname ?? pathname, request },
       );
@@ -1612,7 +1612,7 @@ async function respondInLocale(
  * singleton, curated page, then derived layout. Null when the page has none.
  */
 async function createPageMarkdownResponse(
-  options: RuntimeOptions & { apiUrl: string; projectSlug: string },
+  options: RuntimeOptions & { apiUrl: string; projectUuid: string },
   { locale, path }: RequestLocale,
   /** The page's full path, with its locale's prefix, and the request asking for it. */
   { pathname, request }: { pathname: string; request: Request },
@@ -1628,7 +1628,7 @@ async function createPageMarkdownResponse(
     camoxApp: app,
     locale,
     pathname: path,
-    projectSlug: options.projectSlug,
+    projectUuid: options.projectUuid,
     request,
     url: page.url,
     onNotFound: async () =>
@@ -1668,12 +1668,12 @@ async function locateRequest(
   pathname: string,
   { live = false }: { live?: boolean } = {},
 ): Promise<RequestLocale> {
-  const { apiUrl, projectSlug } = options;
+  const { apiUrl, projectUuid } = options;
   const locales =
-    apiUrl && projectSlug
+    apiUrl && projectUuid
       ? await readScopeLocales({
           apiUrl,
-          projectSlug,
+          projectUuid,
           ...(!live && {
             authCookieHeader: getServerAuthCookieHeader(request.headers),
             draftId: getRequestDraftId(request, options),

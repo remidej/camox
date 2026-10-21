@@ -69,7 +69,7 @@ const config = defineConfig({
     tailwindcss(),
     cloudflare(),
     camox({
-      projectSlug: "camox-playground-01",
+      projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
       icons: "lucide",
       _internal: {
         authenticationUrl: process.env.VITE_DASHBOARD_URL ?? "http://localhost:3274",

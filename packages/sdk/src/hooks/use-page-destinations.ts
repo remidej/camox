@@ -2,16 +2,16 @@ import { useMemo } from "react";
 
 import { getPageDestinations } from "../core/pageDestinations";
 import { useCamoxApp } from "../features/provider/components/CamoxAppContext";
-import { useProjectSlug } from "../lib/auth";
+import { useProjectUuid } from "../lib/auth";
 import { linkablePages, useLinkablePages } from "../lib/link-pages";
 import { reads, useReadQuery } from "../lib/studio-reads";
 
 /** The pages of the locale viewed, which the studio navigates to. */
 export function usePageDestinations() {
   const app = useCamoxApp();
-  const projectSlug = useProjectSlug();
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
+  const projectUuid = useProjectUuid();
+  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
   return useMemo(() => getPageDestinations(pages ?? [], app.getLayouts()), [app, pages]);
@@ -23,7 +23,7 @@ export function usePageDestinations() {
  */
 export function useLinkDestinations() {
   const app = useCamoxApp();
-  const { pages, fallbackPages } = useLinkablePages(useProjectSlug(), { fetchProject: true });
+  const { pages, fallbackPages } = useLinkablePages(useProjectUuid(), { fetchProject: true });
   return useMemo(
     () =>
       getPageDestinations(

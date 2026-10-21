@@ -5,7 +5,7 @@ import * as React from "react";
 
 import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
@@ -50,13 +50,13 @@ export function ReferenceFieldEditor({
   /** Offer Create item in the picker; off where the create sheet would replace a form. */
   allowCreate?: boolean;
 }) {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const collection = useCamoxApp().getCollectionById(collectionId);
   const collectionTitle = collection?._internal.title ?? collectionId;
   const sheet = useCollectionItemSheet();
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const records = useReadQuery(reads.records({ projectSlug, collectionId }));
+  const records = useReadQuery(reads.records({ projectUuid, collectionId }));
   const selectedId = typeof value === "string" && value ? value : null;
   const selected = records.data?.find((option) => option.id === value);
   const hydrated = record?.id === selectedId ? record : null;

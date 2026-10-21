@@ -24,19 +24,19 @@ import { routeSegments } from "../../../core/derivedRoutes";
 
 export function DerivedLayoutDialog({
   layout,
-  projectSlug,
+  projectUuid,
   currentParams,
   onClose,
 }: {
   layout: Layout;
-  projectSlug: string;
+  projectUuid: string;
   currentParams?: Record<string, string>;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
   const localized = useLocalizedPath();
   const id = React.useId();
-  const storageKey = `camox:derived-preview:${projectSlug}:${layout._internal.id}`;
+  const storageKey = `camox:derived-preview:${projectUuid}:${layout._internal.id}`;
   const [values, setValues] = React.useState<Record<string, string>>(() => {
     if (currentParams) return currentParams;
     try {

@@ -56,8 +56,8 @@ function CamoxMark() {
 }
 
 function CurrentThread() {
-  const { apiUrl, projectSlug } = React.useContext(AuthContext)!;
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { apiUrl, projectUuid } = React.useContext(AuthContext)!;
+  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
   const draftId = useCurrentDraftId();
   const draftScope = useDraftScope();
   // What the Live thread showed as the studio entered the draft it started, so the draft's

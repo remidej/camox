@@ -15,19 +15,19 @@ type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
  */
 export const queryKeys = {
   collections: {
-    record: (projectSlug: string, collectionId: string, id: string) => [
+    record: (projectUuid: string, collectionId: string, id: string) => [
       "camox",
       "collections",
       "record",
-      projectSlug,
+      projectUuid,
       collectionId,
       id,
     ],
-    records: (projectSlug: string, collectionId: string) => [
+    records: (projectUuid: string, collectionId: string) => [
       "camox",
       "collections",
       "records",
-      projectSlug,
+      projectUuid,
       collectionId,
     ],
   },

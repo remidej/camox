@@ -90,7 +90,7 @@ async function render(t: test.TestContext, locale: typeof en, pageId: string) {
     authClient: {} as never,
     authenticationUrl: "",
     apiUrl: "http://api.test",
-    projectSlug: project.slug,
+    projectUuid: project.slug,
   };
   await React.act(async () =>
     root.render(

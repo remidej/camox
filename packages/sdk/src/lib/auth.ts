@@ -271,7 +271,7 @@ export function useProcessOtt(
   target: PreviewTarget,
   initialAuthenticated = false,
 ) {
-  const { projectSlug, apiUrl } = target;
+  const { projectId, apiUrl } = target;
   const [error, setError] = React.useState<string | null>(null);
   const processing = React.useRef(false);
   const [ready, setReady] = React.useState(() => {
@@ -282,7 +282,7 @@ export function useProcessOtt(
   React.useEffect(() => {
     const url = new URL(window.location.href);
     const targetError = validatePreviewTarget(url.searchParams.get("camox-preview"), {
-      projectSlug,
+      projectId,
       apiUrl,
     });
     if (targetError) {
@@ -331,7 +331,7 @@ export function useProcessOtt(
       }
       setReady(true);
     })();
-  }, [authClient, ready, error, initialAuthenticated, projectSlug, apiUrl]);
+  }, [authClient, ready, error, initialAuthenticated, projectId, apiUrl]);
 
   return { ready, error };
 }
@@ -345,7 +345,7 @@ interface AuthContextValue {
   authClient: CamoxAuthClient;
   authenticationUrl: string;
   apiUrl: string;
-  projectSlug: string;
+  projectUuid: string;
 }
 
 export const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -360,8 +360,8 @@ export function useAuthContext() {
  * Hooks
  * -----------------------------------------------------------------------------------------------*/
 
-export function useProjectSlug() {
-  return useAuthContext().projectSlug;
+export function useProjectUuid() {
+  return useAuthContext().projectUuid;
 }
 
 const subscribeToHydration = () => () => {};

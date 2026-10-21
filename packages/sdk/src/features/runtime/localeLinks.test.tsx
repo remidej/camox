@@ -142,7 +142,7 @@ async function visit(path: string, headers: Record<string, string> = {}) {
   const response = await handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () => camoxApp,
     renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
   });

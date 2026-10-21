@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Undo2Icon } from "lucide-react";
 
 import { localeLabel } from "@/features/studio/localeOptions";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { type CollectionDefinition, localeMutations, type MissingFromLocale } from "@/lib/queries";
 import { reads, useReadQuery, useStudioCache } from "@/lib/studio-reads";
 import { useViewLocale } from "@/lib/view-locale-context";
@@ -24,9 +24,9 @@ export const MissingFromLocaleGroup = ({
   collections: readonly CollectionDefinition[];
 }) => {
   const { locale } = useViewLocale();
-  const projectSlug = useProjectSlug();
-  const project = useReadQuery(reads.project({ slug: projectSlug }), {
-    enabled: !!projectSlug && !locale.isDefault,
+  const projectUuid = useProjectUuid();
+  const project = useReadQuery(reads.project({ projectUuid: projectUuid }), {
+    enabled: !!projectUuid && !locale.isDefault,
   });
   const projectId = project.data?.id;
   const missing = useReadQuery(reads.missingFromLocale({ projectId: projectId ?? 0 }), {
@@ -46,7 +46,7 @@ export const MissingFromLocaleGroup = ({
             <MissingEntry
               key={entry.id}
               projectId={projectId}
-              projectSlug={projectSlug}
+              projectUuid={projectUuid}
               language={language}
               entry={entry}
             />
@@ -91,12 +91,12 @@ function missingGroups(missing: MissingFromLocale, collections: readonly Collect
 
 const MissingEntry = ({
   projectId,
-  projectSlug,
+  projectUuid,
   language,
   entry,
 }: {
   projectId: number;
-  projectSlug: string;
+  projectUuid: string;
   language: string;
   entry: Missing & { detail?: string };
 }) => {
@@ -109,9 +109,9 @@ const MissingEntry = ({
       });
       void cache.invalidate(reads.missingFromLocale({ projectId }));
       if (entry.collectionId) {
-        void cache.invalidate(reads.records({ projectSlug, collectionId: entry.collectionId }));
+        void cache.invalidate(reads.records({ projectUuid, collectionId: entry.collectionId }));
       } else {
-        void cache.invalidate(reads.pageList({ projectSlug }));
+        void cache.invalidate(reads.pageList({ projectUuid }));
       }
     },
     onError: (error) => toast.error(error.message || `Could not add “${entry.name}” back`),

@@ -11,7 +11,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import { blockMutations, repeatableItemMutations, collectionMutations } from "@/lib/queries";
 
@@ -103,7 +103,7 @@ import { reads, useStudioCache } from "../../lib/studio-reads";
 
 /** The pages links lead to in the locale viewed, for the studio's editors, who read the project. */
 function useEditorLinkPages() {
-  return useLinkPages(useProjectSlug(), { fetchProject: true });
+  return useLinkPages(useProjectUuid(), { fetchProject: true });
 }
 
 /** Normalize legacy links (no `type` field) to the new union shape */
@@ -2405,7 +2405,7 @@ export function createEditableBlock<
   ) => {
     const studioCache = useStudioCache();
     const selectTarget = usePreviewSelection();
-    const projectSlug = useProjectSlug();
+    const projectUuid = useProjectUuid();
     const queryClient = useQueryClient();
     const mutation = useMutation(collectionMutations.edit());
     const [error, setError] = React.useState<string | null>(null);
@@ -2437,13 +2437,13 @@ export function createEditableBlock<
       setError(null);
       void referenceWritesFor(queryClient)
         .save(record, field, value, async (input) => {
-          const saved = await mutation.mutateAsync({ ...input, projectSlug });
+          const saved = await mutation.mutateAsync({ ...input, projectUuid });
           studioCache.set(
-            reads.record({ projectSlug, collectionId: record.collectionId, id: record.id }),
+            reads.record({ projectUuid, collectionId: record.collectionId, id: record.id }),
             saved,
           );
           // Shared source changes must refresh every placement, not only this block.
-          void invalidateCollectionRecordViews(studioCache, projectSlug, record.collectionId);
+          void invalidateCollectionRecordViews(studioCache, projectUuid, record.collectionId);
           return saved;
         })
         .catch((cause: unknown) => {

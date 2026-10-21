@@ -19,7 +19,7 @@ import { collectionMutations } from "@/lib/queries";
 import { reads, useStudioCache } from "../../../lib/studio-reads";
 
 export function DeleteCollectionItemButton({
-  projectSlug,
+  projectUuid,
   collectionId,
   id,
   label,
@@ -27,7 +27,7 @@ export function DeleteCollectionItemButton({
   disabled = false,
   onDeleted,
 }: {
-  projectSlug: string;
+  projectUuid: string;
   collectionId: string;
   id: string;
   label: string;
@@ -42,15 +42,15 @@ export function DeleteCollectionItemButton({
   const confirmDelete = async () => {
     if (!target || deletion.isPending) return;
     try {
-      await deletion.mutateAsync({ projectSlug, collectionId, id });
+      await deletion.mutateAsync({ projectUuid, collectionId, id });
     } catch {
       // Keep the dialog open so the error can be read and the operation retried.
       return;
     }
     setTarget(null);
     await onDeleted?.();
-    studioCache.remove(reads.record({ projectSlug, collectionId, id }));
-    await studioCache.invalidate(reads.records({ projectSlug, collectionId }));
+    studioCache.remove(reads.record({ projectUuid, collectionId, id }));
+    await studioCache.invalidate(reads.records({ projectUuid, collectionId }));
   };
 
   return (

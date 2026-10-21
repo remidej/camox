@@ -250,7 +250,7 @@ async function render(t: test.TestContext, at: string | null) {
     authClient: {} as never,
     authenticationUrl: "",
     apiUrl: "http://api.test",
-    projectSlug: project.slug,
+    projectUuid: project.slug,
   };
   await React.act(async () =>
     root.render(
