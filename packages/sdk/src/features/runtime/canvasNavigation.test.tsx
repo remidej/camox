@@ -7,7 +7,7 @@ import * as React from "react";
 
 import { createApp } from "../../core/createApp";
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
-import { useLocation, useNavigate } from "../navigation/navigation";
+import { type NavigationSource, useLocation, useNavigate } from "../navigation/navigation";
 import { PageNavigationProvider } from "./pageNavigation";
 import type { PageRenderInput } from "./runtime";
 
@@ -62,7 +62,7 @@ for (const base of ["", "/mounted"]) {
     });
     let renderedInput = input;
     let navigate: ReturnType<typeof useNavigate>;
-    let committedSource: "canvas" | undefined;
+    let committedSource: NavigationSource | undefined;
     let mounts = 0;
     let unmounts = 0;
     function Workspace() {

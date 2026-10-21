@@ -8,6 +8,7 @@ import { shownRecordPage } from "../preview/pageRecord";
 import { previewStore, selectIsCanvasShown } from "../preview/previewStore";
 import { ChatSidebar } from "../studio/components/ChatSidebar";
 import { Navbar } from "../studio/components/Navbar";
+import { FollowAgentProvider } from "../studio/FollowAgentProvider";
 import { EditingFallbackContext } from "./editingFallback";
 import type { PageRenderInput } from "./runtime";
 
@@ -33,7 +34,7 @@ export function RuntimeChrome({
   const showChat = !website || isCanvasShown;
 
   return (
-    <>
+    <FollowAgentProvider runtimeBasePath={input.runtimeBasePath} website={website}>
       <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       <div className="bg-background flex h-screen flex-col overflow-hidden">
         <div className={website ? "max-md:hidden" : undefined} hidden={website && hidden}>
@@ -52,10 +53,13 @@ export function RuntimeChrome({
               <PreviewToolbar />
             </div>
           </div>
-          {/* Outside the route content, so the chat survives moving between Studio pages. */}
-          {showChat && <ChatSidebar />}
+          {/*
+           * Outside the route content, so the chat survives moving between Studio pages. The
+           * Preview hides it but keeps its thread, so the Preview follows the editor's runs too.
+           */}
+          <ChatSidebar hidden={!showChat} />
         </div>
       </div>
-    </>
+    </FollowAgentProvider>
   );
 }

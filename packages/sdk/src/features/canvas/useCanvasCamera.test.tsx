@@ -2032,3 +2032,141 @@ void test("a snapped page stays snapped as the viewport resizes", async () => {
     }
   }
 });
+
+void test("the editor's own pans and zooms report themselves; flights and resizes don't", async () => {
+  const dom = new Window({ url: "http://localhost/about" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  let time = 1000;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: false }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 1600, height: 900 };
+  const pages = [
+    { key: "first", left: 0, width: 1366 },
+    { key: "middle", left: 1606, width: 1366 },
+    { key: "last", left: 3212, width: 1366 },
+  ];
+  const content = { width: 4578, height: 20000 };
+  let selected = "middle";
+  let moves = 0;
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("editor-moves", pages[1], {
+      targets: pages,
+      selected,
+      onSelect: (key) => (selected = key),
+      onDeselect: () => (selected = ""),
+      onEditorMove: () => (moves += 1),
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+      setPointerCapture: { value: () => {} },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => content.width },
+      offsetHeight: { get: () => content.height },
+    });
+    resize();
+    const flush = () => {
+      for (let count = 0; callbacks.size && count < 200; count++) {
+        time += 16;
+        const batch = [...callbacks.values()];
+        callbacks.clear();
+        batch.forEach((callback) => callback(time));
+      }
+    };
+    const wheel = (dx: number, dy: number, modifiers: { ctrlKey?: boolean } = {}) => {
+      const event = new dom.MouseEvent("wheel", { clientX: 800, clientY: 300, ...modifiers });
+      time += 16;
+      Object.defineProperties(event, {
+        deltaX: { value: dx },
+        deltaY: { value: dy },
+        deltaMode: { value: 0 },
+        timeStamp: { value: time },
+      });
+      viewport.dispatchEvent(event);
+      flush();
+    };
+    const pointer = (type: string, clientY: number) => {
+      const event = new dom.PointerEvent(type, {
+        pointerId: 1,
+        button: 0,
+        clientX: 400,
+        clientY,
+        pointerType: "touch",
+      });
+      time += 16;
+      Object.defineProperty(event, "timeStamp", { value: time });
+      viewport.dispatchEvent(event);
+    };
+
+    // Selecting from anywhere else flies the camera; the frame resizing refits it.
+    selected = "last";
+    await act(async () => root.render(<Fixture />));
+    flush();
+    controls.flyTo("first");
+    flush();
+    size.width = 1400;
+    resize();
+    flush();
+    assert.equal(moves, 0, "flights and resizes aren't the editor's");
+
+    wheel(0, 300);
+    assert.equal(moves, 1, "scrolling a page pans");
+    wheel(0, -40, { ctrlKey: true });
+    assert.equal(moves, 2, "pinching a trackpad zooms");
+    viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "ArrowDown" }));
+    flush();
+    viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
+    flush();
+    assert.equal(moves, 4, "keyboard pans and zooms");
+    pointer("pointerdown", 300);
+    pointer("pointermove", 200);
+    pointer("pointerup", 200);
+    assert.ok(moves > 4, "dragging pans");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});

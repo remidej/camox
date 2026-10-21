@@ -7,7 +7,7 @@ import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { parseLocalePath } from "../../lib/locale-path";
 import { pageMutations } from "../../lib/queries";
-import { reads, useReadQueries, useReadQuery, useStudioCache } from "../../lib/studio-reads";
+import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import { useLocalizedPath } from "../../lib/view-locale";
 import { useViewLocale } from "../../lib/view-locale-context";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
@@ -22,6 +22,7 @@ import {
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { FollowAgentContext } from "../studio/followAgentContext";
 import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
@@ -66,6 +67,7 @@ import { CanvasWorkspaceContext } from "./canvasZoom";
 import { CanvasSidebar } from "./sidebar/CanvasSidebar";
 import { useCanvasCamera } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
+import { useDiscoveredPreviewPaths } from "./useDiscoveredPreviewPaths";
 
 type CanvasViewport = { width: number; height: number };
 
@@ -481,10 +483,17 @@ function CanvasWorkspace({
   const [hover] = React.useState(createCanvasHover);
   const selectedPath = location.pathname;
   const previewedPath = previewPageFrame?.pathname;
+  const follow = React.use(FollowAgentContext);
   // The camera flies to the selected item, unless it is already snapped to it.
-  const selectPage = (pathname: string) => {
+  const goToItem = (pathname: string) => {
     onSelectionIntent(pathname);
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
+  };
+  // The editor selecting an item themselves stops following the agent. The Canvas's own
+  // navigations, like the camera leaving a snap as a block reveals itself, don't.
+  const selectPage = (pathname: string) => {
+    follow?.takeOver();
+    goToItem(pathname);
   };
   const selectBlock = (block: Block) => selectPage(localized(blockCatalogPath(block._internal.id)));
   // Frames get selection callbacks that keep their identity across hovers and
@@ -562,7 +571,7 @@ function CanvasWorkspace({
           if (pathname) selectPage(pathname);
         },
         selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
-        onDeselect: () => selectPage(localized(STUDIO_CANVAS_PATH)),
+        onDeselect: () => goToItem(localized(STUDIO_CANVAS_PATH)),
         // The camera snapped onto an item from a scroll, swipe or zoom: flash a
         // ring around the viewport so the snap reads as locking onto it.
         onSnap: () => {
@@ -571,6 +580,8 @@ function CanvasWorkspace({
         },
         // The flash returns as the zoom springs back to the snap.
         onSnapStretched: () => snapFlash.current?.cancel(),
+        // The editor moving the camera themselves stops following the agent.
+        onEditorMove: () => follow?.takeOver(),
       },
     );
   const workspace = React.useMemo(
@@ -794,21 +805,6 @@ function CanvasWorkspace({
         style={{ zIndex: CANVAS_CHROME_Z_INDEX }}
       />
     </div>
-  );
-}
-
-/** Each derived layout's first discovered page, keyed by layout id. */
-function useDiscoveredPreviewPaths(runtimeBasePath: string) {
-  const projectSlug = useProjectSlug();
-  const layouts = useCamoxApp()
-    .getLayouts()
-    .filter((layout) => layout._internal.kind === "derived" && layout._internal.routes);
-  const ids = layouts.map(({ _internal: { id } }) => id);
-  return useReadQueries(
-    ids.map((layoutId) => reads.discoveredPath({ projectSlug, runtimeBasePath, layoutId })),
-    // Without a discovered page, the frame asks for a path, as it does without routes.
-    (results) =>
-      new Map(results.flatMap(({ data }, index) => (data ? [[ids[index]!, data] as const] : []))),
   );
 }
 

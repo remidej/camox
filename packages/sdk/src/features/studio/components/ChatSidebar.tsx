@@ -1,4 +1,4 @@
-import { EMPTY_THREAD_VIEW } from "@camox/api-contract/threads";
+import { EMPTY_THREAD_VIEW, type TouchedBatch } from "@camox/api-contract/threads";
 import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
@@ -9,19 +9,22 @@ import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { type CarriedThread, useThread } from "../../../lib/use-thread";
 import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
 import { draftLabel } from "../draftLabel";
+import { FollowAgentContext } from "../followAgentContext";
 import { ThreadComposer } from "./ThreadComposer";
 import { type ContinuedInLink, ThreadMessages } from "./ThreadMessages";
 
 /**
  * Where an editor works with Camox's agent in a thread, beside every studio page except the
- * preview. It follows where the studio is: the editor's own Live thread on Live, and the draft's
- * thread in a draft. When the Live thread starts a draft, the studio enters it with the thread.
+ * preview, which only hides it: the studio keeps following the editor's runs there. It follows
+ * where the studio is: the editor's own Live thread on Live, and the draft's thread in a draft.
+ * When the Live thread starts a draft, the studio enters it with the thread.
  */
-export function ChatSidebar() {
+export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
   return (
     <aside
       aria-label="Chat"
       data-chat-sidebar
+      hidden={hidden}
       className="bg-background flex shrink-0 flex-col border-l-2 max-md:hidden"
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
@@ -113,10 +116,22 @@ function Thread({
   carried?: CarriedThread;
   onEnterDraft: (draftId: string, carried: CarriedThread) => void;
 }) {
-  const { view, sending, send, stop, error } = useThread(apiUrl, projectId, draftId, {
+  const { view, sending, send, stop, error, touched } = useThread(apiUrl, projectId, draftId, {
     carried,
     onEnterDraft,
   });
+  // The studio follows what its runs touch, starting with what the write that started the draft
+  // touched, carried from the Live thread.
+  const follow = React.use(FollowAgentContext);
+  const followTouched = React.useEffectEvent((batch: TouchedBatch) => follow?.receive(batch));
+  React.useEffect(() => {
+    if (touched) followTouched(touched.batch);
+  }, [touched]);
+  // The editor's message starts a run the studio follows, even if they took over the last one.
+  const sendFollowing = (text: string) => {
+    follow?.resume();
+    send(text);
+  };
   const messages = { view, sending, showSenders: draftId !== null };
   const continuedIn = draftId === null ? view.continuedIn?.draftId : undefined;
   return (
@@ -131,7 +146,7 @@ function Thread({
           {error}
         </p>
       )}
-      <ThreadComposer onSend={send} onStop={stop} running={view.running} />
+      <ThreadComposer onSend={sendFollowing} onStop={stop} running={view.running} />
     </>
   );
 }

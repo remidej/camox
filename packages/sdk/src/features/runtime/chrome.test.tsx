@@ -24,6 +24,9 @@ registerHooks({
   },
 });
 
+/** The chat sidebar, rendered but hidden. */
+const HIDDEN_CHAT = /<aside(?=[^>]*data-chat-sidebar)(?=[^>]*\shidden[\s=>])[^>]*>/;
+
 void test("token links SSR a styled sign-in page before loading any content or stylesheets", async (t) => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { PageApp } = await import("./pageApp");
@@ -116,8 +119,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(html, /<iframe[^>]+srcDoc=/i);
   assert.match(html, /&lt;main id=&quot;site-content&quot;/);
   assert.doesNotMatch(html, /<main id="site-content"/);
-  // The preview is the only Studio location without the chat.
-  assert.doesNotMatch(html, /data-chat-sidebar/);
+  // The preview is the only Studio location that hides the chat. It keeps its thread, so the
+  // Preview follows the editor's runs.
+  assert.match(html, HIDDEN_CHAT);
 
   const studioHtml = renderToString(
     createElement(PageApp, {
@@ -135,6 +139,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(studioHtml, /My actual project/);
   assert.doesNotMatch(studioHtml, /camox-loading/);
   assert.match(studioHtml, /data-chat-sidebar/);
+  assert.doesNotMatch(studioHtml, HIDDEN_CHAT);
 
   // With the Canvas shown, a page location has the chat too.
   const { previewStore } = await import("../preview/previewStore");
@@ -144,6 +149,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
     );
     assert.match(canvasPageHtml, /data-chat-sidebar/);
+    assert.doesNotMatch(canvasPageHtml, HIDDEN_CHAT);
   } finally {
     previewStore.send({ type: "reset" });
   }

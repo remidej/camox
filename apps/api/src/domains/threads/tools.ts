@@ -6,6 +6,7 @@ import {
   resolveTools,
   toolProviders,
 } from "@camox/ai-tools";
+import type { Touch } from "@camox/api-contract/threads";
 import type {
   ToolExecutionApi,
   ToolExecutionResult,
@@ -21,6 +22,7 @@ import { user } from "../../schema";
 import type { Bindings } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import { dispatchTool, type ToolExecutionResponse } from "../agent/service";
+import { touchesOf } from "./touches";
 
 /** Threads offer the tools of Camox's own agent in the studio. */
 const SURFACE: ToolSurface = "studio-agent";
@@ -72,12 +74,15 @@ export type ToolDispatch = (
  * creates it. Once a write went through, `started` moves the thread into the draft before the
  * call returns, so its next calls act in it. The write stands even if that fails: the thread
  * moves on its next call instead.
+ *
+ * A write that went through hands `touched` what it touched, for the studio to follow.
  */
 export function threadToolDispatch(
   env: Bindings,
   waitUntil: (promise: Promise<unknown>) => void,
   actor: (invocation: ToolInvocation, kind: ToolKind) => Promise<ThreadActor>,
   started: (invocation: ToolInvocation) => Promise<void>,
+  touched: (invocation: ToolInvocation, touches: Touch[]) => Promise<void>,
 ): ToolDispatch {
   return async ({ name, meta }, args, invocation) => {
     const { projectId, draftId, userId, draftToStart } = await actor(invocation, meta.kind);
@@ -111,6 +116,16 @@ export function threadToolDispatch(
       await started(invocation).catch((error: unknown) =>
         console.error("A thread couldn't move into the draft its write started", error),
       );
+    }
+    const landedIn = draftId ?? starting?.id;
+    if (meta.kind === "write" && response.ok && landedIn) {
+      await Effect.runPromise(
+        touchesOf(db, { projectId, draftId: landedIn, name, args, result: response.result }),
+      )
+        .then((touches) => (touches.length > 0 ? touched(invocation, touches) : undefined))
+        .catch((error: unknown) =>
+          console.error("A thread couldn't record what a write touched", error),
+        );
     }
     return response;
   };

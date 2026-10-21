@@ -7,6 +7,7 @@ import {
   type ThreadServerMessage,
   type ThreadView,
   threadViewOf,
+  type TouchedBatch,
 } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
 import { runInDurableObject } from "cloudflare:test";
@@ -135,6 +136,10 @@ export const lastAnswer = (view: ThreadView) => {
   const message = view.messages.at(-1);
   return message?.from === "agent" ? message.text : undefined;
 };
+
+/** The touched batches a socket received, in order. */
+export const touchedOf = (thread: ThreadClient): TouchedBatch[] =>
+  thread.frames.flatMap((frame) => (frame.type === "touched" ? [frame.touched] : []));
 
 /** A connected thread socket, folding what it receives with the studio's own module. */
 export type ThreadClient = {

@@ -43,6 +43,48 @@ export const startedDraftSchema = z.object({
 });
 export type StartedDraft = z.infer<typeof startedDraftSchema>;
 
+/** How a write touched what it names. */
+export const touchKindSchema = z.enum(["created", "edited", "moved", "deleted", "settings"]);
+export type TouchKind = z.infer<typeof touchKindSchema>;
+
+/**
+ * One thing a script's successful write touched, named so the studio can locate it: a Page (and
+ * its Block, if any), a Synced Block's shared content, by its block definition, or a Layout (and
+ * its Block, if any). `settings` is a Page's settings only (nickname, path, SEO, layout). `locale`
+ * is the Locale the write was in, for a localized tool. Writes to Collection Records, Files and
+ * Locales aren't on the Canvas, so they're left out.
+ */
+const touchBaseSchema = z.object({ kind: touchKindSchema, locale: z.string().optional() });
+
+export const touchSchema = z.discriminatedUnion("entity", [
+  touchBaseSchema.extend({
+    entity: z.literal("page"),
+    pageId: z.string(),
+    blockId: z.string().optional(),
+  }),
+  touchBaseSchema.extend({
+    entity: z.literal("synced-block"),
+    /** The Synced Block's block definition id. */
+    blockType: z.string(),
+  }),
+  touchBaseSchema.extend({
+    entity: z.literal("layout"),
+    layoutId: z.string(),
+    blockId: z.string().optional(),
+  }),
+]);
+export type Touch = z.infer<typeof touchSchema>;
+
+/**
+ * What one code-mode script's successful writes touched, in write order, and the operation ids
+ * of the messages of the run it belongs to: only the studio that sent one of them follows it.
+ */
+export const touchedBatchSchema = z.object({
+  operationIds: z.array(z.string()),
+  touches: z.array(touchSchema),
+});
+export type TouchedBatch = z.infer<typeof touchedBatchSchema>;
+
 /** A message the studio shows in a thread. */
 export type ThreadMessage =
   | { id: string; from: "editor"; sender: ThreadSender; text: string }
@@ -127,6 +169,11 @@ export type ThreadServerMessage =
    * the snapshot.
    */
   | { type: "continued-in"; continuedIn: StartedDraft }
+  /**
+   * A code-mode script that wrote something ended, failed or not: what its successful writes
+   * touched. Sent once per such script, live only: a snapshot never replays past touches.
+   */
+  | { type: "touched"; touched: TouchedBatch }
   | { type: "error"; operationId?: string; message: string };
 
 /**

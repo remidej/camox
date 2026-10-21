@@ -28,6 +28,9 @@ registerHooks({
         export const useReadQuery = (read, options) => globalThis.CanvasQueryProbe({...read, ...options});
         export const useReadQueries = (list, combine) => combine(list.map(() => ({})));
         export const useStudioCache = () => ({});`;
+    // No derived layout has a discovered page.
+    if (specifier.endsWith("/useDiscoveredPreviewPaths"))
+      source = "export const useDiscoveredPreviewPaths = () => new Map()";
     if (specifier.endsWith("/auth"))
       source = `export const useProjectSlug = () => "site";
         export const useAuthContext = () => ({apiUrl: "", projectSlug: "site"});`;
@@ -255,6 +258,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const { CamoxCanvas } = await import("./CamoxCanvas");
   const { canvasStore } = await import("./canvasStore");
   const { PreviewPreparationContext } = await import("../preview/previewPreparation");
+  const { FollowAgentContext } = await import("../studio/followAgentContext");
   try {
     for (const name of [
       "pending",
@@ -1024,6 +1028,53 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           host.remove();
           globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
           Object.assign(globalThis, globals);
+        }
+      },
+    );
+    await t.test(
+      "the editor's own Canvas selections stop following the agent; the camera deselecting by itself doesn't",
+      async () => {
+        scenario = "";
+        includeNewPage = false;
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+        const host = dom.document.createElement("div");
+        dom.document.body.append(host);
+        const root = createRoot(host as unknown as HTMLElement);
+        let takeOvers = 0;
+        const follow = { receive: () => {}, resume: () => {}, takeOver: () => takeOvers++ };
+        const render = async () => {
+          Object.assign(globalThis, globals);
+          await React.act(async () =>
+            root.render(
+              <FollowAgentContext value={follow}>
+                <PreviewPreparationContext value={{ ready: () => {}, fail: () => {} }}>
+                  <CamoxCanvas runtimeBasePath="" />
+                </PreviewPreparationContext>
+              </FollowAgentContext>,
+            ),
+          );
+        };
+        try {
+          await render();
+          // The camera leaves the page's snap without the editor, as a block reveals itself.
+          await React.act(async () => cameraRow.onDeselect!());
+          assert.equal(takeOvers, 0);
+          await render();
+          for (const select of [
+            () => [...headers.values()][1]!.onSelect(),
+            () => frames.get("/about")!.onActivate(null as never, "interaction", () => {}),
+            () => [...headers.values()][0]!.onChange("/about"),
+            () => sidebars.get("Canvas")!.onShowWholeCanvas!(),
+          ]) {
+            const before: number = takeOvers;
+            await React.act(async () => select());
+            assert.equal(takeOvers, before + 1);
+            await render();
+          }
+        } finally {
+          await React.act(async () => root.unmount());
+          host.remove();
         }
       },
     );
