@@ -79,7 +79,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     calls.push(path);
-    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (path.endsWith("/getByUuid")) return Response.json({ json: project });
     if (path.endsWith("/listBySlug")) return pageListResponse();
     if (path.endsWith("/getByPath")) {
       const body = (await request.json()) as { json: { path: string } };
@@ -215,7 +215,7 @@ void test("visitors and members load the same curated page, and only members wit
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/getBySlug")) {
+    if (path.endsWith("/getByUuid")) {
       assert.match(
         request.headers.get("Better-Auth-Cookie") ?? "",
         /^(?:__Secure-)?better-auth.session_token=valid$/,
@@ -354,7 +354,7 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (path.endsWith("/getByUuid")) return Response.json({ json: project });
     throw new Error(`Unexpected API request ${path}`);
   });
   const blocks = [

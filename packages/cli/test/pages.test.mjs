@@ -30,7 +30,7 @@ before(async () => {
     const input = body ? JSON.parse(body).json : undefined;
     calls.push({ url: req.url, headers: req.headers, input });
     res.setHeader("Content-Type", "application/json");
-    if (req.url.startsWith("/rpc/projects/getBySlug")) {
+    if (req.url.startsWith("/rpc/projects/getBy")) {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }

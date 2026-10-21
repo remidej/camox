@@ -30,7 +30,7 @@ before(async () => {
     const input = body ? JSON.parse(body).json : undefined;
     calls.push({ url: req.url, input });
     res.setHeader("Content-Type", "application/json");
-    if (req.url.startsWith("/rpc/projects/getBySlug")) {
+    if (req.url.startsWith("/rpc/projects/getBy")) {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }
@@ -80,9 +80,10 @@ async function cli(args, env = {}) {
   }
 }
 
-/** The input of the last project lookup the CLI made. */
+/** The procedure and input of the last project lookup the CLI made. */
 function lastProjectLookup() {
-  return calls.findLast((call) => call.url.startsWith("/rpc/projects/getBySlug")).input;
+  const { url, input } = calls.findLast((call) => call.url.startsWith("/rpc/projects/getBy"));
+  return { procedure: url.slice("/rpc/projects/".length).split("?")[0], input };
 }
 
 /** Runs `pages list` against the project named by `value`, through the flag or the env var. */
@@ -95,14 +96,20 @@ function listPages(value, via) {
 void test("with neither --project nor CAMOX_PROJECT, the CLI targets runtime.json's Project ID", async () => {
   const result = await cli(["pages", "list", "--json"]);
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(lastProjectLookup(), { projectUuid: RUNTIME_PROJECT_ID });
+  assert.deepEqual(lastProjectLookup(), {
+    procedure: "getByUuid",
+    input: { projectUuid: RUNTIME_PROJECT_ID },
+  });
   assert.equal(calls.at(-1).input.projectId, 7);
 });
 
 void test("status names and checks runtime.json's project by its Project ID by default", async () => {
   const result = await cli(["status", "--json"]);
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(lastProjectLookup(), { projectUuid: RUNTIME_PROJECT_ID });
+  assert.deepEqual(lastProjectLookup(), {
+    procedure: "getByUuid",
+    input: { projectUuid: RUNTIME_PROJECT_ID },
+  });
   assert.equal(JSON.parse(result.stdout).project, RUNTIME_PROJECT_ID);
 });
 
@@ -110,14 +117,20 @@ for (const via of ["--project", "CAMOX_PROJECT"]) {
   void test(`${via} targets a project by its Project ID`, async () => {
     const result = await listPages(PROJECT_ID, via);
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(lastProjectLookup(), { projectUuid: PROJECT_ID });
+    assert.deepEqual(lastProjectLookup(), {
+      procedure: "getByUuid",
+      input: { projectUuid: PROJECT_ID },
+    });
     assert.equal(calls.at(-1).input.projectId, 7);
   });
 
   void test(`${via} targets a project by its Project Slug`, async () => {
     const result = await listPages("other-site", via);
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(lastProjectLookup(), { slug: "other-site" });
+    assert.deepEqual(lastProjectLookup(), {
+      procedure: "getBySlug",
+      input: { slug: "other-site" },
+    });
     assert.equal(calls.at(-1).input.projectId, 7);
   });
 }
@@ -125,6 +138,9 @@ for (const via of ["--project", "CAMOX_PROJECT"]) {
 void test("status checks the development draft of a project named by its Project ID", async () => {
   const result = await cli(["status", "--project", PROJECT_ID, "--json"]);
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(lastProjectLookup(), { projectUuid: PROJECT_ID });
+  assert.deepEqual(lastProjectLookup(), {
+    procedure: "getByUuid",
+    input: { projectUuid: PROJECT_ID },
+  });
   assert.deepEqual(JSON.parse(result.stdout).developmentDraft, { exists: true, changeCount: 3 });
 });

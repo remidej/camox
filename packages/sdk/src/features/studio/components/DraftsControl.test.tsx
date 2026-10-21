@@ -115,7 +115,7 @@ function mockApi(
     calls.push({ path, input: body?.json, draft: request.headers.get("x-camox-draft") });
     const custom = respond(path);
     if (custom) return custom;
-    if (path === "projects/getBySlug") return json(project);
+    if (path === "projects/getByUuid") return json(project);
     if (path === "drafts/list") return json(list);
     if (path === "drafts/get") {
       const id = request.headers.get("x-camox-draft");
@@ -282,7 +282,7 @@ function stallingApi(t: test.TestContext, stalled: string[]) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     if (stalled.includes(path)) return new Promise<Response>(() => {});
-    if (path === "projects/getBySlug") return json(project);
+    if (path === "projects/getByUuid") return json(project);
     if (path === "drafts/list") return json(list);
     if (path === "drafts/get") {
       const id = request.headers.get("x-camox-draft");
@@ -293,7 +293,7 @@ function stallingApi(t: test.TestContext, stalled: string[]) {
 }
 
 void test("on Live, reads Live before anything loads", async (t) => {
-  stallingApi(t, ["projects/getBySlug"]);
+  stallingApi(t, ["projects/getByUuid"]);
   await render(t, null);
 
   assert.equal(trigger()?.textContent, "Live");
@@ -311,7 +311,7 @@ void test("the localhost studio reads Development draft before anything loads", 
   t.after(() => {
     developmentMode = false;
   });
-  stallingApi(t, ["projects/getBySlug", "drafts/get"]);
+  stallingApi(t, ["projects/getByUuid", "drafts/get"]);
   await render(t, development);
 
   assert.equal(trigger()?.textContent, "Development draft");

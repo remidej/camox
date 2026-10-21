@@ -115,8 +115,8 @@ async function devCheckout(
       }),
     },
     projects: {
-      getBySlug: base.handler(({ context, input }) => {
-        requests.push({ path: "projects.getBySlug", headers: context.headers, input });
+      getByUuid: base.handler(({ context, input }) => {
+        requests.push({ path: "projects.getByUuid", headers: context.headers, input });
         return { id: 1 };
       }),
     },
@@ -336,7 +336,7 @@ void test("on an empty Live, the dev server releases first and publishes what af
     "definitions.sync live",
     `definitions.sync ${DEVELOPMENT_DRAFT}`,
     `collectionDefinitions.list ${DEVELOPMENT_DRAFT}`,
-    `projects.getBySlug ${DEVELOPMENT_DRAFT}`,
+    `projects.getByUuid ${DEVELOPMENT_DRAFT}`,
     `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
     `drafts.publish ${DEVELOPMENT_DRAFT}`,
   ]);
@@ -365,7 +365,7 @@ void test("seeding an empty Live names the project by its Project ID, never its 
       "definitions.sync",
       "definitions.sync",
       "collectionDefinitions.list",
-      "projects.getBySlug",
+      "projects.getByUuid",
     ].map((path) => ({
       path,
       projectUuid: CHECKOUT_PROJECT_ID,

@@ -129,7 +129,7 @@ void test("reads are keyed under the draft the studio views, and shared reads un
   assert.deepEqual(cache.options(reads.project({ projectUuid: "site" })).queryKey, [
     "camox",
     "projects",
-    "getBySlug",
+    "getByUuid",
     "site",
   ]);
   assert.deepEqual(cache.options(reads.draft({ projectId: 1, draftId: "d2" })).queryKey, [

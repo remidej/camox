@@ -19,7 +19,7 @@ import { createStudioCache, reads, type StudioCache } from "../../lib/studio-rea
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
 
-export type MemberProject = Awaited<ReturnType<RouterClient<Router>["projects"]["getBySlug"]>>;
+export type MemberProject = Awaited<ReturnType<RouterClient<Router>["projects"]["getByUuid"]>>;
 
 export type PageStructure = {
   page: PageWithBlocks["page"];
@@ -326,7 +326,7 @@ export async function resolveMemberProject({
   try {
     const project = await createServerApiClient(apiUrl, {
       authCookieHeader,
-    }).projects.getBySlug({ projectUuid });
+    }).projects.getByUuid({ projectUuid });
     return { project, clearAuthCookie: false };
   } catch (error) {
     if (!isAuthSessionError(error)) throw error;

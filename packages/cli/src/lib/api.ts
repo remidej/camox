@@ -131,9 +131,9 @@ const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  */
 export async function getProject(token: string, project: string, apiUrl?: string) {
   const client = createRpcClient(token, apiUrl, { developmentDraft: true });
-  return client.projects.getBySlug(
-    UUID_SHAPE.test(project) ? { projectUuid: project } : { slug: project },
-  );
+  return UUID_SHAPE.test(project)
+    ? client.projects.getByUuid({ projectUuid: project })
+    : client.projects.getBySlug({ slug: project });
 }
 
 // --- Drafts ---

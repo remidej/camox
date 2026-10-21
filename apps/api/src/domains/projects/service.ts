@@ -1,4 +1,5 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { projectIdSchema } from "@camox/api-contract/ids";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -37,7 +38,6 @@ import { repeatableItemSeedSchema } from "../layouts/service";
 import { insertInitialLocale } from "../locales/service";
 import { itemsInProject } from "../repeatable-items/roots";
 import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analytics";
-import { isOneProject, oneProjectError, projectNamed, projectNames, projectRefOf } from "./ref";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -45,13 +45,9 @@ import { isOneProject, oneProjectError, projectNamed, projectNames, projectRefOf
 
 export const listProjectsInput = z.object({ organizationId: z.string() });
 export const getFirstProjectInput = z.object({ organizationId: z.string() });
-/** A project by its Project ID, or by its Project Slug, as the dashboard's URLs name it. */
-export const getProjectBySlugInput = z
-  .object({ projectUuid: projectNames.projectUuid, slug: z.string().optional() })
-  .refine(
-    ({ projectUuid, slug }) => isOneProject({ projectUuid, projectSlug: slug }),
-    oneProjectError,
-  );
+export const getProjectBySlugInput = z.object({ slug: z.string() });
+/** A project by its Project ID, as a website's code and the CLI name it. */
+export const getProjectByUuidInput = z.object({ projectUuid: projectIdSchema });
 export const getProjectInput = z.object({ id: z.number() });
 export const checkProjectSlugAvailabilityInput = z.object({ slug: z.string() });
 export const createProjectInput = z.object({
@@ -121,12 +117,12 @@ function memberProjectView(result: {
   };
 }
 
-export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function* (
+/** The project `where` selects, as its organization's members read it, for the member `userId`. */
+const memberProject = Effect.fn("projects.memberProject")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof getProjectBySlugInput>,
+  userId: string,
+  where: SQL,
 ) {
-  const user = yield* requireUser(ctx);
-  const { projectUuid, slug } = yield* decodeInput(getProjectBySlugInput, rawInput);
   const result = yield* Effect.promise(() =>
     ctx.db
       .select({
@@ -135,12 +131,30 @@ export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function*
       })
       .from(projects)
       .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
-      .where(projectNamed(projectRefOf({ projectUuid, projectSlug: slug })))
+      .where(where)
       .get(),
   );
   if (!result) return yield* new NotFoundError();
-  yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
+  yield* assertOrgMembership(ctx.db, userId, result.project.organizationId);
   return memberProjectView(result);
+});
+
+export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getProjectBySlugInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { slug } = yield* decodeInput(getProjectBySlugInput, rawInput);
+  return yield* memberProject(ctx, user.id, eq(projects.slug, slug));
+});
+
+export const getProjectByUuid = Effect.fn("projects.getProjectByUuid")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getProjectByUuidInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { projectUuid } = yield* decodeInput(getProjectByUuidInput, rawInput);
+  return yield* memberProject(ctx, user.id, eq(projects.uuid, projectUuid));
 });
 
 export const getProject = Effect.fn("projects.getProject")(function* (
@@ -149,20 +163,7 @@ export const getProject = Effect.fn("projects.getProject")(function* (
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(getProjectInput, rawInput);
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .select({
-        project: projects,
-        organizationSlug: organizationTable.slug,
-      })
-      .from(projects)
-      .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
-      .where(eq(projects.id, id))
-      .get(),
-  );
-  if (!result) return yield* new NotFoundError();
-  yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
-  return memberProjectView(result);
+  return yield* memberProject(ctx, user.id, eq(projects.id, id));
 });
 
 export const checkProjectSlugAvailability = Effect.fn("projects.checkProjectSlugAvailability")(

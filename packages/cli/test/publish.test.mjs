@@ -151,7 +151,7 @@ before(async () => {
     const body = Buffer.concat(chunks).toString();
     const input = body ? JSON.parse(body).json : undefined;
     res.setHeader("Content-Type", "application/json");
-    if (req.url.startsWith("/rpc/projects/getBySlug")) {
+    if (req.url.startsWith("/rpc/projects/getBy")) {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }

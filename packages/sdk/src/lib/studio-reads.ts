@@ -154,10 +154,10 @@ const landLayout = (layout: LayoutRead, fill: FetchContext["fill"]) => {
 export const reads = {
   /** The project, the same in every draft. */
   project: entry<{ projectUuid: string }, Project>({
-    key: ({ projectUuid }) => ["camox", "projects", "getBySlug", projectUuid],
+    key: ({ projectUuid }) => ["camox", "projects", "getByUuid", projectUuid],
     shared: true,
     fetch: ({ api, signal }, { projectUuid }) =>
-      api.projects.getBySlug({ projectUuid }, { signal }),
+      api.projects.getByUuid({ projectUuid }, { signal }),
     staleTime: Infinity,
   }),
 

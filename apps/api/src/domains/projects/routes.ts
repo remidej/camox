@@ -24,6 +24,10 @@ const getBySlug = authed
   .input(service.getProjectBySlugInput)
   .handler(({ context, input }) => runService(service.getProjectBySlug(context, input)));
 
+const getByUuid = authed
+  .input(service.getProjectByUuidInput)
+  .handler(({ context, input }) => runService(service.getProjectByUuid(context, input)));
+
 const get = authed
   .input(service.getProjectInput)
   .handler(({ context, input }) => runService(service.getProject(context, input)));
@@ -54,6 +58,7 @@ export const projectProcedures = {
   list,
   getFirst,
   getBySlug,
+  getByUuid,
   get,
   checkSlugAvailability,
   create,

@@ -92,7 +92,7 @@ describe("A project named by its Project ID", () => {
     const f = await fixture();
     const member = { context: createRpcContext(f.db, f.memberUser) };
 
-    const byId = await call(router.projects.getBySlug, { projectUuid: f.project.uuid }, member);
+    const byId = await call(router.projects.getByUuid, { projectUuid: f.project.uuid }, member);
 
     expect(byId).toMatchObject({ id: f.project.id, uuid: f.project.uuid, slug: f.project.slug });
     expect(byId).toEqual(await call(router.projects.getBySlug, { slug: f.project.slug }, member));
@@ -103,8 +103,20 @@ describe("A project named by its Project ID", () => {
     const outsider = { context: createRpcContext(f.db, f.outsiderUser) };
 
     await expect(
-      call(router.projects.getBySlug, { projectUuid: f.project.uuid }, outsider),
+      call(router.projects.getByUuid, { projectUuid: f.project.uuid }, outsider),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it.each([
+    ["an uppercase Project ID", (uuid: string) => uuid.toUpperCase()],
+    ["a Project ID that isn't a UUIDv7", () => crypto.randomUUID()],
+  ])("is not loaded by %s", async (_, projectUuidOf) => {
+    const f = await fixture();
+    const member = { context: createRpcContext(f.db, f.memberUser) };
+
+    await expect(
+      call(router.projects.getByUuid, { projectUuid: projectUuidOf(f.project.uuid) }, member),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
 
@@ -246,8 +258,6 @@ describe("A project's name in an input", () => {
       call(router.pages.getByPath, { ...names, path: "/pricing" }, f.visitor()),
     "collectionDefinitions.list": (f, names) =>
       call(router.collectionDefinitions.list, names, f.member()),
-    "projects.getBySlug": (f, { projectSlug, ...names }: { projectSlug?: string }) =>
-      call(router.projects.getBySlug, { ...names, slug: projectSlug }, f.member()),
   };
   const cases = Object.keys(invalidNames).flatMap((names) =>
     Object.keys(procedures).map((procedure) => [names, procedure] as const),

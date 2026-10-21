@@ -92,7 +92,7 @@ function mockApi(t: test.TestContext, locales: { tag: string; isDefault: boolean
     const input = body?.json as { tag?: string } | undefined;
     calls.push({ path, input, draft: request.headers.get("x-camox-draft") });
     const locale = request.headers.get(LOCALE_HEADER) ?? "en";
-    if (path === "projects/getBySlug") return json(project);
+    if (path === "projects/getByUuid") return json(project);
     if (path === "locales/list") return json(locales);
     if (path === "pages/listBySlug") return json({ pages: pagesIn[locale] ?? [] });
     if (path === "locales/add") return json({ tag: input?.tag, isDefault: false });

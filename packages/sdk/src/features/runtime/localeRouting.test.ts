@@ -82,7 +82,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     const locale = request.headers.get(LOCALE_HEADER);
     const draft = request.headers.get(DRAFT_HEADER);
     const member = request.headers.get("Better-Auth-Cookie") !== null;
-    if (procedure === "projects/getBySlug")
+    if (procedure === "projects/getByUuid")
       return member ? Response.json({ json: project }) : notFound();
     if (procedure === "locales/list") {
       reads.push({ procedure, locale, draft });

@@ -92,7 +92,7 @@ before(async () => {
         res.writeHead(existing ? 200 : 201).end(JSON.stringify(record));
         return;
       }
-      if (req.url.startsWith("/rpc/projects/getBySlug")) {
+      if (req.url.startsWith("/rpc/projects/getBy")) {
         res.end(JSON.stringify({ json: { id: 7 } }));
         return;
       }

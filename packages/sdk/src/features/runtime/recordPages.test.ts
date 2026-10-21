@@ -97,7 +97,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
         { status: 401 },
       );
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
-    if (url.pathname.endsWith("/getBySlug"))
+    if (url.pathname.endsWith("/getByUuid"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
     if (url.pathname.endsWith("/listBySlug")) return pageListResponse();
     if (url.pathname.endsWith("/getByPath"))

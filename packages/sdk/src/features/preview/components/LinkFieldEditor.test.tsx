@@ -64,7 +64,7 @@ function mockApi(t: test.TestContext) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const locale = request.headers.get(LOCALE_HEADER) ?? "en";
-    if (path === "projects/getBySlug") return json(project);
+    if (path === "projects/getByUuid") return json(project);
     if (path === "pages/listBySlug") return json({ pages: pagesIn[locale] ?? [] });
     return json({});
   });

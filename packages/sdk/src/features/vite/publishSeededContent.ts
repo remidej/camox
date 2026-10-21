@@ -15,7 +15,7 @@ export async function publishSeededContent(options: {
 }): Promise<void> {
   const { client, projectUuid, logger } = options;
   try {
-    const project = await client.projects.getBySlug({ projectUuid });
+    const project = await client.projects.getByUuid({ projectUuid });
     const preview = await client.drafts.previewPublish({ projectId: project.id });
     if (preview.changes.length === 0) return;
     if (preview.blockers.length > 0) {

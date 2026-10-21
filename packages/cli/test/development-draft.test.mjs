@@ -83,7 +83,7 @@ before(async () => {
       res.end(JSON.stringify({ id: ID }));
       return;
     }
-    if (req.url.startsWith("/rpc/projects/getBySlug")) {
+    if (req.url.startsWith("/rpc/projects/getBy")) {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }

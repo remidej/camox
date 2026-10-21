@@ -63,7 +63,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const procedure = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const locale = request.headers.get(LOCALE_HEADER) ?? "en";
-    if (procedure === "projects/getBySlug") return notFound();
+    if (procedure === "projects/getByUuid") return notFound();
     if (procedure === "locales/list") return localesResponse(["en", "de"]);
     if (procedure === "pages/listBySlug")
       return pageListResponse(
