@@ -362,8 +362,8 @@ type HomepagePlan = {
  * Plans the homepage a Definition Set declares, with its blocks, for a target that reads no page
  * yet: on Live as released content, in a development draft as draft rows (ADR 0006). Plans
  * nothing once the target reads pages, or when the layout isn't a curated one the target holds
- * once the sync ran (`layouts`). Block definitions come from the sync (`definitions`), which
- * learns the ones the homepage gives shared content.
+ * once the sync ran (`layouts`). Block and collection definitions come from the sync
+ * (`definitions`, `collections`); `definitions` learns the ones the homepage gives shared content.
  *
  * Also tells the generated values to request once the batch ran.
  */
@@ -374,9 +374,11 @@ export const planHomepage = Effect.fn("projects.planHomepage")(function* (
   {
     layouts: syncedLayouts,
     definitions,
+    collections,
   }: {
     layouts: readonly { layoutId: string; kind: string }[];
     definitions: SyncedDefinitions;
+    collections: ReadonlySet<string>;
   },
 ) {
   const nothing = overlay.nothingPlanned<HomepagePlan>({
@@ -414,7 +416,7 @@ export const planHomepage = Effect.fn("projects.planHomepage")(function* (
   });
 
   for (const block of preparedBlocks) {
-    const scope = { projectId: project.id, draft };
+    const scope = { projectId: project.id, draft, collections };
     const schema = definitions.get(block.type)?.contentSchema;
     // Validation finds every record a reference names in scope; a required one must name one.
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);

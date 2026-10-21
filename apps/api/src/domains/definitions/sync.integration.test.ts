@@ -1,4 +1,5 @@
 import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
@@ -6,10 +7,13 @@ import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import {
   createProjectFixture,
   createRpcContext,
+  createServiceContext,
+  seedLiveThrough,
   syncDefinitionSet,
   type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
+import { createRecord } from "../collections/service";
 
 // `definitions.sync`: a website's whole Definition Set, applied to Live by a release or to the
 // caller's development draft by dev mode, in one batch (ADR 0006).
@@ -50,6 +54,38 @@ const website: TestDefinitionSet = {
   ],
   collections: [authors],
   homepage: { layoutId: "default", blocks: [{ type: "hero", content: { title: "Welcome" } }] },
+};
+
+/** A block linking one author, and a set declaring it with `author` linked, in a layout or on the homepage. */
+const byline = block("byline", {
+  contentSchema: {
+    type: "object",
+    properties: {
+      author: {
+        fieldType: "Reference",
+        collectionId: "authors",
+        anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+        default: null,
+      },
+    },
+  },
+});
+const declaringByline = (where: "layout" | "homepage", author: string): TestDefinitionSet => {
+  const declared = { type: "byline", content: { author } };
+  return {
+    blocks: [...website.blocks!, byline],
+    layouts: [
+      {
+        ...website.layouts![0]!,
+        blocks:
+          where === "layout"
+            ? [...website.layouts![0]!.blocks, { ...declared, slot: "after" as const }]
+            : website.layouts![0]!.blocks,
+      },
+    ],
+    collections: [authors],
+    homepage: { layoutId: "default", blocks: where === "homepage" ? [declared] : [] },
+  };
 };
 
 async function fixture() {
@@ -103,9 +139,20 @@ async function fixture() {
     };
   };
 
+  /** Adds an author to Live, through a throwaway draft as content reaches Live (ADR 0009). */
+  const liveAuthor = (name: string) =>
+    seedLiveThrough(createServiceContext(db, memberUser), project.id, (_draft, c) =>
+      createRecord(c, {
+        projectSlug: project.slug,
+        collectionId: "authors",
+        content: { name },
+      }),
+    );
+
   return {
     ...base,
     member,
+    liveAuthor,
     development,
     stateOf,
     release: (set: TestDefinitionSet) => syncDefinitionSet(db, project, set),
@@ -305,5 +352,59 @@ describe("definitions.sync", () => {
     await expect(release({ ...website, ...invalid })).rejects.toThrow();
 
     expect(await stateOf()).toEqual(before);
+  });
+
+  it.each(["layout", "homepage"] as const)(
+    "lets a %s's declared content link a record of a collection the set brings to a target lacking it",
+    async (where) => {
+      const { release, syncDevelopment, liveAuthor, stateOf, development } = await fixture();
+      // Live holds the authors and a record; the development draft holds no definitions yet.
+      await release({ ...website, homepage: null });
+      const jane = await liveAuthor("Jane");
+
+      await syncDevelopment(declaringByline(where, jane.id));
+
+      const state = await stateOf(development);
+      const declared = where === "layout" ? state.layouts[0]!.blocks : state.pages[0]!.blocks;
+      expect(declared).toContainEqual({ type: "byline", author: jane.id });
+    },
+  );
+
+  it.each([
+    [
+      "a record of a collection the set removes",
+      (jane: string) => ({ ...declaringByline("layout", jane), collections: [] }),
+    ],
+    ["a record that doesn't exist", () => declaringByline("layout", generateUuidv7())],
+  ])("fails on declared content linking %s, before any write", async (_, setFor) => {
+    const { release, liveAuthor, stateOf } = await fixture();
+    await release({ ...website, homepage: null });
+    const jane = await liveAuthor("Jane");
+    const before = await stateOf();
+
+    await expect(release(setFor(jane.id))).rejects.toThrow(/reference is missing/);
+
+    expect(await stateOf()).toEqual(before);
+  });
+
+  it("refuses a caller with neither a session nor the deploy token before looking at the set", async () => {
+    const { db, project } = await fixture();
+
+    await expect(
+      call(
+        router.definitions.sync,
+        {
+          projectSlug: project.slug,
+          autoCreate: false,
+          definitionSet: {
+            blocks: [],
+            layouts: [],
+            collections: [authors, authors],
+            homepage: null,
+          },
+        },
+        { context: createRpcContext(db, null) },
+      ),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });

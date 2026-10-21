@@ -196,15 +196,18 @@ const planOrphanedBlocksRemoval = Effect.fn("layouts.planOrphanedBlocksRemoval")
  * Plans replacing the layouts of a sync's target: Live for a release, or the development draft
  * for dev mode (ADR 0006). Each layout gets the blocks it declares that it lacks, between the
  * ones it holds; layout-only blocks it no longer declares go, and so do layouts and layout-only
- * definitions nothing uses any more. Block definitions come from the sync (`definitions`), not
- * the target, which only holds them once the batch ran. `definitions` learns which ones the
- * declared blocks give shared content.
+ * definitions nothing uses any more. Block and collection definitions come from the sync
+ * (`definitions`, `collections`), not the target, which only holds them once the batch ran.
+ * `definitions` learns which ones the declared blocks give shared content.
  */
 export const planLayouts = Effect.fn("layouts.plan")(function* (
   ctx: ServiceContext,
   { project, scope, writes: target }: SyncTarget,
   layoutDefs: readonly LayoutDefinition[],
-  definitions: SyncedDefinitions,
+  {
+    definitions,
+    collections,
+  }: { definitions: SyncedDefinitions; collections: ReadonlySet<string> },
   now: number,
 ) {
   const projectId = project.id;
@@ -267,7 +270,7 @@ export const planLayouts = Effect.fn("layouts.plan")(function* (
       if (declaredInTarget.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
       yield* validateReferenceValues(
         ctx,
-        { projectId, draft: scope },
+        { projectId, draft: scope, collections },
         definitions.get(block.type)?.contentSchema,
         block.bundle,
       );

@@ -60,8 +60,6 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
 ) {
   const input = yield* decodeInput(syncDefinitionsInput, rawInput);
   const { definitionSet: set } = input;
-  yield* validateBlockDefinitions(set.blocks);
-  const collections = yield* validateCollectionDefinitions(set.collections);
   // Outside the batch: a sync that fails later leaves the development draft it created, empty.
   const target = yield* assertSyncAccess(
     ctx.db,
@@ -69,15 +67,19 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
     { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
     { create: input.autoCreate },
   );
+  yield* validateBlockDefinitions(set.blocks);
+  const collections = yield* validateCollectionDefinitions(set.collections);
+  const collectionIds = new Set(collections.map((collection) => collection.collectionId));
   const now = Date.now();
   const plan = overlay.planner();
 
   const blocks = plan.add(yield* planBlockDefinitions(ctx, target, set.blocks, now));
   const collectionsResult = plan.add(yield* planCollectionDefinitions(ctx, target, collections));
+  const synced = { definitions: blocks.definitions, collections: collectionIds };
   // A set declaring no layouts leaves the target's layouts as they are, as syncs always did.
   const layoutsResult =
     set.layouts.length > 0
-      ? plan.add(yield* planLayouts(ctx, target, set.layouts, blocks.definitions, now))
+      ? plan.add(yield* planLayouts(ctx, target, set.layouts, synced, now))
       : null;
   const homepage = set.homepage
     ? plan.add(
@@ -96,7 +98,7 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
                       ),
                     ),
                 ),
-          definitions: blocks.definitions,
+          ...synced,
         }),
       )
     : null;
