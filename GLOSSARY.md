@@ -27,8 +27,8 @@ A choice that applies to a whole project, the same for Live and every draft, and
 _Avoid_: Site setting, config
 
 **Release**:
-Building the website and syncing its definitions to Live, adding any content they declare that Live lacks.
-_Avoid_: Deploy, ship
+What a change to a project's code starts: building the website, syncing its definitions to Live (adding any content they declare that Live lacks), then serving the new code. A failed release leaves the previous code served.
+_Avoid_: Build, deploy, ship
 
 **Deploy Token**:
 The secret that authorizes a release for a project.
