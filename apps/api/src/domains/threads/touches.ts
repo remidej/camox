@@ -17,8 +17,13 @@ const writtenBlockSchema = z.object({
   locale: z.string(),
 });
 
-/** A page a write returned. */
-const writtenPageSchema = z.object({ id: z.string(), locale: z.string() });
+const pageSchema = z.object({ id: z.string(), locale: z.string() });
+
+/** A page a write returned: as is, or under `page`, as `createPage` returns it. */
+const writtenPageSchema = z.union([
+  pageSchema,
+  z.object({ page: pageSchema }).transform(({ page }) => page),
+]);
 
 /** One successful write of the studio agent's tools, in the draft it landed in. */
 export type Write = {
@@ -38,11 +43,17 @@ const blockTouch = (block: z.infer<typeof writtenBlockSchema>, kind: TouchKind):
   return [];
 };
 
-const pageTouch = (result: unknown, kind: TouchKind): Touch[] => {
-  const page = writtenPageSchema.safeParse(result);
-  return page.success
-    ? [{ entity: "page", pageId: page.data.id, kind, locale: page.data.locale }]
-    : [];
+/** The tools whose writes are on the Canvas, by name: what they write, and how it's touched. */
+const TOUCHING_TOOLS: Record<string, { writes: "block" | "page"; kind: TouchKind }> = {
+  createBlock: { writes: "block", kind: "created" },
+  editBlock: { writes: "block", kind: "edited" },
+  moveBlock: { writes: "block", kind: "moved" },
+  deleteBlock: { writes: "block", kind: "deleted" },
+  createPage: { writes: "page", kind: "created" },
+  updatePage: { writes: "page", kind: "settings" },
+  setPageLayout: { writes: "page", kind: "settings" },
+  setPageSeo: { writes: "page", kind: "settings" },
+  deletePage: { writes: "page", kind: "deleted" },
 };
 
 /**
@@ -51,43 +62,22 @@ const pageTouch = (result: unknown, kind: TouchKind): Touch[] => {
  * on the Canvas, so they touch nothing here.
  */
 export const touchesOf = Effect.fn("threads.touchesOf")(function* (db: Database, write: Write) {
-  const { name, result } = write;
-  switch (name) {
-    case "createBlock":
-    case "moveBlock":
-    case "deleteBlock": {
-      const block = writtenBlockSchema.safeParse(result);
-      if (!block.success) return [];
-      const kind = name === "createBlock" ? "created" : name === "moveBlock" ? "moved" : "deleted";
-      return blockTouch(block.data, kind);
-    }
-    case "editBlock": {
-      const block = writtenBlockSchema.safeParse(result);
-      if (!block.success) return [];
-      // A synced placement's content and settings are its definition's shared content.
-      if (yield* isSynced(db, write, block.data.type)) {
-        return [
-          {
-            entity: "synced-block",
-            blockType: block.data.type,
-            kind: "edited",
-            locale: block.data.locale,
-          },
-        ] satisfies Touch[];
-      }
-      return blockTouch(block.data, "edited");
-    }
-    case "createPage":
-      return pageTouch(z.object({ page: z.unknown() }).safeParse(result).data?.page, "created");
-    case "updatePage":
-    case "setPageLayout":
-    case "setPageSeo":
-      return pageTouch(result, "settings");
-    case "deletePage":
-      return pageTouch(result, "deleted");
-    default:
-      return [];
+  const tool = TOUCHING_TOOLS[write.name];
+  if (!tool) return [];
+  if (tool.writes === "page") {
+    const page = writtenPageSchema.safeParse(write.result);
+    if (!page.success) return [];
+    const { id: pageId, locale } = page.data;
+    return [{ entity: "page", pageId, kind: tool.kind, locale }] satisfies Touch[];
   }
+  const block = writtenBlockSchema.safeParse(write.result);
+  if (!block.success) return [];
+  // A synced placement's content and settings are its definition's shared content.
+  if (tool.kind === "edited" && (yield* isSynced(db, write, block.data.type))) {
+    const { type: blockType, locale } = block.data;
+    return [{ entity: "synced-block", blockType, kind: "edited", locale }] satisfies Touch[];
+  }
+  return blockTouch(block.data, tool.kind);
 });
 
 /** Whether a block definition is synced in the write's draft: while its shared content exists. */

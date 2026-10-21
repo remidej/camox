@@ -54,27 +54,23 @@ export type TouchKind = z.infer<typeof touchKindSchema>;
  * is the Locale the write was in, for a localized tool. Writes to Collection Records, Files and
  * Locales aren't on the Canvas, so they're left out.
  */
+const touchBaseSchema = z.object({ kind: touchKindSchema, locale: z.string().optional() });
+
 export const touchSchema = z.discriminatedUnion("entity", [
-  z.object({
+  touchBaseSchema.extend({
     entity: z.literal("page"),
     pageId: z.string(),
     blockId: z.string().optional(),
-    kind: touchKindSchema,
-    locale: z.string().optional(),
   }),
-  z.object({
+  touchBaseSchema.extend({
     entity: z.literal("synced-block"),
     /** The Synced Block's block definition id. */
     blockType: z.string(),
-    kind: touchKindSchema,
-    locale: z.string().optional(),
   }),
-  z.object({
+  touchBaseSchema.extend({
     entity: z.literal("layout"),
     layoutId: z.string(),
     blockId: z.string().optional(),
-    kind: touchKindSchema,
-    locale: z.string().optional(),
   }),
 ]);
 export type Touch = z.infer<typeof touchSchema>;
