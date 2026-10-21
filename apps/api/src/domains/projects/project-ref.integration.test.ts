@@ -11,9 +11,10 @@ import {
   type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
+import type { ProjectRef } from "./ref";
 
 // A website's code, the studio and the CLI name a project by its Project ID. Its Project Slug is
-// only an address: the inputs they send no longer take it (ADR 0019's bridge has ended).
+// only an address, which the inputs they send don't take.
 
 const navbar = (brand: string): TestDefinitionSet => ({
   blocks: [
@@ -153,16 +154,15 @@ async function fixtureWithContent() {
     member(),
   );
   const byId = { projectUuid: project.uuid };
-  // What an older SDK sent, which the inputs' types no longer allow.
-  const bySlug = { projectSlug: project.slug } as unknown as Named;
+  // The project named by its slug, which the inputs' types don't allow.
+  const bySlug = { projectSlug: project.slug } as unknown as ProjectRef;
   return { ...f, record, member, byId, bySlug };
 }
 
-type Named = { projectUuid: string };
 type Content = Awaited<ReturnType<typeof fixtureWithContent>>;
 
 /** The public reads a website's Worker makes, each naming the project as `named`. */
-const publicReads: Record<string, (f: Content, named: Named) => Promise<unknown>> = {
+const publicReads: Record<string, (f: Content, named: ProjectRef) => Promise<unknown>> = {
   "pages.getByPath": (f, named) =>
     call(router.pages.getByPath, { ...named, path: "/pricing" }, f.visitor()),
   "pages.getStructure": (f, named) =>
@@ -194,7 +194,7 @@ const publicReads: Record<string, (f: Content, named: Named) => Promise<unknown>
 };
 
 /** The studio's collection reads, as a member, each naming the project as `named`. */
-const memberReads: Record<string, (f: Content, named: Named) => Promise<unknown>> = {
+const memberReads: Record<string, (f: Content, named: ProjectRef) => Promise<unknown>> = {
   "collectionDefinitions.list": (f, named) =>
     call(router.collectionDefinitions.list, named, f.member()),
   "collectionDefinitions.get": (f, named) =>
@@ -247,7 +247,7 @@ describe("A project's name in an input", () => {
       call(
         router.definitions.sync,
         {
-          ...(names as Named),
+          ...(names as ProjectRef),
           deployToken: f.project.deployToken,
           autoCreate: false,
           definitionSet: { blocks: [], layouts: [], collections: [], homepage: null },
@@ -255,9 +255,9 @@ describe("A project's name in an input", () => {
         f.visitor(),
       ),
     "pages.getByPath": (f, names) =>
-      call(router.pages.getByPath, { ...(names as Named), path: "/pricing" }, f.visitor()),
+      call(router.pages.getByPath, { ...(names as ProjectRef), path: "/pricing" }, f.visitor()),
     "collectionDefinitions.list": (f, names) =>
-      call(router.collectionDefinitions.list, names as Named, f.member()),
+      call(router.collectionDefinitions.list, names as ProjectRef, f.member()),
   };
   const cases = Object.keys(invalidNames).flatMap((names) =>
     Object.keys(procedures).map((procedure) => [names, procedure] as const),

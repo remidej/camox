@@ -15,7 +15,10 @@ export const namingProject = <S extends z.ZodRawShape, C extends z.core.$ZodObje
   fields: z.ZodObject<S, C>,
 ) => fields.extend({ projectUuid: projectIdSchema });
 
-/** The project an input `namingProject` checked names. */
+/**
+ * The project an input names, alone: the input's other fields stay out of the ref, so they can't
+ * be mistaken for another kind of `ContentRef` where access checks one.
+ */
 export const projectRefOf = ({ projectUuid }: ProjectRef): ProjectRef => ({ projectUuid });
 
 /** The condition selecting the project `ref` names. */
