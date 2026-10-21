@@ -65,7 +65,7 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   const projectUuid = useProjectUuid();
   const view = useViewLocale();
   const dialog = useSelector(studioStore, (state) => state.context.localeDialog);
-  const project = useReadQuery(reads.project({ projectUuid: projectUuid }), {
+  const project = useReadQuery(reads.project({ projectUuid }), {
     enabled: !!projectUuid,
   });
   const projectId = project.data?.id;

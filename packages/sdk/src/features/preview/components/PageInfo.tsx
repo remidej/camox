@@ -66,7 +66,7 @@ const usePageMetadataData = (pageId: string) => {
   const projectUuid = useProjectUuid();
   const camoxApp = useCamoxApp();
   const { data: page } = useReadQuery(reads.page({ id: pageId }));
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });

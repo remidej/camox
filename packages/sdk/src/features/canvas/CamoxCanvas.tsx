@@ -838,7 +838,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     };
   }, []);
   const projectUuid = useProjectUuid();
-  const project = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const project = useReadQuery(reads.project({ projectUuid }));
   const pages = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project.data,
   });

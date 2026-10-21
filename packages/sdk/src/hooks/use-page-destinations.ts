@@ -10,7 +10,7 @@ import { reads, useReadQuery } from "../lib/studio-reads";
 export function usePageDestinations() {
   const app = useCamoxApp();
   const projectUuid = useProjectUuid();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });

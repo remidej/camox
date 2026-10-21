@@ -73,7 +73,7 @@ export function useLinkablePages(
 ): { locale: LocaleView; pages: Page[] | undefined; fallbackPages: Page[] | undefined } {
   const { locale } = useViewLocale();
   const fallback = linkFallbackLocale(locale);
-  const { data: projectLoaded } = useReadQuery(reads.project({ projectUuid: projectUuid }), {
+  const { data: projectLoaded } = useReadQuery(reads.project({ projectUuid }), {
     enabled: fetchProject,
     select: isLoaded,
   });

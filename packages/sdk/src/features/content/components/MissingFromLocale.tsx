@@ -25,7 +25,7 @@ export const MissingFromLocaleGroup = ({
 }) => {
   const { locale } = useViewLocale();
   const projectUuid = useProjectUuid();
-  const project = useReadQuery(reads.project({ projectUuid: projectUuid }), {
+  const project = useReadQuery(reads.project({ projectUuid }), {
     enabled: !!projectUuid && !locale.isDefault,
   });
   const projectId = project.data?.id;

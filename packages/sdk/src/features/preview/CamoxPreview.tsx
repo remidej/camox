@@ -394,9 +394,7 @@ function usePrefetchCanvas(enabled: boolean, projectUuid: string) {
     const prefetch = async () => {
       prefetchCanvas();
       // Failures go unreported here: the Canvas loads these again when shown, and reports them.
-      await queryClient.prefetchQuery(
-        studioCache.options(reads.project({ projectUuid: projectUuid })),
-      );
+      await queryClient.prefetchQuery(studioCache.options(reads.project({ projectUuid })));
       await queryClient.prefetchQuery(studioCache.options(reads.pageList({ projectUuid })));
     };
     if (typeof window.requestIdleCallback === "function") {

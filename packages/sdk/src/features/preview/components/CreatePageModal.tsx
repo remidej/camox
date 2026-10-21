@@ -46,7 +46,7 @@ const CreatePageModal = () => {
   const projectUuid = useProjectUuid();
   const open = useSelector(previewStore, (state) => state.context.isCreatePageModalOpen);
   const createPage = useMutation(pageMutations.create());
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });

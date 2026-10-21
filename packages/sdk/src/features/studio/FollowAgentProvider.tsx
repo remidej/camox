@@ -73,7 +73,7 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
   const location = useLocation();
   const { locale, locales } = useViewLocale();
   const localized = useLocalizedPath();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pageList } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });

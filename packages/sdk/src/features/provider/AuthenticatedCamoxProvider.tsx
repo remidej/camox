@@ -23,7 +23,7 @@ export function AuthenticatedCamoxProvider({ children }: { children: React.React
   useShowCanvasAction();
 
   const { apiUrl, projectUuid } = React.useContext(AuthContext)!;
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const draftScope = useDraftScope();
   const studioCache = useStudioCache();
   // Say why the studio shows Live when the draft a member opened, or was in, can't be shown.

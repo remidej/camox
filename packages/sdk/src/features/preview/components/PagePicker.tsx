@@ -56,7 +56,7 @@ const PagePicker = () => {
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
 
   const projectUuid = useProjectUuid();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const deletePage = useMutation(pageMutations.delete());
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,

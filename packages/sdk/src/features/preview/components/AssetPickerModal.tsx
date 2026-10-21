@@ -35,7 +35,7 @@ const AssetPickerModal = ({
   onSelectMultiple,
 }: AssetPickerModalProps) => {
   const projectUuid = useProjectUuid();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: allFiles } = useReadQuery(reads.fileList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });

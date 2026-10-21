@@ -131,7 +131,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     onSettled: (_data, _error, _variables, context) => context?.edit.settle(),
   });
 
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const availableBlocks = useCamoxApp()
     .getBlocks()
     .filter((b) => !b._internal.layoutOnly);

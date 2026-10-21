@@ -20,7 +20,7 @@ import { UploadProgressDrawer } from "./components/UploadProgressDrawer";
 
 export const ContentAssets = () => {
   const projectUuid = useProjectUuid();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: files } = useReadQuery(reads.fileList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });

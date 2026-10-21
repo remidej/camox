@@ -164,7 +164,7 @@ const MultipleAssetFieldEditor = ({
   const isImage = assetType === "Image";
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const projectUuid = useProjectUuid();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: projectUuid }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
 
   // Resolved array: [{ url, alt, ..., _fileId }, ...] — flat ImageValue/FileValue
   const items = ((currentData[fieldName] ?? []) as ResolvedAsset[]).filter(
