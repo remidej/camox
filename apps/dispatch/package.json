@@ -1,0 +1,23 @@
+{
+  "name": "@camox/dispatch",
+  "version": "0.0.0",
+  "private": true,
+  "license": "FSL-1.1-MIT",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy --minify",
+    "setup:cloudflare": "bash scripts/setup-cloudflare.sh",
+    "test": "vp test --run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "wrangler": "^4.151.0"
+  },
+  "nx": {
+    "tags": [
+      "type:app"
+    ]
+  }
+}
