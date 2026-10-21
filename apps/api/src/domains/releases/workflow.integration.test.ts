@@ -1,5 +1,5 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { introspectWorkflowInstance } from "cloudflare:test";
+import { introspectWorkflowInstance, type WorkflowInstanceIntrospector } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
@@ -17,6 +17,7 @@ type ReleaseFakes = {
   push(repo: string, commit: string, files: Record<string, string>): Promise<void>;
   failCommand(repo: string, pattern: string, times: number): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
+  failEmailsAbout(pattern: string): Promise<void>;
   emailsSent(): Promise<Email[]>;
 };
 
@@ -82,19 +83,27 @@ function pushEvent(repo: string, ref: string, commit: string) {
   };
 }
 
-/** Starts the release Workflow the way the push event does, and waits for it to end. */
+type Modifier = Parameters<Parameters<WorkflowInstanceIntrospector["modify"]>[0]>[0];
+
+/**
+ * Starts the release Workflow the way the push event does, waits for it to end, and returns its
+ * instance ID and the error it ended with, if any.
+ */
 async function receivePush(
   event: ReturnType<typeof pushEvent>,
   end: "complete" | "errored" = "complete",
+  modify?: (m: Modifier) => Promise<void>,
 ) {
   const id = crypto.randomUUID();
   await using instance = await introspectWorkflowInstance(env.RELEASE_WORKFLOW, id);
   await instance.modify(async (m) => {
     await m.disableRetryDelays();
+    await modify?.(m);
   });
   await env.RELEASE_WORKFLOW.create({ id, params: event });
   await instance.waitForStatus(end);
-  return id;
+  const { error } = await (await env.RELEASE_WORKFLOW.get(id)).status();
+  return { instanceId: id, error };
 }
 
 describe("a push to a project's main branch", () => {
@@ -106,7 +115,7 @@ describe("a push to a project's main branch", () => {
     await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 
     const before = Date.now();
-    const instanceId = await receivePush(pushEvent(released.uuid, "refs/heads/main", commit));
+    const { instanceId } = await receivePush(pushEvent(released.uuid, "refs/heads/main", commit));
 
     const rows = await db.select().from(releases).where(eq(releases.projectId, released.id));
     expect(rows).toEqual([
@@ -159,7 +168,7 @@ describe("a push to a project's main branch", () => {
     await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
     await fakes.failCommand(failing.uuid, "wrangler deploy", Infinity);
 
-    const instanceId = await receivePush(
+    const { instanceId } = await receivePush(
       pushEvent(failing.uuid, "refs/heads/main", commit),
       "errored",
     );
@@ -186,7 +195,7 @@ describe("a push to a project's main branch", () => {
     await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
     await fakes.failCommand(failing.uuid, "camox release", Infinity);
 
-    const instanceId = await receivePush(
+    const { instanceId } = await receivePush(
       pushEvent(failing.uuid, "refs/heads/main", commit),
       "errored",
     );
@@ -201,12 +210,69 @@ describe("a push to a project's main branch", () => {
     ]);
     const [email] = emails;
     const instance = `${WORKFLOW_INSTANCES}/${instanceId}`;
-    for (const named of [failing.uuid, commit, "release", instance]) {
+    for (const named of [failing.uuid, commit, "Failed step: release\n", instance]) {
       expect(email!.text).toContain(named);
     }
-    expect(email!.text).not.toContain("deploy");
     expect(email!.html).toContain("Acme &amp; Co");
     expect(email!.html).toContain(`href="${instance}"`);
+  });
+
+  it("still fails with the step's error and records it when the alert can't be sent", async () => {
+    const { db, project: failing } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const commit = commitSha();
+    await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
+    await fakes.failCommand(failing.uuid, "wrangler deploy", Infinity);
+    await fakes.failEmailsAbout(failing.uuid);
+
+    const { error } = await receivePush(
+      pushEvent(failing.uuid, "refs/heads/main", commit),
+      "errored",
+    );
+
+    expect(error?.message).toMatch(/^CiRunnerFailure: deploy failed/);
+    const rows = await db.select().from(releases).where(eq(releases.projectId, failing.id));
+    expect(rows).toEqual([expect.objectContaining({ status: "failed", failedStep: "deploy" })]);
+  });
+
+  it("still alerts, and fails with the step's error, when the failed release can't be recorded", async () => {
+    const { project: failing } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const commit = commitSha();
+    await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
+    await fakes.failCommand(failing.uuid, "wrangler deploy", Infinity);
+
+    const { error } = await receivePush(
+      pushEvent(failing.uuid, "refs/heads/main", commit),
+      "errored",
+      (m) => m.mockStepError({ name: "record the failed release" }, new Error("D1 is down")),
+    );
+
+    expect(await emailsAbout(failing.uuid)).toEqual([
+      expect.objectContaining({ text: expect.stringContaining("Failed step: deploy\n") }),
+    ]);
+    expect(error?.message).toMatch(/^CiRunnerFailure: deploy failed/);
+  });
+
+  it("names the project by its Project ID in an alert from an instance that recorded no name", async () => {
+    // Instances started before the release step recorded the project's name replay its old
+    // output, which has only the project's row id.
+    const { project: failing } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const commit = commitSha();
+    await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
+    await fakes.failCommand(failing.uuid, "pnpm install", Infinity);
+
+    await receivePush(pushEvent(failing.uuid, "refs/heads/main", commit), "errored", (m) =>
+      m.mockStepResult({ name: "record the release" }, { projectId: failing.id }),
+    );
+
+    const [email] = await emailsAbout(failing.uuid);
+    expect(email?.subject).toContain(failing.uuid);
+    expect(email?.text).not.toContain("undefined");
   });
 
   it("sends no alert when a step fails and its retry passes", async () => {

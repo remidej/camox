@@ -12,6 +12,8 @@ const commandsRun = new Map();
 const failures = new Map();
 /** @type {{ from: unknown, to: string, subject: string, text: string, html: string }[]} */
 const emailsSent = [];
+/** @type {string[]} texts that make a send throw when an email contains one */
+const failingEmails = [];
 
 // The checkout script fetches `.../git/<namespace>/<repo>.git`, which tells the sandbox its repo.
 const REMOTE = /\/git\/[^/]+\/([^/'"]+)\.git/;
@@ -123,6 +125,9 @@ export class FakeEmail extends WorkerEntrypoint {
   /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
   async send(message) {
     const { from, to, subject, text, html } = message;
+    if (failingEmails.some((pattern) => text.includes(pattern))) {
+      throw new Error("Email sending is down");
+    }
     emailsSent.push({ from, to, subject, text, html });
     return { messageId: crypto.randomUUID() };
   }
@@ -154,6 +159,14 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} repo */
   async commandsRun(repo) {
     return commandsRun.get(repo) ?? [];
+  }
+
+  /**
+   * Makes every send of an email whose text contains `pattern` throw.
+   * @param {string} pattern
+   */
+  async failEmailsAbout(pattern) {
+    failingEmails.push(pattern);
   }
 
   /** Every email sent through the fake `send_email` binding, in order. */

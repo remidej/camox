@@ -67,7 +67,8 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         })
         // A restarted instance keeps its ID: re-running a release starts its row over.
         .onConflictDoUpdate({ target: releases.workflowInstanceId, set: running });
-      return { projectId: project.id, projectName: project.name };
+      // `projectId` is the project's row id, not its Project ID (`push.repo`).
+      return { projectId: project.id, projectName: project.name as string | undefined };
     });
     if (!started) return;
 
@@ -98,22 +99,29 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       }));
     } catch (error) {
       const failedStep = current;
-      await step.do("record the failed release", () =>
-        end(db, event.instanceId, { status: "failed", failedStep }),
-      );
-      // Reached only once a step has given up for good. Its own step, so that once sent, the
-      // email isn't sent again. Nothing touches the deployed Worker: the previous code keeps
-      // serving.
+      // Reached only once a step has given up for good. Neither recording the failure nor
+      // alerting stops the other or hides why the release failed. Nothing touches the deployed
+      // Worker: the previous code keeps serving.
+      await step
+        .do("record the failed release", () =>
+          end(db, event.instanceId, { status: "failed", failedStep }),
+        )
+        .catch((recordError: unknown) => console.error("Failed release not recorded", recordError));
+      // Its own step, so that a retry of a later step or a replay of the instance doesn't send
+      // it again. A step can still run more than once, so the alert can, rarely, go out twice.
       await step
         .do("alert the failed release", () =>
           sendReleaseFailureAlert(this.env, {
-            project: { name: started.projectName, uuid: push.repo },
+            project: {
+              projectId: push.repo,
+              // An instance started before the name was recorded replays an output without it.
+              name: started.projectName ?? push.repo,
+            },
             commit: push.sha,
             failedStep,
             workflowInstanceId: event.instanceId,
           }),
         )
-        // An alert that can't be sent mustn't hide why the release failed.
         .catch((alertError: unknown) =>
           console.error("Release failure alert not sent", alertError),
         );
