@@ -22,6 +22,14 @@ _Avoid_: Guest, audience, end user
 One website managed by Camox, owned by an organization.
 _Avoid_: Site, app
 
+**Project ID**:
+A project's permanent identifier, given when it is created and never changed. A website's code names its project by it.
+_Avoid_: UUID, project key
+
+**Project Slug**:
+A project's address: its `camox.site` subdomain and its place in dashboard URLs. Unique across Camox, and unlike the Project ID, it can change.
+_Avoid_: Handle, project name
+
 **Project Setting**:
 A choice that applies to a whole project, the same for Live and every draft, and takes effect without publishing, such as its favicon or analytics providers.
 _Avoid_: Site setting, config
