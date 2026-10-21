@@ -63,7 +63,7 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
     assert.equal(url.origin, new URL(server.resolvedUrls!.local[0]!).origin);
     assert.equal(url.searchParams.get("ott"), "test-ott");
     assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")!), {
-      projectId: "checkout",
+      projectUuid: "checkout",
       apiUrl,
     });
     assert.equal(requests, 2);

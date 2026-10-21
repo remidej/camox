@@ -1,6 +1,6 @@
 export interface PreviewTarget {
   /** The Project ID of the project the CLI or dev server targets. */
-  projectId: string;
+  projectUuid: string;
   apiUrl: string;
 }
 
@@ -10,7 +10,7 @@ export function validatePreviewTarget(raw: string | null, target: PreviewTarget)
   try {
     const expected = JSON.parse(raw);
     if (
-      expected.projectId === target.projectId &&
+      expected.projectUuid === target.projectUuid &&
       typeof expected.apiUrl === "string" &&
       expected.apiUrl.replace(/\/+$/, "") === target.apiUrl.replace(/\/+$/, "")
     )

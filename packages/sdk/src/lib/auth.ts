@@ -271,7 +271,7 @@ export function useProcessOtt(
   target: PreviewTarget,
   initialAuthenticated = false,
 ) {
-  const { projectId, apiUrl } = target;
+  const { projectUuid, apiUrl } = target;
   const [error, setError] = React.useState<string | null>(null);
   const processing = React.useRef(false);
   const [ready, setReady] = React.useState(() => {
@@ -282,7 +282,7 @@ export function useProcessOtt(
   React.useEffect(() => {
     const url = new URL(window.location.href);
     const targetError = validatePreviewTarget(url.searchParams.get("camox-preview"), {
-      projectId,
+      projectUuid,
       apiUrl,
     });
     if (targetError) {
@@ -331,7 +331,7 @@ export function useProcessOtt(
       }
       setReady(true);
     })();
-  }, [authClient, ready, error, initialAuthenticated, projectId, apiUrl]);
+  }, [authClient, ready, error, initialAuthenticated, projectUuid, apiUrl]);
 
   return { ready, error };
 }

@@ -68,7 +68,7 @@ export function installDevSignInLink(
         const url = await createPreviewSignInUrl(
           destination,
           {
-            projectId: options.projectUuid,
+            projectUuid: options.projectUuid,
             apiUrl: options.apiUrl,
           },
           options.authToken,

@@ -69,11 +69,12 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
       const result = await cli(destination);
       assert.equal(result.code, 0, result.stderr);
       const data = JSON.parse(result.stdout);
+      assert.equal(data.projectId, "01a15fff-627b-7fa1-938b-93ab659c1acc");
       const url = new URL(data.url);
       assert.equal(url.pathname, "/about");
       assert.equal(url.searchParams.get("ott"), "single-use-secret");
       assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")), {
-        projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
+        projectUuid: "01a15fff-627b-7fa1-938b-93ab659c1acc",
         apiUrl,
       });
       assert.doesNotMatch(result.stdout, /long-lived-secret/);

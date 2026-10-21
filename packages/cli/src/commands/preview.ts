@@ -45,14 +45,15 @@ export async function handler(args: Args): Promise<void> {
       return;
     }
     const target = {
-      projectId: runtime.projectId,
+      projectUuid: runtime.projectId,
       apiUrl: normalizeUrl(runtime.apiUrl),
     };
     const signInUrl = await createPreviewSignInUrl(url.href, target, auth.token);
     printResult(
       {
         url: signInUrl,
-        ...target,
+        projectId: target.projectUuid,
+        apiUrl: target.apiUrl,
         warning:
           "Single-use sign-in credential, valid for three minutes. Open in your verification browser; do not share or commit.",
       },
