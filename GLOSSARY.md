@@ -30,6 +30,10 @@ _Avoid_: UUID, project key
 A project's address: its `camox.site` subdomain and its place in dashboard URLs. Unique across Camox, and unlike the Project ID, it can change.
 _Avoid_: Handle, project name
 
+**Template**:
+The starter website a new project's code begins as, before it is given the project's name and slug.
+_Avoid_: Starter, boilerplate, scaffold
+
 **Project Setting**:
 A choice that applies to a whole project, the same for Live and every draft, and takes effect without publishing, such as its favicon or analytics providers.
 _Avoid_: Site setting, config
