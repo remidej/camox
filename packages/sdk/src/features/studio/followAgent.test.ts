@@ -269,6 +269,51 @@ void test("touches in another Locale count only toward pages the viewed Locale s
   );
 });
 
+void test("a block touched in another Locale isn't selected, on a Page, a Layout or a Synced Block", (t) => {
+  const touches: Touch[] = [
+    { entity: "page", pageId: "about", blockId: "team", kind: "edited", locale: "de" },
+    { entity: "layout", layoutId: "main", blockId: "footer", kind: "edited", locale: "de" },
+    { entity: "synced-block", blockType: "team", kind: "edited", locale: "de" },
+  ];
+  for (const touch of touches) {
+    const { follow, navigations, activate, selection } = setUp(t, {
+      location: { pathname: "/about", search: "?camox-draft=d1" },
+      pageKey: about.key,
+    });
+    activate(about);
+    follow.receive(batch(touch));
+    t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+    assert.equal(selection(), null, touch.entity);
+    assert.deepEqual(navigations, [], touch.entity);
+    follow.dispose();
+    t.mock.timers.reset();
+  }
+});
+
+void test("off the editor's page, a Layout touched in another Locale goes to its page without its block; a Synced Block's shared content doesn't move", (t) => {
+  const { follow, navigations, arrive, activate, selection } = setUp(t);
+  follow.receive(
+    batch({ entity: "synced-block", blockType: "plans", kind: "edited", locale: "de" }),
+  );
+  assert.deepEqual(navigations, []);
+  follow.receive(
+    batch({
+      entity: "layout",
+      layoutId: "pricing",
+      blockId: "plans",
+      kind: "edited",
+      locale: "de",
+    }),
+  );
+  assert.deepEqual(
+    navigations.map(({ to }) => to),
+    ["/pricing?camox-draft=d1"],
+  );
+  arrive(pricing);
+  activate(pricing);
+  assert.equal(selection(), null);
+});
+
 void test("following stays on a page for the minimum stay, then goes to the latest destination only", (t) => {
   const { follow, navigations, arrive } = setUp(t);
   follow.receive(batch(pageTouch("about", "team")));

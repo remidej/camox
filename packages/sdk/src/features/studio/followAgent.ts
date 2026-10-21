@@ -60,15 +60,21 @@ const refKey = (ref: PageRef) => ("key" in ref ? `key:${ref.key}` : `page:${ref.
 type Located = { page: PageRef; blockId?: string } | { catalog: string };
 
 function locate(where: FollowWhere, here: FollowPage | undefined, touch: Touch): Located | null {
+  // A touch in another Locale counts toward its page only where the viewed Locale shows it, and
+  // never selects its block: the editor sees the block's copy in their Locale, which it didn't
+  // change.
+  const elsewhere = !!touch.locale && touch.locale !== where.locale;
   // A deleted block's page is the destination, without it; settings name no block.
   const keptBlock = (id: string | undefined) =>
-    id && touch.kind !== "deleted" && touch.kind !== "settings" ? id : undefined;
+    id && !elsewhere && touch.kind !== "deleted" && touch.kind !== "settings" ? id : undefined;
+  const at = (page: PageRef, blockId: string | undefined): Located => {
+    const id = keptBlock(blockId);
+    return { page, ...(id ? { blockId: id } : {}) };
+  };
   if (touch.entity === "page") {
-    // A page shown only in another Locale isn't where the editor can go.
-    const known = where.pages.some((page) => pageRowId(page) === touch.pageId);
-    if (touch.locale && touch.locale !== where.locale && !known) return null;
-    const id = keptBlock(touch.blockId);
-    return { page: { pageId: touch.pageId }, ...(id ? { blockId: id } : {}) };
+    const shown = where.pages.some((page) => pageRowId(page) === touch.pageId);
+    if (elsewhere && !shown) return null;
+    return at({ pageId: touch.pageId }, touch.blockId);
   }
   if (touch.entity === "layout") {
     const page =
@@ -77,15 +83,13 @@ function locate(where: FollowWhere, here: FollowPage | undefined, touch: Touch):
         : where.pages.find(
             (candidate) => candidate.layoutId === touch.layoutId && candidate.pathname,
           );
-    if (!page) return null;
-    const id = keptBlock(touch.blockId);
-    return { page: { key: page.key }, ...(id ? { blockId: id } : {}) };
+    return page ? at({ key: page.key }, touch.blockId) : null;
   }
   // A Synced Block's shared content: where the editor sees one of its Placements, or its item
   // in the Block Catalog.
   const placement = here?.blocks?.find((block) => block.type === touch.blockType);
-  if (here && placement) return { page: { key: here.key }, blockId: placement.id };
-  return { catalog: touch.blockType };
+  if (here && placement) return at({ key: here.key }, placement.id);
+  return elsewhere ? null : { catalog: touch.blockType };
 }
 
 function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | null {
