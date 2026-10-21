@@ -47,16 +47,16 @@ async function sandboxWorker() {
 }
 
 /**
- * The API's Wrangler configuration without its Cloudflare Artifacts binding. That binding has no
- * local simulator, and Miniflare lets it win over the test's fake of the same name, so the tests
- * run from a copy that leaves it to them. Its own directory per run, as test shards configure in
+ * The API's Wrangler configuration without its Cloudflare Artifacts and email bindings. Artifacts
+ * has no local simulator, and Miniflare lets either win over the test's fake of the same name, so
+ * the tests run from a copy that leaves them to the fakes. Its own directory per run, as test shards configure in
  * parallel.
  */
 async function wranglerConfigForTests() {
   const { rawConfig } = experimental_readRawConfig({
     config: path.join(import.meta.dirname, "wrangler.jsonc"),
   });
-  const { artifacts: _, ...config } = rawConfig;
+  const { artifacts: _artifacts, send_email: _email, ...config } = rawConfig;
   const file = path.join(
     await mkdtemp(path.join(tmpdir(), "camox-api-wrangler-")),
     "wrangler.json",
@@ -113,10 +113,11 @@ export default defineConfig({
               // The sandbox Worker the threads' code mode scripts run in, as deployed beside the
               // API (ADR 0018).
               workers: [await sandboxWorker(), releaseFakesWorker],
-              // The release Workflow's Cloudflare Artifacts namespace and sandboxes, faked
-              // (test/release-fakes.js).
+              // The release Workflow's Cloudflare Artifacts namespace, sandboxes and email,
+              // faked (test/release-fakes.js).
               serviceBindings: {
                 ARTIFACTS: { name: releaseFakesWorker.name, entrypoint: "FakeArtifacts" },
+                EMAIL: { name: releaseFakesWorker.name, entrypoint: "FakeEmail" },
                 RELEASE_FAKES: { name: releaseFakesWorker.name, entrypoint: "ReleaseFakes" },
               },
               durableObjects: {

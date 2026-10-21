@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { createDb, type Database } from "../../db";
 import type { Bindings } from "../../types";
 import { projects } from "../projects/schema";
+import { sendReleaseFailureAlert } from "./alert";
 import { camoxVersionInLockfile } from "./lockfile";
 import { releases, type ReleaseStep } from "./schema";
 
@@ -42,7 +43,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
 
     const started = await step.do("record the release", async () => {
       const project = await db
-        .select({ id: projects.id })
+        .select({ id: projects.id, name: projects.name })
         .from(projects)
         .where(eq(projects.uuid, push.repo))
         .get();
@@ -66,7 +67,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         })
         // A restarted instance keeps its ID: re-running a release starts its row over.
         .onConflictDoUpdate({ target: releases.workflowInstanceId, set: running });
-      return { projectId: project.id };
+      return { projectId: project.id, projectName: project.name };
     });
     if (!started) return;
 
@@ -100,6 +101,22 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       await step.do("record the failed release", () =>
         end(db, event.instanceId, { status: "failed", failedStep }),
       );
+      // Reached only once a step has given up for good. Its own step, so that once sent, the
+      // email isn't sent again. Nothing touches the deployed Worker: the previous code keeps
+      // serving.
+      await step
+        .do("alert the failed release", () =>
+          sendReleaseFailureAlert(this.env, {
+            project: { name: started.projectName, uuid: push.repo },
+            commit: push.sha,
+            failedStep,
+            workflowInstanceId: event.instanceId,
+          }),
+        )
+        // An alert that can't be sent mustn't hide why the release failed.
+        .catch((alertError: unknown) =>
+          console.error("Release failure alert not sent", alertError),
+        );
       throw error;
     }
     await step.do("record the succeeded release", () =>

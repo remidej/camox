@@ -19,7 +19,13 @@ The Workflow runs on `@cloudflare/ci`. Each step after the first runs in its own
 
 Live gets the new definitions before the new code is deployed. If the deploy fails for good, Live briefly has definitions the served code lacks, until the release is re-run or a fix is pushed.
 
-The row ends `succeeded`, or `failed` with the step that gave up. Its `workflow_instance_id` names the Workflow instance, where the logs are. Restarting the instance re-runs the release and starts its row over as `running`. A project serves the `camox` version of its last succeeded release, so the projects serving an SDK older than a version are a query on `releases` (ADR 0019).
+The row ends `succeeded`, or `failed` with the step that gave up. Its `workflow_instance_id` names the Workflow instance, where the logs are. Restarting the instance re-runs the release and starts its row over as `running`.
+
+## When a release fails
+
+A step that gives up after its retries fails the release. The Workflow records the row as `failed` with that step, then emails an alert, in its own step so that it goes out once per failed release. The alert (`alert.ts`, on the generic alert email in `src/lib/alert-email.ts`) names the project, the commit and the failed step, and links to the Workflow instance in the Cloudflare dashboard. It goes from `alerts@camox.dev` to the API's `ALERT_EMAIL_TO` var. An alert that can't be sent is logged and doesn't hide the release's own error.
+
+Nothing else changes: the previous Worker keeps serving, and neither the dashboard nor the studio shows the failure. A re-run that fails again sends another alert. A project serves the `camox` version of its last succeeded release, so the projects serving an SDK older than a version are a query on `releases` (ADR 0019).
 
 ## Secrets
 
@@ -41,7 +47,7 @@ The container size is `standard-2` (1 vCPU, 6 GiB). It hasn't been measured yet:
 
 ## Tests
 
-`workflow.integration.test.ts` runs the Workflow in the Workers pool with Cloudflare Artifacts and the sandboxes faked at their bindings (`test/release-fakes.js`). The fake sandbox runs nothing: it records each command with its environment, and fails the ones a test asks it to.
+`workflow.integration.test.ts` runs the Workflow in the Workers pool with Cloudflare Artifacts, the sandboxes and the `EMAIL` binding faked at their bindings (`test/release-fakes.js`). The fake sandbox runs nothing: it records each command with its environment, and fails the ones a test asks it to. The fake email binding records each email instead of sending it.
 
 ```sh
 pnpm --filter @camox/api exec vp test --run --project integration src/domains/releases
@@ -73,5 +79,7 @@ Do this before the first deploy that includes the release Workflow, as the API's
    ```
 
 4. **CI's token** deploys the sandbox Worker's Container and the API's event subscription, so it needs Containers and event subscription permissions on top of what it has. The `deploy` job's dry run builds the image with Docker before anything changes.
+
+5. **An Email Routing rule** on `camox.dev` (dashboard: _Email › Email Routing › Routing rules_) that forwards `alerts@camox.dev`, the API's `ALERT_EMAIL_TO`, to the inbox where Camox's operator reads alerts. The `EMAIL` binding sends from `alerts@camox.dev`, which `allowed_sender_addresses` in `wrangler.jsonc` lists.
 
 The `projects` Artifacts namespace and the `production` dispatch namespace already exist (`packages/cli/scripts/README.md`, `apps/dispatch/README.md`). `wrangler deploy` creates the `cf.artifacts.repo.pushed` subscription from `triggers.events`.
