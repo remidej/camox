@@ -2,8 +2,6 @@
 
 Serves each project's website at `<slug>.camox.site`. The Worker reads the slug from the hostname's first label, looks up the project's UUID in the `camox-project-slugs` KV namespace, and forwards the request to the user Worker named after that UUID in the `production` Workers for Platforms dispatch namespace.
 
-Naming user Workers after the project's UUID depends on #436: projects still have integer ids today, and #436, with its amendment to ADR 0004, gives them a UUID.
-
 - A known slug whose user Worker isn't deployed yet gets a "This site is being set up" page (503).
 - An unknown slug, a deeper subdomain, or the bare domain gets a not-found page (404).
 
