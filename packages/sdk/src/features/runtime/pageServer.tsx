@@ -12,7 +12,13 @@ export async function renderPageWithApp(input: PageRenderInput & { camoxApp: Cam
   const queryClient = new QueryClient();
   hydrate(queryClient, input.dehydratedState as DehydratedState);
   await Promise.all([
-    prefetchIcons(queryClient, input.dehydratedState, input.camoxApp.getSerializableDefinitions()),
+    prefetchIcons(
+      queryClient,
+      input.dehydratedState,
+      input.camoxApp
+        .getBlocks()
+        .map(({ _internal }) => [_internal.contentSchema, _internal.settingsSchema]),
+    ),
     input.presentation === "studio" ? loadRuntimeChrome() : undefined,
   ]);
   // The runtime wrapper shallow-copies input. Preserve the shared state object

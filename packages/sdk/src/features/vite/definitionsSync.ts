@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
-import { type Logger, type ViteDevServer, createServer, isRunnableDevEnvironment } from "vite-plus";
+import { type Logger, type ViteDevServer, isRunnableDevEnvironment } from "vite-plus";
 
 import type { CamoxApp } from "@/core/createApp";
 import type { Block } from "@/core/createBlock";
@@ -72,7 +72,7 @@ function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string)
 }
 
 export async function syncDefinitionsToApi(options: {
-  camoxApp: CamoxApp;
+  camoxApp: Pick<CamoxApp, "getDefinitionSet">;
   projectSlug: string;
   apiUrl: string;
   autoCreate: boolean;
@@ -83,34 +83,12 @@ export async function syncDefinitionsToApi(options: {
   const { camoxApp, projectSlug, autoCreate, deployToken, logger } = options;
   const client = createSyncClient(options);
 
-  const blocks = camoxApp.getBlocks();
-  const layoutDefinitions = camoxApp.getSerializableLayoutDefinitions();
-
-  const typesUsedInLayouts = new Set<string>();
-  for (const layout of layoutDefinitions) {
-    for (const blockDef of layout.blocks) {
-      typesUsedInLayouts.add(blockDef.type);
-    }
-  }
-
-  // layoutOnly blocks are only meaningful when a layout references them —
-  // sync their definitions only in that case. Otherwise the DB accumulates
-  // dead rows for blocks the UI can never instantiate.
-  const definitions = blocks
-    .filter(
-      (block: Block) => !block._internal.layoutOnly || typesUsedInLayouts.has(block._internal.id),
-    )
-    .map((block: Block) => ({
-      blockId: block._internal.id,
-      title: block._internal.title,
-      description: block._internal.description,
-      contentSchema: block._internal.contentSchema,
-      settingsSchema: block._internal.settingsSchema,
-      defaultContent: block._internal.getInitialContent(),
-      defaultSettings: block._internal.getInitialSettings(),
-      layoutOnly: block._internal.layoutOnly || undefined,
-      synced: block._internal.synced,
-    }));
+  const {
+    blocks: definitions,
+    layouts: layoutDefinitions,
+    collections: collectionDefinitions,
+    homepage: initialPage,
+  } = await camoxApp.getDefinitionSet();
 
   let draftCreated = false;
   let deletedDefinitionTypes: string[] = [];
@@ -151,7 +129,7 @@ export async function syncDefinitionsToApi(options: {
     projectSlug,
     deployToken,
     autoCreate,
-    definitions: camoxApp.getSerializableCollectionDefinitions(),
+    definitions: collectionDefinitions,
   });
   logger.info(`[camox] Synced ${collectionResult.count} collection definitions`, {
     timestamp: true,
@@ -221,7 +199,6 @@ export async function syncDefinitionsToApi(options: {
   }
 
   // Initialize content for a fresh project or draft (no-ops if pages already exist)
-  const initialPage = await camoxApp.getInitialPageBundles();
   if (initialPage) {
     try {
       const result = await client.projects.initializeContent({
@@ -256,39 +233,26 @@ function getBlockIdFromFilePath(filePath: string): string {
   return fileName;
 }
 
-const CAMOX_APP_PATH = "./src/camox/app.ts";
+export const VIRTUAL_CAMOX_APP = "virtual:camox/app";
 
 /**
- * Load a module in Node. Uses the server's SSR environment runner if available,
- * otherwise falls back to a temporary Vite server: the Cloudflare plugin runs the
- * server environment in workerd, where the dev server can't import modules.
+ * The dev server's Node `ssr` environment, which runs alongside the Worker's own environment:
+ * the Cloudflare plugin runs the Worker in workerd, where the dev server can't import modules.
  */
+function getNodeEnvironment(server: ViteDevServer) {
+  const ssrEnv = server.environments.ssr;
+  if (!ssrEnv || !isRunnableDevEnvironment(ssrEnv)) {
+    throw new Error("[camox] The dev server has no Node ssr environment to load the app in.");
+  }
+  return ssrEnv;
+}
+
+/** Load a module in the dev server's Node `ssr` environment. */
 async function ssrLoadModule(
   server: ViteDevServer,
   modulePath: string,
 ): Promise<Record<string, unknown>> {
-  const ssrEnv = server.environments.ssr;
-  if (ssrEnv && isRunnableDevEnvironment(ssrEnv)) {
-    return ssrEnv.runner.import(modulePath);
-  }
-
-  const tempServer = await createServer({
-    configFile: false,
-    root: server.config.root,
-    // Keep the temporary SSR loader from sharing Vite's dep optimizer cache
-    // with the active app server. Otherwise its empty client optimizer can
-    // replace node_modules/.vite/deps during dev-server startup.
-    cacheDir: path.join(server.config.root, "node_modules", ".vite-camox-temp"),
-    resolve: server.config.resolve,
-    server: { middlewareMode: true },
-    logLevel: "silent",
-  });
-
-  try {
-    return await tempServer.ssrLoadModule(modulePath);
-  } finally {
-    await tempServer.close();
-  }
+  return getNodeEnvironment(server).runner.import(modulePath);
 }
 
 /** Whether a project's Live has no pages, as on a fresh database. */
@@ -318,29 +282,21 @@ export async function syncDefinitions(
 
   let releasedToLive = false;
 
-  async function performInitialSync({ initial = false } = {}): Promise<boolean> {
+  async function performInitialSync({ initial = false } = {}): Promise<void> {
     // The SSR runner caches the resolved `camoxApp`. Without invalidation,
     // re-importing returns the stale object with pre-change layout/block
     // references, so layout reconciliation would be a no-op until the dev
     // server restarts. Invalidate the app module (which propagates up from
     // its glob-imported children) to force re-evaluation.
-    const appModule = server.moduleGraph.getModuleById(
-      path.resolve(server.config.root, CAMOX_APP_PATH),
-    );
+    const nodeEnvironment = getNodeEnvironment(server);
+    const appModule = nodeEnvironment.moduleGraph.getModuleById("\0" + VIRTUAL_CAMOX_APP);
     if (appModule) {
-      server.moduleGraph.invalidateModule(appModule);
+      nodeEnvironment.moduleGraph.invalidateModule(appModule);
     }
 
-    const camoxModule = (await ssrLoadModule(server, CAMOX_APP_PATH)) as {
-      camoxApp?: CamoxApp;
+    const camoxModule = (await ssrLoadModule(server, VIRTUAL_CAMOX_APP)) as {
+      camoxApp: CamoxApp;
     };
-
-    if (!camoxModule.camoxApp) {
-      server.config.logger.warn(`[camox] No camoxApp export found in ${CAMOX_APP_PATH}`, {
-        timestamp: true,
-      });
-      return false;
-    }
 
     // Release before the dev sync: the development draft then sees Live's layout blocks and
     // homepage, instead of seeding its own copies that publishing would duplicate.
@@ -368,7 +324,6 @@ export async function syncDefinitions(
       deployToken,
       logger: server.config.logger,
     });
-    return true;
   }
 
   async function upsertBlock(filePath: string): Promise<void> {
@@ -449,7 +404,8 @@ export async function syncDefinitions(
   // Initial sync from files to API
   let synced = false;
   try {
-    synced = await performInitialSync({ initial: true });
+    await performInitialSync({ initial: true });
+    synced = true;
   } catch (error) {
     server.config.logger.error(`[camox] Failed to sync block definitions: ${String(error)}`, {
       timestamp: true,

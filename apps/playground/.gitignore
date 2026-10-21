@@ -6,4 +6,3 @@ dist-ssr
 count.txt
 .env
 .wrangler
-src/camox/app.ts

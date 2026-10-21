@@ -13,11 +13,11 @@ void describe("collection definitions", () => {
     content: (field) => ({ title: field.string({ minLength: 1 }), cover: field.image() }),
     label: "title",
   });
-  void it("registers and serializes definitions without runtime functions", () => {
+  void it("registers and serializes definitions without runtime functions", async () => {
     const app = createApp({ blocks: [], collections: [collection] });
     assert.deepEqual(app.getCollections(), [collection]);
     assert.equal(app.getCollectionById("articles"), collection);
-    const [serialized] = JSON.parse(JSON.stringify(app.getSerializableCollectionDefinitions()));
+    const [serialized] = JSON.parse(JSON.stringify((await app.getDefinitionSet()).collections));
     assert.equal(serialized.collectionId, "articles");
     assert.equal(serialized.label, "title");
     assert.deepEqual(serialized.contentSchema.required, ["title", "cover"]);

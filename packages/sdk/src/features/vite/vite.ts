@@ -27,7 +27,6 @@ const RESOLVED_VIRTUAL_PAGE_CLIENT_URL = "\0virtual:camox/page-client-url";
 const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0virtual:camox/studio-client-url";
 const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0virtual:camox/block-chunks";
-import { generateAppFile, watchAppFile } from "./appGeneration";
 import { transformArtifactRuntime } from "./artifactRuntimeMinification";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
@@ -36,13 +35,19 @@ import { type BundlerOnLog, withoutExpectedCamoxLogs } from "./bundlerLogs";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
+import { generateLayoutFiles, watchLayoutFiles } from "./layoutGeneration";
 import { buildClientThenWorker } from "./workerBuild";
 
 const PRODUCTION_API_URL = "https://api.camox.dev";
-import { syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
+import { VIRTUAL_CAMOX_APP, syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
 import { publishSeededContent } from "./publishSeededContent";
 import { cleanupGeneratedRouteFiles } from "./routeGeneration";
-import { RESOLVED_VIRTUAL_DEV_HTML, loadRuntimeDevModule, resolveRuntimeDevId } from "./runtimeDev";
+import {
+  RESOLVED_VIRTUAL_DEV_HTML,
+  createRuntimeRegistryPlugin,
+  loadRuntimeDevModule,
+  resolveRuntimeDevId,
+} from "./runtimeDev";
 
 /** Authentication URL to use for Camox authentication (production Camox Dashboard) */
 const DEFAULT_AUTHENTICATION_URL = "https://app.camox.dev";
@@ -116,7 +121,7 @@ export interface CamoxPluginOptions {
     enableTanstackDevtools?: boolean;
     /** Enable experimental features (default: false). */
     enableExperimentalFeatures?: boolean;
-    /** Disable automatic code generation (route files and app file) (default: false) */
+    /** Disable automatic code generation (route and layout files) (default: false) */
     disableCodeGen?: boolean;
     /** Mount the Camox-owned dev runtime at this base path. Use "/" for root mode. */
     runtimeBasePath?: string;
@@ -419,7 +424,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
       });
 
       if (!disableCodeGen) {
-        generateAppFile(config.root);
+        generateLayoutFiles(config.root);
         cleanupGeneratedRouteFiles(routesDir);
       }
 
@@ -460,7 +465,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
       }
 
       if (!disableCodeGen) {
-        watchAppFile(server, server.config.root);
+        watchLayoutFiles(server, server.config.root);
         cleanupGeneratedRouteFiles(routesDir);
 
         watchNewBlockFiles(server);
@@ -505,8 +510,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
         throw new Error("Camox: CAMOX_DEPLOY_TOKEN is required to release to production.");
       }
 
-      const camoxAppPath = "./src/camox/app.ts";
-
       const tempServer = await createServer({
         configFile: false,
         root: resolvedConfig.root,
@@ -515,18 +518,17 @@ export function camox(options: CamoxPluginOptions): Plugin {
         cacheDir: resolve(resolvedConfig.root, "node_modules", ".vite-camox-temp"),
         resolve: resolvedConfig.resolve,
         define: resolvedConfig.define,
+        // Created without the app's config file, so it needs Camox's registry to resolve the
+        // virtual app module.
+        plugins: [createRuntimeRegistryPlugin({ runtimeBasePath })],
         server: { middlewareMode: true },
         logLevel: "silent",
       });
 
       try {
-        const camoxModule = (await tempServer.ssrLoadModule(camoxAppPath)) as {
-          camoxApp?: import("@/core/createApp").CamoxApp;
+        const camoxModule = (await tempServer.ssrLoadModule(VIRTUAL_CAMOX_APP)) as {
+          camoxApp: import("@/core/createApp").CamoxApp;
         };
-
-        if (!camoxModule.camoxApp) {
-          throw new Error(`No camoxApp export found in ${camoxAppPath}`);
-        }
 
         await syncDefinitionsToApi({
           camoxApp: camoxModule.camoxApp,
