@@ -160,10 +160,11 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
 
   const now = Date.now();
 
-  async function seedProject(name: string, slug: string) {
+  async function seedProject(name: string, slug: string, uuid: string) {
     const project = await db
       .insert(projects)
       .values({
+        uuid,
         name,
         slug,
         organizationId: orgId,
@@ -185,8 +186,17 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
     return project;
   }
 
-  const playground = await seedProject("Camox Playground", "camox-playground-01");
-  const templateDefault = await seedProject("Camox Template Default", "camox-template-default-01");
+  // Fixed Project IDs, the ones the playground's and the Template's `camox()` configs name.
+  const playground = await seedProject(
+    "Camox Playground",
+    "camox-playground-01",
+    "01a15fff-627b-7fa1-938b-93ab659c1acc",
+  );
+  const templateDefault = await seedProject(
+    "Camox Template Default",
+    "camox-template-default-01",
+    "01a15fff-627c-7e88-83cd-ceb11f804d47",
+  );
 
   const login = await auth.api.signInEmail({
     body: { email: "dev@camox.dev", password: "camox-dev-123" },
