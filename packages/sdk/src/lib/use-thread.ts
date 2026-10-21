@@ -8,6 +8,7 @@ import {
   type ThreadServerMessage,
   type ThreadState,
   threadViewOf,
+  type TouchedBatch,
 } from "@camox/api-contract/threads";
 import { usePartySocket } from "partysocket/react";
 import * as React from "react";
@@ -20,8 +21,23 @@ const OPEN = 1;
 /** Messages on their way to a thread, which hasn't accepted them yet, by operation id. */
 export type Unaccepted = ReadonlyMap<string, string>;
 
-/** What a studio carries into the draft its Live thread started: the thread as it showed it. */
-export type CarriedThread = { state: ThreadState; unaccepted: Unaccepted };
+/**
+ * What a studio carries into the draft its Live thread started: the thread as it showed it, the
+ * operation ids of the messages it sent, whose runs it keeps following there, and what the script
+ * whose write started the draft touched, if it ended before the studio left.
+ */
+export type CarriedThread = {
+  state: ThreadState;
+  unaccepted: Unaccepted;
+  sent: ReadonlySet<string>;
+  touched?: TouchedBatch;
+};
+
+/**
+ * A script's touches the studio follows, numbered in the order they came: a new one, even with
+ * the same touches, has a higher `sequence`.
+ */
+export type FollowedTouches = { sequence: number; batch: TouchedBatch };
 
 export type UseThreadOptions = {
   /** What a studio entering the draft its Live thread started carried over from it. */
@@ -46,6 +62,11 @@ export type UseThreadOptions = {
  * the draft with it (`onEnterDraft`), even if it only hears so on reconnecting, from the editor's
  * fresh Live thread; its messages still on their way go with it. Any other studio moves on to
  * that fresh Live thread, continued in the draft.
+ *
+ * It reports what each writing script touched (`touched`), for runs one of its messages was part
+ * of only, so that the studio follows the agent; teammates' runs leave it where it is. A studio
+ * entering the draft its Live thread started keeps following that run there, starting with what
+ * the write touched.
  */
 export function useThread(
   apiUrl: string,
@@ -58,7 +79,7 @@ export function useThread(
   const [unaccepted, setUnaccepted] = React.useState<Unaccepted>(carried?.unaccepted ?? new Map());
   const [error, setError] = React.useState<string>();
   /** The operation ids of the messages this studio sent in the thread. */
-  const sent = React.useRef(new Set<string>());
+  const sent = React.useRef(new Set<string>(carried?.sent));
   /** Whether the thread showed itself since the socket last opened. */
   const shown = React.useRef(false);
   /** How many times the thread showed itself after the socket opened. */
@@ -70,6 +91,12 @@ export function useThread(
    * frames arriving before the next render leave the thread as it showed it.
    */
   const leaving = React.useRef(false);
+  /** What the last script of a run with one of this studio's messages touched. */
+  const [touched, setTouched] = React.useState<FollowedTouches | undefined>(() =>
+    carried?.touched ? { sequence: 1, batch: carried.touched } : undefined,
+  );
+  /** What this studio's run touched as it leaves for the draft, which it follows there. */
+  const pending = React.useRef<TouchedBatch>(undefined);
 
   const socket = usePartySocket({
     ...apiSocketOptions(apiUrl),
@@ -106,8 +133,15 @@ export function useThread(
   const wrote = (started: StartedDraft) =>
     draftId === null && started.operationIds.some((operationId) => sent.current.has(operationId));
 
+  /** Whether one of this studio's messages was part of the run that touched `batch`. */
+  const ours = (batch: TouchedBatch) =>
+    batch.operationIds.some((operationId) => sent.current.has(operationId));
+
   const onFrame = React.useEffectEvent((frame: ThreadServerMessage) => {
-    if (leaving.current) return;
+    if (leaving.current) {
+      if (frame.type === "touched" && ours(frame.touched)) pending.current = frame.touched;
+      return;
+    }
     switch (frame.type) {
       case "started-draft":
       case "continued-in": {
@@ -132,6 +166,12 @@ export function useThread(
         if (!shown.current) {
           shown.current = true;
           setShows((count) => count + 1);
+        }
+        return;
+      case "touched":
+        if (ours(frame.touched)) {
+          const batch = frame.touched;
+          setTouched((last) => ({ sequence: (last?.sequence ?? 0) + 1, batch }));
         }
         return;
       case "accepted":
@@ -161,7 +201,12 @@ export function useThread(
 
   // After the render folding every frame before, so the studio carries the thread whole.
   const enterDraft = React.useEffectEvent((started: string) =>
-    onEnterDraft?.(started, { state, unaccepted }),
+    onEnterDraft?.(started, {
+      state,
+      unaccepted,
+      sent: sent.current,
+      touched: pending.current,
+    }),
   );
   React.useEffect(() => {
     if (entering) enterDraft(entering);
@@ -200,6 +245,11 @@ export function useThread(
     stop,
     /** Why the thread last turned a message down, until the editor sends another. */
     error,
+    /**
+     * What the latest writing script of a run with one of this studio's messages touched, which
+     * the studio follows; teammates' runs are left out. Live only: never a past script's.
+     */
+    touched,
   };
 }
 
