@@ -176,7 +176,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Pushes the Template at the version just published to template-default on Artifacts;
+  # Pushes the Template at the version just published to template-default on Cloudflare Artifacts;
   # packages/cli/scripts/README.md has its setup.
   refresh-template:
     needs: publish

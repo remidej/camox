@@ -40,7 +40,7 @@ version group. Package-specific GitHub releases are disabled with
 changelog sections include features, fixes, performance, refactoring,
 documentation, and chores.
 
-The release workflow needs the repository secret `NPM_TOKEN` with permission to
+The `publish` job needs the repository secret `NPM_TOKEN` with permission to
 publish these packages. It uses `GITHUB_TOKEN` to manage release PRs and GitHub
 releases; repository settings must allow GitHub Actions to create pull requests.
 Bot-created PRs using that token do not normally trigger PR CI automatically, so
@@ -48,11 +48,13 @@ ensure validation has run before merging a release PR.
 
 Publishing is sequential, not atomic: if a package fails, earlier packages may
 already be on npm. Check the registry and workflow logs before retrying; a rerun
-can fail on an already-published version, and rerunning the whole workflow may
-not report `release_created` again.
+can fail on an already-published version. Rerunning the whole workflow also
+redeploys production, and may not report `release_created` again, so prefer
+rerunning only the failed jobs.
 
-Package releases are separate from hosted app deployments: ordinary pushes to
-`main` deploy the apps without waiting for a release PR or npm publication.
+Package releases share a workflow with hosted app deployments, but don't hold
+them back: ordinary pushes to `main` deploy the apps without waiting for a
+release PR or npm publication.
 The landing command `camox release` builds and syncs the site; it does not create
 an npm release or invoke release-please.
 
