@@ -13,7 +13,9 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/CamoxCanvas.tsx")) return nextResolve(specifier, context);
     let source: string | undefined;
-    if (specifier === "@tanstack/react-query") source = `export const useMutation = () => ({});`;
+    if (specifier === "@tanstack/react-query")
+      source = `export const useMutation = () => ({});
+        export const useQueryClient = () => null;`;
     // Each read answers the probe under a name it dispatches on; a frame's names its path.
     if (specifier.endsWith("/studio-reads"))
       source = `export const reads = {

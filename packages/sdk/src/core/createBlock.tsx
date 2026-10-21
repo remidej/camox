@@ -16,10 +16,11 @@ import {
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
   ArtifactStudioContext,
+  ArtifactsRunContext,
   useArtifactHost,
   useInitialArtifactData,
 } from "./hooks/useArtifactHost";
-import { artifactFrameProps, isArtifactSource } from "./lib/artifact";
+import { artifactFrameProps, artifactStandInProps, isArtifactSource } from "./lib/artifact";
 import { artifactData } from "./lib/artifactData";
 import {
   resolveBlockFields,
@@ -278,9 +279,12 @@ function createViewBlock(options: EditableOptions) {
     });
     const initialData = useInitialArtifactData(value, data);
     const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
+    const runs = React.use(ArtifactsRunContext);
     if (!isArtifactSource(value)) return null;
     return children({
-      ...artifactFrameProps(value, { fontLinks, data: initialData }),
+      ...(runs
+        ? artifactFrameProps(value, { fontLinks, data: initialData })
+        : artifactStandInProps(value)),
       ...hostProps,
     });
   };

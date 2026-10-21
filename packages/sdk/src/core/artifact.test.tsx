@@ -23,7 +23,7 @@ import {
 import { createArtifactPage, type ArtifactWindow } from "./artifactProtocol.fixtures";
 import { createApp } from "./createApp";
 import { createBlock } from "./createBlock";
-import { ArtifactStudioContext } from "./hooks/useArtifactHost";
+import { ArtifactStudioContext, ArtifactsRunContext } from "./hooks/useArtifactHost";
 import type { ArtifactStudio } from "./lib/artifactHost";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
@@ -80,6 +80,19 @@ void test("an artifact's source runs after the camox runtime", async () => {
   const artifact = harness.load(harness.addFrame(), frame.getAttribute("srcdoc") ?? "");
   assert.equal(artifact.document.body.dataset.camox, "object");
   assert.equal(artifact.document.title, "Probe");
+});
+
+void test("where artifacts don't run, like unselected Block Catalog blocks, they show a still frame", () => {
+  const [frame] = renderArtifactFrames({ visual: source, slides: [] }, ({ children }) => (
+    <Website>
+      <ArtifactsRunContext value={false}>{children}</ArtifactsRunContext>
+    </Website>
+  ));
+  const document = frame.getAttribute("srcdoc") ?? "";
+  assert.equal(frame.getAttribute("title"), "Orbiting moons");
+  assert.match(document, /<p>Orbiting moons<\/p>/);
+  assert.doesNotMatch(document, /<script|<svg/, "neither the runtime nor the source loads");
+  assert.equal(frame.getAttribute("sandbox"), "allow-same-origin");
 });
 
 void test("an artifact without a title is called Untitled artifact", () => {

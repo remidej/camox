@@ -8,7 +8,8 @@ const PAUSED_ANIMATIONS_STYLE = `html[${PREVIEW_PAUSED_ATTRIBUTE}] *, html[${PRE
 const BLOCK_OVERLAP_ATTRIBUTE = "data-canvas-block-overlap";
 const BLOCK = "[data-camox-viewport-block]";
 /** Every block after the first, in its container or a later one, covers the end of the one before. */
-const BLOCK_OVERLAP_STYLE = `:is(${BLOCK}, :has(${BLOCK})) ~ ${BLOCK}, :is(${BLOCK}, :has(${BLOCK})) ~ * ${BLOCK} { margin-top: calc(-1 * var(--camox-block-overlap, 0px)); }`;
+export const BLOCK_OVERLAP_SELECTOR = `:is(${BLOCK}, :has(${BLOCK})) ~ ${BLOCK}, :is(${BLOCK}, :has(${BLOCK})) ~ * ${BLOCK}`;
+const BLOCK_OVERLAP_STYLE = `${BLOCK_OVERLAP_SELECTOR} { margin-top: calc(-1 * var(--camox-block-overlap, 0px)); }`;
 
 /**
  * How far, in CSS pixels, each block in a Canvas frame overlaps the one before it.
