@@ -12,6 +12,8 @@ import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/node";
 import { createLogger, createServer, resolveConfig } from "vite-plus";
 
+import type { DefinitionSet } from "@/core/createApp";
+
 import { type CamoxPluginOptions, camox } from "./vite";
 
 type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["afterSync"]>;
@@ -41,15 +43,16 @@ export const block = createBlock({
 
 /**
  * A checkout with a minimal Camox app and a dev session, plus a fake API that
- * accepts definition sync unless `failCollectionSync` is set.
+ * accepts definition sync unless `failSync` is set, answering with `syncResult` over an empty one.
  */
 async function devCheckout(
   t: TestContext,
   {
-    failCollectionSync = false,
+    failSync = false,
     draftCreated = false,
     livePages = 0,
     blockers = [] as string[],
+    syncResult = {} as Record<string, unknown>,
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "camox-after-sync-"));
@@ -68,39 +71,34 @@ async function devCheckout(
   await writeFile(join(root, "src/blocks/hero.ts"), blockModule("hero"));
 
   const requests: { path: string; headers: IncomingHttpHeaders }[] = [];
-  /** The block ids each `blockDefinitions.sync` received, in order. */
+  /** The block ids each `definitions.sync` received, in order. */
   const syncedBlockIds: string[][] = [];
-  /** Each block's default title, per `blockDefinitions.sync`, in order. */
+  /** Each block's default title, per `definitions.sync`, in order. */
   const syncedDefaultTitles: Record<string, unknown>[] = [];
   const base = os.$context<{ headers: IncomingHttpHeaders }>();
   const router = {
-    blockDefinitions: {
+    definitions: {
       sync: base.handler(({ context, input }) => {
-        requests.push({ path: "blockDefinitions.sync", headers: context.headers });
-        const { definitions } = input as {
-          definitions: { blockId: string; defaultContent?: { title?: unknown } }[];
-        };
-        syncedBlockIds.push(definitions.map((definition) => definition.blockId).sort());
+        requests.push({ path: "definitions.sync", headers: context.headers });
+        if (failSync) throw new Error("definition sync failed");
+        const { blocks } = (input as { definitionSet: DefinitionSet }).definitionSet;
+        syncedBlockIds.push(blocks.map((definition) => definition.blockId).sort());
         syncedDefaultTitles.push(
-          Object.fromEntries(definitions.map((d) => [d.blockId, d.defaultContent?.title])),
+          Object.fromEntries(
+            blocks.map((d) => [d.blockId, (d.defaultContent as { title?: unknown }).title]),
+          ),
         );
-        return { results: [], draftCreated, deletedDefinitionTypes: [] };
-      }),
-      upsert: base.handler(({ context }) => {
-        requests.push({ path: "blockDefinitions.upsert", headers: context.headers });
-        return { action: "updated" };
-      }),
-      delete: base.handler(({ context }) => {
-        requests.push({ path: "blockDefinitions.delete", headers: context.headers });
-        return { deleted: true };
+        return {
+          draftCreated,
+          blocks: { count: blocks.length, deletedDefinitionTypes: [] },
+          collections: { count: 0, retired: [] },
+          layouts: null,
+          homepage: null,
+          ...syncResult,
+        };
       }),
     },
     collectionDefinitions: {
-      sync: base.handler(({ context }) => {
-        requests.push({ path: "collectionDefinitions.sync", headers: context.headers });
-        if (failCollectionSync) throw new Error("collection sync failed");
-        return { count: 0, retired: [] };
-      }),
       list: base.handler(({ context }) => {
         requests.push({ path: "collectionDefinitions.list", headers: context.headers });
         return [];
@@ -226,13 +224,11 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
       session: headers.authorization,
       draft: headers[DRAFT_HEADER],
     })),
-    ["blockDefinitions.sync", "collectionDefinitions.sync", "collectionDefinitions.list"].map(
-      (path) => ({
-        path,
-        session: "Bearer dev-session",
-        draft: DEVELOPMENT_DRAFT,
-      }),
-    ),
+    ["definitions.sync", "collectionDefinitions.list"].map((path) => ({
+      path,
+      session: "Bearer dev-session",
+      draft: DEVELOPMENT_DRAFT,
+    })),
   );
   assert.ok(!logs.some((line) => line.includes("Created your development draft")));
 });
@@ -288,15 +284,12 @@ void test("a release syncs the app's blocks to Live: its requests name no draft"
   assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
   assert.deepEqual(
     checkout.requests.map(({ path, headers }) => ({ path, draft: headers[DRAFT_HEADER] })),
-    [
-      { path: "blockDefinitions.sync", draft: undefined },
-      { path: "collectionDefinitions.sync", draft: undefined },
-    ],
+    [{ path: "definitions.sync", draft: undefined }],
   );
 });
 
 void test("the dev server skips afterSync when definition sync fails", async (t) => {
-  const checkout = await devCheckout(t, { failCollectionSync: true });
+  const checkout = await devCheckout(t, { failSync: true });
   let calls = 0;
   const { logs } = await startDevServer(checkout, () => {
     calls++;
@@ -336,10 +329,8 @@ void test("on an empty Live, the dev server releases first and publishes what af
   await waitFor(() => checkout.requests.some((r) => r.path === "drafts.publish"), logs);
   assert.deepEqual(requestLog(checkout.requests), [
     "pages.listBySlug live",
-    "blockDefinitions.sync live",
-    "collectionDefinitions.sync live",
-    `blockDefinitions.sync ${DEVELOPMENT_DRAFT}`,
-    `collectionDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    "definitions.sync live",
+    `definitions.sync ${DEVELOPMENT_DRAFT}`,
     `collectionDefinitions.list ${DEVELOPMENT_DRAFT}`,
     `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
     `drafts.publish ${DEVELOPMENT_DRAFT}`,
@@ -361,8 +352,7 @@ void test("when Live has pages, the dev server neither releases nor publishes", 
   await setTimeout(100);
   assert.deepEqual(requestLog(checkout.requests), [
     "pages.listBySlug live",
-    `blockDefinitions.sync ${DEVELOPMENT_DRAFT}`,
-    `collectionDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    `definitions.sync ${DEVELOPMENT_DRAFT}`,
   ]);
 });
 
@@ -428,10 +418,48 @@ void test("adding or deleting a block file leads to one whole-set sync each", as
   await setTimeout(SETTLE_MS);
 
   assert.deepEqual(checkout.syncedBlockIds, [["hero"], ["cta", "hero"], ["hero"]]);
-  assert.ok(
-    !checkout.requests.some(
-      (r) => r.path === "blockDefinitions.upsert" || r.path === "blockDefinitions.delete",
-    ),
-    requestLog(checkout.requests).join("\n"),
+  assert.deepEqual(
+    requestLog(checkout.requests),
+    Array.from({ length: 3 }, () => `definitions.sync ${DEVELOPMENT_DRAFT}`),
   );
+});
+
+void test("the dev server logs what one sync changed, as the API reports it", async (t) => {
+  const checkout = await devCheckout(t, {
+    syncResult: {
+      blocks: { count: 1, deletedDefinitionTypes: ["quote"] },
+      collections: { count: 0, retired: ["authors"] },
+      layouts: {
+        count: 1,
+        layouts: [
+          {
+            layoutId: "default",
+            wasExisting: true,
+            createdBlockTypes: ["navbar"],
+            removedBlockTypes: ["banner"],
+            skippedOrphanTypes: ["hero"],
+          },
+        ],
+        removedLayoutIds: ["landing"],
+        deletedDefinitionTypes: ["banner"],
+      },
+    },
+  });
+  const { logs } = await startDevServer(checkout, () => {});
+
+  await waitFor(() => syncCount(logs) === 1, logs);
+  for (const expected of [
+    'Removed 1 block definition no longer in code: "quote"',
+    'Removed collection "authors"; its records are kept and hidden',
+    'Added 1 block to existing layout "default": "navbar"',
+    'Removed 1 layoutOnly block from layout "default": "banner"',
+    'Layout "default" has 1 block still in DB but removed from code: "hero"',
+    'Removed layout "landing"; its pages are kept and listed as needing a layout',
+    'Removed 1 layoutOnly block definition (no layout uses it anymore): "banner"',
+  ]) {
+    assert.ok(
+      logs.some((line) => line.includes(expected)),
+      `${expected}\n---\n${logs.join("\n")}`,
+    );
+  }
 });

@@ -66,7 +66,7 @@ function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string)
 
 /**
  * Send a Definition Set to the API: Live's for a release, the development draft's in dev mode.
- * The only step that knows the API's sync endpoints.
+ * It goes in one `definitions.sync` call, which either fully applies it or changes nothing.
  */
 export async function syncDefinitionsToApi(options: {
   definitionSet: DefinitionSet;
@@ -80,32 +80,18 @@ export async function syncDefinitionsToApi(options: {
   const { definitionSet, projectSlug, autoCreate, deployToken, logger } = options;
   const client = createSyncClient(options);
 
-  const {
-    blocks: definitions,
-    layouts: layoutDefinitions,
-    collections: collectionDefinitions,
-    homepage: initialPage,
-  } = definitionSet;
-
-  let draftCreated = false;
-  let deletedDefinitionTypes: string[] = [];
+  let result;
   try {
-    const result = await client.blockDefinitions.sync({
-      projectSlug,
-      deployToken,
-      autoCreate,
-      definitions,
-    });
-    draftCreated = result.draftCreated;
-    deletedDefinitionTypes = result.deletedDefinitionTypes;
+    result = await client.definitions.sync({ projectSlug, deployToken, autoCreate, definitionSet });
   } catch (error) {
     throwIfSyncAuthError(error);
     if (!autoCreate && isNotFoundError(error))
       throwSyncTargetNotFoundError(projectSlug, deployToken);
     throw error;
   }
+  const { blocks: definitions, layouts: layoutDefinitions, homepage: initialPage } = definitionSet;
 
-  if (draftCreated) {
+  if (result.draftCreated) {
     logger.info("[camox] Created your development draft", { timestamp: true });
   }
 
@@ -114,6 +100,7 @@ export async function syncDefinitionsToApi(options: {
     { timestamp: true },
   );
 
+  const { deletedDefinitionTypes } = result.blocks;
   if (deletedDefinitionTypes.length > 0) {
     const blockList = deletedDefinitionTypes.map((t) => `"${t}"`).join(", ");
     logger.info(
@@ -122,60 +109,40 @@ export async function syncDefinitionsToApi(options: {
     );
   }
 
-  const collectionResult = await client.collectionDefinitions.sync({
-    projectSlug,
-    deployToken,
-    autoCreate,
-    definitions: collectionDefinitions,
-  });
-  logger.info(`[camox] Synced ${collectionResult.count} collection definitions`, {
+  logger.info(`[camox] Synced ${result.collections.count} collection definitions`, {
     timestamp: true,
   });
-  for (const id of collectionResult.retired) {
+  for (const id of result.collections.retired) {
     logger.warn(`[camox] Removed collection "${id}"; its records are kept and hidden`, {
       timestamp: true,
     });
   }
 
-  // Sync layouts
-  if (layoutDefinitions.length > 0) {
-    let layoutSyncResults;
-    try {
-      layoutSyncResults = await client.layouts.sync({
-        projectSlug,
-        deployToken,
-        autoCreate,
-        layouts: layoutDefinitions,
-      });
-    } catch (error) {
-      throwIfSyncAuthError(error);
-      if (!autoCreate && isNotFoundError(error))
-        throwSyncTargetNotFoundError(projectSlug, deployToken);
-      throw error;
-    }
+  const layoutSyncResults = result.layouts;
+  if (layoutSyncResults) {
     logger.info(
       `[camox] Synced ${layoutDefinitions.length} layout${layoutDefinitions.length === 1 ? "" : "s"} to Camox API`,
       { timestamp: true },
     );
-    for (const result of layoutSyncResults.layouts) {
-      if (result.wasExisting && result.createdBlockTypes.length > 0) {
-        const blockList = result.createdBlockTypes.map((t) => `"${t}"`).join(", ");
+    for (const layout of layoutSyncResults.layouts) {
+      if (layout.wasExisting && layout.createdBlockTypes.length > 0) {
+        const blockList = layout.createdBlockTypes.map((t) => `"${t}"`).join(", ");
         logger.info(
-          `[camox] Added ${result.createdBlockTypes.length} block${result.createdBlockTypes.length === 1 ? "" : "s"} to existing layout "${result.layout.layoutId}": ${blockList}`,
+          `[camox] Added ${layout.createdBlockTypes.length} block${layout.createdBlockTypes.length === 1 ? "" : "s"} to existing layout "${layout.layoutId}": ${blockList}`,
           { timestamp: true },
         );
       }
-      if (result.removedBlockTypes.length > 0) {
-        const blockList = result.removedBlockTypes.map((t) => `"${t}"`).join(", ");
+      if (layout.removedBlockTypes.length > 0) {
+        const blockList = layout.removedBlockTypes.map((t) => `"${t}"`).join(", ");
         logger.info(
-          `[camox] Removed ${result.removedBlockTypes.length} layoutOnly block${result.removedBlockTypes.length === 1 ? "" : "s"} from layout "${result.layout.layoutId}": ${blockList}`,
+          `[camox] Removed ${layout.removedBlockTypes.length} layoutOnly block${layout.removedBlockTypes.length === 1 ? "" : "s"} from layout "${layout.layoutId}": ${blockList}`,
           { timestamp: true },
         );
       }
-      if (result.skippedOrphanTypes.length > 0) {
-        const blockList = result.skippedOrphanTypes.map((t) => `"${t}"`).join(", ");
+      if (layout.skippedOrphanTypes.length > 0) {
+        const blockList = layout.skippedOrphanTypes.map((t) => `"${t}"`).join(", ");
         logger.info(
-          `[camox] Layout "${result.layout.layoutId}" has ${result.skippedOrphanTypes.length} block${result.skippedOrphanTypes.length === 1 ? "" : "s"} still in DB but removed from code: ${blockList} (kept because not layoutOnly)`,
+          `[camox] Layout "${layout.layoutId}" has ${layout.skippedOrphanTypes.length} block${layout.skippedOrphanTypes.length === 1 ? "" : "s"} still in DB but removed from code: ${blockList} (kept because not layoutOnly)`,
           { timestamp: true },
         );
       }
@@ -195,32 +162,19 @@ export async function syncDefinitionsToApi(options: {
     }
   }
 
-  // Initialize content for a fresh project or draft (no-ops if pages already exist)
-  if (initialPage) {
-    try {
-      const result = await client.projects.initializeContent({
-        projectSlug,
-        deployToken,
-        layoutId: initialPage.layoutId,
-        blocks: initialPage.blocks,
-      });
-      if (result.created) {
-        if (initialPage.hasInitialBlocks) {
-          logger.info(
-            `[camox] Initialized content: homepage with ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}`,
-            { timestamp: true },
-          );
-        } else {
-          logger.info("[camox] Created empty homepage (using first layout)", { timestamp: true });
-          logger.info(
-            "[camox] Tip: add blocks.initial to your layout to pre-populate pages with content",
-            { timestamp: true },
-          );
-        }
-      }
-    } catch (error) {
-      throwIfSyncAuthError(error);
-      throw error;
+  // The homepage is only created for a fresh project or draft.
+  if (initialPage && result.homepage?.created) {
+    if (initialPage.hasInitialBlocks) {
+      logger.info(
+        `[camox] Initialized content: homepage with ${result.homepage.blockCount} block${result.homepage.blockCount === 1 ? "" : "s"}`,
+        { timestamp: true },
+      );
+    } else {
+      logger.info("[camox] Created empty homepage (using first layout)", { timestamp: true });
+      logger.info(
+        "[camox] Tip: add blocks.initial to your layout to pre-populate pages with content",
+        { timestamp: true },
+      );
     }
   }
 }
