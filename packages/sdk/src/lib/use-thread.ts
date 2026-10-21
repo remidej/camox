@@ -96,7 +96,7 @@ export function useThread(
     carried?.touched ? { sequence: 1, batch: carried.touched } : undefined,
   );
   /** What this studio's run touched as it leaves for the draft, which it follows there. */
-  const pending = React.useRef<TouchedBatch>(undefined);
+  const touchedWhileLeaving = React.useRef<TouchedBatch>(undefined);
 
   const socket = usePartySocket({
     ...apiSocketOptions(apiUrl),
@@ -139,7 +139,8 @@ export function useThread(
 
   const onFrame = React.useEffectEvent((frame: ThreadServerMessage) => {
     if (leaving.current) {
-      if (frame.type === "touched" && ours(frame.touched)) pending.current = frame.touched;
+      if (frame.type === "touched" && ours(frame.touched))
+        touchedWhileLeaving.current = frame.touched;
       return;
     }
     switch (frame.type) {
@@ -205,7 +206,7 @@ export function useThread(
       state,
       unaccepted,
       sent: sent.current,
-      touched: pending.current,
+      touched: touchedWhileLeaving.current,
     }),
   );
   React.useEffect(() => {

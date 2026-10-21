@@ -38,13 +38,14 @@ export interface FollowWhere {
   blockCatalogPath: (blockType: string) => string;
 }
 
-/** Where a touched batch takes the editor. */
-type Destination =
-  | { kind: "page"; page: PageRef; blockIds: readonly string[] }
-  | { kind: "catalog"; blockType: string };
-
 /** A Page by its page row, which may not be on the Canvas yet, or by its Canvas item key. */
 type PageRef = { pageId: string } | { key: string };
+
+/** The blocks touched on a Page, the topmost of which following selects. */
+type TouchedBlocks = { page: PageRef; blockIds: readonly string[] };
+
+/** Where a touched batch takes the editor. */
+type Destination = ({ kind: "page" } & TouchedBlocks) | { kind: "catalog"; blockType: string };
 
 const pageRowId = (page: FollowPage) => (page.owner.kind === "page" ? page.owner.pageId : null);
 
@@ -53,6 +54,10 @@ function findPage(where: FollowWhere, ref: PageRef) {
     "key" in ref ? page.key === ref.key : pageRowId(page) === ref.pageId,
   );
 }
+
+/** The Page the editor is on, if any. */
+const currentPage = (where: FollowWhere) =>
+  where.pageKey ? where.pages.find((page) => page.key === where.pageKey) : undefined;
 
 const refKey = (ref: PageRef) => ("key" in ref ? `key:${ref.key}` : `page:${ref.pageId}`);
 
@@ -93,7 +98,7 @@ function locate(where: FollowWhere, here: FollowPage | undefined, touch: Touch):
 }
 
 function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | null {
-  const here = where.pageKey ? where.pages.find((page) => page.key === where.pageKey) : undefined;
+  const here = currentPage(where);
   // A deleted page gives no destination, and nothing else on it does either.
   const deletedPages = new Set(
     batch.touches.flatMap((touch) =>
@@ -107,7 +112,7 @@ function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | n
       return at ? [at] : [];
     });
   // Each touched Page, keyed by one identity whatever named it, with its touches in write order.
-  const touched = new Map<string, { ref: PageRef; blockIds: string[]; count: number }>();
+  const touched = new Map<string, { page: PageRef; blockIds: string[]; count: number }>();
   const identity = (ref: PageRef) => {
     const page = findPage(where, ref);
     return page ? `key:${page.key}` : refKey(ref);
@@ -115,7 +120,7 @@ function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | n
   for (const at of located) {
     if ("catalog" in at) continue;
     const key = identity(at.page);
-    const entry = touched.get(key) ?? { ref: at.page, blockIds: [], count: 0 };
+    const entry = touched.get(key) ?? { page: at.page, blockIds: [], count: 0 };
     entry.count += 1;
     if (at.blockId && !entry.blockIds.includes(at.blockId)) entry.blockIds.push(at.blockId);
     touched.set(key, entry);
@@ -132,11 +137,12 @@ function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | n
   const chosen =
     (here && touched.get(`key:${here.key}`)) ??
     entries.reduce((best, entry) =>
-      entry.count > best.count || (entry.count === best.count && order(entry.ref) < order(best.ref))
+      entry.count > best.count ||
+      (entry.count === best.count && order(entry.page) < order(best.page))
         ? entry
         : best,
     );
-  return { kind: "page", page: chosen.ref, blockIds: chosen.blockIds };
+  return { kind: "page", page: chosen.page, blockIds: chosen.blockIds };
 }
 
 /** The topmost of the touched blocks by its order on the page; ones not shown yet come last. */
@@ -163,18 +169,6 @@ export interface FollowAgent {
   dispose(): void;
 }
 
-export interface FollowClock {
-  now(): number;
-  setTimeout(callback: () => void, ms: number): unknown;
-  clearTimeout(handle: unknown): void;
-}
-
-const systemClock: FollowClock = {
-  now: () => Date.now(),
-  setTimeout: (callback, ms) => setTimeout(callback, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
-
 /**
  * Following the agent on the Canvas or in the Preview: each touched batch gives at most one
  * destination, which the Studio goes to through the existing selection. Pages are selected
@@ -184,48 +178,43 @@ const systemClock: FollowClock = {
 export function createFollowAgent({
   navigate,
   where: initial,
-  clock = systemClock,
 }: {
   navigate: (options: NavigateOptions) => unknown;
   where: FollowWhere;
-  clock?: FollowClock;
 }): FollowAgent {
   let where = initial;
   let following = true;
   /** When following last arrived on another page; it stays there for the minimum stay. */
   let arrivedAt = -Infinity;
   /** The latest destination on another page, waiting for the minimum stay or for its page. */
-  let pending: Destination | null = null;
+  let pendingNavigation: Destination | null = null;
   /** When the pending destination's page has to show by, once following could go there. */
-  let pendingUntil = 0;
-  let timer: unknown = null;
+  let pendingNavigationUntil = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   /** Blocks to select once their page's editing frame is active. */
-  let pendingBlocks: { page: PageRef; blockIds: readonly string[] } | null = null;
+  let blocksToSelect: TouchedBlocks | null = null;
   /** The block following last selected, to move to a topmost one that shows later. */
-  let selected: { page: PageRef; blockIds: readonly string[]; blockId: string } | null = null;
-
+  let selected: (TouchedBlocks & { blockId: string }) | null = null;
   /** The block following selected last, whichever page it's on, to tell the editor's apart. */
   let ownSelection: { owner: EditingOwner; blockId: string } | null = null;
-  const sendFocusedBlock = (owner: EditingOwner, blockId: string) => {
-    ownSelection = { owner, blockId };
-    previewStore.send({ type: "setFocusedBlock", ...owner, blockId });
+
+  /** Selects the topmost of the touched blocks on `page`, if one shows. */
+  const selectTopmost = (touched: TouchedBlocks, page: FollowPage) => {
+    const blockId = topmostBlock(page, touched.blockIds);
+    if (!blockId) return;
+    selected = { page: touched.page, blockIds: touched.blockIds, blockId };
+    ownSelection = { owner: page.owner, blockId };
+    previewStore.send({ type: "setFocusedBlock", ...page.owner, blockId });
   };
 
-  const here = () =>
-    where.pageKey ? where.pages.find((page) => page.key === where.pageKey) : undefined;
-
-  const selectPendingBlocks = () => {
-    if (!pendingBlocks) return;
-    const page = findPage(where, pendingBlocks.page);
-    if (!page) return;
+  const selectBlocks = () => {
+    if (!blocksToSelect) return;
+    const page = findPage(where, blocksToSelect.page);
     const { editingContext } = previewStore.getSnapshot().context;
-    if (!sameEditingOwner(editingContext, page.owner)) return;
-    const blockId = topmostBlock(page, pendingBlocks.blockIds);
-    const { page: ref, blockIds } = pendingBlocks;
-    pendingBlocks = null;
-    if (!blockId) return;
-    selected = { page: ref, blockIds, blockId };
-    sendFocusedBlock(page.owner, blockId);
+    if (!page || !sameEditingOwner(editingContext, page.owner)) return;
+    const touched = blocksToSelect;
+    blocksToSelect = null;
+    selectTopmost(touched, page);
   };
 
   /** Reselects when a touched block above the selected one shows, while the selection is ours. */
@@ -237,47 +226,41 @@ export function createFollowAgent({
       selected = null;
       return;
     }
-    const blockId = topmostBlock(page, selected.blockIds);
-    if (!blockId || blockId === selected.blockId) return;
-    selected = { ...selected, blockId };
-    sendFocusedBlock(page.owner, blockId);
+    if (topmostBlock(page, selected.blockIds) !== selected.blockId) selectTopmost(selected, page);
   };
 
   const clearTimer = () => {
-    if (timer !== null) clock.clearTimeout(timer);
+    if (timer !== null) clearTimeout(timer);
     timer = null;
   };
 
   /** Goes to the pending destination, once the minimum stay is over and its page is known. */
-  const goToPending = () => {
-    if (!pending) return;
-    const wait = arrivedAt + FOLLOW_MINIMUM_STAY - clock.now();
+  const navigatePending = () => {
+    if (!pendingNavigation) return;
+    const wait = arrivedAt + FOLLOW_MINIMUM_STAY - Date.now();
     if (wait > 0) {
-      if (timer === null) {
-        timer = clock.setTimeout(() => {
-          timer = null;
-          goToPending();
-        }, wait);
-      }
+      timer ??= setTimeout(() => {
+        timer = null;
+        navigatePending();
+      }, wait);
       return;
     }
     // A page the agent just created shows once the page list refreshes: one that takes longer
     // than the minimum stay to show isn't worth leaving for any more.
-    if (clock.now() >= pendingUntil) {
-      pending = null;
+    if (Date.now() >= pendingNavigationUntil) {
+      pendingNavigation = null;
       return;
     }
-    let pathname: string | null | undefined;
-    if (pending.kind === "catalog") pathname = where.blockCatalogPath(pending.blockType);
-    else pathname = findPage(where, pending.page)?.pathname;
+    const destination = pendingNavigation;
+    const pathname =
+      destination.kind === "catalog"
+        ? where.blockCatalogPath(destination.blockType)
+        : findPage(where, destination.page)?.pathname;
     if (!pathname) return;
-    const destination = pending;
-    pending = null;
-    arrivedAt = clock.now();
-    pendingBlocks =
-      destination.kind === "page" && destination.blockIds.length
-        ? { page: destination.page, blockIds: destination.blockIds }
-        : null;
+    pendingNavigation = null;
+    arrivedAt = Date.now();
+    blocksToSelect =
+      destination.kind === "page" && destination.blockIds.length ? destination : null;
     selected = null;
     void navigate({ to: `${pathname}${where.location.search}`, replace: true, source: "follow" });
   };
@@ -307,7 +290,7 @@ export function createFollowAgent({
       follow.takeOver();
       return;
     }
-    selectPendingBlocks();
+    selectBlocks();
   });
 
   const follow: FollowAgent = {
@@ -315,21 +298,20 @@ export function createFollowAgent({
       if (!following) return;
       const destination = destinationOf(where, batch);
       if (!destination) return;
-      const current = here();
-      const onThisPage =
-        destination.kind === "page" && current && findPage(where, destination.page) === current;
-      if (onThisPage) {
+      const here = currentPage(where);
+      if (destination.kind === "page" && here && findPage(where, destination.page) === here) {
         // The latest destination is where the editor is: only move within the page, right away.
-        pending = null;
+        pendingNavigation = null;
         clearTimer();
         if (!destination.blockIds.length) return;
-        pendingBlocks = { page: destination.page, blockIds: destination.blockIds };
-        selectPendingBlocks();
+        blocksToSelect = destination;
+        selectBlocks();
         return;
       }
-      pending = destination;
-      pendingUntil = Math.max(clock.now(), arrivedAt + FOLLOW_MINIMUM_STAY) + FOLLOW_MINIMUM_STAY;
-      goToPending();
+      pendingNavigation = destination;
+      pendingNavigationUntil =
+        Math.max(Date.now(), arrivedAt + FOLLOW_MINIMUM_STAY) + FOLLOW_MINIMUM_STAY;
+      navigatePending();
     },
     update(next) {
       // The editor went to another page themselves: from a link or their history. The Canvas
@@ -338,14 +320,14 @@ export function createFollowAgent({
       const navigated = next.location.pathname !== where.location.pathname;
       where = next;
       if (navigated && next.location.source === undefined) follow.takeOver();
-      goToPending();
-      selectPendingBlocks();
+      navigatePending();
+      selectBlocks();
       reselectTopmost();
     },
     takeOver() {
       following = false;
-      pending = null;
-      pendingBlocks = null;
+      pendingNavigation = null;
+      blocksToSelect = null;
       selected = null;
       clearTimer();
     },
