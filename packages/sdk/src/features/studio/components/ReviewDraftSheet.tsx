@@ -39,7 +39,6 @@ import {
   type LucideIcon,
   OctagonX,
   PanelsTopLeft,
-  Pencil,
   Shapes,
   Trash2,
   TriangleAlert,
@@ -51,9 +50,10 @@ import { useDraftScope } from "@/lib/draft-scope";
 import { draftMutations, type DraftSummary } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { localeLabel } from "../localeOptions";
+import { useRenameDraft } from "./RenameDraftDialog";
 
 type Subject = PublishPreview["changes"][number];
 type Change = Subject["change"];
@@ -511,69 +511,56 @@ export function useLeaveDraft() {
 }
 
 /**
- * The draft's name in the review's header, renamed in place by any member (#203). It starts in
- * edit mode when the review was opened to rename the draft.
+ * The draft's name in the review's header, renamed in place by any member (#203), like a page
+ * nickname in the Canvas Inspector: a title whose border shows on hover or focus, without
+ * moving the text. An unnamed draft shows its computed label until focused. Saves on Enter or
+ * blur, and a blank name clears it; Escape puts the name back.
  */
-function DraftName({
+function DraftNameInput({
   projectId,
   draft,
-  startRenaming,
+  ref,
 }: {
   projectId: number;
   draft: DraftSummary;
-  startRenaming: boolean;
+  ref: React.Ref<HTMLInputElement>;
 }) {
-  const studioCache = useStudioCache();
-  const [editing, setEditing] = React.useState(startRenaming);
-  const [value, setValue] = React.useState(draft.name ?? "");
-  const rename = useMutation({
-    ...draftMutations.rename(),
-    onSuccess: (renamed) => {
-      studioCache.set(reads.draft({ projectId, draftId: draft.id }), renamed);
-      void studioCache.invalidate(reads.draftList({ projectId }));
-    },
-    onError: (error) => toast.error(error.message || "Could not rename the draft"),
-  });
+  const rename = useRenameDraft(projectId);
+  const name = draft.name ?? "";
 
-  if (draft.kind === "development") return <>{draftLabel(draft)}</>;
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        className="group flex items-center gap-2 text-left"
-        onClick={() => {
-          setValue(draft.name ?? "");
-          setEditing(true);
-        }}
-      >
-        {draftLabel(draft)}
-        <Pencil className="text-muted-foreground size-3.5 opacity-0 group-hover:opacity-100" />
-      </button>
+  const save = (input: HTMLInputElement) => {
+    if ((input.value.trim() || null) === draft.name) {
+      input.value = name;
+      return;
+    }
+    rename.mutate(
+      { draftId: draft.id, name: input.value },
+      { onError: () => void (input.value = name) },
     );
-  }
-
-  const commit = () => {
-    setEditing(false);
-    if ((value.trim() || null) === draft.name) return;
-    rename.mutate({ projectId, name: value });
   };
   return (
     <input
-      autoFocus
+      ref={ref}
+      // A new name, from here or elsewhere, resets what's typed.
+      key={name}
       aria-label="Draft name"
-      value={value}
-      placeholder="Name this draft (optional)"
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={commit}
+      defaultValue={name}
+      placeholder={draftLabel({ ...draft, name: null })}
+      title={draftLabel(draft)}
+      maxLength={200}
+      className="hover:border-input focus-visible:border-ring focus-visible:ring-ring/50 placeholder:text-foreground focus:placeholder:text-muted-foreground -mx-1.5 h-8 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-1.5 text-base font-medium transition-[color,box-shadow,border-color] outline-none hover:shadow-xs focus-visible:ring-3"
+      onBlur={(event) => save(event.currentTarget)}
       onKeyDown={(event) => {
-        if (event.key === "Enter") commit();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
         if (event.key !== "Escape") return;
         // Cancels the rename only, not the whole review.
         event.stopPropagation();
-        setEditing(false);
+        event.currentTarget.value = name;
+        event.currentTarget.blur();
       }}
-      className="w-full bg-transparent outline-none"
     />
   );
 }
@@ -601,6 +588,19 @@ export function ReviewDraftSheet({
   const preview = useReadQuery(reads.publishPreview({ projectId, draftId }), { enabled: open });
   const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
   const leaveDraft = useLeaveDraft();
+  const popup = React.useRef<HTMLDivElement>(null);
+  const nameInput = React.useRef<HTMLInputElement>(null);
+  /**
+   * Opened to rename, the name is focused and selected to type over. Otherwise the sheet itself
+   * is, so the name doesn't read as being edited.
+   */
+  const initialFocus = () => {
+    if (startRenaming && nameInput.current) {
+      nameInput.current.select();
+      return nameInput.current;
+    }
+    return popup.current;
+  };
 
   // The draft's summary follows its pending translations: the preview is read again as they
   // settle, so publishing stops waiting once they're done.
@@ -672,15 +672,23 @@ export function ReviewDraftSheet({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="right" className="w-full gap-0 data-[side=right]:sm:max-w-lg">
+        <SheetContent
+          ref={popup}
+          initialFocus={initialFocus}
+          side="right"
+          className="w-full gap-0 data-[side=right]:sm:max-w-lg"
+        >
           <div className="flex flex-col gap-1 border-b p-4 pr-12">
-            <SheetTitle className="text-base">
-              {draft.data ? (
-                <DraftName projectId={projectId} draft={draft.data} startRenaming={startRenaming} />
-              ) : (
-                "Draft"
-              )}
-            </SheetTitle>
+            {draft.data?.kind === "regular" ? (
+              <>
+                <SheetTitle className="sr-only">{draftLabel(draft.data)}</SheetTitle>
+                <DraftNameInput ref={nameInput} projectId={projectId} draft={draft.data} />
+              </>
+            ) : (
+              <SheetTitle className="text-base">
+                {draft.data ? draftLabel(draft.data) : "Draft"}
+              </SheetTitle>
+            )}
             <SheetDescription>
               {draft.data
                 ? `${draft.data.createdBy.name} · started ${timeAgo(draft.data.createdAt)}`

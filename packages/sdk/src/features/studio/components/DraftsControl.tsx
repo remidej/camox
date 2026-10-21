@@ -12,7 +12,7 @@ import {
 } from "@camox/ui/dropdown-menu";
 import { toast } from "@camox/ui/toaster";
 import { useSelector } from "@xstate/store-react";
-import { ChevronsUpDown } from "lucide-react";
+import { ChevronsUpDown, Pencil } from "lucide-react";
 import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
@@ -26,6 +26,7 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
+import { RenameDraftDialog } from "./RenameDraftDialog";
 import { DiscardDraftDialog, ReviewDraftSheet, useLeaveDraft } from "./ReviewDraftSheet";
 
 const LIVE = "live";
@@ -69,6 +70,8 @@ export function DraftPicker() {
   const leaveDraft = useLeaveDraft();
   const review = useSelector(studioStore, (state) => state.context.reviewDraftSheet);
   const discarding = useSelector(studioStore, (state) => state.context.isDiscardDraftDialogOpen);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [renaming, setRenaming] = React.useState<DraftSummary | null>(null);
 
   React.useEffect(
     () =>
@@ -112,7 +115,7 @@ export function DraftPicker() {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger render={<Button type="button" variant="ghost" />}>
           {/* Green on Live, blue in a draft. */}
           <span
@@ -161,7 +164,14 @@ export function DraftPicker() {
                     </div>
                   </DropdownMenuRadioItem>
                   {regular.map((listed) => (
-                    <DraftItem key={listed.id} draft={listed} />
+                    <DraftItem
+                      key={listed.id}
+                      draft={listed}
+                      onRename={() => {
+                        setMenuOpen(false);
+                        setRenaming(listed);
+                      }}
+                    />
                   ))}
                 </DropdownMenuGroup>
               </DropdownMenuRadioGroup>
@@ -170,6 +180,15 @@ export function DraftPicker() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {projectId && (
+        <RenameDraftDialog
+          projectId={projectId}
+          draft={renaming}
+          onOpenChange={(open) => {
+            if (!open) setRenaming(null);
+          }}
+        />
+      )}
       {draftId && projectId && (
         <>
           <ReviewDraftSheet
@@ -305,16 +324,35 @@ function liveLine(live: DraftList["live"] | undefined): string {
   return `Published ${timeAgo(live.publishedAt)} by ${by}`;
 }
 
-function DraftItem({ draft }: { draft: DraftSummary }) {
+/** A draft to switch to, with a button to rename it that leaves the selection alone. */
+function DraftItem({ draft, onRename }: { draft: DraftSummary; onRename: () => void }) {
+  // Kept from the item, which would switch to the draft and close the menu.
+  const keep = (event: React.SyntheticEvent) => event.stopPropagation();
   return (
-    <DropdownMenuRadioItem value={draft.id} closeOnClick>
-      <div className="flex min-w-0 flex-col">
+    <DropdownMenuRadioItem value={draft.id} closeOnClick className="group/draft-item">
+      <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate">{draftLabel(draft)}</span>
         <span className="text-muted-foreground text-xs">
           {draft.createdBy.name} · {timeAgo(draft.createdAt)} ·{" "}
           {plural(draft.changeCount, "change")}
         </span>
       </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={`Rename "${draftLabel(draft)}"`}
+        className="opacity-0 group-data-highlighted/draft-item:opacity-100 focus-visible:opacity-100"
+        onPointerDown={keep}
+        onPointerUp={keep}
+        onMouseUp={keep}
+        onClick={(event) => {
+          keep(event);
+          onRename();
+        }}
+      >
+        <Pencil />
+      </Button>
     </DropdownMenuRadioItem>
   );
 }

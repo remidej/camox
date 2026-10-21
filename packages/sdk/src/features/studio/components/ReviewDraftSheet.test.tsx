@@ -610,25 +610,35 @@ void test("discards only after a second confirmation, then switches to Live", as
 const dialogTitle = () =>
   window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
+const nameInput = () =>
+  window.document.querySelector('input[aria-label="Draft name"]') as unknown as
+    | HTMLInputElement
+    | undefined;
+
+/** Focuses the name, types over it, then presses `key`. */
 async function typeName(value: string, key: "Enter" | "Escape") {
-  const input = window.document.querySelector('input[aria-label="Draft name"]');
-  assert.ok(input, "expected the name to become editable");
+  const input = nameInput();
+  assert.ok(input, "expected the name to be editable");
   await React.act(async () => {
-    // Through the prototype's setter, so React sees the change.
-    Reflect.set(window.HTMLInputElement.prototype, "value", value, input);
-    input.dispatchEvent(new window.Event("input", { bubbles: true }));
-    input.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+    input.focus();
+    input.value = value;
+    input.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }) as never,
+    );
     await new Promise((resolve) => setTimeout(resolve, 40));
   });
 }
 
-void test("names an unnamed draft by its creator and creation date, and renames it from the header", async (t) => {
+void test("names an unnamed draft by its creator and creation date, and renames it in place from the header", async (t) => {
   const calls = mockApi(t, () => json(emptyPreview));
   const close = await openReview();
   try {
     assert.equal(dialogTitle(), "Ada, Oct 13");
+    // Unnamed, the name field reads its computed label, and isn't being edited.
+    assert.equal(nameInput()?.value, "");
+    assert.equal(nameInput()?.placeholder, "Ada, Oct 13");
+    assert.notEqual(window.document.activeElement, nameInput());
 
-    await click(window.document.querySelector('[data-slot="sheet-title"] button'));
     await typeName("Spring campaign", "Enter");
     await settle();
 
@@ -637,6 +647,7 @@ void test("names an unnamed draft by its creator and creation date, and renames 
       [{ projectId: 1, name: "Spring campaign" }],
     );
     assert.equal(dialogTitle(), "Spring campaign");
+    assert.equal(nameInput()?.value, "Spring campaign");
   } finally {
     await close();
   }
@@ -646,11 +657,12 @@ void test("leaves the name as it is when editing is cancelled", async (t) => {
   const calls = mockApi(t, () => json(emptyPreview));
   const close = await openReview();
   try {
-    await click(window.document.querySelector('[data-slot="sheet-title"] button'));
     await typeName("Never mind", "Escape");
+    await settle();
 
     assert.equal(calls.filter((call) => call.path === "drafts/rename").length, 0);
     assert.equal(dialogTitle(), "Ada, Oct 13");
+    assert.equal(nameInput()?.value, "");
   } finally {
     await close();
   }
