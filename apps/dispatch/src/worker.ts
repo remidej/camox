@@ -1,23 +1,24 @@
 export interface Env {
-  SITE_SLUGS: KVNamespace;
+  PROJECT_SLUGS: KVNamespace;
   DISPATCHER: DispatchNamespace;
 }
 
-const SITES_DOMAIN = ".camox.site";
+const PROJECTS_DOMAIN = ".camox.site";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const slug = projectSlug(new URL(request.url).hostname);
-    const uuid = slug && (await env.SITE_SLUGS.get(slug));
-    if (!uuid) return page(404, "Site not found", "There's no site at this address.");
+    const uuid = slug && (await env.PROJECT_SLUGS.get(slug));
+    if (!uuid) return statusPage(404, "Site not found", "There's no site at this address.");
     try {
       // The user Worker is named after the project's UUID. Cloudflare may report it missing from
       // either call, so both sit in the try.
       return await env.DISPATCHER.get(uuid).fetch(request);
     } catch (error) {
+      // "Worker not found" is what the dispatch namespace throws for a user Worker it doesn't have.
       if (!(error instanceof Error && error.message.startsWith("Worker not found"))) throw error;
       // The project exists, but its first release hasn't deployed its Worker yet.
-      return page(503, "This site is being set up", "Check back in a few minutes.");
+      return statusPage(503, "This site is being set up", "Check back in a few minutes.");
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -27,10 +28,10 @@ export default {
  * a deeper subdomain finds no slug.
  */
 function projectSlug(hostname: string) {
-  return hostname.endsWith(SITES_DOMAIN) ? hostname.slice(0, -SITES_DOMAIN.length) : "";
+  return hostname.endsWith(PROJECTS_DOMAIN) ? hostname.slice(0, -PROJECTS_DOMAIN.length) : "";
 }
 
-function page(status: number, title: string, message: string) {
+function statusPage(status: number, title: string, message: string) {
   const html = `<!doctype html>
 <html lang="en">
 <head>

@@ -8,7 +8,7 @@ set -euo pipefail
 
 ZONE_ID="f6e109722a0b5bddbf3b01fa79bde309" # camox.site
 NAMESPACE="production"
-KV_TITLE="camox-site-slugs"
+KV_TITLE="camox-project-slugs"
 WILDCARD="*.camox.site"
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -49,7 +49,7 @@ else
   echo "Created: $kv_id"
 fi
 grep -q "\"$kv_id\"" "$APP_DIR/wrangler.jsonc" ||
-  fail "wrangler.jsonc doesn't bind KV namespace $kv_id. Set the SITE_SLUGS binding's id to it, then re-run."
+  fail "wrangler.jsonc doesn't bind KV namespace $kv_id. Set the PROJECT_SLUGS binding's id to it, then re-run."
 
 step "Proxied DNS record '$WILDCARD'"
 records="$(cf dns records list -z "$ZONE_ID" --name "$WILDCARD")"
@@ -60,7 +60,7 @@ if [ "$(jq 'length' <<<"$records")" -eq 0 ]; then
       name: $name,
       content: "100::",
       proxied: true,
-      comment: "Sends every site to the camox-dispatch Worker"
+      comment: "Sends every project's website to the camox-dispatch Worker"
     }'
   )" >/dev/null
   echo "Created AAAA 100:: (proxied)."
@@ -73,4 +73,4 @@ fi
 step "Dispatch Worker and its '$WILDCARD/*' route"
 pnpm --dir "$APP_DIR" run deploy
 
-printf '\nDone. README.md explains how to smoke-test a site.\n'
+printf '\nDone. README.md explains how to smoke-test a website.\n'

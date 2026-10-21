@@ -13,7 +13,7 @@ function fakeEnv({
   workers?: Record<string, UserWorker>;
 }) {
   const env = {
-    SITE_SLUGS: {
+    PROJECT_SLUGS: {
       get: async (key: string) => slugs[key] ?? null,
     },
     DISPATCHER: {
@@ -34,21 +34,21 @@ describe("dispatch Worker", () => {
     const env = fakeEnv({
       slugs: { acme: ACME_UUID },
       workers: {
-        [ACME_UUID]: (request) => new Response(`acme site at ${new URL(request.url).pathname}`),
-        "0b8e6a4f-0000-4000-8000-000000000000": () => new Response("another site"),
+        [ACME_UUID]: (request) => new Response(`acme website at ${new URL(request.url).pathname}`),
+        "0b8e6a4f-0000-4000-8000-000000000000": () => new Response("another website"),
       },
     });
 
     const response = await worker.fetch(new Request("https://acme.camox.site/pricing"), env);
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("acme site at /pricing");
+    expect(await response.text()).toBe("acme website at /pricing");
   });
 
   it("answers an unknown slug with a not-found page", async () => {
     const env = fakeEnv({
       slugs: { acme: ACME_UUID },
-      workers: { [ACME_UUID]: () => new Response("acme site") },
+      workers: { [ACME_UUID]: () => new Response("acme website") },
     });
 
     const response = await worker.fetch(new Request("https://globex.camox.site/"), env);
@@ -58,7 +58,7 @@ describe("dispatch Worker", () => {
     expect(await response.text()).toContain("not found");
   });
 
-  // Universal SSL only covers first-level subdomains, so a site is exactly one label under camox.site.
+  // Universal SSL only covers first-level subdomains, so a slug is exactly one label under camox.site.
   it.each([
     ["a deeper subdomain", "https://www.acme.camox.site/"],
     ["the bare domain", "https://camox.site/"],
@@ -66,7 +66,7 @@ describe("dispatch Worker", () => {
   ])("answers %s with a not-found page, even when a label matches a slug", async (_, url) => {
     const env = fakeEnv({
       slugs: { acme: ACME_UUID, www: ACME_UUID, camox: ACME_UUID },
-      workers: { [ACME_UUID]: () => new Response("acme site") },
+      workers: { [ACME_UUID]: () => new Response("acme website") },
     });
 
     const response = await worker.fetch(new Request(url), env);

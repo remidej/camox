@@ -10,7 +10,7 @@
   "routes": [{ "pattern": "*.camox.site/*", "zone_name": "camox.site" }],
   "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }],
   // slug → project UUID; the UUID names the project's user Worker.
-  "kv_namespaces": [{ "binding": "SITE_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
+  "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
   "observability": {
     "logs": {
       "enabled": true,
