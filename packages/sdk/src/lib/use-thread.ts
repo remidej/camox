@@ -1,7 +1,9 @@
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import {
   EMPTY_THREAD_STATE,
   reduceThreadFrame,
   type StartedDraft,
+  THREAD_ENDED_CLOSE_CODE,
   type ThreadClientMessage,
   type ThreadServerMessage,
   type ThreadState,
@@ -36,7 +38,9 @@ export type UseThreadOptions = {
  * signed-in editor's Live thread when `draftId` is null, or the draft's thread, which `draftId`
  * names as the draft header does (`development` in dev mode). A message is resent with its
  * operation id each time the thread shows itself after the socket opens, until it accepts it,
- * which records it once, or turns it down. Mount it once per project and draft.
+ * which records it once, or turns it down. A thread that ended with its draft isn't reconnected
+ * to, but for a development draft's, which moves on to the draft's new thread. Mount it once per
+ * project and draft.
  *
  * When the Live thread starts a draft, a studio that sent a message of the run that wrote enters
  * the draft with it (`onEnterDraft`), even if it only hears so on reconnecting, from the editor's
@@ -73,6 +77,14 @@ export function useThread(
     // Unaccepted messages are resent once the thread shows itself instead, so nothing is
     // buffered twice.
     maxEnqueuedMessages: 0,
+    // A thread that ended with its draft is deleted: reconnecting would reach nothing.
+    shouldReconnectOnClose: (event) => event.code !== THREAD_ENDED_CLOSE_CODE,
+    onClose(event) {
+      // A development draft stays open, and its new thread starts empty: move on to it at once.
+      if (event.code === THREAD_ENDED_CLOSE_CODE && draftId === DEVELOPMENT_DRAFT) {
+        socket.reconnect();
+      }
+    },
     onOpen() {
       shown.current = false;
     },

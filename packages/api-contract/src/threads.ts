@@ -129,6 +129,13 @@ export type ThreadServerMessage =
   | { type: "continued-in"; continuedIn: StartedDraft }
   | { type: "error"; operationId?: string; message: string };
 
+/**
+ * The code a thread closes its sockets with once it ended with its draft, and for good: it's
+ * deleted, so reconnecting reaches nothing. A development draft, which stays open, gets a new
+ * thread the next time the studio connects.
+ */
+export const THREAD_ENDED_CLOSE_CODE = 4000;
+
 const textOf = (content: Message["content"]) =>
   typeof content === "string"
     ? content

@@ -21,6 +21,7 @@ import {
   ask,
   connectDraftThread,
   lastAnswer,
+  NOTHING_STORED,
   pagesOf,
   requestDraftThread,
   said,
@@ -85,12 +86,12 @@ describe("a draft's thread", () => {
     const draftId = await startDraft(db, project.id, memberUser.id);
     const glance = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
     glance.close();
-    expect(await storedThreadOf(db, draftId)).toEqual({ tables: [], keys: [] });
+    expect(await storedThreadOf(db, draftId)).toEqual(NOTHING_STORED);
 
     answerNext("On it.");
     const own = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
     const theirs = await connectDraftThread(project.id, draftId, await signIn(db, teammate.id));
-    expect(await storedThreadOf(db, draftId)).toEqual({ tables: [], keys: [] });
+    expect(await storedThreadOf(db, draftId)).toEqual(NOTHING_STORED);
     theirs.send({ type: "send", operationId: crypto.randomUUID(), text: "Rewrite the intro" });
 
     await own.untilIdle(2);

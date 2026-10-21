@@ -79,6 +79,14 @@ export const reservedDraftState = Effect.fn("reservedDraftState")(function* (
     : ("unstarted" as const);
 });
 
+/** The id of a draft's thread, once someone opened it: null before. */
+const threadOfDraft = Effect.fn("threadOfDraft")(function* (db: Database, draftId: string) {
+  const row = yield* Effect.promise(() =>
+    db.select({ threadId: drafts.threadId }).from(drafts).where(eq(drafts.id, draftId)).get(),
+  );
+  return row?.threadId ?? null;
+});
+
 /**
  * The draft a member's request names, with its thread's id: a draft has at most one thread. The
  * id is set aside the first time someone opens the draft's thread, so everyone in the draft
@@ -97,11 +105,39 @@ export const draftThread = Effect.fn("draftThread")(function* (
       .set({ threadId: generateUuidv7() })
       .where(and(eq(drafts.id, draft.id), isNull(drafts.threadId))),
   );
-  const row = yield* Effect.promise(() =>
-    ctx.db.select({ threadId: drafts.threadId }).from(drafts).where(eq(drafts.id, draft.id)).get(),
-  );
-  if (!row?.threadId) {
-    return yield* Effect.die(new Error("The draft vanished as its thread started"));
-  }
-  return { draft, threadId: row.threadId };
+  const threadId = yield* threadOfDraft(ctx.db, draft.id);
+  if (!threadId) return yield* Effect.die(new Error("The draft vanished as its thread started"));
+  return { draft, threadId };
+});
+
+/**
+ * A draft's thread, as a publish or discard ends the draft, read before it does. Its `statements`
+ * join the batch ending the draft, letting go of the thread there: a development draft stays
+ * open, so the next one to open its thread starts a new one, and a regular draft lets go of it
+ * with its row. Once the batch applied, `end` deletes the thread, which wipes what it stored
+ * and turns away whatever reaches it after.
+ *
+ * The draft ended either way, so `end` never fails: a thread it couldn't reach is only reported.
+ */
+export const endingThread = Effect.fn("endingThread")(function* (
+  ctx: Pick<ServiceContext, "db" | "env">,
+  draftId: string,
+) {
+  const threadId = yield* threadOfDraft(ctx.db, draftId);
+  if (!threadId) return { statements: [], end: Effect.void };
+  return {
+    statements: [
+      ctx.db
+        .update(drafts)
+        .set({ threadId: null })
+        .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
+    ],
+    end: Effect.promise(async () => {
+      try {
+        await ctx.env.THREAD.getByName(threadId).end();
+      } catch (error) {
+        console.error("A thread didn't end with its draft", error);
+      }
+    }).pipe(Effect.withSpan("endThread")),
+  };
 });

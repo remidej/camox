@@ -6,6 +6,7 @@ import {
   RUN_STOPPED_ENTRY,
   type StartedDraft,
   startedDraftSchema,
+  THREAD_ENDED_CLOSE_CODE,
   threadClientMessageSchema,
   threadSenderSchema,
   type ThreadClientMessage,
@@ -68,6 +69,9 @@ const IDENTITY_KEY = "camox.identity";
  * operations of the run whose write created it once one did (a `StartedDraft`).
  */
 const DRAFT_TO_START_KEY = "camox.draft-to-start";
+
+/** The key recording that the thread ended with its draft, all a thread keeps once it did. */
+export const ENDED_KEY = "camox.ended";
 
 /** `WebSocket.OPEN`, which isn't defined on every runtime's global. */
 const OPEN = 1;
@@ -261,12 +265,33 @@ export class Thread extends DurableObject<Bindings> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.webSockets).use(this.harness);
 
+  /** Whether the thread ended with its draft, known as soon as it starts ending: see `end()`. */
+  #ended = false;
+
+  /**
+   * Whether the thread ended with its draft: in memory from the moment it starts ending, and in
+   * its storage once wiped, for whatever reaches it after.
+   */
+  async #hasEnded() {
+    this.#ended ||= (await this.ctx.storage.get(ENDED_KEY)) === true;
+    return this.#ended;
+  }
+
+  /**
+   * Lifecycle's alarm, which wakes Pi's runs, unless the thread ended: an alarm already on its
+   * way when it did would look for the jobs its storage no longer has.
+   */
+  async alarm() {
+    if (await this.#hasEnded()) return;
+    await this.lifecycle.alarm();
+  }
+
   /**
    * Gives sockets that outlived the last isolate a new watch and a fresh snapshot, once a move
    * into a draft an eviction cut short is finished.
    */
   async onStart() {
-    if (!(await this.#knownIdentity())) return;
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return;
     await this.#settle().catch((error: unknown) =>
       console.error("A thread couldn't move into the draft its write started", error),
     );
@@ -274,6 +299,10 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   async #onConnect(connection: Connection, ctx: ConnectionContext) {
+    if (await this.#hasEnded()) {
+      this.#turnAway(connection);
+      return;
+    }
     const participant = participantSchema.safeParse({
       sender: parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
       identity: parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
@@ -512,6 +541,11 @@ export class Thread extends DurableObject<Bindings> {
       send(connection, { type: "error", message: "Malformed message" });
       return;
     }
+    // A socket the API forwarded just before the thread ended may reach it after.
+    if (await this.#hasEnded()) {
+      this.#turnAway(connection);
+      return;
+    }
 
     if (message.type === "resync") {
       await this.#show(connection, await this.#knownIdentity());
@@ -556,6 +590,45 @@ export class Thread extends DurableObject<Bindings> {
         await this.#stop(participant.data.sender);
         return;
     }
+  }
+
+  /**
+   * Ends the thread with its draft, wiping everything it stored, since Pi can't delete a
+   * conversation yet: the run going stops, and studios still open on it see an empty thread
+   * before their sockets close. The sandbox's object for the thread stores nothing.
+   *
+   * Its draft no longer names it, and a development draft, which stays open, gets a new thread,
+   * but a socket the API forwarded just before may still reach it. So the thread keeps the
+   * record that it ended, and turns away every socket and message after, as its alarm does
+   * nothing: nothing opens Pi again. The object isn't reset, which would fail whatever reached
+   * it next.
+   */
+  async end() {
+    this.#ended = true;
+    if (await this.#knownIdentity()) {
+      try {
+        await this.harness.session().abort();
+      } catch (error) {
+        console.warn("A thread couldn't stop its run as it ended", error);
+      }
+    }
+    for (const socket of this.ctx.getWebSockets()) {
+      await this.#unwatch(socket);
+      this.#turnAway(socket);
+    }
+    await this.lifecycle.disableAlarms();
+    await this.lifecycle.dispose();
+    await this.ctx.storage.deleteAll();
+    await this.ctx.storage.put(ENDED_KEY, true);
+  }
+
+  /**
+   * Shows a socket an empty thread and closes it for good, the thread having ended: the studio
+   * doesn't reconnect to it, but to a development draft's new thread.
+   */
+  #turnAway(socket: WebSocket) {
+    send(socket, { type: "events", events: [NOT_STARTED] });
+    socket.close(THREAD_ENDED_CLOSE_CODE, "The thread ended");
   }
 
   /**
