@@ -66,6 +66,9 @@ jobs:
           pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config sandbox/wrangler.jsonc
           pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
 
+      - name: Validate dispatch Worker bundle before changing production
+        run: pnpm --filter @camox/dispatch exec wrangler deploy --dry-run --minify
+
       # Deploys the code mode sandbox Worker first, as the API binds its Durable Object.
       - name: Migrate database and deploy API
         run: pnpm --filter @camox/api deploy
@@ -93,3 +96,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CAMOX_DEPLOY_TOKEN: ${{ secrets.CAMOX_DEPLOY_TOKEN }}
+
+      # Serves projects' websites at <slug>.camox.site; apps/dispatch/README.md has its setup.
+      - name: Deploy dispatch Worker
+        run: pnpm --filter @camox/dispatch run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

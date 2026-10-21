@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Serves each project's website at <slug>.camox.site by forwarding to the project's user Worker in
+  // the `production` dispatch namespace. README.md records the Cloudflare setup it relies on.
+  "name": "camox-dispatch",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-03-28",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "*.camox.site/*", "zone_name": "camox.site" }],
+  "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }],
+  // slug → project UUID; the UUID names the project's user Worker.
+  "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+}
