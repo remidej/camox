@@ -248,6 +248,7 @@ const resolveScope = Effect.fn("access.resolveScope")(function* (
       projectId: project.id,
       createdBy: ctx.user.id,
       name: null,
+      threadId: requested.threadId,
     });
     draft =
       (yield* Effect.promise(() =>

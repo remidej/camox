@@ -1,7 +1,7 @@
 import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import {
   EMPTY_THREAD_STATE,
-  reduceThreadEvents,
+  reduceThreadFrame,
   type ThreadClientMessage,
   type ThreadSender,
   type ThreadServerMessage,
@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import type { createDb } from "../src/db";
 import { upsertBlockDefinition } from "../src/domains/block-definitions/service";
 import { blockProcedures } from "../src/domains/blocks/routes";
+import { draftProcedures } from "../src/domains/drafts/routes";
 import { pageProcedures } from "../src/domains/pages/routes";
 import type { ThreadIdentity } from "../src/domains/threads/tools";
 import {
@@ -109,6 +110,20 @@ export function storedThread(threadId: string) {
   }));
 }
 
+/** How many sockets the thread a draft records has accepted, or 0 while it records none. */
+export async function socketsOnThreadOf(db: ReturnType<typeof createDb>, draftId: string) {
+  const draft = await db
+    .select({ threadId: drafts.threadId })
+    .from(drafts)
+    .where(eq(drafts.id, draftId))
+    .get();
+  if (!draft?.threadId) return 0;
+  return runInDurableObject(
+    env.THREAD.getByName(draft.threadId),
+    async (_thread, state) => state.getWebSockets().length,
+  );
+}
+
 /** Who each message in `view` is from, and its text for an editor's or the agent's. */
 export const said = (view: ThreadView) =>
   view.messages.map((message) =>
@@ -179,7 +194,7 @@ async function connectThread(response: Response): Promise<ThreadClient> {
     if (typeof event.data !== "string") return;
     const frame = JSON.parse(event.data) as ThreadServerMessage;
     frames.push(frame);
-    if (frame.type === "events") state = reduceThreadEvents(state, frame.events);
+    state = reduceThreadFrame(state, frame);
     for (const wake of waiters.splice(0)) wake();
   });
 
@@ -214,14 +229,21 @@ async function connectThread(response: Response): Promise<ThreadClient> {
 }
 
 /**
- * Sends `text` in `thread` and closes it once the agent's turn ended, returning what the thread
- * showed then.
+ * Sends `text` in `thread` and closes it once the agent's turn ended, unless `keepOpen`,
+ * returning what the thread showed then.
  */
-export async function ask(thread: ThreadClient, text: string): Promise<ThreadView> {
+export async function ask(
+  thread: ThreadClient,
+  text: string,
+  {
+    keepOpen = false,
+    operationId = crypto.randomUUID(),
+  }: { keepOpen?: boolean; operationId?: string } = {},
+): Promise<ThreadView> {
   const before = thread.view().messages.length;
-  thread.send({ type: "send", operationId: crypto.randomUUID(), text });
+  thread.send({ type: "send", operationId, text });
   await thread.until(() => !thread.view().running && thread.view().messages.length >= before + 2);
-  thread.close();
+  if (!keepOpen) thread.close();
   return thread.view();
 }
 
@@ -277,4 +299,11 @@ export async function pagesOf({ db, memberUser, project }: Website, draftId?: st
     shown[page.fullPath] = blocks.map((block) => block.markdown);
   }
   return shown;
+}
+
+/** The website's open drafts, as the studio's drafts control lists them. */
+export async function draftsOf({ db, memberUser, project }: Website) {
+  const context = createRpcContext(db, memberUser);
+  const { drafts } = await call(draftProcedures.list, { projectId: project.id }, { context });
+  return drafts;
 }

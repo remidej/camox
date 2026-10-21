@@ -64,6 +64,9 @@ export function readScopeOf(target: WriteTarget): Draft | null {
 /**
  * The draft a request names, before it is checked: a draft's id, where `create` asks for a
  * missing regular draft to be created with it, or the caller's development draft in the
- * project the request acts on (ADR 0011).
+ * project the request acts on (ADR 0011). A draft a Live thread's write creates records that
+ * thread (`threadId`) as it's created, so whoever opens it reaches the thread.
  */
-export type DraftRequest = { id: string; create: boolean } | { development: true };
+export type DraftRequest =
+  | { id: string; create: boolean; threadId?: string }
+  | { development: true };

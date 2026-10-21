@@ -38,9 +38,16 @@ export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
 
 /**
  * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
- * draft, or on Live.
+ * draft, or on Live. On Live, a write names `draftToStart`: the draft the thread's first write
+ * creates, recording the thread as its own.
  */
-export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & { userId: string };
+export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & {
+  userId: string;
+  draftToStart?: { id: string; threadId: string };
+};
+
+/** Whether a tool reads content or writes it. */
+export type ToolKind = ToolDefinition["meta"]["kind"];
 
 /** One call of a Pi tool, as Pi hands it to the tool. */
 export type ToolInvocation = {
@@ -48,9 +55,9 @@ export type ToolInvocation = {
   context: Parameters<ToolRegistration["execute"]>[2];
 };
 
-/** Runs one of the studio agent's tools by name, as a thread's tool calls do. */
+/** Runs one of the studio agent's tools, as a thread's tool calls do. */
 export type ToolDispatch = (
-  name: string,
+  tool: Pick<ToolDefinition, "name" | "meta">,
   args: unknown,
   invocation: ToolInvocation,
 ) => Promise<ToolExecutionResponse>;
@@ -60,14 +67,21 @@ export type ToolDispatch = (
  * do: the acting editor's membership is checked on every call, so someone removed from the
  * project can't act through a run, and a write lands in the thread's draft, never on Live.
  * Analytics attribute the calls to the agent.
+ *
+ * On Live, a write starts the draft `actor` names, as an editor's first write does: the write
+ * creates it. Once a write went through, `started` moves the thread into the draft before the
+ * call returns, so its next calls act in it. The write stands even if that fails: the thread
+ * moves on its next call instead.
  */
 export function threadToolDispatch(
   env: Bindings,
   waitUntil: (promise: Promise<unknown>) => void,
-  actor: (invocation: ToolInvocation) => Promise<ThreadActor>,
+  actor: (invocation: ToolInvocation, kind: ToolKind) => Promise<ThreadActor>,
+  started: (invocation: ToolInvocation) => Promise<void>,
 ): ToolDispatch {
-  return async (name, args, invocation) => {
-    const { projectId, draftId, userId } = await actor(invocation);
+  return async ({ name, meta }, args, invocation) => {
+    const { projectId, draftId, userId, draftToStart } = await actor(invocation, meta.kind);
+    const starting = draftId ? undefined : draftToStart;
     const db = createDb(env.DB);
     const acting = await db.select().from(user).where(eq(user.id, userId)).get();
     const ctx: ServiceContext = {
@@ -77,9 +91,13 @@ export function threadToolDispatch(
       waitUntil,
       client: "camox-agent",
       telemetryDisabled: false,
-      draft: draftId ? { id: draftId, create: false } : null,
+      draft: draftId
+        ? { id: draftId, create: false }
+        : starting
+          ? { id: starting.id, create: true, threadId: starting.threadId }
+          : null,
     };
-    return Effect.runPromise(
+    const response = await Effect.runPromise(
       dispatchTool(ctx, { projectId, surface: SURFACE, name, args }).pipe(
         Effect.catch((error) =>
           Effect.succeed<ToolExecutionResponse>({
@@ -89,6 +107,12 @@ export function threadToolDispatch(
         ),
       ),
     );
+    if (starting && response.ok) {
+      await started(invocation).catch((error: unknown) =>
+        console.error("A thread couldn't move into the draft its write started", error),
+      );
+    }
+    return response;
   };
 }
 
@@ -111,7 +135,7 @@ export function toPiTool(tool: ToolDefinition, dispatch: ToolDispatch): ToolRegi
     callers: ["tools"],
     replay: tool.meta.kind === "read" ? "safe" : "unsafe",
     execute: async (args, api, context) => {
-      const response = await dispatch(tool.name, args, { api, context });
+      const response = await dispatch(tool, args, { api, context });
       if (!response.ok) {
         return { output: [{ type: "text", text: JSON.stringify(response.error) }], isError: true };
       }

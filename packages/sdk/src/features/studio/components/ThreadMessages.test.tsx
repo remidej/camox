@@ -83,6 +83,33 @@ void test("an empty thread says what the agent can do, in one line", () => {
   assert.doesNotMatch(html, /Working…/);
 });
 
+void test("a fresh Live thread links to the draft the editor's previous one continued in", () => {
+  const continuedIn = { label: "Ada Lovelace, Oct 20", href: "/pricing?camox-draft=d1" };
+
+  const empty = renderToString(
+    <ThreadMessages view={{ messages: [], running: false }} continuedIn={continuedIn} />,
+  );
+  const answered = renderToString(
+    <ThreadMessages
+      view={{
+        running: false,
+        messages: [
+          { id: "1", from: "editor", sender: editor, text: "What do plans cost?" },
+          { id: "2", from: "agent", text: "Plans start at $9." },
+        ],
+      }}
+      continuedIn={continuedIn}
+    />,
+  );
+
+  for (const html of [empty, answered]) {
+    assert.match(
+      html,
+      /Continued in(<!-- -->)? <a [^>]*href="\/pricing\?camox-draft=d1"[^>]*>Ada Lovelace, Oct 20<\/a>/,
+    );
+  }
+});
+
 void test("a message still on its way to the thread shows the agent working before its run starts", () => {
   const html = renderToString(<ThreadMessages view={{ messages: [], running: false }} sending />);
 

@@ -77,6 +77,29 @@ void test("the first content write on Live enters the draft it started once it s
   assert.deepEqual(draftScope.requestHeaders(true).headers, { [DRAFT_HEADER]: draftId });
 });
 
+void test("a draft the studio's Live thread started is entered as a first write's, from what Live showed", () => {
+  const { draftScope, queryClient, browser, changes } = openScope("https://site.test/about#hero");
+  queryClient.setQueryData(inScope(block, null), { title: "Shown on Live" });
+  const draftId = "019a0000-0000-7000-8000-000000000001";
+
+  assert.equal(draftScope.enterStarted(draftId), true);
+
+  assert.equal(draftScope.current(), draftId);
+  assert.equal(browser.location.href, `https://site.test/about?camox-draft=${draftId}#hero`);
+  assert.deepEqual(changes, [{ draftId, move: "started" }]);
+  assert.deepEqual(queryClient.getQueryData(inScope(block, draftId)), { title: "Shown on Live" });
+});
+
+void test("a draft a Live thread started isn't entered once the studio left Live", () => {
+  const { draftScope, browser, changes } = openScope("https://site.test/about?camox-draft=d1");
+
+  assert.equal(draftScope.enterStarted("d2"), false);
+
+  assert.equal(draftScope.current(), "d1");
+  assert.equal(browser.location.href, "https://site.test/about?camox-draft=d1");
+  assert.deepEqual(changes, []);
+});
+
 void test("reads on Live name no draft, and a failed first write leaves the scope on Live", () => {
   const { draftScope, browser } = openScope("https://site.test/about");
 

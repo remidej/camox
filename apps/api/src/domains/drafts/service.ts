@@ -38,18 +38,24 @@ export const findEndedDraft = Effect.fn("findEndedDraft")(function* (
 
 /**
  * Creates a regular draft unless its id is taken or belonged to a draft that ended, so an ended
- * draft never comes back. Whether this call created it.
+ * draft never comes back, with the thread it starts with if any. Whether this call created it.
  */
 export const startDraft = Effect.fn("startDraft")(function* (
   db: ServiceContext["db"],
-  draft: { id: string; projectId: number; createdBy: string; name: string | null },
+  draft: {
+    id: string;
+    projectId: number;
+    createdBy: string;
+    name: string | null;
+    threadId?: string | null;
+  },
 ) {
   // Two requests racing to start the same draft both land here; the primary key keeps one.
   // The insert skips an ended draft's id in the same statement, so it can't race an ending.
   const inserted = yield* Effect.promise(() =>
     db.run(sql`
-      insert into ${drafts} (id, project_id, kind, name, created_by, created_at)
-      select ${draft.id}, ${draft.projectId}, 'regular', ${draft.name}, ${draft.createdBy}, ${Date.now()}
+      insert into ${drafts} (id, project_id, kind, name, created_by, created_at, thread_id)
+      select ${draft.id}, ${draft.projectId}, 'regular', ${draft.name}, ${draft.createdBy}, ${Date.now()}, ${draft.threadId ?? null}
       where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${draft.id})
       on conflict do nothing`),
   );
