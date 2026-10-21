@@ -39,8 +39,8 @@ export type UseThreadOptions = {
  * names as the draft header does (`development` in dev mode). A message is resent with its
  * operation id each time the thread shows itself after the socket opens, until it accepts it,
  * which records it once, or turns it down. A thread that ended with its draft isn't reconnected
- * to, but for a development draft's, which moves on to the draft's new thread. Mount it once per
- * project and draft.
+ * to, but for a development draft's or the editor's Live thread, which move on to a new thread.
+ * Mount it once per project and draft.
  *
  * When the Live thread starts a draft, a studio that sent a message of the run that wrote enters
  * the draft with it (`onEnterDraft`), even if it only hears so on reconnecting, from the editor's
@@ -81,7 +81,9 @@ export function useThread(
     shouldReconnectOnClose: (event) => event.code !== THREAD_ENDED_CLOSE_CODE,
     onClose(event) {
       // A development draft stays open, and its new thread starts empty: move on to it at once.
-      if (event.code === THREAD_ENDED_CLOSE_CODE && draftId === DEVELOPMENT_DRAFT) {
+      // So does the editor's Live thread, when the draft its write started ended first.
+      const movesOn = draftId === null || draftId === DEVELOPMENT_DRAFT;
+      if (event.code === THREAD_ENDED_CLOSE_CODE && movesOn) {
         socket.reconnect();
       }
     },

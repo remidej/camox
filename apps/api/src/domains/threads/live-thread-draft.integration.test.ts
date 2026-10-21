@@ -261,7 +261,7 @@ describe("a Live thread starting a draft", () => {
     next.close();
   });
 
-  it("starts another draft when the one it started ended before the thread moved into it", async () => {
+  it("leaves the editor a fresh Live thread when the draft it started ended before the thread moved into it", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     const thread = await connectLiveThread(website.project.id, token);
@@ -270,14 +270,18 @@ describe("a Live thread starting a draft", () => {
     answerNext("Raised the price.");
     await ask(thread, "Raise the price", { keepOpen: true });
     const [discarded] = await draftsOf(website);
+    // The draft took the thread as its own when the write created it: it ends with the draft.
     await discard(website, discarded!.id);
+    thread.close();
     answerWithScript(`
       await tools.createPage({ pathSegment: "launch", layoutId: "default" });
       text("added");
     `);
     answerFrom(({ scriptOutput }) => `The script ${scriptOutput} a launch page.`);
 
-    const view = await ask(thread, "Add a launch page");
+    const next = await connectLiveThread(website.project.id, token);
+    expect(next.view().messages).toEqual([]);
+    const view = await ask(next, "Add a launch page");
 
     expect(lastAnswer(view)).toBe("The script added a launch page.");
     const [draft, ...others] = await draftsOf(website);

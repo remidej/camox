@@ -288,6 +288,17 @@ void test("the studio doesn't reconnect to a draft's thread that ended with the 
   assert.ok(socket() === ended, "the studio left the ended thread closed");
 });
 
+void test("on Live, the studio moves on to the editor's fresh Live thread", async (t) => {
+  // The draft the Live thread's write started ended before the thread moved into it.
+  const { socket } = await studio(t, null);
+  const ended = socket();
+
+  await act(async () => ended.end());
+
+  await waitFor(() => socket() !== ended && socket().readyState === 1, "the studio reconnects");
+  assert.equal(new URL(socket().url).pathname, "/threads/live/1");
+});
+
 void test("in dev mode, the studio moves on to the development draft's new thread", async (t) => {
   const { socket } = await studio(t, "development");
   const ended = socket();

@@ -114,7 +114,7 @@ export const draftThread = Effect.fn("draftThread")(function* (
  * A draft's thread, as a publish or discard ends the draft, read before it does. Its `statements`
  * join the batch ending the draft, letting go of the thread there: a development draft stays
  * open, so the next one to open its thread starts a new one, and a regular draft lets go of it
- * with its row. Once the batch applied, `end` deletes the thread, which wipes what it stored
+ * with its row. An editor whose Live thread it still is gets a fresh one. Once the batch applied, `end` deletes the thread, which wipes what it stored
  * and turns away whatever reaches it after.
  *
  * The draft ended either way, so `end` never fails: a thread it couldn't reach is only reported.
@@ -131,6 +131,12 @@ export const endingThread = Effect.fn("endingThread")(function* (
         .update(drafts)
         .set({ threadId: null })
         .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
+      // A Live thread whose write started the draft is the draft's from then on, even if it
+      // hadn't moved into it yet: its editor's Live thread starts fresh.
+      ctx.db
+        .update(liveThreads)
+        .set({ threadId: generateUuidv7(), createdAt: Date.now(), continuedIn: null })
+        .where(eq(liveThreads.threadId, threadId)),
     ],
     end: Effect.promise(async () => {
       try {
