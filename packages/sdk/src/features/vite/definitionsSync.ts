@@ -72,7 +72,7 @@ function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string)
 }
 
 export async function syncDefinitionsToApi(options: {
-  camoxApp: CamoxApp;
+  camoxApp: Pick<CamoxApp, "getDefinitionSet">;
   projectSlug: string;
   apiUrl: string;
   autoCreate: boolean;
@@ -83,34 +83,12 @@ export async function syncDefinitionsToApi(options: {
   const { camoxApp, projectSlug, autoCreate, deployToken, logger } = options;
   const client = createSyncClient(options);
 
-  const blocks = camoxApp.getBlocks();
-  const layoutDefinitions = camoxApp.getSerializableLayoutDefinitions();
-
-  const typesUsedInLayouts = new Set<string>();
-  for (const layout of layoutDefinitions) {
-    for (const blockDef of layout.blocks) {
-      typesUsedInLayouts.add(blockDef.type);
-    }
-  }
-
-  // layoutOnly blocks are only meaningful when a layout references them —
-  // sync their definitions only in that case. Otherwise the DB accumulates
-  // dead rows for blocks the UI can never instantiate.
-  const definitions = blocks
-    .filter(
-      (block: Block) => !block._internal.layoutOnly || typesUsedInLayouts.has(block._internal.id),
-    )
-    .map((block: Block) => ({
-      blockId: block._internal.id,
-      title: block._internal.title,
-      description: block._internal.description,
-      contentSchema: block._internal.contentSchema,
-      settingsSchema: block._internal.settingsSchema,
-      defaultContent: block._internal.getInitialContent(),
-      defaultSettings: block._internal.getInitialSettings(),
-      layoutOnly: block._internal.layoutOnly || undefined,
-      synced: block._internal.synced,
-    }));
+  const {
+    blocks: definitions,
+    layouts: layoutDefinitions,
+    collections: collectionDefinitions,
+    homepage: initialPage,
+  } = await camoxApp.getDefinitionSet();
 
   let draftCreated = false;
   let deletedDefinitionTypes: string[] = [];
@@ -151,7 +129,7 @@ export async function syncDefinitionsToApi(options: {
     projectSlug,
     deployToken,
     autoCreate,
-    definitions: camoxApp.getSerializableCollectionDefinitions(),
+    definitions: collectionDefinitions,
   });
   logger.info(`[camox] Synced ${collectionResult.count} collection definitions`, {
     timestamp: true,
@@ -221,7 +199,6 @@ export async function syncDefinitionsToApi(options: {
   }
 
   // Initialize content for a fresh project or draft (no-ops if pages already exist)
-  const initialPage = await camoxApp.getInitialPageBundles();
   if (initialPage) {
     try {
       const result = await client.projects.initializeContent({
