@@ -44,7 +44,7 @@ export function isLoopbackUrl(url: URL): boolean {
 
 export async function createPreviewSignInUrl(
   destination: string,
-  target: { projectSlug: string; apiUrl: string },
+  target: { projectUuid: string; apiUrl: string },
   authToken: string,
   signal = AbortSignal.timeout(15_000),
 ): Promise<string> {

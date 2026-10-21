@@ -12,7 +12,7 @@ import {
   personalize,
   readCatalog,
   readWorkspaceCatalog,
-  replaceProjectSlug,
+  replaceProjectId,
 } from "../src/lib/template.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -37,7 +37,7 @@ before(async () => {
     join(source, "vite.config.ts"),
     [
       "export default {",
-      '  projectSlug: "template-slug", // camox-cli:replace-slug',
+      '  projectId: "template-project-id", // camox-cli:replace-project-id',
       "  // camox-cli:dev-only-start",
       "  _internal: { apiUrl: 'http://localhost:8787' },",
       "  // camox-cli:dev-only-end",
@@ -115,7 +115,7 @@ void test("a standalone project depends on the published camox and drops develop
     viteConfig,
     [
       "export default {",
-      '  projectSlug: "template-slug", // camox-cli:replace-slug',
+      '  projectId: "template-project-id", // camox-cli:replace-project-id',
       "  port: 7400,",
       "};",
       "",
@@ -159,10 +159,13 @@ void test("a standalone npm project has no pnpm workspace", async () => {
   assert.equal(pkg.packageManager, "npm@11.6.2");
 });
 
-void test("replacing the slug drops its marker", () => {
+void test("replacing the Project ID drops its marker", () => {
   assert.equal(
-    replaceProjectSlug('  "name": "camox-template-default", // camox-cli:replace-slug\n', "acme"),
-    '  "name": "acme",\n',
+    replaceProjectId(
+      '  "name": "template-project-id", // camox-cli:replace-project-id\n',
+      "acme-id",
+    ),
+    '  "name": "acme-id",\n',
   );
 });
 
@@ -183,17 +186,17 @@ void test("the Template becomes a standalone project with no workspace or develo
   }
 });
 
-void test("a project made from the Template is named after its slug", async () => {
+void test("a project made from the Template is named after its slug and points at its Project ID", async () => {
   const dest = join(root, "personalized");
   copyTemplateSource(join(repoRoot, "apps/template-default"), dest, readWorkspaceCatalog(repoRoot));
   makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
-  personalize(dest, "acme");
+  personalize(dest, { slug: "acme", projectId: "0f8e1b2c-0000-7000-8000-000000000001" });
 
   const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
   assert.equal(pkg.name, "acme");
   for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
     const content = await readFile(join(dest, file), "utf-8");
-    assert.match(content, /"acme"/, file);
-    assert.doesNotMatch(content, /camox-cli:replace-slug/, file);
+    assert.match(content, /"0f8e1b2c-0000-7000-8000-000000000001"/, file);
+    assert.doesNotMatch(content, /camox-cli:replace-project-id/, file);
   }
 });

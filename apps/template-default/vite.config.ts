@@ -19,7 +19,7 @@ export default defineConfig({
     tailwindcss(),
     cloudflare(),
     camox({
-      projectSlug: "camox-template-default-01", // camox-cli:replace-slug
+      projectId: "01a15fff-627c-7e88-83cd-ceb11f804d47", // camox-cli:replace-project-id
       // camox-cli:dev-only-start
       _internal: {
         authenticationUrl: process.env.VITE_DASHBOARD_URL ?? "http://localhost:3274",

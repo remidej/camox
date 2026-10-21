@@ -63,11 +63,11 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
   for (const compact of [true, false]) {
     const client = new QueryClient();
     testStudioCache(client).set(
-      reads.records({ projectSlug: "site", collectionId: "articles" }),
+      reads.records({ projectUuid: "site", collectionId: "articles" }),
       [],
     );
     testStudioCache(client).set(
-      reads.record({ projectSlug: "site", collectionId: "articles", id }),
+      reads.record({ projectUuid: "site", collectionId: "articles", id }),
       {
         id,
       },
@@ -87,7 +87,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         root.render(
           <StudioQueryClientProvider client={client}>
             <DeleteCollectionItemButton
-              projectSlug="site"
+              projectUuid="site"
               collectionId="articles"
               id={id}
               label="Article"
@@ -128,16 +128,16 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         },
       );
       assert.equal(deleted, 1);
-      assert.deepEqual(calls.at(-1), { projectSlug: "site", collectionId: "articles", id });
+      assert.deepEqual(calls.at(-1), { projectUuid: "site", collectionId: "articles", id });
       assert.equal(
         testStudioCache(client).get(
-          reads.record({ projectSlug: "site", collectionId: "articles", id }),
+          reads.record({ projectUuid: "site", collectionId: "articles", id }),
         ),
         undefined,
       );
       assert.equal(
         client.getQueryState(
-          readKey(reads.records({ projectSlug: "site", collectionId: "articles" })),
+          readKey(reads.records({ projectUuid: "site", collectionId: "articles" })),
         )?.isInvalidated,
         true,
       );

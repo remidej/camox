@@ -35,13 +35,13 @@ const DEMO_ARTICLES = [
 const CREATION_GAP_MS = 10;
 
 interface ArticlesScope {
-  projectSlug: string;
+  projectUuid: string;
   collectionId: string;
 }
 
 /** The record endpoints the seeder needs, as exposed by the plugin's authed API client. */
 export interface DemoArticlesContext {
-  projectSlug: string;
+  projectUuid: string;
   logger: { info: (message: string) => void };
   client: {
     collectionDefinitions: {
@@ -52,8 +52,8 @@ export interface DemoArticlesContext {
 }
 
 /** Seeds the demo articles once: a collection that has any article is left alone. */
-export async function seedDemoArticles({ client, projectSlug, logger }: DemoArticlesContext) {
-  const scope = { projectSlug, collectionId: "articles" };
+export async function seedDemoArticles({ client, projectUuid, logger }: DemoArticlesContext) {
+  const scope = { projectUuid, collectionId: "articles" };
   const existing = await client.collectionDefinitions.listRecords(scope);
   if (existing.length > 0) return;
 

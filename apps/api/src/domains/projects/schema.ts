@@ -1,4 +1,5 @@
 import type { PosthogRegion } from "@camox/api-contract/analytics";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { organizationTable } from "../auth/schema";
@@ -6,7 +7,13 @@ import { organizationTable } from "../auth/schema";
 export const projects = sqliteTable(
   "projects",
   {
+    /** The internal key: foreign keys and project rooms use it, code and the platform never do. */
     id: int().primaryKey({ autoIncrement: true }),
+    /**
+     * The project's Project ID: a lowercase UUIDv7, given when the project is created and never
+     * changed. Code and the platform name the project by it (ADR 0004).
+     */
+    uuid: text().notNull().$defaultFn(generateUuidv7),
     slug: text().notNull(),
     name: text().notNull(),
     deployToken: text("deploy_token").notNull().default(""),
@@ -22,6 +29,7 @@ export const projects = sqliteTable(
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [
+    uniqueIndex("projects_uuid_idx").on(table.uuid),
     uniqueIndex("projects_slug_idx").on(table.slug),
     index("projects_organization_idx").on(table.organizationId),
   ],

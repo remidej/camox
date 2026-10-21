@@ -242,7 +242,7 @@ export async function init() {
   // Create project on API
   const s0 = p.spinner();
   s0.start("Creating project...");
-  let project: { slug: string };
+  let project: { slug: string; uuid: string };
   try {
     project = await createProject(auth.token, name, projectSlug, orgId);
     s0.stop(`Project created with slug: ${project.slug}`);
@@ -273,7 +273,7 @@ export async function init() {
     "{{projectName}}": name,
   });
   makeStandalone(targetDir, { camoxVersion: ownPkg.version, packageManager: pm });
-  personalize(targetDir, project.slug);
+  personalize(targetDir, { slug: project.slug, projectId: project.uuid });
 
   s.stop("Project scaffolded!");
 

@@ -94,7 +94,7 @@ function llmsTxt(
 ) {
   return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), {
     apiUrl: "https://api.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () => createApp({ blocks: [], layouts, collections: [articles] }),
     ...options,
   });

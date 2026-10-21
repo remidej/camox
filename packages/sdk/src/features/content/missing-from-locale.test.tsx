@@ -60,7 +60,7 @@ function mockApi(
     const body = request.method === "GET" ? null : ((await request.json()) as { json: unknown });
     calls.push({ path, input: body?.json, locale: request.headers.get(LOCALE_HEADER) });
     const reply = (value: unknown) => Response.json({ json: value });
-    if (path === "projects/getBySlug") return reply(project);
+    if (path === "projects/getByUuid") return reply(project);
     if (path === "locales/listMissing") return reply(current);
     if (path === "locales/addBack") {
       const { id } = body!.json as { id: string };
@@ -99,7 +99,7 @@ async function render(
     authClient: {} as never,
     authenticationUrl: "",
     apiUrl: "http://api.test",
-    projectSlug: project.slug,
+    projectUuid: project.slug,
   };
   const pathname = locale.isDefault
     ? "/camox/content/assets"

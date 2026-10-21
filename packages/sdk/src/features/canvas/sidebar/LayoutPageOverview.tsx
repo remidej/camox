@@ -1,7 +1,7 @@
 import { Alert, AlertDescription, AlertTitle } from "@camox/ui/alert";
 import type * as React from "react";
 
-import { useProjectSlug } from "../../../lib/auth";
+import { useProjectUuid } from "../../../lib/auth";
 import { reads, useRead } from "../../../lib/studio-reads";
 import { LayoutPageBlocks } from "./LayoutPageBlocks";
 import { PageOverview } from "./PageOverview";
@@ -17,8 +17,8 @@ export function LayoutPageOverview({
   layoutId: string;
   notice: { title: string; description: React.ReactNode };
 }) {
-  const projectSlug = useProjectSlug();
-  const layout = useRead(reads.layoutStructure({ projectSlug, layoutId }));
+  const projectUuid = useProjectUuid();
+  const layout = useRead(reads.layoutStructure({ projectUuid, layoutId }));
   return (
     <PageOverview>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">

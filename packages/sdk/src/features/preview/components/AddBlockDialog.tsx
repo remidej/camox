@@ -22,7 +22,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import type { Block } from "@/core/createBlock";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
 import { type BlockBundle, blockMutations } from "@/lib/queries";
 import { useLocalePath } from "@/lib/view-locale";
@@ -49,7 +49,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   const gridRef = React.useRef<HTMLDivElement>(null);
   const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
   const studioCache = useStudioCache();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const pathname = useLocalePath();
 
   const createBlock = useMutation({
@@ -57,7 +57,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     onMutate: (variables) => {
       // Optimistic insert, like useUpdateBlockPosition.
       const edit = studioCache.edit();
-      const page = reads.pageStructure({ path: pathname, projectSlug });
+      const page = reads.pageStructure({ path: pathname, projectUuid });
       const previousPage = edit.get(page);
       if (!previousPage) return { edit };
 
@@ -131,7 +131,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     onSettled: (_data, _error, _variables, context) => context?.edit.settle(),
   });
 
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const availableBlocks = useCamoxApp()
     .getBlocks()
     .filter((b) => !b._internal.layoutOnly);

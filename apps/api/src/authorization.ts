@@ -11,6 +11,7 @@ import {
   type DraftScope,
   type WriteTarget,
 } from "./domains/drafts/scope";
+import { projectNamed, type ProjectRef } from "./domains/projects/ref";
 import {
   ForbiddenError,
   NoDevelopmentDraftError,
@@ -53,12 +54,12 @@ export const recordDefinitionsSynced = (
  */
 export const assertSyncAccess = Effect.fn("assertSyncAccess")(function* (
   db: Database,
-  projectSlug: string,
+  ref: ProjectRef,
   principal: SyncPrincipal,
   { create = false }: { create?: boolean } = {},
 ): Effect.fn.Return<SyncTarget, ServiceError, Journal> {
   const project = yield* Effect.promise(() =>
-    db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
+    db.select().from(projects).where(projectNamed(ref)).get(),
   );
   if (!project) return yield* new NotFoundError();
 

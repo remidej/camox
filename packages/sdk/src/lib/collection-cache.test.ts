@@ -13,14 +13,14 @@ void test("record edits refresh the collection's placements and lists in every s
   const placements: Read<unknown>[] = [
     reads.blockBundle("1"),
     reads.blockBundle("2"),
-    reads.pageStructure({ path: "/", projectSlug: "site" }),
-    reads.layoutStructure({ projectSlug: "site", layoutId: "layout" }),
-    reads.pageList({ projectSlug: "site" }),
-    reads.records({ projectSlug: "site", collectionId: "customers" }),
+    reads.pageStructure({ path: "/", projectUuid: "site" }),
+    reads.layoutStructure({ projectUuid: "site", layoutId: "layout" }),
+    reads.pageList({ projectUuid: "site" }),
+    reads.records({ projectUuid: "site", collectionId: "customers" }),
   ];
   const untouched: Read<unknown>[] = [
-    reads.records({ projectSlug: "other-site", collectionId: "customers" }),
-    reads.records({ projectSlug: "site", collectionId: "articles" }),
+    reads.records({ projectUuid: "other-site", collectionId: "customers" }),
+    reads.records({ projectUuid: "site", collectionId: "articles" }),
   ];
   const scopes = [null, "d1"];
   const invalidated = (read: Read<unknown>, draft: string | null) =>

@@ -35,7 +35,7 @@ function openBrowser(url: string, onError: () => void): void {
 export function installDevSignInLink(
   server: ViteDevServer,
   options: {
-    projectSlug: string;
+    projectUuid: string;
     apiUrl: string;
     authToken: string;
     /** Opt in to opening the generated link; printing remains the default. */
@@ -68,7 +68,7 @@ export function installDevSignInLink(
         const url = await createPreviewSignInUrl(
           destination,
           {
-            projectSlug: options.projectSlug,
+            projectUuid: options.projectUuid,
             apiUrl: options.apiUrl,
           },
           options.authToken,
@@ -110,7 +110,7 @@ export function installDevSignInLink(
         const marker = await open(options.openOnceFile, "wx", 0o600);
         await marker.close();
       } else {
-        const key = JSON.stringify([server.config.root, options.projectSlug]);
+        const key = JSON.stringify([server.config.root, options.projectUuid]);
         if (opened.has(key)) return;
         opened.add(key);
       }

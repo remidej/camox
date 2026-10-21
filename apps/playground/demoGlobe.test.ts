@@ -13,11 +13,11 @@ interface FakeBlock {
 function fakeApi(blocks: FakeBlock[]) {
   const logs: string[] = [];
   const context = {
-    projectSlug: "camox-playground-01",
+    projectUuid: "camox-playground-01",
     logger: { info: (message: string) => logs.push(message) },
     client: {
       pages: {
-        getByPath: async (input: { projectSlug: string; path: string }) => {
+        getByPath: async (input: { projectUuid: string; path: string }) => {
           assert.equal(input.path, "/");
           return { blocks };
         },

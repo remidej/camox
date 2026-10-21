@@ -97,7 +97,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
   const runtimeOptions: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () => app,
     renderPage: async (input) => {
       assert.equal(input.derived?.result?.kind, "data");
@@ -242,7 +242,7 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
     const app = createApp({ blocks: [], layouts: [layout] });
     const runtimeOptions: RuntimeOptions = {
       apiUrl: "https://api.test",
-      projectSlug: "test",
+      projectUuid: "test",
       getCamoxApp: async () => app,
       renderPage: async () => "",
     };
@@ -275,7 +275,7 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
       await assert.rejects(
         handleCamoxRequest(new Request(`https://site.test${path}`), {
           apiUrl: "https://api.test",
-          projectSlug: "test",
+          projectUuid: "test",
           getCamoxApp: async () => app,
           renderPage: async () => "",
         }),
@@ -361,7 +361,7 @@ void test("derived pages get the curated head, built from their loader data", as
   const runtimeOptions: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () => app,
     renderPage: async () => "<main></main>",
   };
@@ -403,7 +403,7 @@ void test("code-owned pages answer Markdown between their live layout blocks, un
       {
         apiUrl: "https://api.test",
         authenticationUrl: "https://auth.test",
-        projectSlug: "test",
+        projectUuid: "test",
         getCamoxApp: async () => app,
         renderPage: async () => "<main>html</main>",
       },

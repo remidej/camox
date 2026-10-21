@@ -121,7 +121,7 @@ field.string({
 Choose one Iconify collection in Vite config:
 
 ```ts
-camox({ projectSlug: "my-project", icons: "lucide" });
+camox({ projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc", icons: "lucide" });
 ```
 
 Declare a non-nullable icon with a required, prefixed default, then render inline SVG:

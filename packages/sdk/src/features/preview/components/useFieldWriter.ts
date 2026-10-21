@@ -7,7 +7,7 @@ import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import { referenceListIds, type ReferenceRecord } from "@/core/lib/reference";
 import { serializeAssetField } from "@/features/content/collection-form";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
   referenceList,
@@ -132,7 +132,7 @@ function applyReferenceListOptimistically(
  */
 export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown): FieldWriter {
   const queryClient = useQueryClient();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const camoxApp = useCamoxApp();
   const updateBlockContent = useMutation(blockMutations.updateContent());
   const updateItemContent = useMutation(repeatableItemMutations.updateContent());
@@ -148,13 +148,13 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         const { record } = target;
         const saving = referenceWritesFor(queryClient)
           .save(record, fieldName, serializeAssetField(fieldType, value), async (input) => {
-            const saved = await editRecord.mutateAsync({ ...input, projectSlug });
+            const saved = await editRecord.mutateAsync({ ...input, projectUuid });
             studioCache.set(
-              reads.record({ projectSlug, collectionId: record.collectionId, id: record.id }),
+              reads.record({ projectUuid, collectionId: record.collectionId, id: record.id }),
               saved,
             );
             // Shared source changes must refresh every placement, not only this block.
-            void invalidateCollectionRecordViews(studioCache, projectSlug, record.collectionId);
+            void invalidateCollectionRecordViews(studioCache, projectUuid, record.collectionId);
             return saved;
           })
           .then(() => undefined);
@@ -174,7 +174,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         const { collectionId = "" } = field;
         const linkRecord = async (recordId: string): Promise<NormalizedCollectionRecord> => {
           const record = await studioCache.ensure(
-            reads.record({ projectSlug, collectionId, id: recordId }),
+            reads.record({ projectUuid, collectionId, id: recordId }),
           );
           const labelField = camoxApp.getCollectionById(collectionId)?._internal.label;
           const label = labelField ? record.content[labelField] : undefined;
@@ -221,7 +221,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       schema,
       queryClient,
       studioCache,
-      projectSlug,
+      projectUuid,
       camoxApp,
       editRecord,
       updateBlockContent,

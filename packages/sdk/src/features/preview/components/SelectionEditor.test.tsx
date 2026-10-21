@@ -304,7 +304,7 @@ async function renderSidebar(
     files: [file],
   } as never);
   testStudioCache(client).set(reads.file(FILE_ID), file as never);
-  testStudioCache(client).set(reads.project({ slug: "site" }), { id: "1" } as never);
+  testStudioCache(client).set(reads.project({ projectUuid: "site" }), { id: "1" } as never);
   // By default every file is used elsewhere, so unlinking never offers to delete it.
   for (const id of [FILE_ID, OTHER_FILE_ID, THIRD_FILE_ID]) {
     testStudioCache(client).set(reads.fileUsageCount(id), options.fileUsage ?? 3);
@@ -315,14 +315,14 @@ async function renderSidebar(
     { id: INITECH, label: "Initech" },
   ];
   testStudioCache(client).set(
-    reads.records({ projectSlug: "site", collectionId: "customers" }),
+    reads.records({ projectUuid: "site", collectionId: "customers" }),
     records as never,
   );
-  testStudioCache(client).set(reads.records({ projectSlug: "site", collectionId: "people" }), [
+  testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "people" }), [
     { id: ADA, label: "Ada Lovelace" },
   ] as never);
   testStudioCache(client).set(
-    reads.collection({ projectSlug: "site", collectionId: "customers" }),
+    reads.collection({ projectUuid: "site", collectionId: "customers" }),
     {
       collectionId: "customers",
       title: "Customers",
@@ -377,7 +377,7 @@ async function renderSidebar(
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
           value={{
-            projectSlug: "site",
+            projectUuid: "site",
             apiUrl: "http://localhost:8788",
             authenticationUrl: "http://localhost:3290",
             authClient: createCamoxAuthClient("http://localhost:8788"),
@@ -393,7 +393,7 @@ async function renderSidebar(
                 </PageRecordContext>
               </PreviewEditingOwnerContext.Provider>
               <SheetProbe />
-              <ContentCollectionItemSheet projectSlug="site" />
+              <ContentCollectionItemSheet projectUuid="site" />
             </CollectionItemSheetProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
@@ -728,7 +728,7 @@ void test("record text field edits are saved to the record", async (t) => {
     {
       procedure: "collectionDefinitions/editRecord",
       input: {
-        projectSlug: "site",
+        projectUuid: "site",
         collectionId: "customers",
         id: ACME,
         content: { ...acmeContent, quote: "Superb" },
@@ -951,7 +951,7 @@ void test("clicking a listed record card opens its record view, whose field edit
     {
       procedure: "collectionDefinitions/editRecord",
       input: {
-        projectSlug: "site",
+        projectUuid: "site",
         collectionId: "customers",
         id: ACME,
         content: { ...acmeContent, quote: "Superb" },
@@ -1113,7 +1113,7 @@ void test("the picker explains when every record is already linked", async (t) =
   const sidebar = await renderSidebar(t, logosField, { logos: [ACME, GLOBEX] });
   await act(async () => {
     testStudioCache(sidebar.client).set(
-      reads.records({ projectSlug: "site", collectionId: "customers" }),
+      reads.records({ projectUuid: "site", collectionId: "customers" }),
       (records: any) => records.slice(0, 2),
     );
   });
@@ -1151,7 +1151,7 @@ void test("Create item prefills the label, appends the saved record, and cancel 
       [
         "collectionDefinitions/createRecord",
         {
-          projectSlug: "site",
+          projectUuid: "site",
           collectionId: "customers",
           content: {
             name: "Hooli",
@@ -1523,7 +1523,7 @@ void test("clicking a query result card opens its record view, whose field edits
     {
       procedure: "collectionDefinitions/editRecord",
       input: {
-        projectSlug: "site",
+        projectUuid: "site",
         collectionId: "customers",
         id: ACME,
         content: { ...acmeContent, quote: "Superb" },
@@ -1586,7 +1586,7 @@ void test("a record page's record field opens the record's fields, saved to the 
     {
       procedure: "collectionDefinitions/editRecord",
       input: {
-        projectSlug: "site",
+        projectUuid: "site",
         collectionId: "customers",
         id: ACME,
         content: { ...acmeContent, quote: "Superb" },

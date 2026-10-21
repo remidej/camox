@@ -58,7 +58,7 @@ registerHooks({
     if (!parents.some((parent) => context.parentURL?.endsWith(parent)))
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
-      "@/lib/auth": "export const useProjectSlug = () => 'test'",
+      "@/lib/auth": "export const useProjectUuid = () => 'test'",
       "@/features/navigation/navigation":
         "export const useLocation = () => '/'; export const useNavigate = () => () => {}",
       "../../features/preview/components/Frame":
@@ -197,7 +197,7 @@ function setup() {
     return renderToStaticMarkup(
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
-          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+          value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}
         >
           <NavigationProvider>
             <CamoxAppProvider app={app}>
@@ -261,7 +261,7 @@ void test("a record page's fields are purple, select its record, and save to it"
   await settle();
   assert.deepEqual(requests, [
     {
-      projectSlug: "test",
+      projectUuid: "test",
       collectionId: "articles",
       id: ARTICLE_ID,
       content: { title: "Edited", slug: "hello", author: AUTHOR_ID },

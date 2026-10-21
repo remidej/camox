@@ -598,34 +598,56 @@ function AnalyticsSection({
   );
 }
 
-function ProjectCredentialsSection({ slug, deployToken }: { slug: string; deployToken: string }) {
+/** A read-only monospace value with a button to copy it. */
+function CopyableValue({ id, value, label }: { id: string; value: string; label: string }) {
+  return (
+    <InputGroup>
+      <InputGroupInput id={id} readOnly value={value} className="font-mono" />
+      <InputGroupAddon align="inline-end">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <InputGroupButton
+                size="icon-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(value);
+                  toast.success(`${label} copied to clipboard`);
+                }}
+              />
+            }
+          >
+            <CopyIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent>Copy {label}</TooltipContent>
+        </Tooltip>
+      </InputGroupAddon>
+    </InputGroup>
+  );
+}
+
+function ProjectCredentialsSection({
+  projectId,
+  slug,
+  deployToken,
+}: {
+  projectId: string;
+  slug: string;
+  deployToken: string;
+}) {
   const [revealed, setRevealed] = useState(false);
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
+        <Label htmlFor="project-id">Project ID</Label>
+        <p className="text-muted-foreground text-sm">
+          Your website's code names this project by its Project ID. It never changes.
+        </p>
+        <CopyableValue id="project-id" value={projectId} label="Project ID" />
+      </div>
+      <div className="space-y-2">
         <Label htmlFor="project-slug">Project slug</Label>
-        <InputGroup>
-          <InputGroupInput id="project-slug" readOnly value={slug} className="font-mono" />
-          <InputGroupAddon align="inline-end">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <InputGroupButton
-                    size="icon-xs"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(slug);
-                      toast.success("Slug copied to clipboard");
-                    }}
-                  />
-                }
-              >
-                <CopyIcon className="size-4" />
-              </TooltipTrigger>
-              <TooltipContent>Copy slug</TooltipContent>
-            </Tooltip>
-          </InputGroupAddon>
-        </InputGroup>
+        <CopyableValue id="project-slug" value={slug} label="slug" />
       </div>
       <div className="space-y-2">
         <Label htmlFor="deploy-token">Deploy token</Label>
@@ -761,9 +783,13 @@ function ProjectSettingsPage() {
       </Section>
       <Section
         title="Project credentials"
-        description="The token used by CI to prepare production releases."
+        description="How your website's code names this project, and the token CI uses to prepare production releases."
       >
-        <ProjectCredentialsSection slug={project.slug} deployToken={project.deployToken} />
+        <ProjectCredentialsSection
+          projectId={project.uuid}
+          slug={project.slug}
+          deployToken={project.deployToken}
+        />
       </Section>
       <Section title="Danger zone" description="Irreversible and destructive actions.">
         <DeleteProjectSection project={project} />

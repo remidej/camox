@@ -134,7 +134,7 @@ src/routeTree.gen.ts
 /**
  * Turns a copy made by `copyTemplateSource` into a project that installs on its own: it depends
  * on the published `camox` instead of the workspace's, and loses the lines that only make sense
- * in the monorepo (marked `camox-cli:dev-only`). Project-specific values, such as the slug and the
+ * in the monorepo (marked `camox-cli:dev-only`). Project-specific values, such as the Project ID and the
  * `{{projectName}}` placeholders, are left for whoever creates the project.
  */
 export function makeStandalone(
@@ -160,18 +160,27 @@ export function makeStandalone(
   createAgentSkillLinks(dir);
 }
 
-/** Replaces the Template's placeholder slug, marked by a comment this drops. */
-export function replaceProjectSlug(source: string, slug: string) {
-  return source.replace(/"[^"]*"(,?)[ \t]*\/\/[ \t]*camox-cli:replace-slug.*$/gm, `"${slug}"$1`);
+/** Replaces the Template's placeholder Project ID, marked by a comment this drops. */
+export function replaceProjectId(source: string, projectId: string) {
+  return source.replace(
+    /"[^"]*"(,?)[ \t]*\/\/[ \t]*camox-cli:replace-project-id.*$/gm,
+    `"${projectId}"$1`,
+  );
 }
 
-/** Names a standalone project, and the Worker it deploys as, after its slug. */
-export function personalize(dir: string, slug: string) {
+/**
+ * Names a standalone project's package after its slug, and points it, and the Worker it deploys
+ * as, at its Project ID, which the dispatch Worker calls.
+ */
+export function personalize(dir: string, project: { slug: string; projectId: string }) {
   updatePackageJson(dir, (pkg) => {
-    pkg.name = slug;
+    pkg.name = project.slug;
   });
   for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
     const filePath = path.join(dir, file);
-    fs.writeFileSync(filePath, replaceProjectSlug(fs.readFileSync(filePath, "utf-8"), slug));
+    fs.writeFileSync(
+      filePath,
+      replaceProjectId(fs.readFileSync(filePath, "utf-8"), project.projectId),
+    );
   }
 }

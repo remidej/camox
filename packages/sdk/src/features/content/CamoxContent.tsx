@@ -7,7 +7,7 @@ import {
   STUDIO_ASSETS_PATH,
   STUDIO_CONTENT_PATH,
 } from "@/features/studio/routes";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
@@ -45,7 +45,7 @@ export const CamoxContent = () => {
 };
 
 const ExperimentalContent = () => {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const navigate = useNavigate();
   const pathname = useLocalePath();
   const localized = useLocalizedPath();
@@ -54,7 +54,7 @@ const ExperimentalContent = () => {
     data: collections = [],
     isError,
     isPending,
-  } = useReadQuery(reads.collectionList({ projectSlug }));
+  } = useReadQuery(reads.collectionList({ projectUuid }));
   const collection = collections.find((entry) => entry.collectionId === route?.collectionId);
   const routeTarget =
     route && (route.isNew || route.itemId)
@@ -84,14 +84,14 @@ const ExperimentalContent = () => {
         ) : collection ? (
           <ContentCollection
             key={collection.collectionId}
-            projectSlug={projectSlug}
+            projectUuid={projectUuid}
             collection={collection}
           />
         ) : (
           <ContentAssets />
         )}
       </div>
-      <ContentCollectionItemSheet projectSlug={projectSlug} />
+      <ContentCollectionItemSheet projectUuid={projectUuid} />
     </CollectionItemSheetProvider>
   );
 };

@@ -26,7 +26,7 @@ import { Check, ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -55,10 +55,10 @@ const PagePicker = () => {
   const [layoutToPreview, setLayoutToPreview] = React.useState<Layout | null>(null);
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
 
-  const projectSlug = useProjectSlug();
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const projectUuid = useProjectUuid();
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const deletePage = useMutation(pageMutations.delete());
-  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
+  const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
   const pathname = useLocalePath();
@@ -302,7 +302,7 @@ const PagePicker = () => {
         <DerivedLayoutDialog
           key={layoutToPreview._internal.id}
           layout={layoutToPreview}
-          projectSlug={projectSlug}
+          projectUuid={projectUuid}
           currentParams={
             currentDerived?.layout._internal.id === layoutToPreview._internal.id
               ? currentDerived.params

@@ -5,7 +5,7 @@
 - **The CLI's copy.** `sync-templates.mjs` copies the Template into `templates/default` when the CLI builds, and `camox init` turns that copy into a project.
 - **`template-default` on Cloudflare Artifacts**, the read-only repo that new projects fork. `refresh-template-artifacts.mjs` copies the Template at the published SDK version, commits it with a `pnpm-lock.yaml`, checks that a fresh clone installs with `pnpm install --frozen-lockfile`, then pushes to `main`. When nothing changed, it pushes nothing.
 
-Either way, the copy depends on the published `camox` instead of `workspace:*`, its `catalog:` ranges are replaced with the workspace catalog's, and the lines between `camox-cli:dev-only-start` and `camox-cli:dev-only-end` are dropped. The `camox-cli:replace-slug` markers and the `{{projectName}}` placeholders stay in `template-default`, for whoever creates a project from it.
+Either way, the copy depends on the published `camox` instead of `workspace:*`, its `catalog:` ranges are replaced with the workspace catalog's, and the lines between `camox-cli:dev-only-start` and `camox-cli:dev-only-end` are dropped. The `camox-cli:replace-project-id` markers and the `{{projectName}}` placeholders stay in `template-default`, for whoever creates a project from it.
 
 ## Refreshing `template-default`
 
@@ -17,7 +17,7 @@ To refresh it by hand, from the repository root:
 CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… node packages/cli/scripts/refresh-template-artifacts.mjs
 ```
 
-It uses `packages/sdk`'s version, which must be published; pass `--camox-version` for another. `--remote` pushes to any other Git remote instead, such as a local bare repo, which is what its test does (`test/network/refresh-template-artifacts.test.mjs`). That test installs from npm, so it stays out of `pnpm test`: run it with `pnpm --filter @camox/cli test:network`, as PR CI does.
+It uses `packages/sdk`'s version, which must be published; pass `--camox-version` for another. `--remote` pushes to any other Git remote instead, such as a local bare repo, which is what its test does (`test/network/refresh-template-artifacts.test.mjs`). That test installs from npm, so it stays out of `pnpm test`: run it with `pnpm --filter @camox/cli test:network`, as the deploy workflow does before changing production.
 
 ## Cloudflare setup
 

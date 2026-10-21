@@ -35,7 +35,7 @@ for (const base of ["", "/mounted"]) {
       presentation: "studio",
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
       href: window.location.href,
       pathname: "/",
       runtimeBasePath: base,

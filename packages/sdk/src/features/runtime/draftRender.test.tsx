@@ -42,7 +42,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     const url = new URL(request.url);
     const source = request.headers.get(DRAFT_HEADER) ? "Draft title" : "Live title";
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
-    if (url.pathname.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (url.pathname.endsWith("/getByUuid")) return Response.json({ json: project });
     if (url.pathname.endsWith("/listBySlug"))
       return pageListResponse([
         { id: pageId, fullPath: "/", pathSegment: "", updatedAt: 1, layoutId: null },
@@ -86,7 +86,7 @@ async function request(path: string) {
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
       getCamoxApp: async () => camoxApp,
       renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
     },

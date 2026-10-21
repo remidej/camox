@@ -36,7 +36,7 @@ function mockApi(
     if (session && session !== "valid") return unauthorized();
     if (request.headers.get("x-camox-draft") && !session) return unauthorized();
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
-    if (url.pathname.endsWith("/getBySlug")) {
+    if (url.pathname.endsWith("/getByUuid")) {
       if (!session) return unauthorized();
       return Response.json({ json: project });
     }
@@ -92,7 +92,7 @@ const hero = { _internal: { id: "hero", title: "Hero" } };
 const runtimeOptions: RuntimeOptions = {
   apiUrl: "https://api.test",
   authenticationUrl: "https://auth.test",
-  projectSlug: "test",
+  projectUuid: "test",
   pageClientEntryUrl: "/client.js",
   getCamoxApp: async () =>
     ({

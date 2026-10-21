@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import { useLocation } from "../../features/navigation/navigation";
-import { useProjectSlug } from "../../lib/auth";
+import { useProjectUuid } from "../../lib/auth";
 import { useLinkPages } from "../../lib/link-pages";
 import { resolveAssetValue, useNormalizedData } from "../../lib/normalized-data";
 import { fieldPlainText } from "../recordItem";
@@ -35,7 +35,7 @@ function useFieldValue(name: string) {
 
 const Field = ({ name, textStyle, linkStyle, children }: any) => {
   const value = useFieldValue(name);
-  const pages = useLinkPages(useProjectSlug());
+  const pages = useLinkPages(useProjectUuid());
   const pathname = useLocation({ select: (location) => location.pathname });
   return children(
     {

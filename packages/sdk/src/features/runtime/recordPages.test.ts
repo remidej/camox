@@ -97,7 +97,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
         { status: 401 },
       );
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
-    if (url.pathname.endsWith("/getBySlug"))
+    if (url.pathname.endsWith("/getByUuid"))
       return Response.json({ json: { id: 1, name: "Real project", slug: "test", updatedAt: 1 } });
     if (url.pathname.endsWith("/listBySlug")) return pageListResponse();
     if (url.pathname.endsWith("/getByPath"))
@@ -128,10 +128,10 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
       });
     if (url.pathname.endsWith("/collectionDefinitions/findRecordsByField")) {
       const { json: input } = (await request.json()) as {
-        json: { projectSlug: string; collectionId: string; field: "slug"; value: string };
+        json: { projectUuid: string; collectionId: string; field: "slug"; value: string };
       };
       lookups.push(input);
-      assert.equal(input.projectSlug, "test");
+      assert.equal(input.projectUuid, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
         json: apiRecords.filter((record) => record.content[input.field] === input.value),
@@ -139,10 +139,10 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
     }
     if (url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) {
       const { json: input } = (await request.json()) as {
-        json: { projectSlug: string; collectionId: string; field: "slug" };
+        json: { projectUuid: string; collectionId: string; field: "slug" };
       };
       lookups.push(input);
-      assert.equal(input.projectSlug, "test");
+      assert.equal(input.projectUuid, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
         json: apiRecords.map((record) => ({
@@ -179,7 +179,7 @@ function request(
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     getCamoxApp: async () =>
       createApp({ blocks: [], layouts: layout, collections: [articles, authors] }),
     renderPage: async (input) => `<main>${JSON.stringify(input.derived?.result)}</main>`,
@@ -484,7 +484,7 @@ void test("toMarkdown fills the record's fields between the live layout blocks, 
   assert.equal(markdownBody(await response!.text()), "Navbar\n\n# First title\n\nFooter");
   assert.deepEqual(lookups.markdownRequests, [
     {
-      projectSlug: "test",
+      projectUuid: "test",
       collectionId: "articles",
       id: FIRST_ID,
       toMarkdown: ["# {{title}}", "By {{author.name}}", FIRST_ID],

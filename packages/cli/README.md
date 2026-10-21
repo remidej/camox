@@ -107,8 +107,8 @@ camox pages set-seo --id "$PAGE_ID" --ai-seo off
   values. Use `pages get` to inspect them later.
 - Changes are visible in your development draft right away, and reach Live
   when you publish it.
-- Commands support `--project SLUG` and `--json`, with structured JSON
-  output/errors.
+- Commands support `--project PROJECT` (a Project ID or Project Slug) and
+  `--json`, with structured JSON output/errors.
 
 See `camox pages update --help` for options and examples.
 
@@ -213,8 +213,8 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
 - Failed replacements leave the original file unchanged and remove the unused
   uploaded binary. After a network timeout, use `files get --id ID` before retrying
   because the server may already have completed the operation.
-- All commands support `--project SLUG` and `--json`. IDs are scoped to the
-  selected project.
+- All commands support `--project PROJECT` (a Project ID or Project Slug) and
+  `--json`. IDs are scoped to the selected project.
 - Uploads return the stored file record, including `id`, `url`, `mimeType`, `alt`,
   and `aiMetadata`. Output is JSON; errors are structured JSON on stderr.
 - Files are limited to 100 MiB. URL downloads allow at most five redirects and

@@ -59,6 +59,11 @@ jobs:
 
       - run: pnpm test
 
+      - run: pnpm --filter @camox/template-default test:production
+
+      # Refreshes a local stand-in for template-default, installing from npm.
+      - run: pnpm --filter @camox/cli test:network
+
       - name: Build dashboard
         run: pnpm nx run dashboard:build
         env:

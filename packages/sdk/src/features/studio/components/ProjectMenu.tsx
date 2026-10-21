@@ -33,7 +33,7 @@ export const Favicon = ({ project, size = 16 }: { project: Project; size?: numbe
 
 export const ProjectMenu = () => {
   const authCtx = React.useContext(AuthContext);
-  const { data: project } = useReadQuery(reads.project({ slug: authCtx!.projectSlug }));
+  const { data: project } = useReadQuery(reads.project({ projectUuid: authCtx!.projectUuid }));
   const [isFaviconDialogOpen, setIsFaviconDialogOpen] = React.useState(false);
 
   if (!project) {

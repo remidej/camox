@@ -8,7 +8,7 @@ import { createServerApiClient } from "../../lib/api-client-server";
 const SYNC_DEBOUNCE_DELAY_MS = 100;
 
 interface SyncDefinitionsOptions {
-  projectSlug: string;
+  projectUuid: string;
   apiUrl: string;
   autoCreate: boolean;
   authToken?: string;
@@ -52,14 +52,14 @@ function isNotFoundError(error: unknown): boolean {
  * A sync that may not create the development draft finds nothing to write to: a release names a
  * project that doesn't exist, or dev mode has no development draft yet (ADR 0006).
  */
-function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string): never {
+function throwSyncTargetNotFoundError(projectUuid: string, deployToken?: string): never {
   if (deployToken) {
     throw new Error(
-      `[camox] Project "${projectSlug}" does not exist. Check the camox() projectSlug.`,
+      `[camox] No project has the Project ID "${projectUuid}". Check the camox() projectId.`,
     );
   }
   throw new Error(
-    `[camox] You have no development draft in project "${projectSlug}" yet. ` +
+    `[camox] You have no development draft in the project with Project ID "${projectUuid}" yet. ` +
       `Run the dev server while authenticated to create it first.`,
   );
 }
@@ -80,23 +80,23 @@ function quoted(names: readonly string[]) {
  */
 export async function syncDefinitionsToApi(options: {
   definitionSet: DefinitionSet;
-  projectSlug: string;
+  projectUuid: string;
   apiUrl: string;
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
   logger: Logger;
 }): Promise<void> {
-  const { definitionSet, projectSlug, autoCreate, deployToken, logger } = options;
+  const { definitionSet, projectUuid, autoCreate, deployToken, logger } = options;
   const client = createSyncClient(options);
 
   let result;
   try {
-    result = await client.definitions.sync({ projectSlug, deployToken, autoCreate, definitionSet });
+    result = await client.definitions.sync({ projectUuid, deployToken, autoCreate, definitionSet });
   } catch (error) {
     throwIfSyncAuthError(error);
     if (!autoCreate && isNotFoundError(error))
-      throwSyncTargetNotFoundError(projectSlug, deployToken);
+      throwSyncTargetNotFoundError(projectUuid, deployToken);
     throw error;
   }
   if (result.draftCreated) {
@@ -253,8 +253,8 @@ function isScriptFile(file: string): boolean {
 }
 
 /** Whether a project's Live has no pages, as on a fresh database. */
-async function liveHasNoPages(apiUrl: string, projectSlug: string): Promise<boolean> {
-  const { pages } = await createServerApiClient(apiUrl).pages.listBySlug({ projectSlug });
+async function liveHasNoPages(apiUrl: string, projectUuid: string): Promise<boolean> {
+  const { pages } = await createServerApiClient(apiUrl).pages.listBySlug({ projectUuid });
   return pages.length === 0;
 }
 
@@ -268,7 +268,7 @@ export async function syncDefinitions(
   server: ViteDevServer,
   options: SyncDefinitionsOptions,
 ): Promise<{ synced: boolean; releasedToLive: boolean }> {
-  const { projectSlug, apiUrl, autoCreate, authToken, deployToken, releaseToEmptyLive } = options;
+  const { projectUuid, apiUrl, autoCreate, authToken, deployToken, releaseToEmptyLive } = options;
   const logger = server.config.logger;
 
   /** What the development draft last received, so an unchanged set isn't sent again. */
@@ -282,11 +282,11 @@ export async function syncDefinitions(
 
     // Release before the dev sync: the development draft then sees Live's layout blocks and
     // homepage, instead of seeding its own copies that publishing would duplicate.
-    if (initial && releaseToEmptyLive && (await liveHasNoPages(apiUrl, projectSlug))) {
+    if (initial && releaseToEmptyLive && (await liveHasNoPages(apiUrl, projectUuid))) {
       logger.info("[camox] Live is empty: releasing your definitions to it", { timestamp: true });
       await syncDefinitionsToApi({
         definitionSet,
-        projectSlug,
+        projectUuid,
         apiUrl,
         autoCreate: false,
         deployToken: releaseToEmptyLive,
@@ -297,7 +297,7 @@ export async function syncDefinitions(
 
     await syncDefinitionsToApi({
       definitionSet,
-      projectSlug,
+      projectUuid,
       apiUrl,
       autoCreate,
       authToken,

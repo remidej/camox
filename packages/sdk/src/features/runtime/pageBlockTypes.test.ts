@@ -10,7 +10,7 @@ import { getPageBlockTypes } from "./pageBlockTypes";
 /** The render input of a page whose blocks have these types, read in full on the server. */
 function seededState(types: string[]) {
   const queryClient = new QueryClient();
-  testStudioCache(queryClient).land(reads.pageStructure({ path: "/", projectSlug: "site" }), {
+  testStudioCache(queryClient).land(reads.pageStructure({ path: "/", projectUuid: "site" }), {
     page: { id: "page-1" },
     blocks: types.map((type, id) => ({ id: `block-${id}`, type, content: {}, settings: {} })),
     files: [],

@@ -8,10 +8,9 @@ import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, asCliError, parseJsonFlag, printError } from "../lib/output";
-import { cwdFlag, localeFlag } from "../lib/runtime-options";
+import { cwdFlag, localeFlag, projectFlag } from "../lib/runtime-options";
 import { uuidv7 } from "../lib/uuidv7";
 
-const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
 const fieldFileFlag = multiple(
   option("--field-file", string({ metavar: "NAME=PATH" }), {

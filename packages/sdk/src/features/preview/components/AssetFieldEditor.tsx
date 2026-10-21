@@ -6,7 +6,7 @@ import { transformImageUrl } from "@/core/lib/imageTransform";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { UploadItemRow } from "@/features/content/components/UploadProgressDrawer";
 import { type UploadItem, useFileUpload } from "@/hooks/use-file-upload";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { type File } from "@/lib/queries";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
@@ -113,8 +113,8 @@ const SingleAssetFieldEditor = ({
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const isImage = assetType === "Image";
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const projectSlug = useProjectSlug();
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const projectUuid = useProjectUuid();
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
 
   const { uploads, uploadFiles } = useFileUpload({
     projectId: project?.id,

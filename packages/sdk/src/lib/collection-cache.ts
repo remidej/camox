@@ -8,7 +8,7 @@ import type { StudioCache } from "./studio-reads";
  */
 export function invalidateCollectionRecordViews(
   studioCache: StudioCache,
-  projectSlug: string,
+  projectUuid: string,
   collectionId: string,
 ) {
   return studioCache.receive(
@@ -17,7 +17,7 @@ export function invalidateCollectionRecordViews(
       // A Live change: other drafts read the records Live shows wherever they change none.
       draftId: null,
       targets: [
-        queryKeys.collections.records(projectSlug, collectionId),
+        queryKeys.collections.records(projectUuid, collectionId),
         ["camox", "blocks"],
         queryKeys.pages.getByPathAll,
         queryKeys.pages.list,

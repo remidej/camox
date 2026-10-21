@@ -28,21 +28,29 @@ describe("page persistence", () => {
     });
     await expect(
       runService(
-        assertSyncAccess(db, project.slug, {
-          user: null,
-          draft: null,
-          deployToken: "test-deploy-token",
-        }),
+        assertSyncAccess(
+          db,
+          { projectSlug: project.slug },
+          {
+            user: null,
+            draft: null,
+            deployToken: "test-deploy-token",
+          },
+        ),
       ),
     ).resolves.toMatchObject({ project: { id: project.id }, scope: null });
     // A release writes Live: a deploy token naming a draft is refused.
     await expect(
       runService(
-        assertSyncAccess(db, project.slug, {
-          user: null,
-          draft: { development: true },
-          deployToken: "test-deploy-token",
-        }),
+        assertSyncAccess(
+          db,
+          { projectSlug: project.slug },
+          {
+            user: null,
+            draft: { development: true },
+            deployToken: "test-deploy-token",
+          },
+        ),
       ),
     ).rejects.toMatchObject({ status: 403 });
   });

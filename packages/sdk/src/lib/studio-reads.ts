@@ -141,11 +141,11 @@ export type LayoutStructure = LayoutRead["layout"];
 const usageCountsPrefix = queryKeys.blocks.getUsageCounts;
 const collectionsPrefix = ["camox", "collections"] satisfies QueryKey;
 
-type LayoutStructureParams = { projectSlug: string; layoutId: string };
+type LayoutStructureParams = { projectUuid: string; layoutId: string };
 const loadLayout = (
   { api, signal }: FetchContext,
-  { projectSlug, layoutId }: LayoutStructureParams,
-) => api.layouts.get({ projectSlug, layoutId }, { signal });
+  { projectUuid, layoutId }: LayoutStructureParams,
+) => api.layouts.get({ projectUuid, layoutId }, { signal });
 const landLayout = (layout: LayoutRead, fill: FetchContext["fill"]) => {
   fillBlocks(layout, fill);
   return layout.layout;
@@ -153,10 +153,11 @@ const landLayout = (layout: LayoutRead, fill: FetchContext["fill"]) => {
 
 export const reads = {
   /** The project, the same in every draft. */
-  project: entry<{ slug: string }, Project>({
-    key: ({ slug }) => ["camox", "projects", "getBySlug", slug],
+  project: entry<{ projectUuid: string }, Project>({
+    key: ({ projectUuid }) => ["camox", "projects", "getByUuid", projectUuid],
     shared: true,
-    fetch: ({ api, signal }, { slug }) => api.projects.getBySlug({ slug }, { signal }),
+    fetch: ({ api, signal }, { projectUuid }) =>
+      api.projects.getByUuid({ projectUuid }, { signal }),
     staleTime: Infinity,
   }),
 
@@ -177,10 +178,10 @@ export const reads = {
     fetch: ({ api, signal }, { projectId }) => api.locales.listMissing({ projectId }, { signal }),
   }),
 
-  pageList: entry<{ projectSlug: string }, Page[]>({
+  pageList: entry<{ projectUuid: string }, Page[]>({
     key: () => queryKeys.pages.list,
-    fetch: async ({ api, signal }, { projectSlug }) =>
-      (await api.pages.listBySlug({ projectSlug }, { signal })).pages,
+    fetch: async ({ api, signal }, { projectUuid }) =>
+      (await api.pages.listBySlug({ projectUuid }, { signal })).pages,
     staleTime: Infinity,
   }),
 
@@ -188,13 +189,13 @@ export const reads = {
    * A page's structure, without its blocks. Loaded in full, its blocks, files and the records
    * they link fill in their own reads; a refetch reads the structure alone.
    */
-  pageStructure: entry<{ path: string; projectSlug: string }, PageStructure, PageWithBlocks>({
+  pageStructure: entry<{ path: string; projectUuid: string }, PageStructure, PageWithBlocks>({
     key: ({ path }) => queryKeys.pages.getByPath(path),
-    fetch: ({ api, signal }, { path, projectSlug }) =>
-      api.pages.getStructure({ path, projectSlug }, { signal }),
+    fetch: ({ api, signal }, { path, projectUuid }) =>
+      api.pages.getStructure({ path, projectUuid }, { signal }),
     full: {
-      load: ({ api, signal }, { path, projectSlug }) =>
-        api.pages.getByPath({ path, projectSlug }, { signal }),
+      load: ({ api, signal }, { path, projectUuid }) =>
+        api.pages.getByPath({ path, projectUuid }, { signal }),
       land: (page, fill) => {
         fillBlocks(page, fill);
         return {
@@ -216,7 +217,7 @@ export const reads = {
 
   /** A layout's structure, for any layout page; its blocks fill in their own reads. */
   layoutStructure: entry<LayoutStructureParams, LayoutStructure, LayoutRead>({
-    key: ({ projectSlug, layoutId }) => [...queryKeys.layouts.all, "get", projectSlug, layoutId],
+    key: ({ projectUuid, layoutId }) => [...queryKeys.layouts.all, "get", projectUuid, layoutId],
     fetch: async (context, params) => landLayout(await loadLayout(context, params), context.fill),
     full: { load: loadLayout, land: landLayout },
     staleTime: Infinity,
@@ -300,38 +301,38 @@ export const reads = {
     staleTime: Infinity,
   }),
 
-  collectionList: entry<{ projectSlug: string }, CollectionDefinition[]>({
-    key: ({ projectSlug }) => [...collectionsPrefix, "list", projectSlug],
-    fetch: ({ api, signal }, { projectSlug }) =>
-      api.collectionDefinitions.list({ projectSlug }, { signal }),
+  collectionList: entry<{ projectUuid: string }, CollectionDefinition[]>({
+    key: ({ projectUuid }) => [...collectionsPrefix, "list", projectUuid],
+    fetch: ({ api, signal }, { projectUuid }) =>
+      api.collectionDefinitions.list({ projectUuid }, { signal }),
   }),
 
-  collection: entry<{ projectSlug: string; collectionId: string }, CollectionDetail>({
-    key: ({ projectSlug, collectionId }) => [
+  collection: entry<{ projectUuid: string; collectionId: string }, CollectionDetail>({
+    key: ({ projectUuid, collectionId }) => [
       ...collectionsPrefix,
       "get",
-      projectSlug,
+      projectUuid,
       collectionId,
     ],
     fetch: ({ api, signal }, input) => api.collectionDefinitions.get(input, { signal }),
   }),
 
-  record: entry<{ projectSlug: string; collectionId: string; id: string }, CollectionRecord>({
-    key: ({ projectSlug, collectionId, id }) =>
-      queryKeys.collections.record(projectSlug, collectionId, id),
+  record: entry<{ projectUuid: string; collectionId: string; id: string }, CollectionRecord>({
+    key: ({ projectUuid, collectionId, id }) =>
+      queryKeys.collections.record(projectUuid, collectionId, id),
     fetch: ({ api, signal }, input) => api.collectionDefinitions.getRecord(input, { signal }),
   }),
 
-  records: entry<{ projectSlug: string; collectionId: string }, CollectionRecords>({
-    key: ({ projectSlug, collectionId }) =>
-      queryKeys.collections.records(projectSlug, collectionId),
+  records: entry<{ projectUuid: string; collectionId: string }, CollectionRecords>({
+    key: ({ projectUuid, collectionId }) =>
+      queryKeys.collections.records(projectUuid, collectionId),
     fetch: ({ api, signal }, input) => api.collectionDefinitions.listRecords(input, { signal }),
   }),
 
   /** How many blocks, repeatable items and records reference a record. */
-  recordUsageCount: entry<{ projectSlug: string; collectionId: string; id: string }, number>({
-    key: ({ projectSlug, collectionId, id }) => [
-      ...queryKeys.collections.record(projectSlug, collectionId, id),
+  recordUsageCount: entry<{ projectUuid: string; collectionId: string; id: string }, number>({
+    key: ({ projectUuid, collectionId, id }) => [
+      ...queryKeys.collections.record(projectUuid, collectionId, id),
       "usageCount",
     ],
     fetch: async ({ api, signal }, input) =>
@@ -369,17 +370,17 @@ export const reads = {
    * the selected page's sidebar reads it too.
    */
   canvasFrame: entry<CanvasFrameParams, PageRenderInput>({
-    key: ({ projectSlug, runtimeBasePath, pathname, derivedLayoutId }) =>
+    key: ({ projectUuid, runtimeBasePath, pathname, derivedLayoutId }) =>
       derivedLayoutId
         ? [
             ...queryKeys.layouts.all,
             "canvas",
-            projectSlug,
+            projectUuid,
             runtimeBasePath,
             pathname,
             derivedLayoutId,
           ]
-        : [...queryKeys.pages.getByPath(pathname), "canvas", projectSlug, runtimeBasePath],
+        : [...queryKeys.pages.getByPath(pathname), "canvas", projectUuid, runtimeBasePath],
     fetch: async (context, { runtimeBasePath, pathname, derivedLayoutId }) => {
       const input = await readRender(context, runtimeBasePath, pathname);
       if (!input) throw new Error(`Could not load ${pathname} (404).`);
@@ -393,10 +394,10 @@ export const reads = {
 
   /** A code-owned page's loader result, which record edits and publication reload. */
   derivedPageData: entry<DerivedPageParams, AnyLayoutLoaderResult | null>({
-    key: ({ projectSlug, runtimeBasePath, pathname }) => [
+    key: ({ projectUuid, runtimeBasePath, pathname }) => [
       ...queryKeys.layouts.all,
       "data",
-      projectSlug,
+      projectUuid,
       runtimeBasePath,
       pathname,
     ],
@@ -412,13 +413,13 @@ export const reads = {
    * prefix.
    */
   discoveredPath: entry<
-    { projectSlug: string; runtimeBasePath: string; layoutId: string; recordId?: string },
+    { projectUuid: string; runtimeBasePath: string; layoutId: string; recordId?: string },
     string | null
   >({
-    key: ({ projectSlug, runtimeBasePath, layoutId, recordId }) => [
+    key: ({ projectUuid, runtimeBasePath, layoutId, recordId }) => [
       ...queryKeys.layouts.all,
       "routes",
-      projectSlug,
+      projectUuid,
       runtimeBasePath,
       layoutId,
       ...(recordId ? [recordId] : []),
@@ -447,14 +448,14 @@ type CollectionRecords = Awaited<ReturnType<ApiClient["collectionDefinitions"]["
 type PublishPreview = Awaited<ReturnType<ApiClient["drafts"]["previewPublish"]>>;
 
 export interface CanvasFrameParams {
-  projectSlug: string;
+  projectUuid: string;
   runtimeBasePath: string;
   pathname: string;
   derivedLayoutId?: string;
 }
 
 export interface DerivedPageParams {
-  projectSlug: string;
+  projectUuid: string;
   runtimeBasePath: string;
   pathname: string;
 }

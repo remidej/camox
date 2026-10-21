@@ -76,7 +76,7 @@ export async function openPage(
     presentation: studio ? "studio" : "public",
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     href: new URL(pathname, url).href,
     pathname,
     runtimeBasePath: "",
