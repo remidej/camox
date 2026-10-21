@@ -483,13 +483,19 @@ function CanvasWorkspace({
   const [hover] = React.useState(createCanvasHover);
   const selectedPath = location.pathname;
   const previewedPath = previewPageFrame?.pathname;
+  const follow = React.use(FollowAgentContext);
   // The camera flies to the selected item, unless it is already snapped to it.
-  const selectPage = (pathname: string) => {
+  const goToItem = (pathname: string) => {
     onSelectionIntent(pathname);
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
+  // The editor selecting an item themselves stops following the agent. The Canvas's own
+  // navigations, like the camera leaving a snap as a block reveals itself, don't.
+  const selectPage = (pathname: string) => {
+    follow?.takeOver();
+    goToItem(pathname);
+  };
   const selectBlock = (block: Block) => selectPage(localized(blockCatalogPath(block._internal.id)));
-  const follow = React.use(FollowAgentContext);
   // Frames get selection callbacks that keep their identity across hovers and
   // navigations, so only the frames whose own props change re-render.
   const latestSelect = React.useRef({ selectPage, selectBlock });
@@ -565,7 +571,7 @@ function CanvasWorkspace({
           if (pathname) selectPage(pathname);
         },
         selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
-        onDeselect: () => selectPage(localized(STUDIO_CANVAS_PATH)),
+        onDeselect: () => goToItem(localized(STUDIO_CANVAS_PATH)),
         // The camera snapped onto an item from a scroll, swipe or zoom: flash a
         // ring around the viewport so the snap reads as locking onto it.
         onSnap: () => {

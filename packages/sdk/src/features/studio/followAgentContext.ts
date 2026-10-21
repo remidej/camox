@@ -7,7 +7,7 @@ export interface StudioFollow {
   receive(batch: TouchedBatch): void;
   /** The editor sent a message: its run starts following again. */
   resume(): void;
-  /** The editor panned or zoomed the Canvas themselves: following stops for the rest of the run. */
+  /** The editor panned, zoomed or selected on the Canvas themselves: following stops for the run. */
   takeOver(): void;
 }
 

@@ -320,10 +320,12 @@ export function createFollowAgent({
       goToPending();
     },
     update(next) {
-      // The editor went to another page themselves: from the Canvas, a link or their history.
+      // The editor went to another page themselves: from a link or their history. The Canvas
+      // also navigates without the editor, as its camera leaves a snap; it reports the editor's
+      // own selections itself.
       const navigated = next.location.pathname !== where.location.pathname;
       where = next;
-      if (navigated && next.location.source !== "follow") follow.takeOver();
+      if (navigated && next.location.source === undefined) follow.takeOver();
       goToPending();
       selectPendingBlocks();
       reselectTopmost();

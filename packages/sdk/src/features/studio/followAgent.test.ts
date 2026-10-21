@@ -369,7 +369,7 @@ void test("the editor selecting something themselves stops following; its own se
 });
 
 void test("the editor going to another page themselves stops following; following's own navigations and content changes don't", (t) => {
-  for (const source of ["canvas", undefined] as const) {
+  {
     const { follow, navigations, arrive, update } = setUp(t);
     follow.receive(batch(pageTouch("about", "team")));
     arrive(about);
@@ -378,8 +378,8 @@ void test("the editor going to another page themselves stops following; followin
     follow.receive(batch(pageTouch("contact", "form")));
     assert.equal(navigations.at(-1)?.to, "/contact?camox-draft=d1");
     arrive(contact);
-    // The editor picks a page in the Canvas Navigator, or goes back in their browser's history.
-    arrive(landing, { source });
+    // The editor goes back in their browser's history, or follows a link.
+    arrive(landing, { source: undefined });
     t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
     follow.receive(batch(pageTouch("about", "story")));
     t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
@@ -390,4 +390,22 @@ void test("the editor going to another page themselves stops following; followin
     follow.dispose();
     t.mock.timers.reset();
   }
+});
+
+void test("the Canvas's own navigations don't stop following: the Canvas reports the editor's itself", (t) => {
+  const { follow, navigations, arrive, update } = setUp(t);
+  follow.receive(batch(pageTouch("about", "team")));
+  arrive(about);
+  // The camera leaves the page's snap without the editor, as a block reveals itself: the Canvas
+  // deselects it, going to the Canvas route.
+  update({
+    location: { pathname: "/camox/canvas", search: "?camox-draft=d1", source: "canvas" },
+    pageKey: null,
+  });
+  t.mock.timers.tick(FOLLOW_MINIMUM_STAY);
+  follow.receive(batch(pageTouch("contact", "form")));
+  assert.deepEqual(
+    navigations.map(({ to }) => to),
+    ["/about?camox-draft=d1", "/contact?camox-draft=d1"],
+  );
 });
