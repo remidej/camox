@@ -12,3 +12,4 @@ export * from "./domains/generated-values/schema";
 export * from "./domains/locales/schema";
 export * from "./domains/translations/schema";
 export * from "./domains/threads/schema";
+export * from "./domains/releases/schema";

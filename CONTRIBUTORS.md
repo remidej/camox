@@ -84,21 +84,31 @@ to `main`, and add these environment secrets (repository secrets also work):
 - `CLOUDFLARE_API_TOKEN`: scoped to the production account, with Workers deployment,
   D1 migration, R2 binding, and production zone route permissions required by the
   Wrangler configurations. Include permission to manage Workers custom domains,
-  and Account › Artifacts › Edit for refreshing `template-default`.
+  and Account › Artifacts › Edit for refreshing `template-default`. It also deploys
+  the release sandbox Worker's Container and the API's `cf.artifacts.repo.pushed`
+  event subscription, so it needs Containers and event subscription permissions.
 - `CLOUDFLARE_ACCOUNT_ID`: the account containing the Workers and D1 database.
 - `CAMOX_DEPLOY_TOKEN`: the landing project's production deploy token, used by
   `camox release` to sync its definitions.
 
 Do not require environment approval if deployment should be fully automatic.
 Existing API runtime secrets must already be configured in Cloudflare; this
-workflow does not provision or replace them. Disable any separate Cloudflare
+workflow does not provision or replace them. The release Workflow adds the API
+secrets `CF_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the `camox-release-cache` R2
+bucket, and the release sandbox Worker's R2 secrets: set them up before the
+first deploy that includes it, as
+[`apps/api/src/domains/releases/README.md`](apps/api/src/domains/releases/README.md#cloudflare-setup)
+describes. Disable any separate Cloudflare
 Git-triggered builds for these apps to avoid competing deployments.
 
 ### Deployment order
 
 1. Validate credentials; install with the frozen lockfile.
-2. Build workspace packages, run checks and tests, build dashboard, dry-run the API bundle.
-3. Apply pending production D1 migrations, then deploy the API.
+2. Build workspace packages, run checks and tests, build dashboard, dry-run the API
+   bundle and its two sandbox Workers (building the release sandbox's Container image).
+3. Apply pending production D1 migrations, deploy the code mode sandbox Worker
+   (`deploy:sandbox`) and the release sandbox Worker (`deploy:release-sandbox`), whose
+   Durable Objects the API binds, then deploy the API.
 4. Check `/health` (API availability and a D1 query).
 5. Deploy dashboard, then run landing's `camox release` and deploy its Worker.
 
