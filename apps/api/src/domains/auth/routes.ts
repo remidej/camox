@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { bearer, oneTimeToken, organization } from "better-auth/plugins";
+import { bearer, organization } from "better-auth/plugins";
 import { Hono } from "hono";
 import slugify from "slugify";
 
@@ -21,6 +21,7 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
 } from "./email";
+import { isStudioHostOf } from "./studio-hosts";
 
 // --- Auth Factory ---
 
@@ -133,8 +134,10 @@ export function createAuth(
           });
         },
       }),
-      crossDomain({ siteUrl: env.DASHBOARD_URL }),
-      oneTimeToken(),
+      crossDomain({
+        siteUrl: env.DASHBOARD_URL,
+        isStudioHost: (callback, userId) => isStudioHostOf(db, env.PROJECT_SLUGS, callback, userId),
+      }),
       bearer(),
     ],
     databaseHooks: {
