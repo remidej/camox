@@ -3,12 +3,8 @@ import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
-import {
-  assertOrgMembership,
-  assertSyncAccess,
-  getAuthorizedProject,
-  requireUser,
-} from "../../authorization";
+import { assertOrgMembership, getAuthorizedProject, requireUser } from "../../authorization";
+import type { SyncTarget } from "../../authorization";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import {
@@ -26,18 +22,18 @@ import {
   repeatableItems,
   sharedContents,
 } from "../../schema";
-import { definitionsIn } from "../_shared/definitions";
 import { type Field, fieldsOf, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
+import type { SyncedDefinitions } from "../block-definitions/service";
 import { prepareBlockContent } from "../blocks/prepare-content";
-import { adoptSharedContent } from "../blocks/shared-content";
+import { planDeclaredPlacement } from "../blocks/shared-content";
 import { validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
-import type { WriteTarget } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
-import { requestGeneration } from "../generated-values/generation";
+import type { GenerationRequest } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
+import { repeatableItemSeedSchema } from "../layouts/service";
 import { insertInitialLocale } from "../locales/service";
 import { itemsInProject } from "../repeatable-items/roots";
 import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analytics";
@@ -60,18 +56,8 @@ export const updateProjectInput = z.object({ id: z.number(), name: z.string() })
 export const deleteProjectInput = z.object({ id: z.number() });
 export const updateProjectAnalyticsInput = analyticsProvidersInput.extend({ id: z.number() });
 
-const repeatableItemSeedSchema = z.object({
-  tempId: z.string(),
-  parentTempId: z.string().nullable(),
-  fieldName: z.string(),
-  content: z.unknown(),
-  settings: z.unknown().optional(),
-  position: z.string(),
-});
-
-export const initializeProjectContentInput = z.object({
-  projectSlug: z.string(),
-  deployToken: z.string().optional(),
+/** The homepage content a Definition Set declares: its layout and initial blocks. */
+export const homepageInput = z.object({
   layoutId: z.string(),
   blocks: z.array(
     z.object({
@@ -366,39 +352,39 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   return result;
 });
 
+/** What planning the homepage tells: whether it is created, and the values to generate after. */
+type HomepagePlan = {
+  homepage: { created: false } | { created: true; pageId: string; blockCount: number };
+  generation: (GenerationRequest & { immediately: boolean })[];
+};
+
 /**
- * Inserts content a sync seeds: on Live as released content, in a development draft as a draft
- * row (ADR 0006).
+ * Plans the homepage a Definition Set declares, with its blocks, for a target that reads no page
+ * yet: on Live as released content, in a development draft as draft rows (ADR 0006). Plans
+ * nothing once the target reads pages, or when the layout isn't a curated one the target holds
+ * once the sync ran (`layouts`). Block and collection definitions come from the sync
+ * (`definitions`, `collections`); `definitions` learns the ones the homepage gives shared content.
+ *
+ * Also tells the generated values to request once the batch ran.
  */
-const seed = Effect.fn("projects.seed")(function* <T extends overlay.ContentTable>(
+export const planHomepage = Effect.fn("projects.planHomepage")(function* (
   ctx: ServiceContext,
-  target: WriteTarget,
-  table: T,
-  values: Omit<T["$inferInsert"], "id" | "draftId">,
+  { project, scope: draft, writes }: SyncTarget,
+  homepage: z.infer<typeof homepageInput>,
+  {
+    layouts: syncedLayouts,
+    definitions,
+    collections,
+  }: {
+    layouts: readonly { layoutId: string; kind: string }[];
+    definitions: SyncedDefinitions;
+    collections: ReadonlySet<string>;
+  },
 ) {
-  // A fresh id, so the target can't already hold the entity.
-  const inserted = yield* overlay.insert(ctx.db, target, table, values as never);
-  return inserted! as T["$inferSelect"];
-});
-
-export const initializeProjectContent = Effect.fn("projects.initializeProjectContent")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof initializeProjectContentInput>,
-) {
-  const input = yield* decodeInput(initializeProjectContentInput, rawInput);
-  // A release seeds Live; dev mode seeds the caller's development draft, as draft rows
-  // (ADR 0006).
-  const {
-    project,
-    scope: draft,
-    writes,
-  } = yield* assertSyncAccess(
-    ctx.db,
-    input.projectSlug,
-    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
-    { create: true },
-  );
-
+  const nothing = overlay.nothingPlanned<HomepagePlan>({
+    homepage: { created: false },
+    generation: [],
+  });
   // Skip when the target already reads pages (idempotent).
   const existingPage = yield* Effect.promise(() =>
     ctx.db
@@ -408,45 +394,15 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       .limit(1)
       .get(),
   );
-  if (existingPage) {
-    return { created: false };
-  }
+  if (existingPage) return nothing;
 
-  const now = Date.now();
+  const layout = syncedLayouts.find((candidate) => candidate.layoutId === homepage.layoutId);
+  if (!layout || layout.kind !== "curated") return nothing;
 
-  // Find the specified layout
-  const layout = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(layouts)
-      .where(
-        and(
-          eq(layouts.projectId, project.id),
-          definitionsIn(layouts, draft),
-          eq(layouts.layoutId, input.layoutId),
-        ),
-      )
-      .get(),
-  );
-  if (!layout || layout.kind !== "curated") {
-    return { created: false };
-  }
-
-  const definitions = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(
-        and(eq(blockDefinitions.projectId, project.id), definitionsIn(blockDefinitions, draft)),
-      ),
-  );
-  const definitionsByType = new Map(
-    definitions.map((definition) => [definition.blockId, definition]),
-  );
-  // Reject an invalid later block before creating the homepage or any earlier
+  // Reject an invalid later block before planning the homepage or any earlier
   // block, and use the same normalized/defaulted values for persistence.
-  const preparedBlocks = yield* Effect.forEach(input.blocks, (block) => {
-    const definition = definitionsByType.get(block.type);
+  const preparedBlocks = yield* Effect.forEach(homepage.blocks, (block) => {
+    const definition = definitions.get(block.type);
     return Effect.map(
       prepareBlockContent(
         block.content,
@@ -460,8 +416,8 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   });
 
   for (const block of preparedBlocks) {
-    const scope = { projectId: project.id, draft };
-    const schema = definitionsByType.get(block.type)?.contentSchema;
+    const scope = { projectId: project.id, draft, collections };
+    const schema = definitions.get(block.type)?.contentSchema;
     // Validation finds every record a reference names in scope; a required one must name one.
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
     const content = block.content as Record<string, unknown>;
@@ -473,73 +429,60 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     }
   }
 
-  // Create homepage
-  const homepage = yield* seed(ctx, writes, pages, {
-    projectId: project.id,
+  const now = Date.now();
+  const plan = overlay.planner();
+  const home = homeOf(draft, project.id);
+  const generation: HomepagePlan["generation"] = [];
+  // A fresh id, so the target can't already hold the page.
+  const page = plan.add(
+    yield* overlay.planInsert(ctx.db, writes, pages, {
+      projectId: project.id,
+      pathSegment: "",
+      fullPath: "/",
+      layoutId: layout.layoutId,
+      nickname: "Home",
+      contentUpdatedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  )!;
 
-    pathSegment: "",
-    fullPath: "/",
-    layoutId: layout.layoutId,
-    nickname: "Home",
-    contentUpdatedAt: now,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  // Create blocks on the homepage
   let prevPosition: string | null = null;
-  let blockCount = 0;
-
   for (const blockDef of preparedBlocks) {
     const position = generateKeyBetween(prevPosition, null);
     prevPosition = position;
-
-    const block = yield* seed(ctx, writes, blocks, {
-      projectId: project.id,
-      pageId: homepage.id,
-      type: blockDef.type,
-      content: blockDef.content,
-      settings: blockDef.settings ?? null,
-      position,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const home = homeOf(draft, project.id);
-    yield* requestGeneration(ctx.db, home, { entity: "block", row: block }, { immediately: true });
-
-    const itemSeeds = blockDef.repeatableItems;
-    if (itemSeeds && itemSeeds.length > 0) {
-      const tempIdToRealId = new Map<string, string>();
-      for (const itemSeed of itemSeeds) {
-        const parentItemId = itemSeed.parentTempId
-          ? (tempIdToRealId.get(itemSeed.parentTempId) ?? null)
-          : null;
-        const inserted = yield* seed(ctx, writes, repeatableItems, {
-          blockId: block.id,
-          parentItemId,
-          fieldName: itemSeed.fieldName,
-          content: itemSeed.content,
-          settings: itemSeed.settings ?? null,
-          position: itemSeed.position,
-          createdAt: now,
-          updatedAt: now,
-        });
-        tempIdToRealId.set(itemSeed.tempId, inserted.id);
-        yield* requestGeneration(
-          ctx.db,
-          home,
-          { entity: "repeatableItem", row: inserted },
-          { immediately: true },
-        );
-      }
+    const definition = definitions.get(blockDef.type);
+    const placed = plan.add(
+      yield* planDeclaredPlacement(
+        ctx.db,
+        writes,
+        {
+          projectId: project.id,
+          pageId: page.id,
+          type: blockDef.type,
+          content: blockDef.content,
+          settings: blockDef.settings ?? null,
+          position,
+        },
+        blockDef.repeatableItems,
+        {
+          synced: definition?.synced ?? false,
+          hasSharedContent: definition?.hasSharedContent ?? false,
+        },
+      ),
+    );
+    if (definition && placed.adoption === "seeded") definition.hasSharedContent = true;
+    const immediately = true;
+    generation.push({ home, target: { entity: "block", row: placed.block }, immediately });
+    for (const item of placed.items) {
+      generation.push({ home, target: { entity: "repeatableItem", row: item }, immediately });
     }
-
-    yield* adoptSharedContent(ctx, writes, block);
-    blockCount++;
   }
 
   // The homepage's SEO waits for its blocks' edits, like after any edit (ADR 0012).
-  yield* requestGeneration(ctx.db, homeOf(draft, project.id), { entity: "page", row: homepage });
-  return { created: true, pageId: homepage.id, blockCount };
+  generation.push({ home, target: { entity: "page", row: page }, immediately: false });
+  return plan.done<HomepagePlan>({
+    homepage: { created: true, pageId: page.id, blockCount: preparedBlocks.length },
+    generation,
+  });
 });

@@ -2,10 +2,14 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  inScope,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, drafts, pages, repeatableItems } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { createBlock, editBlock, updateBlockContent, updateBlockSettings } from "./service";
 
 async function fixture(suffix: string) {
@@ -18,59 +22,59 @@ async function fixture(suffix: string) {
     maxLength: 12,
     default: "Default",
   };
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "schema",
-      title: "Schema",
-      description: "",
-      contentSchema: {
-        type: "object",
-        $defs: { text: { type: "string" } },
-        additionalProperties: false,
-        required: ["title", "items", "image"],
-        properties: {
-          title,
-          count: { type: "integer", minimum: 0, maximum: 10 },
-          link: { type: "object", properties: { href: { type: "string" } }, required: ["href"] },
-          image: { fieldType: "Image", type: "object", properties: { url: { type: "string" } } },
-          gallery: {
-            fieldType: "ImageList",
-            type: "array",
-            maxItems: 2,
-            items: { fieldType: "Image", type: "object" },
-          },
-          items: {
-            fieldType: "Repeater",
-            type: "array",
-            minItems: 1,
-            maxItems: 2,
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "schema",
+        title: "Schema",
+        description: "",
+        contentSchema: {
+          type: "object",
+          $defs: { text: { type: "string" } },
+          additionalProperties: false,
+          required: ["title", "items", "image"],
+          properties: {
+            title,
+            count: { type: "integer", minimum: 0, maximum: 10 },
+            link: { type: "object", properties: { href: { type: "string" } }, required: ["href"] },
+            image: { fieldType: "Image", type: "object", properties: { url: { type: "string" } } },
+            gallery: {
+              fieldType: "ImageList",
+              type: "array",
+              maxItems: 2,
+              items: { fieldType: "Image", type: "object" },
+            },
             items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["title"],
-              properties: { title, note: { $ref: "#/$defs/text" } },
-            },
-            itemSettingsSchema: {
-              type: "object",
-              properties: { visible: { type: "boolean", default: true } },
-              required: ["visible"],
+              fieldType: "Repeater",
+              type: "array",
+              minItems: 1,
+              maxItems: 2,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["title"],
+                properties: { title, note: { $ref: "#/$defs/text" } },
+              },
+              itemSettingsSchema: {
+                type: "object",
+                properties: { visible: { type: "boolean", default: true } },
+                required: ["visible"],
+              },
             },
           },
         },
-      },
-      settingsSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["visible", "align"],
-        properties: {
-          visible: { type: "boolean", default: true },
-          align: { type: "string", enum: ["left", "right"], default: "left" },
+        settingsSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["visible", "align"],
+          properties: {
+            visible: { type: "boolean", default: true },
+            align: { type: "string", enum: ["left", "right"], default: "left" },
+          },
         },
       },
-    }),
-  );
+    ],
+  });
   const page = await base.db
     .insert(pages)
     .values({

@@ -40,7 +40,4 @@ export const collectionDefinitionProcedures = {
   deleteRecord: contentWrite
     .input(service.deleteRecordInput)
     .handler(({ context, input }) => runService(service.deleteRecord(context, input))),
-  sync: pub
-    .input(service.syncCollectionDefinitionsInput)
-    .handler(({ context, input }) => runService(service.syncCollectionDefinitions(context, input))),
 };

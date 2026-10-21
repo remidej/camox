@@ -6,12 +6,10 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   openDevelopmentDraft,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { upsertBlockDefinition } from "../block-definitions/service";
 
 // References and links resolve in the locale being rendered (ADR 0015): a localization keeps its
 // original's id, so a German block's references lead to German records. A record excluded from a
@@ -42,81 +40,72 @@ async function fixture(titles: [string, string, string]) {
   const base = await createProjectFixture(`locale-references-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const { slug: projectSlug, deployToken } = project;
+  const projectSlug = project.slug;
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(db, memberUser, headers),
   });
-  await call(
-    router.collectionDefinitions.sync,
-    {
-      projectSlug,
-      deployToken,
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "articles",
-          title: "Articles",
-          description: "",
-          label: "title",
-          contentSchema: articleSchema,
-        },
-      ],
-    },
-    { context: createRpcContext(db, null) },
-  );
-  await runService(
-    upsertBlockDefinition(createServiceContext(db, null), {
-      projectSlug,
-      deployToken,
-      blockId: "article-index",
-      title: "Article index",
-      description: "Articles",
-      contentSchema: {
-        type: "object",
-        properties: {
-          byTitle: {
-            type: "array",
-            items: { type: "string", format: "uuid" },
-            fieldType: "ReferenceList",
-            collectionId: "articles",
-            title: "By title",
-            query: { orderBy: { title: "asc" } },
-            referenceSchema: articleSchema,
-          },
-          picks: {
-            type: "array",
-            items: { type: "string", format: "uuid" },
-            fieldType: "ReferenceList",
-            collectionId: "articles",
-            title: "Picks",
-            default: [],
-          },
-          featured: {
-            fieldType: "Reference",
-            collectionId: "articles",
-            title: "Featured",
-            required: true,
-            anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
-            default: null,
-          },
-          team: {
-            fieldType: "Link",
-            title: "Team",
-            type: "object",
-            properties: {
-              type: { type: "string", enum: ["external", "page"] },
-              text: { type: "string" },
-              href: { type: "string" },
-              pageId: { type: "string" },
-            },
-            default: { type: "external", text: "", href: "" },
-          },
-        },
-        required: ["byTitle", "picks", "featured", "team"],
-        toMarkdown: [],
+  await syncDefinitionSet(db, project, {
+    collections: [
+      {
+        collectionId: "articles",
+        title: "Articles",
+        description: "",
+        label: "title",
+        contentSchema: articleSchema,
       },
-    }),
-  );
+    ],
+    blocks: [
+      {
+        blockId: "article-index",
+        title: "Article index",
+        description: "Articles",
+        contentSchema: {
+          type: "object",
+          properties: {
+            byTitle: {
+              type: "array",
+              items: { type: "string", format: "uuid" },
+              fieldType: "ReferenceList",
+              collectionId: "articles",
+              title: "By title",
+              query: { orderBy: { title: "asc" } },
+              referenceSchema: articleSchema,
+            },
+            picks: {
+              type: "array",
+              items: { type: "string", format: "uuid" },
+              fieldType: "ReferenceList",
+              collectionId: "articles",
+              title: "Picks",
+              default: [],
+            },
+            featured: {
+              fieldType: "Reference",
+              collectionId: "articles",
+              title: "Featured",
+              required: true,
+              anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+              default: null,
+            },
+            team: {
+              fieldType: "Link",
+              title: "Team",
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["external", "page"] },
+                text: { type: "string" },
+                href: { type: "string" },
+                pageId: { type: "string" },
+              },
+              default: { type: "external", text: "", href: "" },
+            },
+          },
+          required: ["byTitle", "picks", "featured", "team"],
+          toMarkdown: [],
+        },
+      },
+    ],
+  });
 
   const createPage = (pathSegment: string) =>
     callSeedingLive(

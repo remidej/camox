@@ -1,10 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  inScope,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, drafts, layouts, pages, repeatableItems } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { createRepeatableItem, updateRepeatableItemContent } from "../repeatable-items/service";
 import { createBlock, updateBlockContent } from "./service";
 
@@ -35,28 +39,28 @@ const invalidEmbeds = [
 async function fixture(suffix: string) {
   const base = await createProjectFixture(`embed-${suffix}`);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "video",
-      title: "Video",
-      description: "Embed validation fixture",
-      contentSchema: {
-        type: "object",
-        properties: {
-          embed,
-          unrestricted: { type: "string", fieldType: "Embed" },
-          title: { type: "string" },
-          videos: {
-            type: "array",
-            fieldType: "Repeater",
-            items: { type: "object", properties: videoProperties },
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "video",
+        title: "Video",
+        description: "Embed validation fixture",
+        contentSchema: {
+          type: "object",
+          properties: {
+            embed,
+            unrestricted: { type: "string", fieldType: "Embed" },
+            title: { type: "string" },
+            videos: {
+              type: "array",
+              fieldType: "Repeater",
+              items: { type: "object", properties: videoProperties },
+            },
           },
         },
       },
-    }),
-  );
+    ],
+  });
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)

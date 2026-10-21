@@ -2,23 +2,24 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
+import type { SyncTarget } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
 import { stableStringify } from "../../lib/stable-stringify";
-import { blockDefinitions } from "../../schema";
+import { blockDefinitions, sharedContents } from "../../schema";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { blockSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
-import { applyNewDefinitionSyncedFlag, applySyncedFlagChange } from "../blocks/shared-content";
+import { planNewDefinitionSyncedFlag, planSyncedFlagChange } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
 import { accessTo } from "../drafts/access";
-import type { DraftScope, WriteTarget } from "../drafts/scope";
+import * as overlay from "../drafts/overlay";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
-const definitionFields = {
+/** A block definition as a Definition Set holds it. */
+export const blockDefinitionInput = z.object({
   blockId: z.string(),
   title: z.string(),
   description: z.string(),
@@ -28,42 +29,11 @@ const definitionFields = {
   defaultSettings: z.unknown().optional(),
   layoutOnly: z.boolean().optional(),
   synced: z.boolean().optional(),
-};
+});
 
 export const listBlockDefinitionsInput = z.object({ projectId: z.number() });
 
-export const syncBlockDefinitionsInput = z.object({
-  projectSlug: z.string(),
-  deployToken: z.string().optional(),
-  autoCreate: z.boolean(),
-  definitions: z.array(z.object(definitionFields)),
-});
-
-export const upsertBlockDefinitionInput = z.object({
-  projectSlug: z.string(),
-  deployToken: z.string().optional(),
-  ...definitionFields,
-});
-
-export const deleteBlockDefinitionInput = z.object({
-  projectSlug: z.string(),
-  deployToken: z.string().optional(),
-  blockId: z.string(),
-});
-
-/**
- * A block definition is identified by its name within a project, in the set a
- * scope reads: Live's, or a development draft's (ADR 0006).
- */
-function definitionScope(projectId: number, scope: DraftScope, blockId: string) {
-  return and(
-    eq(blockDefinitions.projectId, projectId),
-    definitionsIn(blockDefinitions, scope),
-    eq(blockDefinitions.blockId, blockId),
-  );
-}
-
-type DefinitionFields = z.infer<z.ZodObject<typeof definitionFields>>;
+type DefinitionFields = z.infer<typeof blockDefinitionInput>;
 
 /** The stored columns a synced definition sets. */
 async function definitionColumns(def: DefinitionFields) {
@@ -111,191 +81,135 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
   );
 }, Effect.scoped);
 
-// --- Writes ---
+// --- Definition sync ---
 
-/**
- * Writes a definition in the sync's target, then aligns its shared content with its synced flag
- * there: Live for a release, the development draft for dev mode (ADR 0006, ADR 0007).
- */
-const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* (
-  ctx: ServiceContext,
-  target: { projectId: number; scope: DraftScope; writes: WriteTarget },
-  def: DefinitionFields,
-  now: number,
+/** Fails on a definition whose schemas reference collections the wrong way, before any write. */
+export const validateBlockDefinitions = Effect.fn("blockDefinitions.validate")(function* (
+  definitions: readonly DefinitionFields[],
 ) {
-  const { projectId, scope, writes } = target;
-  const key = { projectId, type: def.blockId };
-  const fields = yield* Effect.promise(() => definitionColumns(def));
-  const existing = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(definitionScope(projectId, scope, def.blockId))
-      .get(),
-  );
-
-  if (existing) {
-    // Syncing an unchanged definition writes nothing.
-    if (!definitionChanged(existing, fields))
-      return { row: existing, action: "unchanged" as const };
-    const updated = yield* Effect.promise(() =>
-      ctx.db
-        .update(blockDefinitions)
-        .set({ ...fields, updatedAt: now })
-        .where(definitionScope(projectId, scope, def.blockId))
-        .returning()
-        .get(),
-    );
-    if (updated.synced !== existing.synced) {
-      yield* applySyncedFlagChange(ctx, {
-        target: writes,
-        projectId,
-        key,
-        synced: updated.synced,
-      });
-    }
-    return { row: updated, action: "updated" as const };
-  }
-
-  const created = yield* Effect.promise(() =>
-    ctx.db
-      .insert(blockDefinitions)
-      .values({
-        ...fields,
-        draftId: definitionsDraftOf(scope),
-        projectId,
-        blockId: def.blockId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
-  );
-  // A definition that comes back finds its stored shared content, synced or not.
-  yield* applyNewDefinitionSyncedFlag(ctx, {
-    target: writes,
-    projectId,
-    key,
-    synced: created.synced,
-  });
-  return { row: created, action: "created" as const };
-});
-
-/**
- * Replaces the whole set of block definitions in the sync's target: Live for a release with the
- * deploy token, or the caller's development draft for dev mode, which the first sync creates.
- * Content never blocks it (ADR 0006, ADR 0007).
- */
-export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinitions")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof syncBlockDefinitionsInput>,
-) {
-  const input = yield* decodeInput(syncBlockDefinitionsInput, rawInput);
-  const { projectSlug, definitions, autoCreate } = input;
   for (const definition of definitions) {
     yield* validateReferenceSchema(definition.contentSchema);
     yield* validateReferenceSchema(definition.settingsSchema, false);
   }
-  const target = yield* assertSyncAccess(
-    ctx.db,
-    projectSlug,
-    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
-    { create: autoCreate },
+});
+
+/** A block definition as its target holds it once a sync ran. */
+type SyncedDefinition = {
+  contentSchema: unknown;
+  settingsSchema: unknown;
+  synced: boolean;
+  layoutOnly: boolean;
+  /** Whether its shared content exists once the sync's block definitions are written. */
+  hasSharedContent: boolean;
+};
+
+/** The block definitions of a sync's target as they are once its batch ran, by name. */
+export type SyncedDefinitions = Map<string, SyncedDefinition>;
+
+/**
+ * Plans replacing the whole set of block definitions in a sync's target: Live for a release, or
+ * the development draft for dev mode. Each definition's shared content follows its synced flag.
+ * Content never blocks it (ADR 0006, ADR 0007).
+ *
+ * Tells the definitions the target holds once the plan ran, for the parts of the sync planned
+ * after it, which can't read them from the target before the batch runs.
+ */
+export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function* (
+  ctx: ServiceContext,
+  { project, scope, writes }: SyncTarget,
+  definitions: readonly DefinitionFields[],
+  now: number,
+) {
+  const projectId = project.id;
+  const plan = overlay.planner();
+  const inTarget = and(
+    eq(blockDefinitions.projectId, projectId),
+    definitionsIn(blockDefinitions, scope),
   );
-  const projectId = target.project.id;
-  const { scope, writes } = target;
-  const now = Date.now();
-  const results = [];
+  const existing = yield* Effect.promise(() =>
+    ctx.db.select().from(blockDefinitions).where(inTarget),
+  );
+  const existingByType = new Map(existing.map((row) => [row.blockId, row]));
+  const shared = yield* overlay.select(
+    ctx.db,
+    scope,
+    sharedContents,
+    eq(sharedContents.projectId, projectId),
+  );
+  const sharedTypes = new Set(shared.map((row) => row.type));
+  const synced: SyncedDefinitions = new Map();
+  const keep = (
+    type: string,
+    columns: Pick<SyncedDefinition, "contentSchema" | "settingsSchema" | "synced"> & {
+      layoutOnly: boolean | null;
+    },
+    hasSharedContent: boolean,
+  ) =>
+    synced.set(type, {
+      contentSchema: columns.contentSchema,
+      settingsSchema: columns.settingsSchema,
+      synced: columns.synced,
+      layoutOnly: !!columns.layoutOnly,
+      hasSharedContent,
+    });
 
   for (const def of definitions) {
-    const written = yield* writeDefinition(ctx, { projectId, scope, writes }, def, now);
-    results.push(written.row);
+    const key = { projectId, type: def.blockId };
+    const fields = yield* Effect.promise(() => definitionColumns(def));
+    const flag = { target: writes, projectId, key, synced: fields.synced, defaults: def };
+    const stored = existingByType.get(def.blockId);
+    let hasSharedContent = sharedTypes.has(def.blockId);
+    if (!stored) {
+      plan.add(
+        overlay.plannedStatements(
+          ctx.db.insert(blockDefinitions).values({
+            ...fields,
+            draftId: definitionsDraftOf(scope),
+            projectId,
+            blockId: def.blockId,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        ),
+      );
+      // A definition that comes back finds its stored shared content, synced or not.
+      hasSharedContent = plan.add(yield* planNewDefinitionSyncedFlag(ctx, flag));
+    } else if (definitionChanged(stored, fields)) {
+      // Syncing an unchanged definition writes nothing.
+      plan.add(
+        overlay.plannedStatements(
+          ctx.db
+            .update(blockDefinitions)
+            .set({ ...fields, updatedAt: now })
+            .where(eq(blockDefinitions.rowId, stored.rowId)),
+        ),
+      );
+      if (stored.synced !== fields.synced) {
+        hasSharedContent = plan.add(yield* planSyncedFlagChange(ctx, flag));
+      }
+    }
+    keep(def.blockId, fields, hasSharedContent);
   }
 
   // Reconcile orphans: definitions still in the set whose block files are gone from code.
-  // layoutOnly definitions are skipped here — syncLayouts owns them because it knows which
-  // types each layout currently references and prunes both the layout-scoped block rows and
-  // their definitions atomically.
-  const incomingIds = new Set(definitions.map((d) => d.blockId));
-  const existingDefs = yield* Effect.promise(() =>
-    ctx.db
-      .select({
-        blockId: blockDefinitions.blockId,
-        layoutOnly: blockDefinitions.layoutOnly,
-      })
-      .from(blockDefinitions)
-      .where(
-        and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
+  // Layout-only definitions are kept here: the layouts part of the sync knows which types each
+  // layout still declares, and drops those no layout uses.
+  const deletedDefinitionTypes: string[] = [];
+  for (const row of existing) {
+    if (synced.has(row.blockId)) continue;
+    if (row.layoutOnly) {
+      keep(row.blockId, row, sharedTypes.has(row.blockId));
+      continue;
+    }
+    // Blocks of a removed definition stay stored under its name, render nothing, and come
+    // back with it.
+    deletedDefinitionTypes.push(row.blockId);
+    plan.add(
+      overlay.plannedStatements(
+        ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.rowId, row.rowId)),
       ),
-  );
-  const orphans = existingDefs.filter((d) => !incomingIds.has(d.blockId) && d.layoutOnly !== true);
-
-  // Blocks of a removed definition stay stored under its name, render nothing, and come
-  // back with it.
-  const deletedDefinitionTypes = orphans.map((orphan) => orphan.blockId);
-  for (const blockId of deletedDefinitionTypes) {
-    yield* Effect.promise(() =>
-      ctx.db.delete(blockDefinitions).where(definitionScope(projectId, scope, blockId)),
     );
   }
 
-  yield* recordDefinitionsSynced(ctx.db, target);
-  return {
-    results,
-    draftCreated: target.draftCreated,
-    deletedDefinitionTypes,
-  };
-});
-
-/** Writes one block definition in the sync's target, as `syncBlockDefinitions` does. */
-export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefinition")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof upsertBlockDefinitionInput>,
-) {
-  const { projectSlug, deployToken, ...body } = yield* decodeInput(
-    upsertBlockDefinitionInput,
-    rawInput,
-  );
-  yield* validateReferenceSchema(body.contentSchema);
-  yield* validateReferenceSchema(body.settingsSchema, false);
-  const target = yield* assertSyncAccess(
-    ctx.db,
-    projectSlug,
-    { user: ctx.user, draft: ctx.draft, deployToken },
-    { create: true },
-  );
-  const projectId = target.project.id;
-  const written = yield* writeDefinition(
-    ctx,
-    { projectId, scope: target.scope, writes: target.writes },
-    body,
-    Date.now(),
-  );
-  yield* recordDefinitionsSynced(ctx.db, target);
-  const action = written.action === "created" ? "created" : "updated";
-  return { ...written.row, action: action as "created" | "updated" };
-});
-
-export const deleteBlockDefinition = Effect.fn("blockDefinitions.deleteBlockDefinition")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof deleteBlockDefinitionInput>,
-) {
-  const { projectSlug, deployToken, blockId } = yield* decodeInput(
-    deleteBlockDefinitionInput,
-    rawInput,
-  );
-  const target = yield* assertSyncAccess(ctx.db, projectSlug, {
-    user: ctx.user,
-    draft: ctx.draft,
-    deployToken,
-  });
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .delete(blockDefinitions)
-      .where(definitionScope(target.project.id, target.scope, blockId))
-      .returning()
-      .get(),
-  );
-  if (result) yield* recordDefinitionsSynced(ctx.db, target);
-  return { deleted: !!result, blockId };
+  return plan.done({ definitions: synced, deletedDefinitionTypes });
 });

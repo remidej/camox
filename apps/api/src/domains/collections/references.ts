@@ -92,7 +92,7 @@ function queryProblem(field: SchemaNode) {
  */
 export const validateReferenceValues = Effect.fn("collections.validateReferenceValues")(function* (
   ctx: ServiceContext,
-  scope: ContentScope,
+  scope: ContentScope | SyncScope,
   schema: unknown,
   content: unknown,
   path = "",
@@ -148,29 +148,41 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   }
 });
 
+/**
+ * Where a sync checks the content a Definition Set declares. The collections the target holds
+ * come from the set (`collections`), since the target only holds them once the sync's batch ran.
+ */
+export type SyncScope = ContentScope & { collections: ReadonlySet<string> };
+
+/**
+ * Whether `value` names a record of the field's collection, visible in `scope`, in a collection
+ * the scope holds: one of the set's for a sync (`SyncScope`), a stored definition otherwise.
+ */
 export const recordInScope = Effect.fn("collections.recordInScope")(function* (
   ctx: ServiceContext,
-  scope: ContentScope,
+  scope: ContentScope | SyncScope,
   field: { collectionId?: unknown },
   value: unknown,
 ) {
   const validId = uuidv7Schema.safeParse(value);
   if (!validId.success) return false;
+  const collectionId = String(field.collectionId);
+  const synced = "collections" in scope ? scope.collections : undefined;
+  if (synced && !synced.has(collectionId)) return false;
+  const inCollection = and(
+    eq(collectionRecords.id, validId.data),
+    overlay.visibleIn(collectionRecords, scope.draft),
+    eq(collectionRecords.projectId, scope.projectId),
+    eq(collectionRecords.collectionId, collectionId),
+  );
+  const records = ctx.db.select({ id: collectionRecords.id }).from(collectionRecords);
   const record = yield* Effect.promise(() =>
-    ctx.db
-      .select({ id: collectionRecords.id })
-      .from(collectionRecords)
-      .innerJoin(collectionDefinitions, collectionOfRecord)
-      .where(
-        and(
-          eq(collectionRecords.id, validId.data),
-          overlay.visibleIn(collectionRecords, scope.draft),
-          eq(collectionDefinitions.projectId, scope.projectId),
-          definitionsIn(collectionDefinitions, scope.draft),
-          eq(collectionDefinitions.collectionId, String(field.collectionId)),
-        ),
-      )
-      .get(),
+    synced
+      ? records.where(inCollection).get()
+      : records
+          .innerJoin(collectionDefinitions, collectionOfRecord)
+          .where(and(inCollection, definitionsIn(collectionDefinitions, scope.draft)))
+          .get(),
   );
   return !!record;
 });

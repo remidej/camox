@@ -7,6 +7,7 @@ import {
   createServiceContext,
   seedLiveThrough,
   inScope,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import type { Database } from "../../db";
 import { runService } from "../../lib/run-service";
@@ -24,13 +25,7 @@ import {
 } from "../repeatable-items/service";
 import { validateReferenceSchema } from "./references";
 import { collectionRecords } from "./schema";
-import {
-  createRecord,
-  deleteRecord,
-  editRecord,
-  getCollectionRecord,
-  syncCollectionDefinitions,
-} from "./service";
+import { createRecord, deleteRecord, editRecord, getCollectionRecord } from "./service";
 
 /**
  * Deletes a record from Live through the overlay's release mode. Publishing refuses to leave
@@ -52,35 +47,30 @@ async function fixture(assets = false) {
   // Content writes reach Live by publishing a throwaway draft (ADR 0009).
   const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
     seedLiveThrough(ctx, f.project.id, run);
-  await runService(
-    syncCollectionDefinitions(publicCtx, {
-      projectSlug: f.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "customers",
-          title: "Customers",
-          description: "",
-          label: "name",
-          contentSchema: {
-            type: "object",
-            properties: {
-              name: { type: "string", fieldType: "String" },
-              ...(assets
-                ? {
-                    logo: { type: "object", fieldType: "Image" as const },
-                    document: { type: "object", fieldType: "File" as const },
-                  }
-                : {}),
-            },
-            required: assets ? ["name", "logo", "document"] : ["name"],
-            additionalProperties: false,
+  await syncDefinitionSet(f.db, f.project, {
+    collections: [
+      {
+        collectionId: "customers",
+        title: "Customers",
+        description: "",
+        label: "name",
+        contentSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", fieldType: "String" },
+            ...(assets
+              ? {
+                  logo: { type: "object", fieldType: "Image" as const },
+                  document: { type: "object", fieldType: "File" as const },
+                }
+              : {}),
           },
+          required: assets ? ["name", "logo", "document"] : ["name"],
+          additionalProperties: false,
         },
-      ],
-    }),
-  );
+      },
+    ],
+  });
   const record = await live((_draft, c) =>
     createRecord(c, {
       ...scope,
@@ -392,30 +382,25 @@ describe("reference lists", () => {
     }
     const f = await fixture();
     await expect(
-      runService(
-        syncCollectionDefinitions(f.publicCtx, {
-          projectSlug: f.project.slug,
-          deployToken: "test-deploy-token",
-          autoCreate: false,
-          definitions: [
-            {
-              collectionId: "partners",
-              title: "Partners",
-              description: "",
-              label: "name",
-              contentSchema: {
-                type: "object",
-                properties: {
-                  name: { type: "string", fieldType: "String" },
-                  customers: referenceList() as never,
-                },
-                required: ["name", "customers"],
-                additionalProperties: false,
+      syncDefinitionSet(f.db, f.project, {
+        collections: [
+          {
+            collectionId: "partners",
+            title: "Partners",
+            description: "",
+            label: "name",
+            contentSchema: {
+              type: "object",
+              properties: {
+                name: { type: "string", fieldType: "String" },
+                customers: referenceList() as never,
               },
+              required: ["name", "customers"],
+              additionalProperties: false,
             },
-          ],
-        }),
-      ),
+          },
+        ],
+      }),
     ).rejects.toThrow();
   });
 
@@ -430,11 +415,11 @@ describe("reference lists", () => {
     const otherProject = await fixture();
     // A record only the development draft holds is out of Live's reach.
     const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [
+    await syncDefinitionSet(
+      f.db,
+      f.project,
+      {
+        collections: [
           {
             collectionId: "customers",
             title: "Customers",
@@ -448,7 +433,8 @@ describe("reference lists", () => {
             },
           },
         ],
-      }),
+      },
+      { as: f.memberUser },
     );
     const developmentRecord = await runService(
       createRecord(devCtx, { ...f.scope, content: { name: "Dev" } }),
@@ -795,15 +781,23 @@ async function relationFixture() {
       additionalProperties: false as const,
     },
   });
+  const teaserDefinition = {
+    blockId: "article-teaser",
+    title: "Article teaser",
+    description: "",
+    contentSchema: {
+      type: "object",
+      properties: { article: collectionReference("articles") },
+      required: ["article"],
+      additionalProperties: false,
+      toMarkdown: ["{{article.name}} by {{article.author.name}}", "{{article.coauthors}}"],
+    },
+  };
   const sync = (definitions: ReturnType<typeof definition>[]) =>
-    runService(
-      syncCollectionDefinitions(publicCtx, {
-        projectSlug: f.project.slug,
-        deployToken: "test-deploy-token",
-        autoCreate: false,
-        definitions: definitions as never,
-      }),
-    );
+    syncDefinitionSet(f.db, f.project, {
+      blocks: [teaserDefinition],
+      collections: definitions as never,
+    });
   const authorsDefinition = definition("authors", { favorite: collectionReference("articles") });
   const articlesDefinition = definition("articles", {
     author: collectionReference("authors"),
@@ -846,21 +840,6 @@ async function relationFixture() {
     })
     .returning()
     .get();
-  await f.db.insert(blockDefinitions).values({
-    projectId: f.project.id,
-    blockId: "article-teaser",
-    title: "Article teaser",
-    description: "",
-    contentSchema: {
-      type: "object",
-      properties: { article: collectionReference("articles") },
-      required: ["article"],
-      additionalProperties: false,
-      toMarkdown: ["{{article.name}} by {{article.author.name}}", "{{article.coauthors}}"],
-    },
-    createdAt: 1,
-    updatedAt: 1,
-  });
   const block = await live((draft) =>
     createBlock(inScope(ctx, draft), {
       pageId: page.id,
@@ -1031,22 +1010,17 @@ async function queryFixture() {
   const live = <A>(run: Parameters<typeof seedLiveThrough<A>>[2]) =>
     seedLiveThrough(ctx, f.project.id, run);
   const scope = { projectSlug: f.project.slug, collectionId: "articles" };
-  await runService(
-    syncCollectionDefinitions(publicCtx, {
-      projectSlug: f.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "articles",
-          title: "Articles",
-          description: "",
-          label: "title",
-          contentSchema: articleSchema,
-        },
-      ],
-    }),
-  );
+  await syncDefinitionSet(f.db, f.project, {
+    collections: [
+      {
+        collectionId: "articles",
+        title: "Articles",
+        description: "",
+        label: "title",
+        contentSchema: articleSchema,
+      },
+    ],
+  });
   const create = (title: string, time: number) =>
     at(time, () =>
       live((_draft, c) =>

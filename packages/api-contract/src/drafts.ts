@@ -116,7 +116,6 @@ const BLOCK_WRITES: Record<keyof Router["blocks"], boolean> = {
   duplicate: true,
 };
 
-// A release syncs collection definitions; it never runs in the studio.
 const COLLECTION_WRITES: Record<keyof Router["collectionDefinitions"], boolean> = {
   list: false,
   get: false,
@@ -129,7 +128,6 @@ const COLLECTION_WRITES: Record<keyof Router["collectionDefinitions"], boolean> 
   createRecord: true,
   editRecord: true,
   deleteRecord: true,
-  sync: false,
 };
 
 // Uploads and replacements are content writes too, outside oRPC.
@@ -182,6 +180,7 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   addBack: true,
 };
 
+// `definitions` is absent: its sync is a release or a dev sync, never a studio content write.
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCK_WRITES,
   locales: LOCALE_WRITES,

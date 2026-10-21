@@ -8,7 +8,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import {
   answerNext,
@@ -22,7 +22,6 @@ import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { generatedValues, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { runGenerationJob } from "./generation";
 
 type Headers = Record<string, string>;
@@ -31,30 +30,30 @@ const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
 async function fixture() {
   const base = await createProjectFixture(`generation-${crypto.randomUUID()}`);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { fieldType: "String", type: "string" },
-          links: {
-            fieldType: "Repeater",
-            type: "array",
-            items: {
-              type: "object",
-              properties: { label: { fieldType: "String", type: "string" } },
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { fieldType: "String", type: "string" },
+            links: {
+              fieldType: "Repeater",
+              type: "array",
+              items: {
+                type: "object",
+                properties: { label: { fieldType: "String", type: "string" } },
+              },
             },
           },
+          toMarkdown: ["# {{title}}"],
         },
-        toMarkdown: ["# {{title}}"],
       },
-    }),
-  );
+    ],
+  });
   const now = Date.now();
   const page = await base.db
     .insert(pages)

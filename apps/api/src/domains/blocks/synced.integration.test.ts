@@ -8,14 +8,14 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  syncDefinitionSet,
+  type TestDefinitionSet,
   inScope,
 } from "../../../test/fixtures";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages, repeatableItems } from "../../schema";
-import { syncBlockDefinitions, upsertBlockDefinition } from "../block-definitions/service";
 import { blocksOfLayout } from "../layouts/identity";
-import { syncLayouts } from "../layouts/service";
 import {
   createRepeatableItem,
   deleteRepeatableItem,
@@ -34,13 +34,12 @@ import {
   updateBlockSettings,
 } from "./service";
 
+type Definition = NonNullable<TestDefinitionSet["blocks"]>[number];
+
 async function fixture(suffix: string, synced?: boolean) {
   const base = await createProjectFixture(suffix);
   const ctx = createServiceContext(base.db, base.memberUser);
-  const syncCtx = createServiceContext(base.db, null);
   const definition = {
-    projectSlug: base.project.slug,
-    deployToken: base.project.deployToken,
     blockId: "navbar",
     title: "Navbar",
     description: "Navigation",
@@ -73,7 +72,13 @@ async function fixture(suffix: string, synced?: boolean) {
     },
     settingsSchema: { type: "object", properties: { sticky: { type: "boolean" } } },
   };
-  await runService(upsertBlockDefinition(syncCtx, definition));
+  // The definitions Live holds, by name: a release sends them all.
+  const released = new Map<string, Definition>([[definition.blockId, definition]]);
+  /** Releases `changed` alongside every definition released before, leaving layouts as they are. */
+  const release = (...changed: Definition[]) => {
+    for (const def of changed) released.set(def.blockId, def);
+    return syncDefinitionSet(base.db, base.project, { blocks: [...released.values()] });
+  };
   const layoutDefinitions = ["default", "other"].map((layoutId) => ({
     layoutId,
     description: "Layout",
@@ -102,14 +107,10 @@ async function fixture(suffix: string, synced?: boolean) {
       },
     ],
   }));
-  await runService(
-    syncLayouts(syncCtx, {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      autoCreate: false,
-      layouts: layoutDefinitions,
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [definition],
+    layouts: layoutDefinitions,
+  });
   const rows = await base.db.select().from(layouts).where(eq(layouts.projectId, base.project.id));
   const first = (await base.db.select().from(blocks).where(blocksOfLayout(base.layout)).get())!;
   const otherLayout = rows.find((row) => row.layoutId === "other")!;
@@ -129,7 +130,7 @@ async function fixture(suffix: string, synced?: boolean) {
     })
     .returning()
     .get();
-  return { ...base, ctx, syncCtx, definition, first, second, otherLayout, page };
+  return { ...base, ctx, release, definition, first, second, otherLayout, page };
 }
 
 describe("a synced block's shared content", () => {
@@ -257,7 +258,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 describe("a definition sync making a block synced", () => {
   it("builds the shared content from the most recently updated placement and clears every placement", async () => {
-    const { db, ctx, syncCtx, definition, first, second, project } = await fixture("become-synced");
+    const { db, ctx, release, definition, first, second, project } = await fixture("become-synced");
     await seedLiveThrough(ctx, project.id, (draft) =>
       updateBlockContent(inScope(ctx, draft), { id: second.id, content: { title: "Older" } }),
     );
@@ -273,7 +274,7 @@ describe("a definition sync making a block synced", () => {
       }),
     );
 
-    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
+    await release({ ...definition, synced: true });
 
     for (const placement of [first, second]) {
       const { block, repeatableItems: items } = await runService(
@@ -298,7 +299,7 @@ describe("a definition sync making a block synced", () => {
   });
 
   it("leaves a new synced definition's shared content to its first placement", async () => {
-    const { ctx, syncCtx, definition, page, project } = await fixture("created-synced");
+    const { ctx, release, definition, page, project } = await fixture("created-synced");
     const hero = {
       ...definition,
       blockId: "hero",
@@ -306,7 +307,7 @@ describe("a definition sync making a block synced", () => {
       synced: true,
       defaultContent: { title: "Default title" },
     };
-    await runService(upsertBlockDefinition(syncCtx, hero));
+    await release(hero);
 
     const first = await seedLiveThrough(ctx, project.id, (draft) =>
       createBlock(inScope(ctx, draft), {
@@ -333,7 +334,7 @@ describe("a definition sync making a block synced", () => {
   });
 
   it("builds the shared content from the definition's defaults when nothing places it", async () => {
-    const { ctx, syncCtx, definition, page, project } = await fixture("become-synced-defaults");
+    const { ctx, release, definition, page, project } = await fixture("become-synced-defaults");
     const hero = {
       ...definition,
       blockId: "hero",
@@ -341,9 +342,9 @@ describe("a definition sync making a block synced", () => {
       defaultContent: { title: "Default title" },
       defaultSettings: { sticky: true },
     };
-    await runService(upsertBlockDefinition(syncCtx, hero));
+    await release(hero);
 
-    await runService(upsertBlockDefinition(syncCtx, { ...hero, synced: true }));
+    await release({ ...hero, synced: true });
     const placed = await seedLiveThrough(ctx, project.id, (draft) =>
       createBlock(inScope(ctx, draft), {
         pageId: page.id,
@@ -363,7 +364,7 @@ describe("a definition sync making a block synced", () => {
 
 describe("a definition sync making a block no longer synced", () => {
   it("gives each placement its own copy, with distinct repeatable item ids, and deletes the shared content", async () => {
-    const { db, ctx, syncCtx, project, definition, first, second } = await fixture(
+    const { db, ctx, release, project, definition, first, second } = await fixture(
       "stop-synced",
       true,
     );
@@ -374,7 +375,7 @@ describe("a definition sync making a block no longer synced", () => {
       await runService(getBlock(inScope(ctx, null), { id: first.id }))
     ).repeatableItems.map((item) => item.id);
 
-    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: false }));
+    await release({ ...definition, synced: false });
 
     const [firstCopy, secondCopy] = await Promise.all(
       [first, second].map((placement) =>
@@ -502,31 +503,21 @@ describe("getSyncedBlockContent", () => {
 
 describe("toggling a Synced Block", () => {
   it("refreshes the shared content when syncing turns on or off, even with fewer than two placements", async () => {
-    const { syncCtx, project, definition } = await fixture("synced-toggle-invalidation");
+    const { release, project, definition } = await fixture("synced-toggle-invalidation");
     const hero = { ...definition, blockId: "hero", title: "Hero" };
     const refreshedSyncedContent = (type: string) =>
       refreshes(sentTo(project.id), null, queryKeys.blocks.getSyncedContent(type));
 
     for (const synced of [true, false]) {
       forgetSent(project.id);
-      await runService(upsertBlockDefinition(syncCtx, { ...hero, synced }));
-      expect(refreshedSyncedContent("hero"), `upsert synced: ${synced}`).toBe(true);
+      await release({ ...hero, synced });
+      expect(refreshedSyncedContent("hero"), `hero synced: ${synced}`).toBe(true);
     }
 
     for (const synced of [true, false]) {
       forgetSent(project.id);
-      await runService(
-        syncBlockDefinitions(syncCtx, {
-          projectSlug: project.slug,
-          deployToken: project.deployToken,
-          autoCreate: false,
-          definitions: [
-            { ...definition, synced },
-            { ...hero, synced: false },
-          ],
-        }),
-      );
-      expect(refreshedSyncedContent("navbar"), `sync synced: ${synced}`).toBe(true);
+      await release({ ...definition, synced }, { ...hero, synced: false });
+      expect(refreshedSyncedContent("navbar"), `navbar synced: ${synced}`).toBe(true);
     }
   });
 });

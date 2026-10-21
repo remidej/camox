@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,26 +10,49 @@ import { setTimeout } from "node:timers/promises";
 import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/node";
-import { createLogger, createServer } from "vite-plus";
+import { createLogger, createServer, resolveConfig } from "vite-plus";
 
-import { syncDefinitionsToApi } from "./definitionsSync";
+import type { DefinitionSet } from "@/core/createApp";
+
 import { type CamoxPluginOptions, camox } from "./vite";
 
 type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["afterSync"]>;
 
 const AUTHENTICATION_URL = "http://dashboard.test";
 
+function greetingModule(greeting: string) {
+  return `export const greeting = ${JSON.stringify(greeting)};\n`;
+}
+
+/** A block module whose title defaults to the shared greeting. */
+function blockModule(id: string, { component = "() => null" } = {}) {
+  return `import { createBlock } from "camox/createBlock";
+
+import { greeting } from "../fields/greeting";
+
+export const block = createBlock({
+  id: ${JSON.stringify(id)},
+  title: ${JSON.stringify(id)},
+  description: "A block",
+  content: (field) => ({ title: field.string({ default: greeting }) }),
+  component: ${component},
+  toMarkdown: (content) => [content.title],
+});
+`;
+}
+
 /**
  * A checkout with a minimal Camox app and a dev session, plus a fake API that
- * accepts definition sync unless `failCollectionSync` is set.
+ * accepts definition sync unless `failSync` is set, answering with `syncResult` over an empty one.
  */
 async function devCheckout(
   t: TestContext,
   {
-    failCollectionSync = false,
+    failSync = false,
     draftCreated = false,
     livePages = 0,
     blockers = [] as string[],
+    syncResult = {} as Record<string, unknown>,
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "camox-after-sync-"));
@@ -40,32 +64,41 @@ async function devCheckout(
       [AUTHENTICATION_URL]: { token: "dev-session", name: "Dev", email: "dev@camox.dev" },
     }),
   );
-  await mkdir(join(root, "src/camox"), { recursive: true });
-  await writeFile(
-    join(root, "src/camox/app.ts"),
-    `export const camoxApp = {
-      getBlocks: () => [],
-      getSerializableLayoutDefinitions: () => [],
-      getSerializableCollectionDefinitions: () => [],
-      getInitialPageBundles: () => null,
-    };`,
-  );
+  await mkdir(join(root, "src/blocks"), { recursive: true });
+  await mkdir(join(root, "src/fields"), { recursive: true });
+  // A module the block's schema imports, like a shared field set.
+  await writeFile(join(root, "src/fields/greeting.ts"), greetingModule("Welcome"));
+  await writeFile(join(root, "src/blocks/hero.ts"), blockModule("hero"));
 
   const requests: { path: string; headers: IncomingHttpHeaders }[] = [];
+  /** The block ids each `definitions.sync` received, in order. */
+  const syncedBlockIds: string[][] = [];
+  /** Each block's default title, per `definitions.sync`, in order. */
+  const syncedDefaultTitles: Record<string, unknown>[] = [];
   const base = os.$context<{ headers: IncomingHttpHeaders }>();
   const router = {
-    blockDefinitions: {
-      sync: base.handler(({ context }) => {
-        requests.push({ path: "blockDefinitions.sync", headers: context.headers });
-        return { results: [], draftCreated, deletedDefinitionTypes: [] };
+    definitions: {
+      sync: base.handler(({ context, input }) => {
+        requests.push({ path: "definitions.sync", headers: context.headers });
+        if (failSync) throw new Error("definition sync failed");
+        const { blocks } = (input as { definitionSet: DefinitionSet }).definitionSet;
+        syncedBlockIds.push(blocks.map((definition) => definition.blockId).sort());
+        syncedDefaultTitles.push(
+          Object.fromEntries(
+            blocks.map((d) => [d.blockId, (d.defaultContent as { title?: unknown }).title]),
+          ),
+        );
+        return {
+          draftCreated,
+          blocks: { count: blocks.length, deletedDefinitionTypes: [] },
+          collections: { count: 0, retired: [] },
+          layouts: null,
+          homepage: null,
+          ...syncResult,
+        };
       }),
     },
     collectionDefinitions: {
-      sync: base.handler(({ context }) => {
-        requests.push({ path: "collectionDefinitions.sync", headers: context.headers });
-        if (failCollectionSync) throw new Error("collection sync failed");
-        return { count: 0, retired: [] };
-      }),
       list: base.handler(({ context }) => {
         requests.push({ path: "collectionDefinitions.list", headers: context.headers });
         return [];
@@ -123,7 +156,14 @@ async function devCheckout(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { root, apiUrl: `http://127.0.0.1:${address.port}`, requests, cleanups };
+  return {
+    root,
+    apiUrl: `http://127.0.0.1:${address.port}`,
+    requests,
+    syncedBlockIds,
+    syncedDefaultTitles,
+    cleanups,
+  };
 }
 
 async function startDevServer(
@@ -149,7 +189,6 @@ async function startDevServer(
         _internal: {
           apiUrl: checkout.apiUrl,
           authenticationUrl: AUTHENTICATION_URL,
-          disableCodeGen: true,
           afterSync,
           seedLiveDeployToken,
         },
@@ -185,15 +224,22 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
       session: headers.authorization,
       draft: headers[DRAFT_HEADER],
     })),
-    ["blockDefinitions.sync", "collectionDefinitions.sync", "collectionDefinitions.list"].map(
-      (path) => ({
-        path,
-        session: "Bearer dev-session",
-        draft: DEVELOPMENT_DRAFT,
-      }),
-    ),
+    ["definitions.sync", "collectionDefinitions.list"].map((path) => ({
+      path,
+      session: "Bearer dev-session",
+      draft: DEVELOPMENT_DRAFT,
+    })),
   );
   assert.ok(!logs.some((line) => line.includes("Created your development draft")));
+});
+
+void test("the dev server syncs the app's blocks without writing an app file", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+
+  await waitFor(() => logs.some((line) => line.includes("Synced 1 block definition")), logs);
+  assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
+  assert.ok(!existsSync(join(checkout.root, "src/camox/app.ts")));
 });
 
 void test("the dev server says when its first sync created the development draft", async (t) => {
@@ -205,35 +251,45 @@ void test("the dev server says when its first sync created the development draft
   assert.ok(logs.some((line) => line.includes("Running Camox app (your development draft)")));
 });
 
-void test("a release syncs Live's definitions: its requests name no draft", async (t) => {
+void test("a release syncs the app's blocks to Live: its requests name no draft", async (t) => {
   const checkout = await devCheckout(t);
-  const camoxApp = {
-    getBlocks: () => [],
-    getSerializableLayoutDefinitions: () => [],
-    getSerializableCollectionDefinitions: () => [],
-    getInitialPageBundles: async () => null,
-  } as unknown as Parameters<typeof syncDefinitionsToApi>[0]["camoxApp"];
-
-  await syncDefinitionsToApi({
-    camoxApp,
+  for (const [name, value] of Object.entries({
+    CAMOX_INTERNAL_RELEASE: "1",
+    CAMOX_DEPLOY_TOKEN: "deploy-token",
+  })) {
+    const previous = process.env[name];
+    process.env[name] = value;
+    t.after(() => {
+      if (previous === undefined) delete process.env[name];
+      else process.env[name] = previous;
+    });
+  }
+  const plugin = camox({
     projectSlug: "checkout",
-    apiUrl: checkout.apiUrl,
-    autoCreate: false,
-    deployToken: "deploy-token",
-    logger: createLogger("silent"),
+    _internal: { apiUrl: checkout.apiUrl, authenticationUrl: AUTHENTICATION_URL },
   });
+  // Resolving the config runs the plugin's config hooks the way `vite build` does.
+  await resolveConfig(
+    {
+      configFile: false,
+      root: checkout.root,
+      logLevel: "silent",
+      plugins: [{ name: "vite-plugin-cloudflare" }, plugin],
+    },
+    "build",
+  );
 
+  await (plugin.closeBundle as () => Promise<void>)();
+
+  assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
   assert.deepEqual(
     checkout.requests.map(({ path, headers }) => ({ path, draft: headers[DRAFT_HEADER] })),
-    [
-      { path: "blockDefinitions.sync", draft: undefined },
-      { path: "collectionDefinitions.sync", draft: undefined },
-    ],
+    [{ path: "definitions.sync", draft: undefined }],
   );
 });
 
 void test("the dev server skips afterSync when definition sync fails", async (t) => {
-  const checkout = await devCheckout(t, { failCollectionSync: true });
+  const checkout = await devCheckout(t, { failSync: true });
   let calls = 0;
   const { logs } = await startDevServer(checkout, () => {
     calls++;
@@ -273,10 +329,8 @@ void test("on an empty Live, the dev server releases first and publishes what af
   await waitFor(() => checkout.requests.some((r) => r.path === "drafts.publish"), logs);
   assert.deepEqual(requestLog(checkout.requests), [
     "pages.listBySlug live",
-    "blockDefinitions.sync live",
-    "collectionDefinitions.sync live",
-    `blockDefinitions.sync ${DEVELOPMENT_DRAFT}`,
-    `collectionDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    "definitions.sync live",
+    `definitions.sync ${DEVELOPMENT_DRAFT}`,
     `collectionDefinitions.list ${DEVELOPMENT_DRAFT}`,
     `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
     `drafts.publish ${DEVELOPMENT_DRAFT}`,
@@ -298,8 +352,7 @@ void test("when Live has pages, the dev server neither releases nor publishes", 
   await setTimeout(100);
   assert.deepEqual(requestLog(checkout.requests), [
     "pages.listBySlug live",
-    `blockDefinitions.sync ${DEVELOPMENT_DRAFT}`,
-    `collectionDefinitions.sync ${DEVELOPMENT_DRAFT}`,
+    `definitions.sync ${DEVELOPMENT_DRAFT}`,
   ]);
 });
 
@@ -310,4 +363,103 @@ void test("seeded content stays in the development draft when publishing it is b
   await waitFor(() => logs.some((line) => line.includes("publishing is blocked")), logs);
   assert.ok(logs.some((line) => line.includes("The page needs a meta title")));
   assert.ok(!checkout.requests.some((r) => r.path === "drafts.publish"));
+});
+
+/** How many whole-set syncs reached the API's block definitions, judging by the dev logs. */
+function syncCount(logs: string[]) {
+  return logs.filter((line) => /Synced \d+ block definition/.test(line)).length;
+}
+
+/** Long enough for the dev server to notice a file change and finish any sync it causes. */
+const SETTLE_MS = 600;
+
+void test("changing a module a block's schema imports syncs the new Definition Set", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+  await waitFor(() => syncCount(logs) === 1, logs);
+
+  await writeFile(join(checkout.root, "src/fields/greeting.ts"), greetingModule("Hello"));
+
+  await waitFor(() => syncCount(logs) === 2, logs);
+  assert.deepEqual(checkout.syncedDefaultTitles, [{ hero: "Welcome" }, { hero: "Hello" }]);
+});
+
+void test("a change that leaves the Definition Set equal sends no sync", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+  await waitFor(() => syncCount(logs) === 1, logs);
+  const requestsAfterFirstSync = checkout.requests.length;
+
+  // Styling work: the component changes, no definition does.
+  await writeFile(
+    join(checkout.root, "src/blocks/hero.ts"),
+    blockModule("hero", { component: '() => "styled"' }),
+  );
+  await setTimeout(SETTLE_MS);
+  assert.equal(checkout.requests.length, requestsAfterFirstSync);
+
+  // A definition change afterwards still syncs, so the dev server was watching all along.
+  await writeFile(join(checkout.root, "src/fields/greeting.ts"), greetingModule("Hello"));
+  await waitFor(() => syncCount(logs) === 2, logs);
+  assert.deepEqual(checkout.syncedDefaultTitles, [{ hero: "Welcome" }, { hero: "Hello" }]);
+});
+
+void test("adding or deleting a block file leads to one whole-set sync each", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+  await waitFor(() => syncCount(logs) === 1, logs);
+
+  await writeFile(join(checkout.root, "src/blocks/cta.ts"), blockModule("cta"));
+  await waitFor(() => syncCount(logs) === 2, logs);
+  await setTimeout(SETTLE_MS);
+
+  await rm(join(checkout.root, "src/blocks/cta.ts"));
+  await waitFor(() => syncCount(logs) === 3, logs);
+  await setTimeout(SETTLE_MS);
+
+  assert.deepEqual(checkout.syncedBlockIds, [["hero"], ["cta", "hero"], ["hero"]]);
+  assert.deepEqual(
+    requestLog(checkout.requests),
+    Array.from({ length: 3 }, () => `definitions.sync ${DEVELOPMENT_DRAFT}`),
+  );
+});
+
+void test("the dev server logs what one sync changed, as the API reports it", async (t) => {
+  const checkout = await devCheckout(t, {
+    syncResult: {
+      blocks: { count: 1, deletedDefinitionTypes: ["quote"] },
+      collections: { count: 0, retired: ["authors"] },
+      layouts: {
+        count: 1,
+        layouts: [
+          {
+            layoutId: "default",
+            wasExisting: true,
+            createdBlockTypes: ["navbar"],
+            removedBlockTypes: ["banner"],
+            skippedOrphanTypes: ["hero"],
+          },
+        ],
+        removedLayoutIds: ["landing"],
+        deletedDefinitionTypes: ["banner"],
+      },
+    },
+  });
+  const { logs } = await startDevServer(checkout, () => {});
+
+  await waitFor(() => syncCount(logs) === 1, logs);
+  for (const expected of [
+    'Removed 1 block definition no longer in code: "quote"',
+    'Removed collection "authors"; its records are kept and hidden',
+    'Added 1 block to existing layout "default": "navbar"',
+    'Removed 1 layoutOnly block from layout "default": "banner"',
+    'Layout "default" has 1 block still in DB but removed from code: "hero"',
+    'Removed layout "landing"; its pages are kept and listed as needing a layout',
+    'Removed 1 layoutOnly block definition (no layout uses it anymore): "banner"',
+  ]) {
+    assert.ok(
+      logs.some((line) => line.includes(expected)),
+      `${expected}\n---\n${logs.join("\n")}`,
+    );
+  }
 });

@@ -2,6 +2,7 @@ import { agentProcedures } from "./domains/agent/routes";
 import { blockDefinitionProcedures } from "./domains/block-definitions/routes";
 import { blockProcedures } from "./domains/blocks/routes";
 import { collectionDefinitionProcedures } from "./domains/collections/routes";
+import { definitionProcedures } from "./domains/definitions/routes";
 import { draftProcedures } from "./domains/drafts/routes";
 import { fileProcedures } from "./domains/files/routes";
 import { layoutProcedures } from "./domains/layouts/routes";
@@ -20,6 +21,7 @@ export const router = {
   repeatableItems: repeatableItemProcedures,
   blockDefinitions: blockDefinitionProcedures,
   collectionDefinitions: collectionDefinitionProcedures,
+  definitions: definitionProcedures,
   drafts: draftProcedures,
   agent: agentProcedures,
 };

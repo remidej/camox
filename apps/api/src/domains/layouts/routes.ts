@@ -12,12 +12,7 @@ const list = pub
   .input(service.listLayoutsInput)
   .handler(({ context, input }) => runService(service.listLayouts(context, input)));
 
-const sync = pub
-  .input(service.syncLayoutsInput)
-  .handler(({ context, input }) => runService(service.syncLayouts(context, input)));
-
 export const layoutProcedures = {
   get,
   list,
-  sync,
 };

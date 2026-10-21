@@ -1,12 +1,14 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { env } from "cloudflare:workers";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Effect } from "effect";
+import type { z } from "zod";
 
 import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
+import type { definitionSetInput } from "../src/domains/definitions/service";
 import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
 import { draftOf, RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
@@ -263,4 +265,45 @@ export async function openDevelopmentDraft(
     }
   }
   return id;
+}
+
+/** A Definition Set as a test writes it: each part it leaves out holds nothing. */
+export type TestDefinitionSet = Partial<z.input<typeof definitionSetInput>>;
+
+/**
+ * Syncs a whole Definition Set through `definitions.sync`, the way the website's code reaches the
+ * API: a release to Live with the project's deploy token, or, signed in `as` a member, dev mode
+ * into their development draft, which the sync creates when missing (ADR 0006). A set declaring
+ * no layouts leaves the target's layouts, like the fixture's `default` one, as they are.
+ */
+export function syncDefinitionSet(
+  db: ReturnType<typeof createDb>,
+  project: { slug: string; deployToken: string | null },
+  set: TestDefinitionSet,
+  options: { as?: ServiceContext["user"] } = {},
+) {
+  const definitionSet = {
+    blocks: set.blocks ?? [],
+    layouts: set.layouts ?? [],
+    collections: set.collections ?? [],
+    homepage: set.homepage ?? null,
+  };
+  if (options.as) {
+    const context = createRpcContext(db, options.as, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
+    return call(
+      router.definitions.sync,
+      { projectSlug: project.slug, autoCreate: true, definitionSet },
+      { context },
+    );
+  }
+  return call(
+    router.definitions.sync,
+    {
+      projectSlug: project.slug,
+      deployToken: project.deployToken ?? undefined,
+      autoCreate: false,
+      definitionSet,
+    },
+    { context: createRpcContext(db, null) },
+  );
 }

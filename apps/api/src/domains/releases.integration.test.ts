@@ -11,8 +11,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
+  syncDefinitionSet,
+  type TestDefinitionSet,
 } from "../../test/fixtures";
 import { answerEvery, forgetScheduled, scheduled } from "../../test/generation";
 import { isTranslationJob } from "../lib/ai-job-queue";
@@ -20,10 +21,8 @@ import { runAiJob } from "../lib/ai-jobs";
 import { runService } from "../lib/run-service";
 import { router } from "../router";
 import { pages } from "../schema";
-import { syncBlockDefinitions } from "./block-definitions/service";
 import * as overlay from "./drafts/overlay";
 import { RELEASE } from "./drafts/scope";
-import { syncLayouts } from "./layouts/service";
 
 // A release: the website's build syncing its definitions to Live with the deploy token
 // (ADR 0006, ADR 0007).
@@ -56,32 +55,30 @@ type DeclaredBlock = { type: string; slot?: "before" | "after"; content?: unknow
 async function fixture() {
   const base = await createProjectFixture(`release-${crypto.randomUUID()}`);
   const { db, project } = base;
-  const build = createServiceContext(db, null);
-  const token = { projectSlug: project.slug, deployToken: project.deployToken, autoCreate: false };
+  // The website's code as last released: each release sends its whole Definition Set.
+  const current: Required<Pick<TestDefinitionSet, "blocks" | "layouts">> = {
+    blocks: [],
+    layouts: [],
+  };
+  const release = () => syncDefinitionSet(db, project, current);
 
-  const releaseDefinitions = (definitions: BlockDefinition[]) =>
-    runService(
-      syncBlockDefinitions(build, {
-        ...token,
-        definitions: definitions.map((definition) => ({
-          title: definition.blockId,
-          description: definition.blockId,
-          contentSchema: titled,
-          ...definition,
-        })),
-      }),
-    );
-  const releaseLayouts = (layouts: Record<string, DeclaredBlock[]>) =>
-    runService(
-      syncLayouts(build, {
-        ...token,
-        layouts: Object.entries(layouts).map(([layoutId, blocks]) => ({
-          layoutId,
-          description: layoutId,
-          blocks: blocks.map((block) => ({ content: { title: block.type }, ...block })),
-        })),
-      }),
-    );
+  const releaseDefinitions = (definitions: BlockDefinition[]) => {
+    current.blocks = definitions.map((definition) => ({
+      title: definition.blockId,
+      description: definition.blockId,
+      contentSchema: titled,
+      ...definition,
+    }));
+    return release();
+  };
+  const releaseLayouts = (layouts: Record<string, DeclaredBlock[]>) => {
+    current.layouts = Object.entries(layouts).map(([layoutId, blocks]) => ({
+      layoutId,
+      description: layoutId,
+      blocks: blocks.map((block) => ({ content: { title: block.type }, ...block })),
+    }));
+    return release();
+  };
 
   const now = Date.now();
   const createPage = (fullPath: string) =>

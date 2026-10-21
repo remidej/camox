@@ -7,12 +7,10 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   openDevelopmentDraft,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { upsertBlockDefinition } from "../block-definitions/service";
 
 // The AI tools that publish and discard the session's draft (ADR 0009), as the CLI calls them
 // through the agent procedures in the caller's development draft (ADR 0010).
@@ -24,20 +22,20 @@ type ToolResponse = { ok: true; result: any } | { ok: false; error: { code: stri
 async function fixture() {
   const base = await createProjectFixture(`tools-${crypto.randomUUID()}`);
   const projectId = base.project.id;
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: { title: { fieldType: "String", type: "string" } },
-        toMarkdown: ["# {{title}}"],
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: { title: { fieldType: "String", type: "string" } },
+          toMarkdown: ["# {{title}}"],
+        },
       },
-    }),
-  );
+    ],
+  });
   const member = (headers: Record<string, string> = {}) => ({
     context: createRpcContext(base.db, base.memberUser, headers),
   });

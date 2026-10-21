@@ -7,6 +7,5 @@ count.txt
 .env
 .tanstack
 .wrangler
-src/camox/app.ts
 src/routes/(camox)/
 src/routeTree.gen.ts

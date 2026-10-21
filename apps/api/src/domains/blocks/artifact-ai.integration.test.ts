@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
 import {
   createProjectFixture,
+  syncDefinitionSet,
   createServiceContext,
   seedLiveThrough,
   inScope,
@@ -11,7 +12,6 @@ import {
 import { answerNext, modelCalls } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
 import { pages, repeatableItems } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { runGenerationJob } from "../generated-values/generation";
 import { createBlock, getPageMarkdown } from "./service";
 
@@ -46,18 +46,18 @@ function artifactSchema(toMarkdown?: string[]) {
 async function fixture(type: "templated" | "raw") {
   const base = await createProjectFixture(crypto.randomUUID());
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: type,
-      title: "Visual",
-      description: "Artifact AI fixture",
-      contentSchema: artifactSchema(
-        type === "templated" ? ["# {{heading}}", "{{visual}}", "{{scenes}}"] : undefined,
-      ),
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, {
+    blocks: [
+      {
+        blockId: type,
+        title: "Visual",
+        description: "Artifact AI fixture",
+        contentSchema: artifactSchema(
+          type === "templated" ? ["# {{heading}}", "{{visual}}", "{{scenes}}"] : undefined,
+        ),
+      },
+    ],
+  });
   const now = Date.now();
   const page = await base.db
     .insert(pages)

@@ -1,7 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -9,6 +9,7 @@ import {
   createRpcContext,
   callSeedingLive,
   seedLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -29,6 +30,28 @@ const inDraft = (id: string): Headers => ({ [DRAFT_HEADER]: id });
 
 const text = (value: string) => ({ type: "string", fieldType: "String" as const, title: value });
 
+const authors = {
+  collectionId: "authors",
+  title: "Authors",
+  description: "",
+  label: "name",
+  contentSchema: {
+    type: "object" as const,
+    properties: {
+      name: text("Name"),
+      mentor: {
+        fieldType: "Reference" as const,
+        collectionId: "authors",
+        title: "Mentor",
+        anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+        default: null,
+      },
+    },
+    required: ["name", "mentor"],
+    additionalProperties: false as const,
+  },
+};
+
 /**
  * A project with authors, and a byline block: an author reference, a list of co-authors, a
  * link and rich text.
@@ -40,38 +63,7 @@ async function fixture() {
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(base.db, base.memberUser, headers),
   });
-  await call(
-    router.collectionDefinitions.sync,
-    {
-      projectSlug,
-      deployToken: base.project.deployToken,
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "authors",
-          title: "Authors",
-          description: "",
-          label: "name",
-          contentSchema: {
-            type: "object",
-            properties: {
-              name: text("Name"),
-              mentor: {
-                fieldType: "Reference",
-                collectionId: "authors",
-                title: "Mentor",
-                anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
-                default: null,
-              },
-            },
-            required: ["name", "mentor"],
-            additionalProperties: false,
-          },
-        },
-      ],
-    },
-    { context: createRpcContext(base.db, null) },
-  );
+  await syncDefinitionSet(base.db, base.project, { collections: [authors] });
   await base.db.insert(blockDefinitions).values({
     projectId,
     blockId: "byline",
@@ -322,26 +314,37 @@ describe("duplicate paths", () => {
 
 describe("duplicate record page values", () => {
   /** Author pages, found by the author's name. */
-  const withAuthorPages = (f: Awaited<ReturnType<typeof fixture>>) =>
-    call(
-      router.layouts.sync,
-      {
-        projectSlug: f.project.slug,
-        deployToken: f.project.deployToken,
-        autoCreate: false,
-        layouts: [
-          { layoutId: f.layout.layoutId, kind: "curated", description: "", blocks: [] },
-          {
-            layoutId: "authors.$name",
-            kind: "derived",
-            description: "",
-            blocks: [],
-            recordPages: { collectionId: "authors", field: "name" },
-          },
-        ],
-      },
-      { context: createRpcContext(f.db, null) },
-    );
+  const withAuthorPages = async (f: Awaited<ReturnType<typeof fixture>>) => {
+    // The release keeps the block definitions Live already holds.
+    const live = await f.db
+      .select()
+      .from(blockDefinitions)
+      .where(and(eq(blockDefinitions.projectId, f.project.id), isNull(blockDefinitions.draftId)));
+    return syncDefinitionSet(f.db, f.project, {
+      blocks: live.map((definition) => ({
+        blockId: definition.blockId,
+        title: definition.title,
+        description: definition.description,
+        contentSchema: definition.contentSchema,
+        settingsSchema: definition.settingsSchema ?? undefined,
+        defaultContent: definition.defaultContent ?? undefined,
+        defaultSettings: definition.defaultSettings ?? undefined,
+        layoutOnly: definition.layoutOnly ?? undefined,
+        synced: definition.synced,
+      })),
+      layouts: [
+        { layoutId: f.layout.layoutId, kind: "curated", description: "", blocks: [] },
+        {
+          layoutId: "authors.$name",
+          kind: "derived",
+          description: "",
+          blocks: [],
+          recordPages: { collectionId: "authors", field: "name" },
+        },
+      ],
+      collections: [authors],
+    });
+  };
 
   it("blocks two records sharing the value their record pages are found by, and flags them", async () => {
     const f = await fixture();

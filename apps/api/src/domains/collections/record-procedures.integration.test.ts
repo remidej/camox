@@ -11,27 +11,21 @@ import { collection as customers } from "../../../../playground/src/collections/
 import {
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   callSeedingLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
 import { agentProcedures } from "../agent/routes";
 import { collectionDefinitionProcedures as routes } from "./routes";
-import { getCollectionRecord, syncCollectionDefinitions } from "./service";
+import { getCollectionRecord } from "./service";
 
 async function fixture() {
   const base = await createProjectFixture(`record-procedures-${crypto.randomUUID()}`);
   const context = createRpcContext(base.db, base.memberUser);
   const { id, ...definition } = customers._internal;
-  await runService(
-    syncCollectionDefinitions(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, {
+    collections: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
+  });
   return { ...base, context, scope: { projectSlug: base.project.slug, collectionId: id } };
 }
 
@@ -154,12 +148,7 @@ describe("collection record procedures", () => {
     const development = createRpcContext(f.db, f.memberUser, {
       [DRAFT_HEADER]: DEVELOPMENT_DRAFT,
     });
-    await runService(
-      syncCollectionDefinitions(
-        { ...development, draft: { development: true } },
-        { projectSlug: f.scope.projectSlug, autoCreate: true, definitions: [] },
-      ),
-    );
+    await syncDefinitionSet(f.db, f.project, {}, { as: f.memberUser });
     expect(await invoke(development, "listCollections", {})).toEqual({ ok: true, result: [] });
     expect(await invoke(development, "deleteCollectionRecord", target)).toMatchObject({
       ok: false,

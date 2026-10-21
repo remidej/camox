@@ -2,7 +2,7 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { callSeedingLive, createRpcContext, createServiceContext } from "../../../test/fixtures";
+import { callSeedingLive, createRpcContext, syncDefinitionSet } from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -15,14 +15,13 @@ import {
   lastAnswer,
   said,
   signIn,
+  textDefinition,
   touchedOf,
   type Website,
   websiteFixture,
 } from "../../../test/threads";
-import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, member, pages } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -204,21 +203,22 @@ describe("the agent reading the website through code mode", () => {
 
   it("reports a Synced Block's shared content by its block type", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
-    await runService(
-      upsertBlockDefinition(createServiceContext(website.db, null), {
-        projectSlug: website.project.slug,
-        deployToken: website.project.deployToken,
-        blockId: "navbar",
-        title: "Navbar",
-        description: "Navigation",
-        synced: true,
-        contentSchema: {
-          type: "object",
-          properties: { title: { fieldType: "String", type: "string" } },
-          toMarkdown: ["# {{title}}"],
+    await syncDefinitionSet(website.db, website.project, {
+      blocks: [
+        textDefinition,
+        {
+          blockId: "navbar",
+          title: "Navbar",
+          description: "Navigation",
+          synced: true,
+          contentSchema: {
+            type: "object",
+            properties: { title: { fieldType: "String", type: "string" } },
+            toMarkdown: ["# {{title}}"],
+          },
         },
-      }),
-    );
+      ],
+    });
     const pricing = await website.db
       .select()
       .from(pages)

@@ -14,8 +14,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   seedLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import {
   answerEvery,
@@ -31,7 +31,6 @@ import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 
 // Publishing a draft takes every locale live together (ADR 0017): it waits for the draft's
 // pending translations, unless published anyway. Then Camox opens a draft of its own that
@@ -58,21 +57,20 @@ async function fixture() {
   const base = await createProjectFixture(`publish-translations-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const { slug: projectSlug, deployToken } = project;
-  await runService(
-    upsertBlockDefinition(createServiceContext(db, null), {
-      projectSlug,
-      deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: { title: { type: "string", fieldType: "String" } },
-        toMarkdown: ["# {{title}}"],
+  await syncDefinitionSet(db, project, {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: { title: { type: "string", fieldType: "String" } },
+          toMarkdown: ["# {{title}}"],
+        },
       },
-    }),
-  );
+    ],
+  });
   answerEvery("translate", ({ texts }) =>
     Object.fromEntries(texts.map(({ key, text }) => [key, GERMAN[text] ?? text])),
   );

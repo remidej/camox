@@ -7,10 +7,10 @@ import {
   createServiceContext,
   seedLiveThrough,
   inScope,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages, repeatableItems } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { discardDraft } from "../drafts/publish";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { getPageByPath } from "../pages/service";
@@ -26,24 +26,22 @@ import {
   updateBlockSettings,
 } from "./service";
 
+const hero = {
+  blockId: "hero",
+  title: "Hero",
+  description: "Hero",
+  contentSchema: {
+    type: "object",
+    properties: { title: { fieldType: "String", type: "string" } },
+    toMarkdown: ["# {{title}}"],
+  },
+  settingsSchema: { properties: { dark: { type: "boolean", default: false } } },
+};
+
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await runService(
-    upsertBlockDefinition(createServiceContext(base.db, null), {
-      projectSlug: base.project.slug,
-      deployToken: base.project.deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: { title: { fieldType: "String", type: "string" } },
-        toMarkdown: ["# {{title}}"],
-      },
-      settingsSchema: { properties: { dark: { type: "boolean", default: false } } },
-    }),
-  );
+  await syncDefinitionSet(base.db, base.project, { blocks: [hero] });
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)
@@ -252,25 +250,26 @@ describe("blocks in a draft", () => {
 
   it("seeds a block's default repeatable items in the draft only, leaving none on Live once discarded", async () => {
     const { ctx, db, page, project, openDraft } = await fixture("draft-create-items");
-    await runService(
-      upsertBlockDefinition(createServiceContext(db, null), {
-        projectSlug: project.slug,
-        deployToken: project.deployToken,
-        blockId: "list",
-        title: "List",
-        description: "List",
-        contentSchema: {
-          type: "object",
-          properties: {
-            items: {
-              fieldType: "Repeater",
-              minItems: 2,
-              items: { properties: { title: { default: "Item" } } },
+    await syncDefinitionSet(db, project, {
+      blocks: [
+        hero,
+        {
+          blockId: "list",
+          title: "List",
+          description: "List",
+          contentSchema: {
+            type: "object",
+            properties: {
+              items: {
+                fieldType: "Repeater",
+                minItems: 2,
+                items: { properties: { title: { default: "Item" } } },
+              },
             },
           },
         },
-      }),
-    );
+      ],
+    });
     const draft = await openDraft();
 
     const block = await runService(

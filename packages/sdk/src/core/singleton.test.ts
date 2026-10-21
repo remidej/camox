@@ -15,12 +15,13 @@ const options = {
 void test("singletons sync their kind, accept no loader, and do not seed curated pages", async () => {
   const singleton = createLayout("pokedex")({ ...options, kind: "singleton" });
   const app = createApp({ blocks: [], layouts: [singleton] });
-  assert.equal(await app.getInitialPageBundles(), null);
+  const set = await app.getDefinitionSet();
+  assert.equal(set.homepage, null);
   assert.equal(singleton._internal.loader, undefined);
-  assert.equal(app.getSerializableLayoutDefinitions()[0].kind, "singleton");
+  assert.equal(set.layouts[0].kind, "singleton");
   const curated = createLayout("default")({ ...options, kind: "curated" });
   assert.equal(
-    (await createApp({ blocks: [], layouts: [singleton, curated] }).getInitialPageBundles())
+    (await createApp({ blocks: [], layouts: [singleton, curated] }).getDefinitionSet()).homepage
       ?.layoutId,
     "default",
   );

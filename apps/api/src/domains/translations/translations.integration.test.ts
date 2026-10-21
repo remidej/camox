@@ -14,8 +14,9 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  createServiceContext,
   openDevelopmentDraft,
+  syncDefinitionSet,
+  type TestDefinitionSet,
 } from "../../../test/fixtures";
 import {
   answerEvery,
@@ -33,7 +34,6 @@ import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { files } from "../../schema";
-import { upsertBlockDefinition } from "../block-definitions/service";
 import { drafts } from "../drafts/schema";
 import { draftOf } from "../drafts/scope";
 import { requestTranslations } from "./service";
@@ -86,89 +86,72 @@ async function fixture() {
   const base = await createProjectFixture(`translations-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const { slug: projectSlug, deployToken } = project;
-  await runService(
-    upsertBlockDefinition(createServiceContext(db, null), {
-      projectSlug,
-      deployToken,
-      blockId: "hero",
-      title: "Hero",
-      description: "Hero",
-      contentSchema: {
-        type: "object",
-        properties: {
-          title: { type: "string", fieldType: "String" },
-          subtitle: { type: "string", fieldType: "String" },
-          image: {
-            type: "object",
-            fieldType: "Image",
-            properties: { _fileId: { type: "string" } },
-          },
-          variant: { type: "string", fieldType: "Enum", enum: ["light", "dark"] },
-          items: {
-            type: "array",
-            fieldType: "Repeater",
-            items: {
+  const projectSlug = project.slug;
+  const definitionSet = {
+    blocks: [
+      {
+        blockId: "hero",
+        title: "Hero",
+        description: "Hero",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", fieldType: "String" },
+            subtitle: { type: "string", fieldType: "String" },
+            image: {
               type: "object",
-              properties: { label: { type: "string", fieldType: "String" } },
+              fieldType: "Image",
+              properties: { _fileId: { type: "string" } },
+            },
+            variant: { type: "string", fieldType: "Enum", enum: ["light", "dark"] },
+            items: {
+              type: "array",
+              fieldType: "Repeater",
+              items: {
+                type: "object",
+                properties: { label: { type: "string", fieldType: "String" } },
+              },
             },
           },
+          toMarkdown: ["# {{title}}"],
         },
-        toMarkdown: ["# {{title}}"],
-      },
-      settingsSchema: {
-        properties: {
-          size: { type: "string", enum: ["small", "medium", "large"], default: "medium" },
-        },
-      },
-    }),
-  );
-  await call(
-    router.collectionDefinitions.sync,
-    {
-      projectSlug,
-      deployToken,
-      autoCreate: false,
-      definitions: [
-        {
-          collectionId: "articles",
-          title: "Articles",
-          description: "",
-          label: "title",
-          contentSchema: {
-            type: "object",
-            properties: {
-              title: { type: "string", fieldType: "String" },
-              slug: { type: "string", fieldType: "String" },
-            },
-            required: ["title", "slug"],
-            additionalProperties: false,
+        settingsSchema: {
+          properties: {
+            size: { type: "string", enum: ["small", "medium", "large"], default: "medium" },
           },
         },
-      ],
-    },
-    { context: createRpcContext(db, null) },
-  );
-  // Article pages, found by the article's slug.
-  await call(
-    router.layouts.sync,
-    {
-      projectSlug,
-      deployToken,
-      autoCreate: false,
-      layouts: [
-        { layoutId: base.layout.layoutId, kind: "curated", description: "", blocks: [] },
-        {
-          layoutId: "articles.$slug",
-          kind: "derived",
-          description: "",
-          blocks: [],
-          recordPages: { collectionId: "articles", field: "slug" },
+      },
+    ],
+    collections: [
+      {
+        collectionId: "articles",
+        title: "Articles",
+        description: "",
+        label: "title",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", fieldType: "String" },
+            slug: { type: "string", fieldType: "String" },
+          },
+          required: ["title", "slug"],
+          additionalProperties: false as const,
         },
-      ],
-    },
-    { context: createRpcContext(db, null) },
-  );
+      },
+    ],
+    // Article pages, found by the article's slug.
+    layouts: [
+      { layoutId: base.layout.layoutId, kind: "curated" as const, description: "", blocks: [] },
+      {
+        layoutId: "articles.$slug",
+        kind: "derived" as const,
+        description: "",
+        blocks: [],
+        recordPages: { collectionId: "articles", field: "slug" },
+      },
+    ],
+  } satisfies TestDefinitionSet;
+  await syncDefinitionSet(db, project, definitionSet);
 
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(db, memberUser, headers),
@@ -231,6 +214,7 @@ async function fixture() {
   };
 
   return {
+    definitionSet,
     ...base,
     projectId,
     projectSlug,
@@ -1143,44 +1127,44 @@ describe("placing a block in a locale", () => {
    * a synced notice definition with the same defaults, placed nowhere yet.
    */
   async function germanDraft(f: Awaited<ReturnType<typeof fixture>>) {
-    for (const [blockId, synced] of [
-      ["banner", false],
-      ["notice", true],
-    ] as const) {
-      await runService(
-        upsertBlockDefinition(createServiceContext(f.db, null), {
-          projectSlug: f.projectSlug,
-          deployToken: f.project.deployToken,
-          blockId,
-          title: blockId,
-          description: blockId,
-          synced,
-          contentSchema: {
-            type: "object",
-            properties: {
-              title: { type: "string", fieldType: "String", default: "Hello" },
-              subtitle: { type: "string", fieldType: "String", default: "Welcome" },
-              variant: {
-                type: "string",
-                fieldType: "Enum",
-                enum: ["light", "dark"],
-                default: "dark",
-              },
-              items: {
-                type: "array",
-                fieldType: "Repeater",
-                minItems: 1,
-                items: {
-                  type: "object",
-                  properties: { label: { type: "string", fieldType: "String", default: "One" } },
-                },
-              },
-            },
-            toMarkdown: ["# {{title}}"],
+    const placedNowhere = (
+      [
+        ["banner", false],
+        ["notice", true],
+      ] as const
+    ).map(([blockId, synced]) => ({
+      blockId,
+      title: blockId,
+      description: blockId,
+      synced,
+      contentSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", fieldType: "String", default: "Hello" },
+          subtitle: { type: "string", fieldType: "String", default: "Welcome" },
+          variant: {
+            type: "string",
+            fieldType: "Enum",
+            enum: ["light", "dark"],
+            default: "dark",
           },
-        }),
-      );
-    }
+          items: {
+            type: "array",
+            fieldType: "Repeater",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { label: { type: "string", fieldType: "String", default: "One" } },
+            },
+          },
+        },
+        toMarkdown: ["# {{title}}"],
+      },
+    }));
+    await syncDefinitionSet(f.db, f.project, {
+      ...f.definitionSet,
+      blocks: [...f.definitionSet.blocks, ...placedNowhere],
+    });
     translateWithDictionaries();
     await f.tool("addLocale", { tag: "de" }, f.starting);
     await f.runTranslations();
