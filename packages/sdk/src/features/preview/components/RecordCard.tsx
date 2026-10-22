@@ -1,18 +1,21 @@
 import * as React from "react";
 
 /**
- * A linked collection record: label and collection title.
- * `leading` holds controls before it, such as a drag handle; `actions` holds trailing
+ * A linked collection record: its title, its description when it has one, and its collection's
+ * title. `leading` holds controls before it, such as a drag handle; `actions` holds trailing
  * controls such as unlink.
  */
 export function RecordCard({
   label,
+  description,
   collectionTitle,
   onOpen,
   leading,
   actions,
 }: {
   label: string;
+  /** The record's description, from its collection's `toDescription`. */
+  description?: string | null;
   collectionTitle: string;
   onOpen?: () => void;
   leading?: React.ReactNode;
@@ -21,7 +24,14 @@ export function RecordCard({
   const body = (
     <>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-sm font-medium">{label}</span>
+        <span data-record-title className="truncate text-sm font-medium">
+          {label}
+        </span>
+        {description && (
+          <span data-record-description className="text-muted-foreground truncate text-xs">
+            {description}
+          </span>
+        )}
         <span className="text-muted-foreground truncate text-xs">{collectionTitle}</span>
       </span>
     </>

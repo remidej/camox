@@ -112,6 +112,7 @@ export function ReferenceFieldEditor({
       {selectedId && (
         <RecordCard
           label={selectedLabel}
+          description={selected ? selected.description : hydrated?.description}
           collectionTitle={collectionTitle}
           onOpen={onOpenRecord ? () => onOpenRecord(selectedId) : undefined}
           actions={
