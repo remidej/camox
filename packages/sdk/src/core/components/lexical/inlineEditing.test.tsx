@@ -255,3 +255,45 @@ void test("highlight spans fully selected links and keeps partial link selection
   );
   assert.match(save(editor), /\[er\]\(https:\/\/example.com\)/);
 });
+
+void test("typing space in a field inside a <summary> doesn't toggle its <details>", async () => {
+  const { SummaryToggleGuard } = await import("./SummaryToggleGuard");
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  const host = document.createElement("span");
+  summary.appendChild(host);
+  details.appendChild(summary);
+  document.body.appendChild(details);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <LexicalComposer initialConfig={createEditorConfig("How do I start?")}>
+        <RichTextPlugin
+          contentEditable={<ContentEditable />}
+          ErrorBoundary={({ children }) => <>{children}</>}
+        />
+        <SummaryToggleGuard />
+      </LexicalComposer>,
+    );
+  });
+  const field = summary.querySelector<HTMLElement>("[contenteditable]")!;
+  const click = (detail: number) =>
+    summary.dispatchEvent(
+      new window.MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        detail,
+      }) as unknown as MouseEvent,
+    );
+
+  // Chromium activates the <summary> with a synthetic click (detail 0) after a space keyup,
+  // even when the key went to an editable field inside it.
+  field.focus();
+  assert.equal(click(0), false, "the keyboard's click on the summary should be canceled");
+  // A pointer click may still toggle, and so may the keyboard once the field isn't focused.
+  assert.equal(click(1), true);
+  field.blur();
+  assert.equal(click(0), true);
+  await act(async () => root.unmount());
+  details.remove();
+});
