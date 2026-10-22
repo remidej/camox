@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.46.0](https://github.com/remidej/camox/compare/camox-v0.45.0...camox-v0.46.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** sites on an older SDK still ask for ?placeholder=camox and get a 404, so they show the browser's blank icon until upgraded.
+
+### Features
+
+* **canvas:** show only pages on the Canvas ([#481](https://github.com/remidej/camox/issues/481)) ([ecf3cd4](https://github.com/remidej/camox/commit/ecf3cd4744eb1abc25f1ed8a742886655fb3c09e))
+* **sdk:** open the block picker in a side sheet ([#487](https://github.com/remidej/camox/issues/487)) ([657c6cb](https://github.com/remidej/camox/commit/657c6cb05bf404661d7b456f46d90284625b9e30))
+
+
+### Bug Fixes
+
+* **api:** set up projects from a Template with symlinks, and retry a failed setup ([#483](https://github.com/remidej/camox/issues/483)) ([c9c9787](https://github.com/remidej/camox/commit/c9c97871d6a83375c19c8401a09b21217f6ce894))
+* **canvas:** show a selected Page's frame in its own place in the row ([#486](https://github.com/remidej/camox/issues/486)) ([3d75f32](https://github.com/remidej/camox/commit/3d75f32c0ddf172600dec8f3420704ad0cb4a3cc))
+* **sdk:** stop the studio sign-in redirect loop on deployed sites ([#485](https://github.com/remidej/camox/issues/485)) ([ac0081f](https://github.com/remidej/camox/commit/ac0081f2fe7f7a2f7ee00cd95b42f0a750ca1e72))
+
+
+### Refactoring
+
+* **api:** outline the default favicon and stop calling it a placeholder ([#484](https://github.com/remidej/camox/issues/484)) ([bf3faaf](https://github.com/remidej/camox/commit/bf3faafbd43e7befcd64031a21938a20708f1db7))
+
 ## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...camox-v0.45.0) (2026-10-22)
 
 
