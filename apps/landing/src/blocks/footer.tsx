@@ -28,10 +28,12 @@ const footer = createBlock({
       minItems: 2,
       maxItems: 12,
       title: "Links",
+      toTitle: ({ content }) => content.link,
       toMarkdown: ({ content }) => [content.link],
     }),
   }),
   toReact: FooterComponent,
+  toTitle: () => "Footer",
   toMarkdown: ({ content }) => [content.logo, content.links],
 });
 

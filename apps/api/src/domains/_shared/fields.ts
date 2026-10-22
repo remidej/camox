@@ -184,6 +184,14 @@ export function markdownOf(
   return { lines, properties: schema.properties };
 }
 
+/**
+ * The title template a block's content schema, or a repeater's schema for its items, declares:
+ * one line of tokens. Undefined when it declares none.
+ */
+export function titleTemplateOf(schema: unknown): string | undefined {
+  return isObject(schema) && typeof schema.toTitle === "string" ? schema.toTitle : undefined;
+}
+
 /** The field schemas of a content schema, by name, as Markdown templates name them. */
 export function propertiesOf(schema: unknown): Record<string, unknown> {
   return isObject(schema) && isObject(schema.properties) ? schema.properties : {};
@@ -349,8 +357,11 @@ export function collectFileIds(value: unknown, into: Set<string>) {
   }
 }
 
-/** The content and settings schemas a repeatable item is read by, from its repeater. */
-export type ItemSchemas = { content: unknown; settings: unknown };
+/**
+ * The content and settings schemas a repeatable item is read by, from its repeater, and the
+ * repeater's title template for its items.
+ */
+export type ItemSchemas = { content: unknown; settings: unknown; title: string | undefined };
 
 /**
  * Each repeatable item's schemas, found by walking its repeater path from its block's content
@@ -374,7 +385,11 @@ export function itemSchemas(
     const field = fieldsOf(container).find((f) => f.name === item.fieldName);
     const schemas =
       field?.kind === "Repeater"
-        ? { content: field.itemContentSchema, settings: field.itemSettingsSchema }
+        ? {
+            content: field.itemContentSchema,
+            settings: field.itemSettingsSchema,
+            title: titleTemplateOf(field.schema),
+          }
         : null;
     found.set(item.id, schemas);
     return schemas;

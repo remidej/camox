@@ -72,7 +72,10 @@ export const pageRowSchema = z.strictObject({
 /** A page with whether its SEO is generated. */
 export const pageSchema = pageRowSchema.extend({ aiSeo: z.boolean() });
 
-/** A block as readers see it: its shared content if it's a synced placement, and its summary. */
+/**
+ * A block as readers see it: its shared content if it's a synced placement, its summary, and its
+ * title, which names it until it has a summary.
+ */
 export const blockSchema = z.strictObject({
   ...versionedColumns,
   projectId: z.number(),
@@ -85,6 +88,7 @@ export const blockSchema = z.strictObject({
   slot: z.enum(["before", "after"]).nullable(),
   position: z.string(),
   summary: z.string(),
+  title: z.string(),
 });
 
 /** A block a tool wrote, with what its content may be missing. */
@@ -104,6 +108,7 @@ const repeatableItemSchema = z.strictObject({
   parentItemId: z.string().nullable(),
   fieldName: z.string(),
   summary: z.string(),
+  title: z.string(),
 });
 
 const blockWithReferencesSchema = blockSchema.extend({ references: resolvedReferencesSchema });

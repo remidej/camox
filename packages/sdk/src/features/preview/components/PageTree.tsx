@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { useEditingFrame } from "../editingFrame";
+import { entityName } from "../entityName";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, selectionBlockId, selectionForOwner } from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
@@ -200,7 +201,7 @@ const SortableBlock = ({ block }: SortableBlockProps) => {
         {gripButton}
       </BlockActionsPopover>
       <BlockTreeItemTrigger
-        displayText={block.summary || block.type}
+        displayText={entityName(block, block.type)}
         onClick={ctx.toggleSelection}
       />
       <BlockActionsPopover
@@ -452,7 +453,7 @@ const PageTree = ({ collapsible = false }: { collapsible?: boolean }) => {
                   <div className="bg-accent text-accent-foreground rounded-lg shadow-md">
                     <div className="flex items-center gap-1 px-1 py-2 text-sm">
                       <GripVertical className="text-muted-foreground mx-1.5 h-4 w-4" />
-                      <span className="truncate">{activeBlock.summary}</span>
+                      <span className="truncate">{entityName(activeBlock, activeBlock.type)}</span>
                     </div>
                   </div>
                 );

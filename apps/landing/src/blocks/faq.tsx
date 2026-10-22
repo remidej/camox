@@ -29,10 +29,12 @@ const faq = createBlock({
       minItems: 3,
       maxItems: Infinity,
       title: "Questions",
+      toTitle: ({ content }) => content.question,
       toMarkdown: ({ content }) => [`Q: ${content.question}`, `A: ${content.answer}`],
     }),
   }),
   toReact: FaqComponent,
+  toTitle: () => "FAQ",
   toMarkdown: ({ content }) => [content.items],
 });
 

@@ -189,7 +189,7 @@ An uploaded image, video, or document available to the website's content. Like a
 _Avoid_: Media, upload
 
 **Summary**:
-A generated value: a short description of a block's or repeatable item's content, used to identify it to editors and agents.
+A generated value: a short description of a block's or repeatable item's content, used to identify it to editors and agents. Until one is generated or written by hand, the block or item is identified by its title, which its definition's `toTitle` builds from its default-locale content.
 _Avoid_: Description, label, excerpt
 
 **Generated Value**:

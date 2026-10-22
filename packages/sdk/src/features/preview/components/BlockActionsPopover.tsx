@@ -32,6 +32,7 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
+import { entityName } from "../entityName";
 import {
   isBlockSelection,
   previewStore,
@@ -72,7 +73,7 @@ const BlockActionsPopover = ({
   const handleDeleteBlock = async (block: NormalizedBlock) => {
     try {
       await deleteBlock.mutateAsync({ id: block.id });
-      toast.success(`Deleted "${block.summary || block.type}" block`);
+      toast.success(`Deleted "${entityName(block, block.type)}" block`);
     } catch (error) {
       console.error("Failed to delete block:", error);
       toast.error("Could not delete block");
@@ -84,7 +85,7 @@ const BlockActionsPopover = ({
   const handleDuplicateBlock = async (block: NormalizedBlock) => {
     try {
       await duplicateBlock.mutateAsync({ id: block.id });
-      toast.success(`Duplicated "${block.summary}" block`);
+      toast.success(`Duplicated "${entityName(block, block.type)}" block`);
     } catch (error) {
       console.error("Failed to duplicate block:", error);
       toast.error("Could not duplicate block");
@@ -298,8 +299,9 @@ const BlockActionsPopover = ({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete block</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete <strong>{blockToDelete?.summary}</strong>? This action
-              cannot be undone.
+              Are you sure you want to delete{" "}
+              <strong>{blockToDelete && entityName(blockToDelete, blockToDelete.type)}</strong>?
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -396,7 +398,7 @@ function useBlockActionsShortcuts() {
 
           const block = pageBlocks.find((b) => b.id === sel.blockId);
           deleteBlock({ id: sel.blockId }).then(
-            () => toast.success(`Deleted "${block?.summary || block?.type}" block`),
+            () => toast.success(`Deleted "${block ? entityName(block, block.type) : ""}" block`),
             () => toast.error("Could not delete block"),
           );
           previewStore.send({ type: "clearSelection" });
@@ -430,7 +432,7 @@ function useBlockActionsShortcuts() {
 
           const block = pageBlocks.find((b) => b.id === sel.blockId);
           duplicateBlock({ id: sel.blockId }).then(
-            () => toast.success(`Duplicated "${block?.summary}" block`),
+            () => toast.success(`Duplicated "${block ? entityName(block, block.type) : ""}" block`),
             () => toast.error("Could not duplicate block"),
           );
         },

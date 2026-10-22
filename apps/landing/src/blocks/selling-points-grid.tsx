@@ -36,10 +36,12 @@ const sellingPointsGrid = createBlock({
       minItems: 3,
       maxItems: Infinity,
       title: "Selling points",
+      toTitle: ({ content }) => content.title,
       toMarkdown: ({ content }) => [`### ${content.title}`, content.description],
     }),
   }),
   toReact: SellingPointsGridComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [content.pill, `## ${content.title}`, content.items],
 });
 

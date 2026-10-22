@@ -43,12 +43,14 @@ const youtubeDemo = createBlock({
       minItems: 1,
       maxItems: Infinity,
       title: "Chapters",
+      toTitle: ({ content }) => `${content.timestamp} ${content.title}`,
       toMarkdown: ({ content }) => [
         `**${content.timestamp}** — ${content.title}: ${content.description}`,
       ],
     }),
   }),
   toReact: YoutubeDemoComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`# ${content.title}`, content.embed, content.chapters],
 });
 
