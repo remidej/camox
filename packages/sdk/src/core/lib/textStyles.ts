@@ -51,7 +51,7 @@ export function getTextAppearance(format: number, styles: InlineTextStyles): Inl
 }
 
 export const defaultHighlightStyle: CSSProperties = {
-  color: "var(--primary, currentColor)",
+  color: "var(--camox-highlight, currentColor)",
 };
 
 export function getHighlightStyle(styles: InlineTextStyles): InlineStyle {

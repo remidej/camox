@@ -614,7 +614,6 @@ function createViewBlock(options: EditableOptions) {
         style={{
           position: "relative",
           scrollMargin: "5rem",
-          background: "var(--background)",
         }}
       >
         <Context.Provider

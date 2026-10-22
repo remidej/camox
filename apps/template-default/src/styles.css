@@ -46,6 +46,9 @@ body {
   --sidebar-accent-foreground: oklch(0.22 0.05 260);
   --sidebar-border: oklch(0.92 0.02 260);
   --sidebar-ring: oklch(0.7 0.05 260);
+  --camox-highlight: var(--primary);
+  --camox-placeholder: var(--muted);
+  --camox-placeholder-ink: var(--muted-foreground);
 }
 
 .dark {
@@ -81,6 +84,9 @@ body {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.55 0.05 260);
+  --camox-highlight: var(--primary);
+  --camox-placeholder: var(--muted);
+  --camox-placeholder-ink: var(--muted-foreground);
 }
 
 @theme inline {

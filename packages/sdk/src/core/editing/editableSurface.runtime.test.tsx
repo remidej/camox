@@ -116,3 +116,43 @@ void test("an unselected Canvas Page shows its text as the site does, with no vi
     await window.happyDOM.close();
   }
 });
+
+void test("an editable block's wrapper leaves its background to the website's stylesheet", async () => {
+  const block = createEditableBlock({
+    id: "plain",
+    title: "",
+    description: "",
+    content: () => ({}),
+    toMarkdown: () => [],
+    component: () => <p>Hi</p>,
+  });
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = window.document.createElement("div");
+  window.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  try {
+    await act(async () =>
+      root.render(
+        <StudioQueryClientProvider client={new QueryClient()}>
+          <NormalizedDataProvider files={[]} blocks={[]} repeatableItems={[]}>
+            <EditableSurfaceContext value={true}>
+              <block._internal.Component
+                mode="site"
+                blockData={{ _id: "1", type: "plain", position: "a0", content: {} }}
+              />
+            </EditableSurfaceContext>
+          </NormalizedDataProvider>
+        </StudioQueryClientProvider>,
+      ),
+    );
+    const wrapper = host.querySelector("[data-camox-viewport-block]") as unknown as HTMLElement;
+    assert.ok(wrapper.querySelector("p"), "the block renders inside its wrapper");
+    assert.equal(wrapper.style.background, "");
+  } finally {
+    await act(async () => root.unmount());
+    await window.happyDOM.close();
+  }
+});

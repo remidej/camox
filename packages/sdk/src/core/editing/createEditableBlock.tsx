@@ -2289,7 +2289,6 @@ export function createEditableBlock<
         style={{
           position: "relative",
           scrollMargin: "5rem",
-          background: "var(--background)",
         }}
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
         data-camox-block-insertion={
