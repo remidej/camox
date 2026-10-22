@@ -417,13 +417,23 @@ export function useCanvasCamera(
     };
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+    // The overview, rather than any camera at the zoom floor: zooming out at the
+    // cursor reaches the floor anywhere, and that view isn't the overview to keep fitted.
+    const isOverview = (view: CanvasCamera) => {
+      const overview = canvasOverview(viewportSize, contentSize);
+      return (
+        Math.abs(view.scale - overview.scale) < 1e-8 &&
+        Math.abs(view.x - overview.x) < 0.5 &&
+        Math.abs(view.y - overview.y) < 0.5
+      );
+    };
     const remember = () => {
       if (restoredCamera || fittingInitialPage || !viewportSize.width || !viewportSize.height)
         return;
       canvasStore.send({
         type: "rememberView",
         workspaceKey,
-        view: { camera, fitted: Math.abs(camera.scale - minimumScale) < 1e-8 },
+        view: { camera, fitted: isOverview(camera) },
       });
     };
     // Input and flights move the camera, until it has been still for a moment.
@@ -724,7 +734,7 @@ export function useCanvasCamera(
         nextContent.height === contentSize.height
       )
         return;
-      const wasFitted = Math.abs(target.scale - minimumScale) < 1e-8;
+      const wasFitted = isOverview(target);
       gesture = undefined;
       // The selection stays snapped as the window resizes.
       const held =
