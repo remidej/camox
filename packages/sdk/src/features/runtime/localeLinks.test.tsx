@@ -81,6 +81,7 @@ const links = createBlock({
     </nav>
   ),
   toMarkdown: () => [],
+  toTitle: () => "Links",
 });
 const camoxApp = createApp({ blocks: [links as unknown as Block] });
 

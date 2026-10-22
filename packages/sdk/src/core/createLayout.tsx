@@ -33,12 +33,6 @@ export type {
  * createLayout
  * -----------------------------------------------------------------------------------------------*/
 
-export interface OgImageParams {
-  title: string;
-  description: string;
-  projectName: string;
-}
-
 export interface LayoutBlockData {
   _id: string;
   type: string;
@@ -191,9 +185,6 @@ type StringFieldKeys<F> = {
   [K in keyof F & string]: F[K] extends { fieldType: "String" } ? K : never;
 }[keyof F & string];
 
-/** Record pages' meta callbacks also get the record's String fields as plain text. */
-type MetaItem<F> = [F] extends [never] ? {} : { item: { [K in StringFieldKeys<F>]: string } };
-
 /** Record pages' `toMarkdown` also gets `item`, the reference-list Markdown builder. */
 type MarkdownItem<F> = [F] extends [never]
   ? {}
@@ -213,26 +204,6 @@ type ItemScope<F> = [F] extends [never]
       }
     : {};
 
-/** What a page's metadata callbacks know about it. Curated pages have no loader data or params. */
-export interface PageMetaContext<Data = unknown, Params = Record<string, string>> {
-  projectName: string;
-  pageFullPath: string;
-  data: Data;
-  params: Params;
-}
-
-/** On singleton and derived pages, `pageMetaTitle` is the layout's `title`. */
-type BuildMetaTitle<Data, Params, F = never> = (
-  params: PageMetaContext<Data, Params> & { pageMetaTitle: string } & MetaItem<F>,
-) => string;
-
-/** Without it, curated pages use the editor's description and other pages have none. */
-type BuildMetaDescription<Data, Params, F = never> = (
-  params: PageMetaContext<Data, Params> & {
-    pageMetaDescription: string | undefined;
-  } & MetaItem<F>,
-) => string | undefined;
-
 /** The Markdown Representation of a code-owned page, between its layout blocks. */
 type LayoutToMarkdown<Data, Params, F = never> = (
   context: { data: Data; params: Params } & MarkdownItem<F>,
@@ -247,47 +218,25 @@ type RecordContent<F> = [F] extends [never]
 type LoadedContext<Data, Params, F = never> = LoadedLayoutContext<Data, Params> & RecordContent<F>;
 
 /**
- * One option under its old name or its new one, never both. When both are optional, neither is
- * required.
- */
-type Renamed<Old, New> =
-  | (Old & { [K in keyof New]?: never })
-  | (New & { [K in keyof Old]?: never });
-
-/**
  * A layout's outputs, each receiving the page's context: `toReact`, `toTitle`, `toDescription`,
- * `toImage` and `toStructuredData`. The old names (`component`, `buildMetaTitle`,
- * `buildMetaDescription`, `buildOgImage`) still work, but never beside their new ones.
+ * `toImage` and `toStructuredData`.
  */
-type LayoutOutputs<
-  Context,
-  Children,
-  OldTitle,
-  OldDescription,
-  Declared extends LayoutStructuredData | undefined,
-> = Renamed<
-  { component: React.ComponentType<Children> },
-  { toReact: React.ComponentType<Context & Children> }
-> &
-  Renamed<{ buildMetaTitle: OldTitle }, { toTitle: (context: Context) => string }> &
-  Renamed<
-    { buildMetaDescription?: OldDescription },
-    { toDescription?: (context: Context) => string | undefined }
-  > &
-  Renamed<
-    { buildOgImage?: (params: OgImageParams) => React.ReactElement },
-    { toImage?: (context: Context) => React.ReactElement }
-  > & {
-    /**
-     * What the page is: a kind of web page (`AboutPage`, `ContactPage`, …), which its node
-     * becomes, or a main entity (`BlogPosting`, `Product`, `Event`, …), which Camox emits as the
-     * page's `mainEntity`. Camox fills the main entity's name or headline, description, URL,
-     * image, dates, publisher and language where the layout leaves them out.
-     */
-    toStructuredData?: (
-      context: Context,
-    ) => Declared & KnownPropertiesOnly<Declared, LayoutStructuredData>;
-  };
+type LayoutOutputs<Context, Children, Declared extends LayoutStructuredData | undefined> = {
+  toReact: React.ComponentType<Context & Children>;
+  toTitle: (context: Context) => string;
+  /** Required, but may return nothing, such as `({ page }) => page.description`. */
+  toDescription: (context: Context) => string | undefined;
+  toImage?: (context: Context) => React.ReactElement;
+  /**
+   * What the page is: a kind of web page (`AboutPage`, `ContactPage`, …), which its node
+   * becomes, or a main entity (`BlogPosting`, `Product`, `Event`, …), which Camox emits as the
+   * page's `mainEntity`. Camox fills the main entity's name or headline, description, URL,
+   * image, dates, publisher and language where the layout leaves them out.
+   */
+  toStructuredData?: (
+    context: Context,
+  ) => Declared & KnownPropertiesOnly<Declared, LayoutStructuredData>;
+};
 
 /**
  * The collection a layout's record pages render, and the field each record is found by. `param`
@@ -332,8 +281,6 @@ type CreateLayoutOptions<
 } & LayoutOutputs<
     LoadedContext<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
     { children: React.ReactNode },
-    BuildMetaTitle<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
-    BuildMetaDescription<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
     Declared
   >;
 
@@ -344,58 +291,12 @@ type AnyLayoutOptions = LayoutBaseOptions<any, any, any> & {
   routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
   recordPages?: RecordPages;
   toMarkdown?: LayoutToMarkdown<any, any, any>;
-  component?: React.ComponentType<any>;
-  toReact?: React.ComponentType<any>;
-  buildMetaTitle?: BuildMetaTitle<unknown, unknown>;
-  toTitle?: (context: any) => string;
-  buildMetaDescription?: BuildMetaDescription<unknown, unknown>;
-  toDescription?: (context: any) => string | undefined;
-  buildOgImage?: (params: OgImageParams) => React.ReactElement;
+  toReact: React.ComponentType<any>;
+  toTitle: (context: any) => string;
+  toDescription: (context: any) => string | undefined;
   toImage?: (context: any) => React.ReactElement;
   toStructuredData?: (context: any) => LayoutStructuredData | undefined;
 };
-
-/** The old metadata callbacks, run with the context the new options receive. */
-function legacyMetaOptions(options: AnyLayoutOptions, kind: AnyLayoutOptions["kind"]) {
-  const metaContext = (context: AnyLayoutContext) => ({
-    projectName: context.project.name,
-    pageFullPath: context.page.path,
-    data: context.data,
-    params: context.params ?? {},
-    ...(context.content && { item: context.content }),
-  });
-  const { buildMetaTitle, buildMetaDescription, buildOgImage } = options;
-  const toTitle =
-    buildMetaTitle &&
-    ((context: AnyLayoutContext) =>
-      buildMetaTitle({
-        ...metaContext(context),
-        // The old callback got the layout's title on code-owned pages, record pages' included.
-        pageMetaTitle: kind === "curated" ? context.page.title : options.title,
-      }));
-  /** The page's built title, under the option's new name or its old one. */
-  const builtTitle = (context: AnyLayoutContext) =>
-    (options.toTitle ?? toTitle)?.(context) ?? context.page.title;
-  return {
-    toTitle,
-    toDescription:
-      buildMetaDescription &&
-      ((context: AnyLayoutContext) =>
-        buildMetaDescription({
-          ...metaContext(context),
-          pageMetaDescription: context.page.description,
-        })),
-    toImage:
-      buildOgImage &&
-      ((context: AnyLayoutContext) =>
-        buildOgImage({
-          // The old callback showed the built title on code-owned pages.
-          title: kind === "curated" ? context.page.title : builtTitle(context),
-          description: context.page.description ?? "",
-          projectName: context.project.name,
-        })),
-  };
-}
 
 function createLayoutDefinition(options: AnyLayoutOptions) {
   if (options.kind === "singleton" && !/^[\w-]+(?:\.[\w-]+)*$/.test(options.id))
@@ -566,12 +467,6 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
     }),
   ];
 
-  const legacy = legacyMetaOptions(options, options.kind ?? "curated");
-  const toTitle = options.toTitle ?? legacy.toTitle;
-  const toDescription = options.toDescription ?? legacy.toDescription;
-  const toImage: ((context: AnyLayoutContext) => React.ReactElement) | undefined =
-    options.toImage ?? legacy.toImage;
-
   const loadInitialBlockBundles =
     initialBlocks &&
     (() =>
@@ -609,24 +504,24 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
       recordPages: options.recordPages,
       title: options.title,
       description: options.description,
-      /** The page's title, from the page's context. Without one, the page's undecorated title. */
-      toTitle: (context: AnyLayoutContext): string => toTitle?.(context) ?? context.page.title,
-      /** The page's description. Without one, the page's own description. */
+      /** The page's title, from the page's context. */
+      toTitle: (context: AnyLayoutContext): string => options.toTitle(context),
+      /** The page's description, from the page's context. */
       toDescription: (context: AnyLayoutContext): string | undefined =>
-        toDescription ? toDescription(context) : context.page.description,
+        options.toDescription(context),
       // Record pages' `toMarkdown` also gets `item`; the runtime passes it only for records.
       toMarkdown: options.toMarkdown as
         | ((context: { data: unknown; params: unknown; item?: unknown }) => readonly string[])
         | undefined,
       /** The page's shared image, which `/og` renders. Without one, Camox's default image. */
-      toImage,
+      toImage: options.toImage as ((context: AnyLayoutContext) => React.ReactElement) | undefined,
       /** What the page is, from the page's context. Without it, a plain web page. */
       toStructuredData: (context: AnyLayoutContext): LayoutStructuredData | undefined =>
         options.toStructuredData?.(context),
       blockDefinitions,
       loadInitialBlockBundles,
       /** Renders the layout around the page, with the page's context as props. */
-      toReact: (options.toReact ?? options.component) as React.ComponentType<
+      toReact: options.toReact as React.ComponentType<
         AnyLayoutContext & { children?: React.ReactNode }
       >,
       Provider,
@@ -671,13 +566,7 @@ type FileOptions<
         routes?: never;
         recordPages?: never;
         toMarkdown?: never;
-      } & LayoutOutputs<
-        CuratedLayoutContext,
-        { children: React.ReactNode },
-        BuildMetaTitle<undefined, Record<string, never>>,
-        BuildMetaDescription<undefined, Record<string, never>>,
-        Declared
-      >)
+      } & LayoutOutputs<CuratedLayoutContext, { children: React.ReactNode }, Declared>)
     | ({
         kind: "singleton";
         blocks: {
@@ -696,8 +585,6 @@ type FileOptions<
       } & LayoutOutputs<
         LoadedContext<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
         { children?: never },
-        BuildMetaTitle<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
-        BuildMetaDescription<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
         Declared
       >)
     | ({
@@ -714,8 +601,6 @@ type FileOptions<
       } & LayoutOutputs<
         LoadedContext<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
         { children?: never },
-        BuildMetaTitle<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
-        BuildMetaDescription<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
         Declared
       >)
   );

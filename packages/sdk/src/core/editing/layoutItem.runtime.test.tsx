@@ -145,6 +145,7 @@ const ArticlePage = createLayout("articles.$slug")({
       )}
     </ArticlePage.Item>
   ),
+  toDescription: ({ page }) => page.description,
 });
 let pageTitleClicks: Array<() => void> = [];
 
@@ -160,6 +161,7 @@ const featured = createEditableBlock({
       {(item) => <item.Field name="title">{(props) => <h2 {...props} />}</item.Field>}
     </featured.Reference>
   ),
+  toTitle: () => "",
 });
 
 const app = createApp({ blocks: [], layouts: [ArticlePage], collections: [articles, authors] });

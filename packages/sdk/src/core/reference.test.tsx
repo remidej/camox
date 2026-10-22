@@ -60,6 +60,7 @@ void test("reference schema stores nullable identity, defaults unset and emits p
       settings.show(`Quote: ${content.customer.name}`),
       content.customer.name,
     ],
+    toTitle: () => "",
   });
   assert.deepEqual(block._internal.getInitialContent(), { customer: null });
   assert.deepEqual(block._internal.getPeekBundle().block.content, { customer: null });
@@ -95,6 +96,7 @@ void test("public scopes render source fields and labels, never fabricate missin
         }}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const render = (value: string | null, source?: ReferenceRecord, files: NormalizedFile[] = []) =>
     renderToStaticMarkup(
@@ -193,6 +195,7 @@ void test("reference list schema stores ordered identities, defaults empty and o
     content: (field) => ({ customers: field.referenceList(customers) }),
     toReact: () => null,
     toMarkdown: () => [],
+    toTitle: () => "",
   });
   assert.deepEqual(block._internal.getInitialContent(), { customers: [] });
   assert.deepEqual(block._internal.getInitialBundle().content, { customers: [] });
@@ -210,6 +213,7 @@ void test("reference lists emit per-use record Markdown and are included by thei
     }),
     toReact: () => null,
     toMarkdown: ({ content }) => ["Trusted by:", content.customers],
+    toTitle: () => "",
   });
   const schema = block._internal.contentSchema;
   assert.deepEqual(schema.properties.customers.toMarkdown, ["Logo of {{name}}", "{{logo}}"]);
@@ -242,6 +246,7 @@ void test("reference lists render each resolved record in stored order and nothi
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const render = (value: unknown, references: ReferenceRecord[]) =>
     renderToStaticMarkup(
@@ -326,6 +331,7 @@ void test("query-backed lists store nothing and render their resolved records in
         minItems: 1,
         maxItems: 2,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
@@ -347,6 +353,7 @@ void test("query-backed lists store nothing and render their resolved records in
         </block.Repeater>
       </>
     ),
+    toTitle: () => "",
   });
   assert.deepEqual(block._internal.getInitialContent(), {});
   assert.deepEqual(block._internal.getInitialBundle().content, {});
@@ -406,11 +413,13 @@ void test("repeatable items render the records they link, at any repeater depth"
             minItems: 1,
             maxItems: 3,
             toMarkdown: () => [],
+            toTitle: () => "Item",
           }),
         }),
         minItems: 1,
         maxItems: 6,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
@@ -432,6 +441,7 @@ void test("repeatable items render the records they link, at any repeater depth"
         )}
       </block.Repeater>
     ),
+    toTitle: () => "",
   });
   const item = (itemId: string, parentItemId: string | null, content: object, references = {}) => ({
     id: itemId,
@@ -525,6 +535,7 @@ void test("placed records render the records they link, and nothing a hop furthe
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const html = renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>

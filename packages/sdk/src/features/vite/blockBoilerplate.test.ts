@@ -24,5 +24,6 @@ void test("a new empty block file is filled with a block written with the to* op
 
   assert.match(block, /\btoReact: PricingTableComponent,/);
   assert.match(block, /\btoMarkdown: \(\{ content \}\) => \[content\.title\]/);
+  assert.match(block, /\btoTitle: \(\{ content \}\) => content\.title,/);
   assert.doesNotMatch(block, /\bcomponent:/);
 });

@@ -33,6 +33,7 @@ const block = createBlock({
     void content.customer.missing;
     return [content.customer.name];
   },
+  toTitle: () => "Testimonial",
 });
 
 function TypeChecks() {
@@ -122,6 +123,7 @@ const logoGrid = createBlock({
     void content.customers.name;
     return [content.customers];
   },
+  toTitle: () => "Logo grid",
 });
 void logoGrid;
 
@@ -144,10 +146,12 @@ const logoWall = createBlock({
         void content.customer.missing;
         return [content.customer.name, content.partners];
       },
+      toTitle: () => "Item",
     }),
   }),
   toReact: () => null,
   toMarkdown: ({ content }) => [content.logos],
+  toTitle: () => "Logo wall",
 });
 
 function ItemTypeChecks() {
@@ -217,6 +221,7 @@ const teaser = createBlock({
     void content.article.author.missing;
     return [content.article.title, content.article.author.name, content.article.coauthors];
   },
+  toTitle: () => "Teaser",
 });
 
 function NestedTypeChecks() {
@@ -282,6 +287,7 @@ const recentArticles = createBlock({
   }),
   toReact: () => null,
   toMarkdown: ({ content }) => [content.recent],
+  toTitle: () => "Recent articles",
 });
 
 function QueryTypeChecks() {

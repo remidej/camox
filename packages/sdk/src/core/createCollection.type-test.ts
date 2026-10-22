@@ -34,6 +34,13 @@ createCollection(options);
 createCollection({ ...options, toTitle: ({ content }) => content.title });
 createCollection({
   ...options,
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
+  // @ts-expect-error `label` is gone: it's `toTitle`.
+  label: "title",
+});
+createCollection({
+  ...options,
   // @ts-expect-error Titles name a record: they return text.
   toTitle: () => undefined,
   toDescription: () => undefined,

@@ -38,6 +38,7 @@ function sourceReportingApp() {
     routes: async ({ context }) => ({ data: [{ params: { name: await lookupSource(context) } }] }),
     toMarkdown: ({ data }) => [`# ${data.name} read ${data.source}`],
     toTitle: ({ data }) => `Read ${data.source}`,
+    toDescription: ({ page }) => page.description,
   });
   const pokedex = createLayout("pokedex")({
     ...layoutOptions,
@@ -49,6 +50,7 @@ function sourceReportingApp() {
     }),
     toMarkdown: ({ data }) => [`# Pokédex read ${data.source}`],
     toTitle: ({ data }) => `Read ${data.source}`,
+    toDescription: ({ page }) => page.description,
   });
   return createApp({ blocks: [], layouts: [pokemon, pokedex] });
 }

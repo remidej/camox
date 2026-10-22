@@ -47,6 +47,7 @@ const singletonOptions = {
   blocks: { before: [], after: [] },
   toTitle: ({ page }: { page: { title: string } }) => page.title,
   toReact: () => null,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 const Singleton = createLayout("pokedex")({
   ...singletonOptions,
@@ -143,6 +144,7 @@ const ArticlePage = createLayout("articles.$slug")({
   ...articles.pages({ by: "slug", param: "slug" }),
   toTitle: ({ data }) => data.content.title,
   toMarkdown: ({ data }) => [`# ${data.content.title}`],
+  toDescription: ({ page }) => page.description,
 });
 function RecordDataTypeCheck() {
   const { id, content } = ArticlePage.useData();
@@ -353,4 +355,5 @@ createLayout("curated")({
     void context.data;
     return context.page.title;
   },
+  toDescription: ({ page }) => page.description,
 });

@@ -37,6 +37,7 @@ export const block = createBlock({
   description: "A block",
   content: (field) => ({ title: field.string({ default: greeting }) }),
   toReact: ${toReact},
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [content.title],
 });
 `;

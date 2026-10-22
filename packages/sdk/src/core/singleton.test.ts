@@ -10,6 +10,7 @@ const options = {
   blocks: { before: [], after: [] },
   toTitle: ({ page }: { page: { title: string } }) => page.title,
   toReact: () => null,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 void test("singletons sync their kind, accept no loader, and do not seed curated pages", async () => {

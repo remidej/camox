@@ -13,6 +13,7 @@ createBlock({
     visible: field.boolean({ default: true }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "Block",
 });
 
 createBlock({
@@ -24,6 +25,7 @@ createBlock({
     label: setting.string({ default: "" }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "Block",
 });
 
 createBlock({
@@ -38,15 +40,18 @@ createBlock({
           minItems: 1,
           maxItems: 2,
           toMarkdown: ({ content }) => [content.text],
+          toTitle: () => "Item",
         }),
       }),
       settings: (setting) => ({ highlighted: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 2,
       toMarkdown: ({ content, settings }) => [settings.highlighted(content.nested)],
+      toTitle: () => "Item",
     }),
   }),
   toMarkdown: ({ content }) => [content.items],
+  toTitle: () => "Block",
 });
 
 // Collections have no settings, so enums and booleans are record content.

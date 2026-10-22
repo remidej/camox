@@ -40,6 +40,7 @@ const layoutOptions = {
   blocks: { before: [], after: [] },
   toReact: () => null,
   toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 const FIRST_ID = "00000000-0000-4000-8000-000000000001";

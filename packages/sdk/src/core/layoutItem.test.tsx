@@ -73,6 +73,7 @@ const ArticlePage = createLayout("articles.$slug")({
       )}
     </ArticlePage.Item>
   ),
+  toDescription: ({ page }) => page.description,
 });
 
 const app = createApp({ blocks: [], layouts: [ArticlePage], collections: [articles, authors] });

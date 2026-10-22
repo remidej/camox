@@ -32,6 +32,7 @@ createLayout("curated")({
   toReact: ({ children }) => children,
   // @ts-expect-error Curated pages have no loader data.
   toTitle: ({ data }) => String(data),
+  toDescription: ({ page }) => page.description,
 });
 createLayout("curated")({
   ...shared,
@@ -40,6 +41,7 @@ createLayout("curated")({
   toReact: ({ children }) => children,
   // @ts-expect-error Curated pages have no params.
   toTitle: ({ params }) => String(params),
+  toDescription: ({ page }) => page.description,
 });
 createLayout("curated")({
   ...shared,
@@ -48,6 +50,7 @@ createLayout("curated")({
   toReact: ({ children }) => children,
   // @ts-expect-error Curated pages render no record.
   toTitle: ({ content }) => String(content),
+  toDescription: ({ page }) => page.description,
 });
 createLayout("curated")({
   ...shared,
@@ -55,6 +58,7 @@ createLayout("curated")({
   kind: "curated",
   toReact: ({ children }) => children,
   toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
   // @ts-expect-error Curated pages have no loader data, in `toImage` too.
   toImage: ({ data }) => <div>{String(data)}</div>,
 });
@@ -81,6 +85,7 @@ createLayout("pokedex")({
     const none: Record<string, never> = params;
     return `${page.title} (${count}) ${Object.keys(none).length}`;
   },
+  toDescription: ({ page }) => page.description,
 });
 createLayout("pokedex")({
   ...shared,
@@ -89,6 +94,7 @@ createLayout("pokedex")({
   toReact: () => null,
   // @ts-expect-error Singletons without records have no content.
   toTitle: ({ content }) => String(content),
+  toDescription: () => undefined,
 });
 createLayout("pokemon.$name")({
   ...shared,
@@ -108,6 +114,7 @@ createLayout("pokemon.$name")({
   toReact: () => null,
   // @ts-expect-error Only parameters named by the file identity exist.
   toTitle: ({ params }) => params.slug,
+  toDescription: () => undefined,
 });
 
 /* Record pages: the record's values as content. */
@@ -151,63 +158,74 @@ createLayout("articles.$slug")({
   toReact: () => null,
   // @ts-expect-error Content holds the record's String fields as text.
   toTitle: ({ content }) => content.author,
+  toDescription: () => undefined,
 });
 
-/* Old and new names never go together, and a layout needs a title. */
+/* Removed names, and the options every layout needs. */
 
-// @ts-expect-error `component` is `toReact`'s old name.
 createLayout("curated")({
   ...shared,
   title: "Curated",
   kind: "curated",
-  component: ({ children }: { children: React.ReactNode }) => children,
-  toReact: ({ children }: { children: React.ReactNode }) => children,
+  toReact: ({ children }) => children,
   toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
+  // @ts-expect-error `component` is gone: it's `toReact`.
+  component: ({ children }: { children: React.ReactNode }) => children,
 });
-// @ts-expect-error `buildMetaTitle` is `toTitle`'s old name.
 createLayout("curated")({
   ...shared,
   title: "Curated",
   kind: "curated",
-  toReact: ({ children }: { children: React.ReactNode }) => children,
-  toTitle: () => "",
+  toReact: ({ children }) => children,
+  toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
+  // @ts-expect-error `buildMetaTitle` is gone: it's `toTitle`.
   buildMetaTitle: () => "",
 });
-// @ts-expect-error `buildMetaDescription` is `toDescription`'s old name.
 createLayout("curated")({
   ...shared,
   title: "Curated",
   kind: "curated",
-  toReact: ({ children }: { children: React.ReactNode }) => children,
-  toTitle: () => "",
-  toDescription: () => "",
+  toReact: ({ children }) => children,
+  toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
+  // @ts-expect-error `buildMetaDescription` is gone: it's `toDescription`.
   buildMetaDescription: () => "",
 });
-// @ts-expect-error `buildOgImage` is `toImage`'s old name.
 createLayout("curated")({
   ...shared,
   title: "Curated",
   kind: "curated",
-  toReact: ({ children }: { children: React.ReactNode }) => children,
-  toTitle: () => "",
-  toImage: () => <div />,
+  toReact: ({ children }) => children,
+  toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
+  // @ts-expect-error `buildOgImage` is gone: it's `toImage`.
   buildOgImage: () => <div />,
 });
-// @ts-expect-error Every layout has a title, under either name.
+// @ts-expect-error Every layout has a title.
 createLayout("curated")({
   ...shared,
   title: "Curated",
   kind: "curated",
   toReact: ({ children }: { children: React.ReactNode }) => children,
+  toDescription: () => undefined,
 });
-// The old names still work, beside new ones they don't rename.
-createLayout("curated")({
+// @ts-expect-error Every layout has a description, even one that returns nothing.
+createLayout("pokedex")({
   ...shared,
-  title: "Curated",
-  kind: "curated",
-  component: ({ children }) => children,
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  toDescription: ({ page }) => page.description,
+  title: "Pokédex",
+  kind: "singleton",
+  toReact: () => null,
+  toTitle: () => "Pokédex",
+});
+// @ts-expect-error Layouts without a file identity need a description too.
+createLayout({
+  ...shared,
+  id: "plain",
+  title: "Plain",
+  toReact: ({ children }: { children: React.ReactNode }) => children,
+  toTitle: () => "Plain",
 });
 
 /* Blocks and repeatable items: content and settings. */
@@ -225,11 +243,13 @@ createBlock({
   ...blockFields,
   settings: (setting) => ({ dark: setting.boolean({ default: false }) }),
   toReact: ({ content, settings }) => <h1>{`${content.title} ${settings.dark}`}</h1>,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content, settings }) => [`# ${content.title}`, settings.dark(content.title)],
 });
 createBlock({
   ...blockFields,
   toReact: () => null,
+  toTitle: ({ content }) => content.title,
   // @ts-expect-error Blocks have no page.
   toMarkdown: ({ page }) => [String(page)],
 });
@@ -237,6 +257,7 @@ createBlock({
   ...blockFields,
   // @ts-expect-error Blocks have no page.
   toReact: ({ page }: { page: string }) => <p>{page}</p>,
+  toTitle: ({ content }) => content.title,
   toMarkdown: () => [],
 });
 createBlock({
@@ -247,10 +268,12 @@ createBlock({
       settings: (setting) => ({ featured: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 3,
+      toTitle: ({ content }) => content.name,
       toMarkdown: ({ content, settings }) => [settings.featured(content.name)],
     }),
   }),
   toReact: () => null,
+  toTitle: () => "Items",
   toMarkdown: ({ content }) => [content.items],
 });
 createBlock({
@@ -260,23 +283,76 @@ createBlock({
       content: (item) => ({ name: item.string({ default: "Item" }) }),
       minItems: 1,
       maxItems: 3,
+      toTitle: ({ content }) => content.name,
       // @ts-expect-error Repeatable items have no page.
       toMarkdown: ({ page }) => [String(page)],
     }),
   }),
   toReact: () => null,
+  toTitle: () => "Items",
   toMarkdown: () => [],
 });
-// @ts-expect-error `component` is `toReact`'s old name.
+
+/* Removed names, and the options every block and repeatable item needs. */
+
 createBlock({
   ...blockFields,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: () => [],
+  // @ts-expect-error `component` is gone: it's `toReact`.
   component: () => null,
+});
+createBlock({
+  ...blockFields,
+  toReact: () => null,
+  toTitle: ({ content }) => content.title,
+  // @ts-expect-error `toMarkdown` takes `{ content, settings }`, not the content's fields.
+  toMarkdown: (c) => [`# ${c.title}`],
+});
+createBlock({
+  ...blockFields,
+  settings: (setting) => ({ dark: setting.boolean({ default: false }) }),
+  toReact: () => null,
+  toTitle: ({ content }) => content.title,
+  // @ts-expect-error `toMarkdown` takes no positional settings.
+  toMarkdown: ({ content }, s) => [s.dark(content.title)],
+});
+// @ts-expect-error Every block has a title.
+createBlock({
+  ...blockFields,
   toReact: () => null,
   toMarkdown: () => [],
 });
-// The old names still work.
 createBlock({
   ...blockFields,
-  component: ({ content }) => <h1>{content.title}</h1>,
-  toMarkdown: (c) => [`# ${c.title}`],
+  content: (field) => ({
+    items: field.repeater(
+      // @ts-expect-error Every repeatable item has a title.
+      {
+        content: (item) => ({ name: item.string({ default: "Item" }) }),
+        minItems: 1,
+        maxItems: 3,
+        toMarkdown: () => [],
+      },
+    ),
+  }),
+  toReact: () => null,
+  toTitle: () => "Items",
+  toMarkdown: () => [],
+});
+createBlock({
+  ...blockFields,
+  content: (field) => ({
+    items: field.repeater({
+      content: (item) => ({ name: item.string({ default: "Item" }) }),
+      minItems: 1,
+      maxItems: 3,
+      toTitle: ({ content }) => content.name,
+      // @ts-expect-error A repeatable item's `toMarkdown` takes `{ content, settings }` too.
+      toMarkdown: (c) => [c.name],
+    }),
+  }),
+  toReact: () => null,
+  toTitle: () => "Items",
+  toMarkdown: () => [],
 });

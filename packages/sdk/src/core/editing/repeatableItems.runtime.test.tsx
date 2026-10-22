@@ -78,6 +78,7 @@ void test("editable repeatable items render the author's elements as-is and stay
         minItems: 1,
         maxItems: 10,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
@@ -95,6 +96,7 @@ void test("editable repeatable items render the author's elements as-is and stay
         </block.Repeater>
       </dl>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();

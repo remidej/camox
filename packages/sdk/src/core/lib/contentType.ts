@@ -143,16 +143,12 @@ export interface TemplateContext<
   settings: SettingsProxy<TSettings>;
 }
 
-/**
- * Builds a Markdown template from `{ content, settings }`. The old positional form,
- * `(content, settings)`, still works: the first argument is also the content proxy.
- */
+/** Builds a Markdown template from `{ content, settings }`. */
 export type ToMarkdownBuilder<
   TContent extends Record<string, TSchema>,
   TSettings extends Record<string, TSchema> = Record<string, never>,
 > = (
-  context: ContentProxy<TContent> & TemplateContext<TContent, TSettings>,
-  s: SettingsProxy<TSettings>,
+  context: TemplateContext<TContent, TSettings>,
 ) => ReadonlyArray<string | FieldToken | Conditional>;
 
 function createContentProxy<TShape extends Record<string, TSchema>>(
@@ -212,37 +208,6 @@ function serializeConditional(cond: Conditional): string[] {
   return out;
 }
 
-/**
- * A template's first argument: `{ content, settings }`, which is also the content proxy, for
- * templates still written `(content, settings)`. A field named `content` or `settings` stays a
- * field token for those, and reads as the context's proxy for the others.
- */
-function templateContext<
-  TContent extends Record<string, TSchema>,
-  TSettings extends Record<string, TSchema>,
->(
-  content: ContentProxy<TContent>,
-  settings: SettingsProxy<TSettings>,
-  contentShape: TContent | undefined,
-): ContentProxy<TContent> & TemplateContext<TContent, TSettings> {
-  const context: Record<string, object> = { content, settings };
-  return new Proxy(content, {
-    get(target, prop) {
-      if (prop !== "content" && prop !== "settings") return Reflect.get(target, prop);
-      if (!contentShape?.[prop]) return context[prop];
-      // Both a field token and the context's proxy.
-      const token = new FieldToken(prop);
-      const proxy = context[prop]!;
-      return new Proxy(token, {
-        get: (tokenTarget, key) =>
-          key in tokenTarget || typeof key === "symbol"
-            ? Reflect.get(tokenTarget, key)
-            : Reflect.get(proxy, key),
-      });
-    },
-  }) as ContentProxy<TContent> & TemplateContext<TContent, TSettings>;
-}
-
 export function resolveToMarkdown<
   TContent extends Record<string, TSchema>,
   TSettings extends Record<string, TSchema> = Record<string, never>,
@@ -252,12 +217,9 @@ export function resolveToMarkdown<
   scope: SettingsScope,
   contentShape?: TContent,
 ): string[] {
-  const contentProxy = createContentProxy<TContent>(contentShape);
-  const settingsProxy = createSettingsProxy<TSettings>(settingsShape, scope);
-  const entries = builder(
-    templateContext(contentProxy, settingsProxy, contentShape),
-    settingsProxy,
-  );
+  const content = createContentProxy<TContent>(contentShape);
+  const settings = createSettingsProxy<TSettings>(settingsShape, scope);
+  const entries = builder({ content, settings });
 
   const out: string[] = [];
   for (const entry of entries) {
@@ -620,7 +582,7 @@ export interface ContentFieldBuilder {
    * cannot pick, remove or reorder records, and nothing is stored on the block.
    *
    * @example
-   * field.referenceList(customers, { maxItems: 6, toMarkdown: (c) => [c.name] })
+   * field.referenceList(customers, { maxItems: 6, toMarkdown: ({ content }) => [content.name] })
    * field.referenceList(articles, { query: { orderBy: { publishedAt: "desc" }, limit: 3 } })
    */
   referenceList: <T extends Record<string, TSchema>, const L extends number = number>(
@@ -650,7 +612,10 @@ export interface ContentFieldBuilder {
    *   maxItems: 10,
    *   title: "Items",
    *   toTitle: ({ content }) => content.title,
-   *   toMarkdown: (c, s) => [`### ${c.title}`, s.highlighted(c.description)],
+   *   toMarkdown: ({ content, settings }) => [
+   *     `### ${content.title}`,
+   *     settings.highlighted(content.description),
+   *   ],
    * })
    */
   repeater: <
@@ -663,7 +628,7 @@ export interface ContentFieldBuilder {
     maxItems: number;
     title?: string;
     /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
-    toTitle?: ToTitleBuilder<T, S>;
+    toTitle: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
   }) => RepeaterField<T, S>;
 }
@@ -984,7 +949,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
     maxItems: number;
     title?: string;
     /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
-    toTitle?: ToTitleBuilder<T, S>;
+    toTitle: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
   }) => {
     if (options.minItems < 1) {
@@ -1021,9 +986,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       default: defaultArray,
       title: options.title,
       fieldType: "Repeater" as const,
-      ...(options.toTitle
-        ? { toTitle: resolveToTitle<T, S>(options.toTitle, settings, "item", content) }
-        : {}),
+      toTitle: resolveToTitle<T, S>(options.toTitle, settings, "item", content),
       toMarkdown: resolveToMarkdown<T, S>(options.toMarkdown, settings, "item", content),
       itemSettingsSchema,
       defaultItemSettings: settingsObjectSchema
