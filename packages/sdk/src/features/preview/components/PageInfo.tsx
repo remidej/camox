@@ -42,12 +42,11 @@ import { useMutation } from "@tanstack/react-query";
 import { Globe, Info, Pencil, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
-import { buildLayoutContext } from "@/core/layoutContext";
+import { curatedLayoutContext } from "@/core/layoutContext";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { useProjectUuid } from "@/lib/auth";
 import { useOptionalDraftScope } from "@/lib/draft-scope";
-import { localizedPath } from "@/lib/locale-path";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -90,13 +89,7 @@ const usePageMetadataData = (pageId: string) => {
   const metaTitle =
     layoutDef && page
       ? layoutDef._internal.toTitle(
-          buildLayoutContext(layoutDef._internal, {
-            metaTitle: page.metaTitle ?? "",
-            description: page.metaDescription ?? undefined,
-            path: localizedPath(page.fullPath, locale),
-            locale: locale.tag,
-            projectName: project?.name ?? "",
-          }),
+          curatedLayoutContext({ page, projectName: project?.name ?? "" }, locale),
         )
       : (page?.metaTitle ?? "");
 

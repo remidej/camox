@@ -103,5 +103,5 @@ async function recordPageTitle(
   });
   // A page showing one of several matching records doesn't exist: its own read fails.
   if (found.length !== 1) return undefined;
-  return recordPageValues(collection, found[0]!).title;
+  return recordPageValues(collection, { data: found[0]! }).title;
 }

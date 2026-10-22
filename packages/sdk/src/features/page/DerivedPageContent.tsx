@@ -31,7 +31,7 @@ export function DerivedPageContent({
     projectName: page?.projectName ?? "",
     data: result?.data,
     params: page?.params,
-    record: record && collection ? recordPageValues(collection, record.data) : undefined,
+    record: record && collection ? recordPageValues(collection, record) : undefined,
   });
   return (
     <SharedLayoutContent

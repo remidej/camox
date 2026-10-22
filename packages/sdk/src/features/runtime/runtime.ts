@@ -594,7 +594,7 @@ async function readPageImageSource(
         projectName: shared.projectName,
         data: result?.data,
         params: match.params,
-        record: record && collection ? recordPageValues(collection, record.data) : undefined,
+        record: record && collection ? recordPageValues(collection, record) : undefined,
       }),
     };
   };
@@ -1419,7 +1419,7 @@ async function createLayoutMarkdownResponse(
       id: data.id,
       toMarkdown: template,
     });
-    return { body: [body], data, record: recordPageValues(collection, data) };
+    return { body: [body], data, record: recordPageValues(collection, record) };
   };
   let rendered: Awaited<ReturnType<typeof layoutMarkdown>>;
   try {
@@ -1529,7 +1529,7 @@ async function createDerivedResponse(
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
     const recordValues =
-      record && recordCollection ? recordPageValues(recordCollection, record.data) : undefined;
+      record && recordCollection ? recordPageValues(recordCollection, record) : undefined;
     const context = buildLayoutContext(match.layout._internal, {
       path: pathname,
       locale: located.locale.tag,

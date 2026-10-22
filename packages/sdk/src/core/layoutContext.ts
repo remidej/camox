@@ -22,6 +22,19 @@ export interface LayoutPage {
   path: string;
   /** The tag of the locale the page renders in, such as `de`. */
   locale: string;
+  /**
+   * When the page was first published to Live: on record pages, its record. Absent while it was
+   * never published.
+   */
+  firstPublishedAt?: Date;
+  /** When the page was last published to Live: on record pages, its record. */
+  lastPublishedAt?: Date;
+}
+
+/** When a page or record was first and last published to Live, in milliseconds. */
+export interface PublishTimes {
+  first?: number | null;
+  last?: number | null;
 }
 
 /** The project a page belongs to. */
@@ -73,6 +86,8 @@ export interface RecordPageValues {
    * Data read as.
    */
   titles?: Record<string, string>;
+  /** When the record was first and last published to Live. */
+  published?: PublishTimes;
 }
 
 /** What a page's context is built from. */
@@ -89,11 +104,16 @@ export interface LayoutContextSource {
   params?: Record<string, string>;
   /** The record a record page renders. */
   record?: RecordPageValues;
+  /** When the page was first and last published to Live. Record pages take their record's. */
+  published?: PublishTimes;
 }
 
-/** A curated page's undecorated title: its meta title, or its path segment while it has none. */
-export function curatedPageTitle(page: { pathSegment: string; metaTitle?: string | null }) {
-  return page.metaTitle ?? page.pathSegment;
+/**
+ * A curated page's undecorated title: its meta title, or its nickname while it has none, such as
+ * before its meta title is generated. Everything naming a curated page names it by this.
+ */
+export function curatedPageTitle(page: { nickname: string; metaTitle?: string | null }) {
+  return page.metaTitle || page.nickname;
 }
 
 /** A curated page's context, from its editor metadata. Its path keeps its locale's prefix. */
@@ -101,9 +121,11 @@ export function curatedLayoutContext(
   structure: {
     page: {
       fullPath: string;
-      pathSegment: string;
+      nickname: string;
       metaTitle?: string | null;
       metaDescription?: string | null;
+      firstPublishedAt?: number | null;
+      publishedAt?: number | null;
     };
     projectName: string;
   },
@@ -118,8 +140,17 @@ export function curatedLayoutContext(
       path: localizedPath(page.fullPath, locale),
       locale: locale.tag,
       projectName: structure.projectName,
+      published: { first: page.firstPublishedAt, last: page.publishedAt },
     },
   );
+}
+
+/** A page's publish times as its context holds them: dates, absent when unknown. */
+function publishDates(published: PublishTimes | undefined) {
+  return {
+    ...(published?.first != null && { firstPublishedAt: new Date(published.first) }),
+    ...(published?.last != null && { lastPublishedAt: new Date(published.last) }),
+  };
 }
 
 /** The context a layout's `to*` options receive on a page. */
@@ -128,7 +159,11 @@ export function buildLayoutContext(
   source: LayoutContextSource,
 ): AnyLayoutContext {
   const project = { name: source.projectName };
-  const page = { path: source.path, locale: source.locale };
+  const page = {
+    path: source.path,
+    locale: source.locale,
+    ...publishDates(source.record?.published ?? source.published),
+  };
   if (layout.kind === "curated")
     return {
       page: { title: source.metaTitle ?? "", description: source.description, ...page },

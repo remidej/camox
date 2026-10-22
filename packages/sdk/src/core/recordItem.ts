@@ -7,7 +7,7 @@ import {
 } from "@camox/api-contract";
 
 import type { Collection } from "./createCollection";
-import type { RecordPageValues } from "./layoutContext";
+import type { PublishTimes, RecordPageValues } from "./layoutContext";
 import { resolveToMarkdown } from "./lib/contentType";
 import { isLexicalState, lexicalStateToPlainText } from "./lib/lexicalState";
 import type { LoadedRecord } from "./requestContext";
@@ -71,8 +71,14 @@ function referencedTitles(references: LoadedRecord["references"]): Record<string
   );
 }
 
-/** The record a record page renders, as its layout's context names it. */
-export function recordPageValues(collection: Collection, record: LoadedRecord): RecordPageValues {
+/**
+ * The record a record page renders, as its layout's context names it, from the record a loader
+ * found and when it was published to Live.
+ */
+export function recordPageValues(
+  collection: Collection,
+  { data: record, published }: { data: LoadedRecord; published?: PublishTimes },
+): RecordPageValues {
   return {
     title: record.title ?? "",
     description: record.description ?? undefined,
@@ -81,6 +87,7 @@ export function recordPageValues(collection: Collection, record: LoadedRecord): 
       ...recordPlainText(collection, record.content),
     },
     titles: referencedTitles(record.references),
+    ...(published && { published }),
   };
 }
 
