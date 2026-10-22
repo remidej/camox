@@ -104,42 +104,6 @@ export function curatedLayoutContext(
   );
 }
 
-/**
- * The query naming the shared image `/og` renders: the layout, the page's title, description,
- * path and locale, and the project's name.
- */
-export function ogImageSearchParams({
-  layoutId,
-  page,
-  project,
-}: {
-  layoutId: string | undefined;
-  page: { title: string; description?: string; path?: string; locale?: string };
-  project: LayoutProject;
-}): URLSearchParams {
-  return new URLSearchParams({
-    ...(layoutId && { layoutId }),
-    title: page.title,
-    ...(page.description && { description: page.description }),
-    ...(project.name && { projectName: project.name }),
-    ...(page.path && { path: page.path }),
-    ...(page.locale && { locale: page.locale }),
-  });
-}
-
-/** The context `/og` renders a layout's `toImage` with, from the query naming the image. */
-export function ogImageContext(searchParams: URLSearchParams): CuratedLayoutContext {
-  return {
-    page: {
-      title: searchParams.get("title") ?? "",
-      description: searchParams.get("description") ?? undefined,
-      path: searchParams.get("path") ?? "",
-      locale: searchParams.get("locale") ?? "",
-    },
-    project: { name: searchParams.get("projectName") ?? "" },
-  };
-}
-
 /** The context a layout's `to*` options receive on a page. */
 export function buildLayoutContext(
   layout: { kind: "curated" | "derived" | "singleton"; title: string },

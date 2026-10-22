@@ -13,16 +13,16 @@ function block(id: string, layoutOnly = false): Block {
     description: `${id} description`,
     layoutOnly,
     content: (field: ContentFieldBuilder) => ({ title: field.string({ default: `${id} text` }) }),
-    component: () => null,
-    toMarkdown: (content: { title: string }) => [content.title],
+    toReact: () => null,
+    toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
   }) as unknown as Block;
 }
 
 const layoutOptions = {
   title: "Layout",
   description: "A layout",
-  component: ({ children }: { children: unknown }) => children as never,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: ({ children }: { children: unknown }) => children as never,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
 };
 
 function curated(
@@ -42,8 +42,8 @@ function singleton() {
     description: "A code-owned page",
     kind: "singleton",
     blocks: { before: [], after: [] },
-    component: () => null,
-    buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+    toReact: () => null,
+    toTitle: ({ page }: { page: { title: string } }) => page.title,
   });
 }
 

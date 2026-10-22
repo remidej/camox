@@ -28,14 +28,15 @@ export const Layout = createLayout("pokedex")({
       })),
     };
   },
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+  toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
   toMarkdown: ({ data }) => [
     `${data.length} Pokémon:`,
     data
       .map(({ name, id }) => `- [${pokemonName(name)}](/pokemon/${name}) ${pokemonNumber(id)}`)
       .join("\n"),
   ],
-  component: PokedexPage,
+  toReact: PokedexPage,
 });
 
 function PokedexPage() {

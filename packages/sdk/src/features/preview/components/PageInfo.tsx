@@ -42,10 +42,11 @@ import { useMutation } from "@tanstack/react-query";
 import { Globe, Info, Pencil, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
-import { buildLayoutContext, ogImageSearchParams } from "@/core/layoutContext";
+import { buildLayoutContext } from "@/core/layoutContext";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { useProjectUuid } from "@/lib/auth";
+import { useOptionalDraftScope } from "@/lib/draft-scope";
 import { localizedPath } from "@/lib/locale-path";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
@@ -55,6 +56,7 @@ import { useViewLocale } from "@/lib/view-locale-context";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
+import { pageImageUrl } from "../../og/pageImage";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
@@ -660,14 +662,9 @@ const PageSeoSheet = ({
 };
 
 export const PageSeoContent = ({ pageId }: { pageId: string }) => {
-  const { page, metaTitle, pageLayoutRecord, project } = usePageMetadataData(pageId);
+  const { page, metaTitle } = usePageMetadataData(pageId);
   return page ? (
-    <PageSeoEditor
-      page={page}
-      metaTitle={metaTitle}
-      layoutId={pageLayoutRecord?.layoutId}
-      projectName={project?.name}
-    />
+    <PageSeoEditor page={page} metaTitle={metaTitle} />
   ) : (
     <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
       <Spinner className="size-3.5" /> Loading...
@@ -678,8 +675,6 @@ export const PageSeoContent = ({ pageId }: { pageId: string }) => {
 const PageSeoEditor = ({
   page,
   metaTitle,
-  layoutId,
-  projectName,
 }: {
   page: Pick<
     Page,
@@ -692,8 +687,6 @@ const PageSeoEditor = ({
     | "customOgImageUrl"
   >;
   metaTitle: string;
-  layoutId?: string;
-  projectName?: string;
 }) => {
   // The title and description are one group: AI-generated, or both written by hand (ADR 0012).
   const setSeo = useMutation(pageMutations.setSeo());
@@ -734,8 +727,6 @@ const PageSeoEditor = ({
         page={page}
         metaTitle={metaTitle}
         metaDescription={page.metaDescription ?? ""}
-        layoutId={layoutId}
-        projectName={projectName}
       />
     </div>
   );
@@ -830,8 +821,6 @@ const SocialPreviewSection = ({
   page,
   metaTitle,
   metaDescription,
-  layoutId,
-  projectName,
 }: {
   page: Pick<
     Page,
@@ -839,24 +828,17 @@ const SocialPreviewSection = ({
   >;
   metaTitle: string;
   metaDescription: string;
-  layoutId?: string;
-  projectName?: string;
 }) => {
   const studioCache = useStudioCache();
   const localized = useLocalizedPath();
-  const { locale } = useViewLocale();
-  const ogImageParams = ogImageSearchParams({
-    layoutId,
-    page: {
-      title: page.metaTitle ?? page.pathSegment,
-      description: page.metaDescription ?? undefined,
-      path: localized(page.fullPath),
-      locale: locale.tag,
-    },
-    project: { name: projectName ?? "" },
+  const { scope } = useOptionalDraftScope();
+  // `/og` renders the page in the draft the studio views. It ignores `v`, which only makes the
+  // preview fetch the image again when the editor retitles the page.
+  const version = new URLSearchParams({
+    v: `${page.metaTitle ?? ""}|${page.metaDescription ?? ""}`,
   });
-  const generatedOgImage = `/og?${ogImageParams.toString()}`;
-  const ogImage = page.customOgImageUrl ?? generatedOgImage;
+  const generatedOgImage = `${pageImageUrl({ origin: "", path: localized(page.fullPath) })}&${version.toString()}`;
+  const ogImage = page.customOgImageUrl || (scope?.hrefFor(generatedOgImage) ?? generatedOgImage);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${origin}${localized(page.fullPath)}`;
   const fileInputRef = React.useRef<HTMLInputElement>(null);

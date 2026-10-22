@@ -38,3 +38,18 @@ for (const { name, layouts } of cases) {
     assert.equal(readFileSync(path, "utf8"), generated);
   });
 }
+
+void test("an empty layout file is filled with a starter written with the to* options", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "camox-layout-generation-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "src/layouts"), { recursive: true });
+  writeFileSync(join(root, "src/layouts/about.tsx"), "");
+
+  generateLayoutFiles(root);
+  const starter = readFileSync(join(root, "src/layouts/about.tsx"), "utf8");
+
+  assert.match(starter, /\btoReact:/);
+  assert.match(starter, /\btoTitle: \(\{ page \}\) => page\.title/);
+  assert.match(starter, /\btoDescription: \(\{ page \}\) => page\.description/);
+  assert.doesNotMatch(starter, /\b(component|buildMetaTitle|buildMetaDescription|buildOgImage):/);
+});

@@ -29,8 +29,9 @@ export const Layout = createLayout(${JSON.stringify(id)})({
   title: ${JSON.stringify(id)},
   description: "",
   blocks: { before: [], after: [] },
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  component: ({ children }) => <main><Layout.BeforeBlocks />{children}<Layout.AfterBlocks /></main>,
+  toTitle: ({ page }) => page.title,
+  toDescription: ({ page }) => page.description,
+  toReact: ({ children }) => <main><Layout.BeforeBlocks />{children}<Layout.AfterBlocks /></main>,
 });
 `;
     }

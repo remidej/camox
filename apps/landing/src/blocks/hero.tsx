@@ -29,8 +29,12 @@ const hero = createBlock({
       title: "Command",
     }),
   }),
-  component: HeroComponent,
-  toMarkdown: (c) => [`# ${c.title}`, c.description, `\`\`\`bash\n${c.command}\n\`\`\``],
+  toReact: HeroComponent,
+  toMarkdown: ({ content }) => [
+    `# ${content.title}`,
+    content.description,
+    `\`\`\`bash\n${content.command}\n\`\`\``,
+  ],
 });
 
 function HeroComponent() {

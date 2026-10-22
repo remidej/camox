@@ -29,17 +29,17 @@ const footer = createBlock({
           }),
           minItems: 1,
           maxItems: 999,
-          toMarkdown: (c) => [c.link],
+          toMarkdown: ({ content }) => [content.link],
         }),
       }),
       minItems: 2,
       maxItems: 4,
       title: "Columns",
-      toMarkdown: (c) => [`### ${c.title}`, c.links],
+      toMarkdown: ({ content }) => [`### ${content.title}`, content.links],
     }),
   }),
-  component: FooterComponent,
-  toMarkdown: (c) => [c.title, c.columns],
+  toReact: FooterComponent,
+  toMarkdown: ({ content }) => [content.title, content.columns],
 });
 
 // Read when the module loads: React components must not read the clock while rendering.

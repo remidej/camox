@@ -52,17 +52,28 @@ const featureVideoGrid = createBlock({
           minItems: 1,
           maxItems: 4,
           title: "Points",
-          toMarkdown: (c) => [c.text],
+          toMarkdown: ({ content }) => [content.text],
         }),
       }),
       minItems: 1,
       maxItems: Infinity,
       title: "Feature videos",
-      toMarkdown: (c) => [`### ${c.title}`, c.label, c.description, c.video, c.points],
+      toMarkdown: ({ content }) => [
+        `### ${content.title}`,
+        content.label,
+        content.description,
+        content.video,
+        content.points,
+      ],
     }),
   }),
-  component: FeatureVideoGridComponent,
-  toMarkdown: (c) => [c.pill, `## ${c.title}`, c.description, c.items],
+  toReact: FeatureVideoGridComponent,
+  toMarkdown: ({ content }) => [
+    content.pill,
+    `## ${content.title}`,
+    content.description,
+    content.items,
+  ],
 });
 
 function FeatureVideoGridComponent() {

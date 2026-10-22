@@ -1,7 +1,7 @@
 import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
 
-const base = { id: "builders", title: "Builders", description: "", component: () => null };
+const base = { id: "builders", title: "Builders", description: "", toReact: () => null };
 
 createBlock({
   ...base,
@@ -37,16 +37,16 @@ createBlock({
           content: (field) => ({ text: field.string({ default: "" }) }),
           minItems: 1,
           maxItems: 2,
-          toMarkdown: (c) => [c.text],
+          toMarkdown: ({ content }) => [content.text],
         }),
       }),
       settings: (setting) => ({ highlighted: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 2,
-      toMarkdown: (c, s) => [s.highlighted(c.nested)],
+      toMarkdown: ({ content, settings }) => [settings.highlighted(content.nested)],
     }),
   }),
-  toMarkdown: (c) => [c.items],
+  toMarkdown: ({ content }) => [content.items],
 });
 
 // Collections have no settings, so enums and booleans are record content.

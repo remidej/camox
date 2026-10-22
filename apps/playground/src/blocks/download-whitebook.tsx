@@ -34,8 +34,13 @@ const downloadWhitebook = createBlock({
       title: "Button Label",
     }),
   }),
-  component: DownloadWhitebookComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.description, c.cover, c.file],
+  toReact: DownloadWhitebookComponent,
+  toMarkdown: ({ content }) => [
+    `## ${content.title}`,
+    content.description,
+    content.cover,
+    content.file,
+  ],
 });
 
 function DownloadWhitebookComponent() {

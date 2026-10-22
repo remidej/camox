@@ -34,7 +34,7 @@ const navbar = createBlock({
       minItems: 1,
       maxItems: 6,
       title: "Links",
-      toMarkdown: (c) => [c.link],
+      toMarkdown: ({ content }) => [content.link],
     }),
     cta: field.link({
       default: { text: "Get started", href: "#", newTab: false },
@@ -48,8 +48,8 @@ const navbar = createBlock({
     }),
     scheme: colorSchemeSetting(setting, "dark"),
   }),
-  component: NavbarComponent,
-  toMarkdown: (c) => [c.title, c.links, c.cta],
+  toReact: NavbarComponent,
+  toMarkdown: ({ content }) => [content.title, content.links, content.cta],
 });
 
 function NavbarComponent(): ReactElement {

@@ -45,16 +45,16 @@ const withoutWith = createBlock({
       minItems: 2,
       maxItems: 8,
       title: "Comparisons",
-      toMarkdown: (c) => [`**Without:** ${c.without}\n**With:** ${c.with}`],
+      toMarkdown: ({ content }) => [`**Without:** ${content.without}\n**With:** ${content.with}`],
     }),
   }),
-  component: WithoutWithComponent,
-  toMarkdown: (c) => [
-    c.pill,
-    `## ${c.title}`,
-    c.description,
-    `### ${c.withoutLabel} / ${c.withLabel}`,
-    c.comparisons,
+  toReact: WithoutWithComponent,
+  toMarkdown: ({ content }) => [
+    content.pill,
+    `## ${content.title}`,
+    content.description,
+    `### ${content.withoutLabel} / ${content.withLabel}`,
+    content.comparisons,
   ],
 });
 

@@ -38,10 +38,10 @@ const pokedex = createBlock({
         "Every type tells a different story. Pick a collection, discover its Pokémon, and find your next favorite.",
     }),
   }),
-  component: PokedexComponent,
-  toMarkdown: (c) => [
-    `## ${c.title}`,
-    c.description,
+  toReact: PokedexComponent,
+  toMarkdown: ({ content }) => [
+    `## ${content.title}`,
+    content.description,
     pokemonTypes
       .map((type) => `- [${pokemonName(type)} Pokémon](/pokemon-types/${type})`)
       .join("\n"),

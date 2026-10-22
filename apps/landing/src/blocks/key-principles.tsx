@@ -44,11 +44,15 @@ const keyPrinciples = createBlock({
       minItems: 1,
       maxItems: Infinity,
       title: "Principles",
-      toMarkdown: (c, s) => [`### ${c.title}`, c.description, s.showLink(c.link)],
+      toMarkdown: ({ content, settings }) => [
+        `### ${content.title}`,
+        content.description,
+        settings.showLink(content.link),
+      ],
     }),
   }),
-  component: KeyPrinciplesComponent,
-  toMarkdown: (c) => [c.pill, `## ${c.title}`, c.items],
+  toReact: KeyPrinciplesComponent,
+  toMarkdown: ({ content }) => [content.pill, `## ${content.title}`, content.items],
 });
 
 function KeyPrinciplesComponent() {

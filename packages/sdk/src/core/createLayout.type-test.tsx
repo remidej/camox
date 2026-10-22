@@ -10,21 +10,21 @@ const Definition = createLayout("pokemon.$name")({
   title: "Pokemon",
   description: "",
   blocks: { before: [], after: [] },
-  // Metadata callbacks and toMarkdown follow the loader, which their data is inferred from.
+  // The to* options follow the loader, which their data is inferred from.
   loader: async ({ params }) => {
     const name: string = params.name;
     // @ts-expect-error Only parameters named by the file identity exist.
     void params.slug;
     return { kind: "data", data: { name, count: 1 } };
   },
-  buildMetaTitle: ({ data, params, pageMetaTitle }) => {
+  toTitle: ({ data, params, page }) => {
     const count: number = data.count;
     const name: string = params.name;
-    return `${name} (${count}) – ${pageMetaTitle}`;
+    return `${name} (${count}) – ${page.title}`;
   },
-  buildMetaDescription: ({ data, pageMetaDescription }) => pageMetaDescription ?? data.name,
+  toDescription: ({ data, page }) => page.description ?? data.name,
   toMarkdown: ({ data, params }) => [`# ${data.name}`, `/${params.name}`],
-  component: () => null,
+  toReact: () => null,
 });
 
 function DataTypeCheck() {
@@ -45,8 +45,8 @@ const singletonOptions = {
   title: "Pokédex",
   description: "",
   blocks: { before: [], after: [] },
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
-  component: () => null,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toReact: () => null,
 };
 const Singleton = createLayout("pokedex")({
   ...singletonOptions,
@@ -140,7 +140,7 @@ const ArticlePage = createLayout("articles.$slug")({
   ...singletonOptions,
   kind: "derived",
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ data }) => data.content.title,
+  toTitle: ({ data }) => data.content.title,
   toMarkdown: ({ data }) => [`# ${data.content.title}`],
 });
 function RecordDataTypeCheck() {
@@ -155,7 +155,7 @@ function RecordDataTypeCheck() {
 void RecordDataTypeCheck;
 
 // Record layouts render their record through `layout.Item`, and get it as `item` in
-// `toMarkdown` and meta callbacks.
+// `toMarkdown` and as `content` in the other `to*` options.
 const authors = createCollection({
   id: "authors",
   title: "Authors",
@@ -180,11 +180,11 @@ const PostPage = createLayout("posts.$slug")({
   ...singletonOptions,
   kind: "derived",
   ...postPages,
-  buildMetaTitle: ({ item, data }) => `${item.title} (${data.id})`,
-  buildMetaDescription: ({ item }) => {
-    // @ts-expect-error Meta callbacks get the record's String fields only.
-    void item.cover;
-    return item.slug;
+  toTitle: ({ content, data }) => `${content.title} (${data.id})`,
+  toDescription: ({ content }) => {
+    // @ts-expect-error The context's content holds the record's String fields only.
+    void content.cover;
+    return content.slug;
   },
   toMarkdown: ({ item }) => [`# ${item.title}`, `By ${item.author.name}`, item.cover],
 });
@@ -345,6 +345,9 @@ createLayout("curated")({ ...singletonOptions, kind: "curated", toMarkdown: () =
 createLayout("curated")({
   ...singletonOptions,
   kind: "curated",
-  // Curated pages have no loader data.
-  buildMetaTitle: ({ data, pageMetaTitle }) => (data satisfies undefined) ?? pageMetaTitle,
+  toTitle: (context) => {
+    // @ts-expect-error Curated pages have no loader data.
+    void context.data;
+    return context.page.title;
+  },
 });

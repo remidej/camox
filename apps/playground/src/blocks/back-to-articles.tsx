@@ -9,8 +9,8 @@ const backToArticles = createBlock({
   content: (field) => ({
     text: field.string({ title: "Text", default: "← All articles" }),
   }),
-  component: BackToArticlesComponent,
-  toMarkdown: (c) => [`[${c.text}](/articles)`],
+  toReact: BackToArticlesComponent,
+  toMarkdown: ({ content }) => [`[${content.text}](/articles)`],
 });
 
 function BackToArticlesComponent() {

@@ -26,7 +26,7 @@ function greetingModule(greeting: string) {
 }
 
 /** A block module whose title defaults to the shared greeting. */
-function blockModule(id: string, { component = "() => null" } = {}) {
+function blockModule(id: string, { toReact = "() => null" } = {}) {
   return `import { createBlock } from "camox/createBlock";
 
 import { greeting } from "../fields/greeting";
@@ -36,8 +36,8 @@ export const block = createBlock({
   title: ${JSON.stringify(id)},
   description: "A block",
   content: (field) => ({ title: field.string({ default: greeting }) }),
-  component: ${component},
-  toMarkdown: (content) => [content.title],
+  toReact: ${toReact},
+  toMarkdown: ({ content }) => [content.title],
 });
 `;
 }
@@ -468,7 +468,7 @@ void test("a change that leaves the Definition Set equal sends no sync", async (
   // Styling work: the component changes, no definition does.
   await writeFile(
     join(checkout.root, "src/blocks/hero.ts"),
-    blockModule("hero", { component: '() => "styled"' }),
+    blockModule("hero", { toReact: '() => "styled"' }),
   );
   await setTimeout(SETTLE_MS);
   assert.equal(checkout.requests.length, requestsAfterFirstSync);

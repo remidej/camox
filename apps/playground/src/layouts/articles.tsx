@@ -9,8 +9,9 @@ export const Layout = createLayout("articles")({
   title: "Articles",
   description: "The articles index, listing every article with a link to its record page.",
   blocks: { before: [navbarBlock, articlesIndexBlock], after: [footerBlock] },
-  buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
-  component: ArticlesPage,
+  toTitle: ({ page, project }) => `${page.title} | ${project.name}`,
+  toDescription: ({ page }) => page.description,
+  toReact: ArticlesPage,
 });
 
 function ArticlesPage() {
