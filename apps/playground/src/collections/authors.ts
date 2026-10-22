@@ -12,4 +12,6 @@ export const collection = createCollection({
   }),
   toTitle: ({ content }) => content.name,
   toDescription: ({ content }) => content.bio,
+  // Every page placing an author links this one Person, named after the record.
+  toStructuredData: ({ content }) => ({ "@type": "Person", image: content.portrait }),
 });

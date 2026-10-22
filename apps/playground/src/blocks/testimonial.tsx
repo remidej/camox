@@ -23,6 +23,12 @@ const testimonial = createBlock({
     `> ${content.quote}`,
     `— ${content.author}, ${content.title}, ${content.company.company}`,
   ],
+  // The customer isn't placed in the review: the page mentions it.
+  toStructuredData: ({ content }) => ({
+    "@type": "Review",
+    reviewBody: content.quote,
+    author: content.author,
+  }),
 });
 
 function TestimonialComponent() {

@@ -12,4 +12,9 @@ export const collection = createCollection({
   }),
   toTitle: ({ content }) => content.name,
   toDescription: ({ content }) => content.company,
+  toStructuredData: ({ content }) => ({
+    "@type": "Organization",
+    name: content.company,
+    logo: content.logo,
+  }),
 });

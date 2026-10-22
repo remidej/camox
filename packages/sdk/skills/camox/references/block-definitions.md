@@ -262,16 +262,18 @@ toStructuredData: ({ content }) => ({
 
 Field tokens resolve as follows; template literals read their fields as plain text:
 
-| Type     | Value                                                              |
-| -------- | ------------------------------------------------------------------ |
-| String   | Plain text                                                         |
-| Image    | An `ImageObject` with its absolute URL, width, height and alt text |
-| File     | Its absolute URL                                                   |
-| Link     | The page's absolute URL in the page's locale, or the external href |
-| Embed    | Its URL                                                            |
-| Repeater | Its items' nodes, from the repeater's own `toStructuredData`       |
+| Type           | Value                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| String         | Plain text                                                                                                                |
+| Image          | An `ImageObject` with its absolute URL, width, height and alt text                                                        |
+| File           | Its absolute URL                                                                                                          |
+| Link           | The page's absolute URL in the page's locale, or the external href                                                        |
+| Embed          | Its URL                                                                                                                   |
+| Repeater       | Its items' nodes, from the repeater's own `toStructuredData`                                                              |
+| Reference      | A link to the record's node, from its collection's `toStructuredData`, or the record's title when the collection has none |
+| Reference list | A list of such links                                                                                                      |
 
-Icon and artifact fields have no token. A property whose field is empty is left out.
+Icon and artifact fields have no token. A property whose field is empty is left out. A reference's fields are tokens too (`content.author.name`). The place referencing a record decides its role, such as a testimonial's `author: content.author`; Camox adds the record's node to the graph once, however many blocks link it.
 
 Place a repeater's token where its items' nodes go, such as an FAQ's questions:
 

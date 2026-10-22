@@ -16,4 +16,10 @@ export const collection = createCollection({
   }),
   toTitle: ({ content }) => content.title,
   toDescription: ({ content }) => content.excerpt,
+  // An article's page declares nothing, so its record page is about this BlogPosting.
+  toStructuredData: ({ content }) => ({
+    "@type": "BlogPosting",
+    author: content.author,
+    image: content.cover,
+  }),
 });
