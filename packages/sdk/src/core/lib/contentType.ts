@@ -270,6 +270,30 @@ export function resolveToMarkdown<
   return out;
 }
 
+/**
+ * Builds a title template from `{ content, settings }`: one line naming a block or repeatable item
+ * until it has a Summary, such as its headline. The API evaluates it on default-locale content.
+ */
+export type ToTitleBuilder<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+> = (context: TemplateContext<TContent, TSettings>) => string | FieldToken;
+
+/** The one-line title template a `toTitle` builder declares. */
+export function resolveToTitle<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+>(
+  builder: ToTitleBuilder<TContent, TSettings>,
+  settingsShape: TSettings | undefined,
+  scope: SettingsScope,
+  contentShape?: TContent,
+): string {
+  const content = createContentProxy<TContent>(contentShape);
+  const settings = createSettingsProxy<TSettings>(settingsShape, scope);
+  return String(builder({ content, settings }));
+}
+
 /* -------------------------------------------------------------------------------------------------
  * EmbedURL branded type
  * -----------------------------------------------------------------------------------------------*/
@@ -601,6 +625,7 @@ export interface ContentFieldBuilder {
    *   minItems: 1,
    *   maxItems: 10,
    *   title: "Items",
+   *   toTitle: ({ content }) => content.title,
    *   toMarkdown: (c, s) => [`### ${c.title}`, s.highlighted(c.description)],
    * })
    */
@@ -613,6 +638,8 @@ export interface ContentFieldBuilder {
     minItems: number;
     maxItems: number;
     title?: string;
+    /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
+    toTitle?: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
   }) => RepeaterField<T, S>;
 }
@@ -934,6 +961,8 @@ export const contentFieldBuilder: ContentFieldBuilder = {
     minItems: number;
     maxItems: number;
     title?: string;
+    /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
+    toTitle?: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
   }) => {
     if (options.minItems < 1) {
@@ -970,6 +999,9 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       default: defaultArray,
       title: options.title,
       fieldType: "Repeater" as const,
+      ...(options.toTitle
+        ? { toTitle: resolveToTitle<T, S>(options.toTitle, settings, "item", content) }
+        : {}),
       toMarkdown: resolveToMarkdown<T, S>(options.toMarkdown, settings, "item", content),
       itemSettingsSchema,
       defaultItemSettings: settingsObjectSchema
