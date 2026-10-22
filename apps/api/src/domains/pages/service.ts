@@ -7,7 +7,7 @@ import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "..
 import { blocks, layouts, pages, projects, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
-import { type BlockBundle, contentReader } from "../content/reader";
+import { type BlockBundle, type BlockStructuredData, contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
@@ -179,8 +179,9 @@ function composePageView(args: {
   project: typeof projects.$inferSelect;
   layout: typeof layouts.$inferSelect | null;
   content: BlockBundle;
+  structuredData: BlockStructuredData;
 }) {
-  const { page, project, layout, content } = args;
+  const { page, project, layout, content, structuredData } = args;
   const pageBlocks = content.blocks.filter((block) => block.pageId === page.id);
   const layoutBlocks = content.blocks.filter((block) => block.pageId !== page.id);
   const itemsByBlock = Map.groupBy(content.repeatableItems, (item) => item.blockId);
@@ -193,6 +194,8 @@ function composePageView(args: {
     blocks,
     repeatableItems: blocks.flatMap((block) => itemsByBlock.get(block.id) ?? []),
     files: content.files,
+    /** Each block's Structured Data nodes, by block id, for the page's graph. */
+    structuredData,
   };
 }
 
@@ -210,7 +213,8 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     { pageId: page!.id },
     ...(layout ? [{ layoutId: layout.layoutId }] : []),
   ]);
-  return composePageView({ page: page!, project, layout, content });
+  const structuredData = yield* reader.structuredData(content);
+  return composePageView({ page: page!, project, layout, content, structuredData });
 }, Effect.scoped);
 
 export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (

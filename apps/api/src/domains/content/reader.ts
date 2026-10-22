@@ -25,11 +25,13 @@ import {
   type ShownRecord,
   shownRecords,
 } from "./records";
+import { blockStructuredData, type BlockStructuredData } from "./structured-data";
 
 export type {
   BlockBundle,
   BlockMarkdown,
   BlockSource,
+  BlockStructuredData,
   RecordView,
   ShownBlock,
   ShownItem,
@@ -87,6 +89,11 @@ export function contentReader(ctx: { db: Database }, at: ContentScope) {
      * Blocks and items carry `{ _itemId }` markers for their repeaters.
      */
     blocks: (source: BlockSource) => blockBundle(db, at, definitions, source),
+    /**
+     * The Structured Data nodes of a bundle's blocks, by block id, from their templates. Reads
+     * only the pages the nodes link to.
+     */
+    structuredData: (bundle: BlockBundle) => blockStructuredData(db, at, definitions, bundle),
     /** The Markdown Representation of each block whose definition the scope has, by position. */
     markdown: (source: BlockSource) => blockMarkdown(db, at, definitions, source),
     /** One item as `blocks` shows items, with its files; undefined when the scope hides it. */

@@ -103,9 +103,9 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   if (!layout) return yield* new NotFoundError();
 
-  const content = yield* contentReader(ctx, { projectId: project.id, draft: scope }).blocks([
-    { layoutId: layout.layoutId },
-  ]);
+  const reader = contentReader(ctx, { projectId: project.id, draft: scope });
+  const content = yield* reader.blocks([{ layoutId: layout.layoutId }]);
+  const structuredData = yield* reader.structuredData(content);
   const layoutBlocks = content.blocks;
   return {
     projectName: project.name,
@@ -124,6 +124,8 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     blocks: content.blocks,
     repeatableItems: content.repeatableItems,
     files: content.files,
+    /** Each block's Structured Data nodes, by block id, for the graph of the layout's pages. */
+    structuredData,
   };
 }, Effect.scoped);
 

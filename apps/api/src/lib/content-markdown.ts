@@ -10,7 +10,7 @@ type ResolvedFile = { url: string; alt: string; filename: string; mimeType: stri
 type SettingsContext = {
   settings?: Record<string, unknown> | null;
   itemSettings?: Record<string, unknown> | null;
-  files?: Map<string, ResolvedFile> | null;
+  files?: ReadonlyMap<string, ResolvedFile> | null;
   references?: ResolvedReferences;
 };
 
@@ -36,6 +36,22 @@ export function contentToMarkdown(
   }
 
   return parts.join(insideList ? "\n" : "\n\n");
+}
+
+// A Markdown link or image, which plain text reads by its text or alt text.
+const MARKDOWN_LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
+
+/**
+ * One template line as plain text, the way Markdown templates fill it: links read as their
+ * text and images as their alt text. Empty when every token in it is.
+ */
+export function contentToPlainText(
+  line: string,
+  schemaProperties: Record<string, any>,
+  content: Record<string, unknown>,
+  options: SettingsContext = {},
+): string {
+  return contentToMarkdown([line], schemaProperties, content, options).replace(MARKDOWN_LINK, "$1");
 }
 
 /**

@@ -129,6 +129,8 @@ export const fileSchema = z.strictObject({
   mimeType: z.string(),
   size: z.number(),
   optimizedSize: z.number().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
   blobId: z.string(),
   path: z.string(),
   aiMetadata: z.boolean(),
@@ -165,6 +167,8 @@ export const layoutBundleSchema = z.strictObject({
   blocks: z.array(blockWithReferencesSchema),
   repeatableItems: z.array(repeatableItemWithReferencesSchema),
   files: z.array(fileSchema),
+  /** Each block's Structured Data nodes, by block id. */
+  structuredData: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),
 });
 
 export const layoutSchema = z.strictObject({

@@ -46,6 +46,10 @@ export const files = sqliteTable(
     mimeType: text("mime_type").notNull(),
     size: int().notNull(),
     optimizedSize: int("optimized_size"),
+    // An image's dimensions in pixels, read from its bytes on upload. Null for other files, and
+    // for images uploaded before they were read or whose header couldn't be read.
+    width: int(),
+    height: int(),
     blobId: text("blob_id").notNull(),
     path: text().notNull(),
     createdAt: int("created_at").notNull(),

@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { contentToMarkdown } from "../../lib/content-markdown";
+import { contentToPlainText } from "../../lib/content-markdown";
 import { blocks, repeatableItems } from "../../schema";
 import { itemSchemas, propertiesOf, titleTemplateOf } from "../_shared/fields";
 import { sharedContentShown } from "../blocks/shared-content";
@@ -29,9 +29,6 @@ function namesLocale(scope: ReadScope) {
   return scope !== null && "locale" in scope && scope.locale !== undefined;
 }
 
-// A Markdown link or image, which a title reads by its text or alt text.
-const MARKDOWN_LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
-
 /** A title template evaluated on content as plain text, the way Markdown templates are. */
 function evaluate(
   template: string | undefined,
@@ -40,11 +37,10 @@ function evaluate(
   itemSettings?: unknown,
 ) {
   if (template === undefined) return "";
-  const markdown = contentToMarkdown([template], propertiesOf(schema), (content ?? {}) as never, {
+  return contentToPlainText(template, propertiesOf(schema), (content ?? {}) as never, {
     settings: settings as Record<string, unknown> | null,
     itemSettings: itemSettings as Record<string, unknown> | null,
   });
-  return markdown.replace(MARKDOWN_LINK, "$1");
 }
 
 /**

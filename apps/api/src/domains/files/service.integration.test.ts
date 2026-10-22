@@ -149,6 +149,61 @@ describe("media persistence", () => {
     expect(invalid.headers.get("content-range")).toBe("bytes */10");
   });
 
+  it("reads an uploaded image's dimensions from its bytes, and none for other files", async () => {
+    const { upload } = await fixture();
+    const bytes = (...parts: (number[] | string)[]) =>
+      new Uint8Array(
+        parts.flatMap((part) =>
+          typeof part === "string" ? [...new TextEncoder().encode(part)] : part,
+        ),
+      );
+    const be16 = (n: number) => [n >> 8, n & 0xff];
+    const be32 = (n: number) => [0, 0, ...be16(n)];
+    const le16 = (n: number) => [n & 0xff, n >> 8];
+    const le24 = (n: number) => [n & 0xff, (n >> 8) & 0xff, n >> 16];
+    const images = {
+      "image/png": bytes(
+        [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+        be32(13),
+        "IHDR",
+        be32(640),
+        be32(480),
+        [8, 6, 0, 0, 0, 0, 0, 0, 0],
+      ),
+      "image/jpeg": bytes(
+        [0xff, 0xd8],
+        [0xff, 0xe0, ...be16(16)],
+        "JFIF",
+        Array.from({ length: 10 }, () => 0),
+        [0xff, 0xc2, ...be16(17), 8, ...be16(480), ...be16(640)],
+        Array.from({ length: 12 }, () => 0),
+      ),
+      "image/gif": bytes("GIF89a", le16(640), le16(480), [0, 0, 0]),
+      "image/webp": bytes(
+        "RIFF",
+        [0, 0, 0, 0],
+        "WEBPVP8X",
+        [10, 0, 0, 0],
+        [0, 0, 0, 0],
+        le24(639),
+        le24(479),
+      ),
+    };
+    for (const [type, contents] of Object.entries(images)) {
+      const file = await (
+        await upload({ alt: "" }, type, "picture", undefined, contents)
+      ).json<typeof files.$inferSelect>();
+      expect([type, file.width, file.height]).toEqual([type, 640, 480]);
+    }
+
+    const pdf = await (
+      await upload({ alt: "" }, "application/pdf", "manual.pdf")
+    ).json<typeof files.$inferSelect>();
+    expect(pdf).toMatchObject({ width: null, height: null });
+    const unreadable = await (await upload({ alt: "" })).json<typeof files.$inferSelect>();
+    expect(unreadable).toMatchObject({ width: null, height: null });
+  });
+
   it("publishes a smaller video rendition before returning the file and deletes both blobs", async () => {
     const frame = (type: string, payload: Uint8Array) => {
       const bytes = new Uint8Array(payload.length + 8);
