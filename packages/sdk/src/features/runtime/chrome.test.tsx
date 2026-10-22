@@ -119,8 +119,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(html, /<iframe[^>]+srcDoc=/i);
   assert.match(html, /&lt;main id=&quot;site-content&quot;/);
   assert.doesNotMatch(html, /<main id="site-content"/);
-  // The preview is the only Studio location that hides the chat. It keeps its thread, so the
-  // Preview follows the editor's runs.
+  // The Preview hides the chat. It keeps its thread, so the Preview follows the editor's runs.
   assert.match(html, HIDDEN_CHAT);
 
   const studioHtml = renderToString(
@@ -138,10 +137,10 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   );
   assert.match(studioHtml, /My actual project/);
   assert.doesNotMatch(studioHtml, /camox-loading/);
-  assert.match(studioHtml, /data-chat-sidebar/);
-  assert.doesNotMatch(studioHtml, HIDDEN_CHAT);
+  // The chat is part of the Canvas: other Studio pages hide it but keep its thread.
+  assert.match(studioHtml, HIDDEN_CHAT);
 
-  // With the Canvas shown, a page location has the chat too.
+  // With the Canvas shown, a page location shows the chat.
   const { previewStore } = await import("../preview/previewStore");
   previewStore.send({ type: "showCanvas" });
   try {

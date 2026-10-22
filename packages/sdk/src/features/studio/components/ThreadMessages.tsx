@@ -57,7 +57,7 @@ export function ThreadMessages({
     <MessageScrollerProvider>
       <MessageScroller className="min-h-0 flex-1">
         <MessageScrollerViewport>
-          <MessageScrollerContent className="flex flex-col gap-4 p-3">
+          <MessageScrollerContent className="flex flex-col gap-4 px-2 py-3">
             {continuedIn && <ContinuedIn link={continuedIn} />}
             {view.messages.map((message, index) => (
               <MessageScrollerItem
@@ -141,7 +141,7 @@ function ThreadMessageRow({
 
 function ContinuedIn({ link }: { link: ContinuedInLink }) {
   return (
-    <p className="text-muted-foreground px-4 pt-3 text-center text-sm">
+    <p className="text-muted-foreground px-2 pt-3 text-center text-sm">
       Continued in{" "}
       <a href={link.href} onClick={link.onOpen} className="text-foreground underline">
         {link.label}
