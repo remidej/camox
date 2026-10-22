@@ -3,6 +3,15 @@
 @import "../../../packages/ui/src/styles/globals.css";
 @source "./";
 
+/* The variables Camox reads from the page. Declared on each color scheme
+   selector that redefines the tokens, so they resolve per scheme. */
+:root,
+.dark {
+  --camox-highlight: var(--primary);
+  --camox-placeholder: var(--muted);
+  --camox-placeholder-ink: var(--muted-foreground);
+}
+
 @utility container {
   margin-inline: auto;
   padding-inline: 0.5rem;

@@ -100,7 +100,7 @@ Only Boolean/Enum settings support these conditionals. A repeater's `s` refers t
 
 ## Content Field Types
 
-`content` and a repeater's `content` receive a `field` builder; `settings` receive a `setting` builder. Each builder only offers what its context accepts: `field` has no `enum` or `boolean`, and `setting` has nothing else. Supply defaults for scalar fields; images/files get automatic placeholders, lists use `defaultItems`, and repeaters use their item schemas and bounds.
+`content` and a repeater's `content` receive a `field` builder; `settings` receive a `setting` builder. Each builder only offers what its context accepts: `field` has no `enum` or `boolean`, and `setting` has nothing else. Supply defaults for scalar fields; images/files get automatic placeholders (empty images paint with the stylesheet's `--camox-placeholder` and `--camox-placeholder-ink`), lists use `defaultItems`, and repeaters use their item schemas and bounds.
 
 ### field.string
 
