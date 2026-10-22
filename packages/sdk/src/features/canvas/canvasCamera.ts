@@ -65,6 +65,35 @@ export function isCanvasPageScale(scale: number, pageScale: number | undefined) 
   return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) < 1e-8;
 }
 
+/** Signed screen distance from a target's center to the viewport's center. */
+export function canvasTargetOffset(
+  camera: CanvasCamera,
+  viewport: CanvasSize,
+  target: { left: number; width: number },
+) {
+  return camera.x + (target.left + target.width / 2) * camera.scale - viewport.width / 2;
+}
+
+/**
+ * Near a target's page fit in both zoom and position, so a pan snaps onto a
+ * page without its zoom matching exactly. A held snap releases from wider bands
+ * than it captures.
+ */
+export function isInCanvasSnapWindow(
+  camera: CanvasCamera,
+  viewport: CanvasSize,
+  target: { left: number; width: number },
+  held: boolean,
+) {
+  const fit = fitCanvasPage(viewport, target);
+  const zoomBand = held ? ZOOM_SNAP_RELEASE : ZOOM_SNAP_CAPTURE;
+  const panBand = viewport.width * (held ? PAN_SNAP_RELEASE : PAN_SNAP_CAPTURE);
+  return (
+    Math.abs(Math.log(camera.scale / fit.scale)) <= zoomBand &&
+    Math.abs(canvasTargetOffset(camera, viewport, target)) <= panBand
+  );
+}
+
 /** Snapped to a target: at its page fit, centered on it. */
 export function isCanvasCameraSnapped(
   camera: CanvasCamera,

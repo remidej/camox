@@ -738,25 +738,34 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       const before = read();
       wheel(outside - capture + margin, 0);
       flush();
-      assert.equal(read().scale, scale, "horizontal motion must never change zoom");
-      assert.equal(read().y, before.y, "horizontal motion retains vertical position");
-      assertX(centeredX + capture - margin, "below page fit, horizontal motion stays free");
-      assert.deepEqual(selections, [], "only a snapped camera selects");
-      const beforeZoom = read();
-      time += 200;
-      wheel(0, -1, { ctrlKey: true });
-      flush();
       if (Math.abs(offset) > ZOOM_SNAP_CAPTURE) {
+        assert.equal(read().scale, scale, "outside the zoom capture range, panning keeps zoom");
+        assert.equal(read().y, before.y, "horizontal motion retains vertical position");
+        assertX(centeredX + capture - margin, "outside the zoom capture range, panning is free");
+        assert.deepEqual(selections, [], "only a snapped camera selects");
+        time += 200;
+        wheel(0, -1, { ctrlKey: true });
+        flush();
         assert.ok(read().scale < fitted.scale, "outside the zoom capture range, zoom stays free");
         continue;
       }
-      assert.equal(read().scale, fitted.scale, "the zoom detent captures near the page fit");
-      assertX(fitted.x, "entering the page fit centers the page");
-      assert.deepEqual(selections, ["page"]);
+      assert.equal(read().scale, fitted.scale, "panning near the page fit snaps its zoom too");
+      assertX(fitted.x, "and centers the page");
       assert.ok(
-        Math.abs((300 - read().y) / read().scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
-        "zoom keeps its vertical anchor",
+        Math.abs(read().y / fitted.scale - before.y / scale) < 1e-8,
+        "the snap keeps the reading point at the top edge",
       );
+      assert.deepEqual(selections, ["page"]);
+      wheel(capture + release - 2 * margin, 0);
+      flush();
+      assertX(fitted.x, "the snap holds within the release band");
+      wheel(2 * margin, 0);
+      flush();
+      assertX(
+        fitted.x - release - margin,
+        "intent carries over to the fit's zoom, so the snap releases where the input is",
+      );
+      assert.equal(read().scale, fitted.scale, "releasing keeps the page fit's zoom");
     }
   } finally {
     await act(async () => root.unmount());
