@@ -16,7 +16,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Trash2, TriangleAlert } from "lucide-react";
 import * as React from "react";
 
-import { buildFaviconPlaceholderUrl, buildFaviconUrl } from "@/features/routes/pageRuntime";
+import { buildDefaultFaviconUrl, buildFaviconUrl } from "@/features/routes/pageRuntime";
 import { getApiUrl } from "@/lib/api-client";
 import { type Project, projectMutations } from "@/lib/queries";
 
@@ -53,9 +53,9 @@ function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => vo
   const studioCache = useStudioCache();
   const [pending, setPending] = React.useState<PendingChange>(null);
   const [hasCurrent, setHasCurrent] = React.useState(false);
-  const currentUrl = buildFaviconUrl(getApiUrl(), project, { placeholder: false });
+  const currentUrl = buildFaviconUrl(getApiUrl(), project, { withDefault: false });
 
-  // Without the placeholder the current favicon 404s when none was uploaded, which tells us
+  // Without the default the current favicon 404s when none was uploaded, which tells us
   // whether there is one to show and remove.
   React.useEffect(() => {
     const probe = new Image();
@@ -111,7 +111,7 @@ function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => vo
 
   const showsFavicon = pending ? pending.type === "upload" : hasCurrent;
   const previewUrl =
-    pendingUrl ?? (showsFavicon ? currentUrl : buildFaviconPlaceholderUrl(getApiUrl()));
+    pendingUrl ?? (showsFavicon ? currentUrl : buildDefaultFaviconUrl(getApiUrl()));
   const prompt = pendingFile
     ? pendingFile.name
     : showsFavicon

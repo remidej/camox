@@ -11,26 +11,26 @@ describe("GET /favicons/:projectId", () => {
     expect(response.status).toBe(404);
   });
 
-  it("serves the Camox mark for a project without a favicon when asked for a placeholder", async () => {
-    const response = await app.request("/favicons/987654?placeholder=camox", {}, env);
+  it("serves the default favicon for a project without one when asked for it", async () => {
+    const response = await app.request("/favicons/987654?default=camox", {}, env);
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("image/svg+xml");
     expect(await response.text()).toMatch(/^<svg/);
   });
 
-  it("serves the Camox mark on its own", async () => {
-    const response = await app.request("/favicons/placeholder", {}, env);
+  it("serves the default favicon on its own", async () => {
+    const response = await app.request("/favicons/default", {}, env);
 
     expect(response.headers.get("Content-Type")).toBe("image/svg+xml");
   });
 
-  it("serves the uploaded favicon over the placeholder", async () => {
+  it("serves the uploaded favicon over the default", async () => {
     await (env as unknown as Bindings).FILES_BUCKET.put("favicons/987655", "png-bytes", {
       httpMetadata: { contentType: "image/png" },
     });
 
-    const response = await app.request("/favicons/987655?placeholder=camox", {}, env);
+    const response = await app.request("/favicons/987655?default=camox", {}, env);
 
     expect(response.headers.get("Content-Type")).toBe("image/png");
     expect(await response.text()).toBe("png-bytes");
