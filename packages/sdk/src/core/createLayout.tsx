@@ -265,8 +265,11 @@ type LayoutOutputs<Context, Children, OldTitle, OldDescription> = Renamed<
     { toImage?: (context: Context) => React.ReactElement }
   >;
 
-/** The collection a layout's record pages render, and the field each record is found by. */
-export type RecordPages = { collectionId: string; field: string };
+/**
+ * The collection a layout's record pages render, and the field each record is found by. `param`
+ * names the route param holding that field's value; only the collection and field are synced.
+ */
+export type RecordPages = { collectionId: string; field: string; param?: string };
 
 interface LayoutBaseOptions<
   TBefore extends readonly LayoutBlock[],
