@@ -10,6 +10,8 @@ export type Bindings = {
   GOOGLE_CLIENT_SECRET: string;
   DASHBOARD_URL: string;
   EMAIL: SendEmail;
+  /** Where alerts go, such as a failed release's. Cloudflare Email Routing forwards it. */
+  ALERT_EMAIL_TO: string;
   OPEN_ROUTER_API_KEY: string;
   AI_JOB_SCHEDULER: DurableObjectNamespace;
   ProjectRoom: DurableObjectNamespace;
@@ -19,7 +21,20 @@ export type Bindings = {
     import("@earendil-works/pi-codemode/cloudflare").CodemodeSandboxDurableObject
   >;
   FILES_BUCKET: R2Bucket;
+  /** Project Slug → Project ID: which project each `<slug>.camox.site` host serves. */
+  PROJECT_SLUGS: KVNamespace;
   MEDIA?: MediaBinding;
+  /** The `projects` Cloudflare Artifacts namespace: every project's repo, and the Template's. */
+  ARTIFACTS: Artifacts;
+  RELEASE_WORKFLOW: Workflow;
+  /** The release sandbox Worker's Container sandboxes, one per release step. */
+  SANDBOX: DurableObjectNamespace<import("@cloudflare/ci/worker").CiSandbox>;
+  /** Where the release sandboxes keep their workspace snapshots, which cache installs. */
+  BACKUP_BUCKET: R2Bucket;
+  /** Camox's Cloudflare account, which serves every project's Worker. */
+  CLOUDFLARE_ACCOUNT_ID: string;
+  /** The Cloudflare API token that can deploy to the `production` dispatch namespace. */
+  CF_TOKEN: string;
 };
 
 export type AppEnv = {

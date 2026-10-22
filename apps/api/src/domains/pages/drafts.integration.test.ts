@@ -72,7 +72,7 @@ async function fixture() {
   const getPage = (id: string, headers: Headers = {}) =>
     call(router.pages.get, { id }, member(headers));
   const pageAt = (path: string, headers: Headers = {}) =>
-    call(router.pages.getByPath, { projectSlug: base.project.slug, path }, member(headers));
+    call(router.pages.getByPath, { projectUuid: base.project.uuid, path }, member(headers));
 
   const createBlock = (pageId: string, title: string, headers: Headers = {}) =>
     callSeedingLive(

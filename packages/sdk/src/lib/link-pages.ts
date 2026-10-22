@@ -68,20 +68,20 @@ const isLoaded = () => true;
  * editors fetch it with `fetchProject`.
  */
 export function useLinkablePages(
-  projectSlug: string,
+  projectUuid: string,
   { fetchProject = false }: { fetchProject?: boolean } = {},
 ): { locale: LocaleView; pages: Page[] | undefined; fallbackPages: Page[] | undefined } {
   const { locale } = useViewLocale();
   const fallback = linkFallbackLocale(locale);
-  const { data: projectLoaded } = useReadQuery(reads.project({ slug: projectSlug }), {
+  const { data: projectLoaded } = useReadQuery(reads.project({ projectUuid }), {
     enabled: fetchProject,
     select: isLoaded,
   });
-  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
+  const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!projectLoaded,
     select: samePageList,
   });
-  const { data: fallbackPages } = useReadQuery(reads.pageList({ projectSlug }), {
+  const { data: fallbackPages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!projectLoaded && fallback !== null,
     locale: fallback ?? undefined,
     select: samePageList,
@@ -91,10 +91,10 @@ export function useLinkablePages(
 
 /** The pages links lead to in the locale viewed, at their paths (see `linkPagesIn`). */
 export function useLinkPages(
-  projectSlug: string,
+  projectUuid: string,
   options?: { fetchProject?: boolean },
 ): LinkPage[] | undefined {
-  const { locale, pages, fallbackPages } = useLinkablePages(projectSlug, options);
+  const { locale, pages, fallbackPages } = useLinkablePages(projectUuid, options);
   return React.useMemo(
     () => linkPagesIn(locale, pages, fallbackPages),
     [locale, pages, fallbackPages],

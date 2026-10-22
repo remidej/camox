@@ -51,14 +51,14 @@ function throwNotFoundOrRethrow(error: unknown): never {
  * Factories
  * -----------------------------------------------------------------------------------------------*/
 
-export function createMarkdownMiddleware(apiUrl: string, projectSlug: string) {
+export function createMarkdownMiddleware(apiUrl: string, projectUuid: string) {
   return createMiddleware().server(async ({ next, request }) => {
     if (!prefersMarkdown(request.headers.get("Accept") ?? "")) return next();
     const { origin, pathname } = new URL(request.url);
     const response = await createMarkdownResponse({
       apiUrl,
       camoxApp: undefined,
-      projectSlug,
+      projectUuid,
       request,
       url: `${origin}${pathname}`,
     });
@@ -68,7 +68,7 @@ export function createMarkdownMiddleware(apiUrl: string, projectSlug: string) {
   });
 }
 
-export function createPageLoader(apiUrl: string, projectSlug: string) {
+export function createPageLoader(apiUrl: string, projectUuid: string) {
   return async ({
     location,
     context,
@@ -87,7 +87,7 @@ export function createPageLoader(apiUrl: string, projectSlug: string) {
         authCookieHeader,
         origin: await getOrigin(),
         pathname: location.pathname,
-        projectSlug,
+        projectUuid,
         queryClient: context.queryClient,
       });
 

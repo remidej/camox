@@ -113,6 +113,27 @@
       "when": 1792531508425,
       "tag": "0015_live_threads_continued_in",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1792611928304,
+      "tag": "0016_project_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792620005182,
+      "tag": "0017_releases",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1792622768077,
+      "tag": "0018_studio_sessions",
+      "breakpoints": true
     }
   ]
 }

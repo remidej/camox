@@ -213,7 +213,7 @@ describe("a definitions sync in a development draft", () => {
       call(
         router.definitions.sync,
         {
-          projectSlug: project.slug,
+          projectUuid: project.uuid,
           autoCreate: false,
           definitionSet: {
             blocks: [

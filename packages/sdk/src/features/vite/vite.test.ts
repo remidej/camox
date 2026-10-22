@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -14,9 +15,84 @@ type ConfigResolvedHook = Extract<
   NonNullable<ReturnType<typeof camox>["configResolved"]>,
   (...args: never[]) => unknown
 >;
+type ConfigHook = Extract<
+  NonNullable<ReturnType<typeof camox>["config"]>,
+  (...args: never[]) => unknown
+>;
+type LoadHook = Extract<
+  NonNullable<ReturnType<typeof camox>["load"]>,
+  (...args: never[]) => unknown
+>;
+
+const PROJECT_ID = "01a15fff-627b-7fa1-938b-93ab659c1acc";
+
+void test("Camox points a config still naming its project by slug to the Project ID", () => {
+  assert.throws(
+    () => camox({ projectSlug: "camox-playground-01" } as never),
+    /projectSlug.*Project ID.*dashboard/s,
+  );
+});
+
+void test("Camox refuses on startup a Project ID that isn't a lowercase UUIDv7", () => {
+  for (const projectId of [
+    "camox-playground-01",
+    PROJECT_ID.toUpperCase(),
+    // A UUIDv4
+    "3b241101-e2bb-4255-8caf-4136c566a962",
+  ]) {
+    assert.throws(() => camox({ projectId }), /Project ID/, projectId);
+  }
+});
+
+void test("Camox tells the CLI the project's Project ID through runtime.json", () => {
+  const root = mkdtempSync(join(tmpdir(), "camox-runtime-"));
+  const configResolved = camox({ projectId: PROJECT_ID, _internal: { disableCodeGen: true } })
+    .configResolved as ConfigResolvedHook;
+  void configResolved.call(
+    undefined as never,
+    {
+      plugins: [{ name: "vite-plugin-cloudflare" }],
+      root,
+      command: "serve",
+      logger: { info() {}, warn() {} },
+    } as never,
+  );
+  const runtime = JSON.parse(
+    readFileSync(join(root, "node_modules", ".camox", "runtime.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(runtime.projectId, PROJECT_ID);
+  assert.equal("projectSlug" in runtime, false);
+});
+
+void test("Camox names the project by its Project ID in the Worker's runtime options", async () => {
+  const root = mkdtempSync(join(tmpdir(), "camox-worker-"));
+  const plugin = camox({ projectId: PROJECT_ID });
+  const config = (await (plugin.config as ConfigHook).call(
+    undefined as never,
+    { root },
+    {
+      command: "serve",
+      mode: "development",
+    },
+  )) as { define: Record<string, string> };
+  const server = (await (plugin.load as LoadHook).call(
+    undefined as never,
+    "\0virtual:camox/server",
+    { ssr: true },
+  )) as string;
+  // What Vite's define does to the module before the Worker runs it.
+  const compiled = Object.entries(config.define).reduce(
+    (code, [name, value]) => code.replaceAll(name, value),
+    server,
+  );
+  const options = /handleRuntimeRequest\(request, \{([\s\S]*?)\}\);/.exec(compiled)?.[1];
+  assert.ok(options);
+  assert.match(options, new RegExp(`projectUuid: "${PROJECT_ID}"`));
+  assert.doesNotMatch(options, /projectSlug/);
+});
 
 void test("Camox filters the warnings every Camox app produces from the Worker bundle", () => {
-  const plugin = camox({ projectSlug: "smoke" });
+  const plugin = camox({ projectId: PROJECT_ID });
   const configEnvironment = plugin.configEnvironment as ConfigEnvironmentHook;
   const result = configEnvironment.call(undefined as never, "ssr", {}, {
     command: "build",
@@ -38,7 +114,7 @@ void test("Camox filters the warnings every Camox app produces from the Worker b
 });
 
 void test("Camox refuses to run without the Cloudflare plugin", () => {
-  const configResolved = camox({ projectSlug: "smoke" }).configResolved as ConfigResolvedHook;
+  const configResolved = camox({ projectId: PROJECT_ID }).configResolved as ConfigResolvedHook;
   assert.throws(
     () => configResolved.call(undefined as never, { plugins: [], root: "/app" } as never),
     /cloudflare\(\)/,

@@ -19,13 +19,14 @@ import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import { RELEASE, type WriteTarget } from "../drafts/scope";
 import { publicProjectSummary } from "../projects/public-summary";
+import { namingProject, projectRefOf } from "../projects/ref";
 import { LAYOUT_KINDS, type RecordPages } from "./schema";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
-export const getLayoutInput = z.object({ projectSlug: z.string(), layoutId: z.string() });
+export const getLayoutInput = namingProject(z.object({ layoutId: z.string() }));
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
 
@@ -85,8 +86,8 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutInput>,
 ) {
-  const { projectSlug, layoutId } = yield* decodeInput(getLayoutInput, rawInput);
-  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
+  const { layoutId, ...named } = yield* decodeInput(getLayoutInput, rawInput);
+  const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()

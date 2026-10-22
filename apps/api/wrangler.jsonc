@@ -7,12 +7,14 @@
   "routes": [{ "pattern": "api.camox.dev", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.dev",
+    // The alerts address. An Email Routing rule forwards it to an inbox (src/domains/releases/README.md).
+    "ALERT_EMAIL_TO": "alerts@camox.dev",
   },
   "send_email": [
     {
       "name": "EMAIL",
       "remote": true,
-      "allowed_sender_addresses": ["auth@camox.dev"],
+      "allowed_sender_addresses": ["auth@camox.dev", "alerts@camox.dev"],
     },
   ],
   "d1_databases": [
@@ -23,10 +25,19 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Project Slug → Project ID, the map the dispatch Worker serves <slug>.camox.site from
+  // (apps/dispatch). The studio's sign-in reads it to tell a project's host.
+  "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
   "r2_buckets": [
     {
       "binding": "FILES_BUCKET",
       "bucket_name": "camox-files",
+    },
+    // The release sandboxes' workspace snapshots, which cache each project's install on its
+    // lockfile. The release sandbox Worker writes them; the Workflow looks up the cache.
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "camox-release-cache",
     },
   ],
   "media": {
@@ -54,8 +65,36 @@
         "class_name": "CodemodeSandbox",
         "script_name": "camox-codemode-sandbox",
       },
+      // The Container sandboxes each release step runs in, in their own Worker
+      // (release-sandbox/wrangler.jsonc), which deploys their image.
+      {
+        "name": "SANDBOX",
+        "class_name": "CiSandbox",
+        "script_name": "camox-release-sandbox",
+      },
     ],
   },
+  // A push to a project's repo releases it (src/domains/releases/README.md). The event filter can
+  // only name the namespace, so the Workflow skips other branches and repos that aren't a
+  // project's, such as `template-default`.
+  "triggers": {
+    "events": [
+      {
+        "type": "cf.artifacts.repo.pushed",
+        "filter": { "namespace": "projects" },
+        "targets": [{ "type": "workflow", "workflow_name": "camox-release" }],
+      },
+    ],
+  },
+  "workflows": [
+    {
+      "name": "camox-release",
+      "binding": "RELEASE_WORKFLOW",
+      "class_name": "ReleaseWorkflow",
+    },
+  ],
+  // Remote even in local dev, as Cloudflare Artifacts has no local simulator.
+  "artifacts": [{ "binding": "ARTIFACTS", "namespace": "projects", "remote": true }],
   "migrations": [
     {
       "tag": "v1",

@@ -1,21 +1,21 @@
 import { useMutation } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { blockMutations } from "@/lib/queries";
 import { reads, useStudioCache } from "@/lib/studio-reads";
 import { useLocalePath } from "@/lib/view-locale";
 
 export function useUpdateBlockPosition() {
   const studioCache = useStudioCache();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const pathname = useLocalePath();
 
   return useMutation({
     ...blockMutations.updatePosition(),
     onMutate: (variables) => {
       const edit = studioCache.edit();
-      const page = reads.pageStructure({ path: pathname, projectSlug });
+      const page = reads.pageStructure({ path: pathname, projectUuid });
       const previousPage = edit.get(page);
       if (!previousPage) return { edit };
 

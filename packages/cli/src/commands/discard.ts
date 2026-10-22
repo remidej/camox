@@ -1,13 +1,11 @@
 import * as p from "@clack/prompts";
 import { object } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
-import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { string } from "@optique/core/valueparser";
 
 import { callToolResult } from "../lib/dispatch";
 import { type OutputMode, isJsonMode, printError, printResult } from "../lib/output";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, projectFlag } from "../lib/runtime-options";
 
 // Discarding empties the development draft; Live is untouched (ADR 0010).
 
@@ -19,7 +17,7 @@ export const parser = command(
       description: message`Discard without asking for confirmation.`,
     }),
     cwd: cwdFlag,
-    project: optional(option("--project", string({ metavar: "SLUG" }))),
+    project: projectFlag,
     json: option("--json"),
   }),
   {

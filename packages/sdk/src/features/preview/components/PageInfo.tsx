@@ -44,7 +44,7 @@ import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -63,11 +63,11 @@ import { ShikiMarkdown } from "./ShikiMarkdown";
 type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 
 const usePageMetadataData = (pageId: string) => {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const camoxApp = useCamoxApp();
   const { data: page } = useReadQuery(reads.page({ id: pageId }));
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
+  const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
   const { data: allLayouts } = useReadQuery(reads.layoutList({ projectId: project?.id ?? 0 }), {

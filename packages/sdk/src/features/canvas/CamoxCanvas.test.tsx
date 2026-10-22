@@ -23,8 +23,8 @@ registerHooks({
           pageList: () => ({queryKey: ["pages"]}),
           page: () => ({queryKey: ["page"]}),
           pagesUsingBlock: ({type}) => ({queryKey: ["blockPages", type]}),
-          canvasFrame: ({projectSlug, runtimeBasePath, pathname}) =>
-            ({queryKey: ["canvasFrame", projectSlug, runtimeBasePath, null, pathname]}),
+          canvasFrame: ({projectUuid, runtimeBasePath, pathname}) =>
+            ({queryKey: ["canvasFrame", projectUuid, runtimeBasePath, null, pathname]}),
           discoveredPath: () => ({queryKey: ["discoveredPath"]}),
         };
         export const useReadQuery = (read, options) => globalThis.CanvasQueryProbe({...read, ...options});
@@ -34,8 +34,8 @@ registerHooks({
     if (specifier.endsWith("/useDiscoveredPreviewPaths"))
       source = "export const useDiscoveredPreviewPaths = () => new Map()";
     if (specifier.endsWith("/auth"))
-      source = `export const useProjectSlug = () => "site";
-        export const useAuthContext = () => ({apiUrl: "", projectSlug: "site"});`;
+      source = `export const useProjectUuid = () => "site";
+        export const useAuthContext = () => ({apiUrl: "", projectUuid: "site"});`;
     if (specifier.endsWith("/queries"))
       source = `export const pageMutations = {update: () => ({})};`;
     if (specifier.endsWith("/navigation"))

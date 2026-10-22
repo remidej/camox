@@ -18,7 +18,7 @@ export type PageStructure = {
   projectName: string;
   project: PageWithBlocks["project"];
 };
-export type Project = Awaited<ReturnType<ApiClient["projects"]["getBySlug"]>>;
+export type Project = Awaited<ReturnType<ApiClient["projects"]["getByUuid"]>>;
 export type Layout = Awaited<ReturnType<ApiClient["layouts"]["list"]>>[number];
 export type BlockUsageCounts = Awaited<ReturnType<ApiClient["blocks"]["getUsageCounts"]>>;
 export type DraftList = Awaited<ReturnType<ApiClient["drafts"]["list"]>>;

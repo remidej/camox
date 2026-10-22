@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { useProjectSlug } from "../../../lib/auth";
+import { useProjectUuid } from "../../../lib/auth";
 import { reads, useRead } from "../../../lib/studio-reads";
 import { useLocalePath } from "../../../lib/view-locale";
 import { AddBlockDialog } from "../../preview/components/AddBlockDialog";
@@ -12,10 +12,10 @@ import { PageOverview } from "./PageOverview";
 /** A curated page: its blocks, which editors arrange, then what's about the page. */
 export function CuratedPageInspector() {
   const pathname = useLocalePath();
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const owner = React.useContext(PreviewEditingOwnerContext);
   // PageTree reads the same page through usePreviewedPage.
-  const structure = useRead(reads.pageStructure({ path: pathname, projectSlug }));
+  const structure = useRead(reads.pageStructure({ path: pathname, projectUuid }));
   const pageId = structure.page.id;
   return (
     <>

@@ -12,14 +12,22 @@ import { createLogger, createServer, type ViteDevServer } from "vite-plus";
 
 import { installDevSignInLink } from "./devSignIn";
 
+/** The API's answer to a studio authorization: the callback with its one-time token, if any. */
+function signInUrl(token: unknown) {
+  return typeof token === "string"
+    ? { url: `http://localhost:5173/?ott=${token}` }
+    : { url: token };
+}
+
 void test("prints a checkout-specific sign-in link on the actual Vite port after API startup", async () => {
   let requests = 0;
   const api = createHttpServer((req, res) => {
     requests++;
-    assert.equal(req.url, "/api/auth/one-time-token/generate");
+    assert.equal(req.method, "POST");
+    assert.equal(req.url, "/api/auth/cross-domain/studio-authorize");
     assert.equal(req.headers.authorization, "Bearer checkout-session");
     res.writeHead(requests === 1 ? 503 : 200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ token: "test-ott" }));
+    res.end(JSON.stringify(signInUrl("test-ott")));
   });
   await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
   const address = api.address();
@@ -38,7 +46,7 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
         name: "test-sign-in",
         configureServer(vite) {
           installDevSignInLink(vite, {
-            projectSlug: "checkout",
+            projectUuid: "checkout",
             apiUrl,
             authToken: "checkout-session",
           });
@@ -63,7 +71,7 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
     assert.equal(url.origin, new URL(server.resolvedUrls!.local[0]!).origin);
     assert.equal(url.searchParams.get("ott"), "test-ott");
     assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")!), {
-      projectSlug: "checkout",
+      projectUuid: "checkout",
       apiUrl,
     });
     assert.equal(requests, 2);
@@ -97,7 +105,7 @@ void test("closing Vite cancels pending sign-in retries without logging credenti
     server: { host: "127.0.0.1", port: 0 },
   });
   installDevSignInLink(server, {
-    projectSlug: "checkout",
+    projectUuid: "checkout",
     apiUrl: `http://127.0.0.1:${address.port}`,
     authToken: "checkout-session",
   });
@@ -132,7 +140,7 @@ function signInFixture(t: TestContext) {
   let launchError = false;
   t.mock.method(globalThis, "fetch", async () => {
     requests++;
-    return Response.json({ token });
+    return Response.json(signInUrl(token));
   });
   t.mock.method(
     childProcess,
@@ -166,7 +174,7 @@ function signInFixture(t: TestContext) {
       printUrls() {},
     } as unknown as ViteDevServer;
     installDevSignInLink(vite, {
-      projectSlug: "playground",
+      projectUuid: "playground",
       apiUrl: "http://localhost:8787",
       authToken: "private-session",
       ...options,
@@ -256,8 +264,8 @@ void test("an atomic marker prevents reopening across independent instances and 
   const directory = await mkdtemp(join(tmpdir(), "camox-dev-sign-in-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const marker = join(directory, "first-invocation");
-  fixture.server({ open: true, openOnceFile: marker, projectSlug: "first-instance" }).printUrls();
-  fixture.server({ open: true, openOnceFile: marker, projectSlug: "second-instance" }).printUrls();
+  fixture.server({ open: true, openOnceFile: marker, projectUuid: "first-instance" }).printUrls();
+  fixture.server({ open: true, openOnceFile: marker, projectUuid: "second-instance" }).printUrls();
   await waitFor(() => fixture.logs.length === 2 && fixture.launches.length === 1);
   await setTimeout(30);
   assert.equal(fixture.launches.length, 1);
@@ -276,14 +284,14 @@ void test("an atomic marker prevents reopening across independent instances and 
         let launches = 0;
         let printed = 0;
         childProcess.spawn = () => { launches++; throw new Error("Unexpected browser launch"); };
-        globalThis.fetch = async () => Response.json({ token: "subprocess-token" });
+        globalThis.fetch = async () => Response.json(${JSON.stringify(signInUrl("subprocess-token"))});
         const server = {
           config: { root: "independent-process", logger: { info() { printed++; }, warn() {} } },
           resolvedUrls: { local: ["http://localhost:5173/"], network: [] },
           printUrls() {},
         };
         installDevSignInLink(server, {
-          projectSlug: "playground", apiUrl: "http://localhost:8787",
+          projectUuid: "playground", apiUrl: "http://localhost:8787",
           authToken: "test-session", open: true, openOnceFile: ${JSON.stringify(marker)},
         });
         server.printUrls();

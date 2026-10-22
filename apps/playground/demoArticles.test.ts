@@ -15,14 +15,14 @@ function fakeApi() {
   const records: FakeRecord[] = [];
   const logs: string[] = [];
   const context = {
-    projectSlug: "camox-playground-01",
+    projectUuid: "camox-playground-01",
     logger: { info: (message: string) => logs.push(message) },
     client: {
       collectionDefinitions: {
-        listRecords: async (input: { projectSlug: string; collectionId: string }) =>
+        listRecords: async (input: { projectUuid: string; collectionId: string }) =>
           records.filter((record) => record.collectionId === input.collectionId),
         createRecord: async (input: {
-          projectSlug: string;
+          projectUuid: string;
           collectionId: string;
           content: unknown;
         }) => {
@@ -91,7 +91,7 @@ void test("seeding again leaves existing articles untouched", async () => {
 void test("a collection with any article, even a user-created one, is not seeded", async () => {
   const { records, context } = fakeApi();
   await context.client.collectionDefinitions.createRecord({
-    projectSlug: context.projectSlug,
+    projectUuid: context.projectUuid,
     collectionId: "articles",
     content: { title: "My own article" },
   });

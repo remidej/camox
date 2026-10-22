@@ -38,8 +38,8 @@ function useDrafts() {
   const draftId = useCurrentDraftId();
   const authCtx = React.useContext(AuthContext);
   const developmentMode = draftScope.developmentMode;
-  const project = useReadQuery(reads.project({ slug: authCtx?.projectSlug ?? "" }), {
-    enabled: !!authCtx?.projectSlug,
+  const project = useReadQuery(reads.project({ projectUuid: authCtx?.projectUuid ?? "" }), {
+    enabled: !!authCtx?.projectUuid,
   });
   const projectId = project.data?.id;
   const list = useReadQuery(reads.draftList({ projectId: projectId ?? 0 }), {

@@ -123,9 +123,17 @@ export async function createProject(
   return result;
 }
 
-export async function getProjectBySlug(token: string, slug: string, apiUrl?: string) {
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Load a project named by its Project ID or its Project Slug. A UUID-shaped name is a
+ * Project ID, which the API validates; anything else is a slug.
+ */
+export async function getProject(token: string, project: string, apiUrl?: string) {
   const client = createRpcClient(token, apiUrl, { developmentDraft: true });
-  return client.projects.getBySlug({ slug });
+  return UUID_SHAPE.test(project)
+    ? client.projects.getByUuid({ projectUuid: project })
+    : client.projects.getBySlug({ slug: project });
 }
 
 // --- Drafts ---

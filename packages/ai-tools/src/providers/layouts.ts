@@ -41,13 +41,13 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
         Effect.gen(function* () {
           const project = yield* Effect.promise(() =>
             ctx.db
-              .select({ slug: projects.slug })
+              .select({ uuid: projects.uuid })
               .from(projects)
               .where(eq(projects.id, ctx.projectId))
               .get(),
           );
           if (!project) return yield* new NotFoundError();
-          return yield* getLayout(ctx, { projectSlug: project.slug, layoutId });
+          return yield* getLayout(ctx, { projectUuid: project.uuid, layoutId });
         }),
       );
     },

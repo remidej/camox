@@ -1,0 +1,35 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Deployed beside the API, whose release Workflow binds its Durable Object by this name.
+  // src/domains/releases/README.md records the Cloudflare setup it relies on, and its secrets:
+  // CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY, for workspace snapshots.
+  "name": "camox-release-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "containers": [
+    {
+      "class_name": "CiSandbox",
+      "image": "./Dockerfile",
+      // 1 vCPU, 6 GiB of memory, 12 GB of disk. Not measured yet: a release of the Template, cold
+      // and warm, picks between this and standard-4 (#447).
+      "instance_type": "standard-2",
+      // Each release runs one step at a time, in its own sandbox.
+      "max_instances": 20,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "SANDBOX", "class_name": "CiSandbox" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CiSandbox"] }],
+  "r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "camox-release-cache" }],
+  "vars": { "BACKUP_BUCKET_NAME": "camox-release-cache" },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+}

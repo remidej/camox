@@ -120,7 +120,7 @@ async function fixture(suffix: string) {
 
   const refs: Record<string, ContentRef> = {
     project: { project: project.id },
-    projectSlug: { projectSlug: project.slug },
+    projectUuid: { projectUuid: project.uuid },
     page: { page: page.id },
     block: { block: block.id },
     item: { item: item.id },
@@ -159,7 +159,7 @@ async function fixture(suffix: string) {
   };
 }
 
-const kinds = ["project", "projectSlug", "page", "block", "item", "file"] as const;
+const kinds = ["project", "projectUuid", "page", "block", "item", "file"] as const;
 
 describe("content access", () => {
   for (const kind of kinds) {

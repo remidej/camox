@@ -9,6 +9,13 @@ export const cwdFlag = optional(
   }),
 );
 
+/** The project a command targets, overriding the one in the runtime sidecar. */
+export const projectFlag = optional(
+  option("--project", string({ metavar: "PROJECT" }), {
+    description: message`Target this project, by its Project ID or its Project Slug. Takes precedence over CAMOX_PROJECT. Defaults to the project of the app found by the runtime lookup.`,
+  }),
+);
+
 /** The locale a content command reads or writes (ADR 0015). */
 export const localeFlag = optional(
   option("--locale", string({ metavar: "TAG" }), {

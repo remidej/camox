@@ -226,7 +226,7 @@ export async function handleCamoxRequest(request) {
     developmentDraft: __CAMOX_DEVELOPMENT_DRAFT__,
     getCamoxApp: async () => camoxApp,
     getDocument: async () => camoxDocument,
-    projectSlug: __CAMOX_PROJECT_SLUG__,
+    projectUuid: __CAMOX_PROJECT_ID__,
     renderPage,
     renderStudio,
     runtimeBasePath: ${JSON.stringify(runtimeBasePath)},

@@ -33,7 +33,7 @@ const source = `<!doctype html><html><head><title>  Orbiting   moons </title></h
 
 function Website({ children }: { children: React.ReactNode }) {
   return (
-    <AuthContext.Provider value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}>
+    <AuthContext.Provider value={{ projectUuid: "test" } as React.ContextType<typeof AuthContext>}>
       <NavigationProvider>{children}</NavigationProvider>
     </AuthContext.Provider>
   );

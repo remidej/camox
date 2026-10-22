@@ -1,6 +1,6 @@
 # Stable content identity
 
-Drafts (ADR 0003) need every piece of content to keep the same identity in Live and in every draft that changes it, so a draft can be compared with Live and applied to it. Today most content uses integer autoincrement keys that push and pull renumber, then rewrite everywhere they appear inside content. We give each content entity (page, block, repeatable item, file, collection record) one UUIDv7, minted when it is first created in a draft and kept for good. Definitions (block definitions, layouts, collections) are identified by the name code gives them, within a project. Integer ids disappear from content, the API, the CLI, and agent tools; only projects keep theirs.
+Drafts (ADR 0003) need every piece of content to keep the same identity in Live and in every draft that changes it, so a draft can be compared with Live and applied to it. Today most content uses integer autoincrement keys that push and pull renumber, then rewrite everywhere they appear inside content. We give each content entity (page, block, repeatable item, file, collection record) one UUIDv7, minted when it is first created in a draft and kept for good. Definitions (block definitions, layouts, collections) are identified by the name code gives them, within a project. Integer ids disappear from content, the API, the CLI, and agent tools; only projects keep theirs, as an internal key.
 
 ## Considered Options
 
@@ -16,3 +16,4 @@ Drafts (ADR 0003) need every piece of content to keep the same identity in Live 
 - Ids are never reused, and undoing a deletion brings an entity back with its original id, so links to it work again.
 - The server mints ids, but create endpoints may accept a client-minted UUIDv7, for optimistic inserts. The API only accepts UUIDv7.
 - Migrating `apps/landing` gives its content fresh UUIDv7s, including its existing UUIDv4s, and rewrites every id stored in content. See [Drafts start on a fresh database](0013-drafts-start-on-a-fresh-database.md).
+- A project's integer stays an internal key: foreign keys and project rooms use it. Each project also has a permanent Project ID, a lowercase UUIDv7 given when it is created, which is what code and the platform name it by ([#436](https://github.com/remidej/camox/issues/436)): a website's `camox()` config, and the Worker and Artifacts repo self-serve project creation names after it ([#423](https://github.com/remidej/camox/issues/423)). Its Project Slug is only an address. The API only accepts the lowercase form, so a Project ID always matches the Worker named after it.

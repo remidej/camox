@@ -40,7 +40,7 @@ void test("token links SSR a styled sign-in page before loading any content or s
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      projectSlug: "test",
+      projectUuid: "test",
       pageClientEntryUrl: "/client.js",
       renderPage: async (input) =>
         renderToString(
@@ -75,7 +75,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     slug: "test",
     organizationSlug: "team",
   } as NonNullable<PageRenderInput["project"]>;
-  testStudioCache(queryClient).set(reads.pageStructure({ path: "/", projectSlug: "test" }), {
+  testStudioCache(queryClient).set(reads.pageStructure({ path: "/", projectUuid: "test" }), {
     page: { id: 1, blockIds: [] },
     layout: null,
     project,
@@ -90,7 +90,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     project,
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     href: "https://site.test/",
     pathname: "/",
     runtimeBasePath: "",

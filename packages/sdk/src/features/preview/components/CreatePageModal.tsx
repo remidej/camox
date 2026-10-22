@@ -20,7 +20,7 @@ import { useSelector } from "@xstate/store-react";
 import { useEffect, useMemo } from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import { pageMutations } from "@/lib/queries";
 import { useLocalizedPath } from "@/lib/view-locale";
 
@@ -43,11 +43,11 @@ const slugifyPathSegment = (nickname: string) => {
 };
 
 const CreatePageModal = () => {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const open = useSelector(previewStore, (state) => state.context.isCreatePageModalOpen);
   const createPage = useMutation(pageMutations.create());
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
-  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
+  const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
   const { data: allLayouts } = useReadQuery(reads.layoutList({ projectId: project?.id ?? 0 }), {

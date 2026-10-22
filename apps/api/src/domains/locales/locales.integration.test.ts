@@ -35,7 +35,7 @@ async function fixture() {
   const base = await createProjectFixture(`locales-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const projectSlug = project.slug;
+  const projectUuid = project.uuid;
   await syncDefinitionSet(db, project, {
     blocks: [
       {
@@ -124,7 +124,7 @@ async function fixture() {
   );
   const record = await callSeedingLive(
     router.collectionDefinitions.createRecord,
-    { projectSlug, collectionId: "articles", content: { title: "First" } },
+    { projectUuid, collectionId: "articles", content: { title: "First" } },
     member(),
   );
   await openDevelopmentDraft(db, projectId, memberUser.id);
@@ -168,7 +168,7 @@ async function fixture() {
   return {
     ...base,
     projectId,
-    projectSlug,
+    projectUuid,
     member,
     createPage,
     page,
@@ -454,9 +454,9 @@ describe("locales", () => {
       context: createRpcContext(f.db, null, locale ? { [LOCALE_HEADER]: locale } : {}),
     });
     const pageAt = (path: string, locale?: string) =>
-      call(router.pages.getByPath, { projectSlug: f.projectSlug, path }, visitor(locale));
+      call(router.pages.getByPath, { projectUuid: f.projectUuid, path }, visitor(locale));
 
-    expect(await call(router.locales.list, { projectSlug: f.projectSlug }, visitor())).toEqual([
+    expect(await call(router.locales.list, { projectUuid: f.projectUuid }, visitor())).toEqual([
       { tag: "en", isDefault: true },
       { tag: "de", isDefault: false },
     ]);
@@ -478,14 +478,14 @@ describe("locales", () => {
 
     const layout = await call(
       router.layouts.get,
-      { projectSlug: f.projectSlug, layoutId: f.layout.layoutId },
+      { projectUuid: f.projectUuid, layoutId: f.layout.layoutId },
       visitor("de"),
     );
     expect(layout.blocks.map((block) => block.content)).toEqual([{ brand: "Acme GmbH" }]);
     const recordsTitled = (value: string, locale?: string) =>
       call(
         router.collectionDefinitions.findRecordsByField,
-        { projectSlug: f.projectSlug, collectionId: "articles", field: "title", value },
+        { projectUuid: f.projectUuid, collectionId: "articles", field: "title", value },
         visitor(locale),
       ).then((records) => records.map(({ id }) => id));
     expect(await recordsTitled("Erster", "de")).toEqual([f.record.id]);
@@ -495,12 +495,12 @@ describe("locales", () => {
     // A locale a draft adds stays out of Live until it's published.
     await f.tool("addLocale", { tag: "fr" });
     await expect(pageAt("/pricing", "fr")).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(await call(router.locales.list, { projectSlug: f.projectSlug }, visitor())).toEqual([
+    expect(await call(router.locales.list, { projectUuid: f.projectUuid }, visitor())).toEqual([
       { tag: "en", isDefault: true },
       { tag: "de", isDefault: false },
     ]);
     expect(
-      await call(router.locales.list, { projectSlug: f.projectSlug }, f.member(development)),
+      await call(router.locales.list, { projectUuid: f.projectUuid }, f.member(development)),
     ).toEqual([
       { tag: "en", isDefault: true },
       { tag: "de", isDefault: false },

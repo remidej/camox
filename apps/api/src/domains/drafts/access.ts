@@ -14,6 +14,7 @@ import {
 import type { Journal } from "../../lib/journal";
 import { blocks, files, locales, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { projectNamed, type ProjectRef } from "../projects/ref";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type Draft, type DraftScope, type ReadScope } from "./scope";
@@ -42,16 +43,16 @@ import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 // while it stores nothing, when the service using the access fails: run services under
 // `Effect.scoped`.
 
-/** What a request names: an entity, or a project by id or slug. */
+/** What a request names: an entity, or a project by its internal id or as code names it. */
 export type ContentRef =
   | { project: number }
-  | { projectSlug: string }
+  | ProjectRef
   | { page: string }
   | { block: string }
   | { item: string }
   | { file: string };
 
-type EntityRef = Exclude<ContentRef, { project: number } | { projectSlug: string }>;
+type EntityRef = Exclude<ContentRef, { project: number } | ProjectRef>;
 
 /**
  * What a request may do: `public` reads Live for anyone and a draft for its project's members,
@@ -351,7 +352,7 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
     let located: Candidates | undefined;
     let where: SQL;
     if ("project" in ref) where = eq(projects.id, ref.project);
-    else if ("projectSlug" in ref) where = eq(projects.slug, ref.projectSlug);
+    else if ("projectUuid" in ref) where = projectNamed(ref);
     else {
       located = yield* locate(ctx, ref);
       if (!located) return yield* new NotFoundError();

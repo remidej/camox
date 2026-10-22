@@ -60,7 +60,7 @@ async function setup(suffix: string) {
     blocks: await runService(listBlockDefinitions(ctx, { projectId: fixture.project.id })),
     layouts: await runService(listLayouts(ctx, { projectId: fixture.project.id })),
     collections: await runService(
-      listCollectionDefinitions(ctx, { projectSlug: fixture.project.slug }),
+      listCollectionDefinitions(ctx, { projectUuid: fixture.project.uuid }),
     ),
   });
   return { ...fixture, ctx, sync, definitions };
@@ -101,7 +101,7 @@ describe("definitions are identified by their names", () => {
   it("a collection record stores its collection's name", async () => {
     const { ctx, project, sync } = await setup("record-collection");
     await sync({ blocks: [], layouts: ["default"], collections: ["authors"] });
-    const scope = { projectSlug: project.slug, collectionId: "authors" };
+    const scope = { projectUuid: project.uuid, collectionId: "authors" };
 
     const created = await seedLiveThrough(ctx, project.id, (_draft, inDraft) =>
       createRecord(inDraft, { ...scope, content: { name: "Ada" } }),

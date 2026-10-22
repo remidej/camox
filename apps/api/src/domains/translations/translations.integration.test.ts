@@ -86,7 +86,7 @@ async function fixture() {
   const base = await createProjectFixture(`translations-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const projectSlug = project.slug;
+  const projectUuid = project.uuid;
   const definitionSet = {
     blocks: [
       {
@@ -177,7 +177,7 @@ async function fixture() {
   );
   const record = await callSeedingLive(
     router.collectionDefinitions.createRecord,
-    { projectSlug, collectionId: "articles", content: { title: "First", slug: "first" } },
+    { projectUuid, collectionId: "articles", content: { title: "First", slug: "first" } },
     member(),
   );
   await openDevelopmentDraft(db, projectId, memberUser.id);
@@ -217,7 +217,7 @@ async function fixture() {
     definitionSet,
     ...base,
     projectId,
-    projectSlug,
+    projectUuid,
     member,
     page,
     block,
@@ -504,7 +504,7 @@ describe("changing the default locale", () => {
     const created = async (slug: string) =>
       call(
         router.collectionDefinitions.createRecord,
-        { projectSlug: f.projectSlug, collectionId: "articles", content: { title: "Hello", slug } },
+        { projectUuid: f.projectUuid, collectionId: "articles", content: { title: "Hello", slug } },
         f.member(f.inDraft),
       );
     // Both slugs translate to the same words.

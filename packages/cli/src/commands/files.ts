@@ -8,12 +8,12 @@ import { choice, string } from "@optique/core/valueparser";
 import { dispatch, resolveCommandContext } from "../lib/dispatch";
 import { uploadFile, validateFilename, validateMetadata, validateUpload } from "../lib/file-upload";
 import { asCliError, printError, printResult } from "../lib/output";
-import { cwdFlag } from "../lib/runtime-options";
+import { cwdFlag, projectFlag } from "../lib/runtime-options";
 import { uuidv7 } from "../lib/uuidv7";
 
 const common = {
   cwd: cwdFlag,
-  project: optional(option("--project", string({ metavar: "SLUG" }))),
+  project: projectFlag,
   json: option("--json"),
 };
 const metadata = {

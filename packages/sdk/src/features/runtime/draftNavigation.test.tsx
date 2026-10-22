@@ -52,7 +52,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
     presentation: "studio",
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
-    projectSlug: "test",
+    projectUuid: "test",
     href: window.location.href,
     pathname: new URL(url).pathname,
     runtimeBasePath: "",

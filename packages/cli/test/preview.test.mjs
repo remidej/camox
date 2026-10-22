@@ -15,13 +15,18 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
   const root = await mkdtemp(join(tmpdir(), "camox-preview-"));
   let requests = 0;
   let status = 200;
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
     requests++;
-    assert.equal(req.url, "/api/auth/one-time-token/generate");
-    assert.equal(req.method, "GET");
+    assert.equal(req.url, "/api/auth/cross-domain/studio-authorize");
+    assert.equal(req.method, "POST");
     assert.equal(req.headers.authorization, "Bearer long-lived-secret");
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    // The API names the destination it checked, with the one-time token.
+    const url = new URL(JSON.parse(body).callback);
+    url.searchParams.set("ott", "single-use-secret");
     res.writeHead(status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ token: "single-use-secret" }));
+    res.end(JSON.stringify({ url: url.href }));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   // The CLI runs independently of pnpm dev, without its NODE_OPTIONS resolver.
@@ -45,7 +50,7 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
     await writeFile(
       join(root, "node_modules/.camox/runtime.json"),
       JSON.stringify({
-        projectSlug: "test",
+        projectId: "01a15fff-627b-7fa1-938b-93ab659c1acc",
         apiUrl,
         authenticationUrl: "https://auth.example.test",
       }),
@@ -69,11 +74,12 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
       const result = await cli(destination);
       assert.equal(result.code, 0, result.stderr);
       const data = JSON.parse(result.stdout);
+      assert.equal(data.projectId, "01a15fff-627b-7fa1-938b-93ab659c1acc");
       const url = new URL(data.url);
       assert.equal(url.pathname, "/about");
       assert.equal(url.searchParams.get("ott"), "single-use-secret");
       assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")), {
-        projectSlug: "test",
+        projectUuid: "01a15fff-627b-7fa1-938b-93ab659c1acc",
         apiUrl,
       });
       assert.doesNotMatch(result.stdout, /long-lived-secret/);

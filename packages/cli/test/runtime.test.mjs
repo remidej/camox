@@ -20,7 +20,7 @@ before(async () => {
   await writeFile(
     join(app, "node_modules/.camox/runtime.json"),
     JSON.stringify({
-      projectSlug: "selected-app",
+      projectId: "01a15fff-627c-7e88-83cd-ceb11f804d47",
       apiUrl: "https://api.example.test",
       authenticationUrl: "https://auth.example.test",
       disableTelemetry: true,
@@ -49,11 +49,11 @@ void test("relative and absolute --cwd start upward lookup; default upward looku
   for (const path of ["apps/site", app, "apps/site/src"]) {
     const result = await cli(["status", "--cwd", path, "--json"]);
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).projectSlug, "selected-app");
+    assert.equal(JSON.parse(result.stdout).project, "01a15fff-627c-7e88-83cd-ceb11f804d47");
   }
   const result = await cli(["status", "--json"], join(app, "src"));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).projectSlug, "selected-app");
+  assert.equal(JSON.parse(result.stdout).project, "01a15fff-627c-7e88-83cd-ceb11f804d47");
 });
 
 void test("no downward discovery; missing runtime errors explain --cwd and generation", async () => {

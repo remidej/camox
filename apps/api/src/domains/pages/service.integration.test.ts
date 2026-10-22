@@ -28,21 +28,29 @@ describe("page persistence", () => {
     });
     await expect(
       runService(
-        assertSyncAccess(db, project.slug, {
-          user: null,
-          draft: null,
-          deployToken: "test-deploy-token",
-        }),
+        assertSyncAccess(
+          db,
+          { projectUuid: project.uuid },
+          {
+            user: null,
+            draft: null,
+            deployToken: "test-deploy-token",
+          },
+        ),
       ),
     ).resolves.toMatchObject({ project: { id: project.id }, scope: null });
     // A release writes Live: a deploy token naming a draft is refused.
     await expect(
       runService(
-        assertSyncAccess(db, project.slug, {
-          user: null,
-          draft: { development: true },
-          deployToken: "test-deploy-token",
-        }),
+        assertSyncAccess(
+          db,
+          { projectUuid: project.uuid },
+          {
+            user: null,
+            draft: { development: true },
+            deployToken: "test-deploy-token",
+          },
+        ),
       ),
     ).rejects.toMatchObject({ status: 403 });
   });
@@ -90,7 +98,7 @@ describe("page persistence", () => {
       .get();
     const read = (ctx: typeof memberCtx) =>
       runService(
-        getPageByPath(inScope(ctx, null), { projectSlug: project.slug, path: page.fullPath }),
+        getPageByPath(inScope(ctx, null), { projectUuid: project.uuid, path: page.fullPath }),
       );
 
     expect((await read(visitorCtx)).blocks[0].content).toEqual({ title: "First title" });
@@ -139,7 +147,7 @@ describe("page persistence", () => {
 
     const list = await runService(
       listPagesBySlug(inScope(createServiceContext(db, null), null), {
-        projectSlug: project.slug,
+        projectUuid: project.uuid,
       }),
     );
 

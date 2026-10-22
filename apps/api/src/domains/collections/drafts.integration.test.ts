@@ -49,7 +49,7 @@ async function at<T>(time: number, run: () => Promise<T>) {
  */
 async function fixture() {
   const base = await createProjectFixture(`record-drafts-${crypto.randomUUID()}`);
-  const projectSlug = base.project.slug;
+  const projectUuid = base.project.uuid;
   const projectId = base.project.id;
   const member = (headers: Headers = {}) => ({
     context: createRpcContext(base.db, base.memberUser, headers),
@@ -117,8 +117,8 @@ async function fixture() {
     updatedAt: 1,
   });
 
-  const authors = { projectSlug, collectionId: "authors" };
-  const articles = { projectSlug, collectionId: "articles" };
+  const authors = { projectUuid, collectionId: "authors" };
+  const articles = { projectUuid, collectionId: "articles" };
   const createAuthor = (name: string, headers: Headers = {}) =>
     callSeedingLive(
       router.collectionDefinitions.createRecord,
@@ -227,7 +227,7 @@ describe("collection records in a draft", () => {
     const get = (headers: Headers = {}) =>
       call(
         router.collectionDefinitions.getRecord,
-        { projectSlug: f.project.slug, collectionId: "authors", id: barbara.id },
+        { projectUuid: f.project.uuid, collectionId: "authors", id: barbara.id },
         { context: createRpcContext(f.db, f.memberUser, headers) },
       );
 

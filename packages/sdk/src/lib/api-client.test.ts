@@ -265,9 +265,9 @@ void test("a record edit on Live starts a draft, while reading records doesn't",
   const sent = mockApi(t);
   const records = getApiClient().collectionDefinitions;
 
-  await records.listRecords({ projectSlug: "p", collectionId: "authors" });
-  await records.editRecord({ projectSlug: "p", collectionId: "authors", id: "r" } as never);
-  await records.deleteRecord({ projectSlug: "p", collectionId: "authors", id: "r" } as never);
+  await records.listRecords({ projectUuid: "p", collectionId: "authors" });
+  await records.editRecord({ projectUuid: "p", collectionId: "authors", id: "r" } as never);
+  await records.deleteRecord({ projectUuid: "p", collectionId: "authors", id: "r" } as never);
 
   assert.deepEqual(sent[0], {
     path: "collectionDefinitions/listRecords",

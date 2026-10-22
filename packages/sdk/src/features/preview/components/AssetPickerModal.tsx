@@ -11,7 +11,7 @@ import { Skeleton } from "@camox/ui/skeleton";
 import * as React from "react";
 
 import { AssetCard } from "@/features/content/components/AssetCard";
-import { useProjectSlug } from "@/lib/auth";
+import { useProjectUuid } from "@/lib/auth";
 import type { File } from "@/lib/queries";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
@@ -34,8 +34,8 @@ const AssetPickerModal = ({
   onSelectSingle,
   onSelectMultiple,
 }: AssetPickerModalProps) => {
-  const projectSlug = useProjectSlug();
-  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const projectUuid = useProjectUuid();
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: allFiles } = useReadQuery(reads.fileList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });

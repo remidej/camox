@@ -165,7 +165,7 @@ describe("singleton page ownership", () => {
       },
     ]);
     const singleton = { projectId: project.id, layoutId: "pokedex" };
-    const input = { projectSlug: project.slug, layoutId: "pokedex" };
+    const input = { projectUuid: project.uuid, layoutId: "pokedex" };
     await db
       .update(blocks)
       .set({ content: { title: "Edited" } })

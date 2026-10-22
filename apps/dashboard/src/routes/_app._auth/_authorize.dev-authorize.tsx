@@ -51,16 +51,16 @@ function DevAuthorizePage() {
 
     setStatus("authorizing");
     try {
-      const result = await authClient.oneTimeToken.generate();
-      const token = result?.data?.token;
-      if (!token) {
+      // The API only hands a token to a callback on this computer.
+      const { data } = await authClient.$fetch<{ url: string }>("/cross-domain/local-authorize", {
+        method: "POST",
+        body: { callback },
+      });
+      if (!data?.url) {
         setStatus("error");
         return;
       }
-
-      const url = new URL(callback);
-      url.searchParams.set("ott", token);
-      window.location.href = url.toString();
+      window.location.href = data.url;
     } catch {
       setStatus("error");
     }

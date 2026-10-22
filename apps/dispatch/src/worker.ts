@@ -25,7 +25,8 @@ export default {
 
 /**
  * What precedes camox.site in a hostname. Slugs are one label, the depth Universal SSL covers, so
- * a deeper subdomain finds no slug.
+ * a deeper subdomain finds no slug. Mirrored in apps/api/src/domains/auth/studio-hosts.ts, which
+ * tells the studio's sign-in a project's host: keep the two in sync.
  */
 function projectSlug(hostname: string) {
   return hostname.endsWith(PROJECTS_DOMAIN) ? hostname.slice(0, -PROJECTS_DOMAIN.length) : "";

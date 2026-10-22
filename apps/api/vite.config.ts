@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vite-plus";
-import { unstable_readConfig } from "wrangler";
+import { experimental_readRawConfig, unstable_readConfig } from "wrangler";
 
 const migrations = await readD1Migrations(path.join(import.meta.dirname, "migrations"));
 
@@ -46,6 +46,38 @@ async function sandboxWorker() {
   };
 }
 
+/**
+ * The API's Wrangler configuration without its Cloudflare Artifacts and email bindings. Artifacts
+ * has no local simulator, and Miniflare lets either win over the test's fake of the same name, so
+ * the tests run from a copy that leaves them to the fakes. Its own directory per run, as test shards configure in
+ * parallel.
+ */
+async function wranglerConfigForTests() {
+  const { rawConfig } = experimental_readRawConfig({
+    config: path.join(import.meta.dirname, "wrangler.jsonc"),
+  });
+  const { artifacts: _artifacts, send_email: _email, ...config } = rawConfig;
+  const file = path.join(
+    await mkdtemp(path.join(tmpdir(), "camox-api-wrangler-")),
+    "wrangler.json",
+  );
+  await writeFile(
+    file,
+    JSON.stringify({ ...config, main: path.join(import.meta.dirname, config.main!) }),
+  );
+  return file;
+}
+
+/** Fakes for the release Workflow's bindings, which have no local simulator. */
+const releaseFakesWorker = {
+  name: "camox-release-fakes",
+  compatibilityDate: "2026-03-28",
+  compatibilityFlags: ["nodejs_compat"],
+  modules: true,
+  scriptPath: path.join(import.meta.dirname, "test/release-fakes.js"),
+  durableObjects: { SANDBOX: "FakeSandbox" },
+};
+
 export default defineConfig({
   logLevel: "silent",
   resolve: {
@@ -76,12 +108,24 @@ export default defineConfig({
           cloudflareTest(async () => ({
             // Tests must not inherit production-backed bindings (such as EMAIL).
             remoteBindings: false,
-            wrangler: { configPath: "./wrangler.jsonc" },
+            wrangler: { configPath: await wranglerConfigForTests() },
             miniflare: {
               // The sandbox Worker the threads' code mode scripts run in, as deployed beside the
               // API (ADR 0018).
-              workers: [await sandboxWorker()],
+              workers: [await sandboxWorker(), releaseFakesWorker],
+              // The release Workflow's Cloudflare Artifacts namespace, sandboxes and email,
+              // faked (test/release-fakes.js).
+              serviceBindings: {
+                ARTIFACTS: { name: releaseFakesWorker.name, entrypoint: "FakeArtifacts" },
+                EMAIL: { name: releaseFakesWorker.name, entrypoint: "FakeEmail" },
+                RELEASE_FAKES: { name: releaseFakesWorker.name, entrypoint: "ReleaseFakes" },
+              },
+              durableObjects: {
+                SANDBOX: { className: "FakeSandbox", scriptName: releaseFakesWorker.name },
+              },
               bindings: {
+                CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+                CF_TOKEN: "test-cloudflare-token",
                 BETTER_AUTH_SECRET: "test-secret",
                 GITHUB_CLIENT_ID: "test-client-id",
                 GITHUB_CLIENT_SECRET: "test-client-secret",

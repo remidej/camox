@@ -40,7 +40,7 @@ async function fixture() {
   const base = await createProjectFixture(`diverge-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
-  const projectSlug = project.slug;
+  const projectUuid = project.uuid;
   await syncDefinitionSet(db, project, {
     blocks: [
       {
@@ -95,7 +95,7 @@ async function fixture() {
   );
   const record = await callSeedingLive(
     router.collectionDefinitions.createRecord,
-    { projectSlug, collectionId: "articles", content: { title: "Hello" } },
+    { projectUuid, collectionId: "articles", content: { title: "Hello" } },
     member(),
   );
 
@@ -157,7 +157,7 @@ async function fixture() {
   return {
     ...base,
     projectId,
-    projectSlug,
+    projectUuid,
     member,
     page,
     block,

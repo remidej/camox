@@ -4,7 +4,7 @@ import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
-import { useAuthContext, useProjectSlug } from "../../lib/auth";
+import { useAuthContext, useProjectUuid } from "../../lib/auth";
 import { useOptionalDraftScope } from "../../lib/draft-scope";
 import { parseLocalePath } from "../../lib/locale-path";
 import { pageMutations } from "../../lib/queries";
@@ -303,9 +303,9 @@ function CanvasPageFrameLoader({
   mode: CanvasFrameMode;
   onSettled?: (frame: HTMLIFrameElement) => void;
 }) {
-  const projectSlug = useProjectSlug();
+  const projectUuid = useProjectUuid();
   const { data, error, isPending, isFetching, refetch } = useReadQuery(
-    reads.canvasFrame({ projectSlug, runtimeBasePath, pathname, derivedLayoutId }),
+    reads.canvasFrame({ projectUuid, runtimeBasePath, pathname, derivedLayoutId }),
   );
   usePreparationFailure(isFetching ? null : error, selected);
   if (isPending)
@@ -640,7 +640,7 @@ function CanvasWorkspace({
   onSelectionIntent: (pathname: string) => void;
   ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
-  const { apiUrl, projectSlug } = useAuthContext();
+  const { apiUrl, projectUuid } = useAuthContext();
   const renamePage = useRenamePage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -676,7 +676,7 @@ function CanvasWorkspace({
     (block: Block) => latestSelect.current.selectBlock(block),
     [],
   );
-  const workspaceKey = JSON.stringify([apiUrl, projectSlug, runtimeBasePath]);
+  const workspaceKey = JSON.stringify([apiUrl, projectUuid, runtimeBasePath]);
   // Keep other derived layout previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
@@ -1006,9 +1006,9 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       // claimed its frame again when preparation is cancelled.
     };
   }, []);
-  const projectSlug = useProjectSlug();
-  const project = useReadQuery(reads.project({ slug: projectSlug }));
-  const pages = useReadQuery(reads.pageList({ projectSlug }), {
+  const projectUuid = useProjectUuid();
+  const project = useReadQuery(reads.project({ projectUuid }));
+  const pages = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project.data,
   });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
@@ -1044,7 +1044,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   // The intended frame's data names a record page's record. Its frame loads it; only read here.
   const { data: intendedFrameInput } = useReadQuery(
     reads.canvasFrame({
-      projectSlug,
+      projectUuid,
       runtimeBasePath,
       pathname: intended.pathname,
       derivedLayoutId: derivedLayoutIdOf(intendedSelection.page),

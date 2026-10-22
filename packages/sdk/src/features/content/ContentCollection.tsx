@@ -32,10 +32,10 @@ import { useCollectionItemSheet } from "./CollectionItemSheetContext";
 import { DeleteCollectionItemButton } from "./components/DeleteCollectionItemButton";
 
 export const ContentCollection = ({
-  projectSlug,
+  projectUuid,
   collection,
 }: {
-  projectSlug: string;
+  projectUuid: string;
   collection: CollectionDefinition;
 }) => {
   const itemSheet = useCollectionItemSheet();
@@ -44,7 +44,7 @@ export const ContentCollection = ({
     isPending,
     isError,
     refetch,
-  } = useReadQuery(reads.records({ projectSlug, collectionId: collection.collectionId }));
+  } = useReadQuery(reads.records({ projectUuid, collectionId: collection.collectionId }));
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -116,7 +116,7 @@ export const ContentCollection = ({
                   )}
                 </button>
                 <DeleteCollectionItemButton
-                  projectSlug={projectSlug}
+                  projectUuid={projectUuid}
                   collectionId={collection.collectionId}
                   id={record.id}
                   label={record.label}
@@ -148,7 +148,7 @@ const fieldLabel = (name: string, schema: FieldSchema) =>
 function CollectionItemForm({
   contentSchema,
   label,
-  projectSlug,
+  projectUuid,
   collectionId,
   record,
   initialContent,
@@ -156,7 +156,7 @@ function CollectionItemForm({
 }: {
   contentSchema: unknown;
   label: string;
-  projectSlug: string;
+  projectUuid: string;
   collectionId: string;
   record?: CollectionRecord;
   initialContent?: Record<string, unknown>;
@@ -182,19 +182,19 @@ function CollectionItemForm({
       setError(null);
       try {
         const content = collectionFormContent(fields, value, savedRecord?.content);
-        const scope = { projectSlug, collectionId, content };
+        const scope = { projectUuid, collectionId, content };
         const saved = savedRecord
           ? await edit.mutateAsync({ ...scope, id: savedRecord.id })
           : await create.mutateAsync(scope);
         // Advance only after our own successful save, never from a refetch.
         setSavedRecord(saved);
-        studioCache.set(reads.record({ projectSlug, collectionId, id: saved.id }), saved);
-        await invalidateCollectionRecordViews(studioCache, projectSlug, collectionId);
+        studioCache.set(reads.record({ projectUuid, collectionId, id: saved.id }), saved);
+        await invalidateCollectionRecordViews(studioCache, projectUuid, collectionId);
         await onSaved(saved);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Please try again.";
         setError(`Could not save item. ${message}`);
-        await studioCache.invalidate(reads.records({ projectSlug, collectionId }));
+        await studioCache.invalidate(reads.records({ projectUuid, collectionId }));
       } finally {
         setSubmitting(false);
       }
@@ -340,16 +340,16 @@ export const ContentCollectionItemEditor = ({
   itemId,
   initialContent,
   onSaved,
-  projectSlug,
+  projectUuid,
 }: {
   collectionId: string;
   itemId?: string;
   /** Prefills a new item's form; ignored when editing. */
   initialContent?: Record<string, unknown>;
   onSaved: (record: CollectionRecord) => void | Promise<void>;
-  projectSlug: string;
+  projectUuid: string;
 }) => {
-  const recordQuery = useReadQuery(reads.record({ projectSlug, collectionId, id: itemId ?? "" }), {
+  const recordQuery = useReadQuery(reads.record({ projectUuid, collectionId, id: itemId ?? "" }), {
     enabled: !!itemId,
   });
   const {
@@ -357,7 +357,7 @@ export const ContentCollectionItemEditor = ({
     isPending,
     isError,
     refetch,
-  } = useReadQuery(reads.collection({ projectSlug, collectionId }));
+  } = useReadQuery(reads.collection({ projectUuid, collectionId }));
 
   return (
     <>
@@ -384,7 +384,7 @@ export const ContentCollectionItemEditor = ({
           key={`${collectionId}:${itemId ?? "new"}`}
           contentSchema={definition.contentSchema}
           label={definition.label}
-          projectSlug={projectSlug}
+          projectUuid={projectUuid}
           collectionId={collectionId}
           record={itemId ? recordQuery.data : undefined}
           initialContent={itemId ? undefined : initialContent}
@@ -395,7 +395,7 @@ export const ContentCollectionItemEditor = ({
   );
 };
 
-export const ContentCollectionItemSheet = ({ projectSlug }: { projectSlug: string }) => {
+export const ContentCollectionItemSheet = ({ projectUuid }: { projectUuid: string }) => {
   const { close, complete, target } = useCollectionItemSheet();
 
   return (
@@ -407,7 +407,7 @@ export const ContentCollectionItemSheet = ({ projectSlug }: { projectSlug: strin
             {target?.itemId ? "Update this collection item." : "Create a new collection item."}
             {target?.itemId && (
               <RecordUsage
-                projectSlug={projectSlug}
+                projectUuid={projectUuid}
                 collectionId={target.collectionId}
                 id={target.itemId}
               />
@@ -418,7 +418,7 @@ export const ContentCollectionItemSheet = ({ projectSlug }: { projectSlug: strin
           {target && (
             <ContentCollectionItemEditor
               key={`${target.collectionId}:${target.itemId ?? "new"}`}
-              projectSlug={projectSlug}
+              projectUuid={projectUuid}
               collectionId={target.collectionId}
               itemId={target.itemId}
               initialContent={target.initialContent}
@@ -433,15 +433,15 @@ export const ContentCollectionItemSheet = ({ projectSlug }: { projectSlug: strin
 
 /** Where a record is used: how many blocks, repeatable items and records reference it. */
 function RecordUsage({
-  projectSlug,
+  projectUuid,
   collectionId,
   id,
 }: {
-  projectSlug: string;
+  projectUuid: string;
   collectionId: string;
   id: string;
 }) {
-  const { data: count } = useReadQuery(reads.recordUsageCount({ projectSlug, collectionId, id }));
+  const { data: count } = useReadQuery(reads.recordUsageCount({ projectUuid, collectionId, id }));
   if (count === undefined) return null;
   return (
     <>

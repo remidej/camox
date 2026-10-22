@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { validatePreviewTarget } from "./preview-handoff";
 
 const target = {
-  projectSlug: "site",
+  projectUuid: "site",
   apiUrl: "https://api.example.test",
 };
 
@@ -19,7 +19,7 @@ void test("ordinary sign-in and matching preview destinations are accepted", () 
 
 void test("mismatched project and backend fail closed before token exchange", () => {
   for (const expected of [
-    { ...target, projectSlug: "other" },
+    { ...target, projectUuid: "other" },
     { ...target, apiUrl: "https://other.example.test" },
     {},
     null,

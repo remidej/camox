@@ -22,7 +22,7 @@ void test("publishes seeded content while its translations still run", async () 
     token: "token",
   };
   const client = {
-    projects: { getBySlug: async () => ({ id: 7 }) },
+    projects: { getByUuid: async () => ({ id: 7 }) },
     drafts: {
       previewPublish: async () => preview,
       // Like the API: publishing waits for translations unless it's asked to publish anyway.
@@ -38,7 +38,7 @@ void test("publishes seeded content while its translations still run", async () 
 
   await publishSeededContent({
     client,
-    projectSlug: "test",
+    projectUuid: "test",
     logger: createLogger("silent"),
   });
 
