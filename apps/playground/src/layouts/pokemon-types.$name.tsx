@@ -88,11 +88,11 @@ function TypePage() {
   const visible = matches.slice(0, visibleCount);
 
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
+    <div className="bg-canvas text-ink flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 sm:px-8">
         <section
-          className="border-border relative overflow-hidden rounded-[2rem] border px-6 py-10 sm:p-12"
+          className="border-line relative overflow-hidden rounded-[2rem] border px-6 py-10 sm:p-12"
           style={{ background: `linear-gradient(120deg, ${color}20, ${color}04)` }}
           aria-labelledby="type-title"
         >
@@ -102,14 +102,14 @@ function TypePage() {
             style={{ borderColor: `${color}10` }}
           />
           <div className="relative">
-            <p className="text-muted-foreground mb-4 flex items-center gap-2 text-xs font-bold tracking-[0.2em] uppercase">
+            <p className="text-ink-muted mb-4 flex items-center gap-2 text-xs font-bold tracking-[0.2em] uppercase">
               <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
               The type collection
             </p>
             <h1 id="type-title" className="text-4xl font-bold tracking-tight sm:text-6xl">
               {pokemonName(type.name)} Pokémon<span style={{ color }}>.</span>
             </h1>
-            <p className="text-muted-foreground mt-5 max-w-xl text-base leading-relaxed">
+            <p className="text-ink-muted mt-5 max-w-xl text-base leading-relaxed">
               One type. A world of possibilities. Discover all {pokemon.length} Pokémon and forms in
               this collection, and find your next favorite.
             </p>
@@ -134,20 +134,20 @@ function TypePage() {
               types: type.damage_relations.no_damage_from,
             },
           ].map((group) => (
-            <div key={group.label} className="border-border rounded-2xl border p-5">
+            <div key={group.label} className="border-line rounded-2xl border p-5">
               <h2 className="text-sm font-semibold">{group.label}</h2>
-              <p className="text-muted-foreground mt-1 text-xs">{group.detail}</p>
+              <p className="text-ink-muted mt-1 text-xs">{group.detail}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {group.types.length ? (
                   group.types.map((item) => <TypeBadge key={item.name} name={item.name} />)
                 ) : (
-                  <span className="text-muted-foreground py-1.5 text-sm">None</span>
+                  <span className="text-ink-muted py-1.5 text-sm">None</span>
                 )}
               </div>
             </div>
           ))}
         </section>
-        <p className="text-muted-foreground -mt-4 mb-10 text-xs">
+        <p className="text-ink-muted -mt-4 mb-10 text-xs">
           Matchups apply to this type alone. A Pokémon’s second type may change the result.
         </p>
 
@@ -157,7 +157,7 @@ function TypePage() {
               <h2 id="collection-title" className="text-2xl font-bold tracking-tight">
                 The collection
               </h2>
-              <p role="status" className="text-muted-foreground mt-1 text-sm">
+              <p role="status" className="text-ink-muted mt-1 text-sm">
                 {matches.length} {matches.length === 1 ? "Pokémon" : "Pokémon & forms"}
                 {query ? " found" : " to discover"}
               </p>
@@ -175,17 +175,17 @@ function TypePage() {
                   setSearch(event.target.value);
                   setVisibleCount(PAGE_SIZE);
                 }}
-                className="border-border bg-card placeholder:text-muted-foreground focus:border-ring focus:ring-ring w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2"
+                className="border-line bg-panel placeholder:text-ink-muted focus:border-brand focus:ring-brand w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2"
               />
             </div>
           </div>
 
           {matches.length === 0 ? (
-            <div className="border-border rounded-2xl border border-dashed px-6 py-16 text-center">
+            <div className="border-line rounded-2xl border border-dashed px-6 py-16 text-center">
               <h3 className="text-lg font-semibold">
                 {query ? "No Pokémon found" : "An undiscovered collection"}
               </h3>
-              <p className="text-muted-foreground mt-2 text-sm">
+              <p className="text-ink-muted mt-2 text-sm">
                 {query
                   ? "Try a different name or Pokédex number."
                   : "PokéAPI hasn’t listed any Pokémon for this type yet. Explore another type below."}
@@ -209,7 +209,7 @@ function TypePage() {
                 <li key={item.name}>
                   <a
                     href={localized(`/pokemon/${item.name}`)}
-                    className="group border-border bg-card hover:border-foreground/30 focus-visible:ring-ring flex h-full flex-col overflow-hidden rounded-2xl border transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                    className="group border-line bg-panel hover:border-ink/30 focus-visible:ring-brand flex h-full flex-col overflow-hidden rounded-2xl border transition-colors focus-visible:ring-2 focus-visible:outline-none"
                   >
                     <div
                       className="relative flex aspect-[4/3] items-center justify-center"
@@ -217,7 +217,7 @@ function TypePage() {
                         background: `radial-gradient(ellipse at center, ${color}18, transparent 75%)`,
                       }}
                     >
-                      <span className="text-muted-foreground absolute top-3 left-4 font-mono text-xs">
+                      <span className="text-ink-muted absolute top-3 left-4 font-mono text-xs">
                         {item.id != null ? pokemonNumber(item.id) : "—"}
                       </span>
                       <PokemonArtwork
@@ -239,7 +239,7 @@ function TypePage() {
                       <span className="text-sm font-semibold sm:text-base">
                         {pokemonName(item.name)}
                       </span>
-                      <span aria-hidden="true" className="text-muted-foreground">
+                      <span aria-hidden="true" className="text-ink-muted">
                         ↗
                       </span>
                     </div>
@@ -254,14 +254,14 @@ function TypePage() {
               <button
                 type="button"
                 onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                className="border-border bg-card hover:bg-muted focus-visible:ring-ring rounded-full border px-7 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                className="border-line bg-panel hover:bg-ink/5 focus-visible:ring-brand rounded-full border px-7 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
               >
                 Show {Math.min(PAGE_SIZE, matches.length - visibleCount)} more{" "}
                 <span aria-hidden="true" className="ml-2">
                   ↓
                 </span>
               </button>
-              <p className="text-muted-foreground mt-3 text-xs">
+              <p className="text-ink-muted mt-3 text-xs">
                 Showing {visible.length} of {matches.length}
               </p>
             </div>
@@ -270,7 +270,7 @@ function TypePage() {
 
         <nav
           aria-label="Explore other Pokémon types"
-          className="border-border mt-12 rounded-2xl border p-6"
+          className="border-line mt-12 rounded-2xl border p-6"
         >
           <h2 className="mb-4 text-sm font-semibold">A different kind of discovery</h2>
           <div className="flex flex-wrap gap-2">

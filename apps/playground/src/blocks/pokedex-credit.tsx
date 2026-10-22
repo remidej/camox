@@ -24,12 +24,10 @@ const pokedexCredit = createBlock({
 function PokedexCreditComponent() {
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-8 sm:px-8 sm:pb-12">
-      <div className="border-border text-muted-foreground mt-12 flex flex-wrap items-center justify-between gap-3 border-t pt-5 text-xs">
+      <div className="border-line text-ink-muted mt-12 flex flex-wrap items-center justify-between gap-3 border-t pt-5 text-xs">
         <pokedexCredit.Field name="note">{(props) => <p {...props} />}</pokedexCredit.Field>
         <pokedexCredit.Link name="source">
-          {(props) => (
-            <a {...props} className="hover:text-foreground underline underline-offset-4" />
-          )}
+          {(props) => <a {...props} className="hover:text-ink underline underline-offset-4" />}
         </pokedexCredit.Link>
       </div>
     </div>

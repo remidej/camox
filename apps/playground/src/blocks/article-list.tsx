@@ -21,20 +21,20 @@ const articleList = createBlock({
 
 function ArticleListComponent() {
   return (
-    <section className="bg-background py-16">
-      <div className="container mx-auto max-w-3xl px-4">
+    <section className="bg-canvas py-16">
+      <div className="px-gutter mx-auto max-w-3xl">
         <articleList.Field name="title">
-          {(props) => <h2 {...props} className="text-foreground mb-8 text-3xl font-semibold" />}
+          {(props) => <h2 {...props} className="text-heading mb-8" />}
         </articleList.Field>
-        <ul className="divide-border divide-y">
+        <ul className="divide-line divide-y">
           <articleList.ReferenceList name="articles">
             {(article) => (
               <li className="py-4">
                 <article.Field name="title">
-                  {(props) => <h3 {...props} className="text-foreground font-medium" />}
+                  {(props) => <h3 {...props} className="text-ink font-medium" />}
                 </article.Field>
                 <article.Field name="excerpt">
-                  {(props) => <p {...props} className="text-muted-foreground mt-1 text-sm" />}
+                  {(props) => <p {...props} className="text-ink-muted mt-1 text-sm" />}
                 </article.Field>
               </li>
             )}
