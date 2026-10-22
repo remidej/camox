@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,6 +71,35 @@ export default {
     180_000,
   );
   assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
+
+  // The SDK colors highlights and empty images from these variables. Each color scheme
+  // must declare them, so they resolve against that scheme's tokens rather than inheriting
+  // the values computed on :root.
+  const assetsDir = join(root, "dist/client/assets");
+  const cssFiles = (await readdir(assetsDir)).filter((file) => file.endsWith(".css"));
+  assert.ok(cssFiles.length > 0, "The build emitted no stylesheet.");
+  const css = (
+    await Promise.all(cssFiles.map((file) => readFile(join(assetsDir, file), "utf8")))
+  ).join("\n");
+  const declarationsBySelector = new Map();
+  for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const selector of selectors.split(",").map((s) => s.trim())) {
+      declarationsBySelector.set(selector, `${declarationsBySelector.get(selector) ?? ""};${body}`);
+    }
+  }
+  for (const scheme of [":root", ".light", ".dark", ".brand", ".tint"]) {
+    for (const variable of [
+      "--camox-highlight",
+      "--camox-placeholder",
+      "--camox-placeholder-ink",
+    ]) {
+      assert.match(
+        declarationsBySelector.get(scheme) ?? "",
+        new RegExp(`(^|;)\\s*${variable}\\s*:`),
+        `The built stylesheet doesn't declare ${variable} on ${scheme}.`,
+      );
+    }
+  }
 
   // Preview runs the built Worker in workerd, as Cloudflare does.
   const runtime = run(

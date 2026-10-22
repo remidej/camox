@@ -31,14 +31,14 @@ const currentYear = new Date().getFullYear();
 
 function FooterComponent() {
   return (
-    <footer className="dark bg-background border-border border-t py-4">
-      <div className="container mx-auto px-4">
+    <footer className="dark bg-canvas border-t py-6">
+      <div className="max-w-page px-gutter mx-auto">
         <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6 sm:gap-y-2">
           <div className="flex items-center gap-2">
             <footer.Field name="title">
-              {(props) => <div {...props} className="text-foreground text-sm font-bold" />}
+              {(props) => <div {...props} className="text-ink text-sm font-bold" />}
             </footer.Field>
-            <div className="text-muted-foreground text-sm">&copy; {currentYear}</div>
+            <div className="text-ink-muted text-sm">&copy; {currentYear}</div>
           </div>
 
           <div className="flex flex-col items-start gap-4 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
@@ -48,7 +48,7 @@ function FooterComponent() {
                   {(props) => (
                     <Link
                       {...props}
-                      className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                      className="text-ink-muted hover:text-ink text-sm transition-colors"
                     />
                   )}
                 </linkItem.Link>

@@ -37,18 +37,18 @@ const faq = createBlock({
 
 function FaqComponent() {
   return (
-    <section className="py-12 sm:py-16 md:py-20">
-      <div className="mx-auto max-w-2xl px-4">
+    <section className="bg-canvas text-ink py-section">
+      <div className="max-w-text px-gutter mx-auto">
         <Accordion>
           <faq.Repeater name="items">
             {(item, index) => (
               <AccordionItem value={index}>
-                <AccordionTrigger className="items-center text-lg">
+                <AccordionTrigger className="text-title items-center">
                   <item.Field name="question">{(props) => <span {...props} />}</item.Field>
                 </AccordionTrigger>
                 <AccordionContent>
                   <item.Field name="answer">
-                    {(props) => <p {...props} className="text-muted-foreground text-base" />}
+                    {(props) => <p {...props} className="text-ink-muted text-base" />}
                   </item.Field>
                 </AccordionContent>
               </AccordionItem>
