@@ -99,6 +99,7 @@ function QueryResultCard({
 function SortableRecordCard({
   id,
   label,
+  description,
   collectionTitle,
   onOpen,
   onUnlink,
@@ -106,6 +107,7 @@ function SortableRecordCard({
 }: {
   id: string;
   label: string;
+  description?: string | null;
   collectionTitle: string;
   onOpen?: () => void;
   onUnlink: () => void;
@@ -129,6 +131,7 @@ function SortableRecordCard({
     >
       <RecordCard
         label={label}
+        description={description}
         collectionTitle={collectionTitle}
         onOpen={onOpen}
         leading={
@@ -281,6 +284,7 @@ export function ReferenceListFieldEditor({
               <QueryResultCard
                 key={record.id}
                 label={record.title}
+                description={record.description}
                 collectionTitle={collectionTitle}
                 onOpen={onOpenRecord ? () => onOpenRecord(record.id) : undefined}
                 hover={entryHover(recordHover, record.id)}
@@ -342,6 +346,7 @@ export function ReferenceListFieldEditor({
                     key={id}
                     id={id}
                     label={summary?.title ?? hydrated?.title ?? "Unavailable item"}
+                    description={summary ? summary.description : hydrated?.description}
                     collectionTitle={collectionTitle}
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}

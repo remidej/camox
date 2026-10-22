@@ -125,6 +125,7 @@ function mockApi(
     ];
     if (procedure === "projects/getByUuid")
       return session ? Response.json({ json: project }) : notFound();
+    if (procedure === "projects/getSummary") return Response.json({ json: project });
     if (procedure === "locales/list") return localesResponse(["en", "de"]);
     if (procedure === "pages/listBySlug")
       return pageListResponse(
@@ -371,6 +372,60 @@ void test("the Organization's logo is the favicon as a PNG at least 112px wide, 
   assert.ok(size.width >= 112, `${size.width}px wide`);
   assert.equal(logo.width, size.width);
   assert.equal(logo.height, size.height);
+});
+
+/** Answers favicon requests with an SVG, keeping the API mock for the rest. Records which ones. */
+function mockFavicons(t: { mock: { method: typeof test.mock.method } }) {
+  const api = globalThis.fetch;
+  const requested: string[] = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const { pathname } = new URL(request.url);
+    if (!pathname.startsWith("/favicons/")) return api(request);
+    requested.push(pathname);
+    return new Response(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="red"/></svg>',
+      { headers: { "Content-Type": "image/svg+xml" } },
+    );
+  });
+  return requested;
+}
+
+/**
+ * The project as the logo route reads it, at a version of its own: a runtime renders each
+ * version's logo once, so each test reads a version no other test rendered.
+ */
+function mockProjectVersion(t: { mock: { method: typeof test.mock.method } }, updatedAt: number) {
+  const api = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    if (new URL(request.url).pathname === "/rpc/projects/getSummary")
+      return Response.json({ json: { ...project, updatedAt } });
+    return api(request);
+  });
+}
+
+void test("the logo route serves the website's own project's logo, whatever project the URL names", async (t) => {
+  mockApi(t);
+  mockProjectVersion(t, 41);
+  const requested = mockFavicons(t);
+  const response = await visit("/_camox/logo.png?project=2&v=41");
+  assert.equal(response?.status, 200);
+  assert.equal(response!.headers.get("Content-Type"), "image/png");
+  assert.deepEqual(requested, [`/favicons/${project.id}`]);
+});
+
+void test("the logo is rendered once per version of the project, whatever version the URL names", async (t) => {
+  mockApi(t);
+  mockProjectVersion(t, 42);
+  const requested = mockFavicons(t);
+  for (const v of ["42", "43", "nonsense", ""]) {
+    const response = await visit(`/_camox/logo.png?v=${v}`);
+    assert.equal(response?.status, 200, v);
+  }
+  assert.equal(requested.length, 1);
+  // Once the project changes, its new favicon is rendered.
+  mockProjectVersion(t, 43);
+  assert.equal((await visit("/_camox/logo.png?v=43"))?.status, 200);
+  assert.equal(requested.length, 2);
 });
 
 void test("a page on Live states when it was first and last published", async (t) => {

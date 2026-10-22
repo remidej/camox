@@ -1,4 +1,9 @@
-import { buildDefaultFaviconUrl, buildFaviconUrl } from "../routes/pageRuntime";
+import {
+  buildDefaultFaviconUrl,
+  buildFaviconUrl,
+  createServerApiClient,
+  isNotFoundError,
+} from "../routes/pageRuntime";
 import { RUNTIME_ROUTE_PATHS } from "./runtimeRoutes";
 
 /**
@@ -9,12 +14,15 @@ import { RUNTIME_ROUTE_PATHS } from "./runtimeRoutes";
 /** The size the logo is served at: square, and wider than search engines' minimum. */
 export const LOGO_SIZE = 512;
 
-/** Where the runtime serves a project's logo. `url` makes a runtime path absolute. */
+/**
+ * Where the runtime serves its project's logo. `url` makes a runtime path absolute. The project's
+ * version only busts caches: the route always serves the project's current logo.
+ */
 export function projectLogo(
   url: (path: string) => string,
-  project: { id: number; updatedAt: number | string },
+  project: { updatedAt: number | string },
 ) {
-  const search = new URLSearchParams({ project: String(project.id), v: String(project.updatedAt) });
+  const search = new URLSearchParams({ v: String(project.updatedAt) });
   return {
     url: `${url(RUNTIME_ROUTE_PATHS.logo)}?${search}`,
     width: LOGO_SIZE,
@@ -43,33 +51,66 @@ async function renderLogo(source: string): Promise<ArrayBuffer> {
   ).arrayBuffer();
 }
 
-/**
- * The logo the request's `project` names, as a PNG. A favicon the renderer can't read, such as
- * an ICO, gives way to the default favicon.
- */
-export async function createProjectLogoResponse(
-  request: Request,
-  apiUrl: string | undefined,
-): Promise<Response> {
-  const { searchParams } = new URL(request.url);
-  const id = Number(searchParams.get("project"));
-  if (!apiUrl || !Number.isInteger(id) || id <= 0)
-    return new Response("Not found", { status: 404 });
-
-  const favicon = buildFaviconUrl(apiUrl, { id, updatedAt: searchParams.get("v") ?? "" });
-  let png: ArrayBuffer | undefined;
-  for (const url of [favicon, buildDefaultFaviconUrl(apiUrl)]) {
+/** The project's favicon as a PNG. A favicon the renderer can't read gives way to the default. */
+async function renderProjectLogo(
+  apiUrl: string,
+  project: { id: number; updatedAt: number | string },
+): Promise<ArrayBuffer | null> {
+  for (const url of [buildFaviconUrl(apiUrl, project), buildDefaultFaviconUrl(apiUrl)]) {
     const source = await asDataUrl(url);
     if (!source) continue;
     try {
-      png = await renderLogo(source);
-      break;
+      return await renderLogo(source);
     } catch {
       // Try the next source.
     }
   }
-  if (!png) return new Response("Not found", { status: 404 });
+  return null;
+}
+
+/**
+ * The last logo rendered, with the version of the project it was rendered for, by project. A
+ * runtime serves one project, so it keeps one logo, and renders again only once the project
+ * changed.
+ */
+const renderedLogos = new Map<string, { version: string; png: Promise<ArrayBuffer | null> }>();
+
+/**
+ * The website's own project's logo, as a PNG. The request names no project, and its `v` only
+ * busts caches: whatever it says, the logo is the project's current one, rendered once per
+ * version of the project.
+ */
+export async function createProjectLogoResponse(
+  request: Request,
+  { apiUrl, projectUuid }: { apiUrl?: string; projectUuid?: string },
+): Promise<Response> {
+  if (!apiUrl || !projectUuid) return new Response("Not found", { status: 404 });
+  let project: { id: number; updatedAt: number | string };
+  try {
+    project = await createServerApiClient(apiUrl).projects.getSummary({ projectUuid });
+  } catch (error) {
+    if (isNotFoundError(error)) return new Response("Not found", { status: 404 });
+    throw error;
+  }
+  const version = String(project.updatedAt);
+  const key = `${apiUrl} ${projectUuid}`;
+  let rendered = renderedLogos.get(key);
+  if (rendered?.version !== version) {
+    rendered = { version, png: renderProjectLogo(apiUrl, project) };
+    renderedLogos.set(key, rendered);
+  }
+  const png = await rendered.png;
+  if (!png) {
+    // A favicon that failed to load may load next time.
+    if (renderedLogos.get(key) === rendered) renderedLogos.delete(key);
+    return new Response("Not found", { status: 404 });
+  }
+  // Caches keep only the current version's URL: an older or made-up one would outlive a change.
+  const current = new URL(request.url).searchParams.get("v") === version;
   return new Response(png, {
-    headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": current ? "public, max-age=86400" : "public, no-cache",
+    },
   });
 }

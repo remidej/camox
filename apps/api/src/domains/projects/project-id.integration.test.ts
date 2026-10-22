@@ -45,4 +45,27 @@ describe("Project ID", () => {
     expect(bySlug).toMatchObject(expected);
     expect(byId).toMatchObject(expected);
   });
+
+  it("names a project anyone can read the website summary of, as page reads carry it", async () => {
+    const { db, memberUser, project } = await createProjectFixture("project-id-summary");
+    const visitor = { context: createRpcContext(db, null) };
+    const member = await call(
+      router.projects.get,
+      { id: project.id },
+      {
+        context: createRpcContext(db, memberUser),
+      },
+    );
+
+    const summary = await call(router.projects.getSummary, { projectUuid: project.uuid }, visitor);
+
+    expect(summary).toMatchObject({ id: project.id, updatedAt: member.updatedAt });
+    await expect(
+      call(
+        router.projects.getSummary,
+        { projectUuid: "0199f0a0-0000-7000-8000-00000000dead" },
+        visitor,
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
 });

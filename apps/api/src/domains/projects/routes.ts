@@ -6,7 +6,7 @@ import { getAuthorizedProject } from "../../authorization";
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
-import { authed } from "../../orpc";
+import { authed, pub } from "../../orpc";
 import { projects } from "../../schema";
 import type { AppEnv } from "../../types";
 import * as service from "./service";
@@ -27,6 +27,10 @@ const getBySlug = authed
 const getByUuid = authed
   .input(service.getProjectByUuidInput)
   .handler(({ context, input }) => runService(service.getProjectByUuid(context, input)));
+
+const getSummary = pub
+  .input(service.getProjectSummaryInput)
+  .handler(({ context, input }) => runService(service.getProjectSummary(context, input)));
 
 const get = authed
   .input(service.getProjectInput)
@@ -63,6 +67,7 @@ export const projectProcedures = {
   getFirst,
   getBySlug,
   getByUuid,
+  getSummary,
   get,
   checkSlugAvailability,
   create,
