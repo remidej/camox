@@ -388,6 +388,16 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
     ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
   );
   yield* record(ctx.db, { kind: "project", projectId });
+  // `<slug>.camox.site` answers with the not-found page at once.
+  yield* Effect.promise(() => ctx.env.PROJECT_SLUGS.delete(project.slug));
+  // Its Worker and repo are cleaned up in the background. Named after the Project ID, so a
+  // project's cleanup is one instance.
+  yield* Effect.promise(() =>
+    ctx.env.PROJECT_DELETION_WORKFLOW.create({
+      id: project.uuid,
+      params: { projectId: project.uuid, name: project.name },
+    }),
+  );
   return result;
 });
 

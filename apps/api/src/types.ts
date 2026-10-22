@@ -31,6 +31,10 @@ export type Bindings = {
   PROJECT_CREATION_WORKFLOW: Workflow<
     import("./domains/project-creation/workflow").ProjectCreationParams
   >;
+  /** Deletes a deleted project's Worker and repo, named after its Project ID. */
+  PROJECT_DELETION_WORKFLOW: Workflow<
+    import("./domains/project-deletion/workflow").ProjectDeletionParams
+  >;
   /** Moves every project to a newly published SDK, one project upgrade each. */
   UPGRADE_WORKFLOW: Workflow<import("./domains/upgrades/workflow").UpgradeParams>;
   PROJECT_UPGRADE_WORKFLOW: Workflow<
