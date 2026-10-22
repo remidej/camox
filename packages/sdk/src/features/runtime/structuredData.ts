@@ -21,6 +21,8 @@ export interface SiteGraphInput {
   name: string;
   /** The project's logo, a PNG. */
   logo: { url: string; width: number; height: number };
+  /** The project's social profile URLs, in their order. */
+  socialProfiles: readonly string[];
 }
 
 /** The page a graph describes, as its head does. */
@@ -67,6 +69,7 @@ function siteNodes(site: SiteGraphInput, inLanguage: string) {
       name: site.name,
       url: site.url,
       logo: { url: site.logo.url, width: site.logo.width, height: site.logo.height },
+      ...(site.socialProfiles.length > 0 && { sameAs: [...site.socialProfiles] }),
     }),
     defineWebSite({
       "@id": ids.website,

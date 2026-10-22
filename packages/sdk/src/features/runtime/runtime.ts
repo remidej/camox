@@ -821,6 +821,7 @@ async function readAlternates<Head extends PageHead | null>(
     url: url("/"),
     name: described.project.name,
     logo: projectLogo(url, described.project),
+    socialProfiles: described.project.socialProfiles ?? [],
   };
   return {
     alternates,
@@ -836,7 +837,13 @@ async function readAlternates<Head extends PageHead | null>(
 
 /** What a page's Structured Data says beyond its head: its project, and when it was published. */
 interface PageDescription {
-  project: { id: number; name: string; updatedAt: number | string };
+  project: {
+    id: number;
+    name: string;
+    updatedAt: number | string;
+    /** Absent from APIs older than the social profiles Project Setting. */
+    socialProfiles?: readonly string[];
+  };
   /** The page's first and last publish times on Live, in milliseconds. */
   published?: { first?: number | null; last?: number | null };
 }
