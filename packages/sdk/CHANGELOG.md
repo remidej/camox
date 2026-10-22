@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.48.0](https://github.com/remidej/camox/compare/camox-v0.47.0...camox-sdk-v0.48.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* the old option names are type errors with no runtime path left, and definitions without the required titles fail to type-check.
+
+### Features
+
+* **sdk:** show the chat only beside the Canvas, with wider sidebars ([#511](https://github.com/remidej/camox/issues/511)) ([d68917f](https://github.com/remidej/camox/commit/d68917f9391b9d56c561937dc1db4f94345b6ea1))
+* structured data and the to* definition API ([#509](https://github.com/remidej/camox/issues/509)) ([20be067](https://github.com/remidej/camox/commit/20be0673e8490c190c6b4037f610c86115dd2153))
+
 ## [0.47.0](https://github.com/remidej/camox/compare/camox-v0.46.0...camox-sdk-v0.47.0) (2026-10-22)
 
 
