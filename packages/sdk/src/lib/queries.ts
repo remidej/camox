@@ -55,6 +55,7 @@ async function sendFaviconChange(path: string, init: { method: string; body?: Fo
 }
 
 export const projectMutations = {
+  updateSocialProfiles: () => getOrpc().projects.updateSocialProfiles.mutationOptions(),
   uploadFavicon: () => ({
     mutationFn: async ({ projectId, file }: { projectId: number; file: globalThis.File }) => {
       const formData = new FormData();
