@@ -38,18 +38,19 @@ For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, 
 
 ## The `createBlock` options
 
-| Option        | Required | Description                                                                                  |
-| ------------- | -------- | -------------------------------------------------------------------------------------------- |
-| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                        |
-| `title`       | yes      | CMS display name.                                                                            |
-| `description` | yes      | Agent guidance on placement, expected content, and tone.                                     |
-| `content`     | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.       |
-| `settings`    | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`. |
-| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.        |
-| `synced`      | no       | Defaults to false. Shares content/settings across placements; see below.                     |
-| `toReact`     | yes      | Named React function component. Receives `{ content, settings }` as props.                   |
-| `toTitle`     | yes      | `({ content, settings }) => ...` one-line title; see below.                                  |
-| `toMarkdown`  | yes      | `({ content, settings }) => [...]` markdown builder; see below.                              |
+| Option             | Required | Description                                                                                    |
+| ------------------ | -------- | ---------------------------------------------------------------------------------------------- |
+| `id`               | yes      | Unique kebab-case identifier matching the filename without extension.                          |
+| `title`            | yes      | CMS display name.                                                                              |
+| `description`      | yes      | Agent guidance on placement, expected content, and tone.                                       |
+| `content`          | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.         |
+| `settings`         | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`.   |
+| `layoutOnly`       | no       | If true, restricts placement to layouts and hides the type from the add-block picker.          |
+| `synced`           | no       | Defaults to false. Shares content/settings across placements; see below.                       |
+| `toReact`          | yes      | Named React function component. Receives `{ content, settings }` as props.                     |
+| `toTitle`          | yes      | `({ content, settings }) => ...` one-line title; see below.                                    |
+| `toMarkdown`       | yes      | `({ content, settings }) => [...]` markdown builder; see below.                                |
+| `toStructuredData` | no       | `({ content, settings }) => node \| [...]`: the things the block shows, as JSON-LD; see below. |
 
 ## Synced blocks (`synced`, optional)
 
@@ -244,6 +245,52 @@ field.repeater({
 ```
 
 Reference the repeater field in the parent block's `toMarkdown` to include its rendered items.
+
+## Structured Data (`toStructuredData`, optional)
+
+On blocks and repeaters. Describes the things a block shows (a video, a product, questions, reviews) as schema.org nodes in the page's JSON-LD graph. Returns one node or a list. Camox links each node to the page (`isPartOf` for creative works, `subjectOf` for anything else) and gives each placement its own nodes. Only the layout says what the page is, so a block never returns a kind of web page, and Camox alone emits the site's `Organization` and `WebSite`. `@type` and properties are typed: invented types or properties, or a node missing what search engines require (a `Product`'s offers, review or rating), fail to compile.
+
+```tsx
+toStructuredData: ({ content }) => ({
+  "@type": "VideoObject",
+  name: content.title,
+  embedUrl: content.video,
+  thumbnailUrl: content.thumbnail,
+  uploadDate: "2026-01-15",
+});
+```
+
+Field tokens resolve as follows; template literals read their fields as plain text:
+
+| Type     | Value                                                              |
+| -------- | ------------------------------------------------------------------ |
+| String   | Plain text                                                         |
+| Image    | An `ImageObject` with its absolute URL, width, height and alt text |
+| File     | Its absolute URL                                                   |
+| Link     | The page's absolute URL in the page's locale, or the external href |
+| Embed    | Its URL                                                            |
+| Repeater | Its items' nodes, from the repeater's own `toStructuredData`       |
+
+Icon and artifact fields have no token. A property whose field is empty is left out.
+
+Place a repeater's token where its items' nodes go, such as an FAQ's questions:
+
+```tsx
+items: field.repeater({
+  content: (field) => ({ question: field.string({ default: "Why?" }), answer: field.string({ default: "Because" }) }),
+  minItems: 1,
+  maxItems: 20,
+  toTitle: ({ content }) => content.question,
+  toMarkdown: ({ content }) => [`Q: ${content.question}`, `A: ${content.answer}`],
+  toStructuredData: ({ content }) => ({
+    "@type": "Question",
+    name: content.question,
+    acceptedAnswer: { "@type": "Answer", text: content.answer },
+  }),
+}),
+// On the block:
+toStructuredData: ({ content }) => content.items,
+```
 
 ## Rendering in the Component
 

@@ -32,6 +32,11 @@ const faq = createBlock({
       title: "Questions",
       toTitle: ({ content }) => content.question,
       toMarkdown: ({ content }) => [`Q: ${content.question}`, `A: ${content.answer}`],
+      toStructuredData: ({ content }) => ({
+        "@type": "Question",
+        name: content.question,
+        acceptedAnswer: { "@type": "Answer", text: content.answer },
+      }),
     }),
   }),
   settings: (setting) => ({
@@ -40,6 +45,7 @@ const faq = createBlock({
   toReact: FaqComponent,
   toTitle: () => "FAQ",
   toMarkdown: ({ content }) => [content.items],
+  toStructuredData: ({ content }) => content.items,
 });
 
 function FaqComponent() {
