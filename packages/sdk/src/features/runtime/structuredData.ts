@@ -1,3 +1,4 @@
+import { isPageUrlMarker, type PageUrlMarker } from "@camox/api-contract";
 import {
   createSchemaOrgGraph,
   defineBreadcrumb,
@@ -20,8 +21,8 @@ import {
  * `@unhead/schema-org` from what Camox knows about the website and the page.
  *
  * To grow the graph, add what it's built from to `PageGraphInput` and the nodes it gives to
- * `graphNodes`: the site's nodes come from `siteNodes`, the page's from `pageNode`, and the
- * layout's main entity from `mainEntityNode`. Definitions' nodes are typed by Camox's vocabulary,
+ * `graphNodes`: the site's nodes come from `siteNodes`, the page's from `pageNode`, the
+ * layout's main entity from `mainEntityNode`, and blocks' nodes from `blockNodes`. Definitions' nodes are typed by Camox's vocabulary,
  * in `core/structuredData`.
  */
 
@@ -57,12 +58,36 @@ export interface PageNodeInput {
   breadcrumb?: ReadonlyArray<{ name: string; url: string }>;
 }
 
+/** A placed block's nodes, as its template describes the things it shows. */
+export interface PlacedBlockNodes {
+  /** The block's id, which tells its placement's nodes apart from another's. */
+  id: string;
+  nodes: ReadonlyArray<Record<string, unknown>>;
+}
+
 /** What a page's graph is built from. */
 export interface PageGraphInput {
   site: SiteGraphInput;
   page: PageNodeInput;
   /** What the page's layout says the page is. */
   declared?: LayoutStructuredData;
+  /** The nodes of the blocks on the page, its layout's included, in the order they're placed. */
+  blocks?: readonly PlacedBlockNodes[];
+}
+
+/**
+ * A value of a node the API evaluated, with the absolute URL of each page its markers name.
+ * Only the runtime knows the website's address.
+ */
+export function withPageUrls<T>(value: T, pageUrl: (marker: PageUrlMarker) => string): T {
+  if (isPageUrlMarker(value)) return pageUrl(value) as T;
+  if (Array.isArray(value)) return value.map((entry) => withPageUrls(entry, pageUrl)) as T;
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, withPageUrls(entry, pageUrl)]),
+    ) as T;
+  }
+  return value;
 }
 
 /** A JSON-LD document holding one graph. */
@@ -156,13 +181,29 @@ function breadcrumbNodes(page: PageNodeInput) {
   ];
 }
 
+/**
+ * The things the page's blocks show, each its own node, linked to the page: creative works are
+ * part of it, and it is about anything else. Every placement's nodes have their own `@id`s.
+ */
+function blockNodes(page: PageNodeInput, blocks: readonly PlacedBlockNodes[] = []) {
+  const pageId = { "@id": pageNodeIds(page.url).page };
+  return blocks.flatMap(({ id, nodes }) =>
+    nodes.map((node, index) => ({
+      ...node,
+      "@id": `${page.url}#block-${id}-${index}`,
+      [isCreativeWork(node as { "@type": string }) ? "isPartOf" : "subjectOf"]: pageId,
+    })),
+  );
+}
+
 /** Every node a page's graph holds, before they are resolved and linked. */
-function graphNodes({ site, page, declared }: PageGraphInput) {
+function graphNodes({ site, page, declared, blocks }: PageGraphInput) {
   return [
     ...siteNodes(site, page.inLanguage),
     pageNode(page, site, declared),
     ...(declared && !isWebPageKind(declared) ? [mainEntityNode(declared, page, site)] : []),
     ...breadcrumbNodes(page),
+    ...blockNodes(page, blocks),
   ];
 }
 

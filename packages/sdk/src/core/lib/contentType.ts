@@ -11,6 +11,7 @@ import {
 } from "@sinclair/typebox";
 
 import type { Collection } from "../createCollection";
+import type { BlockStructuredData, KnownNodesOnly, RepeatedNodes } from "../structuredData";
 import { attachArtifactData } from "./artifactData";
 import type { IconId, IconValue } from "./iconTypes";
 
@@ -278,6 +279,93 @@ export function resolveToTitle<
   const content = createContentProxy<TContent>(contentShape);
   const settings = createSettingsProxy<TSettings>(settingsShape, scope);
   return String(builder({ content, settings }));
+}
+
+/**
+ * An image field's token in a Structured Data template, which the API evaluates into an
+ * `ImageObject` with its absolute URL, dimensions and alt text.
+ */
+export type ImageToken = { "@type": "ImageObject"; url: string; contentUrl: string };
+
+/**
+ * What a field reads as in a Structured Data template. Text, files, links and embeds read as
+ * strings, links and files as absolute URLs. Icons, artifacts and lists of files or records
+ * aren't Structured Data.
+ */
+type StructuredDataToken<T extends TSchema> =
+  T extends ReferenceSchema<infer R>
+    ? StructuredDataProxy<R>
+    : T extends ReferenceListSchema<any> | { fieldType: "Artifact" }
+      ? never
+      : T extends TArray<TObject<any>>
+        ? RepeatedNodes
+        : T extends TArray<any>
+          ? never
+          : Static<T> extends IconValue
+            ? never
+            : Static<T> extends ImageValue
+              ? ImageToken
+              : Static<T> extends string | LinkValue | FileValue
+                ? string & FieldToken
+                : never;
+
+/** A block's or repeatable item's fields as a Structured Data template reads them. */
+export type StructuredDataProxy<TShape extends Record<string, TSchema>> = {
+  [
+    K in keyof TShape & string as [StructuredDataToken<TShape[K]>] extends [never] ? never : K
+  ]: StructuredDataToken<TShape[K]>;
+};
+
+/** What a block's or repeatable item's `toStructuredData` receives. */
+export interface StructuredDataContext<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+> {
+  content: StructuredDataProxy<TContent>;
+  settings: SettingsProxy<TSettings>;
+}
+
+/**
+ * Builds a block's or repeatable item's Structured Data template from `{ content, settings }`:
+ * the nodes it shows. A repeater's token places its items' nodes. The API evaluates the
+ * template on each page's content, and Camox links each node to its page.
+ */
+export type ToStructuredDataBuilder<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema>,
+  Nodes extends BlockStructuredData,
+> = (context: StructuredDataContext<TContent, TSettings>) => Nodes & KnownNodesOnly<Nodes>;
+
+/** A template's value as the Definition Set syncs it: JSON, with tokens as `{{field}}`. */
+function serializeTemplate(value: unknown): unknown {
+  if (value instanceof FieldToken) return value.toString();
+  if (value instanceof Conditional) {
+    throw new Error("toStructuredData doesn't take settings conditionals.");
+  }
+  if (Array.isArray(value)) return value.map(serializeTemplate);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, entry]) =>
+        entry === undefined ? [] : [[key, serializeTemplate(entry)]],
+      ),
+    );
+  }
+  return value;
+}
+
+/** The Structured Data template a `toStructuredData` builder declares. */
+export function resolveToStructuredData<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema>,
+>(
+  builder: (context: StructuredDataContext<TContent, TSettings>) => unknown,
+  settingsShape: TSettings | undefined,
+  scope: SettingsScope,
+  contentShape?: TContent,
+): unknown {
+  const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TContent>;
+  const settings = createSettingsProxy<TSettings>(settingsShape, scope);
+  return serializeTemplate(builder({ content, settings }));
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -621,6 +709,7 @@ export interface ContentFieldBuilder {
   repeater: <
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
+    N extends BlockStructuredData = BlockStructuredData,
   >(options: {
     content: (field: ContentFieldBuilder) => T & NoInfer<ArtifactDataCheck<T, S>>;
     settings?: (setting: SettingBuilder) => S;
@@ -630,6 +719,18 @@ export interface ContentFieldBuilder {
     /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
     toTitle: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
+    /**
+     * The nodes each item shows, placed wherever the parent's template places the repeater's
+     * token. See `ToStructuredDataBuilder`.
+     *
+     * @example
+     * toStructuredData: ({ content }) => ({
+     *   "@type": "Question",
+     *   name: content.question,
+     *   acceptedAnswer: { "@type": "Answer", text: content.answer },
+     * })
+     */
+    toStructuredData?: ToStructuredDataBuilder<T, S, N>;
   }) => RepeaterField<T, S>;
 }
 
@@ -942,6 +1043,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
   repeater: <
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
+    N extends BlockStructuredData = BlockStructuredData,
   >(options: {
     content: (field: ContentFieldBuilder) => T & NoInfer<ArtifactDataCheck<T, S>>;
     settings?: (setting: SettingBuilder) => S;
@@ -951,6 +1053,18 @@ export const contentFieldBuilder: ContentFieldBuilder = {
     /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
     toTitle: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
+    /**
+     * The nodes each item shows, placed wherever the parent's template places the repeater's
+     * token. See `ToStructuredDataBuilder`.
+     *
+     * @example
+     * toStructuredData: ({ content }) => ({
+     *   "@type": "Question",
+     *   name: content.question,
+     *   acceptedAnswer: { "@type": "Answer", text: content.answer },
+     * })
+     */
+    toStructuredData?: ToStructuredDataBuilder<T, S, N>;
   }) => {
     if (options.minItems < 1) {
       throw new Error("Repeater requires minItems to be at least 1");
@@ -988,6 +1102,14 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       fieldType: "Repeater" as const,
       toTitle: resolveToTitle<T, S>(options.toTitle, settings, "item", content),
       toMarkdown: resolveToMarkdown<T, S>(options.toMarkdown, settings, "item", content),
+      ...(options.toStructuredData && {
+        toStructuredData: resolveToStructuredData<T, S>(
+          options.toStructuredData,
+          settings,
+          "item",
+          content,
+        ),
+      }),
       itemSettingsSchema,
       defaultItemSettings: settingsObjectSchema
         ? collectSchemaDefaults(settingsObjectSchema.properties)

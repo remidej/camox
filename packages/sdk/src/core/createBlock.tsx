@@ -25,6 +25,7 @@ import { artifactData } from "./lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  resolveToStructuredData,
   resolveToTitle,
   type FileValue,
   type ImageValue,
@@ -647,6 +648,14 @@ function createViewBlock(options: EditableOptions) {
       fields.content,
     ),
     toTitle: resolveToTitle(options.toTitle as any, fields.settings, "block", fields.content),
+    ...(options.toStructuredData && {
+      toStructuredData: resolveToStructuredData(
+        options.toStructuredData as any,
+        fields.settings,
+        "block",
+        fields.content,
+      ),
+    }),
   };
   const settingsSchema = settingsTypeboxSchema
     ? {

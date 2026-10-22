@@ -176,6 +176,27 @@ export type MainEntityFilled =
 /** What a page is about, beside its own node. Only collections' records can be organizations. */
 export type MainEntity = StructuredDataNode<"Organization", MainEntityFilled>;
 
+/** What blocks and repeatable items describe: anything but an organization, as Camox emits the site's. */
+export type BlockNode = StructuredDataNode<"Organization">;
+
+declare const RepeatedNodesBrand: unique symbol;
+/**
+ * A repeater's token in a Structured Data template: its items' nodes, from their own template,
+ * where the token is placed.
+ */
+export type RepeatedNodes = never[] & { readonly [RepeatedNodesBrand]: true };
+
+/** What a block's or repeatable item's `toStructuredData` returns: one or more nodes. */
+export type BlockStructuredData =
+  | BlockNode
+  | RepeatedNodes
+  | ReadonlyArray<BlockNode | RepeatedNodes>;
+
+/** Requires nothing of a list of nodes, or a node, that only take their types' properties. */
+export type KnownNodesOnly<Nodes> = [Nodes] extends [readonly (infer Node)[]]
+  ? KnownPropertiesOnly<Node, BlockNode>
+  : KnownPropertiesOnly<Nodes, BlockNode>;
+
 /** The page node's properties that Camox alone sets, from the page and the layout's outputs. */
 type PageOwned =
   | CamoxOwned
@@ -205,12 +226,20 @@ type MembersOf<Vocabulary, T> = Vocabulary extends { "@type": infer U }
   : never;
 
 /**
+ * A node's keys that hold a value. TypeScript gives each object of a list the others' keys as
+ * `?: undefined`, which say nothing.
+ */
+type SetKeys<Node> = {
+  [K in keyof Node]-?: [Exclude<Node[K], undefined>] extends [never] ? never : K;
+}[keyof Node];
+
+/**
  * The properties of a node that its type doesn't take. Object literals returned by a function
  * escape TypeScript's excess property checks, so definitions infer their nodes and check them
  * with `KnownPropertiesOnly`.
  */
 export type UnknownProperties<Node, Vocabulary> = Node extends { "@type": infer T }
-  ? Exclude<keyof Node, keyof MembersOf<Vocabulary, T>>
+  ? Exclude<SetKeys<Node>, keyof MembersOf<Vocabulary, T>>
   : never;
 
 /** Requires nothing of a definition whose nodes only take their types' properties. */

@@ -61,6 +61,7 @@ import { artifactData } from "../lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  resolveToStructuredData,
   resolveToTitle,
   type ArtifactDataCheck,
   type ArtifactSource,
@@ -71,6 +72,7 @@ import {
   type ImageValue,
   type FileValue,
   type ToMarkdownBuilder,
+  type ToStructuredDataBuilder,
   type ToTitleBuilder,
   type ItemSettingsBrand,
 } from "../lib/contentType.ts";
@@ -94,6 +96,7 @@ import {
   type ReferenceRecord,
   type ReferenceScope,
 } from "../lib/reference";
+import type { BlockStructuredData } from "../structuredData";
 import type { LayoutItemProps } from "./BlockEditingRuntime";
 import { referenceWritesFor } from "./referenceWrites";
 import { useLatestRecord } from "./useLatestRecord";
@@ -151,6 +154,7 @@ interface BlockBaseOptions<
   TSchemaShape extends Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema>,
   TLayoutOnly extends boolean,
+  TNodes extends BlockStructuredData = BlockStructuredData,
 > {
   id: string;
   /**
@@ -224,6 +228,22 @@ interface BlockBaseOptions<
    * toTitle: ({ content }) => content.title
    */
   toTitle: ToTitleBuilder<TSchemaShape, TSettingsShape>;
+  /**
+   * The things the block shows, as Structured Data nodes from `{ content, settings }`: one node,
+   * or a list. A repeater's token places its items' nodes. Camox links each node to the page,
+   * and each placement gets its own. Blocks never say what the page is, and can't describe an
+   * `Organization`: Camox emits the site's.
+   *
+   * @example
+   * toStructuredData: ({ content }) => ({
+   *   "@type": "VideoObject",
+   *   name: content.title,
+   *   embedUrl: content.video,
+   *   thumbnailUrl: content.thumbnail,
+   *   uploadDate: content.uploadDate,
+   * })
+   */
+  toStructuredData?: ToStructuredDataBuilder<TSchemaShape, TSettingsShape, TNodes>;
 }
 
 /** What a block's `toReact` receives as props: its content and settings. */
@@ -251,7 +271,8 @@ type CreateBlockOptions<
   TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema> = Record<string, TSchema>,
   TLayoutOnly extends boolean = false,
-> = BlockBaseOptions<TSchemaShape, TSettingsShape, TLayoutOnly> &
+  TNodes extends BlockStructuredData = BlockStructuredData,
+> = BlockBaseOptions<TSchemaShape, TSettingsShape, TLayoutOnly, TNodes> &
   BlockToReact<TSchemaShape, TSettingsShape>;
 
 interface BlockData<TContent> {
@@ -447,7 +468,8 @@ export function createEditableBlock<
   TSchemaShape extends Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema> = Record<string, never>,
   TLayoutOnly extends boolean = false,
->(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TLayoutOnly>) {
+  TNodes extends BlockStructuredData = BlockStructuredData,
+>(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TLayoutOnly, TNodes>) {
   const fields = resolveBlockFields<TSchemaShape, TSettingsShape>(options);
   // Build TypeBox schema for runtime validation and default value creation
   const typeboxSchema = TypeBoxType.Object(fields.content);
@@ -471,6 +493,14 @@ export function createEditableBlock<
       "block",
       fields.content,
     ),
+    ...(options.toStructuredData && {
+      toStructuredData: resolveToStructuredData<TSchemaShape, TSettingsShape>(
+        options.toStructuredData,
+        fields.settings,
+        "block",
+        fields.content,
+      ),
+    }),
   };
 
   // Build settings schema (if provided)

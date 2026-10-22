@@ -29,6 +29,8 @@ export type PageStructure = {
   layout: PageWithBlocks["layout"];
   projectName: string;
   project: PageWithBlocks["project"];
+  /** Each block's Structured Data nodes, from a full read: a structure read has none. */
+  structuredData?: PageWithBlocks["structuredData"];
 };
 
 export interface CamoxPageLoaderData {

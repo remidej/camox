@@ -111,6 +111,61 @@ void test("a block's and a repeatable item's toTitle sync as one-line templates"
   assert.equal(schema.properties.items.toTitle, "{{name}}");
 });
 
+void test("a block's and a repeatable item's toStructuredData sync as JSON templates", async () => {
+  const block = createBlock({
+    ...fields,
+    content: (field: any) => ({
+      ...fields.content(field),
+      items: field.repeater({
+        content: (item: any) => ({ name: item.string({ default: "Item" }) }),
+        minItems: 1,
+        maxItems: 3,
+        toTitle: ({ content }: any) => content.name,
+        toMarkdown: ({ content }: any) => [content.name],
+        toStructuredData: ({ content }: any) => ({
+          "@type": "Question",
+          name: content.name,
+          acceptedAnswer: { "@type": "Answer", text: `${content.name}!` },
+        }),
+      }),
+    }),
+    toReact: () => null,
+    toTitle: () => "Block",
+    toMarkdown: () => [],
+    toStructuredData: ({ content }: any) => [
+      { "@type": "Product", name: content.title, offers: { price: 9, priceCurrency: "EUR" } },
+      content.items,
+    ],
+  });
+  const set = await createApp({ blocks: [block as unknown as Block] }).getDefinitionSet();
+  const schema = set.blocks[0]!.contentSchema as unknown as {
+    toStructuredData: unknown;
+    properties: { items: { toStructuredData: unknown } };
+  };
+  assert.deepEqual(schema.toStructuredData, [
+    { "@type": "Product", name: "{{title}}", offers: { price: 9, priceCurrency: "EUR" } },
+    "{{items}}",
+  ]);
+  assert.deepEqual(schema.properties.items.toStructuredData, {
+    "@type": "Question",
+    name: "{{name}}",
+    acceptedAnswer: { "@type": "Answer", text: "{{name}}!" },
+  });
+});
+
+void test("blocks and repeatable items without toStructuredData sync none", async () => {
+  const block = createBlock({
+    ...fields,
+    toReact: () => null,
+    toTitle: () => "Block",
+    toMarkdown: () => [],
+  });
+  const set = await createApp({ blocks: [block as unknown as Block] }).getDefinitionSet();
+  const schema = set.blocks[0]!.contentSchema as unknown as Record<string, any>;
+  assert.equal("toStructuredData" in schema, false);
+  assert.equal("toStructuredData" in schema.properties.items, false);
+});
+
 function render(block: any, content: Record<string, unknown>, settings: Record<string, unknown>) {
   return renderToStaticMarkup(
     <block._internal.Component

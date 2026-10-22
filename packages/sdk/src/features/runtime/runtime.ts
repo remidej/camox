@@ -87,7 +87,13 @@ import {
   RUNTIME_ROUTE_PATHS,
   type RuntimeOwnedRouteKind,
 } from "./runtimeRoutes";
-import { buildPageGraph, serializeStructuredData, type SiteGraphInput } from "./structuredData";
+import {
+  buildPageGraph,
+  type PlacedBlockNodes,
+  serializeStructuredData,
+  type SiteGraphInput,
+  withPageUrls,
+} from "./structuredData";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
@@ -841,12 +847,19 @@ async function readAlternates<Head extends PageHead | null>(
     name: crumb.name,
     url: url(localizedPath(crumb.path, located.locale)),
   }));
+  // Blocks link pages by their path in a locale; without one, the default locale's.
+  const defaultLocale = located.locales.find((locale) => locale.isDefault) ?? located.locale;
+  const blocks = withPageUrls(described.blocks ?? [], (marker) => {
+    const locale = located.locales.find((candidate) => candidate.tag === marker.locale);
+    return url(localizedPath(marker.path, locale ?? defaultLocale));
+  });
   return {
     alternates,
     head: (head &&
       withStructuredData(withLocatedTags(withHreflangs(head, links), place), place, site, {
         ...described,
         breadcrumb,
+        blocks,
       })) as Head,
   };
 }
@@ -868,6 +881,30 @@ interface PageDescription {
   /** The page's first and last publish times on Live, in milliseconds. */
   published?: { first?: number | null; last?: number | null };
   declared?: LayoutStructuredData;
+  /**
+   * The nodes of the blocks on the page, in the order they're placed, as the API evaluates them:
+   * links to pages are still markers.
+   */
+  blocks?: readonly PlacedBlockNodes[];
+}
+
+/** Each placed block's nodes, its layout's before and after the page's own. */
+function placedBlockNodes(
+  layout: { beforeBlockIds: readonly string[]; afterBlockIds: readonly string[] } | null,
+  pageBlockIds: readonly string[],
+  /** Absent from APIs older than blocks' Structured Data. */
+  structuredData: Readonly<Record<string, ReadonlyArray<Record<string, unknown>>>> | undefined,
+): PlacedBlockNodes[] {
+  if (!structuredData) return [];
+  const ids = [
+    ...(layout?.beforeBlockIds ?? []),
+    ...pageBlockIds,
+    ...(layout?.afterBlockIds ?? []),
+  ];
+  return ids.flatMap((id) => {
+    const nodes = structuredData?.[id];
+    return nodes?.length ? [{ id, nodes }] : [];
+  });
 }
 
 /** What a curated page's Structured Data says beyond its head. */
@@ -882,6 +919,7 @@ function curatedPageDescription(
     title: curatedPageTitle(page),
     published: { first: page.firstPublishedAt, last: page.publishedAt },
     declared: declarePage(curatedPageMetaInput(camoxApp, structure, locale)),
+    blocks: placedBlockNodes(structure.layout, page.blockIds, structure.structuredData),
   };
 }
 
@@ -902,6 +940,7 @@ function withStructuredData(
     published,
     declared,
     breadcrumb,
+    blocks,
   }: PageDescription & { breadcrumb: ReadonlyArray<{ name: string; url: string }> },
 ): PageHead {
   const name = head.meta?.find((entry) => entry.title)?.title ?? "";
@@ -918,6 +957,7 @@ function withStructuredData(
       breadcrumb,
     },
     declared,
+    blocks,
   });
   return {
     ...head,
@@ -1472,6 +1512,7 @@ async function createDerivedResponse(
         project: { ...shared.project, name: shared.projectName },
         title: context.page.title,
         declared: declarePage({ layout: match.layout._internal, context }),
+        blocks: placedBlockNodes(shared.layout, [], shared.structuredData),
       },
       authCookieHeader,
       draftId: read.draftId,
