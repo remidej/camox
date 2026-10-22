@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.0](https://github.com/remidej/camox/compare/camox-v0.46.0...@camox/ui-v0.47.0) (2026-10-22)
+
+
+### Miscellaneous
+
+* **@camox/ui:** Synchronize camox versions
+
 ## [0.46.0](https://github.com/remidej/camox/compare/camox-v0.45.0...@camox/ui-v0.46.0) (2026-10-22)
 
 
