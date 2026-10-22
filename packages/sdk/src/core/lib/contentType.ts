@@ -134,11 +134,24 @@ export type SettingsProxy<TShape extends Record<string, TSchema>> = {
   [K in keyof TShape & string]: SettingCallable<TShape[K]>;
 };
 
+/** What a block's or repeatable item's templates receive: proxies of its content and settings. */
+export interface TemplateContext<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+> {
+  content: ContentProxy<TContent>;
+  settings: SettingsProxy<TSettings>;
+}
+
+/**
+ * Builds a Markdown template from `{ content, settings }`. The old positional form,
+ * `(content, settings)`, still works: the first argument is also the content proxy.
+ */
 export type ToMarkdownBuilder<
   TContent extends Record<string, TSchema>,
   TSettings extends Record<string, TSchema> = Record<string, never>,
 > = (
-  c: ContentProxy<TContent>,
+  context: ContentProxy<TContent> & TemplateContext<TContent, TSettings>,
   s: SettingsProxy<TSettings>,
 ) => ReadonlyArray<string | FieldToken | Conditional>;
 
@@ -199,6 +212,37 @@ function serializeConditional(cond: Conditional): string[] {
   return out;
 }
 
+/**
+ * A template's first argument: `{ content, settings }`, which is also the content proxy, for
+ * templates still written `(content, settings)`. A field named `content` or `settings` stays a
+ * field token for those, and reads as the context's proxy for the others.
+ */
+function templateContext<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema>,
+>(
+  content: ContentProxy<TContent>,
+  settings: SettingsProxy<TSettings>,
+  contentShape: TContent | undefined,
+): ContentProxy<TContent> & TemplateContext<TContent, TSettings> {
+  const context: Record<string, object> = { content, settings };
+  return new Proxy(content, {
+    get(target, prop) {
+      if (prop !== "content" && prop !== "settings") return Reflect.get(target, prop);
+      if (!contentShape?.[prop]) return context[prop];
+      // Both a field token and the context's proxy.
+      const token = new FieldToken(prop);
+      const proxy = context[prop]!;
+      return new Proxy(token, {
+        get: (tokenTarget, key) =>
+          key in tokenTarget || typeof key === "symbol"
+            ? Reflect.get(tokenTarget, key)
+            : Reflect.get(proxy, key),
+      });
+    },
+  }) as ContentProxy<TContent> & TemplateContext<TContent, TSettings>;
+}
+
 export function resolveToMarkdown<
   TContent extends Record<string, TSchema>,
   TSettings extends Record<string, TSchema> = Record<string, never>,
@@ -210,7 +254,10 @@ export function resolveToMarkdown<
 ): string[] {
   const contentProxy = createContentProxy<TContent>(contentShape);
   const settingsProxy = createSettingsProxy<TSettings>(settingsShape, scope);
-  const entries = builder(contentProxy, settingsProxy);
+  const entries = builder(
+    templateContext(contentProxy, settingsProxy, contentShape),
+    settingsProxy,
+  );
 
   const out: string[] = [];
   for (const entry of entries) {

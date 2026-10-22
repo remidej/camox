@@ -7,7 +7,8 @@ import type { CamoxApp } from "../../core/createApp";
 import type { AnyLayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoutes";
-import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
+import { buildLayoutContext } from "../../core/layoutContext";
+import { asCollectionItem, recordMarkdownTemplate, recordPageValues } from "../../core/recordItem";
 import {
   createRequestContext,
   type LayoutRequestContext,
@@ -35,6 +36,7 @@ import {
   buildPageHead,
   buildPageMeta,
   createMarkdownResponse,
+  createOgImageResponse,
   parseMarkdownPath,
   createServerApiClient,
   createServerStudioCache,
@@ -115,6 +117,14 @@ export interface PageRenderInput extends DraftRead {
   presentation?: "public" | "studio";
   derived?: {
     layoutId: string;
+    /** What the layout's context names, beside the loader's result. */
+    page?: {
+      /** The params the page's route matched. */
+      params: Record<string, string>;
+      /** The page's path, with its locale's prefix. */
+      path: string;
+      projectName: string;
+    };
     result?: AnyLayoutLoaderResult;
     layout: Awaited<
       ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["get"]>
@@ -483,18 +493,7 @@ async function createOgResponse(request: Request, options: RuntimeOptions): Prom
     return Response.json({ message: "Camox app registry is not available." }, { status: 500 });
   }
 
-  const url = new URL(request.url);
-  const layoutId = url.searchParams.get("layoutId") || "";
-  const title = url.searchParams.get("title") || "";
-  const description = url.searchParams.get("description") || "";
-  const projectName = url.searchParams.get("projectName") || "";
-
-  const layout = camoxApp.getLayoutById(layoutId);
-  if (!layout?._internal.buildOgImage) {
-    return new Response("Not found", { status: 404 });
-  }
-
-  return layout._internal.buildOgImage({ title, description, projectName });
+  return createOgImageResponse(camoxApp, new URL(request.url));
 }
 
 function createDefaultHeadInput(stylesheetUrl?: string): UseHeadInput {
@@ -1033,7 +1032,7 @@ async function createLayoutMarkdownResponse(
       id: data.id,
       toMarkdown: template,
     });
-    return { body: [body], data, item: recordPlainText(collection, data.content) };
+    return { body: [body], data, record: recordPageValues(collection, data.content) };
   };
   let rendered: Awaited<ReturnType<typeof layoutMarkdown>>;
   try {
@@ -1050,13 +1049,14 @@ async function createLayoutMarkdownResponse(
   // The same title and description as the page's head.
   const meta = buildPageMeta({
     layout: match.layout._internal,
-    pageMetaTitle: match.layout._internal.title,
-    pageMetaDescription: undefined,
-    data: rendered.data,
-    item: rendered.item,
-    params: match.params,
-    projectName: slots.projectName,
-    pageFullPath: page.pathname,
+    context: buildLayoutContext(match.layout._internal, {
+      path: page.pathname,
+      locale: locale.tag,
+      projectName: slots.projectName,
+      data: rendered.data,
+      params: match.params,
+      record: "record" in rendered ? rendered.record : undefined,
+    }),
   });
   const markdown = [slots.before, ...rendered.body, slots.after].filter(Boolean).join("\n\n");
   return new Response(withFrontMatter(markdown, { ...meta, url: page.url }), {
@@ -1149,17 +1149,17 @@ async function createDerivedResponse(
           : { kind: "code-owned" },
       head: buildPageHead({
         layout: match.layout._internal,
-        pageMetaTitle: match.layout._internal.title,
-        pageMetaDescription: undefined,
-        data: serializedResult?.data,
-        // A record page's meta callbacks also get its fields as plain text.
-        item:
-          record && recordCollection
-            ? recordPlainText(recordCollection, record.data.content)
-            : undefined,
-        params: match.params,
-        projectName: shared.projectName,
-        pageFullPath: pathname,
+        context: buildLayoutContext(match.layout._internal, {
+          path: pathname,
+          locale: located.locale.tag,
+          projectName: shared.projectName,
+          data: serializedResult?.data,
+          params: match.params,
+          record:
+            record && recordCollection
+              ? recordPageValues(recordCollection, record.data.content)
+              : undefined,
+        }),
         origin: new URL(request.url).origin,
         faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
         hasMarkdown: match.layout._internal.toMarkdown !== undefined,
@@ -1192,6 +1192,7 @@ async function createDerivedResponse(
       locales: located.locales,
       derived: {
         layoutId: match.layout._internal.id,
+        page: { params: match.params, path: pathname, projectName: shared.projectName },
         result: serializedResult,
         layout: shared.layout,
       },

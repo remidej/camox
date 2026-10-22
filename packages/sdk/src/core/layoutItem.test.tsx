@@ -112,7 +112,10 @@ const editingRuntime = {
 };
 
 function render(result: AnyLayoutLoaderResult | undefined) {
-  const Component = ArticlePage._internal.component;
+  // The layout's old `component` reads nothing from the page's context.
+  const Component = ArticlePage._internal.toReact as React.ComponentType<{
+    children: React.ReactNode;
+  }>;
   return renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider

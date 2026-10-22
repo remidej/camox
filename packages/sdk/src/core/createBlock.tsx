@@ -606,7 +606,9 @@ function createViewBlock(options: EditableOptions) {
         normalizedContent[key] = value.map((item) => item.content);
       }
     }
-    const AuthoredComponent = options.component;
+    // The old `component` gets the settings too, and ignores them.
+    const ToReact = (options.toReact ?? options.component) as React.ComponentType<any>;
+    const settings = { ...settingsDefaults, ...blockData.settings };
     return (
       <div
         className="group visual-editing-block"
@@ -620,11 +622,11 @@ function createViewBlock(options: EditableOptions) {
           value={{
             blockId: blockData._id,
             content: mergedContent,
-            settings: { ...settingsDefaults, ...blockData.settings },
+            settings,
             mode,
           }}
         >
-          <AuthoredComponent content={normalizedContent} />
+          <ToReact content={normalizedContent} settings={settings} />
         </Context.Provider>
       </div>
     );

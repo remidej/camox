@@ -84,7 +84,8 @@ const pokedex = {
     id: "pokedex",
     kind: "singleton",
     title: "Pokédex",
-    buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+    toTitle: ({ page }: { page: { title: string } }) => page.title,
+    toDescription: ({ page }: { page: { description?: string } }) => page.description,
   },
 };
 const hero = { _internal: { id: "hero", title: "Hero" } };

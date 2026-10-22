@@ -145,10 +145,10 @@ const resolveLinkHref = (
  * createBlock
  * -----------------------------------------------------------------------------------------------*/
 
-interface CreateBlockOptions<
-  TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
-  TSettingsShape extends Record<string, TSchema> = Record<string, TSchema>,
-  TLayoutOnly extends boolean = false,
+interface BlockBaseOptions<
+  TSchemaShape extends Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema>,
+  TLayoutOnly extends boolean,
 > {
   id: string;
   /**
@@ -197,27 +197,59 @@ interface CreateBlockOptions<
   /** Share content and settings across all placements of this block definition. Defaults to false. */
   synced?: boolean;
   /**
-   * React component that renders the block.
-   * Must be defined as a separate function (not inline, not an arrow function).
-   * Should use the Field component returned by createBlock to render editable content.
-   */
-  component: React.ComponentType<{
-    content: Static<ReturnType<typeof TypeBoxType.Object<TSchemaShape>>>;
-  }>;
-  /**
    * Builder for rendering block content as markdown.
-   * `c` is a proxy typed on `content` keys — `c.title`, `c.description`, etc.
-   * `s` is a proxy typed on `settings` keys — call a boolean setting with a line
-   * (`s.showCta(c.cta)`) or an enum with a value (`s.variant("banner", [...])`)
-   * to wrap lines in a conditional. Each returned entry becomes a paragraph
-   * (joined with `\n\n`). Lines where all referenced fields resolve to empty
-   * (or whose condition is false) are omitted at render time.
+   * `content` is a proxy typed on `content` keys — `content.title`, `content.description`, etc.
+   * `settings` is a proxy typed on `settings` keys — call a boolean setting with a line
+   * (`settings.showCta(content.cta)`) or an enum with a value
+   * (`settings.variant("banner", [...])`) to wrap lines in a conditional. Each returned entry
+   * becomes a paragraph (joined with `\n\n`). Lines where all referenced fields resolve to empty
+   * (or whose condition is false) are omitted at render time. The old positional form,
+   * `(c, s) => [...]`, still works.
    *
    * @example
-   * toMarkdown: (c, s) => [`# ${c.title}`, c.description, s.showCta(c.cta)]
+   * toMarkdown: ({ content, settings }) => [
+   *   `# ${content.title}`,
+   *   content.description,
+   *   settings.showCta(content.cta),
+   * ]
    */
   toMarkdown: ToMarkdownBuilder<TSchemaShape, TSettingsShape>;
 }
+
+/** What a block's `toReact` receives as props: its content and settings. */
+export interface BlockContext<
+  TSchemaShape extends Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema>,
+> {
+  content: Static<ReturnType<typeof TypeBoxType.Object<TSchemaShape>>>;
+  settings: Static<ReturnType<typeof TypeBoxType.Object<TSettingsShape>>>;
+}
+
+/**
+ * The React component that renders the block, as `toReact` or under its old name, `component`,
+ * never both. Should use the Field component returned by createBlock to render editable content.
+ */
+type BlockToReact<
+  TSchemaShape extends Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema>,
+> =
+  | {
+      /** Renders the block, with its content and settings as props. */
+      toReact: React.ComponentType<BlockContext<TSchemaShape, TSettingsShape>>;
+      component?: never;
+    }
+  | {
+      /** @deprecated Use `toReact`, which also receives the block's settings. */
+      component: React.ComponentType<Pick<BlockContext<TSchemaShape, TSettingsShape>, "content">>;
+      toReact?: never;
+    };
+
+type CreateBlockOptions<
+  TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema> = Record<string, TSchema>,
+  TLayoutOnly extends boolean = false,
+> = BlockBaseOptions<TSchemaShape, TSettingsShape, TLayoutOnly> &
+  BlockToReact<TSchemaShape, TSettingsShape>;
 
 interface BlockData<TContent> {
   _id: string;
@@ -498,6 +530,12 @@ export function createEditableBlock<
     TSettingsShape extends Record<string, never>
       ? Record<string, never>
       : Static<ReturnType<typeof TypeBoxType.Object<TSettingsShape>>>;
+
+  /** Renders the block, with its content and settings as props; the old `component` too. */
+  const ToReact = (options.toReact ?? options.component) as React.ComponentType<{
+    content: TContent;
+    settings: TSettings;
+  }>;
 
   type BlockContextValue = {
     blockId: string;
@@ -2240,7 +2278,8 @@ export function createEditableBlock<
 
     // Normalize content: keep full item objects for internal use, but prepare content-only version for display
     // We need to keep blockData.content as-is because Repeater needs the full objects with _id
-    // But we also need to pass to options.component for the content prop (used in non-Repeater contexts)
+    // But we also need to pass to toReact for the content prop (used in non-Repeater contexts)
+    const blockSettings = { ...settingsDefaults, ...blockData.settings } as TSettings;
     const normalizedContent = React.useMemo(() => {
       const result = { ...blockData.content } as any;
 
@@ -2329,16 +2368,13 @@ export function createEditableBlock<
               }
               return { ...merged, ...overrides };
             })(),
-            settings: {
-              ...settingsDefaults,
-              ...blockData.settings,
-            } as TSettings,
+            settings: blockSettings,
             mode,
             isHovered,
             setIsHovered,
           }}
         >
-          <options.component content={normalizedContent} />
+          <ToReact content={normalizedContent} settings={blockSettings} />
         </Context.Provider>
       </div>
     );

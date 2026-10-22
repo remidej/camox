@@ -125,7 +125,8 @@ const pokedex = {
     id: "pokedex",
     kind: "singleton",
     title: "Pokédex",
-    buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+    toTitle: ({ page }: { page: { title: string } }) => page.title,
+    toDescription: ({ page }: { page: { description?: string } }) => page.description,
     // Looks up a record, as a record page's loader does.
     loader: async ({ context }: { context: LayoutRequestContext }) => {
       await getRecordLookup(context).findByField({

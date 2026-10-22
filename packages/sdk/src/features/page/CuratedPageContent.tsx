@@ -1,9 +1,11 @@
 import * as React from "react";
 
+import { curatedLayoutContext } from "../../core/layoutContext";
 import { useProjectUuid } from "../../lib/auth";
 import { NormalizedDataProvider, usePageBlocks } from "../../lib/normalized-data";
 import { reads, useRead } from "../../lib/studio-reads";
 import { useLocalePath } from "../../lib/view-locale";
+import { useViewLocale } from "../../lib/view-locale-context";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedLayoutContent } from "./SharedLayoutContent";
@@ -48,6 +50,8 @@ export function CuratedPageContent() {
   const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } =
     usePageBlocks(pageData);
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
+  const { locale } = useViewLocale();
+  const context = curatedLayoutContext(pageData, locale);
 
   const pageBlocksContent = pageBlocks.map((block) => (
     <BlockErrorBoundary key={block.id} blockId={block.id} blockType={block.type}>
@@ -62,6 +66,7 @@ export function CuratedPageContent() {
   return (
     <SharedLayoutContent
       layout={layout}
+      context={context}
       blocks={[...beforeBlocks, ...afterBlocks]}
       files={layoutFiles}
       repeatableItems={layoutItems}

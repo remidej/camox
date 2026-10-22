@@ -12,9 +12,15 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
+import {
+  curatedLayoutContext,
+  ogImageContext,
+  ogImageSearchParams,
+  type AnyLayoutContext,
+} from "../../core/layoutContext";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
 import { linkFallbackLocale } from "../../lib/link-pages";
-import { localeHeaders, localizedPath, type LocaleView } from "../../lib/locale-path";
+import { localeHeaders, UNNAMED_DEFAULT_LOCALE, type LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
@@ -438,75 +444,42 @@ export async function createMarkdownResponse({
   }
 }
 
-export interface PageHeadInput {
-  layout: Pick<Layout["_internal"], "id" | "buildMetaTitle" | "buildMetaDescription"> | undefined;
-  /** The editor's meta title for curated pages, the layout's title for code-owned pages. */
-  pageMetaTitle: string;
-  pageMetaDescription: string | undefined;
-  /** The title the /og image shows; defaults to the built meta title. */
+/** What a page's title and description are built from. */
+export interface PageMetaInput {
+  layout:
+    | Pick<Layout["_internal"], "id" | "toTitle" | "toDescription" | "imageFromContext">
+    | undefined;
+  /** The context the layout's `to*` options receive. */
+  context: AnyLayoutContext;
+}
+
+export interface PageHeadInput extends PageMetaInput {
+  /** The title an old `buildOgImage` shows; defaults to the built title. */
   ogImageTitle?: string;
   customOgImageUrl?: string | null;
-  data: unknown;
-  /** On record pages: the record's String fields as plain text. */
-  item?: Record<string, string>;
-  params: Record<string, string>;
-  projectName: string;
-  pageFullPath: string;
   origin: string;
   faviconUrl: string;
   /** Whether the page has a Markdown Representation, which the head then links to. */
   hasMarkdown: boolean;
 }
 
-/** What a page's title and description are built from. */
-export type PageMetaInput = Pick<
-  PageHeadInput,
-  | "layout"
-  | "pageMetaTitle"
-  | "pageMetaDescription"
-  | "data"
-  | "item"
-  | "params"
-  | "projectName"
-  | "pageFullPath"
->;
-
-/** A page's title and description, built by its layout's callbacks. */
+/** A page's title and description, built by its layout's `toTitle` and `toDescription`. */
 export function buildPageMeta(input: PageMetaInput): { title: string; description?: string } {
-  const context = {
-    data: input.data,
-    ...(input.item && { item: input.item }),
-    params: input.params,
-    projectName: input.projectName,
-    pageFullPath: input.pageFullPath,
-  };
-  const title =
-    input.layout?.buildMetaTitle({ ...context, pageMetaTitle: input.pageMetaTitle }) ??
-    input.pageMetaTitle;
-  const description = input.layout?.buildMetaDescription
-    ? input.layout.buildMetaDescription({
-        ...context,
-        pageMetaDescription: input.pageMetaDescription,
-      })
-    : input.pageMetaDescription;
+  const { layout, context } = input;
+  const title = layout ? layout.toTitle(context) : context.page.title;
+  const description = layout ? layout.toDescription(context) : context.page.description;
   return { title, ...(description && { description }) };
 }
 
-/** A curated page's meta input: its editor metadata and its layout. */
 /** A curated page's meta input. Its path keeps the prefix of the page's `locale`. */
 function curatedPageMetaInput(
   camoxApp: CamoxApp | undefined,
   page: PageStructure,
-  locale?: LocaleView,
+  locale: LocaleView = UNNAMED_DEFAULT_LOCALE,
 ): PageMetaInput {
   return {
     layout: page.layout ? camoxApp?.getLayoutById(page.layout.layoutId)?._internal : undefined,
-    pageMetaTitle: page.page.metaTitle ?? page.page.pathSegment,
-    pageMetaDescription: page.page.metaDescription ?? undefined,
-    data: undefined,
-    params: {},
-    projectName: page.projectName,
-    pageFullPath: locale ? localizedPath(page.page.fullPath, locale) : page.page.fullPath,
+    context: curatedLayoutContext(page, locale),
   };
 }
 
@@ -537,12 +510,17 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   const meta: Array<Record<string, string>> = [{ title }];
   if (description) meta.push({ name: "description", content: description });
 
-  const ogImageParams = new URLSearchParams({
-    ...(input.layout && { layoutId: input.layout.id }),
-    title: input.ogImageTitle ?? title,
-    ...(description && { description }),
-    ...(input.projectName && { projectName: input.projectName }),
-  });
+  const { page, project } = input.context;
+  // `toImage` gets the page's own title and description; an old `buildOgImage` the built ones.
+  const ogImageParams = ogImageSearchParams(
+    input.layout?.imageFromContext
+      ? { layoutId: input.layout.id, ...input.context }
+      : {
+          layoutId: input.layout?.id,
+          page: { title: input.ogImageTitle ?? title, description },
+          project,
+        },
+  );
   const ogImageUrl = input.customOgImageUrl ?? `${input.origin}/og?${ogImageParams.toString()}`;
 
   meta.push(
@@ -558,10 +536,17 @@ export function buildPageHead(input: PageHeadInput): PageHead {
     links.push({
       rel: "alternate",
       type: "text/markdown",
-      href: `${input.origin}${getMarkdownPath(input.pageFullPath)}`,
+      href: `${input.origin}${getMarkdownPath(page.path)}`,
     });
 
   return { meta, links };
+}
+
+/** The shared image `/og` renders for the layout its query names. */
+export async function createOgImageResponse(camoxApp: CamoxApp, url: URL): Promise<Response> {
+  const layout = camoxApp.getLayoutById(url.searchParams.get("layoutId") || "");
+  if (!layout?._internal.toImage) return new Response("Not found", { status: 404 });
+  return layout._internal.toImage(ogImageContext(url.searchParams));
 }
 
 /** A curated page's head. Its paths keep the prefix of the page's `locale`. */
@@ -576,7 +561,7 @@ export function buildCamoxPageHead(
   const metaInput = curatedPageMetaInput(camoxApp, page, locale);
   return buildPageHead({
     ...metaInput,
-    ogImageTitle: metaInput.pageMetaTitle,
+    ogImageTitle: metaInput.context.page.title,
     customOgImageUrl: page.page.customOgImageUrl,
     origin,
     faviconUrl,

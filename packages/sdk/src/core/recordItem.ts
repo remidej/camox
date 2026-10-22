@@ -1,4 +1,5 @@
 import type { Collection } from "./createCollection";
+import type { RecordPageValues } from "./layoutContext";
 import { resolveToMarkdown } from "./lib/contentType";
 import { isLexicalState, lexicalStateToPlainText } from "./lib/lexicalState";
 
@@ -27,6 +28,17 @@ export function recordPlainText(
     if (field.fieldType === "String") text[name] = fieldPlainText(content[name]);
   }
   return text;
+}
+
+/** The record a record page renders, as its layout's context names it. */
+export function recordPageValues(
+  collection: Collection,
+  content: Record<string, unknown>,
+): RecordPageValues {
+  return {
+    title: fieldPlainText(content[collection._internal.label]),
+    content: recordPlainText(collection, content),
+  };
 }
 
 /** A String field's text, whether it is stored as plain text or rich-text state. */

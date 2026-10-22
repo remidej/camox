@@ -5,6 +5,7 @@ import { BlockErrorBoundary } from "@/features/preview/components/BlockErrorBoun
 import { useOptionalCamoxApp } from "@/features/provider/components/CamoxAppContext";
 
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
+import type { AnyLayoutContext, CuratedLayoutContext, LoadedLayoutContext } from "./layoutContext";
 import type { ContentProxy } from "./lib/contentType";
 import { RecordScope } from "./lib/recordScope";
 import type { ReferenceScope } from "./lib/reference";
@@ -12,6 +13,13 @@ import { asCollectionItem, fieldPlainText } from "./recordItem";
 import type { CollectionRecordId, LayoutRequestContext, LoadedRecord } from "./requestContext";
 
 export type { LayoutRequestContext } from "./requestContext";
+export type {
+  CuratedLayoutContext,
+  LayoutPage,
+  LayoutProject,
+  LoadedLayoutContext,
+  RecordLayoutContext,
+} from "./layoutContext";
 
 /* -------------------------------------------------------------------------------------------------
  * createLayout
@@ -222,22 +230,53 @@ type LayoutToMarkdown<Data, Params, F = never> = (
   context: { data: Data; params: Params } & MarkdownItem<F>,
 ) => readonly string[];
 
+/** On record pages, the context's `content` holds the record's String fields as plain text. */
+type RecordContent<F> = [F] extends [never]
+  ? {}
+  : { content: { [K in StringFieldKeys<F>]: string } };
+
+/** The context a singleton or derived layout's `to*` options receive. */
+type LoadedContext<Data, Params, F = never> = LoadedLayoutContext<Data, Params> & RecordContent<F>;
+
+/**
+ * One option under its old name or its new one, never both. When both are optional, neither is
+ * required.
+ */
+type Renamed<Old, New> =
+  | (Old & { [K in keyof New]?: never })
+  | (New & { [K in keyof Old]?: never });
+
+/** What `toImage` receives: `/og` knows the page and the project only. */
+export type LayoutToImage = (context: CuratedLayoutContext) => React.ReactElement;
+
+/**
+ * A layout's outputs, each receiving the page's context: `toReact`, `toTitle`, `toDescription`
+ * and `toImage`. The old names (`component`, `buildMetaTitle`, `buildMetaDescription`,
+ * `buildOgImage`) still work, but never beside their new ones.
+ */
+type LayoutOutputs<Context, Children, OldTitle, OldDescription> = Renamed<
+  { component: React.ComponentType<Children> },
+  { toReact: React.ComponentType<Context & Children> }
+> &
+  Renamed<{ buildMetaTitle: OldTitle }, { toTitle: (context: Context) => string }> &
+  Renamed<
+    { buildMetaDescription?: OldDescription },
+    { toDescription?: (context: Context) => string | undefined }
+  > &
+  Renamed<
+    { buildOgImage?: (params: OgImageParams) => React.ReactElement },
+    { toImage?: LayoutToImage }
+  >;
+
 /** The collection a layout's record pages render, and the field each record is found by. */
 export type RecordPages = { collectionId: string; field: string };
 
-interface CreateLayoutOptions<
+interface LayoutBaseOptions<
   TBefore extends readonly LayoutBlock[],
   TAfter extends readonly LayoutBlock[],
   TInitial extends readonly InitialBlockImport[],
-  Result extends LoaderReturn = LoaderReturn,
 > {
   id: string;
-  kind?: "curated" | "derived" | "singleton";
-  loader?: (context: LayoutLoaderContext) => Result;
-  /** Lists the pages of a derived layout, for the sitemap and the Canvas. */
-  routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
-  /** A derived layout's record pages, set by spreading `collection.pages(...)`. */
-  recordPages?: RecordPages;
   title: string;
   description: string;
   blocks: {
@@ -249,23 +288,84 @@ interface CreateLayoutOptions<
      */
     initial?: ValidatePageContentBlocks<TInitial>;
   };
-  component: React.ComponentType<{ children: React.ReactNode }>;
-  buildMetaTitle: BuildMetaTitle<LoaderData<Result>, Record<string, string>, RecordFields<Result>>;
-  buildMetaDescription?: BuildMetaDescription<
-    LoaderData<Result>,
-    Record<string, string>,
-    RecordFields<Result>
-  >;
-  /** Singleton and derived layouts only. */
-  toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, string>, RecordFields<Result>>;
-  buildOgImage?: (params: OgImageParams) => React.ReactElement;
 }
 
-function createLayoutDefinition<
-  const TBefore extends readonly LayoutBlock[],
-  const TAfter extends readonly LayoutBlock[],
-  const TInitial extends readonly InitialBlockImport[] = [],
->(options: CreateLayoutOptions<TBefore, TAfter, TInitial>) {
+type CreateLayoutOptions<
+  TBefore extends readonly LayoutBlock[],
+  TAfter extends readonly LayoutBlock[],
+  TInitial extends readonly InitialBlockImport[],
+  Result extends LoaderReturn = LoaderReturn,
+> = LayoutBaseOptions<TBefore, TAfter, TInitial> & {
+  kind?: "curated" | "derived" | "singleton";
+  loader?: (context: LayoutLoaderContext) => Result;
+  /** Lists the pages of a derived layout, for the sitemap and the Canvas. */
+  routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
+  /** A derived layout's record pages, set by spreading `collection.pages(...)`. */
+  recordPages?: RecordPages;
+  /** Singleton and derived layouts only. */
+  toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, string>, RecordFields<Result>>;
+} & LayoutOutputs<
+    LoadedContext<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
+    { children: React.ReactNode },
+    BuildMetaTitle<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
+    BuildMetaDescription<LoaderData<Result>, Record<string, string>, RecordFields<Result>>
+  >;
+
+/** Every option a layout may define, as the implementation reads them. */
+type AnyLayoutOptions = LayoutBaseOptions<any, any, any> & {
+  kind?: "curated" | "derived" | "singleton";
+  loader?: (context: LayoutLoaderContext) => LoaderReturn;
+  routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
+  recordPages?: RecordPages;
+  toMarkdown?: LayoutToMarkdown<any, any, any>;
+  component?: React.ComponentType<any>;
+  toReact?: React.ComponentType<any>;
+  buildMetaTitle?: BuildMetaTitle<unknown, unknown>;
+  toTitle?: (context: any) => string;
+  buildMetaDescription?: BuildMetaDescription<unknown, unknown>;
+  toDescription?: (context: any) => string | undefined;
+  buildOgImage?: (params: OgImageParams) => React.ReactElement;
+  toImage?: LayoutToImage;
+};
+
+/** The old metadata callbacks, run with the context the new options receive. */
+function legacyMetaOptions(options: AnyLayoutOptions, kind: AnyLayoutOptions["kind"]) {
+  const metaContext = (context: AnyLayoutContext) => ({
+    projectName: context.project.name,
+    pageFullPath: context.page.path,
+    data: context.data,
+    params: context.params ?? {},
+    ...(context.content && { item: context.content }),
+  });
+  const { buildMetaTitle, buildMetaDescription, buildOgImage } = options;
+  return {
+    toTitle:
+      buildMetaTitle &&
+      ((context: AnyLayoutContext) =>
+        buildMetaTitle({
+          ...metaContext(context),
+          // The old callback got the layout's title on code-owned pages, record pages' included.
+          pageMetaTitle: kind === "curated" ? context.page.title : options.title,
+        })),
+    toDescription:
+      buildMetaDescription &&
+      ((context: AnyLayoutContext) =>
+        buildMetaDescription({
+          ...metaContext(context),
+          pageMetaDescription: context.page.description,
+        })),
+    toImage:
+      buildOgImage &&
+      ((context: CuratedLayoutContext) =>
+        buildOgImage({
+          title: context.page.title,
+          description: context.page.description ?? "",
+          projectName: context.project.name,
+        })),
+  };
+}
+
+function createLayoutDefinition(options: AnyLayoutOptions) {
   if (options.kind === "singleton" && !/^[\w-]+(?:\.[\w-]+)*$/.test(options.id))
     throw new Error(`Singleton layouts require a fixed file route: ${options.id}`);
   if (options.kind && options.kind !== "curated" && options.blocks.initial)
@@ -428,15 +528,19 @@ function createLayoutDefinition<
     }),
   ];
 
-  const buildOgImage = options.buildOgImage
-    ? async (params: OgImageParams): Promise<Response> => {
+  const legacy = legacyMetaOptions(options, options.kind ?? "curated");
+  const toTitle = options.toTitle ?? legacy.toTitle;
+  const toDescription = options.toDescription ?? legacy.toDescription;
+  const toImageElement = options.toImage ?? legacy.toImage;
+  const toImage = toImageElement
+    ? async (context: CuratedLayoutContext): Promise<Response> => {
         // OG rendering is server-only. This guard also lets Vite remove the
         // WASM import from client builds.
         if (import.meta.env?.SSR === false) {
           throw new Error("OG images can only be rendered on the server.");
         }
         const { ImageResponse } = await import("camox/_internal/imageResponse");
-        const jsx = options.buildOgImage!(params);
+        const jsx = toImageElement(context);
         return new ImageResponse(jsx, { width: 1200, height: 630 });
       }
     : undefined;
@@ -478,18 +582,28 @@ function createLayoutDefinition<
       recordPages: options.recordPages,
       title: options.title,
       description: options.description,
-      buildMetaTitle: options.buildMetaTitle as BuildMetaTitle<unknown, unknown>,
-      buildMetaDescription: options.buildMetaDescription as
-        | BuildMetaDescription<unknown, unknown>
-        | undefined,
+      /** The page's title, from the page's context. Without one, the page's undecorated title. */
+      toTitle: (context: AnyLayoutContext): string => toTitle?.(context) ?? context.page.title,
+      /** The page's description. Without one, the page's own description. */
+      toDescription: (context: AnyLayoutContext): string | undefined =>
+        toDescription ? toDescription(context) : context.page.description,
       // Record pages' `toMarkdown` also gets `item`; the runtime passes it only for records.
       toMarkdown: options.toMarkdown as
         | ((context: { data: unknown; params: unknown; item?: unknown }) => readonly string[])
         | undefined,
-      buildOgImage,
+      /** Renders the page's shared image. */
+      toImage,
+      /**
+       * Whether the image comes from `toImage`, which gets the page's own title and description.
+       * Without it, `/og` is named by the built title, as an old `buildOgImage` expects.
+       */
+      imageFromContext: !!options.toImage,
       blockDefinitions,
       loadInitialBlockBundles,
-      component: options.component,
+      /** Renders the layout around the page, with the page's context as props. */
+      toReact: (options.toReact ?? options.component) as React.ComponentType<
+        AnyLayoutContext & { children?: React.ReactNode }
+      >,
       Provider,
     },
   };
@@ -523,30 +637,21 @@ type FileOptions<
   B extends readonly LayoutBlock[],
   A extends readonly LayoutBlock[],
   I extends readonly InitialBlockImport[],
-> = Omit<
-  CreateLayoutOptions<B, A, I>,
-  | "id"
-  | "kind"
-  | "loader"
-  | "routes"
-  | "recordPages"
-  | "component"
-  | "buildMetaTitle"
-  | "buildMetaDescription"
-  | "toMarkdown"
-> &
+> = Omit<LayoutBaseOptions<B, A, I>, "id"> &
   (
-    | {
+    | ({
         kind: "curated";
-        component: React.ComponentType<{ children: React.ReactNode }>;
         loader?: never;
         routes?: never;
         recordPages?: never;
         toMarkdown?: never;
-        buildMetaTitle: BuildMetaTitle<undefined, Record<string, never>>;
-        buildMetaDescription?: BuildMetaDescription<undefined, Record<string, never>>;
-      }
-    | {
+      } & LayoutOutputs<
+        CuratedLayoutContext,
+        { children: React.ReactNode },
+        BuildMetaTitle<undefined, Record<string, never>>,
+        BuildMetaDescription<undefined, Record<string, never>>
+      >)
+    | ({
         kind: "singleton";
         blocks: {
           before: ValidateLayoutOnlyBlocks<B>;
@@ -561,19 +666,13 @@ type FileOptions<
           Record<string, never>,
           RecordFields<Result>
         >;
-        component: React.ComponentType<{ children?: never }>;
-        buildMetaTitle: BuildMetaTitle<
-          LoaderData<Result>,
-          Record<string, never>,
-          RecordFields<Result>
-        >;
-        buildMetaDescription?: BuildMetaDescription<
-          LoaderData<Result>,
-          Record<string, never>,
-          RecordFields<Result>
-        >;
-      }
-    | {
+      } & LayoutOutputs<
+        LoadedContext<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
+        { children?: never },
+        BuildMetaTitle<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
+        BuildMetaDescription<LoaderData<Result>, Record<string, never>, RecordFields<Result>>
+      >)
+    | ({
         kind: "derived";
         blocks: {
           before: ValidateLayoutOnlyBlocks<B>;
@@ -584,14 +683,12 @@ type FileOptions<
         routes?: (context: LayoutRoutesContext) => RoutesReturn<RouteParams<Id>>;
         recordPages?: RecordPages;
         toMarkdown?: LayoutToMarkdown<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>;
-        component: React.ComponentType<{ children?: never }>;
-        buildMetaTitle: BuildMetaTitle<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>;
-        buildMetaDescription?: BuildMetaDescription<
-          LoaderData<Result>,
-          RouteParams<Id>,
-          RecordFields<Result>
-        >;
-      }
+      } & LayoutOutputs<
+        LoadedContext<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
+        { children?: never },
+        BuildMetaTitle<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
+        BuildMetaDescription<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>
+      >)
   );
 
 export function createLayout<
@@ -610,10 +707,10 @@ export function createLayout<const Id extends string>(
 >(
   options: FileOptions<Id, Result, B, A, I>,
 ) => LayoutFor<Result>;
-export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any>): any {
-  if (typeof idOrOptions !== "string") return createLayoutDefinition(idOrOptions);
-  return (options: CreateLayoutOptions<any, any, any>) =>
-    createLayoutDefinition({ ...options, id: idOrOptions });
+export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any, any>): any {
+  if (typeof idOrOptions !== "string")
+    return createLayoutDefinition(idOrOptions as AnyLayoutOptions);
+  return (options: AnyLayoutOptions) => createLayoutDefinition({ ...options, id: idOrOptions });
 }
 
 export { notFound } from "./notFound";

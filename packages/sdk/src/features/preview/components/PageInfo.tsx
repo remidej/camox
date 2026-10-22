@@ -42,13 +42,16 @@ import { useMutation } from "@tanstack/react-query";
 import { Globe, Info, Pencil, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
+import { buildLayoutContext, ogImageSearchParams } from "@/core/layoutContext";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { useProjectUuid } from "@/lib/auth";
+import { localizedPath } from "@/lib/locale-path";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useLocalizedPath } from "@/lib/view-locale";
+import { useViewLocale } from "@/lib/view-locale-context";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
@@ -81,15 +84,18 @@ const usePageMetadataData = (pageId: string) => {
   const layoutDef = pageLayoutRecord
     ? camoxApp.getLayoutById(pageLayoutRecord.layoutId)
     : undefined;
+  const { locale } = useViewLocale();
   const metaTitle =
     layoutDef && page
-      ? layoutDef._internal.buildMetaTitle({
-          pageMetaTitle: page.metaTitle ?? "",
-          projectName: project?.name ?? "",
-          pageFullPath: page.fullPath,
-          data: undefined,
-          params: {},
-        })
+      ? layoutDef._internal.toTitle(
+          buildLayoutContext(layoutDef._internal, {
+            metaTitle: page.metaTitle ?? "",
+            description: page.metaDescription ?? undefined,
+            path: localizedPath(page.fullPath, locale),
+            locale: locale.tag,
+            projectName: project?.name ?? "",
+          }),
+        )
       : (page?.metaTitle ?? "");
 
   return { page, project, pages, layouts, pageLayoutRecord, metaTitle, camoxApp };
@@ -837,16 +843,20 @@ const SocialPreviewSection = ({
   projectName?: string;
 }) => {
   const studioCache = useStudioCache();
-  const pageMetaTitle = page.metaTitle ?? page.pathSegment;
-  const ogImageParams = new URLSearchParams({
-    ...(layoutId && { layoutId }),
-    title: pageMetaTitle,
-    ...(page.metaDescription && { description: page.metaDescription }),
-    ...(projectName && { projectName }),
+  const localized = useLocalizedPath();
+  const { locale } = useViewLocale();
+  const ogImageParams = ogImageSearchParams({
+    layoutId,
+    page: {
+      title: page.metaTitle ?? page.pathSegment,
+      description: page.metaDescription ?? undefined,
+      path: localized(page.fullPath),
+      locale: locale.tag,
+    },
+    project: { name: projectName ?? "" },
   });
   const generatedOgImage = `/og?${ogImageParams.toString()}`;
   const ogImage = page.customOgImageUrl ?? generatedOgImage;
-  const localized = useLocalizedPath();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${origin}${localized(page.fullPath)}`;
   const fileInputRef = React.useRef<HTMLInputElement>(null);

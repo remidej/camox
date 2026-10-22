@@ -193,7 +193,10 @@ function setup() {
   const render = (result = loaded) => {
     editors.length = 0;
     pageTitleClicks = [];
-    const Component = ArticlePage._internal.component;
+    // The layout's old `component` reads nothing from the page's context.
+    const Component = ArticlePage._internal.toReact as React.ComponentType<{
+      children: React.ReactNode;
+    }>;
     return renderToStaticMarkup(
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider
