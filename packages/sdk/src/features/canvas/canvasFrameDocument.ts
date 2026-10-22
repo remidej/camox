@@ -205,42 +205,16 @@ export function pauseCanvasDocument(doc: Document) {
   };
 }
 
-/**
- * The stylesheets of a site document's head, which shape how any content
- * renders in it. Pages of a site share them, while their titles, metadata and
- * preloads differ.
- */
-export function canvasDocumentStyles(previewDocument: string | undefined) {
-  if (!previewDocument) return "";
-  const doc = new DOMParser().parseFromString(previewDocument, "text/html");
-  return Array.from(doc.head.querySelectorAll('style, link[rel="stylesheet"]'))
-    .map((style) => style.outerHTML)
-    .join("\n");
-}
-
-/**
- * How a frame sizes itself: a Page fills at least the viewport height, like a
- * browser window, while a block is only as tall as its content.
- */
-export type CanvasDocumentFit = "page" | "content";
-
 export function measureCanvasDocument(
   iframe: HTMLIFrameElement,
   root: HTMLElement,
   baseline: number,
-  fit: CanvasDocumentFit = "page",
 ) {
   const doc = root.ownerDocument;
   adaptCanvasStyleSheets(doc);
   iframe.style.height = `${baseline}px`;
   const bodyRect = doc.body.getBoundingClientRect();
   const rootRect = root.getBoundingClientRect();
-  if (fit === "content") {
-    // The document's own heights are at least the frame's, so only the root's count.
-    const height = exactBottom(rootRect.bottom, root.scrollHeight + rootRect.top);
-    iframe.style.height = `${Math.max(1, height)}px`;
-    return;
-  }
   const height = exactBottom(
     Math.max(rootRect.bottom, bodyRect.bottom),
     doc.body.scrollHeight + bodyRect.top,
@@ -273,7 +247,6 @@ export function observeCanvasDocument(
   iframe: HTMLIFrameElement,
   root: HTMLElement,
   viewportHeight: number,
-  fit: CanvasDocumentFit = "page",
   suspended: () => boolean = () => false,
 ) {
   const doc = root.ownerDocument;
@@ -310,7 +283,7 @@ export function observeCanvasDocument(
   function measure() {
     frame = 0;
     if (suspended()) return;
-    measureCanvasDocument(iframe, root, baseline, fit);
+    measureCanvasDocument(iframe, root, baseline);
     // Record the *final* geometry to ignore ResizeObserver notifications caused by our sizing.
     const elements = new Set<Element>([doc.body, root, ...root.querySelectorAll("*")]);
     for (const element of sizes.keys()) {

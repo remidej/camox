@@ -416,7 +416,7 @@ describe("a definition sync making a block no longer synced", () => {
 });
 
 describe("reading a synced placement", () => {
-  it("shows the shared content in the Block Catalog, Markdown and AI tools", async () => {
+  it("shows the shared content through its own read, Markdown and AI tools", async () => {
     const { ctx, project, page, second } = await fixture("shared-readers", true);
     const onPage = await seedLiveThrough(ctx, project.id, (draft) =>
       createBlock(inScope(ctx, draft), { pageId: page.id, type: "navbar", content: {} }),

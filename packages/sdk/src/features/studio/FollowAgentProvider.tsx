@@ -3,7 +3,6 @@ import * as React from "react";
 import { useProjectUuid } from "../../lib/auth";
 import { parseLocalePath } from "../../lib/locale-path";
 import { reads, useReadQueries, useReadQuery } from "../../lib/studio-reads";
-import { useLocalizedPath } from "../../lib/view-locale";
 import { useViewLocale } from "../../lib/view-locale-context";
 import { type CanvasPage, canvasPageId, getCanvasPages } from "../canvas/canvasPages";
 import { selectedCanvasPage } from "../canvas/canvasSelection";
@@ -17,7 +16,6 @@ import {
   type FollowWhere,
 } from "./followAgent";
 import { FollowAgentContext, type StudioFollow } from "./followAgentContext";
-import { blockCatalogPath } from "./routes";
 
 const NO_BLOCK_IDS: readonly string[] = [];
 
@@ -72,7 +70,6 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
   const projectUuid = useProjectUuid();
   const location = useLocation();
   const { locale, locales } = useViewLocale();
-  const localized = useLocalizedPath();
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pageList } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
@@ -110,9 +107,8 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
       locale: locale.tag,
       location: { pathname, search, source },
       pageKey: current?.key ?? null,
-      blockCatalogPath: (type) => localized(blockCatalogPath(type)),
     }),
-    [pages, locale.tag, pathname, search, source, current?.key, localized],
+    [pages, locale.tag, pathname, search, source, current?.key],
   );
 }
 

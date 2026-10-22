@@ -52,18 +52,19 @@ Stop suggesting when the next idea would be filler; there is no target count. Th
 Make only these kinds of change:
 
 - **New Block Definitions**, following [Block Definitions](../camox/references/block-definitions.md), [Localized code](../camox/SKILL.md#localized-code) (every visible text in fields, internal links through `useLocalizedHref` without a locale prefix), and Camoxify's rules on [styling](../camoxify/SKILL.md#use-the-existing-styling-stack), [genericity and default content](../camoxify/SKILL.md#keep-definitions-generic), [repeaters](../camoxify/SKILL.md#model-repetition-not-a-fixed-screenshot), [Settings](../camoxify/SKILL.md#use-settings-for-constrained-choices), and [formatted text](../camoxify/SKILL.md#keep-formatted-text-in-one-field).
-- **New Settings on existing Block Definitions**, with defaults that leave current rendering unchanged. Existing content schemas stay exactly as they are. Before editing the block, capture it in the Block Catalog at desktop and mobile, opened at `/camox/blocks/<id>` on the running dev server; step 6 compares against this capture.
+- **New Settings on existing Block Definitions**, with defaults that leave current rendering unchanged. Existing content schemas stay exactly as they are. Before editing the block, capture it at desktop and mobile on a Page that places it, on the running dev server; step 6 compares against this capture.
 - **Description edits.** A new block's `description` says when to choose it over its siblings. Edit the siblings' descriptions so each one names what sets it apart, and the Agent can choose between them.
 
-New blocks live only in code and the Block Catalog. Leave Pages, layouts, and publishing alone, and create no temporary Pages. This rules out new Layout-only Blocks: the Block Catalog never shows them, and they only sync once a layout uses them. An existing Layout-only Block that gains a Setting has no Block Catalog page either, so capture and check it on a Page whose layout uses it.
+New blocks live only in code, plus one review Page in the development draft: create it with the CLI (see [Managing Pages and Blocks](../camox/references/cli-content.md)) and place each new block on it with its default content. Leave every other Page, layouts, and publishing alone. This rules out new Layout-only Blocks: a Page can't hold them, and they only sync once a layout uses them. An existing Layout-only Block that gains a Setting is captured and checked on a Page whose layout uses it.
 
 ## 6. Verify
 
-Finish with a Block Catalog link to each new block, so the operator and the product marketing team can review them live. Delete any block the operator rejects, along with any description changes made only for it.
+Finish with a link to the review Page, so the operator and the product marketing team can review the new blocks live. Delete any block the operator rejects, along with any description changes made only for it. Once the review is over, delete the review Page with `pages delete`, so publishing the development draft never ships it.
 
 The run is complete when:
 
 - every approved item is built, and every rejected one is deleted,
+- the review Page is deleted once the operator has reviewed it,
 - the project's `check` script passes, and so does `vp lint --type-aware --type-check`, since `vp check` skips type errors unless the project's Vite config sets `lint.options.typeCheck`,
-- every new block renders correctly with its default content at desktop and mobile in the Block Catalog at `/camox/blocks/<id>`,
+- every new block renders correctly with its default content at desktop and mobile on the review Page,
 - every existing block that gained a Setting renders the same as its capture with default Settings.

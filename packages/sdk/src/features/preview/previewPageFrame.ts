@@ -19,8 +19,6 @@ export interface PreviewPageSlot {
   mode: CanvasFrameMode;
   /** Whether the Page is selected. Only the selected Page offers visual editing. */
   selected: boolean;
-  /** Whether the Page's shelf is collapsed, which hides the frame with the rest of the shelf. */
-  hidden: boolean;
   workspace: React.ContextType<typeof CanvasWorkspaceContext>;
   /** An interaction inside the frame, which activates the Page in the Canvas. */
   onInteract: () => void;
@@ -114,7 +112,7 @@ export function usePreviewPageFrame() {
 
 /**
  * The frame's layer over the Canvas row, from outside the Canvas. The Canvas
- * chrome drawn over Pages, such as page headers and Shelf Markers, stays above it.
+ * chrome drawn over Pages, such as page headers, stays above it.
  */
 export const PREVIEW_PAGE_Z_INDEX = 1;
 export const CANVAS_CHROME_Z_INDEX = PREVIEW_PAGE_Z_INDEX + 1;

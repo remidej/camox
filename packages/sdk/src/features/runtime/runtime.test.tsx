@@ -350,17 +350,13 @@ void test("anonymous studio navigation never validates a missing cookie or grant
   assert.equal(input.project, undefined);
 });
 
-void test("Canvas-only routes open the page app on the Canvas or a block, or redirect home", async (t) => {
+void test("the Canvas route opens the page app with nothing selected", async (t) => {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const path = new URL(request.url).pathname;
     if (path.endsWith("/getByUuid")) return Response.json({ json: project });
     throw new Error(`Unexpected API request ${path}`);
   });
-  const blocks = [
-    { _internal: { id: "hero", title: "Hero", layoutOnly: false } },
-    { _internal: { id: "navbar", title: "Navbar", layoutOnly: true } },
-  ];
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
@@ -370,12 +366,6 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
     studioClientEntryUrl: "/studio-client.js",
     stylesheetUrl: "/site.css",
     studioStylesheetUrl: "/studio.css",
-    getCamoxApp: async () =>
-      ({
-        ...app,
-        getBlockById: (id: string) => blocks.find((block) => block._internal.id === id),
-      }) as unknown as CamoxApp,
-    getDocument: async () => ({ htmlAttrs: { class: "dark" } }),
     renderPage: async (input) =>
       input.presentation === "public" ? "<main>Site content</main>" : "<nav>Studio</nav>",
   };
@@ -387,35 +377,14 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
       options,
     );
 
-  await t.test("a block opens the Canvas's page app with the block selected", async () => {
-    const response = await request("/_camox/data?path=/camox/blocks/hero");
-    assert.equal(response?.status, 200);
-    assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
-    const input = (await response!.json()) as PageRenderInput;
-    assert.deepEqual(input.canvasOnly, { blockId: "hero" });
-    assert.equal(input.pathname, "/camox/blocks/hero");
-    assert.equal(input.presentation, "studio");
-    assert.equal(input.routeKind, undefined, "the Canvas stays mounted, not a Studio page");
-    assert.ok(input.dehydratedState);
-    assert.match(input.previewDocument!, /href="\/site.css"/, "block frames get the site head");
-    assert.doesNotMatch(input.previewDocument!, /Site content/);
-
-    const html = await (await request("/camox/blocks/hero"))!.text();
-    assert.match(html, /page-client.js/);
-    assert.doesNotMatch(html, /studio-client.js/);
-    assert.match(html, /href="\/studio.css"/);
-    assert.match(html, /<title>Hero<\/title>/);
-  });
-
   await t.test("the Canvas opens its page app with nothing selected", async () => {
     const response = await request("/_camox/data?path=/camox/canvas");
     assert.equal(response?.status, 200);
     const input = (await response!.json()) as PageRenderInput;
-    assert.deepEqual(input.canvasOnly, {});
+    assert.equal(input.canvasOnly, true);
     assert.equal(input.pathname, "/camox/canvas");
     assert.equal(input.presentation, "studio");
     assert.equal(input.routeKind, undefined, "the Canvas stays mounted, not a Studio page");
-    assert.match(input.previewDocument!, /href="\/site.css"/, "block frames get the site head");
 
     const html = await (await request("/camox/canvas"))!.text();
     assert.match(html, /page-client.js/);
@@ -437,7 +406,6 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
     };
     assert.equal(await draft("/_camox/data?path=/camox/canvas"), undefined, "Live");
     assert.equal(await draft("/_camox/data?path=/camox/canvas&camox-draft=spring"), "spring");
-    assert.equal(await draft("/_camox/data?path=/camox/blocks/hero&camox-draft=spring"), "spring");
     assert.equal(
       await draft("/_camox/data?path=/camox/canvas", { developmentDraft: true }),
       "development",
@@ -448,20 +416,6 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
       "anyone else sees Live",
     );
   });
-
-  for (const [name, path] of [
-    ["an unknown block", "/camox/blocks/missing"],
-    ["a Layout-only Block", "/camox/blocks/navbar"],
-  ]) {
-    await t.test(`${name} redirects home`, async () => {
-      const response = await request(path);
-      assert.equal(response?.status, 302);
-      assert.equal(response?.headers.get("Location"), "https://site.test/site/");
-      // Client navigation falls back to loading the document, which redirects.
-      const data = await request(`/_camox/data?path=${path}`);
-      assert.equal(data?.status, 404);
-    });
-  }
 });
 
 void test("public Markdown responses read the page without a session", async (t) => {

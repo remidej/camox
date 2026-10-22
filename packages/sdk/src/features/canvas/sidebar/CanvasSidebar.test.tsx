@@ -6,12 +6,10 @@ import { QueryClient } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
 
-import type { Block } from "../../../core/createBlock";
 import { StudioQueryClientProvider, testStudioCache } from "../../../lib/draft-scope.fixtures";
 import { reads } from "../../../lib/studio-reads";
 import { NavigationProvider } from "../../navigation/navigation";
 import type { EditingOwner } from "../../preview/previewStore";
-import { getCanvasShelves } from "../canvasItems";
 import type { CanvasPage } from "../canvasPages";
 
 type CanvasSidebarProps = React.ComponentProps<typeof import("./CanvasSidebar").CanvasSidebar>;
@@ -118,12 +116,6 @@ async function setup() {
         return pageStructure(input.path);
       },
     },
-    blocks: {
-      getPagesUsing: async ({ type }: { type: string }) =>
-        (globalThis as unknown as { canvasBlockPages: Record<string, unknown[]> }).canvasBlockPages[
-          type
-        ] ?? [],
-    },
     layouts: {
       get: async (input: { layoutId: string; projectUuid: string }) => {
         calls.push(input);
@@ -147,12 +139,6 @@ async function setup() {
     requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
     cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
     IS_REACT_ACT_ENVIRONMENT: true,
-    canvasBlockPages: {
-      hero: [
-        { id: "7", nickname: "Home", fullPath: "/" },
-        { id: "83", nickname: "Special article", fullPath: "/articles/special" },
-      ],
-    } as Record<string, { id: string; nickname: string; fullPath: string }[]>,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -186,7 +172,6 @@ async function setup() {
       url: string,
       page: CanvasPage | undefined,
       navigator: Partial<CanvasNavigator> = {},
-      catalog?: { block: Block; projectId: number },
       { owner, pageRecord }: Pick<CanvasSidebarProps, "owner" | "pageRecord"> = {},
     ) {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
@@ -202,8 +187,7 @@ async function setup() {
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
                 <CanvasSidebar
                   page={page}
-                  catalog={catalog}
-                  navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
+                  navigator={{ pages: [], onShowPage: () => {}, ...navigator }}
                   onShowWholeCanvas={() => canvasShown++}
                   onRenamePage={async (pageId, nickname) => {
                     renames.push([pageId, nickname]);
@@ -389,7 +373,7 @@ void test("the active frame owner's selection opens the selection editor in plac
       ["/articles/hello", derivedPage, { kind: "layout", layoutId: "articles.$slug" }],
     ] as const) {
       dom.store.send({ type: "setFocusedBlock", ...owner, blockId: "42" });
-      await dom.render(url, page, {}, undefined, { owner });
+      await dom.render(url, page, {}, { owner });
       await dom.settle();
       assert.deepEqual(dom.panels(), [["SelectionEditor", null]], `a ${page.kind} page edits it`);
       assert.equal(
@@ -398,11 +382,11 @@ void test("the active frame owner's selection opens the selection editor in plac
         "for the Page's owner",
       );
 
-      await dom.render(url, page, {}, undefined, { owner: { kind: "page", pageId: "83" } });
+      await dom.render(url, page, {}, { owner: { kind: "page", pageId: "83" } });
       assert.equal(editing(), false, "another frame's selection isn't this Page's");
 
       dom.store.send({ type: "clearSelection" });
-      await dom.render(url, page, {}, undefined, { owner });
+      await dom.render(url, page, {}, { owner });
       assert.equal(editing(), false, "without a selection, the overview shows again");
     }
   } finally {
@@ -415,8 +399,7 @@ void test("a record page's selected record opens the editor, and its notice says
   dom.store.send({ type: "showCanvas" });
   const owner: EditingOwner = { kind: "layout", layoutId: "articles.$slug" };
   const pageRecord = { collectionId: "articles", id: "article" };
-  const render = () =>
-    dom.render("/articles/hello", derivedPage, {}, undefined, { owner, pageRecord });
+  const render = () => dom.render("/articles/hello", derivedPage, {}, { owner, pageRecord });
   try {
     // No block places a record page's record.
     dom.store.send({
@@ -440,14 +423,8 @@ void test("a record page's selected record opens the editor, and its notice says
   }
 });
 
-void test("the Canvas navigator lists every item under its shelf, searches, and shows the picked one", async () => {
+void test("the Canvas navigator lists every Page, searches, and shows the picked one", async () => {
   const dom = await setup();
-  const block = (id: string, title: string) =>
-    ({ _internal: { id, title, description: "", layoutOnly: false } }) as Block;
-  const shelves = getCanvasShelves(
-    [home, singleton],
-    [block("tabs", "Tabs"), block("faq", "FAQ"), block("hero", "Hero")],
-  );
   const shown: string[] = [];
   const entries = () =>
     [...dom.mount.querySelectorAll("[cmdk-item]")].map((entry) => ({
@@ -456,28 +433,19 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
       group: entry.closest("[cmdk-group]")?.querySelector("[cmdk-group-heading]")?.textContent,
     }));
   try {
-    await dom.render("/camox/blocks/hero", undefined, {
-      shelves,
-      selectedKey: "block:hero",
-      onShowItem: (key) => shown.push(key),
+    await dom.render("/camox/canvas", undefined, {
+      pages: [home, singleton],
+      selectedKey: singleton.key,
+      onShowPage: (key) => shown.push(key),
     });
-    assert.equal(dom.mount.querySelector("[data-panel]"), null, "no Page inspector on a block");
-    const blocksToggle = () =>
-      dom.mount.querySelector("[cmdk-group] button[aria-expanded]") as unknown as HTMLElement;
+    assert.equal(dom.mount.querySelector("[data-panel]"), null, "no Page inspector");
     assert.deepEqual(
       entries(),
       [
         { text: "Home/", current: null, group: "Pages (2)" },
-        { text: "About/about", current: null, group: "Pages (2)" },
+        { text: "About/about", current: "true", group: "Pages (2)" },
       ],
-      "Pages show with their path; blocks start collapsed",
-    );
-    assert.equal(blocksToggle().getAttribute("aria-expanded"), "false");
-    assert.equal(blocksToggle().textContent, "3 blocks");
-    assert.deepEqual(
-      [...dom.mount.querySelectorAll("[cmdk-group-heading]")].map((heading) => heading.textContent),
-      ["Pages (2)"],
-      "the blocks toggle names them, without a shelf heading",
+      "every Page, in Canvas order, with its path, and the selected one marked",
     );
 
     const search = dom.mount.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
@@ -492,43 +460,23 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
     assert.deepEqual(
       entries().map(({ text }) => text),
       ["About/about"],
-      "searching matches labels",
+      "searching matches titles",
     );
     await type("/abo");
     assert.deepEqual(
       entries().map(({ text }) => text),
       ["About/about"],
-      "and Page paths",
+      "and paths",
     );
-    await type("hero");
-    assert.deepEqual(
-      entries(),
-      [{ text: "Hero", current: "true", group: "Blocks (3)" }],
-      "searching finds collapsed blocks too, under their shelf's heading",
-    );
-    await type("block");
-    assert.deepEqual(entries(), [], "but never item keys");
+    await type("page:");
+    assert.deepEqual(entries(), [], "but never Page keys");
     await type("");
-    assert.equal(blocksToggle().getAttribute("aria-expanded"), "false", "blocks collapse again");
 
-    await React.act(async () => blocksToggle().click());
-    assert.deepEqual(
-      entries(),
-      [
-        { text: "Home/", current: null, group: "Pages (2)" },
-        { text: "About/about", current: null, group: "Pages (2)" },
-        { text: "FAQ", current: null, group: undefined },
-        { text: "Hero", current: "true", group: undefined },
-        { text: "Tabs", current: null, group: undefined },
-      ],
-      "expanded, every item, in Canvas order, with the selected one marked; blocks under their toggle alone",
-    );
-
-    const tabs = [...dom.mount.querySelectorAll("[cmdk-item]")].find(
-      (entry) => entry.textContent === "Tabs",
+    const about = [...dom.mount.querySelectorAll("[cmdk-item]")].find(
+      (entry) => entry.textContent === "About/about",
     ) as unknown as HTMLElement;
-    await React.act(async () => tabs.click());
-    assert.deepEqual(shown, ["block:tabs"], "picking an item shows it");
+    await React.act(async () => about.click());
+    assert.deepEqual(shown, [singleton.key], "picking a Page shows it");
 
     await dom.render("/", home);
     await dom.settle();
@@ -543,7 +491,7 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
   }
 });
 
-void test("a selected item's sidebar names it under a back button that shows the whole Canvas", async () => {
+void test("a selected Page's sidebar names it under a back button that shows the whole Canvas", async () => {
   const dom = await setup();
   try {
     for (const [url, page] of [
@@ -595,52 +543,6 @@ void test("a Page's nickname is renamed from the sidebar's header", async () => 
     assert.equal(input.value, "Home", "an empty nickname is refused");
     await type("Home", "Enter");
     assert.deepEqual(dom.renames, [["7", "Landing"]], "nothing else saves");
-  } finally {
-    await dom.close();
-  }
-});
-
-void test("a selected block shows its description and the Pages using it, which select the Page", async () => {
-  const dom = await setup();
-  const block = (id: string, description = `${id} description`) =>
-    ({ _internal: { id, title: id, description, layoutOnly: false } }) as Block;
-  const showBlock = async (id: string, description?: string, url = `/camox/blocks/${id}`) => {
-    await dom.render(url, undefined, {}, { block: block(id, description), projectId: 1 });
-    await dom.settle();
-  };
-  try {
-    await showBlock("hero", undefined, "/camox/blocks/hero?zoom=2#top");
-    assert.equal(dom.mount.querySelector("aside h2")?.textContent, "hero");
-    assert.match(dom.mount.textContent, /hero description/);
-    assert.equal(dom.mount.querySelector("[data-panel]"), null, "no Page inspector");
-    assert.equal(dom.mount.querySelector("[data-canvas-navigator]"), null);
-    const pages = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
-    assert.deepEqual(
-      pages.map((page) => page.textContent),
-      ["Home/", "Special article/articles/special"],
-    );
-    await React.act(async () => pages[1]!.click());
-    assert.deepEqual(
-      dom.navigations,
-      [{ to: "/articles/special?zoom=2#top" }],
-      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the Page",
-    );
-    await React.act(async () =>
-      dom.mount.querySelector<HTMLButtonElement>('[aria-label="Show whole canvas"]')!.click(),
-    );
-    assert.equal(dom.canvasShown, 1, "a block leads back to the Canvas too");
-
-    await showBlock("tabs");
-    assert.match(dom.mount.textContent, /tabs description/);
-    assert.equal(dom.mount.querySelector("aside li"), null);
-    assert.match(dom.mount.textContent, /No pages use this block/);
-
-    await showBlock("faq", "");
-    assert.equal(
-      [...dom.mount.querySelectorAll("aside p")].filter((p) => p.textContent === "").length,
-      0,
-      "an empty description leaves no empty paragraph",
-    );
   } finally {
     await dom.close();
   }

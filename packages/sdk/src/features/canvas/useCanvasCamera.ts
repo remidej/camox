@@ -127,7 +127,6 @@ export function useCanvasCamera(
   const flightControls = React.useRef<{
     flyTo: (key: string) => void;
     syncRow: () => void;
-    keepInView: (worldX: number, screenX: number) => void;
     reveal: (element: Element, immediate: boolean) => void;
     fitAll: () => void;
   } | null>(null);
@@ -146,13 +145,6 @@ export function useCanvasCamera(
       delete element.dataset.canvasPromoted;
       delete element.dataset.canvasBlockOverlap;
     };
-  }, []);
-  /**
-   * Pan immediately so a world x sits at or right of a screen x; never pans
-   * otherwise, nor while a selection holds the camera.
-   */
-  const keepInView = React.useCallback((worldX: number, screenX: number) => {
-    flightControls.current?.keepInView(worldX, screenX);
   }, []);
   /**
    * Pan vertically to an element inside a Canvas frame, such as a selected block,
@@ -604,15 +596,6 @@ export function useCanvasCamera(
     };
     flightControls.current = {
       flyTo: startFlight,
-      keepInView: (worldX, screenX) => {
-        const x = screenX - worldX * camera.scale;
-        if (selection || camera.x >= x) return;
-        cancelCameraFlight();
-        restoredCamera = undefined;
-        fittingInitialPage = false;
-        gesture = undefined;
-        applyCamera({ ...camera, x }, true);
-      },
       reveal: (element, immediate) => {
         const frame = element.ownerDocument.defaultView?.frameElement;
         if (!frame || (flight && !flight.pan) || pointers.size) return;
@@ -654,7 +637,7 @@ export function useCanvasCamera(
             startFlight(page.key);
           return;
         }
-        // Collapsing a shelf or reordering pages can move the selection away from the camera.
+        // Reordering pages can move the selection away from the camera.
         if (
           destination &&
           selection === key &&
@@ -1015,7 +998,6 @@ export function useCanvasCamera(
     contentRef,
     flyTo,
     mirrorCamera,
-    keepInView,
     reveal,
     fitAll,
   };

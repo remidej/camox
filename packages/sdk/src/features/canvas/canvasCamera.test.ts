@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  CANVAS_HEADER_HEIGHT,
   CANVAS_OVERSCROLL,
   canvasMaximumScale,
   stretchCanvasZoom,
@@ -197,7 +198,7 @@ void test("the initial page view fits its width with 24px padding, regardless of
     const camera = fitCanvasPage(viewport, page);
     assert.equal(camera.scale, (900 - 48) / 1366);
     assert.ok(Math.abs(camera.x + left * camera.scale - 24) < 1e-8);
-    assert.equal(camera.y, 108);
+    assert.equal(camera.y, 24 + CANVAS_HEADER_HEIGHT, "the page header shows above the page");
     for (const height of [900, 30000])
       assert.deepEqual(constrainCanvasCamera(camera, viewport, { width: 4578, height }), camera);
   }

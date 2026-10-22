@@ -82,7 +82,7 @@ void test("an artifact's source runs after the camox runtime", async () => {
   assert.equal(artifact.document.title, "Probe");
 });
 
-void test("where artifacts don't run, like unselected Block Catalog blocks, they show a still frame", () => {
+void test("where artifacts don't run, like on unselected Canvas Pages, they show a still frame", () => {
   const [frame] = renderArtifactFrames({ visual: source, slides: [] }, ({ children }) => (
     <Website>
       <ArtifactsRunContext value={false}>{children}</ArtifactsRunContext>

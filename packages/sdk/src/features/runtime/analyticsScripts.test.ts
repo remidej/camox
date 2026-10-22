@@ -310,14 +310,13 @@ void test("the preview sign-in hand-off loads no analytics", async (t) => {
   assertCountsNobody(await request("/about?camox-preview=target&ott=token"), "hand-off");
 });
 
-void test("the studio, Canvas, Block Catalog, data and Markdown routes load no analytics", async (t) => {
+void test("the studio, Canvas, data and Markdown routes load no analytics", async (t) => {
   mockApi(t);
   for (const cookie of [MEMBER_SESSION, undefined]) {
     for (const path of [
       "/camox",
       "/camox/content",
       "/camox/canvas",
-      "/camox/blocks/hero",
       "/_camox/data?path=/about",
       "/_camox/data?path=/pokedex",
       "/about.md",

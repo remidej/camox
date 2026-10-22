@@ -82,7 +82,6 @@ function setUp(t: TestContext, where: Partial<FollowWhere> = {}) {
     locale: "en",
     location: { pathname: "/", search: "?camox-draft=d1" },
     pageKey: home.key,
-    blockCatalogPath: (type) => `/camox/blocks/${type}`,
     ...where,
   };
   let current = initial;
@@ -234,16 +233,14 @@ void test("a destination whose page doesn't show within the minimum stay is drop
   assert.deepEqual(navigations, []);
 });
 
-void test("a Synced Block's shared content stays on the editor's page if placed there, else goes to the Block Catalog", (t) => {
+void test("a Synced Block's shared content stays on the editor's page if placed there, else goes nowhere", (t) => {
   const { follow, navigations, activate, selection } = setUp(t);
   activate(home);
   follow.receive(batch({ entity: "synced-block", blockType: "testimonial", kind: "edited" }));
   assert.equal(navigations.length, 0);
   assert.deepEqual(selection(), { type: "block", blockId: "quote" });
   follow.receive(batch({ entity: "synced-block", blockType: "team", kind: "edited" }));
-  assert.deepEqual(navigations, [
-    { to: "/camox/blocks/team?camox-draft=d1", replace: true, source: "follow" },
-  ]);
+  assert.deepEqual(navigations, []);
 });
 
 void test("a Layout's blocks stay on the editor's page if it uses the Layout, else go to the first page using it", (t) => {

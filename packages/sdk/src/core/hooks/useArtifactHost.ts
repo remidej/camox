@@ -9,8 +9,8 @@ import {
 } from "../lib/artifactHost";
 
 /**
- * The studio context of artifacts rendered outside the editing runtime, such as Block Catalog
- * blocks on the Canvas. Absent on the website, where artifacts see `camox.studio` as `null`.
+ * The studio context of artifacts rendered outside the editing runtime, such as the Preview's
+ * read-only page. Absent on the website, where artifacts see `camox.studio` as `null`.
  */
 export const ArtifactStudioContext = React.createContext<ArtifactStudio | null>(null);
 

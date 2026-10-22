@@ -277,23 +277,6 @@ export const reads = {
     staleTime: Infinity,
   }),
 
-  /** The distinct pages placing a block definition. */
-  pagesUsingBlock: entry<{ projectId: number; type: string }, PagesUsingBlock>({
-    // Under the usage counts prefix, so placing or removing the block refreshes it.
-    key: ({ type }) => [...usageCountsPrefix, "pages", type],
-    fetch: ({ api, signal }, { projectId, type }) =>
-      api.blocks.getPagesUsing({ projectId, type }, { signal }),
-    staleTime: Infinity,
-  }),
-
-  /** A Synced Block's shared content, or null when it has none yet. */
-  syncedContent: entry<{ projectId: number; type: string }, SyncedContent>({
-    key: ({ type }) => queryKeys.blocks.getSyncedContent(type),
-    fetch: ({ api, signal }, { projectId, type }) =>
-      api.blocks.getSyncedContent({ projectId, type }, { signal }),
-    staleTime: Infinity,
-  }),
-
   pageMarkdown: entry<string, string>({
     key: (pageId) => queryKeys.blocks.getPageMarkdown(pageId),
     fetch: async ({ api, signal }, pageId) =>
@@ -441,8 +424,6 @@ export const reads = {
 };
 
 type PageDetail = Awaited<ReturnType<ApiClient["pages"]["get"]>>;
-type PagesUsingBlock = Awaited<ReturnType<ApiClient["blocks"]["getPagesUsing"]>>;
-type SyncedContent = Awaited<ReturnType<ApiClient["blocks"]["getSyncedContent"]>>;
 type CollectionDetail = Awaited<ReturnType<ApiClient["collectionDefinitions"]["get"]>>;
 type CollectionRecords = Awaited<ReturnType<ApiClient["collectionDefinitions"]["listRecords"]>>;
 type PublishPreview = Awaited<ReturnType<ApiClient["drafts"]["previewPublish"]>>;
