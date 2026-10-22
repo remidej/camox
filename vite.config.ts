@@ -5,7 +5,7 @@ export default defineConfig({
     // `react` stays global: a plugin listed in `overrides` turns on none of its
     // default rules (https://github.com/oxc-project/oxc/issues/19779).
     plugins: ["typescript", "unicorn", "oxc", "react"],
-    ignorePatterns: ["**/routeTree.gen.ts", "packages/cli/templates/**"],
+    ignorePatterns: ["**/routeTree.gen.ts"],
     options: { typeAware: true, typeCheck: true },
     overrides: [
       {

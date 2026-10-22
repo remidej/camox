@@ -1,11 +1,7 @@
 # create-camox
 
-Scaffolds a new [Camox](https://camox.dev) project.
-
-```bash
-npm create camox
-```
+`npm create camox` no longer creates projects. Create a [Camox](https://camox.dev) project from the dashboard at [app.camox.dev](https://app.camox.dev), which sets up and hosts its website.
 
 ## Why does this package exist?
 
-This is a thin wrapper around `@camox/cli init`. It exists so that `npm create camox` always fetches the latest version of the CLI from the registry, rather than resolving a cached or locally installed copy of the `camox` package. It also avoids downloading the full SDK and its dependencies just to run the init command.
+This is a thin wrapper around `@camox/cli init`, which now only points to the dashboard. It's kept so that `npm create camox` says where projects are created instead of failing to resolve.

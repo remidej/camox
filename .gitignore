@@ -10,7 +10,6 @@ dist/
 packages/sdk/.dev/
 build/
 .output/
-packages/cli/templates
 
 # Checkout-local Camox credentials
 .camox/auth.json

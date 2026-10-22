@@ -1,11 +1,10 @@
-# The Template's copies
+# The Template's copy
 
-`apps/template-default` is the source of truth for the Template. Two copies of it leave the monorepo, and both go through `src/lib/template.ts`, so they can't drift:
+`apps/template-default` is the source of truth for the Template. Its copy leaves the monorepo through `src/lib/template.ts`:
 
-- **The CLI's copy.** `sync-templates.mjs` copies the Template into `templates/default` when the CLI builds, and `camox init` turns that copy into a project.
-- **`template-default` on Cloudflare Artifacts**, the read-only repo that new projects fork. `refresh-template-artifacts.mjs` copies the Template at the published SDK version, commits it with a `pnpm-lock.yaml`, checks that a fresh clone installs with `pnpm install --frozen-lockfile`, then pushes to `main`. When nothing changed, it pushes nothing.
+- **`template-default` on Cloudflare Artifacts**, the read-only repo that new projects fork when they're created from the dashboard. `refresh-template-artifacts.mjs` copies the Template at the published SDK version, commits it with a `pnpm-lock.yaml`, checks that a fresh clone installs with `pnpm install --frozen-lockfile`, then pushes to `main`. When nothing changed, it pushes nothing.
 
-Either way, the copy depends on the published `camox` instead of `workspace:*`, its `catalog:` ranges are replaced with the workspace catalog's, and the lines between `camox-cli:dev-only-start` and `camox-cli:dev-only-end` are dropped. The `camox-cli:replace-project-id` markers and the `{{projectName}}` placeholders stay in `template-default`, for whoever creates a project from it.
+The copy depends on the published `camox` instead of `workspace:*`, its `catalog:` ranges are replaced with the workspace catalog's, and the lines between `camox-cli:dev-only-start` and `camox-cli:dev-only-end` are dropped. The `camox-cli:replace-project-id` markers and the `{{projectName}}` placeholders stay in `template-default`, for whoever creates a project from it.
 
 ## Refreshing `template-default`
 

@@ -53,75 +53,7 @@ export async function verifySession(token: string): Promise<boolean> {
   return res.ok;
 }
 
-// --- Organizations ---
-
-export interface Organization {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-export async function listOrganizations(token: string): Promise<Organization[]> {
-  const res = await fetch(`${CAMOX_API_URL}/api/auth/organization/list`, {
-    method: "GET",
-    headers: authHeaders(token),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to list organizations: ${res.status}`);
-  }
-
-  return res.json();
-}
-
-export async function createOrganization(
-  token: string,
-  name: string,
-  slug: string,
-): Promise<Organization> {
-  const res = await fetch(`${CAMOX_API_URL}/api/auth/organization/create`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ name, slug }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to create organization: ${res.status} ${text}`);
-  }
-
-  return res.json();
-}
-
-export async function setActiveOrganization(token: string, organizationId: string): Promise<void> {
-  const res = await fetch(`${CAMOX_API_URL}/api/auth/organization/set-active`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ organizationId }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to set active organization: ${res.status}`);
-  }
-}
-
 // --- Projects ---
-
-export async function checkSlugAvailability(token: string, slug: string) {
-  const client = createRpcClient(token);
-  return client.projects.checkSlugAvailability({ slug });
-}
-
-export async function createProject(
-  token: string,
-  name: string,
-  slug: string,
-  organizationId: string,
-) {
-  const client = createRpcClient(token);
-  const result = await client.projects.create({ name, slug, organizationId });
-  return result;
-}
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
