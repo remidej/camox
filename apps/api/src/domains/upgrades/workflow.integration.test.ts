@@ -1,0 +1,329 @@
+import {
+  introspectWorkflow,
+  introspectWorkflowInstance,
+  type WorkflowIntrospector,
+} from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { createProjectFixture } from "../../../test/fixtures";
+import { projects } from "../../schema";
+import { PROJECTS_PER_BATCH } from "./workflow";
+
+// After each SDK publish, the upgrade Workflow moves every project to the new SDK: in a sandbox,
+// it moves the Camox packages to the new version, builds without releasing, and pushes only what builds to `main`,
+// which releases it. Cloudflare Artifacts, the sandbox and email are faked at their bindings
+// (test/release-fakes.js).
+
+const fakes = (env as unknown as { RELEASE_FAKES: ReleaseFakes }).RELEASE_FAKES;
+
+type ReleaseFakes = {
+  push(repo: string, commit: string, files: Record<string, string>): Promise<void>;
+  failCommand(repo: string, pattern: string, times: number): Promise<void>;
+  hold(repo: string, pattern: string): Promise<void>;
+  letGo(repo: string): Promise<void>;
+  commandsRun(repo: string): Promise<CommandRun[]>;
+  emailsSent(): Promise<Email[]>;
+};
+
+type CommandRun = { command: string; env: Record<string, string>; order: number };
+
+type Email = {
+  from: { name: string; email: string };
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+};
+
+// The account the alert links to, as the test bindings set it (vite.config.ts).
+const WORKFLOWS = "https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/workers/workflows";
+
+const NEW_VERSION = "0.10.0";
+
+function lockfile(camoxVersion: string) {
+  return [
+    "lockfileVersion: '9.0'",
+    "",
+    "importers:",
+    "",
+    "  .:",
+    "    dependencies:",
+    "      camox:",
+    `        specifier: ^${camoxVersion}`,
+    `        version: ${camoxVersion}(react@19.3.1)`,
+    "      react:",
+    "        specifier: ^19.3.1",
+    "        version: 19.3.1",
+    "",
+  ].join("\n");
+}
+
+function packageJson(dependencies: Record<string, string>, devDependencies = {}) {
+  return JSON.stringify({ name: "site", private: true, dependencies, devDependencies }, null, 2);
+}
+
+function commitSha() {
+  return crypto.randomUUID().replaceAll("-", "").padEnd(40, "0");
+}
+
+const projectsWithRepos: string[] = [];
+
+/** A project whose `main` is a commit of the Template on `camoxVersion`. */
+async function projectOn(camoxVersion: string, files: Record<string, string> = {}) {
+  const fixture = await createProjectFixture(`upgrade-workflow-${crypto.randomUUID()}`);
+  const head = commitSha();
+  projectsWithRepos.push(fixture.project.uuid);
+  await fakes.push(fixture.project.uuid, head, {
+    "package.json": packageJson({ camox: `^${camoxVersion}`, react: "^19.3.1" }),
+    "pnpm-lock.yaml": lockfile(camoxVersion),
+    ...files,
+  });
+  return { ...fixture, head };
+}
+
+/** Upgrades every project to `camoxVersion` the way the SDK publish starts it, and waits for it. */
+async function upgradeTo(camoxVersion: string) {
+  await using upgrades: WorkflowIntrospector = await introspectWorkflow(
+    env.PROJECT_UPGRADE_WORKFLOW,
+  );
+  await upgrades.modifyAll(async (m) => {
+    await m.disableRetryDelays();
+  });
+  const id = crypto.randomUUID();
+  await using instance = await introspectWorkflowInstance(env.UPGRADE_WORKFLOW, id);
+  await instance.modify(async (m) => {
+    await m.disableSleeps();
+    await m.disableRetryDelays();
+  });
+  await env.UPGRADE_WORKFLOW.create({ id, params: { camoxVersion } });
+  await instance.waitForStatus("complete").catch(async (cause: unknown) => {
+    const { error } = await (await env.UPGRADE_WORKFLOW.get(id)).status();
+    throw new Error(`The upgrade failed: ${error?.message}`, { cause });
+  });
+  return id;
+}
+
+async function commands(repo: string) {
+  return (await fakes.commandsRun(repo)).map(({ command }) => command);
+}
+
+/** The commands that pushed to the repo's `main`. */
+async function pushesToMain(repo: string) {
+  return (await fakes.commandsRun(repo)).filter(({ command }) =>
+    command.includes("git push -q origin HEAD:refs/heads/main"),
+  );
+}
+
+async function emailsAbout(projectId: string) {
+  return (await fakes.emailsSent()).filter(({ text }) => text.includes(projectId));
+}
+
+describe("upgrading every project to a new SDK", () => {
+  // Every upgrade covers every project, and this file's tests share one database: once a test is
+  // done, its projects are on the new SDK, so later upgrades leave them alone.
+  afterEach(async () => {
+    for (const repo of projectsWithRepos.splice(0)) {
+      await fakes.push(repo, commitSha(), { "pnpm-lock.yaml": lockfile(NEW_VERSION) });
+    }
+  });
+
+  it("updates the Camox packages, builds without releasing, then pushes each project that builds to main", async () => {
+    const first = await projectOn("0.9.1");
+    const second = await projectOn("0.9.2");
+
+    await upgradeTo(NEW_VERSION);
+
+    for (const { project } of [first, second]) {
+      expect(await commands(project.uuid)).toEqual([
+        `npm pkg set dependencies.camox=^${NEW_VERSION} && pnpm install --no-frozen-lockfile`,
+        "pnpm exec camox release --dry-run",
+        expect.stringContaining(`git commit -q -m "Upgrade Camox to ${NEW_VERSION}"`),
+      ]);
+      expect(await pushesToMain(project.uuid)).toHaveLength(1);
+      expect(await emailsAbout(project.uuid)).toEqual([]);
+    }
+  });
+
+  it("commits only the changed package.json and lockfile, on top of the main it built", async () => {
+    const { project, head } = await projectOn("0.9.1");
+
+    await upgradeTo(NEW_VERSION);
+
+    const [push] = await pushesToMain(project.uuid);
+    expect(push?.command).toContain(`fetch -q --depth=1 origin ${head}`);
+    expect(push?.command).toContain("git add package.json pnpm-lock.yaml");
+    // Pushed with a write token of the project's own repo, which only this step gets.
+    expect(push?.env.UPGRADE_GIT_REMOTE).toMatch(new RegExp(`/projects/${project.uuid}\\.git$`));
+    expect(push?.env.GIT_CONFIG_VALUE_0).toBe("Authorization: Bearer artifacts-write-token");
+    const others = (await fakes.commandsRun(project.uuid)).filter(
+      ({ command }) => command !== push!.command,
+    );
+    expect(others).toHaveLength(2);
+    for (const { env } of others) expect(Object.values(env).join("\n")).not.toContain("write");
+  });
+
+  it("updates every Camox package a project depends on, where it depends on it", async () => {
+    const { project } = await projectOn("0.9.1", {
+      "package.json": packageJson(
+        { camox: "^0.9.1", "@camox/ui": "^0.9.1", react: "^19.3.1" },
+        { "@camox/cli": "^0.9.1", wrangler: "^4.151.0" },
+      ),
+    });
+
+    await upgradeTo(NEW_VERSION);
+
+    expect((await commands(project.uuid))[0]).toBe(
+      `npm pkg set dependencies.camox=^${NEW_VERSION} dependencies.@camox/ui=^${NEW_VERSION} devDependencies.@camox/cli=^${NEW_VERSION} && pnpm install --no-frozen-lockfile`,
+    );
+  });
+
+  it("leaves a project that doesn't build untouched, and emails one alert listing every such project with its logs", async () => {
+    const builds = await projectOn("0.9.1");
+    const broken = await projectOn("0.9.1");
+    const alsoBroken = await projectOn("0.9.1");
+    for (const { project } of [broken, alsoBroken]) {
+      await fakes.failCommand(project.uuid, "camox release --dry-run", Infinity);
+    }
+
+    const instanceId = await upgradeTo(NEW_VERSION);
+
+    expect(await pushesToMain(broken.project.uuid)).toEqual([]);
+    expect(await pushesToMain(alsoBroken.project.uuid)).toEqual([]);
+    expect(await pushesToMain(builds.project.uuid)).toHaveLength(1);
+
+    const emails = await emailsAbout(broken.project.uuid);
+    expect(emails).toEqual([
+      expect.objectContaining({
+        from: { name: "Camox", email: "alerts@camox.dev" },
+        to: "alerts@camox.dev",
+        subject: expect.stringContaining(NEW_VERSION),
+      }),
+    ]);
+    const [email] = emails;
+    for (const { project } of [broken, alsoBroken]) {
+      // Its logs: the project's own upgrade, named after the Project ID.
+      const logs = new RegExp(
+        `${WORKFLOWS}/camox-project-upgrade/instance/\\S*${project.uuid}\\S*`,
+      );
+      expect(email!.text).toMatch(logs);
+      expect(email!.html).toMatch(new RegExp(`href="${logs.source}"`));
+      expect(email!.text).toContain(`${project.uuid}, failed at its build step`);
+    }
+    expect(email!.text).not.toContain(builds.project.uuid);
+    expect(email!.text).toContain(`${WORKFLOWS}/camox-upgrade/instance/${instanceId}`);
+  });
+
+  it("doesn't push a project whose update doesn't install", async () => {
+    const { project } = await projectOn("0.9.1");
+    await fakes.failCommand(project.uuid, "pnpm install", Infinity);
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await pushesToMain(project.uuid)).toEqual([]);
+    const [email] = await emailsAbout(project.uuid);
+    expect(email?.text).toContain(`${project.uuid}, failed at its update step`);
+  });
+
+  it("still pushes when a step fails and its retry passes, and alerts nobody", async () => {
+    const { project } = await projectOn("0.9.1");
+    await fakes.failCommand(project.uuid, "git push", 1);
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toHaveLength(4);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("leaves alone a project already on the new SDK, or on a newer one", async () => {
+    const { project: current } = await projectOn(NEW_VERSION);
+    const { project: newer } = await projectOn("0.10.1");
+
+    await upgradeTo(NEW_VERSION);
+
+    for (const project of [current, newer]) {
+      expect(await commands(project.uuid)).toEqual([]);
+      expect(await emailsAbout(project.uuid)).toEqual([]);
+    }
+  });
+
+  it("leaves alone a project whose setup failed, which Rémi was already told about", async () => {
+    const { db, project } = await projectOn("0.9.1");
+    await db
+      .update(projects)
+      .set({ status: "setupFailed", setupStep: "build" })
+      .where(eq(projects.id, project.id));
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toEqual([]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("leaves alone a project still setting up, whose first release isn't done", async () => {
+    const { db, project } = await projectOn("0.9.1");
+    await db
+      .update(projects)
+      .set({ status: "settingUp", setupStep: "build" })
+      .where(eq(projects.id, project.id));
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toEqual([]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("upgrades a project on a pre-release of the new SDK", async () => {
+    const { project } = await projectOn(`${NEW_VERSION}-beta.1`);
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await pushesToMain(project.uuid)).toHaveLength(1);
+  });
+
+  it("leaves alone a project on a pre-release of a newer SDK", async () => {
+    const { project } = await projectOn("0.10.1-beta.1");
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toEqual([]);
+  });
+
+  it("lists a project whose repo can't be read, and upgrades the others", async () => {
+    const { project: withoutRepo } = await createProjectFixture(
+      `upgrade-workflow-${crypto.randomUUID()}`,
+    );
+    const { project } = await projectOn("0.9.1");
+
+    await upgradeTo(NEW_VERSION);
+
+    const [email] = await emailsAbout(withoutRepo.uuid);
+    expect(email?.text).toContain(`${withoutRepo.uuid}, whose repo couldn't be read`);
+    expect(await pushesToMain(project.uuid)).toHaveLength(1);
+  });
+
+  it("upgrades at most a batch of projects at once, to throttle their deploys", async () => {
+    const batch = await Promise.all(
+      Array.from({ length: PROJECTS_PER_BATCH + 1 }, () => projectOn("0.9.1")),
+    );
+    const repos = batch.map(({ project }) => project.uuid);
+    // Each build waits, so the upgrades that started stay running.
+    for (const repo of repos) await fakes.hold(repo, "camox release --dry-run");
+    const started = async () => {
+      const runs = await Promise.all(repos.map((repo) => fakes.commandsRun(repo)));
+      return runs.filter((projectRuns) => projectRuns.length > 0).length;
+    };
+
+    const upgrade = upgradeTo(NEW_VERSION);
+    await vi.waitFor(async () => expect(await started()).toBeGreaterThan(0), { timeout: 10_000 });
+    // Gives every project that could start the time to.
+    await scheduler.wait(2_000);
+    const startedAtOnce = await started();
+    for (const repo of repos) await fakes.letGo(repo);
+    await upgrade;
+
+    expect(startedAtOnce).toBeLessThanOrEqual(PROJECTS_PER_BATCH);
+    for (const repo of repos) expect(await pushesToMain(repo)).toHaveLength(1);
+  });
+});

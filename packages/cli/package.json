@@ -6,8 +6,7 @@
     "camox": "./dist/index.mjs"
   },
   "files": [
-    "dist",
-    "templates"
+    "dist"
   ],
   "type": "module",
   "main": "./dist/index.mjs",
@@ -29,8 +28,8 @@
     }
   },
   "scripts": {
-    "build": "node scripts/sync-templates.mjs && vp pack",
-    "dev": "node scripts/sync-templates.mjs --watch --build",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "setup:template-artifacts": "bash scripts/setup-template-artifacts.sh",
     "test": "node --test test/*.test.mjs",
     "test:network": "node --test test/network/*.test.mjs"
@@ -41,7 +40,6 @@
     "@optique/run": "^1.3.6",
     "@orpc/client": "^1.15.7",
     "@orpc/server": "^1.15.7",
-    "slugify": "^1.6.9",
     "zod": "^4.6.7"
   },
   "devDependencies": {

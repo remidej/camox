@@ -1,9 +1,10 @@
 import { projectIdSchema } from "@camox/api-contract/ids";
+import type { ProjectSetupStep } from "@camox/api-contract/projects";
 import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 import { createDb, type Database } from "../../db";
 import type { Bindings } from "../../types";
@@ -43,7 +44,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
 
     const started = await step.do("record the release", async () => {
       const project = await db
-        .select({ id: projects.id, name: projects.name })
+        .select({ id: projects.id, name: projects.name, status: projects.status })
         .from(projects)
         .where(eq(projects.uuid, push.repo))
         .get();
@@ -67,8 +68,16 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         })
         // A restarted instance keeps its ID: re-running a release starts its row over.
         .onConflictDoUpdate({ target: releases.workflowInstanceId, set: running });
+      // Until a release succeeds, the project's setup follows its releases, including a re-run
+      // of a first release that failed.
+      const settingUp = project.status !== "live";
+      if (settingUp) await followSetup(db, project.id, { status: "settingUp", setupStep: "build" });
       // `projectId` is the project's row id, not its Project ID (`push.repo`).
-      return { projectId: project.id, projectName: project.name as string | undefined };
+      return {
+        projectId: project.id,
+        projectName: project.name as string | undefined,
+        settingUp: settingUp as boolean | undefined,
+      };
     });
     if (!started) return;
 
@@ -92,6 +101,17 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         command: "pnpm exec camox release",
         env: { CAMOX_DEPLOY_TOKEN: await deployToken(db, started.projectId) },
       }));
+      // A project deleted during its release stops it quietly, before it deploys a Worker its
+      // cleanup may already have deleted. A deletion during the deploy can still race it.
+      const exists = await step.do("check the project still exists", () =>
+        projectExists(db, started.projectId),
+      );
+      if (!exists) return;
+      if (started.settingUp) {
+        await step.do("follow the setup to serving", () =>
+          followSetup(db, started.projectId, { status: "settingUp", setupStep: "serve" }),
+        );
+      }
       await run(released, "deploy", async () => ({
         // Named after the repo, so a project's code can only ever replace its own Worker.
         command: `pnpm exec wrangler deploy --dispatch-namespace production --name ${push.repo}`,
@@ -103,15 +123,24 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       // alerting stops the other or hides why the release failed. Nothing touches the deployed
       // Worker: the previous code keeps serving.
       await step
-        .do("record the failed release", () =>
-          end(db, event.instanceId, { status: "failed", failedStep }),
-        )
+        .do("record the failed release", async () => {
+          await end(db, event.instanceId, { status: "failed", failedStep });
+          // A first release that gives up fails the project's setup: its page says so.
+          if (started.settingUp) {
+            await followSetup(db, started.projectId, {
+              status: "setupFailed",
+              setupStep: SETUP_STEPS[failedStep],
+            });
+          }
+        })
         .catch((recordError: unknown) => console.error("Failed release not recorded", recordError));
       // Its own step, so that a retry of a later step or a replay of the instance doesn't send
       // it again. A step can still run more than once, so the alert can, rarely, go out twice.
+      // Nobody is alerted about a project deleted during its release.
       await step
-        .do("alert the failed release", () =>
-          sendReleaseFailureAlert(this.env, {
+        .do("alert the failed release", async () => {
+          if (!(await projectExists(db, started.projectId))) return;
+          await sendReleaseFailureAlert(this.env, {
             project: {
               projectId: push.repo,
               // An instance started before the name was recorded replays an output without it.
@@ -120,16 +149,19 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
             commit: push.sha,
             failedStep,
             workflowInstanceId: event.instanceId,
-          }),
-        )
+          });
+        })
         .catch((alertError: unknown) =>
           console.error("Release failure alert not sent", alertError),
         );
       throw error;
     }
-    await step.do("record the succeeded release", () =>
-      end(db, event.instanceId, { status: "succeeded" }),
-    );
+    await step.do("record the succeeded release", async () => {
+      await end(db, event.instanceId, { status: "succeeded" });
+      if (started.settingUp) {
+        await followSetup(db, started.projectId, { status: "live", setupStep: null });
+      }
+    });
   }
 
   private async camoxVersion(repoName: string, commit: string) {
@@ -151,6 +183,35 @@ async function deployToken(db: Database, projectId: number) {
     .get();
   if (!project) throw new Error("The project was deleted during its release.");
   return project.deployToken;
+}
+
+/** Whether the project, by its row id, hasn't been deleted. */
+async function projectExists(db: Database, projectId: number) {
+  const project = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .get();
+  return project !== undefined;
+}
+
+/** The setup step each release step belongs to, as the project's page names them. */
+const SETUP_STEPS: Record<ReleaseStep, ProjectSetupStep> = {
+  install: "build",
+  release: "build",
+  deploy: "serve",
+};
+
+/** Moves a project that isn't live yet along its setup. A live project stays live. */
+async function followSetup(
+  db: Database,
+  projectId: number,
+  setup: Pick<typeof projects.$inferInsert, "status" | "setupStep">,
+) {
+  await db
+    .update(projects)
+    .set(setup)
+    .where(and(eq(projects.id, projectId), ne(projects.status, "live")));
 }
 
 async function end(

@@ -279,6 +279,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
 
   let isBuild = false;
   let isRelease = false;
+  /** A release's build, without syncing to Live: what the upgrade job checks a project with. */
+  let isDryRun = false;
   let resolvedConfig: ResolvedConfig;
   let localAuth: StoredAuth | null = null;
   let blockChunks: Record<string, string[]> = {};
@@ -346,7 +348,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
         options.icons,
       );
       isBuild = env.command === "build";
-      isRelease = isBuild && process.env.CAMOX_INTERNAL_RELEASE === "1";
+      // `camox release` sets "1", and `camox release --dry-run` sets "dry-run".
+      const release = process.env.CAMOX_INTERNAL_RELEASE;
+      isRelease = isBuild && (release === "1" || release === "dry-run");
+      isDryRun = isRelease && release === "dry-run";
       if (!isRelease) {
         localAuth = readAuthTokenForUrl(authenticationUrl);
         if (isBuild && !localAuth) {
@@ -465,7 +470,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
 
       const mode = config.command === "serve" ? "Running" : "Building";
       let target = "your development draft";
-      if (isRelease) target = "Live";
+      if (isDryRun) target = "Live, dry run";
+      else if (isRelease) target = "Live";
       else if (!localAuth) target = "authentication required";
       config.logger.info(`${mode} Camox app (${target})`, { timestamp: true });
     },
@@ -529,7 +535,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     },
 
     async closeBundle() {
-      if (!isRelease) return;
+      if (!isRelease || isDryRun) return;
 
       const deployToken = process.env.CAMOX_DEPLOY_TOKEN;
       if (!deployToken) {

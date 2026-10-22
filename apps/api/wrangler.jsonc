@@ -92,6 +92,30 @@
       "binding": "RELEASE_WORKFLOW",
       "class_name": "ReleaseWorkflow",
     },
+    // Copies the Template into a new project's repo (src/domains/project-creation/README.md).
+    {
+      "name": "camox-project-creation",
+      "binding": "PROJECT_CREATION_WORKFLOW",
+      "class_name": "ProjectCreationWorkflow",
+    },
+    // Deletes a deleted project's Worker and repo (src/domains/project-deletion/README.md).
+    {
+      "name": "camox-project-deletion",
+      "binding": "PROJECT_DELETION_WORKFLOW",
+      "class_name": "ProjectDeletionWorkflow",
+    },
+    // Moves every project to a newly published SDK; deploy.yml starts it after each publish
+    // (src/domains/upgrades/README.md).
+    {
+      "name": "camox-upgrade",
+      "binding": "UPGRADE_WORKFLOW",
+      "class_name": "UpgradeWorkflow",
+    },
+    {
+      "name": "camox-project-upgrade",
+      "binding": "PROJECT_UPGRADE_WORKFLOW",
+      "class_name": "ProjectUpgradeWorkflow",
+    },
   ],
   // Remote even in local dev, as Cloudflare Artifacts has no local simulator.
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "projects", "remote": true }],

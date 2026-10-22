@@ -1,9 +1,16 @@
+import { call } from "@orpc/server";
+import { introspectWorkflow } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture, createSessionFixture } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  createSessionFixture,
+} from "../../../test/fixtures";
 import { createDb } from "../../db";
+import { router } from "../../router";
 import { session } from "../../schema";
 import type { Bindings } from "../../types";
 import { createAuth } from "./routes";
@@ -161,6 +168,38 @@ describe("authorizing the studio on a host", () => {
     const response = await authorizeStudio(`https://${host}/`);
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe("opening the studio from a project's page", () => {
+  /** A project a member created from the dashboard, while the creation Workflow does nothing. */
+  async function createdProject() {
+    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
+    await using creations = await introspectWorkflow(env.PROJECT_CREATION_WORKFLOW);
+    await creations.modifyAll(async (m) => {
+      await m.mockStepResult({ name: "fork the Template" }, null);
+      await m.mockStepResult({ name: "commit the project's code" }, null);
+    });
+    const slug = `acme-${crypto.randomUUID().slice(0, 8)}`;
+    await call(
+      router.projects.create,
+      { name: "Acme", slug, organizationId: project.organizationId },
+      { context: createRpcContext(db, memberUser) },
+    );
+    return { memberUser, siteUrl: `https://${slug}.camox.site` };
+  }
+
+  it("lands on the project's site signed in, with a session that isn't the dashboard's", async () => {
+    const { memberUser, siteUrl } = await createdProject();
+    const dashboard = await createSessionFixture(memberUser.id);
+
+    const authorization = await authorizeStudio(siteUrl, dashboard);
+    expect((await redirectTo(authorization.clone())).origin).toBe(siteUrl);
+    const studio = await exchanged(authorization);
+
+    expect(studio.user.id).toBe(memberUser.id);
+    expect(studio.session.token).not.toBe(dashboard);
+    expect(await signedInUser(studio.session.token)).toBe(memberUser.id);
   });
 });
 

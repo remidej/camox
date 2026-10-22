@@ -1,11 +1,10 @@
 /**
  * The one transformation that turns the monorepo's Template (`apps/template-default`) into a
- * standalone project. The CLI applies it in two halves: `copyTemplateSource` when it builds the
- * copy it ships, and `makeStandalone` when `camox init` scaffolds a project. The script that
- * refreshes `template-default` on Cloudflare Artifacts applies both, so the two copies can't drift.
+ * standalone project: `copyTemplateSource`, then `makeStandalone`. The script that refreshes
+ * `template-default` on Cloudflare Artifacts, which new projects fork, applies both.
  *
- * Node runs the build scripts straight from this file, so it may only import `node:` modules and
- * other such files, with their `.ts` extension.
+ * Node runs the scripts straight from this file, so it may only import `node:` modules and other
+ * such files, with their `.ts` extension.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -29,15 +28,6 @@ export const EXCLUDED_TEMPLATE_PATHS: ReadonlySet<string> = new Set([
   "src/routes/_camox.tsx",
   "src/routes/_camox",
 ]);
-
-/** Whether a path relative to the Template's root is, or is inside, an excluded path. */
-export function isExcludedTemplatePath(relativePath: string) {
-  const normalized = relativePath.split(path.sep).join("/");
-  for (const excluded of EXCLUDED_TEMPLATE_PATHS) {
-    if (normalized === excluded || normalized.startsWith(`${excluded}/`)) return true;
-  }
-  return false;
-}
 
 /**
  * Reads the default `catalog:` map from a `pnpm-workspace.yaml`. Only flat `name: range` entries

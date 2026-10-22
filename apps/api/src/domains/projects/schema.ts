@@ -1,5 +1,6 @@
 import type { PosthogRegion } from "@camox/api-contract/analytics";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import type { ProjectSetupStep, ProjectStatus } from "@camox/api-contract/projects";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { organizationTable } from "../auth/schema";
@@ -17,6 +18,10 @@ export const projects = sqliteTable(
     slug: text().notNull(),
     name: text().notNull(),
     deployToken: text("deploy_token").notNull().default(""),
+    /** `settingUp` until its first release succeeds, then `live`, or `setupFailed`. */
+    status: text().$type<ProjectStatus>().notNull().default("live"),
+    /** The setup step underway, or the one that failed, while the project isn't live. */
+    setupStep: text("setup_step").$type<ProjectSetupStep>(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizationTable.id),

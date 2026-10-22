@@ -112,6 +112,11 @@ Git-triggered builds for these apps to avoid competing deployments.
 4. Check `/health` (API availability and a D1 query).
 5. Deploy dashboard, then run landing's `camox release` and deploy its Worker.
 
+When release-please cuts a release, the `publish` job publishes the SDK once this deploy has
+succeeded, `refresh-template` refreshes `template-default`, and `upgrade-projects` starts the
+API's upgrade Workflow, which moves every project to the new SDK
+([`apps/api/src/domains/upgrades/README.md`](apps/api/src/domains/upgrades/README.md)).
+
 Landing's release builds and syncs against the newly deployed API, so it runs
 after the API health check. It is not cached. A failed step stops subsequent
 steps, but does not undo earlier deployments or production definition syncs.
