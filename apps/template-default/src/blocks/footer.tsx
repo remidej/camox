@@ -22,6 +22,7 @@ const footer = createBlock({
       minItems: 2,
       maxItems: 12,
       title: "Links",
+      toTitle: ({ content }) => content.link,
       toMarkdown: ({ content }) => [content.link],
     }),
   }),
@@ -29,6 +30,7 @@ const footer = createBlock({
     scheme: colorSchemeSetting(setting, "dark"),
   }),
   toReact: FooterComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [content.title, content.links],
 });
 

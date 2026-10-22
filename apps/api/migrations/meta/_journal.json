@@ -141,6 +141,13 @@
       "when": 1792656721213,
       "tag": "0019_project_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792690386700,
+      "tag": "0020_social_profiles",
+      "breakpoints": true
     }
   ]
 }

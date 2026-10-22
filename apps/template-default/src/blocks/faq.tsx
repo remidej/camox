@@ -30,6 +30,7 @@ const faq = createBlock({
       minItems: 3,
       maxItems: Infinity,
       title: "Questions",
+      toTitle: ({ content }) => content.question,
       toMarkdown: ({ content }) => [`Q: ${content.question}`, `A: ${content.answer}`],
     }),
   }),
@@ -37,6 +38,7 @@ const faq = createBlock({
     scheme: colorSchemeSetting(setting, "light"),
   }),
   toReact: FaqComponent,
+  toTitle: () => "FAQ",
   toMarkdown: ({ content }) => [content.items],
 });
 

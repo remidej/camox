@@ -1,5 +1,6 @@
 import {
   createSchemaOrgGraph,
+  defineBreadcrumb,
   defineOrganization,
   defineWebPage,
   defineWebSite,
@@ -32,6 +33,8 @@ export interface SiteGraphInput {
   name: string;
   /** The project's logo, a PNG. */
   logo: { url: string; width: number; height: number };
+  /** The project's social profile URLs, in their order. */
+  socialProfiles: readonly string[];
 }
 
 /** The page a graph describes, as its head does. */
@@ -50,6 +53,8 @@ export interface PageNodeInput {
   datePublished?: Date;
   /** When the page was last published to Live. */
   dateModified?: Date;
+  /** Where the page sits in the website, from the home page down to the page itself. */
+  breadcrumb?: ReadonlyArray<{ name: string; url: string }>;
 }
 
 /** What a page's graph is built from. */
@@ -80,6 +85,7 @@ function siteNodes(site: SiteGraphInput, inLanguage: string) {
       name: site.name,
       url: site.url,
       logo: { url: site.logo.url, width: site.logo.width, height: site.logo.height },
+      ...(site.socialProfiles.length > 0 && { sameAs: [...site.socialProfiles] }),
     }),
     defineWebSite({
       "@id": ids.website,
@@ -139,12 +145,24 @@ function mainEntityNode(entity: MainEntity, page: PageNodeInput, site: SiteGraph
   };
 }
 
+/** The page's breadcrumb, which the page node links. None for a page without crumbs. */
+function breadcrumbNodes(page: PageNodeInput) {
+  if (!page.breadcrumb?.length) return [];
+  return [
+    defineBreadcrumb({
+      "@id": `${page.url}#breadcrumb`,
+      itemListElement: page.breadcrumb.map((crumb) => ({ name: crumb.name, item: crumb.url })),
+    }),
+  ];
+}
+
 /** Every node a page's graph holds, before they are resolved and linked. */
 function graphNodes({ site, page, declared }: PageGraphInput) {
   return [
     ...siteNodes(site, page.inLanguage),
     pageNode(page, site, declared),
     ...(declared && !isWebPageKind(declared) ? [mainEntityNode(declared, page, site)] : []),
+    ...breadcrumbNodes(page),
   ];
 }
 

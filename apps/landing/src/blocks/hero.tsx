@@ -30,6 +30,7 @@ const hero = createBlock({
     }),
   }),
   toReact: HeroComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [
     `# ${content.title}`,
     content.description,

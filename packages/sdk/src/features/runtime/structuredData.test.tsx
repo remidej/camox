@@ -30,7 +30,8 @@ registerHooks({
   },
 });
 
-const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
+const PROJECT = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
+const project = PROJECT;
 const MEMBER_SESSION = "camox_auth_cookie=valid";
 const PRICING = "0199f0a0-0000-7000-8000-000000000001";
 const LAUNCH = "0199f0a0-0000-7000-8000-000000000002";
@@ -104,8 +105,13 @@ const unauthorized = () =>
  */
 function mockApi(
   t: { mock: { method: typeof test.mock.method } },
-  { livePages = LIVE_PAGES }: { livePages?: Record<string, StoredPage[]> } = {},
+  {
+    livePages = LIVE_PAGES,
+    socialProfiles,
+  }: { livePages?: Record<string, StoredPage[]>; socialProfiles?: string[] } = {},
 ) {
+  // Social profiles are a Project Setting: Live and every draft read the same ones.
+  const project = { ...PROJECT, ...(socialProfiles && { socialProfiles }) };
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const procedure = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const locale = request.headers.get(LOCALE_HEADER) ?? "en";
@@ -481,5 +487,35 @@ void test("navigating client-side swaps the graph rather than adding a second on
       await navigate({ to: path });
     });
     assert.deepEqual(pageNodeNames(), [name], path);
+  }
+});
+
+void test("the Organization lists the project's social profiles as sameAs, in their order, on Live and in drafts", async (t) => {
+  const profiles = [
+    "https://x.com/acme",
+    "https://github.com/acme",
+    "https://www.linkedin.com/company/acme",
+  ];
+  mockApi(t, { socialProfiles: profiles });
+  const pages = [
+    ["/pricing"],
+    ["/pokedex"],
+    ["/pokemon/pikachu"],
+    ["/articles/hello"],
+    ["/de/preise"],
+    ["/launch?camox-draft=d1", { cookie: MEMBER_SESSION }],
+  ] as const;
+  for (const [path, init] of pages) {
+    const { organization } = await graphOf(await visit(path, init));
+    assert.deepEqual(organization.sameAs, profiles, path);
+  }
+});
+
+void test("a project without social profiles has an Organization without sameAs", async (t) => {
+  for (const socialProfiles of [undefined, []]) {
+    mockApi(t, { socialProfiles });
+    const { organization } = await graphOf(await visit("/pricing"));
+    assert.equal("sameAs" in organization, false, JSON.stringify(socialProfiles));
+    t.mock.restoreAll();
   }
 });

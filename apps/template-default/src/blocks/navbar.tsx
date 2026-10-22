@@ -34,6 +34,7 @@ const navbar = createBlock({
       minItems: 1,
       maxItems: 6,
       title: "Links",
+      toTitle: ({ content }) => content.link,
       toMarkdown: ({ content }) => [content.link],
     }),
     cta: field.link({
@@ -49,6 +50,7 @@ const navbar = createBlock({
     scheme: colorSchemeSetting(setting, "dark"),
   }),
   toReact: NavbarComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [content.title, content.links, content.cta],
 });
 

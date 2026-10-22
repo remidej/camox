@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
 import { Skeleton } from "@camox/ui/skeleton";
-import { ChevronDown, ImageIcon, Info, Settings, Users } from "lucide-react";
+import { AtSign, ChevronDown, ImageIcon, Info, Settings, Users } from "lucide-react";
 import * as React from "react";
 
 import { Link } from "@/features/navigation/navigation";
@@ -21,6 +21,7 @@ import { type Project } from "@/lib/queries";
 import { version } from "../../../../package.json";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { FaviconDialog } from "./FaviconDialog";
+import { SocialProfilesDialog } from "./SocialProfilesDialog";
 
 export const Favicon = ({ project, size = 16 }: { project: Project; size?: number }) => (
   <img
@@ -35,6 +36,7 @@ export const ProjectMenu = () => {
   const authCtx = React.useContext(AuthContext);
   const { data: project } = useReadQuery(reads.project({ projectUuid: authCtx!.projectUuid }));
   const [isFaviconDialogOpen, setIsFaviconDialogOpen] = React.useState(false);
+  const [isSocialProfilesDialogOpen, setIsSocialProfilesDialogOpen] = React.useState(false);
 
   if (!project) {
     return (
@@ -75,6 +77,10 @@ export const ProjectMenu = () => {
           <DropdownMenuItem onClick={() => setIsFaviconDialogOpen(true)}>
             <ImageIcon />
             Set favicon…
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setIsSocialProfilesDialogOpen(true)}>
+            <AtSign />
+            Social profiles…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
@@ -126,6 +132,11 @@ export const ProjectMenu = () => {
         project={project}
         open={isFaviconDialogOpen}
         onOpenChange={setIsFaviconDialogOpen}
+      />
+      <SocialProfilesDialog
+        project={project}
+        open={isSocialProfilesDialogOpen}
+        onOpenChange={setIsSocialProfilesDialogOpen}
       />
     </>
   );

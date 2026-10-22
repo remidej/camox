@@ -24,6 +24,7 @@ import {
   resolveReferences,
   type ResolvedReferences,
 } from "./references";
+import { titlesOf } from "./titles";
 
 type BlockRow = typeof blocks.$inferSelect;
 type ItemRow = typeof repeatableItems.$inferSelect;
@@ -72,11 +73,14 @@ const loadSource = Effect.fn("content.loadSource")(function* (
   return { blocks: sorted, items };
 });
 
-/** A block as readers see it: its shared content if it's a synced placement, and its summary. */
-export type ShownBlock = Conformed<BlockRow> & { summary: string };
+/**
+ * A block as readers see it: its shared content if it's a synced placement, its summary, and its
+ * title, which names it until it has a summary.
+ */
+export type ShownBlock = Conformed<BlockRow> & { summary: string; title: string };
 
-/** An item as readers see it, under the block showing it, with its summary. */
-export type ShownItem = Conformed<ItemRow> & { blockId: string; summary: string };
+/** An item as readers see it, under the block showing it, with its summary and title. */
+export type ShownItem = Conformed<ItemRow> & { blockId: string; summary: string; title: string };
 
 /**
  * Blocks and items as the scope's readers see them: synced placements show their shared
@@ -91,10 +95,14 @@ const show = Effect.fn("content.show")(function* (
   itemRows: readonly ItemRow[],
 ): Effect.fn.Return<{ blocks: ShownBlock[]; items: ShownItem[] }> {
   const shown = yield* withSharedContent(db, at.draft, blockRows, itemRows);
-  const conformed = conformBlocks(yield* definitions.blocks(), shown.blocks, shown.items);
+  const blockDefinitions = yield* definitions.blocks();
+  const conformed = conformBlocks(blockDefinitions, shown.blocks, shown.items);
+  const titles = yield* titlesOf(db, at, blockDefinitions, conformed, conformed);
   return {
-    blocks: conformed.blocks,
-    items: overlay.sortByPosition(conformed.items),
+    blocks: conformed.blocks.map((block) => ({ ...block, title: titles.block(block.id) })),
+    items: overlay.sortByPosition(
+      conformed.items.map((item) => ({ ...item, title: titles.item(item.id) })),
+    ),
   };
 });
 
@@ -311,8 +319,20 @@ export const shownItems = Effect.fn("content.shownItems")(function* (
   const trees = yield* loadTrees(db, at, rows.map(rootOfItem));
   const items = new Map(trees.items.map((item) => [item.id, item]));
   for (const row of rows) items.set(row.id, { ...row, blockId: trees.keyOf(rootOfItem(row)) });
-  const conformed = conformBlocks(yield* definitions.blocks(), trees.standIns, [...items.values()]);
+  const blockDefinitions = yield* definitions.blocks();
+  const conformed = conformBlocks(blockDefinitions, trees.standIns, [...items.values()]);
   const byId = new Map(conformed.items.map((item) => [item.id, item]));
+  const titled = rows.flatMap((row) => {
+    const found = byId.get(row.id);
+    return found ? [found] : [];
+  });
+  const titles = yield* titlesOf(
+    db,
+    at,
+    blockDefinitions,
+    { blocks: trees.standIns, items: conformed.items },
+    { blocks: [], items: titled },
+  );
   const summaries = yield* readValues(
     db,
     at.draft,
@@ -327,6 +347,7 @@ export const shownItems = Effect.fn("content.shownItems")(function* (
       content: found ? found.content : {},
       settings: found ? found.settings : null,
       summary: summaries.get(row.id)?.value?.summary ?? "",
+      title: titles.item(row.id),
     };
   });
 });
@@ -351,6 +372,13 @@ export const itemBundle = Effect.fn("content.itemBundle")(function* (
   const content = marked.find((item) => item.id === row.id)!.content;
   const schemas = itemContentSchemas(blockDefinitions, trees.standIns, tree);
   const summaries = yield* readValues(db, at.draft, "repeatableItem", "summary", [row.id]);
+  const titles = yield* titlesOf(
+    db,
+    at,
+    blockDefinitions,
+    { blocks: trees.standIns, items: tree },
+    { blocks: [], items: [found] },
+  );
   const resolved = yield* resolveReferences(
     db,
     at,
@@ -369,6 +397,7 @@ export const itemBundle = Effect.fn("content.itemBundle")(function* (
       content,
       blockId: row.blockId,
       summary: summaries.get(row.id)?.value?.summary ?? "",
+      title: titles.item(row.id),
       references: resolved.references[0]!,
     },
     files: [...files.values()],
