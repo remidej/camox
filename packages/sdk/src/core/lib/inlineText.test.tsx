@@ -38,11 +38,12 @@ void test("bold, italic, and strikethrough compose, including inside links", () 
   assert.match(html, /href="https:\/\/example.com"/);
 });
 
-void test("default highlight uses primary text color with an inherited-color fallback", () => {
-  const expected = "var(--primary, currentColor)";
+void test("default highlight reads the website's --camox-highlight with an inherited-color fallback", () => {
+  const expected = "var(--camox-highlight, currentColor)";
   assert.deepEqual(getHighlightStyle({}).style, { color: expected });
   const html = renderToStaticMarkup(markdownToReactNodes("<highlight>nimble</highlight>"));
   assert.ok(html.includes(expected));
+  assert.doesNotMatch(html, /--primary/);
   assert.equal(
     getHighlightStyle({
       textStyle: ({ highlight }) => (highlight ? { style: { color: "orange" } } : undefined),

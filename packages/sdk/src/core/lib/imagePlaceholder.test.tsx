@@ -46,6 +46,15 @@ void test("placeholder labels use field titles and inherit the site's font", () 
   assert.match(html, /&lt;Cover&gt; &amp; art<\/span>/);
 });
 
+void test("placeholder paints with the website's --camox-placeholder variables and default fallbacks", () => {
+  const html = renderToStaticMarkup(renderImagePlaceholder(placeholder, <img alt="" />));
+  assert.match(html, /<rect[^>]+fill:var\(--camox-placeholder, #f1f3f5\)/);
+  assert.match(html, /color:var\(--camox-placeholder, #f1f3f5\);background:currentColor/);
+  assert.match(html, /color:var\(--camox-placeholder-ink, #64748b\)[^>]*>image<\/span>/);
+  assert.match(html, /<g style="color:var\(--camox-placeholder, #f1f3f5\)"><defs>/);
+  assert.doesNotMatch(html, /--muted|--color-muted|hsl\(/);
+});
+
 void test("only explicit local defaults are placeholders, never URL lookalikes or uploads", () => {
   const image = <img src={placeholder.url} alt="" />;
   assert.equal((renderImagePlaceholder(placeholder, image) as React.ReactElement).type, "svg");
