@@ -1,6 +1,6 @@
 import type { CloudflareArtifacts } from "@cloudflare/ci";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { asc } from "drizzle-orm";
+import { asc, ne } from "drizzle-orm";
 
 import { createDb } from "../../db";
 import type { Bindings } from "../../types";
@@ -68,10 +68,12 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
       throw new Error(`Not a published SDK version: ${JSON.stringify(camoxVersion)}`);
     }
 
+    // A project whose setup failed already alerted Rémi, who sets it up again from the Template.
     const all = await step.do("list the projects", async () => {
       return createDb(this.env.DB)
         .select({ projectId: projects.uuid, name: projects.name })
         .from(projects)
+        .where(ne(projects.status, "setupFailed"))
         .orderBy(asc(projects.id));
     });
 
@@ -122,8 +124,8 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
 
   /**
    * Starts a project's upgrade on the commit its `main` points to, unless that commit already
-   * installs this version or a newer one. A repo that can't be read, or has no `main`, such as that of a project
-   * whose setup failed, can't be upgraded.
+   * installs this version or a newer one. A repo that can't be read, or has no `main`, can't be
+   * upgraded.
    */
   private async startProjectUpgrade(
     upgradeInstanceId: string,

@@ -4,9 +4,11 @@ import {
   type WorkflowIntrospector,
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture } from "../../../test/fixtures";
+import { projects } from "../../schema";
 import { PROJECTS_PER_BATCH } from "./workflow";
 
 // After each SDK publish, the upgrade Workflow moves every project to the new SDK: in a sandbox,
@@ -246,7 +248,20 @@ describe("upgrading every project to a new SDK", () => {
     }
   });
 
-  it("lists a project whose repo can't be read, such as one whose setup failed, and upgrades the others", async () => {
+  it("leaves alone a project whose setup failed, which Rémi was already told about", async () => {
+    const { db, project } = await projectOn("0.9.1");
+    await db
+      .update(projects)
+      .set({ status: "setupFailed", setupStep: "build" })
+      .where(eq(projects.id, project.id));
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toEqual([]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("lists a project whose repo can't be read, and upgrades the others", async () => {
     const { project: withoutRepo } = await createProjectFixture(
       `upgrade-workflow-${crypto.randomUUID()}`,
     );
@@ -260,10 +275,10 @@ describe("upgrading every project to a new SDK", () => {
   });
 
   it("upgrades at most a batch of projects at once, to throttle their deploys", async () => {
-    const projects = await Promise.all(
+    const batch = await Promise.all(
       Array.from({ length: PROJECTS_PER_BATCH + 1 }, () => projectOn("0.9.1")),
     );
-    const repos = projects.map(({ project }) => project.uuid);
+    const repos = batch.map(({ project }) => project.uuid);
     // Each build waits, so the upgrades that started stay running.
     for (const repo of repos) await fakes.hold(repo, "camox release --dry-run");
     const started = async () => {

@@ -4,7 +4,7 @@ Every SDK publish upgrades every project to it (GLOSSARY.md), so that the API on
 
 ## Steps
 
-The upgrade lists every project, then goes through them in batches. For each project, it reads the commit `main` points to and the `camox` version its `pnpm-lock.yaml` installs. A project already on that version or a newer one is left alone, so re-running an upgrade only redoes the projects it didn't move. Any other project gets its own `camox-project-upgrade` Workflow instance (`project-workflow.ts`), which runs on `@cloudflare/ci` in the release sandboxes, on that commit:
+The upgrade lists every project but those whose setup failed, which already alerted Rémi, then goes through them in batches. For each project, it reads the commit `main` points to and the `camox` version its `pnpm-lock.yaml` installs. A project already on that version or a newer one is left alone, so re-running an upgrade only redoes the projects it didn't move. Any other project gets its own `camox-project-upgrade` Workflow instance (`project-workflow.ts`), which runs on `@cloudflare/ci` in the release sandboxes, on that commit:
 
 1. **`bump`:** sets every Camox package the project depends on (`camox`, `@camox/*`) to `^<version>` in its `package.json` with `npm pkg set`, then `pnpm install --no-frozen-lockfile` updates the lockfile.
 2. **`build`:** `pnpm exec camox release --dry-run`, which builds the website as a release would, for Live, without logging in or syncing its definitions.
@@ -20,7 +20,7 @@ Each project that builds is released, and its release deploys its Worker with Ca
 
 ## When projects don't build
 
-Once every project is done, one alert goes to the alerts address (`src/lib/alert-email.ts`), listing each project that wasn't upgraded: its name, its Project ID, the step that failed, and a link to its project upgrade's Workflow instance, where its logs are. A project whose repo can't be read, or has no `main`, such as one whose setup failed, is listed too. The alert links to the upgrade's own instance. Rémi fixes those projects by hand, and they hold the API's old shapes in place until he does.
+Once every project is done, one alert goes to the alerts address (`src/lib/alert-email.ts`), listing each project that wasn't upgraded: its name, its Project ID, the step that failed, and a link to its project upgrade's Workflow instance, where its logs are. A project whose repo can't be read, or has no `main`, is listed too. The alert links to the upgrade's own instance. Rémi fixes those projects by hand, and they hold the API's old shapes in place until he does.
 
 ## Tests
 
