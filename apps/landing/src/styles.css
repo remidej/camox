@@ -239,18 +239,19 @@
 
 /* Two hairline vertical rules with a wider gutter than `border-style: double`
    would allow (which would also thicken the lines). Only shown once the
-   viewport is wide enough that the container isn't flush to the edges. */
+   viewport is wide enough that the container isn't flush to the edges.
+   Reads `--line`, not `--color-line`, so the rules follow the surrounding scheme. */
 @utility block-side-border {
   @media (width >= theme(--breakpoint-xl)) {
     position: relative;
-    border-inline: 1px solid var(--color-line);
+    border-inline: 1px solid var(--line);
     &::before,
     &::after {
       content: "";
       position: absolute;
       inset-block: 0;
       width: 1px;
-      background: var(--color-line);
+      background: var(--line);
       pointer-events: none;
     }
     &::before {
@@ -302,9 +303,13 @@
   h4 {
     font-family: var(--font-heading);
   }
-  /* Focus rings use `brand`, which stays visible on every scheme, the brand one included. */
+  /*
+   * Focus rings use `brand`, which stays visible on every scheme, the brand one included.
+   * Read `--brand`, not `--color-brand`: that alias is resolved once on :root, so it would
+   * ignore the scheme around the focused element.
+   */
   :focus-visible {
-    outline: 2px solid var(--color-brand);
+    outline: 2px solid var(--brand);
     outline-offset: 2px;
   }
 }

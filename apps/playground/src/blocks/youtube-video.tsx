@@ -1,7 +1,7 @@
 import { createBlock } from "camox/createBlock";
 
 import { Container } from "@/components/ui/container";
-import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const youtubeVideo = createBlock({
@@ -22,11 +22,7 @@ const youtubeVideo = createBlock({
       default: false,
       title: "Full Width",
     }),
-    scheme: setting.enum({
-      default: "light",
-      options: colorSchemeOptions,
-      title: "Color scheme",
-    }),
+    scheme: colorSchemeSetting(setting, "light"),
     autoplay: setting.boolean({
       default: false,
       title: "Autoplay",

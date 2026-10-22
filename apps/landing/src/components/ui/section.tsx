@@ -2,8 +2,15 @@ import type { ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** The color schemes defined in src/styles.css. */
-export type ColorScheme = "light" | "dark" | "brand" | "tint";
+/** The color schemes defined in src/styles.css, as options for a block's "Color scheme" setting. */
+export const colorSchemeOptions = {
+  light: "Light",
+  dark: "Dark",
+  brand: "Brand",
+  tint: "Tint",
+} as const;
+
+export type ColorScheme = keyof typeof colorSchemeOptions;
 
 type SectionProps = ComponentProps<"section"> & {
   /** The block's color scheme. Everything inside follows it. */

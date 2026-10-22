@@ -7,7 +7,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Container } from "@/components/ui/container";
-import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 
 const faq = createBlock({
   id: "faq",
@@ -34,11 +34,7 @@ const faq = createBlock({
     }),
   }),
   settings: (setting) => ({
-    scheme: setting.enum({
-      default: "light",
-      options: colorSchemeOptions,
-      title: "Color scheme",
-    }),
+    scheme: colorSchemeSetting(setting, "light"),
   }),
   component: FaqComponent,
   toMarkdown: (c) => [c.items],

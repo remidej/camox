@@ -1,3 +1,4 @@
+import type { SettingBuilder } from "camox/createBlock";
 import type { ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
@@ -11,6 +12,21 @@ export const colorSchemeOptions = {
 } as const;
 
 export type ColorScheme = keyof typeof colorSchemeOptions;
+
+/**
+ * A block's "Color scheme" setting, offering every scheme in src/styles.css. Read it with
+ * `useSetting("scheme")` and pass it to `Section`.
+ *
+ * @example
+ * settings: (setting) => ({ scheme: colorSchemeSetting(setting, "dark") })
+ */
+export function colorSchemeSetting(setting: SettingBuilder, defaultScheme: ColorScheme) {
+  return setting.enum({
+    default: defaultScheme,
+    options: colorSchemeOptions,
+    title: "Color scheme",
+  });
+}
 
 type SectionProps = ComponentProps<"section"> & {
   /** The block's "Color scheme" setting. Everything inside follows it. */

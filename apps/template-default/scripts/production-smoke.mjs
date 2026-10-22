@@ -110,31 +110,27 @@ export default {
   );
   assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
 
-  // The SDK colors highlights and empty images from these variables. Each color scheme
-  // must declare them, so they resolve against that scheme's tokens rather than inheriting
-  // the values computed on :root.
+  // The page default and the four schemes a block's "Color scheme" setting offers. Each
+  // sets `color-scheme` and declares the variables the SDK colors highlights and empty images
+  // from, so they resolve against that scheme's tokens rather than inheriting the values
+  // computed on :root.
   const assetsDir = join(root, "dist/client/assets");
   const cssFiles = (await readdir(assetsDir)).filter((file) => file.endsWith(".css"));
   assert.ok(cssFiles.length > 0, "The build emitted no stylesheet.");
   const css = (
     await Promise.all(cssFiles.map((file) => readFile(join(assetsDir, file), "utf8")))
   ).join("\n");
-  const declarationsBySelector = new Map();
-  for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    for (const selector of selectors.split(",").map((s) => s.trim())) {
-      declarationsBySelector.set(selector, `${declarationsBySelector.get(selector) ?? ""};${body}`);
-    }
-  }
+  const declared = declarationsBySelector(css);
   for (const scheme of [":root", ".light", ".dark", ".brand", ".tint"]) {
-    for (const variable of [
+    for (const property of [
+      "color-scheme",
       "--camox-highlight",
       "--camox-placeholder",
       "--camox-placeholder-ink",
     ]) {
-      assert.match(
-        declarationsBySelector.get(scheme) ?? "",
-        new RegExp(`(^|;)\\s*${variable}\\s*:`),
-        `The built stylesheet doesn't declare ${variable} on ${scheme}.`,
+      assert.ok(
+        declared.get(scheme)?.has(property),
+        `The built stylesheet doesn't declare ${property} on ${scheme}.`,
       );
     }
   }
@@ -203,4 +199,41 @@ export default {
   console.log("The built Worker rendered HTML and a Takumi PNG in workerd.");
 } finally {
   await rm(temp, { recursive: true, force: true });
+}
+
+/**
+ * The properties each selector of a stylesheet declares, comments stripped. Declarations
+ * inside a nested at-rule (Tailwind wraps `color-mix()` fallbacks in `@supports`) count for
+ * the rule around it.
+ */
+function declarationsBySelector(css) {
+  const declared = new Map();
+  const open = [];
+  let buffer = "";
+  const flushDeclaration = () => {
+    const property = /^\s*([\w-]+)\s*:/.exec(buffer)?.[1];
+    if (property) {
+      for (const selector of open.at(-1) ?? []) {
+        declared.set(selector, (declared.get(selector) ?? new Set()).add(property));
+      }
+    }
+    buffer = "";
+  };
+  for (const char of css.replace(/\/\*[\s\S]*?\*\//g, "")) {
+    if (char === "{") {
+      const prelude = buffer.trim();
+      open.push(
+        prelude.startsWith("@") ? (open.at(-1) ?? []) : prelude.split(",").map((s) => s.trim()),
+      );
+      buffer = "";
+    } else if (char === ";") {
+      flushDeclaration();
+    } else if (char === "}") {
+      flushDeclaration();
+      open.pop();
+    } else {
+      buffer += char;
+    }
+  }
+  return declared;
 }

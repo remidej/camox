@@ -2,7 +2,7 @@ import { createBlock } from "camox/createBlock";
 
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
-import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const hero = createBlock({
@@ -33,11 +33,7 @@ const hero = createBlock({
       default: true,
       title: "With illustration",
     }),
-    scheme: setting.enum({
-      default: "dark",
-      options: colorSchemeOptions,
-      title: "Color scheme",
-    }),
+    scheme: colorSchemeSetting(setting, "dark"),
   }),
   component: HeroComponent,
   toMarkdown: (c, s) => [`# ${c.title}`, c.description, s.withIllustration(c.illustration), c.cta],
