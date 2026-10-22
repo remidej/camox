@@ -33,6 +33,8 @@ export async function copyTemplate(repo: ArtifactsRepo, project: NewProject) {
     await git.clone({ ...remoteOptions, ref: MAIN, singleBranch: true });
     for (const filepath of await git.listFiles({ fs, dir: DIR })) {
       const path = `${DIR}/${filepath}`;
+      // A link names no project, and its target may not be in the repo.
+      if ((await fs.promises.lstat(path)).isSymbolicLink()) continue;
       const before = (await fs.promises.readFile(path, { encoding: "utf8" })) as string;
       const after = personalize(filepath, before, project);
       if (after === before) continue;

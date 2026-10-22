@@ -35,8 +35,10 @@ export class ProjectCreationWorkflow extends WorkflowEntrypoint<Bindings, Projec
         try {
           await template.fork(projectId, { defaultBranchOnly: true });
         } catch (error) {
-          // An earlier attempt's fork landed, though its response didn't.
-          if (!isArtifactsError(error, "ALREADY_EXISTS")) throw error;
+          // An earlier attempt's fork landed, though its response didn't, when the repo it made
+          // can be got. The binding's errors lose their code on the way here, so telling
+          // ALREADY_EXISTS from them would mean matching their wording.
+          if (!(await this.repoExists(projectId))) throw error;
         }
         return null;
       });
@@ -92,6 +94,16 @@ export class ProjectCreationWorkflow extends WorkflowEntrypoint<Bindings, Projec
         .then(() => null),
     );
   }
+
+  /** Whether `name`'s repo exists and has finished forking: getting it throws otherwise. */
+  private async repoExists(name: string) {
+    try {
+      using _repo = await this.env.ARTIFACTS.get(name);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 async function setupFailed(db: Database, projectId: string) {
@@ -99,14 +111,4 @@ async function setupFailed(db: Database, projectId: string) {
     .update(projects)
     .set({ status: "setupFailed", setupStep: "copyTemplate" })
     .where(and(eq(projects.uuid, projectId), eq(projects.status, "settingUp")));
-}
-
-/**
- * Whether the Artifacts binding threw `code`, such as `ALREADY_EXISTS`. An `ArtifactsError` that
- * crossed an RPC boundary keeps its code only in its message.
- */
-function isArtifactsError(error: unknown, code: ArtifactsErrorCode): boolean {
-  if (!(error instanceof Error)) return false;
-  if ((error as { code?: unknown }).code === code) return true;
-  return new RegExp(`\\b${code}\\b`).test(error.message);
 }
