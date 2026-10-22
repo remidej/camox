@@ -14,8 +14,8 @@ import { ThreadComposer } from "./ThreadComposer";
 import { type ContinuedInLink, ThreadMessages } from "./ThreadMessages";
 
 /**
- * Where an editor works with Camox's agent in a thread, beside every studio page except the
- * preview, which only hides it: the studio keeps following the editor's runs there. It follows
+ * Where an editor works with Camox's agent in a thread, beside the Canvas. Elsewhere in the
+ * studio it is only hidden: the studio keeps following the editor's runs there. It follows
  * where the studio is: the editor's own Live thread on Live, and the draft's thread in a draft.
  * When the Live thread starts a draft, the studio enters it with the thread.
  */
@@ -29,7 +29,7 @@ export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
       {/* Mirrors the Canvas Inspector's header across the page, in height, border and type. */}
-      <header className="border-border box-content flex h-8 min-w-0 items-center gap-2 border-b px-3 py-2">
+      <header className="border-border box-content flex h-8 min-w-0 items-center gap-2 border-b px-2 py-2">
         <CamoxMark />
         <h2 className="truncate text-sm font-medium">Chat</h2>
       </header>
@@ -142,7 +142,7 @@ function Thread({
         <ThreadMessages {...messages} />
       )}
       {error && (
-        <p role="alert" className="text-destructive px-4 pt-2 text-sm">
+        <p role="alert" className="text-destructive px-2 pt-2 text-sm">
           {error}
         </p>
       )}

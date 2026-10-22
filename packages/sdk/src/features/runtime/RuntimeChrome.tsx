@@ -30,8 +30,8 @@ export function RuntimeChrome({
   const website = !input.routeKind;
   const hidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
-  // A page location shows the Canvas or the Preview.
-  const showChat = !website || isCanvasShown;
+  // The chat is part of the Canvas. A page location shows the Canvas or the Preview.
+  const showChat = website && isCanvasShown;
 
   return (
     <FollowAgentProvider runtimeBasePath={input.runtimeBasePath} website={website}>
@@ -54,8 +54,9 @@ export function RuntimeChrome({
             </div>
           </div>
           {/*
-           * Outside the route content, so the chat survives moving between Studio pages. The
-           * Preview hides it but keeps its thread, so the Preview follows the editor's runs too.
+           * Outside the route content, so the chat survives leaving the Canvas. Everywhere else
+           * hides it but keeps its thread, so the Preview and Studio pages follow the editor's
+           * runs too.
            */}
           <ChatSidebar hidden={!showChat} />
         </div>

@@ -52,7 +52,7 @@ export const MAX_CANVAS_ZOOM = 2;
  */
 export const MIN_CANVAS_ZOOM = 0.1;
 /** Log-scale zoom per pixel of Ctrl/⌘ + wheel, including trackpad pinches. */
-export const CANVAS_WHEEL_ZOOM_RATE = 0.012672;
+export const CANVAS_WHEEL_ZOOM_RATE = 0.0139392;
 
 /** Relative (log-scale) bands make the detent feel the same at every page width. */
 export const ZOOM_SNAP_CAPTURE = 0.168;
