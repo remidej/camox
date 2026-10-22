@@ -13,11 +13,7 @@ import { TOGGLE_CANVAS_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCanvasShown } from "../previewStore";
 import { prefetchCanvas } from "./CanvasPreview";
 
-interface PreviewToolbarProps {
-  onCanvasShownChange?: (checked: boolean) => void;
-}
-
-export const PreviewToolbar = ({ onCanvasShownChange }: PreviewToolbarProps) => {
+export const PreviewToolbar = () => {
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
@@ -36,16 +32,9 @@ export const PreviewToolbar = ({ onCanvasShownChange }: PreviewToolbarProps) => 
         <Switch
           id="show-canvas"
           checked={isCanvasShown}
-          onCheckedChange={(checked) => {
-            if (onCanvasShownChange) {
-              onCanvasShownChange(checked);
-              return;
-            }
-
-            previewStore.send({
-              type: checked ? "showCanvas" : "hideCanvas",
-            });
-          }}
+          onCheckedChange={(checked) =>
+            previewStore.send({ type: checked ? "showCanvas" : "hideCanvas" })
+          }
         />
         <Label htmlFor="show-canvas" className="flex items-center gap-2">
           Show canvas {formatShortcut(TOGGLE_CANVAS_SHORTCUT)}
