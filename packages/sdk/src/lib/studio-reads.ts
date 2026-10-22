@@ -204,6 +204,7 @@ export const reads = {
           projectName: page.projectName,
           project: page.project,
           structuredData: page.structuredData,
+          recordStructuredData: page.recordStructuredData,
         };
       },
     },

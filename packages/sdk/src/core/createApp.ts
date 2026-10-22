@@ -205,6 +205,7 @@ export function createApp({
         description: _internal.description,
         toTitle: _internal.toTitle,
         toDescription: _internal.toDescription,
+        ...(_internal.toStructuredData && { toStructuredData: _internal.toStructuredData }),
         contentSchema: JSON.parse(JSON.stringify(_internal.contentSchema)),
       }));
       return {

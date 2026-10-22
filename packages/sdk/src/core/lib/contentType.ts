@@ -162,9 +162,23 @@ function createContentProxy<TShape extends Record<string, TSchema>>(
       const path = prefix ? `${prefix}.${prop}` : prop;
       const field = shape?.[prop];
       if (field?.fieldType === "Reference") {
-        return createContentProxy(field.referenceSchema.properties, path);
+        return referenceToken(field.referenceSchema.properties, path);
       }
       return new FieldToken(path);
+    },
+  });
+}
+
+/**
+ * A reference field's token, which names the reference itself, as Structured Data templates
+ * link records by it, and whose properties are the tokens of the record's fields.
+ */
+function referenceToken(shape: Record<string, TSchema> | undefined, path: string) {
+  const fields = createContentProxy(shape, path) as Record<string, unknown>;
+  return new Proxy(new FieldToken(path), {
+    get(target, prop, receiver) {
+      if (typeof prop !== "string" || prop in target) return Reflect.get(target, prop, receiver);
+      return fields[prop];
     },
   });
 }
@@ -288,26 +302,34 @@ export function resolveToTitle<
 export type ImageToken = { "@type": "ImageObject"; url: string; contentUrl: string };
 
 /**
+ * A reference's token in a Structured Data template: a link to the record's node, which Camox
+ * adds to the page's graph, or the record's title when its collection has no `toStructuredData`.
+ */
+export type RecordToken = { readonly "@id": string };
+
+/**
  * What a field reads as in a Structured Data template. Text, files, links and embeds read as
- * strings, links and files as absolute URLs. Icons, artifacts and lists of files or records
- * aren't Structured Data.
+ * strings, links and files as absolute URLs. References link their records' nodes, and their
+ * fields read as the record's. Icons, artifacts and lists of files aren't Structured Data.
  */
 type StructuredDataToken<T extends TSchema> =
   T extends ReferenceSchema<infer R>
-    ? StructuredDataProxy<R>
-    : T extends ReferenceListSchema<any> | { fieldType: "Artifact" }
-      ? never
-      : T extends TArray<TObject<any>>
-        ? RepeatedNodes
-        : T extends TArray<any>
-          ? never
-          : Static<T> extends IconValue
+    ? RecordToken & StructuredDataProxy<R>
+    : T extends ReferenceListSchema<any>
+      ? RecordToken[]
+      : T extends { fieldType: "Artifact" }
+        ? never
+        : T extends TArray<TObject<any>>
+          ? RepeatedNodes
+          : T extends TArray<any>
             ? never
-            : Static<T> extends ImageValue
-              ? ImageToken
-              : Static<T> extends string | LinkValue | FileValue
-                ? string & FieldToken
-                : never;
+            : Static<T> extends IconValue
+              ? never
+              : Static<T> extends ImageValue
+                ? ImageToken
+                : Static<T> extends string | LinkValue | FileValue
+                  ? string & FieldToken
+                  : never;
 
 /** A block's or repeatable item's fields as a Structured Data template reads them. */
 export type StructuredDataProxy<TShape extends Record<string, TSchema>> = {
@@ -366,6 +388,20 @@ export function resolveToStructuredData<
   const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TContent>;
   const settings = createSettingsProxy<TSettings>(settingsShape, scope);
   return serializeTemplate(builder({ content, settings }));
+}
+
+/** What a collection's `toStructuredData` receives: the record's fields as tokens. */
+export interface RecordStructuredDataContext<TShape extends Record<string, TSchema>> {
+  content: StructuredDataProxy<TShape>;
+}
+
+/** The Structured Data template of each record of a collection, as its builder declares it. */
+export function resolveRecordStructuredData<TShape extends Record<string, TSchema>>(
+  builder: (context: RecordStructuredDataContext<TShape>) => unknown,
+  contentShape: TShape,
+): Record<string, unknown> {
+  const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TShape>;
+  return serializeTemplate(builder({ content })) as Record<string, unknown>;
 }
 
 /* -------------------------------------------------------------------------------------------------

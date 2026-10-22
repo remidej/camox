@@ -1,3 +1,5 @@
+import type { EvaluatedNode, RecordStructuredData } from "@camox/api-contract";
+
 import type { ReferenceRecord } from "./lib/reference";
 
 declare const requestContextBrand: unique symbol;
@@ -28,6 +30,20 @@ export interface LoadedRecord<Content = Record<string, unknown>> {
   references?: ReferenceRecord["references"];
   /** When its content last changed. */
   updatedAt?: number;
+  /** When it was first and last published to Live. Absent from older APIs. */
+  firstPublishedAt?: number | null;
+  publishedAt?: number | null;
+  /** Its Structured Data, as the API evaluates it. Absent from older APIs. */
+  structuredData?: RecordPageStructuredData;
+}
+
+/**
+ * A record page's record as Structured Data: its node, when its collection has a template, and
+ * the nodes of the records it references and of those they link.
+ */
+export interface RecordPageStructuredData {
+  node?: EvaluatedNode;
+  records: RecordStructuredData;
 }
 
 /** Reads records, scoped to the project and the draft the request reads. */

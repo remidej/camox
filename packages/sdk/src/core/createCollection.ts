@@ -5,11 +5,14 @@ import type { LayoutCollectionItemResult, LayoutRoutesResult, RecordPages } from
 import {
   collectionFieldBuilder,
   type CollectionFieldBuilder,
+  type RecordStructuredDataContext,
   type RecordTemplateContext,
+  resolveRecordStructuredData,
   resolveRecordTemplate,
 } from "./lib/contentType";
 import { notFound } from "./notFound";
 import { getRecordLookup, type LayoutRequestContext } from "./requestContext";
+import type { KnownPropertiesOnly, RecordNode } from "./structuredData";
 
 export type { CollectionFieldBuilder };
 
@@ -30,6 +33,7 @@ type TextKey<T extends Record<string, TSchema>> = {
  */
 export function createCollection<
   const T extends Record<string, TSchema> & ReservedFieldNames,
+  Node extends RecordNode = RecordNode,
 >(options: {
   id: string;
   title: string;
@@ -37,6 +41,16 @@ export function createCollection<
   content: (field: CollectionFieldBuilder) => T;
   toTitle: (context: RecordTemplateContext<NoInfer<T>>) => string;
   toDescription: (context: RecordTemplateContext<NoInfer<T>>) => string | undefined;
+  /**
+   * Each record's Structured Data node, from tokens of its fields, such as
+   * `({ content }) => ({ "@type": "Person", jobTitle: content.role })`. Camox fills its name and
+   * description from the record's title and description, and gives it an `@id` per record and
+   * locale. Every page referencing the record links this one node, and on the record's own page
+   * it's the main entity unless the layout declares one. A reference links the record's node.
+   */
+  toStructuredData?: (
+    context: RecordStructuredDataContext<NoInfer<T>>,
+  ) => Node & KnownPropertiesOnly<Node, RecordNode>;
 }): Collection<T> {
   if (!options.id.trim()) throw new Error("Collection id is required");
   const content: T = options.content(collectionFieldBuilder);
@@ -108,6 +122,10 @@ export function createCollection<
               ...(record.references && { references: record.references }),
               ...(record.updatedAt != null && { updatedAt: record.updatedAt }),
             },
+            ...(record.structuredData && { structuredData: record.structuredData }),
+            ...(record.firstPublishedAt !== undefined && {
+              published: { first: record.firstPublishedAt, last: record.publishedAt ?? null },
+            }),
           };
         },
         async routes({ context }) {
@@ -141,6 +159,9 @@ export function createCollection<
       description: options.description,
       toTitle,
       toDescription,
+      toStructuredData: options.toStructuredData
+        ? resolveRecordStructuredData(options.toStructuredData, content)
+        : null,
       contentSchema: TypeBox.Object(content, { additionalProperties: false }),
     },
   };
@@ -177,6 +198,8 @@ export type Collection<T extends Record<string, TSchema> = any> = {
     toTitle: string;
     /** The token template describing each record, or null when records have no description. */
     toDescription: string | null;
+    /** The JSON template of each record's Structured Data node, or null when records have none. */
+    toStructuredData: Record<string, unknown> | null;
     contentSchema: TObject<T>;
   };
 };

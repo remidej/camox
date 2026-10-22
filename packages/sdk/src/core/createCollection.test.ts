@@ -32,6 +32,39 @@ void describe("collection definitions", () => {
     assert.equal("default" in serialized.contentSchema.properties.title, false);
     assert.deepEqual(Object.keys(collection), ["pages", "_internal"]);
   });
+  void it("syncs each record's Structured Data template, references as tokens", async () => {
+    const authors = createCollection({
+      id: "authors",
+      title: "Authors",
+      description: "",
+      content: (field) => ({ name: field.string(), portrait: field.image() }),
+      toTitle: ({ content }) => content.name,
+      toDescription: () => undefined,
+    });
+    const books = createCollection({
+      id: "books",
+      title: "Books",
+      description: "",
+      content: (field) => ({ title: field.string(), author: field.reference(authors) }),
+      toTitle: ({ content }) => content.title,
+      toDescription: () => undefined,
+      toStructuredData: ({ content }) => ({
+        "@type": "Book",
+        author: content.author,
+        image: content.author.portrait,
+      }),
+    });
+    const app = createApp({ blocks: [], collections: [authors, books] });
+    const [synced, other] = JSON.parse(
+      JSON.stringify((await app.getDefinitionSet()).collections),
+    ).toSorted((a: { collectionId: string }) => (a.collectionId === "books" ? -1 : 1));
+    assert.deepEqual(synced.toStructuredData, {
+      "@type": "Book",
+      author: "{{author}}",
+      image: "{{author.portrait}}",
+    });
+    assert.equal("toStructuredData" in other, false);
+  });
   void it("serializes a description that returns nothing as no description", async () => {
     const undescribed = createCollection({
       id: "tags",

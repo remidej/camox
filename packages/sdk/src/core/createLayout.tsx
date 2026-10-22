@@ -1,3 +1,4 @@
+import type { RecordLink } from "@camox/api-contract";
 import type { TSchema } from "@sinclair/typebox";
 import * as React from "react";
 
@@ -8,9 +9,14 @@ import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import type { AnyLayoutContext, CuratedLayoutContext, LoadedLayoutContext } from "./layoutContext";
 import type { ContentProxy } from "./lib/contentType";
 import { RecordScope } from "./lib/recordScope";
-import type { ReferenceScope } from "./lib/reference";
+import type { ReferenceKeys, ReferenceListKeys, ReferenceScope } from "./lib/reference";
 import { asCollectionItem } from "./recordItem";
-import type { CollectionRecordId, LayoutRequestContext, LoadedRecord } from "./requestContext";
+import type {
+  CollectionRecordId,
+  LayoutRequestContext,
+  LoadedRecord,
+  RecordPageStructuredData,
+} from "./requestContext";
 import type { KnownPropertiesOnly, LayoutStructuredData } from "./structuredData";
 
 export type { LayoutRequestContext } from "./requestContext";
@@ -116,6 +122,10 @@ export interface LayoutCollectionItemResult<
   kind: "collection-item";
   collectionId: CollectionId;
   data: LoadedRecord<Content>;
+  /** The record's Structured Data, for its page's graph. Set by `collection.pages()`. */
+  structuredData?: RecordPageStructuredData;
+  /** When the record was first and last published to Live, for its page's graph. */
+  published?: { first: number | null; last: number | null };
   /**
    * Type only, never set: the collection's fields, which type `layout.Item`. Invariant, so that
    * records of two collections never merge into one.
@@ -209,10 +219,19 @@ type LayoutToMarkdown<Data, Params, F = never> = (
   context: { data: Data; params: Params } & MarkdownItem<F>,
 ) => readonly string[];
 
-/** On record pages, the context's `content` holds the record's String fields as plain text. */
+/**
+ * On record pages, the context's `content` holds the record's String fields as plain text, and
+ * its references as links to their records' nodes, for `toStructuredData`.
+ */
 type RecordContent<F> = [F] extends [never]
   ? {}
-  : { content: { [K in StringFieldKeys<F>]: string } };
+  : F extends Record<string, TSchema>
+    ? {
+        content: { [K in StringFieldKeys<F>]: string } & {
+          [K in ReferenceKeys<F>]: RecordLink | undefined;
+        } & { [K in ReferenceListKeys<F>]: RecordLink[] };
+      }
+    : { content: { [K in StringFieldKeys<F>]: string } };
 
 /** The context a singleton or derived layout's `to*` options receive. */
 type LoadedContext<Data, Params, F = never> = LoadedLayoutContext<Data, Params> & RecordContent<F>;

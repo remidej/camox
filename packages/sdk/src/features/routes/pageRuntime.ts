@@ -31,6 +31,8 @@ export type PageStructure = {
   project: PageWithBlocks["project"];
   /** Each block's Structured Data nodes, from a full read: a structure read has none. */
   structuredData?: PageWithBlocks["structuredData"];
+  /** The nodes of the records its blocks reference, from a full read. */
+  recordStructuredData?: PageWithBlocks["recordStructuredData"];
 };
 
 export interface CamoxPageLoaderData {
@@ -459,6 +461,11 @@ export interface PageHeadInput extends PageMetaInput {
   faviconUrl: string;
   /** Whether the page has a Markdown Representation, which the head then links to. */
   hasMarkdown: boolean;
+  /**
+   * The `@type` of a record page's record, as its node has it: the page's main entity when the
+   * layout declares none.
+   */
+  recordType?: string;
 }
 
 /** A page's title and description, built by its layout's `toTitle` and `toDescription`. */
@@ -512,6 +519,8 @@ export type PageHead = {
 export function buildPageHead(input: PageHeadInput): PageHead {
   const { title, description } = buildPageMeta(input);
   const declared = declarePage(input);
+  // What the page is about: what its layout declares, else a record page's record.
+  const mainEntity = declared ?? (input.recordType ? { "@type": input.recordType } : undefined);
 
   const meta: Array<Record<string, string>> = [{ title }];
   if (description) meta.push({ name: "description", content: description });
@@ -531,7 +540,10 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   );
   if (description) meta.push({ property: "og:description", content: description });
   meta.push(
-    { property: "og:type", content: declared && isArticle(declared) ? "article" : "website" },
+    {
+      property: "og:type",
+      content: isArticle(mainEntity ?? { "@type": "" }) ? "article" : "website",
+    },
     { property: "og:site_name", content: project.name },
     { name: "twitter:card", content: "summary_large_image" },
   );

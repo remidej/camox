@@ -19,6 +19,8 @@ export type PageStructure = {
   project: PageWithBlocks["project"];
   /** Each block's Structured Data nodes, from a full read: a structure read has none. */
   structuredData?: PageWithBlocks["structuredData"];
+  /** The nodes of the records its blocks reference, from a full read. */
+  recordStructuredData?: PageWithBlocks["recordStructuredData"];
 };
 export type Project = Awaited<ReturnType<ApiClient["projects"]["getByUuid"]>>;
 export type Layout = Awaited<ReturnType<ApiClient["layouts"]["list"]>>[number];

@@ -1,3 +1,5 @@
+import { recordLink, type RecordLink } from "@camox/api-contract";
+
 import type { Collection } from "./createCollection";
 import type { RecordPageValues } from "./layoutContext";
 import { resolveToMarkdown } from "./lib/contentType";
@@ -31,12 +33,48 @@ export function recordPlainText(
   return text;
 }
 
+/**
+ * A record's references as links to their records' nodes: one for a reference, which is absent
+ * when it resolves to nothing, and a list for a reference list.
+ */
+function recordLinks(
+  collection: Collection,
+  references: LoadedRecord["references"],
+): Record<string, RecordLink | RecordLink[]> {
+  const properties = collection._internal.contentSchema.properties as Record<
+    string,
+    { fieldType?: string }
+  >;
+  const links: Record<string, RecordLink | RecordLink[]> = {};
+  for (const [name, field] of Object.entries(properties)) {
+    const resolved = references?.[name];
+    if (field.fieldType === "ReferenceList")
+      links[name] = (Array.isArray(resolved) ? resolved : []).map(({ id }) => recordLink(id));
+    if (field.fieldType === "Reference" && resolved && !Array.isArray(resolved))
+      links[name] = recordLink(resolved.id);
+  }
+  return links;
+}
+
+/** The titles of the records a record references, by record id. */
+function referencedTitles(references: LoadedRecord["references"]): Record<string, string> {
+  return Object.fromEntries(
+    Object.values(references ?? {})
+      .flatMap((value) => [value ?? []].flat())
+      .map((record) => [record.id, record.title]),
+  );
+}
+
 /** The record a record page renders, as its layout's context names it. */
 export function recordPageValues(collection: Collection, record: LoadedRecord): RecordPageValues {
   return {
     title: record.title ?? "",
     description: record.description ?? undefined,
-    content: recordPlainText(collection, record.content),
+    content: {
+      ...recordLinks(collection, record.references),
+      ...recordPlainText(collection, record.content),
+    },
+    titles: referencedTitles(record.references),
   };
 }
 

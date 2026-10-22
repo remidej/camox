@@ -1,3 +1,4 @@
+import type { PageUrlMarker, RecordStructuredData } from "@camox/api-contract";
 import { DEVELOPMENT_DRAFT, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
@@ -18,6 +19,7 @@ import {
   createRequestContext,
   type LayoutRequestContext,
   type RecordLookup,
+  type RecordPageStructuredData,
 } from "../../core/requestContext";
 import type { LayoutStructuredData } from "../../core/structuredData";
 import { draftNamedBy } from "../../lib/draft-scope";
@@ -90,6 +92,7 @@ import {
 import {
   buildPageGraph,
   type PlacedBlockNodes,
+  type RecordGraphInput,
   serializeStructuredData,
   type SiteGraphInput,
   withPageUrls,
@@ -849,10 +852,18 @@ async function readAlternates<Head extends PageHead | null>(
   }));
   // Blocks link pages by their path in a locale; without one, the default locale's.
   const defaultLocale = located.locales.find((locale) => locale.isDefault) ?? located.locale;
-  const blocks = withPageUrls(described.blocks ?? [], (marker) => {
+  const pageUrl = (marker: PageUrlMarker) => {
     const locale = located.locales.find((candidate) => candidate.tag === marker.locale);
     return url(localizedPath(marker.path, locale ?? defaultLocale));
-  });
+  };
+  const blocks = withPageUrls(described.blocks ?? [], pageUrl);
+  // A record's node has one `@id` per locale, from the record's id, on every page linking it.
+  const localeHome = url(localizedPath("/", located.locale));
+  const records = described.records && {
+    ...described.records,
+    nodes: withPageUrls(described.records.nodes, pageUrl),
+    id: (recordId: string) => `${localeHome}#record-${recordId}`,
+  };
   return {
     alternates,
     head: (head &&
@@ -860,6 +871,7 @@ async function readAlternates<Head extends PageHead | null>(
         ...described,
         breadcrumb,
         blocks,
+        records,
       })) as Head,
   };
 }
@@ -886,6 +898,30 @@ interface PageDescription {
    * links to pages are still markers.
    */
   blocks?: readonly PlacedBlockNodes[];
+  /** The records the page's graph can hold, whose `@id`s depend on the website's address. */
+  records?: Omit<RecordGraphInput, "id">;
+}
+
+/**
+ * The records a page's graph can hold: those its blocks reference, and on a record page, the
+ * page's record and those it references.
+ */
+function pageRecords(
+  /** Absent from APIs older than records' Structured Data. */
+  blocks: RecordStructuredData | undefined,
+  page?: { id: string; structuredData?: RecordPageStructuredData; titles?: Record<string, string> },
+): Omit<RecordGraphInput, "id"> {
+  const own = page?.structuredData;
+  return {
+    nodes: {
+      ...blocks?.nodes,
+      ...own?.records.nodes,
+      ...(page && own?.node && { [page.id]: own.node }),
+    },
+    referenced: [...new Set([...(blocks?.referenced ?? []), ...(own?.records.referenced ?? [])])],
+    ...(page?.titles && { titles: page.titles }),
+    ...(page && { main: page.id }),
+  };
 }
 
 /** Each placed block's nodes, its layout's before and after the page's own. */
@@ -920,6 +956,7 @@ function curatedPageDescription(
     published: { first: page.firstPublishedAt, last: page.publishedAt },
     declared: declarePage(curatedPageMetaInput(camoxApp, structure, locale)),
     blocks: placedBlockNodes(structure.layout, page.blockIds, structure.structuredData),
+    records: pageRecords(structure.recordStructuredData),
   };
 }
 
@@ -941,7 +978,11 @@ function withStructuredData(
     declared,
     breadcrumb,
     blocks,
-  }: PageDescription & { breadcrumb: ReadonlyArray<{ name: string; url: string }> },
+    records,
+  }: Omit<PageDescription, "records"> & {
+    breadcrumb: ReadonlyArray<{ name: string; url: string }>;
+    records?: RecordGraphInput;
+  },
 ): PageHead {
   const name = head.meta?.find((entry) => entry.title)?.title ?? "";
   const graph = buildPageGraph({
@@ -958,6 +999,7 @@ function withStructuredData(
     },
     declared,
     blocks,
+    records,
   });
   return {
     ...head,
@@ -1486,14 +1528,15 @@ async function createDerivedResponse(
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
+    const recordValues =
+      record && recordCollection ? recordPageValues(recordCollection, record.data) : undefined;
     const context = buildLayoutContext(match.layout._internal, {
       path: pathname,
       locale: located.locale.tag,
       projectName: shared.projectName,
       data: serializedResult?.data,
       params: match.params,
-      record:
-        record && recordCollection ? recordPageValues(recordCollection, record.data) : undefined,
+      record: recordValues,
     });
     const { alternates, head: pageHead } = await readAlternates(request, options, {
       located,
@@ -1507,12 +1550,23 @@ async function createDerivedResponse(
         origin: new URL(request.url).origin,
         faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
         hasMarkdown: match.layout._internal.toMarkdown !== undefined,
+        recordType: record?.structuredData?.node?.["@type"] as string | undefined,
       }),
       described: {
         project: { ...shared.project, name: shared.projectName },
         title: context.page.title,
         declared: declarePage({ layout: match.layout._internal, context }),
         blocks: placedBlockNodes(shared.layout, [], shared.structuredData),
+        // A record page is published when its record is.
+        ...(record?.published && { published: record.published }),
+        records: pageRecords(
+          shared.recordStructuredData,
+          record && {
+            id: record.data.id,
+            structuredData: record.structuredData,
+            titles: recordValues?.titles,
+          },
+        ),
       },
       authCookieHeader,
       draftId: read.draftId,

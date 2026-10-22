@@ -1,3 +1,4 @@
+import { ARTICLE_TYPES } from "@camox/api-contract";
 import type {
   AggregateRatingSimple,
   ArticleSimple,
@@ -36,15 +37,7 @@ import type {
  */
 
 /** The Article types. Their pages are articles in Open Graph too. */
-export const ARTICLE_TYPES = [
-  "Article",
-  "BlogPosting",
-  "NewsArticle",
-  "TechArticle",
-  "ScholarlyArticle",
-  "Report",
-  "SocialMediaPosting",
-] as const;
+export { ARTICLE_TYPES };
 export type ArticleType = (typeof ARTICLE_TYPES)[number];
 
 /** The kinds of web page a layout can say its pages are. */
@@ -175,6 +168,15 @@ export type MainEntityFilled =
 
 /** What a page is about, beside its own node. Only collections' records can be organizations. */
 export type MainEntity = StructuredDataNode<"Organization", MainEntityFilled>;
+
+/** The properties Camox fills on a record's node, from the record's title and description. */
+export type RecordNodeFilled = "name" | "headline" | "description";
+
+/**
+ * What a collection's `toStructuredData` describes each record as. Records can be organizations,
+ * such as customers or partners, with their own `@id`s.
+ */
+export type RecordNode = StructuredDataNode<never, RecordNodeFilled>;
 
 /** What blocks and repeatable items describe: anything but an organization, as Camox emits the site's. */
 export type BlockNode = StructuredDataNode<"Organization">;

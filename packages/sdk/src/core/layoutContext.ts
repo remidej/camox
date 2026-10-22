@@ -44,11 +44,14 @@ export interface LoadedLayoutContext<
   params: Params;
 }
 
-/** On record pages, `content` holds the record's values: its String fields as plain text. */
+/**
+ * On record pages, `content` holds the record's values: its String fields as plain text, and its
+ * references as links to their records' Structured Data nodes.
+ */
 export interface RecordLayoutContext<
   Data = unknown,
   Params = Record<string, string>,
-  Content = Record<string, string>,
+  Content = Record<string, unknown>,
 > extends LoadedLayoutContext<Data, Params> {
   content: Content;
 }
@@ -63,8 +66,13 @@ export interface RecordPageValues {
   title: string;
   /** The record's description, from its collection's `toDescription`, if it has one. */
   description: string | undefined;
-  /** The record's String fields as plain text. */
-  content: Record<string, string>;
+  /** The record's String fields as plain text, and its references as links to their nodes. */
+  content: Record<string, unknown>;
+  /**
+   * The titles of the records it references, by id: what links to records without Structured
+   * Data read as.
+   */
+  titles?: Record<string, string>;
 }
 
 /** What a page's context is built from. */
