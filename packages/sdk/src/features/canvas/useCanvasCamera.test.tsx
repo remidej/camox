@@ -2207,3 +2207,105 @@ void test("a zoom springing back while a pan goes on lands, so the zoom stops ch
     }
   }
 });
+
+void test("a zoomed-out camera away from the overview keeps its place as page heights change", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  const viewportSize = { width: 1200, height: 800 };
+  const contentSize = { width: 6000, height: 3000 };
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let sequence = 0;
+  let time = 0;
+  let resized = () => {};
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const flush = () => {
+    for (let count = 0; callbacks.size && count < 100; count++) {
+      const batch = [...callbacks.values()];
+      callbacks.clear();
+      time += 16;
+      batch.forEach((callback) => callback(time));
+    }
+    assert.equal(callbacks.size, 0);
+  };
+  function Fixture() {
+    const { viewportRef, contentRef } = useCanvasCamera("zoomed-out-away");
+    React.useLayoutEffect(() => {
+      Object.defineProperties(viewportRef.current!, {
+        clientWidth: { configurable: true, get: () => viewportSize.width },
+        clientHeight: { configurable: true, get: () => viewportSize.height },
+      });
+      Object.defineProperties(contentRef.current!, {
+        offsetWidth: { configurable: true, get: () => contentSize.width },
+        offsetHeight: { configurable: true, get: () => contentSize.height },
+      });
+    }, [viewportRef, contentRef]);
+    return (
+      <div ref={viewportRef}>
+        <div ref={contentRef} />
+      </div>
+    );
+  }
+  const read = () => {
+    const style = mount.querySelector("div")!.style;
+    return {
+      x: parseFloat(style.getPropertyValue("--canvas-x")),
+      y: parseFloat(style.getPropertyValue("--canvas-y")),
+      scale: Number(style.getPropertyValue("--canvas-zoom")),
+    };
+  };
+  const key = (value: string) =>
+    mount.querySelector("div")!.dispatchEvent(new dom.KeyboardEvent("keydown", { key: value }));
+
+  try {
+    await act(async () => root.render(<Fixture />));
+    resized();
+    const overview = canvasOverview(viewportSize, contentSize);
+    assert.deepEqual(read(), overview);
+    // At the zoom floor, but moved away from the overview, as a zoom out at the cursor leaves it.
+    key("ArrowRight");
+    flush();
+    const moved = read();
+    assert.equal(moved.scale, overview.scale);
+    assert.notEqual(moved.x, overview.x);
+
+    // Page frames reflow once the camera rests, and screenshots resize them as they land.
+    contentSize.height = 3100;
+    resized();
+    assert.deepEqual(
+      read(),
+      constrainCanvasCamera(moved, viewportSize, contentSize),
+      "the camera stays where the editor left it",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
