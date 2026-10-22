@@ -22,7 +22,7 @@ const options = {
   title: "External data",
   description: "",
   blocks: { before: [], after: [] },
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
 };
 
 void test("useData unwraps exactly once and preserves falsy payloads and no-loader layouts", () => {
@@ -30,7 +30,7 @@ void test("useData unwraps exactly once and preserves falsy payloads and no-load
     ...options,
     kind: "singleton",
     loader: (): LayoutLoaderResult<unknown> => ({ kind: "data", data: null }),
-    component: Content,
+    toReact: Content,
   });
   function Content() {
     const data = layout.useData();
@@ -58,7 +58,7 @@ void test("useData unwraps exactly once and preserves falsy payloads and no-load
   const staticLayout = createLayout("static")({
     ...options,
     kind: "singleton",
-    component: StaticContent,
+    toReact: StaticContent,
   });
   function StaticContent() {
     assert.equal(staticLayout.useData(), undefined);
@@ -83,7 +83,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
       loaderCalls++;
       return { kind: "data", data: { name: params.name, nested: { data: [0, false, null] } } };
     },
-    component: Pokemon,
+    toReact: Pokemon,
   });
   function Pokemon() {
     const pokemon = layout.useData();
@@ -234,7 +234,7 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
     const layout = createLayout("failure")({
       ...options,
       kind: "singleton",
-      component: () => null,
+      toReact: () => null,
       loader: () => {
         throw thrown;
       },
@@ -267,7 +267,7 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
     const layout = createLayout("invalid")({
       ...options,
       kind: "singleton",
-      component: () => null,
+      toReact: () => null,
       loader: () => result as LayoutLoaderResult,
     });
     const app = createApp({ blocks: [], layouts: [layout] });
@@ -294,23 +294,22 @@ function codeOwnedPagesApp() {
       if (params.name === "missingno") throw notFound();
       return { kind: "data", data: { name: params.name, flavor: "Electric mouse" } };
     },
-    buildMetaTitle: ({ data, pageMetaTitle, projectName }) =>
-      `${data.name} – ${pageMetaTitle} | ${projectName}`,
-    buildMetaDescription: ({ data }) => data.flavor,
+    toTitle: ({ data, page, project }) => `${data.name} – ${page.title} | ${project.name}`,
+    toDescription: ({ data }) => data.flavor,
     toMarkdown: ({ data, params }) => [`# ${data.name}`, "", data.flavor, `/${params.name}`],
-    component: () => null,
+    toReact: () => null,
   });
   const types = createLayout("types.$name")({
     ...options,
     kind: "derived",
     loader: async () => ({ kind: "data", data: null }),
-    component: () => null,
+    toReact: () => null,
   });
   const about = createLayout("about")({
     ...options,
     kind: "singleton",
     toMarkdown: ({ data }) => [`# About ${String(data)}`],
-    component: () => null,
+    toReact: () => null,
   });
   return createApp({ blocks: [], layouts: [pokemon, types, about] });
 }

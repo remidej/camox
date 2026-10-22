@@ -133,8 +133,8 @@ const articles = createCollection({
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: () => <main />,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: () => <main />,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
 };
 
 const app = createApp({

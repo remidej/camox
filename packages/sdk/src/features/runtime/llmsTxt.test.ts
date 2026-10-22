@@ -21,15 +21,15 @@ const articles = createCollection({
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: () => null,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: () => null,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
 };
 
 const defaultLayout = createLayout("default")({
   ...layoutOptions,
   kind: "curated",
   title: "Page",
-  component: ({ children }) => children,
+  toReact: ({ children }) => children,
 });
 
 type MockPage = {

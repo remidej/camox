@@ -105,8 +105,8 @@ void test("editable reference placements write one source and retain placement s
     title: "",
     description: "",
     content: (field) => ({ customer: field.reference(customers) }),
-    toMarkdown: (c) => [c.customer.name],
-    component: () => (
+    toMarkdown: ({ content }) => [content.customer.name],
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section aria-label={customer.label}>
@@ -197,7 +197,7 @@ void test("an unset reference placeholder names the collection and selects the r
     // The field title is not the collection's: the placeholder names the collection.
     content: (field) => ({ customer: field.reference(customers, { title: "Company" }) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">{(customer) => <h2>{customer.label}</h2>}</block.Reference>
     ),
   });
@@ -280,7 +280,7 @@ void test("clicks inside a placed record select its record field or the record f
       customer: field.reference(customers),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section>
@@ -438,7 +438,7 @@ void test("record images and files select their record field for that placement 
       customer: field.reference(customers),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section>
@@ -566,7 +566,7 @@ void test("record embeds select their record field for that placement only", asy
     description: "",
     content: (field) => ({ video: field.embed(embed), customer: field.reference(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section>
@@ -657,7 +657,7 @@ void test("editable reference lists render their linked records in stored order"
     description: "",
     content: (field) => ({ customers: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="customers">
           {(customer) => (
@@ -738,7 +738,7 @@ void test("editable query-backed lists render resolved records with the same sco
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <>
         <ul>{list(block)}</ul>
         <block.Repeater name="rows">{(row) => <ol>{list(row as never)}</ol>}</block.Repeater>
@@ -815,7 +815,7 @@ void test("an empty reference list shows an add placeholder on the Canvas that f
     description: "",
     content: (field) => ({ logos: field.referenceList(customers, { title: "Logos" }) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => <li>{customer.label}</li>}
@@ -905,7 +905,7 @@ void test("clicks inside a listed record select its record field or the record f
       logos: field.referenceList(customers),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => (
@@ -1058,7 +1058,7 @@ void test("inline edits of a listed record write the shared record and refresh e
     description: "",
     content: (field) => ({ logos: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => (
@@ -1155,7 +1155,7 @@ void test("images and files of listed records select their record field for that
     description: "",
     content: (field) => ({ logos: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => (
@@ -1279,11 +1279,11 @@ void test("repeatable items place records of their own, selected and linked per 
         settings: (setting) => ({ emphasized: setting.boolean({ default: false }) }),
         minItems: 1,
         maxItems: 6,
-        toMarkdown: (c) => [c.customer.name],
+        toMarkdown: ({ content }) => [content.customer.name],
       }),
     }),
-    toMarkdown: (c) => [c.logos],
-    component: () => (
+    toMarkdown: ({ content }) => [content.logos],
+    toReact: () => (
       <block.Repeater name="logos">
         {(logo) => (
           <article data-emphasized={String(logo.useSetting("emphasized"))}>
@@ -1465,7 +1465,7 @@ void test("records placed by a block render the records they link, one hop furth
     description: "",
     content: (field) => ({ article: field.reference(articles) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="article">
         {(article) => (
           <section>
