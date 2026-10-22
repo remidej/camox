@@ -63,14 +63,16 @@ void test("the selected Page's slot hands its place to the Preview page frame an
             <PreviewPreparationContext
               value={{ ready: (options) => readiness.push(options), fail: () => {} }}
             >
-              <CanvasPreviewPageSlot
-                pageId="page-1"
-                width={1366}
-                viewportHeight={768}
-                selected={selected}
-                hovered={false}
-                onActivate={(owner, source) => activations.push([owner, source])}
-              />
+              <div data-canvas-items>
+                <CanvasPreviewPageSlot
+                  pageId="page-1"
+                  width={1366}
+                  viewportHeight={768}
+                  selected={selected}
+                  hovered={false}
+                  onActivate={(owner, source) => activations.push([owner, source])}
+                />
+              </div>
             </PreviewPreparationContext>
           </ViewportContinuityContext>
         </PreviewPageFrameContext>,
@@ -151,14 +153,16 @@ void test("a singleton page's slot activates its layout, which owns its blocks",
         <PreviewPageFrameContext value={{ frame, revealed: true }}>
           <ViewportContinuityContext value={new ViewportContinuity()}>
             <PreviewPreparationContext value={{ ready: () => {}, fail: () => {} }}>
-              <CanvasPreviewPageSlot
-                layoutId="about"
-                width={1366}
-                viewportHeight={768}
-                selected
-                hovered={false}
-                onActivate={(owner, source) => activations.push([owner, source])}
-              />
+              <div data-canvas-items>
+                <CanvasPreviewPageSlot
+                  layoutId="about"
+                  width={1366}
+                  viewportHeight={768}
+                  selected
+                  hovered={false}
+                  onActivate={(owner, source) => activations.push([owner, source])}
+                />
+              </div>
             </PreviewPreparationContext>
           </ViewportContinuityContext>
         </PreviewPageFrameContext>,
@@ -175,4 +179,17 @@ void test("a singleton page's slot activates its layout, which owns its blocks",
       else Reflect.deleteProperty(globalThis, key);
     }
   }
+});
+
+void test("a slot's place adds up its offsets to the Canvas row, past its Page", async () => {
+  const { canvasRowOffset } = await import("./CanvasPreviewPageSlot");
+  // The Canvas row, a Page further along it, and the slot inside the Page,
+  // whose own offset is only relative to the Page.
+  const row = { offsetLeft: 0, offsetTop: 0, offsetParent: null };
+  const page = { offsetLeft: 3200, offsetTop: 40, offsetParent: row };
+  const slot = { offsetLeft: 0, offsetTop: 0, offsetParent: page };
+  assert.deepEqual(canvasRowOffset(slot as unknown as HTMLElement, row as unknown as HTMLElement), {
+    left: 3200,
+    top: 40,
+  });
 });

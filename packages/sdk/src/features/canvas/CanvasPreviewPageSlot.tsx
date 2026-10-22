@@ -13,6 +13,23 @@ import type { CanvasFrameActivate, CanvasFrameActivation } from "./CanvasPageFra
 import { CanvasWorkspaceContext } from "./canvasZoom";
 
 /**
+ * An element's place in the Canvas row, in world space. Its own offset is only
+ * relative to its nearest positioned ancestor, such as its Page, so the offsets
+ * add up to the row.
+ */
+export function canvasRowOffset(element: HTMLElement, row: HTMLElement) {
+  let left = 0;
+  let top = 0;
+  let current: HTMLElement | null = element;
+  while (current && current !== row) {
+    left += current.offsetLeft;
+    top += current.offsetTop;
+    current = current.offsetParent as HTMLElement | null;
+  }
+  return { left, top };
+}
+
+/**
  * The selected Page's place in the Canvas row, where the Preview's own page
  * frame shows instead of a frame of the Canvas. Toggling the Canvas then never remounts
  * the page, and neither does deselecting it, which keeps it in the frame. The slot takes the frame's height, and draws the Canvas overlays
@@ -63,11 +80,13 @@ export function CanvasPreviewPageSlot({
   React.useLayoutEffect(() => {
     const element = ref.current;
     const viewport = element?.closest<HTMLElement>("[data-camox-canvas]");
-    if (!frame || !element || !viewport) return;
+    const row = element?.closest<HTMLElement>("[data-canvas-items]");
+    if (!frame || !element || !viewport || !row) return;
+    const { left, top } = canvasRowOffset(element, row);
     const next = {
       viewport,
-      left: element.offsetLeft,
-      top: element.offsetTop,
+      left,
+      top,
       width,
       viewportHeight,
       mode,
