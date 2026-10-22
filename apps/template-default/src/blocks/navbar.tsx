@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { MobileMenu } from "@/components/ui/mobile-menu";
 import { colorSchemeOptions, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
@@ -66,19 +67,21 @@ function NavbarComponent(): ReactElement {
           {(props) => <Link {...props} className="text-ink font-heading text-lg font-bold" />}
         </navbar.Link>
 
-        <div className="flex items-center gap-6">
-          <navbar.Repeater name="links">
-            {(linkItem) => (
-              <linkItem.Link name="link">
-                {(props) => (
-                  <Link
-                    {...props}
-                    className="text-ink-muted hover:text-ink text-sm transition-colors"
-                  />
-                )}
-              </linkItem.Link>
-            )}
-          </navbar.Repeater>
+        <div className="flex items-center gap-2 md:gap-6">
+          <MobileMenu wrapperClassName="order-last md:order-none">
+            <navbar.Repeater name="links">
+              {(linkItem) => (
+                <linkItem.Link name="link">
+                  {(props) => (
+                    <Link
+                      {...props}
+                      className="text-ink-muted hover:text-ink text-sm transition-colors"
+                    />
+                  )}
+                </linkItem.Link>
+              )}
+            </navbar.Repeater>
+          </MobileMenu>
 
           <navbar.Link name="cta">
             {(props) => <Button {...props} size="sm" variant="outline" />}
