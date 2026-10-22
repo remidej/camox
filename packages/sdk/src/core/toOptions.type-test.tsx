@@ -55,7 +55,7 @@ createLayout("curated")({
   kind: "curated",
   toReact: ({ children }) => children,
   toTitle: ({ page }) => page.title,
-  // @ts-expect-error `toImage` gets the page and project only, for now.
+  // @ts-expect-error Curated pages have no loader data, in `toImage` too.
   toImage: ({ data }) => <div>{String(data)}</div>,
 });
 createLayout("curated")({
@@ -98,6 +98,7 @@ createLayout("pokemon.$name")({
   toReact: ({ params, data }) => <p>{`${params.name} ${data.name}`}</p>,
   toTitle: ({ data, params }) => `${data.name} ${params.name}`,
   toDescription: ({ data }) => data.name,
+  toImage: ({ data, params, page }) => <div>{`${data.name} ${params.name} ${page.title}`}</div>,
 });
 createLayout("pokemon.$name")({
   ...shared,
@@ -138,6 +139,7 @@ createLayout("articles.$slug")({
   toReact: ({ content, page }) => <h1>{`${content.title} ${page.title}`}</h1>,
   toTitle: ({ content, params }) => `${content.title} ${params.slug}`,
   toDescription: ({ content, data }) => `${content.slug} ${data.id}`,
+  toImage: ({ content, project }) => <div>{`${content.title} ${project.name}`}</div>,
 });
 createLayout("articles.$slug")({
   ...shared,

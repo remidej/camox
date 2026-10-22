@@ -374,10 +374,7 @@ void test("derived pages get the curated head, built from their loader data", as
   assert.match(html, /<meta name="description" content="Electric mouse"/);
   assert.match(html, /<meta property="og:title" content="pikachu – Pokémon \| Real project"/);
   assert.match(html, /<meta property="og:description" content="Electric mouse"/);
-  assert.match(
-    html,
-    /og:image" content="https:\/\/site.test\/og\?layoutId=pokemon.%24name&title=pikachu/,
-  );
+  assert.match(html, /og:image" content="https:\/\/site.test\/og\?path=%2Fpokemon%2Fpikachu"/);
   assert.match(html, /<link rel="icon" href="https:\/\/api.test\/favicons\/1\?v=7&default=camox"/);
 
   // Client navigation receives the same head.

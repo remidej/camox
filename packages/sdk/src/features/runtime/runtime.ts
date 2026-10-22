@@ -4,10 +4,14 @@ import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
-import type { AnyLayoutLoaderResult } from "../../core/createLayout";
+import type { AnyLayoutLoaderResult, Layout } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoutes";
-import { buildLayoutContext } from "../../core/layoutContext";
+import {
+  buildLayoutContext,
+  curatedLayoutContext,
+  type AnyLayoutContext,
+} from "../../core/layoutContext";
 import { asCollectionItem, recordMarkdownTemplate, recordPageValues } from "../../core/recordItem";
 import {
   createRequestContext,
@@ -30,13 +34,13 @@ import {
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
 import { reads } from "../../lib/studio-reads";
+import { DefaultPageImage, renderPageImage } from "../og/pageImage";
 import {
   buildCamoxPageHead,
   buildFaviconUrl,
   buildPageHead,
   buildPageMeta,
   createMarkdownResponse,
-  createOgImageResponse,
   parseMarkdownPath,
   createServerApiClient,
   createServerStudioCache,
@@ -346,23 +350,32 @@ function absoluteUrl(request: Request, options: RuntimeOptions) {
   return (path: string) => `${origin}${withRuntimeBasePath(path, options.runtimeBasePath)}`;
 }
 
+/** An ETag derived from `text`. */
+async function etagOf(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return `"${[...new Uint8Array(digest)]
+    .slice(0, 16)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}"`;
+}
+
+/** Whether the request's `If-None-Match` names `etag`, so a 304 answers it. */
+function namesEtag(request: Request, etag: string): boolean {
+  return (request.headers.get("If-None-Match") ?? "")
+    .split(",")
+    .map((tag) => tag.trim().replace(/^W\//, ""))
+    .some((tag) => tag === etag || tag === "*");
+}
+
 /** `body` with an ETag derived from it, or a 304 when the request's `If-None-Match` names it. */
 async function withEtag(
   request: Request,
   body: string,
   headers: Record<string, string>,
 ): Promise<Response> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
-  const etag = `"${[...new Uint8Array(digest)]
-    .slice(0, 16)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")}"`;
-  const taggedHeaders = { ...headers, ETag: etag };
-  const matches = (request.headers.get("If-None-Match") ?? "")
-    .split(",")
-    .map((tag) => tag.trim().replace(/^W\//, ""))
-    .some((tag) => tag === etag || tag === "*");
-  if (matches) return new Response(null, { status: 304, headers: taggedHeaders });
+  const taggedHeaders = { ...headers, ETag: await etagOf(body) };
+  if (namesEtag(request, taggedHeaders.ETag))
+    return new Response(null, { status: 304, headers: taggedHeaders });
   return new Response(body, { headers: taggedHeaders });
 }
 
@@ -487,13 +500,103 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   }
 }
 
+/**
+ * The image of the page `/og?path=` names, by its path with its locale's prefix: its layout's
+ * `toImage`, or Camox's default image, rendered with the page's context. Only real pages have
+ * one, read as the page itself would be, in the draft the URL names for a member.
+ */
 async function createOgResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
   if (!camoxApp) {
     return Response.json({ message: "Camox app registry is not available." }, { status: 500 });
   }
+  const source = await readPageImageSource(request, options, camoxApp);
+  if (!source) return new Response("Not found", { status: 404 });
+  // The image is drawn from the page's context alone, so the context validates it without
+  // rendering it. Caches keep it, but ask again each time: a publish shows up at once.
+  const headers = {
+    ETag: await etagOf(JSON.stringify([source.layout?.id ?? null, source.context])),
+    "Cache-Control": isPrivateRender(request, options) ? "private, no-store" : "public, no-cache",
+  };
+  if (namesEtag(request, headers.ETag)) return new Response(null, { status: 304, headers });
+  const toImage = source.layout?.toImage ?? DefaultPageImage;
+  const image = await renderPageImage(toImage(source.context));
+  for (const [name, value] of Object.entries(headers)) image.headers.set(name, value);
+  return image;
+}
 
-  return createOgImageResponse(camoxApp, new URL(request.url));
+/** The layout and context of the page `/og` names, or null when it names no page. */
+async function readPageImageSource(
+  request: Request,
+  options: RuntimeOptions,
+  app: CamoxApp,
+): Promise<{ layout: Layout["_internal"] | undefined; context: AnyLayoutContext } | null> {
+  const { apiUrl, projectUuid } = options;
+  const path = new URL(request.url).searchParams.get("path");
+  if (!apiUrl || !projectUuid || !path?.startsWith("/")) return null;
+  const located = await locateRequest(request, options, path);
+  if (matchLocalizedRoute(located.path)?.kind !== "page") return null;
+
+  const { project } = await resolveRequestMember(request, options);
+  const member = project !== undefined;
+  const authCookieHeader = member ? getServerAuthCookieHeader(request.headers) : undefined;
+  const requestedDraft = getRequestDraftId(request, options);
+  const api = (draftId: string | undefined) =>
+    createServerApiClient(apiUrl, { authCookieHeader, draftId, locale: located.locale });
+
+  const match = matchDerivedLayout(app.getLayouts(), located.path);
+  /** A code-owned page: its loader runs in the draft the layout read settled on. */
+  const codeOwned = async (match: DerivedMatch) => {
+    const layout = match.layout._internal;
+    const { value: shared, draftId } = await readDraftOrLive(requestedDraft, member, (draftId) =>
+      api(draftId).layouts.get({ projectUuid, layoutId: layout.id }),
+    );
+    const result = await loadLayoutResult(
+      app,
+      match,
+      createLayoutRequestContext(options, member ? "draft" : "live", {
+        authCookieHeader,
+        draftId,
+        locale: located.locale,
+      }),
+      located.locale,
+    );
+    const record = asCollectionItem(result);
+    const collection = record && app.getCollectionById(record.collectionId);
+    return {
+      layout,
+      context: buildLayoutContext(layout, {
+        path,
+        locale: located.locale.tag,
+        projectName: shared.projectName,
+        data: result?.data,
+        params: match.params,
+        record:
+          record && collection ? recordPageValues(collection, record.data.content) : undefined,
+      }),
+    };
+  };
+  /** A curated page, or else a derived layout's page, as the page's HTML falls back. */
+  const curated = async () => {
+    try {
+      const { value: page } = await readDraftOrLive(requestedDraft, member, (draftId) =>
+        api(draftId).pages.getByPath({ path: located.path, projectUuid }),
+      );
+      return {
+        layout: page.layout ? app.getLayoutById(page.layout.layoutId)?._internal : undefined,
+        context: curatedLayoutContext(page, located.locale),
+      };
+    } catch (error) {
+      if (isNotFoundError(error) && match) return codeOwned(match);
+      throw error;
+    }
+  };
+  try {
+    return match?.layout._internal.kind === "singleton" ? await codeOwned(match) : await curated();
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
+  }
 }
 
 function createDefaultHeadInput(stylesheetUrl?: string): UseHeadInput {
