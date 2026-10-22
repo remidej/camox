@@ -4,10 +4,10 @@ import { Input } from "@camox/ui/input";
 import { ChevronsUpDown, Plus } from "lucide-react";
 import * as React from "react";
 
-export type RecordOption = { id: string; label: string };
+export type RecordOption = { id: string; title: string; description?: string | null };
 
 /**
- * Picks a collection record by label. The footer action (e.g. Create item) receives the
+ * Picks a collection record by title, each shown with its description. The footer action (e.g. Create item) receives the
  * current search text so it can prefill a new record.
  */
 export function RecordCombobox({
@@ -51,7 +51,7 @@ export function RecordCombobox({
       onOpenChange={setOpen}
       inputValue={search}
       onInputValueChange={setSearch}
-      itemToStringLabel={(record: RecordOption) => record.label}
+      itemToStringLabel={(record: RecordOption) => record.title}
       itemToStringValue={(record: RecordOption) => record.id}
       isItemEqualToValue={(record: RecordOption, current: RecordOption) => record.id === current.id}
       onValueChange={(record) => {
@@ -83,7 +83,16 @@ export function RecordCombobox({
                   value={record}
                   className="data-highlighted:bg-accent data-highlighted:text-accent-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none"
                 >
-                  <span className="min-w-0 flex-1 truncate">{record.label}</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span data-record-title className="truncate">
+                      {record.title}
+                    </span>
+                    {record.description && (
+                      <span className="text-muted-foreground truncate text-xs">
+                        {record.description}
+                      </span>
+                    )}
+                  </span>
                 </Combobox.Item>
               )}
             </Combobox.List>

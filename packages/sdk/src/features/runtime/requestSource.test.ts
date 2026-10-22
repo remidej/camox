@@ -22,7 +22,7 @@ const EXPIRED_SESSION = "camox_auth_cookie=expired";
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: () => null,
+  toReact: () => null,
 };
 
 /** Layouts whose loader and routes report the source their record lookups name. */
@@ -37,7 +37,8 @@ function sourceReportingApp() {
     }),
     routes: async ({ context }) => ({ data: [{ params: { name: await lookupSource(context) } }] }),
     toMarkdown: ({ data }) => [`# ${data.name} read ${data.source}`],
-    buildMetaTitle: ({ data }) => `Read ${data.source}`,
+    toTitle: ({ data }) => `Read ${data.source}`,
+    toDescription: ({ page }) => page.description,
   });
   const pokedex = createLayout("pokedex")({
     ...layoutOptions,
@@ -48,7 +49,8 @@ function sourceReportingApp() {
       data: { source: await lookupSource(context) },
     }),
     toMarkdown: ({ data }) => [`# Pokédex read ${data.source}`],
-    buildMetaTitle: ({ data }) => `Read ${data.source}`,
+    toTitle: ({ data }) => `Read ${data.source}`,
+    toDescription: ({ page }) => page.description,
   });
   return createApp({ blocks: [], layouts: [pokemon, pokedex] });
 }
@@ -76,7 +78,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       // Reports the source each lookup named, so layouts can show it.
       const { json: input } = (await request.json()) as { json: { source?: string } };
       const source = input.source ?? "none";
-      return Response.json({ json: [{ id: source, value: source, label: source }] });
+      return Response.json({ json: [{ id: source, value: source, title: source }] });
     }
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });

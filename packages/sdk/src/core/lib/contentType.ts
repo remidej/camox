@@ -1,4 +1,8 @@
-import { referenceQueryProblem, type SystemOrderKey } from "@camox/api-contract";
+import {
+  referenceQueryProblem,
+  type SettingCondition as ApiSettingCondition,
+  type SystemOrderKey,
+} from "@camox/api-contract";
 import { uuidv7JsonSchema } from "@camox/api-contract/ids";
 import {
   Type as TypeBoxType,
@@ -11,6 +15,7 @@ import {
 } from "@sinclair/typebox";
 
 import type { Collection } from "../createCollection";
+import type { BlockStructuredData, KnownNodesOnly, RepeatedNodes } from "../structuredData";
 import { attachArtifactData } from "./artifactData";
 import type { IconId, IconValue } from "./iconTypes";
 
@@ -134,12 +139,21 @@ export type SettingsProxy<TShape extends Record<string, TSchema>> = {
   [K in keyof TShape & string]: SettingCallable<TShape[K]>;
 };
 
+/** What a block's or repeatable item's templates receive: proxies of its content and settings. */
+export interface TemplateContext<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+> {
+  content: ContentProxy<TContent>;
+  settings: SettingsProxy<TSettings>;
+}
+
+/** Builds a Markdown template from `{ content, settings }`. */
 export type ToMarkdownBuilder<
   TContent extends Record<string, TSchema>,
   TSettings extends Record<string, TSchema> = Record<string, never>,
 > = (
-  c: ContentProxy<TContent>,
-  s: SettingsProxy<TSettings>,
+  context: TemplateContext<TContent, TSettings>,
 ) => ReadonlyArray<string | FieldToken | Conditional>;
 
 function createContentProxy<TShape extends Record<string, TSchema>>(
@@ -152,9 +166,23 @@ function createContentProxy<TShape extends Record<string, TSchema>>(
       const path = prefix ? `${prefix}.${prop}` : prop;
       const field = shape?.[prop];
       if (field?.fieldType === "Reference") {
-        return createContentProxy(field.referenceSchema.properties, path);
+        return referenceToken(field.referenceSchema.properties, path);
       }
       return new FieldToken(path);
+    },
+  });
+}
+
+/**
+ * A reference field's token, which names the reference itself, as Structured Data templates
+ * link records by it, and whose properties are the tokens of the record's fields.
+ */
+function referenceToken(shape: Record<string, TSchema> | undefined, path: string) {
+  const fields = createContentProxy(shape, path) as Record<string, unknown>;
+  return new Proxy(new FieldToken(path), {
+    get(target, prop, receiver) {
+      if (typeof prop !== "string" || prop in target) return Reflect.get(target, prop, receiver);
+      return fields[prop];
     },
   });
 }
@@ -208,9 +236,9 @@ export function resolveToMarkdown<
   scope: SettingsScope,
   contentShape?: TContent,
 ): string[] {
-  const contentProxy = createContentProxy<TContent>(contentShape);
-  const settingsProxy = createSettingsProxy<TSettings>(settingsShape, scope);
-  const entries = builder(contentProxy, settingsProxy);
+  const content = createContentProxy<TContent>(contentShape);
+  const settings = createSettingsProxy<TSettings>(settingsShape, scope);
+  const entries = builder({ content, settings });
 
   const out: string[] = [];
   for (const entry of entries) {
@@ -221,6 +249,217 @@ export function resolveToMarkdown<
     }
   }
   return out;
+}
+
+/** A collection's String fields as field tokens: what its record templates can name. */
+export type RecordTextProxy<TShape extends Record<string, TSchema>> = {
+  [K in keyof TShape & string as TShape[K] extends { fieldType: "String" } ? K : never]: string &
+    FieldToken;
+};
+
+/** What a collection's `toTitle` and `toDescription` receive: the record's String fields. */
+export interface RecordTemplateContext<TShape extends Record<string, TSchema>> {
+  content: RecordTextProxy<TShape>;
+}
+
+/**
+ * Runs a collection's record template, such as `toTitle`, into the token template the API fills
+ * with each record's plain text. Null when it returns nothing.
+ */
+export function resolveRecordTemplate<TShape extends Record<string, TSchema>>(
+  template: (context: RecordTemplateContext<TShape>) => string | undefined,
+  contentShape: TShape,
+): string | null {
+  const content = createContentProxy(contentShape) as unknown as RecordTextProxy<TShape>;
+  const result = template({ content });
+  return result === undefined || result === null || String(result) === "" ? null : String(result);
+}
+
+/**
+ * Builds a title template from `{ content, settings }`: one line naming a block or repeatable item
+ * until it has a Summary, such as its headline. The API evaluates it on default-locale content.
+ */
+export type ToTitleBuilder<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+> = (context: TemplateContext<TContent, TSettings>) => string | FieldToken;
+
+/** The one-line title template a `toTitle` builder declares. */
+export function resolveToTitle<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+>(
+  builder: ToTitleBuilder<TContent, TSettings>,
+  settingsShape: TSettings | undefined,
+  scope: SettingsScope,
+  contentShape?: TContent,
+): string {
+  const content = createContentProxy<TContent>(contentShape);
+  const settings = createSettingsProxy<TSettings>(settingsShape, scope);
+  return String(builder({ content, settings }));
+}
+
+/**
+ * An image field's token in a Structured Data template, which the API evaluates into an
+ * `ImageObject` with its absolute URL, dimensions and alt text.
+ */
+export type ImageToken = { "@type": "ImageObject"; url: string; contentUrl: string };
+
+/**
+ * A reference's token in a Structured Data template: a link to the record's node, which Camox
+ * adds to the page's graph, or the record's title when its collection has no `toStructuredData`.
+ */
+export type RecordToken = { readonly "@id": string };
+
+/**
+ * What a field reads as in a Structured Data template. Text, files, links and embeds read as
+ * strings, links and files as absolute URLs. References link their records' nodes, and their
+ * fields read as the record's. Icons, artifacts and lists of files aren't Structured Data.
+ */
+type StructuredDataToken<T extends TSchema> =
+  T extends ReferenceSchema<infer R>
+    ? RecordToken & StructuredDataProxy<R>
+    : T extends ReferenceListSchema<any>
+      ? RecordToken[]
+      : T extends { fieldType: "Artifact" }
+        ? never
+        : T extends TArray<TObject<any>>
+          ? RepeatedNodes
+          : T extends TArray<any>
+            ? never
+            : Static<T> extends IconValue
+              ? never
+              : Static<T> extends ImageValue
+                ? ImageToken
+                : Static<T> extends string | LinkValue | FileValue
+                  ? string & FieldToken
+                  : never;
+
+/** A block's or repeatable item's fields as a Structured Data template reads them. */
+export type StructuredDataProxy<TShape extends Record<string, TSchema>> = {
+  [
+    K in keyof TShape & string as [StructuredDataToken<TShape[K]>] extends [never] ? never : K
+  ]: StructuredDataToken<TShape[K]>;
+};
+
+/**
+ * One setting in a Structured Data template: shows a part of the template only while it holds,
+ * typed as the part it shows. A Boolean takes the part; an Enum takes the option it must equal,
+ * then the part. Settings of other shapes aren't conditions.
+ */
+type StructuredDataSettingCallable<T extends TSchema> =
+  Static<T> extends boolean
+    ? <const V>(value: V) => V
+    : Static<T> extends string
+      ? <const V>(equals: Static<T>, value: V) => V
+      : never;
+
+/** A block's or repeatable item's settings, as its Structured Data template reads them. */
+export type StructuredDataSettingsProxy<TShape extends Record<string, TSchema>> = {
+  [K in keyof TShape & string]: StructuredDataSettingCallable<TShape[K]>;
+};
+
+/** A part of a Structured Data template shown only while a setting holds. */
+class SettingCondition {
+  constructor(
+    public readonly scope: SettingsScope,
+    public readonly settingName: string,
+    public readonly equals: string | null,
+    public readonly show: unknown,
+  ) {}
+}
+
+function createStructuredDataSettingsProxy<TShape extends Record<string, TSchema>>(
+  settingsShape: TShape | undefined,
+  scope: SettingsScope,
+): StructuredDataSettingsProxy<TShape> {
+  return new Proxy({} as StructuredDataSettingsProxy<TShape>, {
+    get(_target, prop) {
+      if (typeof prop !== "string") return undefined;
+      const fieldType = (settingsShape?.[prop] as { fieldType?: string } | undefined)?.fieldType;
+      if (fieldType === "Boolean") {
+        return (value: unknown) => new SettingCondition(scope, prop, null, value);
+      }
+      if (fieldType === "Enum") {
+        return (equals: string, value: unknown) => new SettingCondition(scope, prop, equals, value);
+      }
+      throw new Error(
+        `toStructuredData settings proxy: "${prop}" is not a Boolean or Enum setting on this ${scope}.`,
+      );
+    },
+  });
+}
+
+/** What a block's or repeatable item's `toStructuredData` receives. */
+export interface StructuredDataContext<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema> = Record<string, never>,
+> {
+  content: StructuredDataProxy<TContent>;
+  settings: StructuredDataSettingsProxy<TSettings>;
+}
+
+/**
+ * Builds a block's or repeatable item's Structured Data template from `{ content, settings }`:
+ * the nodes it shows. A repeater's token places its items' nodes. The API evaluates the
+ * template on each page's content, and Camox links each node to its page.
+ */
+export type ToStructuredDataBuilder<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema>,
+  Nodes extends BlockStructuredData,
+> = (context: StructuredDataContext<TContent, TSettings>) => Nodes & KnownNodesOnly<Nodes>;
+
+/** A template's value as the Definition Set syncs it: JSON, with tokens as `{{field}}`. */
+function serializeTemplate(value: unknown): unknown {
+  if (value instanceof FieldToken) return value.toString();
+  if (value instanceof SettingCondition) {
+    const condition: ApiSettingCondition = {
+      "@camox": "if",
+      setting: `${value.scope === "block" ? "settings" : "itemSettings"}.${value.settingName}`,
+      ...(value.equals !== null && { equals: value.equals }),
+      show: serializeTemplate(value.show),
+    };
+    return condition;
+  }
+  if (Array.isArray(value)) return value.map(serializeTemplate);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, entry]) =>
+        entry === undefined ? [] : [[key, serializeTemplate(entry)]],
+      ),
+    );
+  }
+  return value;
+}
+
+/** The Structured Data template a `toStructuredData` builder declares. */
+export function resolveToStructuredData<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema>,
+>(
+  builder: (context: StructuredDataContext<TContent, TSettings>) => unknown,
+  settingsShape: TSettings | undefined,
+  scope: SettingsScope,
+  contentShape?: TContent,
+): unknown {
+  const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TContent>;
+  const settings = createStructuredDataSettingsProxy<TSettings>(settingsShape, scope);
+  return serializeTemplate(builder({ content, settings }));
+}
+
+/** What a collection's `toStructuredData` receives: the record's fields as tokens. */
+export interface RecordStructuredDataContext<TShape extends Record<string, TSchema>> {
+  content: StructuredDataProxy<TShape>;
+}
+
+/** The Structured Data template of each record of a collection, as its builder declares it. */
+export function resolveRecordStructuredData<TShape extends Record<string, TSchema>>(
+  builder: (context: RecordStructuredDataContext<TShape>) => unknown,
+  contentShape: TShape,
+): Record<string, unknown> {
+  const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TShape>;
+  return serializeTemplate(builder({ content })) as Record<string, unknown>;
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -525,7 +764,7 @@ export interface ContentFieldBuilder {
    * cannot pick, remove or reorder records, and nothing is stored on the block.
    *
    * @example
-   * field.referenceList(customers, { maxItems: 6, toMarkdown: (c) => [c.name] })
+   * field.referenceList(customers, { maxItems: 6, toMarkdown: ({ content }) => [content.name] })
    * field.referenceList(articles, { query: { orderBy: { publishedAt: "desc" }, limit: 3 } })
    */
   referenceList: <T extends Record<string, TSchema>, const L extends number = number>(
@@ -554,19 +793,38 @@ export interface ContentFieldBuilder {
    *   minItems: 1,
    *   maxItems: 10,
    *   title: "Items",
-   *   toMarkdown: (c, s) => [`### ${c.title}`, s.highlighted(c.description)],
+   *   toTitle: ({ content }) => content.title,
+   *   toMarkdown: ({ content, settings }) => [
+   *     `### ${content.title}`,
+   *     settings.highlighted(content.description),
+   *   ],
    * })
    */
   repeater: <
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
+    N extends BlockStructuredData = BlockStructuredData,
   >(options: {
     content: (field: ContentFieldBuilder) => T & NoInfer<ArtifactDataCheck<T, S>>;
     settings?: (setting: SettingBuilder) => S;
     minItems: number;
     maxItems: number;
     title?: string;
+    /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
+    toTitle: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
+    /**
+     * The nodes each item shows, placed wherever the parent's template places the repeater's
+     * token. See `ToStructuredDataBuilder`.
+     *
+     * @example
+     * toStructuredData: ({ content }) => ({
+     *   "@type": "Question",
+     *   name: content.question,
+     *   acceptedAnswer: { "@type": "Answer", text: content.answer },
+     * })
+     */
+    toStructuredData?: ToStructuredDataBuilder<T, S, N>;
   }) => RepeaterField<T, S>;
 }
 
@@ -840,7 +1098,6 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       default: null,
       // Used by the typed child scope, not a copy of a record's content.
       referenceSchema: collection._internal.contentSchema,
-      labelField: collection._internal.label,
     }) as ReferenceSchema<T>,
   referenceList: <T extends Record<string, TSchema>>(
     collection: Collection<T>,
@@ -876,18 +1133,32 @@ export const contentFieldBuilder: ContentFieldBuilder = {
           }),
       // Used by the typed child scope, not a copy of a record's content.
       referenceSchema: collection._internal.contentSchema,
-      labelField: collection._internal.label,
     }) as ReferenceListSchema<T>,
   repeater: <
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
+    N extends BlockStructuredData = BlockStructuredData,
   >(options: {
     content: (field: ContentFieldBuilder) => T & NoInfer<ArtifactDataCheck<T, S>>;
     settings?: (setting: SettingBuilder) => S;
     minItems: number;
     maxItems: number;
     title?: string;
+    /** Names each item until it has a Summary, such as its title. See `ToTitleBuilder`. */
+    toTitle: ToTitleBuilder<T, S>;
     toMarkdown: ToMarkdownBuilder<T, S>;
+    /**
+     * The nodes each item shows, placed wherever the parent's template places the repeater's
+     * token. See `ToStructuredDataBuilder`.
+     *
+     * @example
+     * toStructuredData: ({ content }) => ({
+     *   "@type": "Question",
+     *   name: content.question,
+     *   acceptedAnswer: { "@type": "Answer", text: content.answer },
+     * })
+     */
+    toStructuredData?: ToStructuredDataBuilder<T, S, N>;
   }) => {
     if (options.minItems < 1) {
       throw new Error("Repeater requires minItems to be at least 1");
@@ -923,7 +1194,16 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       default: defaultArray,
       title: options.title,
       fieldType: "Repeater" as const,
+      toTitle: resolveToTitle<T, S>(options.toTitle, settings, "item", content),
       toMarkdown: resolveToMarkdown<T, S>(options.toMarkdown, settings, "item", content),
+      ...(options.toStructuredData && {
+        toStructuredData: resolveToStructuredData<T, S>(
+          options.toStructuredData,
+          settings,
+          "item",
+          content,
+        ),
+      }),
       itemSettingsSchema,
       defaultItemSettings: settingsObjectSchema
         ? collectSchemaDefaults(settingsObjectSchema.properties)

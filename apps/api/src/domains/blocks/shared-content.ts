@@ -115,7 +115,8 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   };
 });
 
-const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends BlockRow>(
+/** Blocks and items as a scope shows them: synced placements with their shared content and items. */
+export const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends BlockRow>(
   db: Database,
   scope: ReadScope,
   blockRows: readonly B[],

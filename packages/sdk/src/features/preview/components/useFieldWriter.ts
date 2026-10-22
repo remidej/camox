@@ -3,8 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import { referenceWritesFor } from "@/core/editing/referenceWrites";
-import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import { referenceListIds, type ReferenceRecord } from "@/core/lib/reference";
+import { recordText } from "@/core/recordItem";
 import { serializeAssetField } from "@/features/content/collection-form";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "@/lib/auth";
@@ -176,13 +176,11 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
           const record = await studioCache.ensure(
             reads.record({ projectUuid, collectionId, id: recordId }),
           );
-          const labelField = camoxApp.getCollectionById(collectionId)?._internal.label;
-          const label = labelField ? record.content[labelField] : undefined;
           return {
             id: record.id,
             collectionId,
             content: record.content,
-            label: typeof label === "string" ? lexicalStateToPlainText(label) : "",
+            ...recordText(camoxApp.getCollectionById(collectionId), record.content),
           };
         };
         return (async () => {

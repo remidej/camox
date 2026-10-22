@@ -1,4 +1,4 @@
-import { isQueryBacked, isSystemOrderKey } from "@camox/api-contract";
+import { isQueryBacked, isSystemOrderKey, nonStringTemplateFields } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -126,20 +126,70 @@ export const contentSchemaInput = z
     }
   });
 
+const recordTextTemplate = z.string().max(10_000);
+
 export const collectionDefinitionInput = z
   .object({
     collectionId: z.string().min(1),
     title: z.string().min(1),
     description: z.string(),
-    label: z.string(),
+    // Token templates of String fields, such as `{{firstName}} {{lastName}}`.
+    toTitle: recordTextTemplate.optional(),
+    toDescription: recordTextTemplate.nullable().optional(),
+    /**
+     * The ADR 0019 bridge: SDKs from before record titles name records by one String field, read
+     * as a title template naming it, with no description. Exactly one of `label` and `toTitle`.
+     */
+    label: z.string().optional(),
     contentSchema: contentSchemaInput,
+    /**
+     * The JSON template of each record's Structured Data node, whose strings may hold field
+     * tokens. Records of a collection without one have no node, and references to them read as
+     * their title.
+     */
+    toStructuredData: z
+      .record(z.string(), z.unknown())
+      .refine((node) => JSON.stringify(node).length <= 20_000, "toStructuredData: too large")
+      // Camox alone describes the website.
+      .refine((node) => node["@type"] !== "WebSite", "toStructuredData: can't be a WebSite")
+      .nullable()
+      .optional(),
   })
   .strict()
   .superRefine((definition, ctx) => {
-    if (definition.contentSchema.properties[definition.label]?.fieldType !== "String") {
+    if ((definition.label === undefined) === (definition.toTitle === undefined)) {
+      ctx.addIssue({ code: "custom", message: "Give either toTitle or label" });
+      return;
+    }
+    if (definition.toTitle !== undefined && definition.toDescription === undefined) {
+      ctx.addIssue({ code: "custom", path: ["toDescription"], message: "toDescription: required" });
+    }
+    if (
+      definition.label !== undefined &&
+      definition.contentSchema.properties[definition.label]?.fieldType !== "String"
+    ) {
       ctx.addIssue({ code: "custom", message: "Label must name a String field" });
     }
-  });
+    const templates = { toTitle: definition.toTitle, toDescription: definition.toDescription };
+    for (const [option, template] of Object.entries(templates)) {
+      for (const name of nonStringTemplateFields(
+        template ?? "",
+        definition.contentSchema.properties,
+      )) {
+        ctx.addIssue({
+          code: "custom",
+          path: [option],
+          message: `${option}: "${name}" names no String field`,
+        });
+      }
+    }
+  })
+  .transform(({ label, toTitle, toDescription, toStructuredData, ...definition }) => ({
+    ...definition,
+    toStructuredData: toStructuredData ?? null,
+    toTitle: toTitle ?? `{{${label}}}`,
+    toDescription: label === undefined ? (toDescription ?? null) : null,
+  }));
 
 /** A stored asset: a reference to a file, resolved on read like a block's. */
 export type AssetValue = { _fileId: string };

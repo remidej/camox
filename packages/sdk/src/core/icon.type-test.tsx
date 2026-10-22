@@ -14,7 +14,7 @@ const block = createBlock({
   id: "icon-type-test",
   title: "Icons",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     icon,
     text: field.string({ default: "Text" }),
@@ -22,10 +22,12 @@ const block = createBlock({
       content: (field) => ({ icon, text: field.string({ default: "Text" }) }),
       minItems: 1,
       maxItems: 5,
-      toMarkdown: (c) => [c.text],
+      toMarkdown: ({ content }) => [content.text],
+      toTitle: () => "Item",
     }),
   }),
-  toMarkdown: (c) => [c.text],
+  toMarkdown: ({ content }) => [content.text],
+  toTitle: () => "Icons",
 });
 
 function TypeCheck() {

@@ -225,6 +225,7 @@
     "@tanstack/react-query-devtools": "^5.104.3",
     "@tanstack/react-virtual": "^3.14.20",
     "@unhead/react": "^3.4.3",
+    "@unhead/schema-org": "3.4.3",
     "@xstate/store": "4.3.0",
     "@xstate/store-react": "^2.1.0",
     "better-auth": "^1.7.10",

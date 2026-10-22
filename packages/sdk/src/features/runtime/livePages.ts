@@ -1,6 +1,7 @@
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { discoverLayoutPages } from "../../core/derivedRoutes";
+import { curatedPageTitle } from "../../core/layoutContext";
 import { getPageDestinations } from "../../core/pageDestinations";
 import { createRequestContext, type RecordLookup } from "../../core/requestContext";
 
@@ -15,8 +16,9 @@ export interface LivePage {
   fullPath: string;
   layoutId: string;
   /**
-   * What an index calls the page, by page kind: a curated page's meta title (its nickname while
-   * it has none), a singleton's layout title, a record page's Label, any other derived page's path.
+   * What an index calls the page, its undecorated title as its `page.title` names it: a curated
+   * page's meta title or nickname, a singleton's layout title, a record page's record title. Any
+   * other derived page goes by its path: Route Discovery runs no loaders.
    */
   title: string;
   description?: string;
@@ -31,6 +33,7 @@ export interface ListedPage {
   id: string;
   nickname: string;
   fullPath: string;
+  pathSegment: string;
   layoutId: string;
   metaTitle: string | null;
   metaDescription: string | null;
@@ -71,8 +74,7 @@ export async function listLivePages({
       key: destination.key,
       fullPath: page.fullPath,
       layoutId: page.layoutId,
-      // A generated meta title is null until generation runs.
-      title: page.metaTitle || page.nickname,
+      title: curatedPageTitle(page),
       ...(page.metaDescription && { description: page.metaDescription }),
       hasMarkdown: true,
       updatedAt: page.updatedAt,
@@ -93,7 +95,7 @@ export async function listLivePages({
             : `derived:${page.path}`,
           fullPath: page.path,
           layoutId: layout._internal.id,
-          title: page.label || page.path,
+          title: page.title || page.path,
           hasMarkdown: servesMarkdown(layout),
         }));
       }),

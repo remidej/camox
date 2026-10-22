@@ -26,7 +26,8 @@ const layoutItemOptions = {
   description: "",
   content: () => ({}),
   toMarkdown: () => [],
-  component: () => null,
+  toReact: () => null,
+  toTitle: () => "",
 };
 
 const completeEditingRuntime: BlockEditingRuntime = {

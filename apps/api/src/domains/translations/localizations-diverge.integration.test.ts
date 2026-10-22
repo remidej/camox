@@ -417,7 +417,7 @@ describe("the content missing from a locale", () => {
 
     expect(await call(router.locales.listMissing, { projectId: f.projectId }, inGerman)).toEqual({
       pages: [],
-      records: [{ id: f.record.id, collectionId: "articles", label: "Hello" }],
+      records: [{ id: f.record.id, collectionId: "articles", title: "Hello" }],
     });
     await call(
       router.locales.addBack,

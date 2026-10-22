@@ -1,7 +1,7 @@
 import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
 
-const base = { id: "builders", title: "Builders", description: "", component: () => null };
+const base = { id: "builders", title: "Builders", description: "", toReact: () => null };
 
 createBlock({
   ...base,
@@ -13,6 +13,7 @@ createBlock({
     visible: field.boolean({ default: true }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "Block",
 });
 
 createBlock({
@@ -24,6 +25,7 @@ createBlock({
     label: setting.string({ default: "" }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "Block",
 });
 
 createBlock({
@@ -37,16 +39,19 @@ createBlock({
           content: (field) => ({ text: field.string({ default: "" }) }),
           minItems: 1,
           maxItems: 2,
-          toMarkdown: (c) => [c.text],
+          toMarkdown: ({ content }) => [content.text],
+          toTitle: () => "Item",
         }),
       }),
       settings: (setting) => ({ highlighted: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 2,
-      toMarkdown: (c, s) => [s.highlighted(c.nested)],
+      toMarkdown: ({ content, settings }) => [settings.highlighted(content.nested)],
+      toTitle: () => "Item",
     }),
   }),
-  toMarkdown: (c) => [c.items],
+  toMarkdown: ({ content }) => [content.items],
+  toTitle: () => "Block",
 });
 
 // Collections have no settings, so enums and booleans are record content.
@@ -61,5 +66,6 @@ createCollection({
     // @ts-expect-error Collections cannot store repeaters yet.
     items: field.repeater,
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });

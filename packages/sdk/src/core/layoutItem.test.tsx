@@ -24,7 +24,8 @@ const authors = createCollection({
   title: "Authors",
   description: "",
   content: (field) => ({ name: field.string(), portrait: field.image() }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 
 const articles = createCollection({
@@ -37,7 +38,8 @@ const articles = createCollection({
     cover: field.image(),
     author: field.reference(authors),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 const ARTICLE_ID = "00000000-0000-4000-8000-000000000001";
@@ -50,11 +52,15 @@ const ArticlePage = createLayout("articles.$slug")({
   description: "",
   blocks: { before: [], after: [] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  component: () => (
+  toTitle: ({ page }) => page.title,
+  toReact: () => (
     <ArticlePage.Item>
       {(article) => (
-        <article data-id={article.id} aria-label={article.label}>
+        <article
+          data-id={article.id}
+          aria-label={article.title}
+          aria-description={article.description ?? undefined}
+        >
           <article.Field name="title">{(props) => <h1 {...props} />}</article.Field>
           <article.Image name="cover">{(props) => <img {...props} />}</article.Image>
           <article.Reference name="author">
@@ -67,6 +73,7 @@ const ArticlePage = createLayout("articles.$slug")({
       )}
     </ArticlePage.Item>
   ),
+  toDescription: ({ page }) => page.description,
 });
 
 const app = createApp({ blocks: [], layouts: [ArticlePage], collections: [articles, authors] });
@@ -76,6 +83,9 @@ const record: AnyLayoutLoaderResult = {
   collectionId: "articles",
   data: {
     id: ARTICLE_ID,
+    // As the API names the record, from its collection's templates.
+    title: "Hello world",
+    description: "A first post",
     content: {
       title: plainTextToLexicalState("Hello world"),
       slug: "hello-world",
@@ -91,7 +101,8 @@ const record: AnyLayoutLoaderResult = {
       author: {
         id: AUTHOR_ID,
         collectionId: "authors",
-        label: "Ada",
+        title: "Ada",
+        description: null,
         content: { name: "Ada", portrait: null },
       },
     },
@@ -112,7 +123,10 @@ const editingRuntime = {
 };
 
 function render(result: AnyLayoutLoaderResult | undefined) {
-  const Component = ArticlePage._internal.component;
+  // This layout's toReact reads nothing from the page's context.
+  const Component = ArticlePage._internal.toReact as React.ComponentType<{
+    children: React.ReactNode;
+  }>;
   return renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>
       <AuthContext.Provider
@@ -132,11 +146,11 @@ function render(result: AnyLayoutLoaderResult | undefined) {
   );
 }
 
-void test("layout.Item renders the page's record and the author it links, read-only", () => {
+void test("layout.Item renders the page's record, its title and description, and the author it links, read-only", () => {
   const html = render(record);
   assert.match(
     html,
-    /<article data-id="00000000-0000-4000-8000-000000000001" aria-label="Hello world">/,
+    /<article data-id="00000000-0000-4000-8000-000000000001" aria-label="Hello world" aria-description="A first post">/,
   );
   assert.match(html, /<h1><span>Hello world<\/span><\/h1>/);
   assert.match(html, /<img [^>]*alt="Cover"/);

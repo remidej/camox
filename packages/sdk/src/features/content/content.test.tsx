@@ -41,8 +41,20 @@ Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("http://localhost:8788", testDraftScope());
 
 const collections: CollectionDefinition[] = [
-  { collectionId: "articles", title: "Articles", description: "News and updates", label: "title" },
-  { collectionId: "authors", title: "Authors", description: "", label: "name" },
+  {
+    collectionId: "articles",
+    title: "Articles",
+    description: "News and updates",
+    toTitle: "{{title}}",
+    toDescription: null,
+  },
+  {
+    collectionId: "authors",
+    title: "Authors",
+    description: "",
+    toTitle: "{{name}}",
+    toDescription: null,
+  },
 ];
 
 function withNavigation(children: React.ReactNode, pathname = STUDIO_ASSETS_PATH) {
@@ -236,15 +248,17 @@ void test("each empty collection has its own title and empty view", () => {
   client.clear();
 });
 
-void test("nonempty collections render record labels rather than an empty state", () => {
+void test("nonempty collections list each record's title and description rather than an empty state", () => {
   const client = new QueryClient();
   testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "articles" }), [
-    { id: "one", label: "First article" },
-    { id: "two", label: "" },
-    { id: "three", label: "Edited article" },
+    { id: "one", title: "First article", description: "The first one" },
+    { id: "two", title: "", description: null },
+    { id: "three", title: "Edited article", description: null },
   ]);
   const html = renderCollection(collections[0], client);
-  assert.match(html, /First article<\/span><\/button>/);
+  assert.match(html, /First article<\/span><span [^>]*>The first one<\/span><\/span><\/button>/);
+  // A record without a description shows its title alone.
+  assert.match(html, /Edited article<\/span><\/span><\/button>/);
   // Records have no publication status of their own.
   assert.doesNotMatch(html, /data-slot="badge"/);
   assert.doesNotMatch(html, />(Draft|Published|Modified|Publish)</);
@@ -412,7 +426,7 @@ void test("collection item controls open the shared create and edit sheet", asyn
     contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
   });
   testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "articles" }), [
-    { id: "one", label: "First article" },
+    { id: "one", title: "First article", description: null },
   ]);
   testStudioCache(client).set(
     reads.record({ projectUuid: "site", collectionId: "articles", id: "one" }),

@@ -65,23 +65,23 @@ export function derivedLayoutPath(layoutId: string, params: unknown) {
 
 /**
  * A discovered page: its path, and the record it renders when its entry names one, with that
- * record's Label when the entry carries it.
+ * record's title when the entry carries it.
  */
 export interface DiscoveredPage {
   path: string;
   recordId?: string;
-  label?: string;
+  title?: string;
 }
 
 /** The record a discovery entry names, if its `target` is a record target. */
 function targetRecord(entry: unknown): Omit<DiscoveredPage, "path"> {
   const target = asCollectionItem(
-    (entry as { target?: { kind?: unknown; id?: unknown; label?: unknown } } | null)?.target,
+    (entry as { target?: { kind?: unknown; id?: unknown; title?: unknown } } | null)?.target,
   );
   if (typeof target?.id !== "string") return {};
   return {
     recordId: target.id,
-    ...(typeof target.label === "string" && { label: target.label }),
+    ...(typeof target.title === "string" && { title: target.title }),
   };
 }
 

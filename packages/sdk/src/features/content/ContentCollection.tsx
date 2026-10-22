@@ -105,7 +105,14 @@ export const ContentCollection = ({
                   }
                   className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
-                  <span className="truncate">{record.label || "Untitled item"}</span>
+                  <span className="flex min-w-0 flex-col items-start text-left">
+                    <span className="max-w-full truncate">{record.title || "Untitled item"}</span>
+                    {record.description && (
+                      <span className="text-muted-foreground max-w-full truncate text-xs">
+                        {record.description}
+                      </span>
+                    )}
+                  </span>
                   {record.duplicatePageValue && (
                     <span
                       className="text-destructive shrink-0 text-xs"
@@ -119,7 +126,7 @@ export const ContentCollection = ({
                   projectUuid={projectUuid}
                   collectionId={collection.collectionId}
                   id={record.id}
-                  label={record.label}
+                  label={record.title}
                   compact
                 />
               </li>
@@ -147,7 +154,7 @@ const fieldLabel = (name: string, schema: FieldSchema) =>
 
 function CollectionItemForm({
   contentSchema,
-  label,
+  toTitle,
   projectUuid,
   collectionId,
   record,
@@ -155,7 +162,8 @@ function CollectionItemForm({
   onSaved,
 }: {
   contentSchema: unknown;
-  label: string;
+  /** The collection's title template, whose first field the form shows first. */
+  toTitle: string;
   projectUuid: string;
   collectionId: string;
   record?: CollectionRecord;
@@ -163,7 +171,7 @@ function CollectionItemForm({
   onSaved: (record: CollectionRecord) => void | Promise<void>;
 }) {
   const studioCache = useStudioCache();
-  const fields = collectionFormFields(contentSchema, label);
+  const fields = collectionFormFields(contentSchema, toTitle);
   // Background refetches must not replace edits.
   const [savedRecord, setSavedRecord] = useState(record);
   const [error, setError] = useState<string | null>(null);
@@ -383,7 +391,7 @@ export const ContentCollectionItemEditor = ({
         <CollectionItemForm
           key={`${collectionId}:${itemId ?? "new"}`}
           contentSchema={definition.contentSchema}
-          label={definition.label}
+          toTitle={definition.toTitle}
           projectUuid={projectUuid}
           collectionId={collectionId}
           record={itemId ? recordQuery.data : undefined}

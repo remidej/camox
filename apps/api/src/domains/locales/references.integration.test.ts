@@ -20,7 +20,7 @@ type Headers = Record<string, string>;
 type ToolResponse =
   | { ok: true; result: any }
   | { ok: false; error: { code: string; message: string } };
-type Resolved = { id: string; label: string };
+type Resolved = { id: string; title: string };
 
 const development: Headers = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
 
@@ -168,7 +168,7 @@ async function fixture(titles: [string, string, string]) {
     tool("deleteCollectionRecord", { collectionId: "articles", id: record.id, locale });
 
   /**
-   * The labels the block's references resolve to in `locale`: for a member in the development
+   * The titles the block's references resolve to in `locale`: for a member in the development
    * draft, or for a visitor on Live.
    */
   const referencesIn = async (locale: string | undefined, reader: "member" | "visitor") => {
@@ -181,11 +181,11 @@ async function fixture(titles: [string, string, string]) {
         : { context: createRpcContext(db, null, headers) },
     );
     const references = read.references as Record<string, Resolved | Resolved[] | null>;
-    const labels = (field: string) => (references[field] as Resolved[]).map(({ label }) => label);
+    const titles = (field: string) => (references[field] as Resolved[]).map(({ title }) => title);
     return {
-      byTitle: labels("byTitle"),
-      picks: labels("picks"),
-      featured: (references.featured as Resolved | null)?.label ?? null,
+      byTitle: titles("byTitle"),
+      picks: titles("picks"),
+      featured: (references.featured as Resolved | null)?.title ?? null,
     };
   };
 

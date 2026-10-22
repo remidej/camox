@@ -23,6 +23,7 @@ import * as React from "react";
 
 import { collectionField, type ReferenceQuery } from "@/core/lib/contentType";
 import { referenceListIds } from "@/core/lib/reference";
+import { titleField } from "@/core/recordItem";
 import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "@/lib/auth";
@@ -98,6 +99,7 @@ function QueryResultCard({
 function SortableRecordCard({
   id,
   label,
+  description,
   collectionTitle,
   onOpen,
   onUnlink,
@@ -105,6 +107,7 @@ function SortableRecordCard({
 }: {
   id: string;
   label: string;
+  description?: string | null;
   collectionTitle: string;
   onOpen?: () => void;
   onUnlink: () => void;
@@ -128,6 +131,7 @@ function SortableRecordCard({
     >
       <RecordCard
         label={label}
+        description={description}
         collectionTitle={collectionTitle}
         onOpen={onOpen}
         leading={
@@ -279,7 +283,8 @@ export function ReferenceListFieldEditor({
             {hydratedRecords.map((record) => (
               <QueryResultCard
                 key={record.id}
-                label={record.label}
+                label={record.title}
+                description={record.description}
                 collectionTitle={collectionTitle}
                 onOpen={onOpenRecord ? () => onOpenRecord(record.id) : undefined}
                 hover={entryHover(recordHover, record.id)}
@@ -340,7 +345,8 @@ export function ReferenceListFieldEditor({
                   <SortableRecordCard
                     key={id}
                     id={id}
-                    label={summary?.label ?? hydrated?.label ?? "Unavailable item"}
+                    label={summary?.title ?? hydrated?.title ?? "Unavailable item"}
+                    description={summary ? summary.description : hydrated?.description}
                     collectionTitle={collectionTitle}
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}
@@ -372,8 +378,8 @@ export function ReferenceListFieldEditor({
                     sheet.open({
                       collectionId,
                       initialContent:
-                        collection && search.trim()
-                          ? { [collection._internal.label]: search }
+                        collection && search.trim() && titleField(collection._internal.toTitle)
+                          ? { [titleField(collection._internal.toTitle)!]: search }
                           : undefined,
                       onSaved: (created) => save([...ids, created.id]),
                     }),

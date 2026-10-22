@@ -43,7 +43,10 @@ export type SubjectKind = overlay.EntityKind | "definition";
 export type Subject = {
   entity: SubjectKind;
   id: string;
-  /** What the entity is to people, e.g. a block's summary or its definition's title. */
+  /**
+   * What the entity is to people, e.g. a block's Summary, else its title, else its definition's
+   * title.
+   */
   label: string;
   owner: Owner;
 };
@@ -106,6 +109,14 @@ const contentDescriber = Effect.fn("drafts.contentDescriber")(function* (
   const sharedSummary = yield* summary("sharedContent", shared.keys());
   const itemSummary = yield* summary("repeatableItem", items.keys());
   const blockSummary = yield* summary("block", blockRows.keys());
+  // Without a Summary, a block or item is named by its title, evaluated as readers see it.
+  const reader = contentReader(ctx, { projectId: scope.projectId, draft: scope });
+  const titleOf = (shown: readonly { id: string; title: string }[]) => {
+    const titles = new Map(shown.map((entity) => [entity.id, entity.title]));
+    return (id: string) => titles.get(id) ?? "";
+  };
+  const blockTitle = titleOf(yield* reader.shown.blocks([...blockRows.values()]));
+  const itemTitle = titleOf(yield* reader.shown.items([...items.values()]));
   const definitions = yield* Effect.promise(() =>
     ctx.db
       .select({ blockId: blockDefinitions.blockId, title: blockDefinitions.title })
@@ -156,14 +167,14 @@ const contentDescriber = Effect.fn("drafts.contentDescriber")(function* (
       let owner: Owner = null;
       if (item?.sharedContentType) owner = syncedOwner(item.sharedContentType);
       else if (item?.blockId) owner = blockOwner(blockRows.get(item.blockId));
-      return { entity, id, label: itemSummary(id) || "Item", owner };
+      return { entity, id, label: itemSummary(id) || itemTitle(id) || "Item", owner };
     }
     const row = blockRows.get(id);
     if (!row) return { entity, id, label: "Block", owner: null };
     return {
       entity,
       id,
-      label: blockSummary(id) || titles.get(row.type) || row.type,
+      label: blockSummary(id) || blockTitle(id) || titles.get(row.type) || row.type,
       owner: blockOwner(row),
     };
   };
@@ -192,7 +203,7 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
     if (!definition) continue;
     owners.set(collectionId, { kind: "collection", name: collectionId, title: definition.title });
     for (const record of yield* reader.shown.records(collectionId, group)) {
-      labels.set(record.id, record.label);
+      labels.set(record.id, record.title);
     }
   }
 

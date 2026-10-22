@@ -30,7 +30,8 @@ const AUTHOR_ID = "00000000-0000-4000-8000-000000000002";
 const AUTHOR: ReferenceRecord = {
   id: AUTHOR_ID,
   collectionId: "authors",
-  label: "Ada",
+  title: "Ada",
+  description: null,
   content: { name: "Ada" },
 };
 /** The article as the API stores it. */
@@ -103,7 +104,8 @@ const authors = createCollection({
   title: "Authors",
   description: "",
   content: (field) => ({ name: field.string({ default: "" }) }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 
 const articles = createCollection({
@@ -115,7 +117,8 @@ const articles = createCollection({
     slug: field.string({ default: "" }),
     author: field.reference(authors),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 const ArticlePage = createLayout("articles.$slug")({
@@ -124,8 +127,8 @@ const ArticlePage = createLayout("articles.$slug")({
   description: "",
   blocks: { before: [], after: [] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  component: () => (
+  toTitle: ({ page }) => page.title,
+  toReact: () => (
     <ArticlePage.Item>
       {(item) => (
         <article>
@@ -142,6 +145,7 @@ const ArticlePage = createLayout("articles.$slug")({
       )}
     </ArticlePage.Item>
   ),
+  toDescription: ({ page }) => page.description,
 });
 let pageTitleClicks: Array<() => void> = [];
 
@@ -152,11 +156,12 @@ const featured = createEditableBlock({
   description: "",
   content: (field) => ({ article: field.reference(articles) }),
   toMarkdown: () => [],
-  component: () => (
+  toReact: () => (
     <featured.Reference name="article">
       {(item) => <item.Field name="title">{(props) => <h2 {...props} />}</item.Field>}
     </featured.Reference>
   ),
+  toTitle: () => "",
 });
 
 const app = createApp({ blocks: [], layouts: [ArticlePage], collections: [articles, authors] });
@@ -175,7 +180,8 @@ function setup() {
   article = {
     id: ARTICLE_ID,
     collectionId: "articles",
-    label: "Hello",
+    title: "Hello",
+    description: null,
     content: { title: "Hello", slug: "hello", author: AUTHOR_ID },
     references: { author: AUTHOR },
     updatedAt: 3,
@@ -193,7 +199,10 @@ function setup() {
   const render = (result = loaded) => {
     editors.length = 0;
     pageTitleClicks = [];
-    const Component = ArticlePage._internal.component;
+    // This layout's toReact reads nothing from the page's context.
+    const Component = ArticlePage._internal.toReact as React.ComponentType<{
+      children: React.ReactNode;
+    }>;
     return renderToStaticMarkup(
       <StudioQueryClientProvider client={client}>
         <AuthContext.Provider

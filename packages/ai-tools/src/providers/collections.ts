@@ -18,7 +18,9 @@ const collectionSummarySchema = z.strictObject({
   collectionId: z.string(),
   title: z.string(),
   description: z.string(),
-  label: z.string(),
+  /** Token templates naming and describing each record from its fields. */
+  toTitle: z.string(),
+  toDescription: z.string().nullable(),
 });
 
 export const collectionsProvider: ToolProvider = (ctx) => {
@@ -46,7 +48,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     defineTool({
       name: "getCollection",
       description:
-        "Get a collection's contentSchema and label field before creating or editing records.",
+        "Get a collection's contentSchema and the templates titling and describing its records before creating or editing records.",
       inputSchema: definitionInput,
       outputSchema: collectionSummarySchema.extend({
         contentSchema: z.record(z.string(), z.unknown()),
@@ -65,10 +67,15 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     }),
     defineTool({
       name: "listCollectionRecords",
-      description: "List record IDs and labels, newest first.",
+      description: "List record IDs, titles and descriptions, newest first.",
       inputSchema: definitionInput,
       outputSchema: z.array(
-        z.strictObject({ id: z.string(), label: z.string(), duplicatePageValue: z.boolean() }),
+        z.strictObject({
+          id: z.string(),
+          title: z.string(),
+          description: z.string().nullable(),
+          duplicatePageValue: z.boolean(),
+        }),
       ),
       meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },
       handler: async (input) => {

@@ -29,10 +29,11 @@ export const layout = createLayout("pokedex")({
     after: [footerBlock],
   },
   loader: async () => ({ kind: "data", data: await loadPokemon() }),
-  // After the loader: these callbacks' `data` is inferred from it.
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+  // After the loader: these options' `data` is inferred from it.
+  toTitle: ({ page }) => page.title,
+  toDescription: ({ data }) => `${data.length} Pokémon to browse.`,
   toMarkdown: ({ data }) => [`${data.length} Pokémon`, data.map((p) => `- ${p.name}`).join("\n")],
-  component: PokedexPage,
+  toReact: PokedexPage,
 });
 
 function PokedexPage() {
@@ -105,10 +106,10 @@ export const Layout = createLayout("articles.$slug")({
   description: "One article, found by its slug.",
   blocks: { before: [navbarBlock], after: [footerBlock] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
-  buildMetaDescription: ({ item }) => item.excerpt || undefined,
+  toTitle: ({ page, project }) => `${page.title} | ${project.name}`,
+  toDescription: ({ content }) => content.excerpt || undefined,
   toMarkdown: ({ item }) => [`# ${item.title}`, `By ${item.author.name}`, item.body],
-  component: ArticlePage,
+  toReact: ArticlePage,
 });
 
 function ArticlePage() {
@@ -133,11 +134,13 @@ function ArticlePage() {
 - Several records sharing a value in the same source is a server error naming the collection, field, value and records. Camox does not enforce uniqueness: keep the field unique.
 - The loader returns a `collection-item` envelope, `{ kind: "collection-item", collectionId, data: { id, content } }`, typed as `LayoutCollectionItemResult` from `camox/createLayout`. `layout.useData()` returns the unwrapped record, `{ id, content }`. Camox rejects an envelope naming an unregistered collection or a malformed record id.
 - `routes` lists one entry per record that can have a page, in the request's source: the sitemap lists published records only, even when an editor asks, while the Canvas previews a signed-in editor's first record, draft-only records included. Each entry is `{ params, target: { kind: "collection-item", collectionId, id } }`; `target` names the record independently of its current value. Records whose value is empty or contains `/` are left out. Several records sharing a value fail discovery, so `/sitemap.xml` responds 500 naming the layout and the records. An empty collection returns `{ data: [] }`, and the Canvas asks for a path.
-- `layout.Item` renders the page's record with the same typed scope as a block's `Reference`: `Field`, `Image`, `File`, `Embed`, `ImageList`, `FileList`, `Reference` and `ReferenceList`, plus `id` and `label`. Field names are checked against the collection. The record is the first hop: `Reference` and `ReferenceList` render the records it links, which link nothing further. Prefer it to `useData()`, whose `content` holds stored values (String fields may be rich-text state).
+- `layout.Item` renders the page's record with the same typed scope as a block's `Reference`: `Field`, `Image`, `File`, `Embed`, `ImageList`, `FileList`, `Reference` and `ReferenceList`, plus `id`, `title` and `description` (from the collection's `toTitle` and `toDescription`). Field names are checked against the collection. The record is the first hop: `Reference` and `ReferenceList` render the records it links, which link nothing further. Prefer it to `useData()`, whose `content` holds stored values (String fields may be rich-text state).
 - `layout.Item` exists only when every return of the loader is a record of one collection. On a loader that may return external data or records of several collections, using it is a type error. At runtime it renders nothing when the result isn't a record.
 - In Studio, editors edit record page fields in place, like a referenced record's: purple overlays, selection, and the record's fields in the sidebar. Edits change the shared record everywhere it appears.
 - `toMarkdown` also receives `item`, the same Markdown builder as a reference list's `toMarkdown`: interpolate fields (`item.title`, `item.author.name`, `item.cover`) and Camox fills them with the live record, rich text included. `data` stays the raw record. Markdown always shows live content, whoever asks.
-- `buildMetaTitle` and `buildMetaDescription` also receive `item`: the record's String fields as plain text.
+- `toTitle`, `toDescription`, `toImage`, `toReact` and `toStructuredData` also receive `content`, the record's String fields as plain text and its references as links to their records' Structured Data nodes. Their `page.title` is the record's title.
+- A collection's `toStructuredData` describes each of its records as one node, from tokens of its fields: `toStructuredData: ({ content }) => ({ "@type": "BlogPosting", author: content.author, image: content.cover })`. Camox fills its name (an Article's `headline`) and description from the record's title and description, and gives it one `@id` per record and locale, which every page referencing the record links. Collections may describe records as an `Organization` (a customer, a partner), never as the `WebSite`.
+- When the layout's `toStructuredData` declares nothing, the record's node is the page's main entity, dated by the record's publish times. Otherwise link the record's references from the layout, such as `toStructuredData: ({ content }) => ({ "@type": "BlogPosting", author: content.author })`. A reference to a collection without `toStructuredData` reads as the record's title. Records the page's content references that no node links are listed as the page's `mentions`.
 - To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged. Type it as the helper's loader (`ReturnType<typeof articlePages.loader>`) to keep `layout.Item` and `item` typed:
 
 ```tsx
@@ -162,22 +165,22 @@ The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` a
 
 ## Metadata and Markdown
 
-Singleton and derived pages get the same head as curated pages: title, description, `og:*` tags, the `/og` image, and the favicon. They have no editor metadata, so the callbacks receive the loader's unwrapped `data` and the route `params` instead:
+Singleton and derived pages get the same head as curated pages: title, description, `og:*` tags, the `/og` image, and the favicon. They have no editor metadata, so the `to*` options also receive the loader's unwrapped `data` and the route `params`:
 
 ```tsx
 export const Layout = createLayout("pokemon.$name")({
   kind: "derived",
   // Other options omitted.
   loader: async ({ params }) => ({ kind: "data", data: await loadPokemon(params.name) }),
-  buildMetaTitle: ({ data, pageMetaTitle }) => `${data.name} – ${pageMetaTitle}`,
-  buildMetaDescription: ({ data }) => `${data.name} is a ${data.types.join("/")} type Pokémon.`,
+  toTitle: ({ data, page }) => `${data.name} – ${page.title}`,
+  toDescription: ({ data }) => `${data.name} is a ${data.types.join("/")} type Pokémon.`,
   toMarkdown: ({ data, params }) => [`# ${data.name}`, `Types: ${data.types.join(", ")}`],
 });
 ```
 
-- **Put `loader` before `buildMetaTitle`, `buildMetaDescription`, and `toMarkdown`.** TypeScript infers their `data` from the loader only in that order. Otherwise the loader is inferred as `never` and fails to type-check.
-- `buildMetaTitle` receives `pageMetaTitle` (the layout's `title` on these pages), `projectName`, `pageFullPath`, `data`, and `params`. The `/og` image shows its result.
-- `buildMetaDescription` is optional; without it these pages have no description.
+- **Put `loader` before `toTitle`, `toDescription`, `toImage`, `toReact`, and `toMarkdown`.** TypeScript infers their `data` from the loader only in that order. Otherwise the loader is inferred as `never` and fails to type-check.
+- `toTitle`, `toDescription`, `toImage` and `toReact` receive the same context as on curated pages (see [Layout Definitions](layout-definitions.md#the-to-options-and-their-context)), plus `data` and `params`. Here `page.title` is the layout's `title` (the record's title on record pages) and `page.description` is absent.
+- `toDescription` may return `undefined`: these pages then have no description.
 - `toMarkdown` returns the page's Markdown Representation as a list of strings. Empty strings are dropped and the rest joined with blank lines. A request with `Accept: text/markdown` gets YAML front matter (the `title` and `description` the head shows, and the page's `url`), then the live before-block Markdown, then this output, then the live after-block Markdown. Curated pages' Markdown opens with the same front matter. Without `toMarkdown`, the page answers HTML only. `throw notFound()` in the loader answers 404. Curated layouts cannot declare `toMarkdown`: their Markdown comes from their blocks.
 - The playground's Pokémon, Pokémon type, and Pokédex layouts declare these. Try `curl -H "Accept: text/markdown" http://localhost:3000/pokemon/pikachu`.
 

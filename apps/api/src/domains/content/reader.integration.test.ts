@@ -36,13 +36,19 @@ const cardSchema = {
     note: string(),
     photo: image,
     author: person,
+    link: { type: "object", fieldType: "Link" },
     cards: {
       type: "array",
       fieldType: "Repeater",
       items: { type: "object", properties: { label: string("Card"), who: person } },
+      toStructuredData: { "@type": "Question", name: "{{label}}" },
     },
   },
   toMarkdown: ["# {{title}}", "{{author.name}}"],
+  toStructuredData: [
+    { "@type": "Product", name: "{{title}}", image: "{{photo}}", url: "{{link}}" },
+    "{{cards}}",
+  ],
 };
 
 const peopleSchema = {
@@ -91,7 +97,7 @@ async function fixture() {
     collectionId: "people",
     title: "People",
     description: "",
-    label: "name",
+    toTitle: "{{name}}",
     contentSchema: peopleSchema,
     schemaHash: "people",
   });
@@ -127,6 +133,19 @@ async function fixture() {
       updatedAt: now,
     });
   let position = 0;
+  const linkedPage = () => {
+    const segment = `linked-${generateUuidv7()}`;
+    return seedLive(db, pages, {
+      projectId: project.id,
+      layoutId: layout.layoutId,
+      pathSegment: segment,
+      fullPath: `/${segment}`,
+      nickname: segment,
+      contentUpdatedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
   const card = (content: Record<string, unknown>, type = "card") =>
     seedLive(db, blocks, {
       projectId: project.id,
@@ -161,7 +180,7 @@ async function fixture() {
     );
   const reader = (draft: DraftScope, database = db) =>
     contentReader({ db: database }, { projectId: project.id, draft });
-  return { ...base, page, file, person, card, item, openDraft, reader };
+  return { ...base, page, file, person, linkedPage, card, item, openDraft, reader };
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -259,7 +278,7 @@ describe("the content reader", () => {
       return {
         title: block.content.title,
         summary: block.summary,
-        author: author.label,
+        author: author.title,
         avatar: (author.content.avatar as { url: string }).url,
         files: bundle.files.map((file) => file.url),
       };
@@ -317,7 +336,7 @@ describe("the content reader", () => {
 
     const view = await runService(f.reader(null).item(item));
     expect(view!.item.summary).toBe("First card");
-    expect((view!.item.references.who as ResolvedReference).label).toBe("Ada");
+    expect((view!.item.references.who as ResolvedReference).title).toBe("Ada");
     const [shown] = await runService(f.reader(null).shown.items([item]));
     expect(shown!.summary).toBe("First card");
   });
@@ -331,7 +350,11 @@ describe("the content reader", () => {
         const mentor = await f.person(`Mentor ${index}`, avatar.id);
         const author = await f.person(`Author ${index}`, avatar.id, mentor.id);
         const photo = await f.file(f.project.id, `photo-${generateUuidv7()}.png`);
-        const block = await f.card({ photo: { _fileId: photo.id }, author: author.id });
+        const block = await f.card({
+          photo: { _fileId: photo.id },
+          author: author.id,
+          link: { type: "page", pageId: (await f.linkedPage()).id, text: "Read", newTab: false },
+        });
         await f.item(block.id, { label: `Card ${index}`, who: mentor.id });
       }
       const read = f.reader(null, counting.db);
@@ -340,7 +363,16 @@ describe("the content reader", () => {
       const queries = counting.count();
       counting.reset();
       await runService(read.markdown([{ pageId: f.page.id }]));
-      return { queries, markdownQueries: counting.count(), blocks: bundle.blocks.length };
+      const markdownQueries = counting.count();
+      counting.reset();
+      const structuredData = await runService(read.structuredData(bundle));
+      return {
+        queries,
+        markdownQueries,
+        structuredDataQueries: counting.count(),
+        nodes: Object.values(structuredData.blocks).flat().length,
+        blocks: bundle.blocks.length,
+      };
     };
 
     const small = await queriesFor(1);
@@ -348,5 +380,8 @@ describe("the content reader", () => {
     expect(large.blocks).toBe(7);
     expect(large.queries).toBe(small.queries);
     expect(large.markdownQueries).toBe(small.markdownQueries);
+    // A Product and a Question for each of the seven cards.
+    expect(large.nodes).toBe(14);
+    expect(large.structuredDataQueries).toBe(small.structuredDataQueries);
   });
 });

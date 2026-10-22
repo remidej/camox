@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
+import { curatedLayoutContext } from "@/core/layoutContext";
 import { CollectionItemSheetProvider } from "@/features/content/CollectionItemSheetContext";
 import { ContentCollectionItemSheet } from "@/features/content/ContentCollection";
 import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
@@ -130,6 +131,7 @@ export const PageContent = () => {
     usePageBlocks(pageData);
 
   const camoxApp = useCamoxApp();
+  const { locale } = useViewLocale();
 
   // Look up layout
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
@@ -180,7 +182,7 @@ export const PageContent = () => {
   );
 
   if (layout && layoutBlocksMap) {
-    const LayoutComponent = layout._internal.component;
+    const ToReact = layout._internal.toReact;
     return (
       <NormalizedDataProvider
         files={layoutFiles}
@@ -188,7 +190,7 @@ export const PageContent = () => {
         blocks={[...beforeBlocks, ...afterBlocks]}
       >
         <layout._internal.Provider layoutBlocks={layoutBlocksMap}>
-          <LayoutComponent>{pageBlocksContent}</LayoutComponent>
+          <ToReact {...curatedLayoutContext(pageData, locale)}>{pageBlocksContent}</ToReact>
         </layout._internal.Provider>
       </NormalizedDataProvider>
     );

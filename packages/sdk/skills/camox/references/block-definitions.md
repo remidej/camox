@@ -18,8 +18,9 @@ const myBlock = createBlock({
   content: (field) => ({
     title: field.string({ default: "Welcome" }),
   }),
-  component: MyBlockComponent,
-  toMarkdown: (c) => [`# ${c.title}`],
+  toReact: MyBlockComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [`# ${content.title}`],
 });
 
 function MyBlockComponent() {
@@ -37,17 +38,19 @@ For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, 
 
 ## The `createBlock` options
 
-| Option        | Required | Description                                                                                  |
-| ------------- | -------- | -------------------------------------------------------------------------------------------- |
-| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                        |
-| `title`       | yes      | CMS display name.                                                                            |
-| `description` | yes      | Agent guidance on placement, expected content, and tone.                                     |
-| `content`     | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.       |
-| `settings`    | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`. |
-| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.        |
-| `synced`      | no       | Defaults to false. Shares content/settings across placements; see below.                     |
-| `component`   | yes      | Named React function component.                                                              |
-| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                               |
+| Option             | Required | Description                                                                                    |
+| ------------------ | -------- | ---------------------------------------------------------------------------------------------- |
+| `id`               | yes      | Unique kebab-case identifier matching the filename without extension.                          |
+| `title`            | yes      | CMS display name.                                                                              |
+| `description`      | yes      | Agent guidance on placement, expected content, and tone.                                       |
+| `content`          | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.         |
+| `settings`         | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`.   |
+| `layoutOnly`       | no       | If true, restricts placement to layouts and hides the type from the add-block picker.          |
+| `synced`           | no       | Defaults to false. Shares content/settings across placements; see below.                       |
+| `toReact`          | yes      | Named React function component. Receives `{ content, settings }` as props.                     |
+| `toTitle`          | yes      | `({ content, settings }) => ...` one-line title; see below.                                    |
+| `toMarkdown`       | yes      | `({ content, settings }) => [...]` markdown builder; see below.                                |
+| `toStructuredData` | no       | `({ content, settings }) => node \| [...]`: the things the block shows, as JSON-LD; see below. |
 
 ## Synced blocks (`synced`, optional)
 
@@ -59,14 +62,30 @@ For shared navbar/footer data across layouts, use `layoutOnly: true, synced: tru
 - Position, layout slot, and deletion remain per placement; deleting one placement leaves the others.
 - Enabling syncing on an existing type applies the oldest placement's data to all placements. Disabling it leaves independently editable copies.
 
-## Markdown Representation (`toMarkdown`)
+## Titles (`toTitle`)
 
-Required on blocks and repeaters. Receives typed proxies `c` (content) and `s` (settings); returns entries joined with `\n\n` for AI summaries and SEO. Lines whose referenced fields are all empty, or whose condition is false, are omitted.
-
-Use bare `c.field` for single-field lines and template literals for markdown or combined fields:
+Required on blocks and repeaters. Names each block and repeatable item in the studio and to agents until it has a Summary, which always wins once it exists. Receives `{ content, settings }` like `toMarkdown` and returns one line: a field, a template literal, or a fixed string for blocks with no telling field.
 
 ```tsx
-toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.company}`, c.photo];
+toTitle: ({ content }) => content.title;
+toTitle: ({ content }) => `${content.number} ${content.label}`;
+toTitle: () => "Navigation";
+```
+
+Titles read the default locale's content as plain text: a Link reads as its text. References aren't resolved in titles, so name a block by its own fields.
+
+## Markdown Representation (`toMarkdown`)
+
+Required on blocks and repeaters. Receives `{ content, settings }`, typed proxies of the block's content and settings; returns entries joined with `\n\n` for AI summaries and SEO. Lines whose referenced fields are all empty, or whose condition is false, are omitted.
+
+Use bare `content.field` for single-field lines and template literals for markdown or combined fields:
+
+```tsx
+toMarkdown: ({ content }) => [
+  `> ${content.quote}`,
+  `— ${content.author}, ${content.company}`,
+  content.photo,
+];
 ```
 
 Field resolution:
@@ -87,16 +106,16 @@ Field resolution:
 Boolean settings wrap one line or an array; Enum settings match a variant:
 
 ```tsx
-toMarkdown: (c, s) => [
-  `# ${c.title}`,
-  s.showCta(c.cta),
-  s.showDetails([c.subtitle, c.description]),
-  s.variant("banner", `**${c.headline}** — ${c.subtext}`),
-  s.variant("inline", `${c.headline}: ${c.cta}`),
+toMarkdown: ({ content, settings }) => [
+  `# ${content.title}`,
+  settings.showCta(content.cta),
+  settings.showDetails([content.subtitle, content.description]),
+  settings.variant("banner", `**${content.headline}** — ${content.subtext}`),
+  settings.variant("inline", `${content.headline}: ${content.cta}`),
 ];
 ```
 
-Only Boolean/Enum settings support these conditionals. A repeater's `s` refers to the item's settings, not the parent block's.
+Only Boolean/Enum settings support these conditionals. A repeater's `settings` refers to the item's settings, not the parent block's.
 
 ## Content Field Types
 
@@ -203,7 +222,7 @@ field.artifact({ size: "fill", data: ["headline", "variant"] }); // shares sibli
 
 ### field.repeater
 
-Structured items with their own content, optional settings, and required `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
+Structured items with their own content, optional settings, and required `toTitle` and `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
 
 ```tsx
 field.repeater({
@@ -217,11 +236,72 @@ field.repeater({
   minItems: 1,
   maxItems: 10,
   title: "Features",
-  toMarkdown: (c, s) => [`### ${c.name}`, s.highlighted(c.description)],
+  toTitle: ({ content }) => content.name,
+  toMarkdown: ({ content, settings }) => [
+    `### ${content.name}`,
+    settings.highlighted(content.description),
+  ],
 });
 ```
 
 Reference the repeater field in the parent block's `toMarkdown` to include its rendered items.
+
+## Structured Data (`toStructuredData`, optional)
+
+On blocks and repeaters. Describes the things a block shows (a video, a product, questions, reviews) as schema.org nodes in the page's JSON-LD graph. Returns one node or a list. Camox links each node to the page (`isPartOf` for creative works, `subjectOf` for anything else) and gives each placement its own nodes. Only the layout says what the page is, so a block never returns a kind of web page, and Camox alone emits the site's `Organization` and `WebSite`. `@type` and properties are typed: invented types or properties, or a node missing what search engines require (a `Product`'s offers, review or rating), fail to compile.
+
+```tsx
+toStructuredData: ({ content }) => ({
+  "@type": "VideoObject",
+  name: content.title,
+  embedUrl: content.video,
+  thumbnailUrl: content.thumbnail,
+  uploadDate: "2026-01-15",
+});
+```
+
+Field tokens resolve as follows; template literals read their fields as plain text:
+
+| Type           | Value                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| String         | Plain text                                                                                                                |
+| Image          | An `ImageObject` with its absolute URL, width, height and alt text                                                        |
+| File           | Its absolute URL                                                                                                          |
+| Link           | The page's absolute URL in the page's locale, or the external href                                                        |
+| Embed          | Its URL                                                                                                                   |
+| Repeater       | Its items' nodes, from the repeater's own `toStructuredData`                                                              |
+| Reference      | A link to the record's node, from its collection's `toStructuredData`, or the record's title when the collection has none |
+| Reference list | A list of such links                                                                                                      |
+
+Icon and artifact fields have no token. A property whose field is empty is left out. A reference's fields are tokens too (`content.author.name`). The place referencing a record decides its role, such as a testimonial's `author: content.author`; Camox adds the record's node to the graph once, however many blocks link it.
+
+Place a repeater's token where its items' nodes go, such as an FAQ's questions:
+
+```tsx
+items: field.repeater({
+  content: (field) => ({ question: field.string({ default: "Why?" }), answer: field.string({ default: "Because" }) }),
+  minItems: 1,
+  maxItems: 20,
+  toTitle: ({ content }) => content.question,
+  toMarkdown: ({ content }) => [`Q: ${content.question}`, `A: ${content.answer}`],
+  toStructuredData: ({ content }) => ({
+    "@type": "Question",
+    name: content.question,
+    acceptedAnswer: { "@type": "Answer", text: content.answer },
+  }),
+}),
+// On the block:
+toStructuredData: ({ content }) => content.items,
+```
+
+Settings show a part of the template only while they hold: a Boolean setting takes the part, an Enum setting the option it must equal, then the part. The part is left out otherwise, and a list it shows inside a list adds its entries:
+
+```tsx
+toStructuredData: ({ content, settings }) => [
+  { "@type": "Product", name: content.name, description: settings.variant("detailed", content.description), offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" } },
+  settings.showFaq(content.questions),
+],
+```
 
 ## Rendering in the Component
 

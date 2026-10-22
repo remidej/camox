@@ -2,6 +2,7 @@ import { projectIdSchema } from "@camox/api-contract/ids";
 import {
   projectSlugSchema,
   RESERVED_PROJECT_SLUGS,
+  socialProfileUrlSchema,
   UNAVAILABLE_SLUG_MESSAGES,
   type UnavailableSlugReason,
 } from "@camox/api-contract/projects";
@@ -35,6 +36,7 @@ import type { SyncedDefinitions } from "../block-definitions/service";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { planDeclaredPlacement } from "../blocks/shared-content";
 import { validateReferenceValues } from "../collections/references";
+import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import { optimizedVideoKey } from "../files/video-optimization";
@@ -46,6 +48,8 @@ import { sendSetupFailureAlert } from "../project-creation/alert";
 import { sendCleanupFailureAlert } from "../project-deletion/alert";
 import { itemsInProject } from "../repeatable-items/roots";
 import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analytics";
+import { publicProjectSummary } from "./public-summary";
+import { namingProject, projectRefOf } from "./ref";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -57,6 +61,8 @@ export const getProjectBySlugInput = z.object({ slug: z.string() });
 /** A project by its Project ID, as a website's code and the CLI name it. */
 export const getProjectByUuidInput = z.object({ projectUuid: projectIdSchema });
 export const getProjectInput = z.object({ id: z.number() });
+/** A project by its Project ID, as anyone may read what its website shows of it. */
+export const getProjectSummaryInput = namingProject(z.object({}));
 export const checkProjectSlugAvailabilityInput = z.object({ slug: z.string() });
 export const createProjectInput = z.object({
   name: z.string(),
@@ -66,6 +72,11 @@ export const createProjectInput = z.object({
 export const updateProjectInput = z.object({ id: z.number(), name: z.string() });
 export const deleteProjectInput = z.object({ id: z.number() });
 export const updateProjectAnalyticsInput = analyticsProvidersInput.extend({ id: z.number() });
+/** The project's social profiles, in order, replacing the ones it had. */
+export const updateProjectSocialProfilesInput = z.object({
+  id: z.number(),
+  socialProfiles: z.array(socialProfileUrlSchema).max(50),
+});
 
 /** The homepage content a Definition Set declares: its layout and initial blocks. */
 export const homepageInput = z.object({
@@ -155,6 +166,19 @@ export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function*
   const { slug } = yield* decodeInput(getProjectBySlugInput, rawInput);
   return yield* memberProject(ctx, user.id, eq(projects.slug, slug));
 });
+
+/**
+ * What a project's website shows of it, as page reads carry it, read alone: for the website's
+ * routes that need the project without a page, such as its logo. Public, like Live.
+ */
+export const getProjectSummary = Effect.fn("projects.getProjectSummary")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getProjectSummaryInput>,
+) {
+  const named = yield* decodeInput(getProjectSummaryInput, rawInput);
+  const { project } = yield* accessTo(ctx, projectRefOf(named), "public");
+  return publicProjectSummary(project);
+}, Effect.scoped);
 
 export const getProjectByUuid = Effect.fn("projects.getProjectByUuid")(function* (
   ctx: ServiceContext,
@@ -324,6 +348,25 @@ export const updateProjectAnalytics = Effect.fn("projects.updateProjectAnalytics
   yield* record(ctx.db, { kind: "project", projectId: id });
   return { analytics: analyticsOf(result), updatedAt: result.updatedAt };
 });
+
+/** Sets the social profiles: a Project Setting, so Live and every draft change at once. */
+export const updateProjectSocialProfiles = Effect.fn("projects.updateProjectSocialProfiles")(
+  function* (ctx: ServiceContext, rawInput: z.input<typeof updateProjectSocialProfilesInput>) {
+    const user = yield* requireUser(ctx);
+    const { id, socialProfiles } = yield* decodeInput(updateProjectSocialProfilesInput, rawInput);
+    yield* getAuthorizedProject(ctx.db, id, user.id);
+    const result = yield* Effect.promise(() =>
+      ctx.db
+        .update(projects)
+        .set({ socialProfiles, updatedAt: Date.now() })
+        .where(eq(projects.id, id))
+        .returning()
+        .get(),
+    );
+    yield* record(ctx.db, { kind: "project", projectId: id });
+    return { socialProfiles: result.socialProfiles, updatedAt: result.updatedAt };
+  },
+);
 
 export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   ctx: ServiceContext,

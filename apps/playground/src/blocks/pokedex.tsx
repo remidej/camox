@@ -28,14 +28,16 @@ const pokedex = createBlock({
       }),
       minItems: 3,
       maxItems: 3,
-      toMarkdown: (c) => [`- ${c.name}`],
+      toTitle: ({ content }) => content.name,
+      toMarkdown: ({ content }) => [`- ${content.name}`],
     }),
   }),
-  component: PokedexComponent,
-  toMarkdown: (c) => [
-    `## ${c.title}`,
-    c.description,
-    c.pokemon,
+  toReact: PokedexComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [
+    `## ${content.title}`,
+    content.description,
+    content.pokemon,
     "[Explore the full Pokédex](/pokedex)",
   ],
 });

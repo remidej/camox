@@ -25,8 +25,9 @@ const myLayout = createLayout({
     after: [footerBlock],
     initial: [() => import("../blocks/hero")],
   },
-  component: MyLayoutComponent,
-  buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
+  toReact: MyLayoutComponent,
+  toTitle: ({ page, project }) => `${page.title} | ${project.name}`,
+  toDescription: ({ page }) => page.description,
 });
 
 function MyLayoutComponent({ children }: { children: React.ReactNode }) {
@@ -44,16 +45,28 @@ export { myLayout as layout };
 
 ## The `createLayout` options
 
-| Option                 | Required | Description                                                                                                                  |
-| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `id`                   | yes      | Unique kebab-case identifier matching the filename without extension.                                                        |
-| `title`                | yes      | CMS display name.                                                                                                            |
-| `description`          | yes      | Guidance for users and agents on which pages suit this layout.                                                               |
-| `blocks`               | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.                                               |
-| `component`            | yes      | Named function component receiving `{ children }`.                                                                           |
-| `buildMetaTitle`       | yes      | `({ pageMetaTitle, projectName, pageFullPath }) => string` for the browser title.                                            |
-| `buildMetaDescription` | no       | `({ pageMetaDescription, projectName, pageFullPath }) => string \| undefined`. Without it, the editor's description is used. |
-| `buildOgImage`         | no       | `({ title, description, projectName }) => JSX` for a sharing image.                                                          |
+| Option             | Required | Description                                                                                            |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------ |
+| `id`               | yes      | Unique kebab-case identifier matching the filename without extension.                                  |
+| `title`            | yes      | CMS display name.                                                                                      |
+| `description`      | yes      | Guidance for users and agents on which pages suit this layout.                                         |
+| `blocks`           | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.                         |
+| `toReact`          | yes      | Named function component receiving the context and `{ children }` as props.                            |
+| `toTitle`          | yes      | `(context) => string`: the head title, `og:title`, and the Markdown front matter's `title`.            |
+| `toDescription`    | yes      | `(context) => string \| undefined`: the head description and `og:description`. May return `undefined`. |
+| `toImage`          | no       | `(context) => JSX`: the sharing image; see below.                                                      |
+| `toStructuredData` | no       | `(context) => node \| undefined`: what the page is, in its JSON-LD; see below.                         |
+
+## The `to*` options and their context
+
+Every `to*` option receives the same context object, and none receives another one's output: Camox joins the outputs itself.
+
+- `page.title`: the page's undecorated title. On curated pages, the editor's or generated meta title.
+- `page.description`: on curated pages, the editor's or generated description. Absent otherwise.
+- `page.path`: the page's path, with its locale's prefix. `page.locale`: the locale's tag, such as `de`.
+- `project.name`: the project's name.
+
+Singleton and derived layouts also receive `data` and `params`, and record pages `content`; see [Routed layouts](routed-layouts.md#metadata-and-markdown).
 
 ## Layout Slots — `before`, `after`, and `initial`
 
@@ -70,12 +83,12 @@ export { myLayout as layout };
 - At most one layout per app may define `initial`; multiple definitions cause a startup error.
 - Without `initial`, Camox seeds an empty homepage using the first curated layout. Apps with only singleton/derived layouts do not seed a curated homepage.
 
-## OG Image — `buildOgImage` (optional)
+## OG Image — `toImage` (optional)
 
 Returns JSX rendered as a 1200×630 image. Use **inline styles, not Tailwind**, and `display: "flex"` for layout: this runs in an image-generation engine, not a browser.
 
 ```tsx
-buildOgImage: ({ title, description, projectName }) => (
+toImage: ({ page, project }) => (
   <div
     style={{
       display: "flex",
@@ -88,9 +101,32 @@ buildOgImage: ({ title, description, projectName }) => (
       fontFamily: "sans-serif",
     }}
   >
-    {projectName && <div style={{ fontSize: 24 }}>{projectName}</div>}
-    <div style={{ fontSize: 64 }}>{title}</div>
-    {description && <div style={{ fontSize: 28 }}>{description}</div>}
+    {project.name && <div style={{ fontSize: 24 }}>{project.name}</div>}
+    <div style={{ fontSize: 64 }}>{page.title}</div>
+    {page.description && <div style={{ fontSize: 28 }}>{page.description}</div>}
   </div>
 ),
 ```
+
+The site serves the image at `/og?path=<page path>` for real pages only, rendered from the page as it is published. An editor's custom image replaces it, and a layout without one gets Camox's default image showing the page title and project name.
+
+## Structured Data — `toStructuredData` (optional)
+
+Every page's head carries a JSON-LD graph that Camox builds itself: the project's `Organization` and `WebSite`, and a `WebPage` named and described by `toTitle` and `toDescription`, with its URL, language, image and publish dates. `toStructuredData` only says what the page is. Return one of:
+
+- **A kind of web page**, which the page's node becomes: `AboutPage`, `ContactPage`, `CollectionPage`, `FAQPage`, `ProfilePage`, `ItemPage`, `QAPage`, `SearchResultsPage`, `CheckoutPage`, `MedicalWebPage` or `RealEstateListing`.
+- **A main entity**, emitted as its own node and linked as the page's `mainEntity`: an Article type (`BlogPosting`, `NewsArticle`, `TechArticle`, …), `Product`, `Event`, `Person`, `Place`, `Review`, `Question`, `HowTo`, `Recipe`, `Course`, `JobPosting`, `SoftwareApplication`, `VideoObject`, `ImageObject`, `Book`, `Service`, …. Camox fills what you leave out: the name (an Article's `headline`), description, URL and image, plus the dates, publisher and language of creative works. Values you set win. An Article makes `og:type` `article`.
+
+```tsx
+toStructuredData: () => ({ "@type": "AboutPage" }),
+// A derived layout: the post is the page's main entity.
+toStructuredData: ({ data }) => ({ "@type": "BlogPosting", wordCount: data.wordCount }),
+toStructuredData: ({ data }) => ({
+  "@type": "Product",
+  offers: { price: data.price, priceCurrency: "EUR" },
+}),
+```
+
+- Only the listed types type-check, each with only its schema.org properties. There's no way out to the rest of schema.org.
+- Properties search engines require and Camox can't fill are required, such as a `Product`'s `offers`, `review` or `aggregateRating`, an `Event`'s `startDate` and `location`, and a `JobPosting`'s `datePosted` and `hiringOrganization`.
+- Layouts can't return `Organization` or `WebSite`: Camox builds the website's own from the project.

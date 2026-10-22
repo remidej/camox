@@ -12,11 +12,12 @@ const articleList = createBlock({
     articles: field.referenceList(articles, {
       title: "Articles",
       query: { orderBy: { title: "asc" } },
-      toMarkdown: (article) => [`**${article.title}**: ${article.excerpt}`],
+      toMarkdown: ({ content }) => [`**${content.title}**: ${content.excerpt}`],
     }),
   }),
-  component: ArticleListComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.articles],
+  toReact: ArticleListComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [`## ${content.title}`, content.articles],
 });
 
 function ArticleListComponent() {

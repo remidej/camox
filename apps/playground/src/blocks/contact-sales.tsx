@@ -21,8 +21,9 @@ const contactSales = createBlock({
     cta: field.string({ default: "Contact sales", maxLength: 40, title: "Button label" }),
     sheetTitle: field.string({ default: "Contact sales", title: "Sheet title" }),
   }),
-  component: ContactSalesComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.description],
+  toReact: ContactSalesComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [`## ${content.title}`, content.description],
 });
 
 function ContactSalesComponent() {

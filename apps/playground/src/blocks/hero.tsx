@@ -55,8 +55,14 @@ const hero = createBlock({
       title: "Globe initial position",
     }),
   }),
-  component: HeroComponent,
-  toMarkdown: (c) => [`# ${c.title}`, c.description, c.globe, c.cta],
+  toReact: HeroComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [
+    `# ${content.title}`,
+    content.description,
+    content.globe,
+    content.cta,
+  ],
 });
 
 function HeroComponent() {

@@ -6,7 +6,6 @@ const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string({ default: "" }),
     logo: field.image(),
@@ -16,6 +15,8 @@ const customers = createCollection({
     category: field.enum({ options: { a: "A" }, default: "a" }),
     images: field.imageList(),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const block = createBlock({
   id: "testimonial",
@@ -26,12 +27,13 @@ const block = createBlock({
     customers: field.referenceList(customers, { maxItems: 6 }),
     heading: field.string({ default: "" }),
   }),
-  component: () => null,
-  toMarkdown: (c) => {
+  toReact: () => null,
+  toMarkdown: ({ content }) => {
     // @ts-expect-error Unknown source field.
-    void c.customer.missing;
-    return [c.customer.name];
+    void content.customer.missing;
+    return [content.customer.name];
   },
+  toTitle: () => "Testimonial",
 });
 
 function TypeChecks() {
@@ -70,7 +72,7 @@ function ListTypeChecks() {
   return (
     <block.ReferenceList name="customers">
       {(customer) => (
-        <li key={customer.id} aria-label={customer.label}>
+        <li key={customer.id} aria-label={customer.title}>
           <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
           <customer.Image name="logo">{(props) => <img {...props} />}</customer.Image>
           <customer.File name="file">{(props) => <a {...props} />}</customer.File>
@@ -108,19 +110,20 @@ const logoGrid = createBlock({
   description: "",
   content: (field) => ({
     customers: field.referenceList(customers, {
-      toMarkdown: (c) => {
+      toMarkdown: ({ content }) => {
         // @ts-expect-error Unknown collection field.
-        void c.missing;
-        return [c.name, c.logo];
+        void content.missing;
+        return [content.name, content.logo];
       },
     }),
   }),
-  component: () => null,
-  toMarkdown: (c) => {
+  toReact: () => null,
+  toMarkdown: ({ content }) => {
     // @ts-expect-error The list is included whole, not through one record's fields.
-    void c.customers.name;
-    return [c.customers];
+    void content.customers.name;
+    return [content.customers];
   },
+  toTitle: () => "Logo grid",
 });
 void logoGrid;
 
@@ -138,15 +141,17 @@ const logoWall = createBlock({
       settings: (setting) => ({ emphasized: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 6,
-      toMarkdown: (c) => {
+      toMarkdown: ({ content }) => {
         // @ts-expect-error Unknown collection field.
-        void c.customer.missing;
-        return [c.customer.name, c.partners];
+        void content.customer.missing;
+        return [content.customer.name, content.partners];
       },
+      toTitle: () => "Item",
     }),
   }),
-  component: () => null,
-  toMarkdown: (c) => [c.logos],
+  toReact: () => null,
+  toMarkdown: ({ content }) => [content.logos],
+  toTitle: () => "Logo wall",
 });
 
 function ItemTypeChecks() {
@@ -185,35 +190,38 @@ const authors = createCollection({
   id: "authors",
   title: "Authors",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string(),
     portrait: field.image(),
     employer: field.reference(customers),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const articles = createCollection({
   id: "articles",
   title: "Articles",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     author: field.reference(authors),
     coauthors: field.referenceList(authors),
   }),
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 const teaser = createBlock({
   id: "teaser",
   title: "Teaser",
   description: "",
   content: (field) => ({ article: field.reference(articles) }),
-  component: () => null,
-  toMarkdown: (c) => {
+  toReact: () => null,
+  toMarkdown: ({ content }) => {
     // @ts-expect-error Unknown field of the linked record.
-    void c.article.author.missing;
-    return [c.article.title, c.article.author.name, c.article.coauthors];
+    void content.article.author.missing;
+    return [content.article.title, content.article.author.name, content.article.coauthors];
   },
+  toTitle: () => "Teaser",
 });
 
 function NestedTypeChecks() {
@@ -253,7 +261,7 @@ const recentArticles = createBlock({
   content: (field) => ({
     recent: field.referenceList(articles, {
       query: { orderBy: { publishedAt: "desc" }, limit: 3 },
-      toMarkdown: (article) => [`## ${article.title}`],
+      toMarkdown: ({ content }) => [`## ${content.title}`],
     }),
     alphabetical: field.referenceList(articles, { query: { orderBy: { title: "asc" } } }),
     created: field.referenceList(articles, { query: { orderBy: { createdAt: "asc" } } }),
@@ -277,8 +285,9 @@ const recentArticles = createBlock({
     // @ts-expect-error There is no where filtering.
     filtered: field.referenceList(articles, { query: { where: { title: "x" } } }),
   }),
-  component: () => null,
-  toMarkdown: (c) => [c.recent],
+  toReact: () => null,
+  toMarkdown: ({ content }) => [content.recent],
+  toTitle: () => "Recent articles",
 });
 
 function QueryTypeChecks() {
@@ -303,32 +312,35 @@ createCollection({
   id: "reserved",
   title: "Reserved",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     // @ts-expect-error Reserved for record metadata in query orderBy.
     publishedAt: field.string(),
   }),
+  toTitle: () => "Reserved",
+  toDescription: () => undefined,
 });
 createCollection({
   id: "reserved-created",
   title: "Reserved",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     // @ts-expect-error Reserved for record metadata in query orderBy.
     createdAt: field.boolean({ default: false }),
   }),
+  toTitle: () => "Reserved",
+  toDescription: () => undefined,
 });
 createCollection({
   id: "queries",
   title: "Queries",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     // @ts-expect-error Collections never hold query-backed lists.
     latest: field.referenceList(articles, { query: {} }),
   }),
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });

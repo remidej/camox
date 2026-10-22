@@ -5,7 +5,7 @@ const block = createBlock({
   id: "artifact-type-test",
   title: "Artifacts",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     visual: field.artifact({ size: "fill" }),
     text: field.string({ default: "Text" }),
@@ -16,17 +16,19 @@ const block = createBlock({
       }),
       minItems: 1,
       maxItems: 5,
-      toMarkdown: (c) => [c.text],
+      toMarkdown: ({ content }) => [content.text],
+      toTitle: () => "Item",
     }),
   }),
-  toMarkdown: (c) => [c.text],
+  toMarkdown: ({ content }) => [content.text],
+  toTitle: () => "Artifacts",
 });
 
 createBlock({
   id: "artifact-options",
   title: "",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     // @ts-expect-error Artifacts must choose how their frame is sized.
     unsized: field.artifact({}),
@@ -34,6 +36,7 @@ createBlock({
     fixed: field.artifact({ size: "fixed" }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "",
 });
 
 // Collection records can't hold artifacts (ADR 0001).
@@ -46,7 +49,8 @@ createCollection({
     // @ts-expect-error The collection field builder does not offer artifacts.
     visual: field.artifact({ size: "fill" }),
   }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 
 // Artifact Data names sibling content fields and settings.
@@ -54,7 +58,7 @@ createBlock({
   id: "artifact-data",
   title: "",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     headline: field.string({ default: "Headline" }),
     cta: field.link({ default: { text: "Go", href: "/", newTab: false } }),
@@ -67,45 +71,49 @@ createBlock({
       settings: (setting) => ({ highlighted: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 5,
-      toMarkdown: (c) => [c.label],
+      toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
   }),
   settings: (setting) => ({
     accent: setting.enum({ default: "blue", options: { blue: "Blue", red: "Red" } }),
   }),
-  toMarkdown: (c) => [c.headline],
+  toMarkdown: ({ content }) => [content.headline],
+  toTitle: () => "",
 });
 
 createBlock({
   id: "artifact-data-typo",
   title: "",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     headline: field.string({ default: "Headline" }),
     // @ts-expect-error Artifact Data names only sibling fields and settings.
     visual: field.artifact({ size: "fill", data: ["headlin"] }),
   }),
-  toMarkdown: (c) => [c.headline],
+  toMarkdown: ({ content }) => [content.headline],
+  toTitle: () => "",
 });
 
 createBlock({
   id: "artifact-data-without-settings",
   title: "",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     // @ts-expect-error A block without settings shares no settings.
     visual: field.artifact({ size: "fill", data: ["accent"] }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "",
 });
 
 createBlock({
   id: "artifact-data-not-shared",
   title: "",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     other: field.artifact({ size: "fill" }),
     // @ts-expect-error Artifact sources are not Artifact Data.
@@ -114,19 +122,21 @@ createBlock({
       content: (field) => ({ label: field.string({ default: "Label" }) }),
       minItems: 1,
       maxItems: 5,
-      toMarkdown: (c) => [c.label],
+      toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
     // @ts-expect-error Repeaters are not Artifact Data.
     list: field.artifact({ size: "fill", data: ["items"] }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "",
 });
 
 createBlock({
   id: "artifact-data-item-scope",
   title: "",
   description: "",
-  component: () => null,
+  toReact: () => null,
   content: (field) => ({
     headline: field.string({ default: "Headline" }),
     items: field.repeater({
@@ -137,10 +147,12 @@ createBlock({
       }),
       minItems: 1,
       maxItems: 5,
-      toMarkdown: (c) => [c.label],
+      toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
   }),
-  toMarkdown: (c) => [c.headline],
+  toMarkdown: ({ content }) => [content.headline],
+  toTitle: () => "",
 });
 
 function TypeCheck() {

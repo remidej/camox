@@ -25,7 +25,8 @@ export interface NormalizedCollectionRecord {
   id: string;
   collectionId: string;
   content: Record<string, unknown>;
-  label: string;
+  title: string;
+  description: string | null;
   version?: number;
   revisionId?: string;
   /** The records this record links, when a block or item placed it (the first hop). */

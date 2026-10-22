@@ -189,10 +189,11 @@ void test("normal runtime renders image, list and repeatable defaults with uncha
         minItems: 1,
         maxItems: 2,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <>
         <block.Image name="hero">{image}</block.Image>
         <block.ImageList name="gallery">{image}</block.ImageList>
@@ -206,6 +207,7 @@ void test("normal runtime renders image, list and repeatable defaults with uncha
         </block.Repeater>
       </>
     ),
+    toTitle: () => "Placeholder",
   });
   const html = renderToStaticMarkup(
     <block._internal.Component
@@ -229,7 +231,7 @@ void test("normal runtime preserves authored images and custom callback URL fall
     description: "",
     content: (field) => ({ real: field.image(), wrapped: field.image() }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <>
         <block.Image name="real">{(props) => <img {...props} className="photo" />}</block.Image>
         <block.Image name="wrapped">
@@ -241,6 +243,7 @@ void test("normal runtime preserves authored images and custom callback URL fall
         </block.Image>
       </>
     ),
+    toTitle: () => "Authored",
   });
   const html = renderToStaticMarkup(
     <block._internal.Component

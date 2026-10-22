@@ -30,11 +30,13 @@ const navbar = createBlock({
       minItems: 1,
       maxItems: 6,
       title: "Links",
-      toMarkdown: (c) => [c.link],
+      toTitle: ({ content }) => content.link,
+      toMarkdown: ({ content }) => [content.link],
     }),
   }),
-  component: NavbarComponent,
-  toMarkdown: (c) => [c.logo, c.links],
+  toReact: NavbarComponent,
+  toTitle: () => "Navigation",
+  toMarkdown: ({ content }) => [content.logo, content.links],
 });
 
 function NavbarContent() {

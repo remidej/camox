@@ -82,7 +82,7 @@ export const localesProvider: ToolProvider = (ctx): ToolDefinition[] => [
         z.strictObject({ id: z.string(), fullPath: z.string(), nickname: z.string() }),
       ),
       records: z.array(
-        z.strictObject({ id: z.string(), collectionId: z.string(), label: z.string() }),
+        z.strictObject({ id: z.string(), collectionId: z.string(), title: z.string() }),
       ),
     }),
     meta: { kind: "read", surfaces: ["cli", "studio-agent"], localized: true },

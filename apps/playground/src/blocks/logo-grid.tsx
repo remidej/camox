@@ -12,11 +12,12 @@ const logoGrid = createBlock({
     customers: field.referenceList(customers, {
       title: "Customers",
       maxItems: 12,
-      toMarkdown: (c) => [`${c.logo} ${c.company}`],
+      toMarkdown: ({ content }) => [`${content.logo} ${content.company}`],
     }),
   }),
-  component: LogoGridComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.customers],
+  toReact: LogoGridComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [`## ${content.title}`, content.customers],
 });
 
 function LogoGridComponent() {
@@ -34,7 +35,7 @@ function LogoGridComponent() {
               <li className="flex flex-col items-center gap-2">
                 <customer.Image name="logo">
                   {(props) => (
-                    <img {...props} alt={customer.label} className="h-10 max-w-32 object-contain" />
+                    <img {...props} alt={customer.title} className="h-10 max-w-32 object-contain" />
                   )}
                 </customer.Image>
                 <customer.Field name="company">

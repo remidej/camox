@@ -25,6 +25,8 @@ import { artifactData } from "./lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  resolveToStructuredData,
+  resolveToTitle,
   type FileValue,
   type ImageValue,
   type LinkValue,
@@ -181,6 +183,7 @@ function buildPeekItems(
         content: itemContent,
         settings: property.defaultItemSettings ? { ...property.defaultItemSettings } : null,
         summary: "",
+        title: "",
         position,
         createdAt: 0,
         updatedAt: 0,
@@ -452,7 +455,8 @@ function createViewBlock(options: EditableOptions) {
         >
           {children({
             id: record.id,
-            label: record.label,
+            title: record.title,
+            description: record.description,
             Field,
             Image: ReferenceImage,
             File: ReferenceFile,
@@ -606,7 +610,8 @@ function createViewBlock(options: EditableOptions) {
         normalizedContent[key] = value.map((item) => item.content);
       }
     }
-    const AuthoredComponent = options.component;
+    const ToReact = options.toReact as React.ComponentType<any>;
+    const settings = { ...settingsDefaults, ...blockData.settings };
     return (
       <div
         className="group visual-editing-block"
@@ -620,11 +625,11 @@ function createViewBlock(options: EditableOptions) {
           value={{
             blockId: blockData._id,
             content: mergedContent,
-            settings: { ...settingsDefaults, ...blockData.settings },
+            settings,
             mode,
           }}
         >
-          <AuthoredComponent content={normalizedContent} />
+          <ToReact content={normalizedContent} settings={settings} />
         </Context.Provider>
       </div>
     );
@@ -636,12 +641,16 @@ function createViewBlock(options: EditableOptions) {
     description: options.description,
     properties: typeboxSchema.properties,
     required: Object.keys(fields.content),
-    toMarkdown: resolveToMarkdown(
-      options.toMarkdown as any,
-      fields.settings,
-      "block",
-      fields.content,
-    ),
+    toMarkdown: resolveToMarkdown(options.toMarkdown, fields.settings, "block", fields.content),
+    toTitle: resolveToTitle(options.toTitle, fields.settings, "block", fields.content),
+    ...(options.toStructuredData && {
+      toStructuredData: resolveToStructuredData(
+        options.toStructuredData,
+        fields.settings,
+        "block",
+        fields.content,
+      ),
+    }),
   };
   const settingsSchema = settingsTypeboxSchema
     ? {
@@ -720,6 +729,7 @@ function createViewBlock(options: EditableOptions) {
             settings: settingsDefaults,
             slot: null,
             summary: "",
+            title: "",
             position: "",
             createdAt: 0,
             updatedAt: 0,

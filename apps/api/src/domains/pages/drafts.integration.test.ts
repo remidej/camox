@@ -135,6 +135,49 @@ describe("pages in a draft", () => {
     expect(await paths()).toEqual(["/pricing"]);
   });
 
+  it("reads a page in a draft with its Live publish times, even after Live publishes it again", async () => {
+    const { createPage, pageAt, project, member, publishedOnLive, updatePage } = await fixture();
+    const page = await createPage("pricing");
+    const draft = generateUuidv7();
+    // The draft copies the page while Live holds its first publish.
+    await updatePage({ id: page.id, nickname: "Prices" }, startingDraft(draft));
+    const copied = (await pageAt("/pricing", inDraft(draft))).page;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await publishedOnLive((headers) => updatePage({ id: page.id, nickname: "Plans" }, headers));
+
+    const live = (await pageAt("/pricing")).page;
+    expect(live.publishedAt).toBeGreaterThan(copied.publishedAt!);
+    const reads = [
+      (await pageAt("/pricing", inDraft(draft))).page,
+      (
+        await call(
+          router.pages.getStructure,
+          { projectUuid: project.uuid, path: "/pricing" },
+          member(inDraft(draft)),
+        )
+      ).page,
+    ];
+    for (const read of reads) {
+      expect(read.nickname).toBe("Prices");
+      expect(read).toMatchObject({
+        firstPublishedAt: live.firstPublishedAt,
+        publishedAt: live.publishedAt,
+      });
+    }
+  });
+
+  it("reads a page only a draft holds without publish times", async () => {
+    const { createPage, pageAt } = await fixture();
+    const draft = generateUuidv7();
+    await createPage("launch", startingDraft(draft));
+
+    expect((await pageAt("/launch", inDraft(draft))).page).toMatchObject({
+      firstPublishedAt: null,
+      publishedAt: null,
+    });
+  });
+
   it("copies every descendant whose full path changes when a parent page is renamed, and publishing applies them all", async () => {
     const { createPage, paths, preview, publish, updatePage } = await fixture();
     const docs = await createPage("docs");

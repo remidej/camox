@@ -141,6 +141,34 @@
       "when": 1792656721213,
       "tag": "0019_project_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792690386700,
+      "tag": "0020_social_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1792690904286,
+      "tag": "0021_record_titles",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1792691673567,
+      "tag": "0022_image_dimensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792693435367,
+      "tag": "0023_record_structured_data",
+      "breakpoints": true
     }
   ]
 }

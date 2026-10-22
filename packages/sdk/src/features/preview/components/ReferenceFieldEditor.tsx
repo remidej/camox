@@ -3,6 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { Link2, X } from "lucide-react";
 import * as React from "react";
 
+import { titleField } from "@/core/recordItem";
 import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "@/lib/auth";
@@ -60,7 +61,7 @@ export function ReferenceFieldEditor({
   const selectedId = typeof value === "string" && value ? value : null;
   const selected = records.data?.find((option) => option.id === value);
   const hydrated = record?.id === selectedId ? record : null;
-  const selectedLabel = selected?.label ?? hydrated?.label ?? "Unavailable item";
+  const selectedLabel = selected?.title ?? hydrated?.title ?? "Unavailable item";
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const focusRequested = useReferencePickerFocusRequested(drill ? undefined : fieldId);
   const pickerReady = !selectedId && records.isSuccess && !saving;
@@ -111,6 +112,7 @@ export function ReferenceFieldEditor({
       {selectedId && (
         <RecordCard
           label={selectedLabel}
+          description={selected ? selected.description : hydrated?.description}
           collectionTitle={collectionTitle}
           onOpen={onOpenRecord ? () => onOpenRecord(selectedId) : undefined}
           actions={
@@ -150,8 +152,8 @@ export function ReferenceFieldEditor({
                     sheet.open({
                       collectionId,
                       initialContent:
-                        collection && search.trim()
-                          ? { [collection._internal.label]: search }
+                        collection && search.trim() && titleField(collection._internal.toTitle)
+                          ? { [titleField(collection._internal.toTitle)!]: search }
                           : undefined,
                       onSaved: (created) => save(created.id),
                     }),

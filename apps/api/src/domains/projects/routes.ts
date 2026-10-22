@@ -6,7 +6,7 @@ import { getAuthorizedProject } from "../../authorization";
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
-import { authed } from "../../orpc";
+import { authed, pub } from "../../orpc";
 import { projects } from "../../schema";
 import type { AppEnv } from "../../types";
 import * as service from "./service";
@@ -27,6 +27,10 @@ const getBySlug = authed
 const getByUuid = authed
   .input(service.getProjectByUuidInput)
   .handler(({ context, input }) => runService(service.getProjectByUuid(context, input)));
+
+const getSummary = pub
+  .input(service.getProjectSummaryInput)
+  .handler(({ context, input }) => runService(service.getProjectSummary(context, input)));
 
 const get = authed
   .input(service.getProjectInput)
@@ -50,6 +54,10 @@ const updateAnalytics = authed
   .input(service.updateProjectAnalyticsInput)
   .handler(({ context, input }) => runService(service.updateProjectAnalytics(context, input)));
 
+const updateSocialProfiles = authed
+  .input(service.updateProjectSocialProfilesInput)
+  .handler(({ context, input }) => runService(service.updateProjectSocialProfiles(context, input)));
+
 const deleteFn = authed
   .input(service.deleteProjectInput)
   .handler(({ context, input }) => runService(service.deleteProject(context, input)));
@@ -59,11 +67,13 @@ export const projectProcedures = {
   getFirst,
   getBySlug,
   getByUuid,
+  getSummary,
   get,
   checkSlugAvailability,
   create,
   update,
   updateAnalytics,
+  updateSocialProfiles,
   delete: deleteFn,
 };
 

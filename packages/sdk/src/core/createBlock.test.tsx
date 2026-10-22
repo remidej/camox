@@ -22,10 +22,11 @@ const options = {
   title: "Navigation",
   description: "Site navigation",
   content: (field: ContentFieldBuilder) => ({ title: field.string({ default: "Home" }) }),
-  component: function Navigation() {
+  toReact: function Navigation() {
     return null;
   },
-  toMarkdown: (content: { title: string }) => [content.title],
+  toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+  toTitle: () => "Navigation",
 };
 
 void test("repeaters without an item limit serialize without maxItems", () => {
@@ -36,10 +37,12 @@ void test("repeaters without an item limit serialize without maxItems", () => {
         content: (item) => ({ title: item.string({ default: "Item" }) }),
         minItems: 1,
         maxItems: Infinity,
-        toMarkdown: (item) => [item.title],
+        toMarkdown: ({ content }) => [content.title],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
+    toTitle: () => "Block",
   });
   const schema = JSON.parse(JSON.stringify(block._internal.contentSchema));
   assert.equal("maxItems" in schema.properties.items, false);
@@ -60,7 +63,7 @@ void test("synced is independent of layoutOnly", () => {
 });
 
 void test("a block's wrapper leaves its background to the website's stylesheet", () => {
-  const block = createBlock({ ...options, component: () => <p>Hi</p> });
+  const block = createBlock({ ...options, toReact: () => <p>Hi</p> });
   const html = renderToStaticMarkup(
     <block._internal.Component
       mode="site"
@@ -96,8 +99,9 @@ void test("a link field renders a link to an existing page and plain text for a 
     content: (field: ContentFieldBuilder) => ({
       cta: field.link({ default: { text: "Go", href: "/", newTab: false } }),
     }),
-    component: () => <block.Link name="cta">{(props) => <a {...props} />}</block.Link>,
+    toReact: () => <block.Link name="cta">{(props) => <a {...props} />}</block.Link>,
     toMarkdown: () => [],
+    toTitle: () => "Block",
   });
   const render = (pageId: string) => {
     const queryClient = new QueryClient();

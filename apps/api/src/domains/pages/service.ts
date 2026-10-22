@@ -7,7 +7,7 @@ import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "..
 import { blocks, layouts, pages, projects, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
-import { type BlockBundle, contentReader } from "../content/reader";
+import { type BlockBundle, type BundleStructuredData, contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
@@ -138,6 +138,14 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     and(eq(pages.fullPath, fullPath), eq(pages.projectId, project.id)),
   );
   if (!page) return yield* new NotFoundError();
+  const draft = draftIn(scope);
+  // A draft's copy of a page keeps Live's publish times as they were when it was copied.
+  const live =
+    draft && page.draftId ? yield* overlay.liveRowFor(ctx.db, draft, pages, page.id) : page;
+  const published = {
+    firstPublishedAt: live?.firstPublishedAt ?? null,
+    publishedAt: live?.publishedAt ?? null,
+  };
   const layout =
     (yield* Effect.promise(() =>
       ctx.db
@@ -148,7 +156,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     )) ?? null;
   // A page whose layout was removed or is no longer curated isn't served (ADR 0007).
   if (!servesPages(layout)) return yield* new NotFoundError();
-  return { project, page, layout };
+  return { project, page: { ...page, ...published }, layout };
 });
 
 function layoutView(
@@ -171,8 +179,9 @@ function composePageView(args: {
   project: typeof projects.$inferSelect;
   layout: typeof layouts.$inferSelect | null;
   content: BlockBundle;
+  structuredData: BundleStructuredData;
 }) {
-  const { page, project, layout, content } = args;
+  const { page, project, layout, content, structuredData } = args;
   const pageBlocks = content.blocks.filter((block) => block.pageId === page.id);
   const layoutBlocks = content.blocks.filter((block) => block.pageId !== page.id);
   const itemsByBlock = Map.groupBy(content.repeatableItems, (item) => item.blockId);
@@ -185,6 +194,10 @@ function composePageView(args: {
     blocks,
     repeatableItems: blocks.flatMap((block) => itemsByBlock.get(block.id) ?? []),
     files: content.files,
+    /** Each block's Structured Data nodes, by block id, for the page's graph. */
+    structuredData: structuredData.blocks,
+    /** The nodes of the records the blocks reference, and of those these records link. */
+    recordStructuredData: structuredData.records,
   };
 }
 
@@ -202,7 +215,8 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     { pageId: page!.id },
     ...(layout ? [{ layoutId: layout.layoutId }] : []),
   ]);
-  return composePageView({ page: page!, project, layout, content });
+  const structuredData = yield* reader.structuredData(content);
+  return composePageView({ page: page!, project, layout, content, structuredData });
 }, Effect.scoped);
 
 export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (

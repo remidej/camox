@@ -15,21 +15,24 @@ const articles = createCollection({
   title: "Articles",
   description: "",
   content: (field) => ({ title: field.string(), slug: field.string() }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: () => null,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: () => null,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 const defaultLayout = createLayout("default")({
   ...layoutOptions,
   kind: "curated",
   title: "Page",
-  component: ({ children }) => children,
+  toReact: ({ children }) => children,
+  toDescription: ({ page }) => page.description,
 });
 
 type MockPage = {
@@ -55,7 +58,7 @@ const page = (fullPath: string, rest: Partial<MockPage> = {}): MockPage => ({
   ...rest,
 });
 
-type MockRecord = { id: string; slug: string; label: string };
+type MockRecord = { id: string; slug: string; title: string };
 
 /** Records the API lists for route discovery, and the requests the runtime sent it. */
 function mockApi(
@@ -74,7 +77,7 @@ function mockApi(
     if (path.endsWith("/locales/list")) return localesResponse();
     if (path.endsWith("/collectionDefinitions/listRecordPageValues"))
       return Response.json({
-        json: records.map((record) => ({ id: record.id, value: record.slug, label: record.label })),
+        json: records.map((record) => ({ id: record.id, value: record.slug, title: record.title })),
       });
     throw new Error(`Unexpected API request ${path}`);
   });
@@ -153,8 +156,8 @@ const pokemonRoutes = (names: string[]) =>
 const pokemonLayout = pokemonRoutes(["pikachu", "eevee"]);
 
 const articleRecords: MockRecord[] = [
-  { id: "00000000-0000-4000-8000-000000000001", slug: "evolution", label: "How evolution works" },
-  { id: "00000000-0000-4000-8000-000000000002", slug: "catching", label: "Catching them all" },
+  { id: "00000000-0000-4000-8000-000000000001", slug: "evolution", title: "How evolution works" },
+  { id: "00000000-0000-4000-8000-000000000002", slug: "catching", title: "Catching them all" },
 ];
 
 void test("llms.txt lists singletons and discovered pages under their layouts, linking Markdown only where it exists", async (t) => {

@@ -24,6 +24,11 @@ export type LiveInLocale = { live: true; locale: string };
  */
 export type ReadScope = DraftScope | LiveInLocale;
 
+/** The tag of the locale a scope names, if any; without one it reads the default locale. */
+export function localeOf(scope: ReadScope): string | undefined {
+  return scope !== null && "locale" in scope ? scope.locale : undefined;
+}
+
 /** The draft a scope reads over Live, or null when it reads Live itself. */
 export function draftIn(scope: ReadScope): Draft | null {
   return scope && "id" in scope ? scope : null;

@@ -10,5 +10,11 @@ export const collection = createCollection({
     company: field.string(),
     logo: field.image({ title: "Logo" }),
   }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: ({ content }) => content.company,
+  toStructuredData: ({ content }) => ({
+    "@type": "Organization",
+    name: content.company,
+    logo: content.logo,
+  }),
 });

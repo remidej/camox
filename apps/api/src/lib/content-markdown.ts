@@ -10,7 +10,7 @@ type ResolvedFile = { url: string; alt: string; filename: string; mimeType: stri
 type SettingsContext = {
   settings?: Record<string, unknown> | null;
   itemSettings?: Record<string, unknown> | null;
-  files?: Map<string, ResolvedFile> | null;
+  files?: ReadonlyMap<string, ResolvedFile> | null;
   references?: ResolvedReferences;
 };
 
@@ -36,6 +36,22 @@ export function contentToMarkdown(
   }
 
   return parts.join(insideList ? "\n" : "\n\n");
+}
+
+// A Markdown link or image, which plain text reads by its text or alt text.
+const MARKDOWN_LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
+
+/**
+ * One template line as plain text, the way Markdown templates fill it: links read as their
+ * text and images as their alt text. Empty when every token in it is.
+ */
+export function contentToPlainText(
+  line: string,
+  schemaProperties: Record<string, any>,
+  content: Record<string, unknown>,
+  options: SettingsContext = {},
+): string {
+  return contentToMarkdown([line], schemaProperties, content, options).replace(MARKDOWN_LINK, "$1");
 }
 
 /**
@@ -70,7 +86,8 @@ function evaluateConditionals(line: string, ctx: SettingsContext): string | null
   return current;
 }
 
-const PLACEHOLDER_RE = /\{\{(\w+(?:\.\w+)*)\}\}/g;
+/** A field token, such as `{{name}}`, or `{{author.name}}` through references: group 1 is its path. */
+export const FIELD_TOKEN = /\{\{(\w+(?:\.\w+)*)\}\}/g;
 
 function resolveLine(
   line: string,
@@ -78,7 +95,7 @@ function resolveLine(
   content: Record<string, unknown>,
   ctx: SettingsContext,
 ): string | null {
-  const placeholders = [...line.matchAll(PLACEHOLDER_RE)].map((m) => m[1]);
+  const placeholders = [...line.matchAll(FIELD_TOKEN)].map((m) => m[1]);
   if (placeholders.length === 0) return line;
 
   const resolve = (key: string) => {
@@ -106,7 +123,7 @@ function resolveLine(
   const resolvedValues = placeholders.map(resolve);
   if (resolvedValues.every((v) => !v)) return null;
 
-  return line.replace(PLACEHOLDER_RE, (_match, key: string) => {
+  return line.replace(FIELD_TOKEN, (_match, key: string) => {
     return resolve(key) ?? "";
   });
 }
@@ -114,7 +131,7 @@ function resolveLine(
 /**
  * Render a reference list's resolved records (already ordered, and limited to published
  * ones for live reads) as a bulleted list, one item per record via the per-use
- * `toMarkdown`. Without one, each record falls back to its label.
+ * `toMarkdown`. Without one, each record falls back to its title.
  */
 function resolveReferenceList(
   schema: { toMarkdown?: readonly string[] },
@@ -132,7 +149,7 @@ function resolveReferenceList(
           files: ctx.files,
           references: record.references,
         })
-      : record.label;
+      : record.title;
     if (md) itemParts.push(toListItem(md));
   }
   return itemParts.length > 0 ? itemParts.join("\n") : undefined;

@@ -35,8 +35,14 @@ const hero = createBlock({
     }),
     scheme: colorSchemeSetting(setting, "dark"),
   }),
-  component: HeroComponent,
-  toMarkdown: (c, s) => [`# ${c.title}`, c.description, s.withIllustration(c.illustration), c.cta],
+  toReact: HeroComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content, settings }) => [
+    `# ${content.title}`,
+    content.description,
+    settings.withIllustration(content.illustration),
+    content.cta,
+  ],
 });
 
 function HeroComponent() {

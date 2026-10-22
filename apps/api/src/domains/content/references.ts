@@ -1,3 +1,4 @@
+import { recordText as fillRecordText, type RecordText } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -14,10 +15,9 @@ import { selectInChunks } from "./chunks";
 import type { CollectionDefinition, Definitions } from "./definitions";
 import { resolveAssets } from "./files";
 
-export type ResolvedReference = {
+export type ResolvedReference = RecordText & {
   id: string;
   collectionId: string;
-  label: string;
   content: Record<string, unknown>;
   contentSchema: unknown;
   /** The records this record references, one hop further; absent beyond the second hop. */
@@ -127,9 +127,18 @@ function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1, textOrder: Intl.C
   return textOrder.compare(a.key, b.key) * sign || byId;
 }
 
-/** A record's label: its label field's plain text. */
-export function recordLabel(definition: CollectionDefinition, content: Record<string, unknown>) {
-  return lexicalStateToPlainText(content[definition.label] as string | Record<string, unknown>);
+export type { RecordText };
+
+/** A record's title and description: its collection's templates filled with its plain text. */
+export function recordText(
+  definition: Pick<CollectionDefinition, "toTitle" | "toDescription">,
+  content: Record<string, unknown>,
+): RecordText {
+  return fillRecordText(definition, (name) => {
+    const value = content[name];
+    if (typeof value !== "string" && (typeof value !== "object" || value === null)) return "";
+    return lexicalStateToPlainText(value as string | Record<string, unknown>);
+  });
 }
 
 /** What one holder's reference field resolves to, before records load. */
@@ -203,7 +212,7 @@ export const resolveReferences = Effect.fn("content.resolveReferences")(function
         const node: ResolvedReference = {
           id: row.id,
           collectionId: definition.collectionId,
-          label: recordLabel(definition, content),
+          ...recordText(definition, content),
           content,
           contentSchema: definition.contentSchema,
         };

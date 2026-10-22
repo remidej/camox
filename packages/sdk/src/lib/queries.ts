@@ -17,6 +17,10 @@ export type PageStructure = {
   layout: PageWithBlocks["layout"];
   projectName: string;
   project: PageWithBlocks["project"];
+  /** Each block's Structured Data nodes, from a full read: a structure read has none. */
+  structuredData?: PageWithBlocks["structuredData"];
+  /** The nodes of the records its blocks reference, from a full read. */
+  recordStructuredData?: PageWithBlocks["recordStructuredData"];
 };
 export type Project = Awaited<ReturnType<ApiClient["projects"]["getByUuid"]>>;
 export type Layout = Awaited<ReturnType<ApiClient["layouts"]["list"]>>[number];
@@ -55,6 +59,7 @@ async function sendFaviconChange(path: string, init: { method: string; body?: Fo
 }
 
 export const projectMutations = {
+  updateSocialProfiles: () => getOrpc().projects.updateSocialProfiles.mutationOptions(),
   uploadFavicon: () => ({
     mutationFn: async ({ projectId, file }: { projectId: number; file: globalThis.File }) => {
       const formData = new FormData();

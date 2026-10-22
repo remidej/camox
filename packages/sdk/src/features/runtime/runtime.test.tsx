@@ -16,7 +16,12 @@ const layout = {
   afterBlockIds: [],
   updatedAt: "2026-01-01",
 };
-const buildMetaTitle = ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle;
+/** The `toTitle`, `toDescription` and `toStructuredData` a layout gets by default. */
+const meta = {
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description?: string } }) => page.description,
+  toStructuredData: () => undefined,
+};
 const app = {
   getLayouts: () => [
     {
@@ -24,17 +29,17 @@ const app = {
         id: "pokedex",
         kind: "singleton",
         title: "Pokédex",
-        buildMetaTitle,
+        ...meta,
         loader: async () => ({ kind: "data", data: { count: 12 } }),
       },
     },
-    { _internal: { id: "about-camox", kind: "singleton", title: "About Camox", buildMetaTitle } },
+    { _internal: { id: "about-camox", kind: "singleton", title: "About Camox", ...meta } },
     {
       _internal: {
         id: "pokemon.$name",
         kind: "derived",
         title: "Pokemon",
-        buildMetaTitle,
+        ...meta,
         loader: async ({ params }: { params: { name: string } }) => ({
           kind: "data",
           data: { name: params.name },
@@ -503,10 +508,9 @@ void test("a curated page's Markdown opens with its head's title and description
   const postLayout = {
     _internal: {
       id: "post",
-      buildMetaTitle: ({ pageMetaTitle, projectName }: Record<string, string>) =>
-        `${pageMetaTitle} | ${projectName}`,
-      buildMetaDescription: ({ pageMetaDescription }: Record<string, string>) =>
-        `${pageMetaDescription}, by us`,
+      toTitle: ({ page, project }: { page: { title: string }; project: { name: string } }) =>
+        `${page.title} | ${project.name}`,
+      toDescription: ({ page }: { page: { description: string } }) => `${page.description}, by us`,
     },
   };
   const response = await handleCamoxRequest(new Request("https://site.test/blog/post.md"), {

@@ -23,7 +23,6 @@ const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string({ default: "Never fabricate" }),
     logo: field.image(),
@@ -31,12 +30,15 @@ const customers = createCollection({
     download: field.file({ accept: ["application/pdf"] }),
     downloads: field.fileList({ accept: ["application/pdf"] }),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const id = "c0f2b5f1-ffb8-4aa1-a052-42a27caa8555";
 const record: ReferenceRecord = {
   id,
   collectionId: "customers",
-  label: "Source label",
+  title: "Source label",
+  description: null,
   content: { name: "Acme", logo: null, images: [] },
 };
 
@@ -53,8 +55,12 @@ void test("reference schema stores nullable identity, defaults unset and emits p
     description: "",
     content: () => ({ customer: reference }),
     settings: (setting) => ({ show: setting.boolean({ default: true }) }),
-    component: () => null,
-    toMarkdown: (c, s) => [s.show(`Quote: ${c.customer.name}`), c.customer.name],
+    toReact: () => null,
+    toMarkdown: ({ content, settings }) => [
+      settings.show(`Quote: ${content.customer.name}`),
+      content.customer.name,
+    ],
+    toTitle: () => "",
   });
   assert.deepEqual(block._internal.getInitialContent(), { customer: null });
   assert.deepEqual(block._internal.getPeekBundle().block.content, { customer: null });
@@ -71,13 +77,13 @@ void test("public scopes render source fields and labels, never fabricate missin
     title: "",
     description: "",
     content: (field) => ({ customer: field.reference(customers) }),
-    toMarkdown: (c) => [c.customer.name],
-    component: () => (
+    toMarkdown: ({ content }) => [content.customer.name],
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => {
           calls++;
           return (
-            <section aria-label={customer.label}>
+            <section aria-label={customer.title}>
               <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
               <customer.Image name="logo">{(props) => <img {...props} />}</customer.Image>
               <customer.ImageList name="images">{(props) => <img {...props} />}</customer.ImageList>
@@ -90,6 +96,7 @@ void test("public scopes render source fields and labels, never fabricate missin
         }}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const render = (value: string | null, source?: ReferenceRecord, files: NormalizedFile[] = []) =>
     renderToStaticMarkup(
@@ -186,8 +193,9 @@ void test("reference list schema stores ordered identities, defaults empty and o
     title: "",
     description: "",
     content: (field) => ({ customers: field.referenceList(customers) }),
-    component: () => null,
+    toReact: () => null,
     toMarkdown: () => [],
+    toTitle: () => "",
   });
   assert.deepEqual(block._internal.getInitialContent(), { customers: [] });
   assert.deepEqual(block._internal.getInitialBundle().content, { customers: [] });
@@ -200,11 +208,12 @@ void test("reference lists emit per-use record Markdown and are included by thei
     description: "",
     content: (field) => ({
       customers: field.referenceList(customers, {
-        toMarkdown: (c) => [`Logo of ${c.name}`, c.logo],
+        toMarkdown: ({ content }) => [`Logo of ${content.name}`, content.logo],
       }),
     }),
-    component: () => null,
-    toMarkdown: (c) => ["Trusted by:", c.customers],
+    toReact: () => null,
+    toMarkdown: ({ content }) => ["Trusted by:", content.customers],
+    toTitle: () => "",
   });
   const schema = block._internal.contentSchema;
   assert.deepEqual(schema.properties.customers.toMarkdown, ["Logo of {{name}}", "{{logo}}"]);
@@ -216,7 +225,8 @@ void test("reference lists render each resolved record in stored order and nothi
   const second: ReferenceRecord = {
     id: "5a1f0c0e-5d8c-4c55-8f2e-0d3f0b6f4a11",
     collectionId: "customers",
-    label: "Beta label",
+    title: "Beta label",
+    description: null,
     content: { name: "Beta" },
   };
   const block = createBlock({
@@ -225,17 +235,18 @@ void test("reference lists render each resolved record in stored order and nothi
     description: "",
     content: (field) => ({ customers: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="customers">
           {(customer) => (
-            <li aria-label={customer.label} data-id={customer.id}>
+            <li aria-label={customer.title} data-id={customer.id}>
               <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
             </li>
           )}
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const render = (value: unknown, references: ReferenceRecord[]) =>
     renderToStaticMarkup(
@@ -278,11 +289,11 @@ void test("reference lists render each resolved record in stored order and nothi
 });
 
 void test("query-backed lists store nothing and render their resolved records in query order", () => {
-  const second: ReferenceRecord = { ...record, id: "beta", label: "Beta label" };
+  const second: ReferenceRecord = { ...record, id: "beta", title: "Beta label" };
   const query = { orderBy: { name: "asc" }, limit: 3 } as const;
   const recent = contentFieldBuilder.referenceList(customers, {
     query,
-    toMarkdown: (c) => [c.name],
+    toMarkdown: ({ content }) => [content.name],
   });
   assert.deepEqual(recent.query, query);
   assert.equal("default" in recent, false);
@@ -303,8 +314,9 @@ void test("query-backed lists store nothing and render their resolved records in
         id: "reserved",
         title: "",
         description: "",
-        label: "name",
         content: (field) => ({ name: field.string(), publishedAt: field.string() }) as never,
+        toTitle: ({ content }) => content.name,
+        toDescription: () => undefined,
       }),
     /"publishedAt": reserved field name/,
   );
@@ -319,27 +331,29 @@ void test("query-backed lists store nothing and render their resolved records in
         minItems: 1,
         maxItems: 2,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <>
         <ul>
           <block.ReferenceList name="customers">
-            {(customer) => <li aria-label={customer.label}>{customer.id}</li>}
+            {(customer) => <li aria-label={customer.title}>{customer.id}</li>}
           </block.ReferenceList>
         </ul>
         <block.Repeater name="rows">
           {(row) => (
             <ol>
               <row.ReferenceList name="customers">
-                {(customer) => <li aria-label={customer.label}>{customer.id}</li>}
+                {(customer) => <li aria-label={customer.title}>{customer.id}</li>}
               </row.ReferenceList>
             </ol>
           )}
         </block.Repeater>
       </>
     ),
+    toTitle: () => "",
   });
   assert.deepEqual(block._internal.getInitialContent(), {});
   assert.deepEqual(block._internal.getInitialBundle().content, {});
@@ -399,25 +413,27 @@ void test("repeatable items render the records they link, at any repeater depth"
             minItems: 1,
             maxItems: 3,
             toMarkdown: () => [],
+            toTitle: () => "Item",
           }),
         }),
         minItems: 1,
         maxItems: 6,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Repeater name="logos">
         {(logo) => (
           <article>
             <logo.Reference name="customer">
-              {(customer) => <h2 aria-label={customer.label}>{customer.id}</h2>}
+              {(customer) => <h2 aria-label={customer.title}>{customer.id}</h2>}
             </logo.Reference>
             <logo.Repeater name="quotes">
               {(quote) => (
                 <quote.ReferenceList name="speakers">
-                  {(speaker) => <i>{speaker.label}</i>}
+                  {(speaker) => <i>{speaker.title}</i>}
                 </quote.ReferenceList>
               )}
             </logo.Repeater>
@@ -425,6 +441,7 @@ void test("repeatable items render the records they link, at any repeater depth"
         )}
       </block.Repeater>
     ),
+    toTitle: () => "",
   });
   const item = (itemId: string, parentItemId: string | null, content: object, references = {}) => ({
     id: itemId,
@@ -484,20 +501,23 @@ void test("placed records render the records they link, and nothing a hop furthe
     id: "authors",
     title: "Authors",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string(), employer: field.reference(customers) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const articles = createCollection({
     id: "articles",
     title: "Articles",
     description: "",
-    label: "title",
     content: (field) => ({ title: field.string(), coauthors: field.referenceList(authors) }),
+    toTitle: ({ content }) => content.title,
+    toDescription: () => undefined,
   });
   const author: ReferenceRecord = {
     id: "jane",
     collectionId: "authors",
-    label: "Jane",
+    title: "Jane",
+    description: null,
     content: { name: "Jane Doe", employer: id },
   };
   const block = createBlock({
@@ -506,15 +526,16 @@ void test("placed records render the records they link, and nothing a hop furthe
     description: "",
     content: (field) => ({ article: field.reference(articles) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="article">
         {(article) => (
           <article.ReferenceList name="coauthors">
-            {(coauthor) => <i>{"Reference" in coauthor ? "deeper" : coauthor.label}</i>}
+            {(coauthor) => <i>{"Reference" in coauthor ? "deeper" : coauthor.title}</i>}
           </article.ReferenceList>
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const html = renderToStaticMarkup(
     <StudioQueryClientProvider client={new QueryClient()}>
@@ -531,7 +552,8 @@ void test("placed records render the records they link, and nothing a hop furthe
                   article: {
                     id: "launch",
                     collectionId: "articles",
-                    label: "Launch",
+                    title: "Launch",
+                    description: null,
                     content: { title: "Launch", coauthors: ["jane"] },
                     references: { coauthors: [author] },
                   },

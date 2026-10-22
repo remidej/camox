@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import type { Collection } from "../createCollection";
 import type { LoadedRecord } from "../requestContext";
 
 export interface BlockEditingRuntime {
@@ -14,8 +15,8 @@ export interface BlockEditingRuntime {
 /** A record page's record, as `layout.Item` hands it to the editing runtime. */
 export interface LayoutItemProps {
   collectionId: string;
-  /** The collection's label field. */
-  labelField: string;
+  /** The record's collection, whose templates title and describe it. */
+  collection: Collection;
   /** The collection's field schemas. */
   properties: Record<string, unknown>;
   record: LoadedRecord;

@@ -373,7 +373,7 @@ export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
 
 type FileAsset = Pick<
   FileRow,
-  "blobId" | "path" | "url" | "mimeType" | "size" | "optimizedSize"
+  "blobId" | "path" | "url" | "mimeType" | "size" | "optimizedSize" | "width" | "height"
 > & {
   /** The uploaded file's name. */
   filename: string;
@@ -412,6 +412,8 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
     mimeType: asset.mimeType,
     size: asset.size,
     optimizedSize: asset.optimizedSize,
+    width: asset.width,
+    height: asset.height,
     ...columns,
     updatedAt: Math.max(Date.now(), oldFile.updatedAt + 1),
   });

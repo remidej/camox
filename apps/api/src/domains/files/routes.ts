@@ -8,6 +8,7 @@ import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import { authed, contentWrite, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
 import { accessTo } from "../drafts/access";
+import { imageDimensions } from "./image-dimensions";
 import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
 
@@ -183,6 +184,12 @@ const uploadContent: Handler<AppEnv> = async (c) => {
         c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
       );
       const optimized = yield* optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
+      // Image headers sit near the start of the file: a JPEG's frame follows its metadata.
+      const dimensions = isRasterImage(file.type)
+        ? imageDimensions(
+            new Uint8Array(yield* Effect.promise(() => file.slice(0, 512 * 1024).arrayBuffer())),
+          )
+        : null;
       const asset = {
         blobId: key,
         path: key,
@@ -191,6 +198,8 @@ const uploadContent: Handler<AppEnv> = async (c) => {
         mimeType: file.type,
         size: file.size,
         optimizedSize: optimized?.size ?? null,
+        width: dimensions?.width ?? null,
+        height: dimensions?.height ?? null,
       };
 
       const now = Date.now();

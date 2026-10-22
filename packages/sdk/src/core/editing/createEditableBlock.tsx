@@ -61,6 +61,8 @@ import { artifactData } from "../lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  resolveToStructuredData,
+  resolveToTitle,
   type ArtifactDataCheck,
   type ArtifactSource,
   type ContentFieldBuilder,
@@ -70,6 +72,8 @@ import {
   type ImageValue,
   type FileValue,
   type ToMarkdownBuilder,
+  type ToStructuredDataBuilder,
+  type ToTitleBuilder,
   type ItemSettingsBrand,
 } from "../lib/contentType.ts";
 import type { FieldType } from "../lib/fieldTypes.tsx";
@@ -92,6 +96,7 @@ import {
   type ReferenceRecord,
   type ReferenceScope,
 } from "../lib/reference";
+import type { BlockStructuredData } from "../structuredData";
 import type { LayoutItemProps } from "./BlockEditingRuntime";
 import { referenceWritesFor } from "./referenceWrites";
 import { useLatestRecord } from "./useLatestRecord";
@@ -145,10 +150,11 @@ const resolveLinkHref = (
  * createBlock
  * -----------------------------------------------------------------------------------------------*/
 
-interface CreateBlockOptions<
-  TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
-  TSettingsShape extends Record<string, TSchema> = Record<string, TSchema>,
-  TLayoutOnly extends boolean = false,
+interface BlockBaseOptions<
+  TSchemaShape extends Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema>,
+  TLayoutOnly extends boolean,
+  TNodes extends BlockStructuredData = BlockStructuredData,
 > {
   id: string;
   /**
@@ -171,7 +177,8 @@ interface CreateBlockOptions<
    *     content: (field) => ({ name: field.string({ default: "Item" }) }),
    *     minItems: 1,
    *     maxItems: 10,
-   *     toMarkdown: (c) => [c.name],
+   *     toTitle: ({ content }) => content.name,
+   *     toMarkdown: ({ content }) => [content.name],
    *   }),
    * })
    */
@@ -197,27 +204,76 @@ interface CreateBlockOptions<
   /** Share content and settings across all placements of this block definition. Defaults to false. */
   synced?: boolean;
   /**
-   * React component that renders the block.
-   * Must be defined as a separate function (not inline, not an arrow function).
-   * Should use the Field component returned by createBlock to render editable content.
-   */
-  component: React.ComponentType<{
-    content: Static<ReturnType<typeof TypeBoxType.Object<TSchemaShape>>>;
-  }>;
-  /**
    * Builder for rendering block content as markdown.
-   * `c` is a proxy typed on `content` keys — `c.title`, `c.description`, etc.
-   * `s` is a proxy typed on `settings` keys — call a boolean setting with a line
-   * (`s.showCta(c.cta)`) or an enum with a value (`s.variant("banner", [...])`)
-   * to wrap lines in a conditional. Each returned entry becomes a paragraph
-   * (joined with `\n\n`). Lines where all referenced fields resolve to empty
+   * `content` is a proxy typed on `content` keys — `content.title`, `content.description`, etc.
+   * `settings` is a proxy typed on `settings` keys — call a boolean setting with a line
+   * (`settings.showCta(content.cta)`) or an enum with a value
+   * (`settings.variant("banner", [...])`) to wrap lines in a conditional. Each returned entry
+   * becomes a paragraph (joined with `\n\n`). Lines where all referenced fields resolve to empty
    * (or whose condition is false) are omitted at render time.
    *
    * @example
-   * toMarkdown: (c, s) => [`# ${c.title}`, c.description, s.showCta(c.cta)]
+   * toMarkdown: ({ content, settings }) => [
+   *   `# ${content.title}`,
+   *   content.description,
+   *   settings.showCta(content.cta),
+   * ]
    */
   toMarkdown: ToMarkdownBuilder<TSchemaShape, TSettingsShape>;
+  /**
+   * Names the block in the studio and to agents until it has a Summary: one line from
+   * `{ content, settings }`, read like `toMarkdown`'s, on the default locale's content.
+   *
+   * @example
+   * toTitle: ({ content }) => content.title
+   */
+  toTitle: ToTitleBuilder<TSchemaShape, TSettingsShape>;
+  /**
+   * The things the block shows, as Structured Data nodes from `{ content, settings }`: one node,
+   * or a list. A repeater's token places its items' nodes. Camox links each node to the page,
+   * and each placement gets its own. Blocks never say what the page is, and can't describe an
+   * `Organization`: Camox emits the site's.
+   *
+   * @example
+   * toStructuredData: ({ content }) => ({
+   *   "@type": "VideoObject",
+   *   name: content.title,
+   *   embedUrl: content.video,
+   *   thumbnailUrl: content.thumbnail,
+   *   uploadDate: content.uploadDate,
+   * })
+   */
+  toStructuredData?: ToStructuredDataBuilder<TSchemaShape, TSettingsShape, TNodes>;
 }
+
+/** What a block's `toReact` receives as props: its content and settings. */
+export interface BlockContext<
+  TSchemaShape extends Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema>,
+> {
+  content: Static<ReturnType<typeof TypeBoxType.Object<TSchemaShape>>>;
+  settings: Static<ReturnType<typeof TypeBoxType.Object<TSettingsShape>>>;
+}
+
+/**
+ * The React component that renders the block. Should use the Field component returned by
+ * createBlock to render editable content.
+ */
+type BlockToReact<
+  TSchemaShape extends Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema>,
+> = {
+  /** Renders the block, with its content and settings as props. */
+  toReact: React.ComponentType<BlockContext<TSchemaShape, TSettingsShape>>;
+};
+
+type CreateBlockOptions<
+  TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
+  TSettingsShape extends Record<string, TSchema> = Record<string, TSchema>,
+  TLayoutOnly extends boolean = false,
+  TNodes extends BlockStructuredData = BlockStructuredData,
+> = BlockBaseOptions<TSchemaShape, TSettingsShape, TLayoutOnly, TNodes> &
+  BlockToReact<TSchemaShape, TSettingsShape>;
 
 interface BlockData<TContent> {
   _id: string;
@@ -248,6 +304,7 @@ export interface PeekItem {
   content: unknown;
   settings: Record<string, unknown> | null;
   summary: string;
+  title: string;
   position: string;
   createdAt: number;
   updatedAt: number;
@@ -383,6 +440,7 @@ function buildPeekItems(
         content: { ...itemContent },
         settings: itemSettingsDefaults ? { ...itemSettingsDefaults } : null,
         summary: "",
+        title: "",
         position,
         createdAt: 0,
         updatedAt: 0,
@@ -410,7 +468,8 @@ export function createEditableBlock<
   TSchemaShape extends Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema> = Record<string, never>,
   TLayoutOnly extends boolean = false,
->(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TLayoutOnly>) {
+  TNodes extends BlockStructuredData = BlockStructuredData,
+>(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TLayoutOnly, TNodes>) {
   const fields = resolveBlockFields<TSchemaShape, TSettingsShape>(options);
   // Build TypeBox schema for runtime validation and default value creation
   const typeboxSchema = TypeBoxType.Object(fields.content);
@@ -428,6 +487,20 @@ export function createEditableBlock<
       "block",
       fields.content,
     ),
+    toTitle: resolveToTitle<TSchemaShape, TSettingsShape>(
+      options.toTitle,
+      fields.settings,
+      "block",
+      fields.content,
+    ),
+    ...(options.toStructuredData && {
+      toStructuredData: resolveToStructuredData<TSchemaShape, TSettingsShape>(
+        options.toStructuredData,
+        fields.settings,
+        "block",
+        fields.content,
+      ),
+    }),
   };
 
   // Build settings schema (if provided)
@@ -498,6 +571,12 @@ export function createEditableBlock<
     TSettingsShape extends Record<string, never>
       ? Record<string, never>
       : Static<ReturnType<typeof TypeBoxType.Object<TSettingsShape>>>;
+
+  /** Renders the block, with its content and settings as props. */
+  const ToReact = options.toReact as React.ComponentType<{
+    content: TContent;
+    settings: TSettings;
+  }>;
 
   type BlockContextValue = {
     blockId: string;
@@ -2240,7 +2319,8 @@ export function createEditableBlock<
 
     // Normalize content: keep full item objects for internal use, but prepare content-only version for display
     // We need to keep blockData.content as-is because Repeater needs the full objects with _id
-    // But we also need to pass to options.component for the content prop (used in non-Repeater contexts)
+    // But we also need to pass to toReact for the content prop (used in non-Repeater contexts)
+    const blockSettings = { ...settingsDefaults, ...blockData.settings } as TSettings;
     const normalizedContent = React.useMemo(() => {
       const result = { ...blockData.content } as any;
 
@@ -2329,16 +2409,13 @@ export function createEditableBlock<
               }
               return { ...merged, ...overrides };
             })(),
-            settings: {
-              ...settingsDefaults,
-              ...blockData.settings,
-            } as TSettings,
+            settings: blockSettings,
             mode,
             isHovered,
             setIsHovered,
           }}
         >
-          <options.component content={normalizedContent} />
+          <ToReact content={normalizedContent} settings={blockSettings} />
         </Context.Provider>
       </div>
     );
@@ -2498,7 +2575,8 @@ export function createEditableBlock<
         >
           {children({
             id: record.id,
-            label: record.label,
+            title: record.title,
+            description: record.description,
             Field,
             Image: ReferenceImage,
             File: ReferenceFile,
@@ -2608,7 +2686,7 @@ export function createEditableBlock<
     <div
       data-camox-field-id={fieldId}
       data-camox-collection-record-id={record?.id}
-      data-camox-reference-label={record?.label}
+      data-camox-reference-label={record?.title}
       data-camox-overlay-mode="reference"
       {...overlay}
       {...placedRecord.wrapperProps}
@@ -2773,14 +2851,14 @@ export function createEditableBlock<
    */
   const LayoutItem = ({
     collectionId,
-    labelField,
+    collection,
     properties,
     record,
     children,
     fallback,
   }: LayoutItemProps) => {
     const editingOwner = React.use(PreviewEditingOwnerContext);
-    const latest = useLatestRecord({ collectionId, labelField, loaded: record });
+    const latest = useLatestRecord({ collectionId, collection, loaded: record });
     if (editingOwner?.kind !== "layout" || !latest) return fallback;
     return (
       <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>
@@ -3020,6 +3098,7 @@ export function createEditableBlock<
             settings: settingsDefaults,
             slot: null,
             summary: "",
+            title: "",
             position: "",
             createdAt: 0,
             updatedAt: 0,

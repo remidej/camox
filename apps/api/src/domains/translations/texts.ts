@@ -1,6 +1,7 @@
 import slugify from "slugify";
 
 import type { TranslationText } from "../../lib/ai-model";
+import { isObject } from "../../lib/is-object";
 import {
   isLexicalState,
   lexicalStateToMarkdown,
@@ -55,9 +56,6 @@ export type MergeUnit = {
   /** The texts a value of the unit holds; absent for a value copied as it is. */
   texts?: (value: unknown) => UnitTexts | undefined;
 };
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 
 const column = (name: string, format?: Format): MergeUnit => ({
   key: name,

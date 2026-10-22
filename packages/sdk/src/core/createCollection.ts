@@ -1,14 +1,22 @@
-import { SYSTEM_ORDER_KEYS, type SystemOrderKey } from "@camox/api-contract";
+import {
+  nonStringTemplateFields,
+  SYSTEM_ORDER_KEYS,
+  type SystemOrderKey,
+} from "@camox/api-contract";
 import { Type as TypeBox, type Static, type TObject, type TSchema } from "@sinclair/typebox";
 
 import type { LayoutCollectionItemResult, LayoutRoutesResult, RecordPages } from "./createLayout";
 import {
   collectionFieldBuilder,
   type CollectionFieldBuilder,
-  type StringField,
+  type RecordStructuredDataContext,
+  type RecordTemplateContext,
+  resolveRecordStructuredData,
+  resolveRecordTemplate,
 } from "./lib/contentType";
 import { notFound } from "./notFound";
 import { getRecordLookup, type LayoutRequestContext } from "./requestContext";
+import type { KnownPropertiesOnly, RecordNode } from "./structuredData";
 
 export type { CollectionFieldBuilder };
 
@@ -21,18 +29,32 @@ type TextKey<T extends Record<string, TSchema>> = {
 
 /**
  * A definition only: record authoring and querying are not public SDK APIs.
- * `label` is checked against `content`'s return type: typing it against `T` directly would fix
- * `T` before the `content` callback is inferred.
+ *
+ * `toTitle` and `toDescription` are templates of the record's String fields, such as
+ * `` ({ content }) => `${content.firstName} ${content.lastName}` ``. The API fills them with each
+ * record's plain text wherever records are named: studio lists and pickers, record pages,
+ * `llms.txt` and agents. `toDescription` may return nothing, and records then have no description.
  */
 export function createCollection<
   const T extends Record<string, TSchema> & ReservedFieldNames,
-  const L extends string,
+  Node extends RecordNode = RecordNode,
 >(options: {
   id: string;
   title: string;
   description: string;
-  content: (field: CollectionFieldBuilder) => T & Record<NoInfer<L>, StringField>;
-  label: L;
+  content: (field: CollectionFieldBuilder) => T;
+  toTitle: (context: RecordTemplateContext<NoInfer<T>>) => string;
+  toDescription: (context: RecordTemplateContext<NoInfer<T>>) => string | undefined;
+  /**
+   * Each record's Structured Data node, from tokens of its fields, such as
+   * `({ content }) => ({ "@type": "Person", jobTitle: content.role })`. Camox fills its name and
+   * description from the record's title and description, and gives it an `@id` per record and
+   * locale. Every page referencing the record links this one node, and on the record's own page
+   * it's the main entity unless the layout declares one. A reference links the record's node.
+   */
+  toStructuredData?: (
+    context: RecordStructuredDataContext<NoInfer<T>>,
+  ) => Node & KnownPropertiesOnly<Node, RecordNode>;
 }): Collection<T> {
   if (!options.id.trim()) throw new Error("Collection id is required");
   const content: T = options.content(collectionFieldBuilder);
@@ -60,8 +82,14 @@ export function createCollection<
       );
     }
   }
-  if (content[options.label]?.fieldType !== "String") {
-    throw new Error("Collection label must name a String field");
+  const toTitle = resolveRecordTemplate(options.toTitle, content);
+  if (toTitle === null) throw new Error(`Collection "${options.id}": toTitle returned nothing`);
+  const toDescription = resolveRecordTemplate(options.toDescription, content);
+  for (const template of [toTitle, toDescription]) {
+    // Templates read fields as plain text: a token of a reference's field names no field here.
+    const [name] = nonStringTemplateFields(template ?? "", content);
+    if (name !== undefined)
+      throw new Error(`Collection "${options.id}": "${name}" names no String field`);
   }
   const id = options.id;
   return {
@@ -91,10 +119,16 @@ export function createCollection<
             collectionId: id,
             data: {
               id: record.id,
+              ...(record.title !== undefined && { title: record.title }),
+              ...(record.description !== undefined && { description: record.description }),
               content: record.content as Static<TObject<T>>,
               ...(record.references && { references: record.references }),
               ...(record.updatedAt != null && { updatedAt: record.updatedAt }),
             },
+            ...(record.structuredData && { structuredData: record.structuredData }),
+            ...(record.firstPublishedAt !== undefined && {
+              published: { first: record.firstPublishedAt, last: record.publishedAt ?? null },
+            }),
           };
         },
         async routes({ context }) {
@@ -114,19 +148,23 @@ export function createCollection<
                 kind: "collection-item",
                 collectionId: id,
                 id: record.id,
-                label: record.label,
+                title: record.title,
               },
             })),
           };
         },
-        recordPages: { collectionId: id, field: by },
+        recordPages: { collectionId: id, field: by, param },
       };
     },
     _internal: {
       id,
       title: options.title,
       description: options.description,
-      label: options.label as string as TextKey<T>,
+      toTitle,
+      toDescription,
+      toStructuredData: options.toStructuredData
+        ? resolveRecordStructuredData(options.toStructuredData, content)
+        : null,
       contentSchema: TypeBox.Object(content, { additionalProperties: false }),
     },
   };
@@ -159,7 +197,12 @@ export type Collection<T extends Record<string, TSchema> = any> = {
     id: string;
     title: string;
     description: string;
-    label: TextKey<T>;
+    /** The token template titling each record, such as `{{firstName}} {{lastName}}`. */
+    toTitle: string;
+    /** The token template describing each record, or null when records have no description. */
+    toDescription: string | null;
+    /** The JSON template of each record's Structured Data node, or null when records have none. */
+    toStructuredData: Record<string, unknown> | null;
     contentSchema: TObject<T>;
   };
 };

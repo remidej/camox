@@ -12,8 +12,9 @@ function block(id: string, layoutOnly = false) {
     description: id,
     layoutOnly,
     content: (field: ContentFieldBuilder) => ({ title: field.string({ default: `${id} title` }) }),
-    component: () => null,
-    toMarkdown: (content: { title: string }) => [content.title],
+    toReact: () => null,
+    toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+    toTitle: () => "Block",
   });
 }
 
@@ -23,8 +24,9 @@ function curatedLayout(initial: (() => Promise<{ block: ReturnType<typeof block>
     title: "Default",
     description: "Default",
     blocks: { before: [], after: [], initial: initial as never },
-    component: ({ children }) => children,
-    buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+    toReact: ({ children }) => children,
+    toTitle: ({ page }) => page.title,
+    toDescription: ({ page }) => page.description,
   });
 }
 
@@ -65,8 +67,9 @@ void test("only one layout may define initial blocks", () => {
     title: "Second",
     description: "Second",
     blocks: { before: [], after: [], initial: [] },
-    component: ({ children }) => children,
-    buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+    toReact: ({ children }) => children,
+    toTitle: ({ page }) => page.title,
+    toDescription: ({ page }) => page.description,
   });
 
   assert.throws(

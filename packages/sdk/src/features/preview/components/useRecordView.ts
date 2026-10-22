@@ -246,7 +246,7 @@ export function useRecordView({
       ...referenceFieldCrumbs,
       {
         key: "record",
-        label: outerRecord.label,
+        label: outerRecord.title,
         isCurrent: !nested && !fieldHasOwnView,
         hoverTarget: outerTarget,
         onClick:
@@ -269,7 +269,7 @@ export function useRecordView({
       },
       {
         key: "nested-record",
-        label: recordView.record.label,
+        label: recordView.record.title,
         isCurrent: !fieldHasOwnView,
         hoverTarget: nestedTarget,
         onClick: fieldHasOwnView

@@ -10,8 +10,9 @@ function block(id: string): Block {
     title: id,
     description: id,
     content: (field: ContentFieldBuilder) => ({ title: field.string({ default: id }) }),
-    component: () => null,
-    toMarkdown: (content: { title: string }) => [content.title],
+    toReact: () => null,
+    toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+    toTitle: () => "Block",
   });
   return definition as unknown as Block;
 }

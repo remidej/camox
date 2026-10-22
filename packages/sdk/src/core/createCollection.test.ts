@@ -10,8 +10,14 @@ void describe("collection definitions", () => {
     id: "articles",
     title: "Articles",
     description: "Editorial",
-    content: (field) => ({ title: field.string({ minLength: 1 }), cover: field.image() }),
-    label: "title",
+    content: (field) => ({
+      title: field.string({ minLength: 1 }),
+      kicker: field.string(),
+      excerpt: field.string(),
+      cover: field.image(),
+    }),
+    toTitle: ({ content }) => `${content.kicker}: ${content.title}`,
+    toDescription: ({ content }) => content.excerpt,
   });
   void it("registers and serializes definitions without runtime functions", async () => {
     const app = createApp({ blocks: [], collections: [collection] });
@@ -19,13 +25,60 @@ void describe("collection definitions", () => {
     assert.equal(app.getCollectionById("articles"), collection);
     const [serialized] = JSON.parse(JSON.stringify((await app.getDefinitionSet()).collections));
     assert.equal(serialized.collectionId, "articles");
-    assert.equal(serialized.label, "title");
-    assert.deepEqual(serialized.contentSchema.required, ["title", "cover"]);
+    assert.equal(serialized.toTitle, "{{kicker}}: {{title}}");
+    assert.equal(serialized.toDescription, "{{excerpt}}");
+    assert.deepEqual(serialized.contentSchema.required, ["title", "kicker", "excerpt", "cover"]);
     assert.equal(serialized.contentSchema.additionalProperties, false);
     assert.equal("default" in serialized.contentSchema.properties.title, false);
     assert.deepEqual(Object.keys(collection), ["pages", "_internal"]);
   });
-  void it("rejects duplicate registration and invalid JavaScript labels", () => {
+  void it("syncs each record's Structured Data template, references as tokens", async () => {
+    const authors = createCollection({
+      id: "authors",
+      title: "Authors",
+      description: "",
+      content: (field) => ({ name: field.string(), portrait: field.image() }),
+      toTitle: ({ content }) => content.name,
+      toDescription: () => undefined,
+    });
+    const books = createCollection({
+      id: "books",
+      title: "Books",
+      description: "",
+      content: (field) => ({ title: field.string(), author: field.reference(authors) }),
+      toTitle: ({ content }) => content.title,
+      toDescription: () => undefined,
+      toStructuredData: ({ content }) => ({
+        "@type": "Book",
+        author: content.author,
+        image: content.author.portrait,
+      }),
+    });
+    const app = createApp({ blocks: [], collections: [authors, books] });
+    const [synced, other] = JSON.parse(
+      JSON.stringify((await app.getDefinitionSet()).collections),
+    ).toSorted((a: { collectionId: string }) => (a.collectionId === "books" ? -1 : 1));
+    assert.deepEqual(synced.toStructuredData, {
+      "@type": "Book",
+      author: "{{author}}",
+      image: "{{author.portrait}}",
+    });
+    assert.equal("toStructuredData" in other, false);
+  });
+  void it("serializes a description that returns nothing as no description", async () => {
+    const undescribed = createCollection({
+      id: "tags",
+      title: "Tags",
+      description: "",
+      content: (field) => ({ name: field.string() }),
+      toTitle: ({ content }) => content.name,
+      toDescription: () => undefined,
+    });
+    const app = createApp({ blocks: [], collections: [undescribed] });
+    const [serialized] = (await app.getDefinitionSet()).collections;
+    assert.equal(serialized!.toDescription, null);
+  });
+  void it("rejects duplicate registration and templates naming no String field", () => {
     assert.throws(
       () => createApp({ blocks: [], collections: [collection, collection] }),
       /Duplicate collection/,
@@ -36,9 +89,10 @@ void describe("collection definitions", () => {
           id: "bad",
           title: "",
           description: "",
-          // @ts-expect-error Runtime protection for JavaScript callers.
           content: (field) => ({ cover: field.image() }),
-          label: "cover",
+          // @ts-expect-error Runtime protection for JavaScript callers.
+          toTitle: ({ content }) => content.cover,
+          toDescription: () => undefined,
         }),
       /String field/,
     );
@@ -53,7 +107,8 @@ void describe("collection definitions", () => {
         author: field.reference(collection, { title: "Author" }),
         related: field.referenceList(collection, { maxItems: 3 }),
       }),
-      label: "title",
+      toTitle: ({ content }) => content.title,
+      toDescription: () => undefined,
     });
     const { author, related } = authored._internal.contentSchema.properties;
     assert.equal(author.fieldType, "Reference");
@@ -69,7 +124,8 @@ void describe("collection definitions", () => {
         content: (field) => ({ text: field.string({ default: "" }) }),
         minItems: 1,
         maxItems: 2,
-        toMarkdown: (c) => [c.text],
+        toMarkdown: ({ content }) => [content.text],
+        toTitle: () => "Item",
       }),
       { ...contentFieldBuilder.string({ default: "lucide:check" }), fieldType: "Icon" },
     ]) {
@@ -83,7 +139,8 @@ void describe("collection definitions", () => {
               title: field.string({ default: "" }),
               unsupported,
             }),
-            label: "title",
+            toTitle: ({ content }) => content.title,
+            toDescription: () => undefined,
           }),
         /storage is not supported/,
       );

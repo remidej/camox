@@ -38,7 +38,8 @@ const navbar = createBlock({
       minItems: 1,
       maxItems: 6,
       title: "Links",
-      toMarkdown: (c) => [c.link],
+      toTitle: ({ content }) => content.link,
+      toMarkdown: ({ content }) => [content.link],
     }),
     cta: field.link({
       default: { text: "Get Started", href: "#", newTab: false },
@@ -51,8 +52,9 @@ const navbar = createBlock({
       title: "Floating on scroll",
     }),
   }),
-  component: NavbarComponent,
-  toMarkdown: (c) => [c.title, c.links, c.cta],
+  toReact: NavbarComponent,
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [content.title, content.links, content.cta],
 });
 
 function NavbarContent() {

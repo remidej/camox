@@ -100,16 +100,18 @@ void test("SSR prefetch resolves selected IDs, not the catalog, and survives hyd
           content: () => ({ icon }),
           minItems: 1,
           maxItems: 2,
-          toMarkdown: (c) => [c.icon],
+          toMarkdown: ({ content }) => [content.icon],
+          toTitle: () => "Item",
         }),
       }),
-      toMarkdown: (c) => [c.icon],
-      component: () => (
+      toMarkdown: ({ content }) => [content.icon],
+      toReact: () => (
         <>
           <block.Icon name="icon" />
           <block.Repeater name="items">{(item) => <item.Icon name="icon" />}</block.Repeater>
         </>
       ),
+      toTitle: () => "Icons",
     });
     const blockHtml = renderToString(
       <QueryClientProvider client={hydrated}>

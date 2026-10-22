@@ -135,7 +135,7 @@ export function usePageRecordPlacer(): LayoutRecordPlacer | null {
   const collectionId = loaded?.collectionId ?? "";
   const record = useLatestRecord({
     collectionId,
-    labelField: collection?._internal.label ?? "",
+    collection,
     loaded: collection ? loaded?.data : undefined,
   });
   return React.useMemo(() => (record ? { collectionId, record } : null), [collectionId, record]);

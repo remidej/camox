@@ -203,6 +203,8 @@ export const reads = {
           layout: page.layout,
           projectName: page.projectName,
           project: page.project,
+          structuredData: page.structuredData,
+          recordStructuredData: page.recordStructuredData,
         };
       },
     },

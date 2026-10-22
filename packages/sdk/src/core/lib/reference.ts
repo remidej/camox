@@ -44,7 +44,10 @@ type LinkedRecords<T extends Record<string, TSchema>> = {
 
 type RecordFields<T extends Record<string, TSchema>> = {
   id: string;
-  label: string;
+  /** The record's title, from its collection's `toTitle`. */
+  title: string;
+  /** The record's description, from its collection's `toDescription`, or null for none. */
+  description: string | null;
   Field: (
     props: InlineTextStyles & {
       name: TextKeys<T>;
@@ -83,7 +86,8 @@ export type ReferenceContent<T extends TSchema> =
 export type ReferenceRecord = {
   id: string;
   collectionId: string;
-  label: string;
+  title: string;
+  description: string | null;
   content: Record<string, unknown>;
   /** When its content last changed, for a record page's record. */
   updatedAt?: number;

@@ -24,6 +24,7 @@ const { id, ...articleDefinition } = articles._internal;
 const serialized = JSON.parse(JSON.stringify({ ...articleDefinition, collectionId: id }));
 // Without the playground's slug pattern, editors can store any value, as in a real project.
 delete serialized.contentSchema.properties.slug.pattern;
+serialized.toStructuredData = { "@type": "BlogPosting", author: "{{author}}" };
 const definition = collectionDefinitionInput.parse(serialized);
 const { id: authorsId, ...authorDefinition } = authors._internal;
 const serializedAuthors = JSON.parse(
@@ -37,6 +38,7 @@ serializedAuthors.contentSchema.properties.featured = {
   default: null,
 };
 serializedAuthors.contentSchema.required.push("featured");
+serializedAuthors.toStructuredData = { "@type": "Person", subjectOf: "{{featured}}" };
 const authorsDefinition = collectionDefinitionInput.parse(serializedAuthors);
 const article = { title: "Hello", slug: "hello", excerpt: "", body: "", cover: null, author: null };
 const author = { name: "Ada", bio: "Writes about content.", portrait: null, featured: null };
@@ -78,9 +80,14 @@ describe("finding the records a record page renders", () => {
     const expected = [
       {
         id: record.id,
+        title: "Edited title",
+        description: null,
         content: { ...article, title: "Edited title", slug: "new-slug" },
         updatedAt: edited.updatedAt,
         references: { author: null },
+        structuredData: expect.objectContaining({ node: expect.anything() }),
+        firstPublishedAt: expect.any(Number),
+        publishedAt: expect.any(Number),
       },
     ];
     expect(await f.find("new-slug")).toEqual(expected);
@@ -98,11 +105,50 @@ describe("finding the records a record page renders", () => {
     expect(found.references.author).toMatchObject({
       id: ada.id,
       collectionId: "authors",
-      label: "Ada",
+      title: "Ada",
+      description: "Writes about content.",
       content: { ...author, featured: other.id },
     });
     // The author is the second hop: its own reference stays an unresolved id.
     expect(found.references.author).not.toHaveProperty("references");
+  });
+
+  it("describes the record and the records it links as Structured Data, with its publish times", async () => {
+    const f = await fixture("structured-data");
+    const other = await f.create({ title: "Other", slug: "other" });
+    const ada = await f.createAuthor({ featured: other.id });
+    const record = await f.create({ author: ada.id });
+    const [published] = await f.find("hello");
+    await f.edit(record, { title: "Hello again", author: ada.id });
+
+    const [found] = await f.find("hello");
+
+    expect(found.structuredData).toEqual({
+      node: {
+        "@type": "BlogPosting",
+        "@id": `camox:record:${record.id}`,
+        headline: "Hello again",
+        author: { "@id": `camox:record:${ada.id}` },
+      },
+      records: {
+        nodes: {
+          [ada.id]: {
+            "@type": "Person",
+            "@id": `camox:record:${ada.id}`,
+            name: "Ada",
+            description: "Writes about content.",
+            // The author's own links resolve too, as on pages placing the record.
+            subjectOf: { "@id": `camox:record:${other.id}` },
+          },
+          [other.id]: expect.objectContaining({ headline: "Other" }),
+        },
+        referenced: [ada.id],
+      },
+    });
+    expect(found.references.author).not.toHaveProperty("references");
+    expect(found.firstPublishedAt).toBe(published.firstPublishedAt);
+    expect(found.publishedAt).toBeGreaterThanOrEqual(published.publishedAt!);
+    expect(published.firstPublishedAt).toEqual(expect.any(Number));
   });
 
   it("compares the plain text of values stored as rich text", async () => {
@@ -164,12 +210,12 @@ describe("listing the records that can have a page", () => {
     const rich = await f.create({ slug: plainTextToLexicalState("rich-slug") });
 
     expect((await f.list()).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
-      { id: record.id, value: "new-slug", label: "Hello" },
-      { id: rich.id, value: "rich-slug", label: "Hello" },
+      { id: record.id, value: "new-slug", title: "Hello", description: null },
+      { id: rich.id, value: "rich-slug", title: "Hello", description: null },
     ]);
   });
 
-  it("names each record by its Label, as Live reads it for visitors", async () => {
+  it("names each record by its title, as Live reads it for visitors", async () => {
     const f = await fixture("list-label");
     const record = await f.create({ title: "Live title", slug: "labelled" });
     const devCtx = { ...f.ctx, draft: { development: true as const } };
@@ -187,9 +233,11 @@ describe("listing the records that can have a page", () => {
       }),
     );
 
-    expect(await f.list()).toEqual([{ id: record.id, value: "labelled", label: "Live title" }]);
+    expect(await f.list()).toEqual([
+      { id: record.id, value: "labelled", title: "Live title", description: null },
+    ]);
     expect(await f.list(devCtx)).toEqual([
-      { id: record.id, value: "labelled", label: "Drafted title" },
+      { id: record.id, value: "labelled", title: "Drafted title", description: null },
     ]);
   });
 
@@ -224,10 +272,12 @@ describe("listing the records that can have a page", () => {
       createRecord(devCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
     );
     expect((await f.list(devCtx)).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
-      { id: drafted.id, value: "drafted", label: "Hello" },
-      { id: live.id, value: "hello", label: "Hello" },
+      { id: drafted.id, value: "drafted", title: "Hello", description: null },
+      { id: live.id, value: "hello", title: "Hello", description: null },
     ]);
-    expect(await f.list()).toEqual([{ id: live.id, value: "hello", label: "Hello" }]);
+    expect(await f.list()).toEqual([
+      { id: live.id, value: "hello", title: "Hello", description: null },
+    ]);
     const other = await fixture("list-isolation-other");
     expect(await other.list()).toEqual([]);
   });

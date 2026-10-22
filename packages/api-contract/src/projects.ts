@@ -65,3 +65,21 @@ export type ProjectStatus = "settingUp" | "live" | "setupFailed";
 export type ProjectSetupStep = "copyTemplate" | "build" | "serve";
 
 export const PROJECT_SETUP_STEPS: readonly ProjectSetupStep[] = ["copyTemplate", "build", "serve"];
+
+/**
+ * A social profile's address: an absolute `https` URL. Shared so the studio checks a profile by
+ * the API's own rule before saving it.
+ */
+export const socialProfileUrlSchema = /* @__PURE__ */ z
+  .string()
+  .max(2048, "Use a shorter URL")
+  .refine(isHttpsUrl, "Enter a URL starting with https://");
+
+function isHttpsUrl(value: string) {
+  if (!value.startsWith("https://")) return false;
+  try {
+    return new URL(value).hostname !== "";
+  } catch {
+    return false;
+  }
+}

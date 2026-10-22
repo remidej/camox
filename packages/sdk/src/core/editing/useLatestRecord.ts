@@ -3,8 +3,9 @@ import * as React from "react";
 import { useProjectUuid } from "@/lib/auth";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
+import type { Collection } from "../createCollection";
 import { latestContent, type ReferenceRecord } from "../lib/reference";
-import { fieldPlainText } from "../recordItem";
+import { recordText } from "../recordItem";
 import type { LoadedRecord } from "../requestContext";
 
 /**
@@ -13,12 +14,12 @@ import type { LoadedRecord } from "../requestContext";
  */
 export function useLatestRecord({
   collectionId,
-  labelField,
+  collection,
   loaded,
 }: {
   collectionId: string;
-  /** The collection's label field. */
-  labelField: string;
+  /** The record's collection, whose templates title and describe the record as edited. */
+  collection: Collection | undefined;
   loaded: LoadedRecord | undefined;
 }): ReferenceRecord | undefined {
   const projectUuid = useProjectUuid();
@@ -35,10 +36,10 @@ export function useLatestRecord({
     return {
       id: loaded.id,
       collectionId,
-      label: fieldPlainText(content[labelField]),
+      ...recordText(collection, content),
       content,
       references: loaded.references,
       updatedAt,
     };
-  }, [collectionId, labelField, loaded, saved]);
+  }, [collection, collectionId, loaded, saved]);
 }

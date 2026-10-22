@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `social_profiles` text DEFAULT '[]' NOT NULL;

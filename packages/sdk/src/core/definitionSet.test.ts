@@ -13,16 +13,18 @@ function block(id: string, layoutOnly = false): Block {
     description: `${id} description`,
     layoutOnly,
     content: (field: ContentFieldBuilder) => ({ title: field.string({ default: `${id} text` }) }),
-    component: () => null,
-    toMarkdown: (content: { title: string }) => [content.title],
+    toReact: () => null,
+    toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+    toTitle: () => "Block",
   }) as unknown as Block;
 }
 
 const layoutOptions = {
   title: "Layout",
   description: "A layout",
-  component: ({ children }: { children: unknown }) => children as never,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: ({ children }: { children: unknown }) => children as never,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 function curated(
@@ -42,8 +44,9 @@ function singleton() {
     description: "A code-owned page",
     kind: "singleton",
     blocks: { before: [], after: [] },
-    component: () => null,
-    buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+    toReact: () => null,
+    toTitle: ({ page }: { page: { title: string } }) => page.title,
+    toDescription: ({ page }) => page.description,
   });
 }
 
@@ -91,7 +94,8 @@ void test("layouts carry their declared blocks and collections their schemas", a
     title: "Articles",
     description: "Editorial",
     content: (field) => ({ title: field.string({ minLength: 1 }) }),
-    label: "title",
+    toTitle: ({ content }) => content.title,
+    toDescription: () => undefined,
   });
   const app = createApp({
     blocks: [navbar],
@@ -116,8 +120,12 @@ void test("layouts carry their declared blocks and collections their schemas", a
     ],
   );
   assert.deepEqual(
-    set.collections.map(({ collectionId, label }) => ({ collectionId, label })),
-    [{ collectionId: "articles", label: "title" }],
+    set.collections.map(({ collectionId, toTitle, toDescription }) => ({
+      collectionId,
+      toTitle,
+      toDescription,
+    })),
+    [{ collectionId: "articles", toTitle: "{{title}}", toDescription: null }],
   );
   assert.deepEqual(set.collections[0].contentSchema.required, ["title"]);
 });
@@ -150,6 +158,64 @@ void test("without initial blocks, the homepage is empty on the first curated la
   const { homepage } = await app.getDefinitionSet();
 
   assert.deepEqual(homepage, { layoutId: "first", blocks: [], hasInitialBlocks: false });
+});
+
+void test("block and item Structured Data sync what settings show as conditions the API evaluates", async () => {
+  const promo = createBlock({
+    id: "promo",
+    title: "Promo",
+    description: "A product",
+    content: (field: ContentFieldBuilder) => ({
+      name: field.string({ default: "Laptop" }),
+      items: field.repeater({
+        content: (item) => ({ question: item.string({ default: "Why?" }) }),
+        settings: (setting) => ({ answered: setting.boolean({ default: true }) }),
+        minItems: 1,
+        maxItems: 3,
+        toMarkdown: () => [],
+        toTitle: () => "Item",
+        toStructuredData: ({ content, settings }) => ({
+          "@type": "Question",
+          name: content.question,
+          acceptedAnswer: settings.answered({ "@type": "Answer", text: "Yes" }),
+        }),
+      }),
+    }),
+    settings: (setting) => ({
+      featured: setting.boolean({ default: false }),
+      tone: setting.enum({ default: "quiet", options: { quiet: "Quiet", loud: "Loud" } }),
+    }),
+    toReact: () => null,
+    toMarkdown: () => [],
+    toTitle: () => "Promo",
+    toStructuredData: ({ content, settings }) => [
+      {
+        "@type": "Product",
+        name: content.name,
+        description: settings.tone("loud", content.name),
+        offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+      },
+      settings.featured(content.items),
+    ],
+  }) as unknown as Block;
+
+  const set = await createApp({ blocks: [promo] }).getDefinitionSet();
+
+  const schema = set.blocks[0]!.contentSchema as Record<string, any>;
+  assert.deepEqual(schema.toStructuredData, [
+    {
+      "@type": "Product",
+      name: "{{name}}",
+      description: { "@camox": "if", setting: "settings.tone", equals: "loud", show: "{{name}}" },
+      offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+    },
+    { "@camox": "if", setting: "settings.featured", show: "{{items}}" },
+  ]);
+  assert.deepEqual(schema.properties.items.toStructuredData.acceptedAnswer, {
+    "@camox": "if",
+    setting: "itemSettings.answered",
+    show: { "@type": "Answer", text: "Yes" },
+  });
 });
 
 void test("without a curated layout, the Definition Set declares no homepage", async () => {

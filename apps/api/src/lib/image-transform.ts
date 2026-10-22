@@ -57,3 +57,21 @@ export function transformImageUrl(
 
   return `${parsed.origin}/cdn-cgi/image/${parts.join(",")}${parsed.pathname}${parsed.search}`;
 }
+
+/**
+ * An image as `transformImageUrl` serves it by default: its URL, and its dimensions once scaled
+ * down to the transform's width. Dimensions are left out when the image's aren't known.
+ */
+export function transformedImage(image: {
+  url: string;
+  mimeType?: string;
+  size?: number | null;
+  width?: number | null;
+  height?: number | null;
+}): { url: string; width?: number; height?: number } {
+  const url = transformImageUrl(image.url, { mimeType: image.mimeType, size: image.size });
+  const { width, height } = image;
+  if (!width || !height) return { url };
+  const scale = url === image.url ? 1 : Math.min(1, DEFAULT_WIDTH / width);
+  return { url, width: Math.round(width * scale), height: Math.round(height * scale) };
+}

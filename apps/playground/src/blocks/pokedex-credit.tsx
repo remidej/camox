@@ -17,8 +17,9 @@ const pokedexCredit = createBlock({
       default: { text: "Data from PokéAPI ↗", href: "https://pokeapi.co/", newTab: true },
     }),
   }),
-  component: PokedexCreditComponent,
-  toMarkdown: (c) => [c.note, c.source],
+  toReact: PokedexCreditComponent,
+  toTitle: ({ content }) => content.note,
+  toMarkdown: ({ content }) => [content.note, content.source],
 });
 
 function PokedexCreditComponent() {

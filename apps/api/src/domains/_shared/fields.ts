@@ -1,6 +1,7 @@
 import { QUERY_LIMIT_CAP } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 
+import { isObject } from "../../lib/is-object";
 import { pageTextLinkIds } from "../../lib/lexical-state";
 
 /**
@@ -81,10 +82,6 @@ export type Field = FieldBase &
       }
     | { kind: "Unknown" }
   );
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function stringsOf(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -182,6 +179,19 @@ export function markdownOf(
   const lines = stringsOf(schema.toMarkdown);
   if (!lines) return undefined;
   return { lines, properties: schema.properties };
+}
+
+/**
+ * The title template a block's content schema, or a repeater's schema for its items, declares:
+ * one line of tokens. Undefined when it declares none.
+ */
+export function titleTemplateOf(schema: unknown): string | undefined {
+  return isObject(schema) && typeof schema.toTitle === "string" ? schema.toTitle : undefined;
+}
+
+/** The Structured Data template of a block's content schema or a repeater's, if it has one. */
+export function structuredDataTemplateOf(schema: unknown): unknown {
+  return isObject(schema) ? schema.toStructuredData : undefined;
 }
 
 /** The field schemas of a content schema, by name, as Markdown templates name them. */
@@ -349,8 +359,11 @@ export function collectFileIds(value: unknown, into: Set<string>) {
   }
 }
 
-/** The content and settings schemas a repeatable item is read by, from its repeater. */
-export type ItemSchemas = { content: unknown; settings: unknown };
+/**
+ * The content and settings schemas a repeatable item is read by, from its repeater, and the
+ * repeater's title template for its items.
+ */
+export type ItemSchemas = { content: unknown; settings: unknown; title: string | undefined };
 
 /**
  * Each repeatable item's schemas, found by walking its repeater path from its block's content
@@ -374,7 +387,11 @@ export function itemSchemas(
     const field = fieldsOf(container).find((f) => f.name === item.fieldName);
     const schemas =
       field?.kind === "Repeater"
-        ? { content: field.itemContentSchema, settings: field.itemSettingsSchema }
+        ? {
+            content: field.itemContentSchema,
+            settings: field.itemSettingsSchema,
+            title: titleTemplateOf(field.schema),
+          }
         : null;
     found.set(item.id, schemas);
     return schemas;

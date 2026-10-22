@@ -4,6 +4,7 @@ import { Validator, type OutputUnit, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
 
 import { InvalidInputError } from "../../lib/errors";
+import { isObject } from "../../lib/is-object";
 import { assetShape } from "../_shared/fields";
 import { projectAssetValue } from "./asset-value";
 
@@ -38,10 +39,6 @@ const assetSchema: Schema = {
     },
   ],
 };
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function isSingleAsset(schema: ContentSchema): boolean {
   return assetShape(schema.fieldType) === "single";

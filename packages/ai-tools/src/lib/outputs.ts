@@ -31,7 +31,8 @@ const versionedColumns = {
 const resolvedReferenceSchema = z.strictObject({
   id: z.string(),
   collectionId: z.string(),
-  label: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
   content: authoredContentSchema,
   contentSchema: z.unknown(),
   get references() {
@@ -72,7 +73,10 @@ export const pageRowSchema = z.strictObject({
 /** A page with whether its SEO is generated. */
 export const pageSchema = pageRowSchema.extend({ aiSeo: z.boolean() });
 
-/** A block as readers see it: its shared content if it's a synced placement, and its summary. */
+/**
+ * A block as readers see it: its shared content if it's a synced placement, its summary, and its
+ * title, which names it until it has a summary.
+ */
 export const blockSchema = z.strictObject({
   ...versionedColumns,
   projectId: z.number(),
@@ -85,6 +89,7 @@ export const blockSchema = z.strictObject({
   slot: z.enum(["before", "after"]).nullable(),
   position: z.string(),
   summary: z.string(),
+  title: z.string(),
 });
 
 /** A block a tool wrote, with what its content may be missing. */
@@ -104,6 +109,7 @@ const repeatableItemSchema = z.strictObject({
   parentItemId: z.string().nullable(),
   fieldName: z.string(),
   summary: z.string(),
+  title: z.string(),
 });
 
 const blockWithReferencesSchema = blockSchema.extend({ references: resolvedReferencesSchema });
@@ -123,6 +129,8 @@ export const fileSchema = z.strictObject({
   mimeType: z.string(),
   size: z.number(),
   optimizedSize: z.number().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
   blobId: z.string(),
   path: z.string(),
   aiMetadata: z.boolean(),
@@ -147,6 +155,7 @@ export const layoutBundleSchema = z.strictObject({
         .strictObject({ projectApiKey: z.string(), region: posthogRegionSchema })
         .nullable(),
     }),
+    socialProfiles: z.array(z.string()),
   }),
   layout: z.strictObject({
     layoutId: z.string(),
@@ -158,6 +167,13 @@ export const layoutBundleSchema = z.strictObject({
   blocks: z.array(blockWithReferencesSchema),
   repeatableItems: z.array(repeatableItemWithReferencesSchema),
   files: z.array(fileSchema),
+  /** Each block's Structured Data nodes, by block id. */
+  structuredData: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),
+  /** The nodes of the records the blocks reference, by record id. */
+  recordStructuredData: z.strictObject({
+    nodes: z.record(z.string(), z.record(z.string(), z.unknown())),
+    referenced: z.array(z.string()),
+  }),
 });
 
 export const layoutSchema = z.strictObject({

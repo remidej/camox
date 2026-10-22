@@ -292,6 +292,6 @@ describe("A collection write naming the project by its Project ID", () => {
 
     expect(edited.content).toEqual({ title: "Second, edited" });
     const records = await call(router.collectionDefinitions.listRecords, scope, inDraft);
-    expect(records.map(({ label }) => label)).toEqual(["Second, edited"]);
+    expect(records.map(({ title }) => title)).toEqual(["Second, edited"]);
   });
 });

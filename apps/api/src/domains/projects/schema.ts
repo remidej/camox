@@ -30,6 +30,11 @@ export const projects = sqliteTable(
     /** The project's PostHog project API key, set together with its region: a Project Setting. */
     posthogProjectApiKey: text("posthog_project_api_key"),
     posthogRegion: text("posthog_region").$type<PosthogRegion>(),
+    /** The project's social profile URLs, in order: a Project Setting, outside drafts. */
+    socialProfiles: text("social_profiles", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

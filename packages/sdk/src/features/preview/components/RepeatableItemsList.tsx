@@ -25,6 +25,7 @@ import { repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import { useEditingFrame } from "../editingFrame";
+import { entityName } from "../entityName";
 import { PreviewEditingOwnerContext, usePreviewTargetSelection } from "../previewSelection";
 import { previewStore, selectionItemId } from "../previewStore";
 import { useRepeatableItemActions, type RepeatableArraySchema } from "./useRepeatableItemActions";
@@ -36,6 +37,7 @@ import { useRepeatableItemActions, type RepeatableArraySchema } from "./useRepea
 type RepeatableItem = {
   id: string;
   summary: string;
+  title: string;
   position: string;
   content: Record<string, unknown>;
 };
@@ -105,7 +107,7 @@ const SortableRepeatableItem = ({
         <div className="flex flex-1 items-center gap-1 overflow-x-hidden">
           <p
             className="flex-1 cursor-default truncate py-1 text-sm"
-            title={item.summary}
+            title={entityName(item, `${fieldName} (${item.id})`)}
             onClick={() => {
               if (owner === null) return;
               // Clear hover overlay before unmounting — mouseLeave won't fire
@@ -118,7 +120,7 @@ const SortableRepeatableItem = ({
               });
             }}
           >
-            {item.summary || `${fieldName} (${item.id})`}
+            {entityName(item, `${fieldName} (${item.id})`)}
           </p>
         </div>
 

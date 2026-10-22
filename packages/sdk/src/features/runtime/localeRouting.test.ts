@@ -22,7 +22,12 @@ const PAGES: Record<string, Record<string, string>> = {
   fr: { "/prix": "Prix" },
 };
 
-const buildMetaTitle = ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle;
+/** The `toTitle`, `toDescription` and `toStructuredData` a layout gets by default. */
+const meta = {
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description?: string } }) => page.description,
+  toStructuredData: () => undefined,
+};
 const app = {
   getLayouts: () => [
     {
@@ -30,7 +35,7 @@ const app = {
         id: "pokedex",
         kind: "singleton",
         title: "Pokédex",
-        buildMetaTitle,
+        ...meta,
         loader: async () => ({ kind: "data", data: { count: 12 } }),
       },
     },
@@ -39,7 +44,7 @@ const app = {
         id: "forecast",
         kind: "singleton",
         title: "Forecast",
-        buildMetaTitle,
+        ...meta,
         // Data from outside Camox, which a loader fetches in the page's locale if it can.
         loader: async ({ locale }: { locale: string }) => ({
           kind: "data",
@@ -52,7 +57,7 @@ const app = {
         id: "pokemon.$name",
         kind: "derived",
         title: "Pokemon",
-        buildMetaTitle,
+        ...meta,
         loader: async ({ params }: { params: { name: string } }) => ({
           kind: "data",
           data: { name: params.name },

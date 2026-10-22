@@ -1,3 +1,5 @@
+import type { EvaluatedNode, RecordStructuredData } from "@camox/api-contract";
+
 import type { ReferenceRecord } from "./lib/reference";
 
 declare const requestContextBrand: unique symbol;
@@ -19,11 +21,29 @@ export interface CollectionRecordId {
 /** A collection record as a record page loads it. */
 export interface LoadedRecord<Content = Record<string, unknown>> {
   id: string;
+  /** Its title, as the API evaluates its collection's `toTitle`. */
+  title?: string;
+  /** Its description, as the API evaluates its collection's `toDescription`: null for none. */
+  description?: string | null;
   content: Content;
   /** The records it links, resolved by Camox with the record as the first hop. */
   references?: ReferenceRecord["references"];
   /** When its content last changed. */
   updatedAt?: number;
+  /** When it was first and last published to Live. Absent from older APIs. */
+  firstPublishedAt?: number | null;
+  publishedAt?: number | null;
+  /** Its Structured Data, as the API evaluates it. Absent from older APIs. */
+  structuredData?: RecordPageStructuredData;
+}
+
+/**
+ * A record page's record as Structured Data: its node, when its collection has a template, and
+ * the nodes of the records it references and of those they link.
+ */
+export interface RecordPageStructuredData {
+  node?: EvaluatedNode;
+  records: RecordStructuredData;
 }
 
 /** Reads records, scoped to the project and the draft the request reads. */
@@ -36,12 +56,12 @@ export interface RecordLookup {
   }): Promise<LoadedRecord[]>;
   /**
    * Every record whose String field's plain text can be a path segment, with that text and the
-   * record's Label. Records sharing a value are all listed.
+   * record's title. Records sharing a value are all listed.
    */
   listPageValues(input: {
     collectionId: string;
     field: string;
-  }): Promise<Array<{ id: string; value: string; label: string }>>;
+  }): Promise<Array<{ id: string; value: string; title: string }>>;
 }
 
 interface RequestContextState {

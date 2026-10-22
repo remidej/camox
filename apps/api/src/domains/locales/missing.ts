@@ -31,7 +31,7 @@ export const addBackToLocaleInput = z.object({
 /** A page missing from a locale, as the default locale shows it. */
 export type MissingPage = { id: string; fullPath: string; nickname: string };
 /** A record missing from a locale, as the default locale shows it. */
-export type MissingRecord = { id: string; collectionId: string; label: string };
+export type MissingRecord = { id: string; collectionId: string; title: string };
 
 /** The scope's exclusions of the kinds a member adds back. */
 const exclusionsIn = (ctx: ServiceContext, scope: ReadScope, projectId: number) =>
@@ -47,7 +47,7 @@ const exclusionsIn = (ctx: ServiceContext, scope: ReadScope, projectId: number) 
 
 /**
  * The pages and records deleted from the locale the request reads, as the default locale shows
- * them: pages by path, records by collection and label. A page deleted from the locale beneath
+ * them: pages by path, records by collection and title. A page deleted from the locale beneath
  * another one deleted from it is listed once the page above it is added back, which leaves it
  * deleted. The default locale misses nothing.
  */
@@ -96,8 +96,8 @@ export const listMissingFromLocale = Effect.fn("locales.listMissing")(function* 
     const shown = yield* reader.shown.records(collectionId, recordRows);
     missingRecords.push(
       ...shown
-        .map(({ id, label }) => ({ id, collectionId, label }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        .map(({ id, title }) => ({ id, collectionId, title }))
+        .sort((a, b) => a.title.localeCompare(b.title)),
     );
   }
   return { pages: missingPages, records: missingRecords };

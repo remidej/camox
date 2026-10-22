@@ -77,7 +77,12 @@ describe("collection record procedures", () => {
       content: { name: "Ada Lovelace" },
     });
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([
-      { id: created.id, label: "Ada Lovelace", duplicatePageValue: false },
+      {
+        id: created.id,
+        title: "Ada Lovelace",
+        description: "Analytical Engines",
+        duplicatePageValue: false,
+      },
     ]);
     await callSeedingLive(routes.deleteRecord, target, options);
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([]);
@@ -177,7 +182,8 @@ describe("collection record procedures", () => {
     const run = (name: string, input: unknown) => tool(name).handler(input, context);
     expect(await run("listCollections", {})).toMatchObject([{ collectionId: "customers" }]);
     expect(await run("getCollection", { collectionId: "customers" })).toMatchObject({
-      label: "name",
+      toTitle: "{{name}}",
+      toDescription: "{{company}}",
     });
     await expect(
       run("createCollectionRecord", { collectionId: "customers", content: { name: "" } }),
@@ -194,7 +200,12 @@ describe("collection record procedures", () => {
       content: { name: "Ada Lovelace", company: "Engines", logo: null },
     });
     expect(await run("listCollectionRecords", { collectionId: "customers" })).toEqual([
-      { id: created.id, label: "Ada Lovelace", duplicatePageValue: false },
+      {
+        id: created.id,
+        title: "Ada Lovelace",
+        description: "Engines",
+        duplicatePageValue: false,
+      },
     ]);
     await run("deleteCollectionRecord", target);
     expect(await run("listCollectionRecords", { collectionId: "customers" })).toEqual([]);

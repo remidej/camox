@@ -10,6 +10,7 @@ export const RUNTIME_ROUTE_PATHS = {
   health: "/_camox/health",
   registry: "/_camox/registry",
   routes: "/_camox/routes",
+  logo: "/_camox/logo.png",
   og: "/og",
   sitemap: "/sitemap.xml",
   "llms-txt": "/llms.txt",

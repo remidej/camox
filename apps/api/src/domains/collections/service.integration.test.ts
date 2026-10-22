@@ -144,7 +144,12 @@ describe("authenticated collection browsing", () => {
       "Updated title",
     );
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
-      { id: created.id, label: "Updated title", duplicatePageValue: false },
+      {
+        id: created.id,
+        title: "Updated title",
+        description: "An example",
+        duplicatePageValue: false,
+      },
     ]);
     await expect(f.live((c) => createRecord(c, { ...f.scope, content: {} }))).rejects.toMatchObject(
       { code: "BAD_REQUEST" },
@@ -157,7 +162,8 @@ describe("authenticated collection browsing", () => {
       collectionId: definition.collectionId,
       title: definition.title,
       description: definition.description,
-      label: definition.label,
+      toTitle: definition.toTitle,
+      toDescription: definition.toDescription,
       contentSchema: definition.contentSchema,
     });
 
@@ -192,11 +198,18 @@ describe("authenticated collection browsing", () => {
     const input = { projectUuid: f.project.uuid };
     const newer = { ...definition, collectionId: "newer", title: "Newer" };
     await f.sync([definition, newer]);
-    const metadata = ({ collectionId, title, description, label }: typeof definition) => ({
+    const metadata = ({
       collectionId,
       title,
       description,
-      label,
+      toTitle,
+      toDescription,
+    }: typeof definition) => ({
+      collectionId,
+      title,
+      description,
+      toTitle,
+      toDescription,
     });
     expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([
       metadata(newer),
@@ -278,8 +291,8 @@ describe("authenticated collection browsing", () => {
     );
     const newer = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
-      { id: newer.id, label: "Hello", duplicatePageValue: false },
-      { id: record.id, label: "Rich title", duplicatePageValue: false },
+      { id: newer.id, title: "Hello", description: "An example", duplicatePageValue: false },
+      { id: record.id, title: "Rich title", description: "An example", duplicatePageValue: false },
     ]);
     await f.sync([definition, { ...definition, collectionId: "other" }]);
     expect(
@@ -294,7 +307,7 @@ describe("authenticated collection browsing", () => {
       createRecord(devCtx, { ...f.scope, content: { ...article, title: "Drafted" } }),
     );
     expect(await runService(listCollectionRecords(devCtx, f.scope))).toEqual([
-      { id: drafted.id, label: "Drafted", duplicatePageValue: false },
+      { id: drafted.id, title: "Drafted", description: "An example", duplicatePageValue: false },
       ...live,
     ]);
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual(live);
@@ -327,7 +340,7 @@ describe("collection record lifecycle", () => {
       code: "NOT_FOUND",
     });
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
-      { id: other.id, label: "Hello", duplicatePageValue: false },
+      { id: other.id, title: "Hello", description: "An example", duplicatePageValue: false },
     ]);
     await expect(f.live((c) => deleteRecord(c, input))).rejects.toMatchObject({
       code: "NOT_FOUND",
@@ -615,10 +628,10 @@ describe("collection record lifecycle", () => {
     // Neither anonymous without the deploy token, nor a member naming no development draft.
     await expect(unauthorizedSync(null)).rejects.toThrow();
     await expect(unauthorizedSync(f.memberUser)).rejects.toThrow();
-    await expect(f.sync([{ ...definition, label: "cover" }])).rejects.toThrow();
+    await expect(f.sync([{ ...definition, toTitle: "{{cover}}" }])).rejects.toThrow();
     await expect(f.sync([definition, definition])).rejects.toThrow();
     const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
-    await f.sync([{ ...definition, title: "Renamed articles", label: "slug" }]);
+    await f.sync([{ ...definition, title: "Renamed articles", toTitle: "{{slug}}" }]);
     await f.sync();
     expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: record.id }))).toEqual(
       record,

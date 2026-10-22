@@ -90,13 +90,15 @@ void test("editable reference placements write one source and retain placement s
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   source = {
     id: "source-id",
     collectionId: "customers",
-    label: "Source label",
+    title: "Source label",
+    description: null,
     content: { name: "Before" },
   };
   const clickHandlers: Array<(() => void) | undefined> = [];
@@ -105,11 +107,11 @@ void test("editable reference placements write one source and retain placement s
     title: "",
     description: "",
     content: (field) => ({ customer: field.reference(customers) }),
-    toMarkdown: (c) => [c.customer.name],
-    component: () => (
+    toMarkdown: ({ content }) => [content.customer.name],
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
-          <section aria-label={customer.label}>
+          <section aria-label={customer.title}>
             <customer.Field name="name">
               {(props) => {
                 clickHandlers.push(props.onClickCapture as (() => void) | undefined);
@@ -120,6 +122,7 @@ void test("editable reference placements write one source and retain placement s
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const client = new QueryClient();
   const render = (selected: string | null = source.id) =>
@@ -187,8 +190,9 @@ void test("an unset reference placeholder names the collection and selects the r
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const block = createEditableBlock({
     id: "unset-reference",
@@ -197,9 +201,10 @@ void test("an unset reference placeholder names the collection and selects the r
     // The field title is not the collection's: the placeholder names the collection.
     content: (field) => ({ customer: field.reference(customers, { title: "Company" }) }),
     toMarkdown: () => [],
-    component: () => (
-      <block.Reference name="customer">{(customer) => <h2>{customer.label}</h2>}</block.Reference>
+    toReact: () => (
+      <block.Reference name="customer">{(customer) => <h2>{customer.title}</h2>}</block.Reference>
     ),
+    toTitle: () => "",
   });
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
@@ -262,13 +267,15 @@ void test("clicks inside a placed record select its record field or the record f
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const record: ReferenceRecord = {
     id: "acme",
     collectionId: "customers",
-    label: "Acme",
+    title: "Acme",
+    description: null,
     content: { name: "Acme Inc." },
   };
   const block = createEditableBlock({
@@ -280,7 +287,7 @@ void test("clicks inside a placed record select its record field or the record f
       customer: field.reference(customers),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section>
@@ -290,6 +297,7 @@ void test("clicks inside a placed record select its record field or the record f
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -401,7 +409,6 @@ void test("record images and files select their record field for that placement 
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({
       name: field.string({ default: "" }),
       logo: field.image({ title: "Logo" }),
@@ -409,6 +416,8 @@ void test("record images and files select their record field for that placement 
       brochure: field.file({ accept: ["application/pdf"], title: "Brochure" }),
       attachments: field.fileList({ accept: ["application/pdf"], title: "Attachments" }),
     }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const asset = (name: string, mimeType: string, fileId: string) => ({
     url: `https://cdn.test/${name}`,
@@ -420,7 +429,8 @@ void test("record images and files select their record field for that placement 
   const record: ReferenceRecord = {
     id: "acme",
     collectionId: "customers",
-    label: "Acme",
+    title: "Acme",
+    description: null,
     content: {
       name: "Acme Inc.",
       logo: asset("logo.png", "image/png", "1"),
@@ -438,7 +448,7 @@ void test("record images and files select their record field for that placement 
       customer: field.reference(customers),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section>
@@ -454,6 +464,7 @@ void test("record images and files select their record field for that placement 
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -551,13 +562,15 @@ void test("record embeds select their record field for that placement only", asy
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }), video: field.embed(embed) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const record: ReferenceRecord = {
     id: "acme",
     collectionId: "customers",
-    label: "Acme",
+    title: "Acme",
+    description: null,
     content: { name: "Acme Inc.", video: "https://video.test/acme" },
   };
   const block = createEditableBlock({
@@ -566,7 +579,7 @@ void test("record embeds select their record field for that placement only", asy
     description: "",
     content: (field) => ({ video: field.embed(embed), customer: field.reference(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => (
           <section>
@@ -575,6 +588,7 @@ void test("record embeds select their record field for that placement only", asy
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -642,13 +656,15 @@ void test("editable reference lists render their linked records in stored order"
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
     id: `${name.toLowerCase()}-id`,
     collectionId: "customers",
-    label: `${name} label`,
+    title: `${name} label`,
+    description: null,
     content: { name },
   }));
   const block = createEditableBlock({
@@ -657,17 +673,18 @@ void test("editable reference lists render their linked records in stored order"
     description: "",
     content: (field) => ({ customers: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="customers">
           {(customer) => (
-            <li aria-label={customer.label}>
+            <li aria-label={customer.title}>
               <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
             </li>
           )}
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const render = (customerIds: string[]) =>
     renderToStaticMarkup(
@@ -705,19 +722,21 @@ void test("editable query-backed lists render resolved records with the same sco
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
     id: `${name.toLowerCase()}-id`,
     collectionId: "customers",
-    label: `${name} label`,
+    title: `${name} label`,
+    description: null,
     content: { name },
   }));
   const list = (scope: { ReferenceList: typeof block.ReferenceList }) => (
     <scope.ReferenceList name="customers">
       {(customer) => (
-        <li aria-label={customer.label}>
+        <li aria-label={customer.title}>
           <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
         </li>
       )}
@@ -735,15 +754,17 @@ void test("editable query-backed lists render resolved records with the same sco
         minItems: 1,
         maxItems: 2,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <>
         <ul>{list(block)}</ul>
         <block.Repeater name="rows">{(row) => <ol>{list(row as never)}</ol>}</block.Repeater>
       </>
     ),
+    toTitle: () => "",
   });
   const render = (mode: "site" | "peek", resolved: ReferenceRecord[]) =>
     renderToStaticMarkup(
@@ -806,8 +827,9 @@ void test("an empty reference list shows an add placeholder on the Canvas that f
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const block = createEditableBlock({
     id: "empty-logo-grid",
@@ -815,13 +837,14 @@ void test("an empty reference list shows an add placeholder on the Canvas that f
     description: "",
     content: (field) => ({ logos: field.referenceList(customers, { title: "Logos" }) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
-          {(customer) => <li>{customer.label}</li>}
+          {(customer) => <li>{customer.title}</li>}
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
@@ -887,13 +910,15 @@ void test("clicks inside a listed record select its record field or the record f
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
     id: name.toLowerCase(),
     collectionId: "customers",
-    label: name,
+    title: name,
+    description: null,
     content: { name: `${name} Inc.` },
   }));
   const block = createEditableBlock({
@@ -905,7 +930,7 @@ void test("clicks inside a listed record select its record field or the record f
       logos: field.referenceList(customers),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => (
@@ -917,6 +942,7 @@ void test("clicks inside a listed record select its record field or the record f
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -1037,19 +1063,22 @@ void test("inline edits of a listed record write the shared record and refresh e
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   source = {
     id: "listed-source",
     collectionId: "customers",
-    label: "Listed",
+    title: "Listed",
+    description: null,
     content: { name: "Before" },
   };
   const other: ReferenceRecord = {
     id: "other",
     collectionId: "customers",
-    label: "Other",
+    title: "Other",
+    description: null,
     content: { name: "Other" },
   };
   const block = createEditableBlock({
@@ -1058,7 +1087,7 @@ void test("inline edits of a listed record write the shared record and refresh e
     description: "",
     content: (field) => ({ logos: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => (
@@ -1069,6 +1098,7 @@ void test("inline edits of a listed record write the shared record and refresh e
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const client = new QueryClient();
   const render = () =>
@@ -1125,12 +1155,13 @@ void test("images and files of listed records select their record field for that
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({
       name: field.string({ default: "" }),
       logo: field.image({ title: "Logo" }),
       brochure: field.file({ accept: ["application/pdf"], title: "Brochure" }),
     }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const asset = (name: string, mimeType: string, fileId: string) => ({
     url: `https://cdn.test/${name}`,
@@ -1142,7 +1173,8 @@ void test("images and files of listed records select their record field for that
   const records: ReferenceRecord[] = ["acme", "beta"].map((id, index) => ({
     id,
     collectionId: "customers",
-    label: id,
+    title: id,
+    description: null,
     content: {
       name: id,
       logo: asset(`${id}.png`, "image/png", String(index * 2 + 1)),
@@ -1155,7 +1187,7 @@ void test("images and files of listed records select their record field for that
     description: "",
     content: (field) => ({ logos: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="logos">
           {(customer) => (
@@ -1169,6 +1201,7 @@ void test("images and files of listed records select their record field for that
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -1257,13 +1290,15 @@ void test("repeatable items place records of their own, selected and linked per 
     id: "customers",
     title: "Customers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const acme: ReferenceRecord = {
     id: "acme",
     collectionId: "customers",
-    label: "Acme",
+    title: "Acme",
+    description: null,
     content: { name: "Acme Inc." },
   };
   const block = createEditableBlock({
@@ -1279,11 +1314,12 @@ void test("repeatable items place records of their own, selected and linked per 
         settings: (setting) => ({ emphasized: setting.boolean({ default: false }) }),
         minItems: 1,
         maxItems: 6,
-        toMarkdown: (c) => [c.customer.name],
+        toMarkdown: ({ content }) => [content.customer.name],
+        toTitle: () => "Item",
       }),
     }),
-    toMarkdown: (c) => [c.logos],
-    component: () => (
+    toMarkdown: ({ content }) => [content.logos],
+    toReact: () => (
       <block.Repeater name="logos">
         {(logo) => (
           <article data-emphasized={String(logo.useSetting("emphasized"))}>
@@ -1296,12 +1332,13 @@ void test("repeatable items place records of their own, selected and linked per 
               )}
             </logo.Reference>
             <logo.ReferenceList name="partners">
-              {(partner) => <span data-partner={partner.id}>{partner.label}</span>}
+              {(partner) => <span data-partner={partner.id}>{partner.title}</span>}
             </logo.ReferenceList>
           </article>
         )}
       </block.Repeater>
     ),
+    toTitle: () => "",
   });
   const item = (id: string, content: Record<string, unknown>, references = {}) => ({
     id,
@@ -1421,40 +1458,45 @@ void test("records placed by a block render the records they link, one hop furth
     id: "employers",
     title: "Employers",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const authors = createCollection({
     id: "authors",
     title: "Authors",
     description: "",
-    label: "name",
     content: (field) => ({
       name: field.string({ default: "" }),
       employer: field.reference(employers),
     }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const articles = createCollection({
     id: "articles",
     title: "Articles",
     description: "",
-    label: "title",
     content: (field) => ({
       title: field.string({ default: "" }),
       author: field.reference(authors),
       editor: field.reference(authors),
     }),
+    toTitle: ({ content }) => content.title,
+    toDescription: () => undefined,
   });
   const jane: ReferenceRecord = {
     id: "jane",
     collectionId: "authors",
-    label: "Jane",
+    title: "Jane",
+    description: null,
     content: { name: "Jane Doe", employer: "acme" },
   };
   const article: ReferenceRecord = {
     id: "launch",
     collectionId: "articles",
-    label: "Launch",
+    title: "Launch",
+    description: null,
     content: { title: "Launch day", author: "jane", editor: null },
     references: { author: jane, editor: null },
   };
@@ -1465,7 +1507,7 @@ void test("records placed by a block render the records they link, one hop furth
     description: "",
     content: (field) => ({ article: field.reference(articles) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="article">
         {(article) => (
           <section>
@@ -1481,6 +1523,7 @@ void test("records placed by a block render the records they link, one hop furth
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const app = {
     getCollectionById: (id: string) =>

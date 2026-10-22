@@ -129,7 +129,8 @@ void test("an artifact's default source is its block's initial content", () => {
     description: "",
     content: (field) => ({ visual: field.artifact({ size: "fill", default: source }) }),
     toMarkdown: () => [],
-    component: () => null,
+    toReact: () => null,
+    toTitle: () => "",
   });
   const withoutDefault = createBlock({
     id: "without-default",
@@ -137,7 +138,8 @@ void test("an artifact's default source is its block's initial content", () => {
     description: "",
     content: (field) => ({ visual: field.artifact({ size: "fill" }) }),
     toMarkdown: () => [],
-    component: () => null,
+    toReact: () => null,
+    toTitle: () => "",
   });
   assert.equal(withDefault._internal.getInitialContent().visual, source);
   assert.equal(withoutDefault._internal.getInitialContent().visual, "");
