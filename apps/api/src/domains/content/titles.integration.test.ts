@@ -117,6 +117,32 @@ describe("block and repeatable item titles", () => {
     });
   });
 
+  it("name blocks and items in a publish preview until they have a Summary", async () => {
+    const f = await fixture();
+    const block = await f.create("faq", {
+      headline: "Shipping",
+      questions: [{ question: "How long?", answer: "Two days" }],
+    });
+    const plain = await f.create("plain", { text: "Hello" });
+    const item = (await f.read(block.id)).repeatableItems[0]!;
+    const preview = () =>
+      call(router.drafts.previewPublish, { projectId: f.projectId }, f.member(f.en));
+    const labelOf = (changes: Awaited<ReturnType<typeof preview>>["changes"], id: string) =>
+      changes.find((change) => change.id === id)?.label;
+
+    const { changes } = await preview();
+    expect(labelOf(changes, block.id)).toBe("Shipping (FAQ)");
+    expect(labelOf(changes, item.id)).toBe("Q: How long?");
+    // Without a title template, the definition's title names the block.
+    expect(labelOf(changes, plain.id)).toBe("Plain");
+
+    await f.summarize("block", block.id, "Shipping questions");
+    await f.summarize("repeatableItem", item.id, "Delivery time");
+    const summarized = (await preview()).changes;
+    expect(labelOf(summarized, block.id)).toBe("Shipping questions");
+    expect(labelOf(summarized, item.id)).toBe("Delivery time");
+  });
+
   it("read as plain text, a link by its text", async () => {
     const f = await fixture();
     const block = await f.create("cta", { link: { text: "the docs", href: "/docs" } });
