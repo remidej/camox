@@ -294,20 +294,12 @@ _Avoid_: Iframe, view mode
 A studio view that shows many pages side by side, which editors and agents pan and zoom across, and where content is selected and edited in place. The Website Section shows either the Canvas or the Preview.
 _Avoid_: Board, overview, sitemap view, edit mode, design mode
 
-**Shelf Marker**:
-A labelled horizontal bar above the page headers, spanning the area of the canvas it names, such as the area holding its pages.
-_Avoid_: Separator, section header
-
-**Block Catalog**:
-The area of the canvas showing every page-content block definition as live blocks to the right of all pages: each with its default content, or for a Synced Block placed on the website, its shared content.
-_Avoid_: Block library, component gallery, storybook
-
 **Canvas Navigator**:
-The Canvas sidebar while nothing is selected: every page and block of the canvas, to search and pick from.
+The Canvas sidebar while nothing is selected: every page of the canvas, to search and pick from.
 _Avoid_: Canvas sidebar, outline, page list
 
 **Canvas Inspector**:
-The Canvas sidebar while a page or a Block Catalog block is selected: that item's name and its content to edit.
+The Canvas sidebar while a page is selected: that page's name and its content to edit.
 _Avoid_: Item sidebar, page sidebar, properties panel
 
 **Dashboard**:

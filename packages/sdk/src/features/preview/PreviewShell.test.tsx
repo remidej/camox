@@ -270,19 +270,12 @@ void test("leaving the preview keeps preview and canvas state for coming back", 
       previewStore.send({ type: "setViewportMode", mode: "mobile" });
       previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "9" });
       canvasStore.send({ type: "rememberView", workspaceKey: "workspace", view });
-      canvasStore.send({
-        type: "setShelfCollapsed",
-        workspaceKey: "workspace",
-        shelfKey: "blocks",
-        collapsed: true,
-      });
     });
     const shown = previewStore.getSnapshot().context;
 
     await dom.render(null);
     assert.equal(previewStore.getSnapshot().context, shown);
     assert.deepEqual(canvasStore.getSnapshot().context.views.workspace, view);
-    assert.deepEqual(canvasStore.getSnapshot().context.collapsedShelves.workspace, ["blocks"]);
   } finally {
     await dom.close();
     previewStore.send({ type: "reset" });
@@ -330,10 +323,7 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
     await render();
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
-    await render(undefined, { blockId: "hero" });
-    assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting a block keeps it");
-    assert.equal(sidebarRoom(), room, "selecting a block keeps the sidebar's room");
-    await render(undefined, {});
+    await render(undefined, true);
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting nothing keeps it");
     assert.equal(sidebarRoom(), room, "selecting nothing keeps the sidebar's room");
     await render();
@@ -367,14 +357,12 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
     await render();
     const content = dom.host.querySelector("[data-content]");
     assert.ok(content);
-    await render({});
+    await render(true);
     assert.equal(
       dom.host.querySelector("[data-content]"),
       content,
       "selecting nothing keeps the page",
     );
-    await render({ blockId: "hero" });
-    assert.equal(dom.host.querySelector("[data-content]"), content, "so does selecting a block");
     await render();
     assert.equal(dom.host.querySelector("[data-content]"), content);
   } finally {
@@ -408,7 +396,7 @@ void test("hiding the Canvas after selecting nothing goes back to the last page"
     await render();
     // Deselecting on the Canvas moves to its Canvas-only location, keeping the last page.
     Object.assign(globalThis, { testPathname: "/camox/canvas" });
-    await render({});
+    await render(true);
     await React.act(async () => previewStore.send({ type: "hideCanvas" }));
     assert.deepEqual(navigations, [{ to: "/about", replace: true }]);
   } finally {
@@ -420,27 +408,27 @@ void test("hiding the Canvas after selecting nothing goes back to the last page"
   }
 });
 
-void test("a Block Catalog block opened first shows the Canvas, and goes home without it", async (t) => {
+void test("the Canvas opened first with nothing selected shows the Canvas, and goes home without it", async (t) => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
   const navigations: { to: string; replace?: boolean }[] = [];
   Object.assign(globalThis, { testNavigations: navigations });
   const shell = (
-    <PreviewShell canvasOnly={{ blockId: "hero" }} runtimeBasePath="/nested/studio">
+    <PreviewShell canvasOnly runtimeBasePath="/nested/studio">
       {null}
     </PreviewShell>
   );
   const home = [{ to: "/", replace: true }];
   try {
-    await t.test("a block link shows the Canvas", async () => {
+    await t.test("a Canvas link shows the Canvas", async () => {
       await dom.render(shell);
       assert.equal(previewStore.getSnapshot().context.view, "canvas");
       assert.ok(dom.host.querySelector("[data-canvas]"));
       assert.deepEqual(navigations, []);
     });
 
-    await t.test("hiding the Canvas on a block goes home", async () => {
+    await t.test("hiding the Canvas with nothing selected goes home", async () => {
       await React.act(async () => previewStore.send({ type: "hideCanvas" }));
       assert.deepEqual(navigations.splice(0), home);
     });

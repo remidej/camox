@@ -369,19 +369,15 @@ void test("a frame ends exactly where its content does, unless content overflows
     Object.defineProperty(element, "getBoundingClientRect", { value: () => ({ top: 0, bottom }) });
   for (const element of [root, doc.body, doc.documentElement])
     Object.defineProperty(element, "scrollHeight", { get: () => scrollHeight });
-  for (const fit of ["page", "content"] as const) {
-    bottom = 1539.5;
-    scrollHeight = 1540;
-    measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, fit);
-    // Rounding up would show a sliver of the document's background under the last block.
-    assert.equal(iframe.style.height, "1539.5px", `${fit}: rounded scroll heights don't count`);
-    scrollHeight = 1600;
-    measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, fit);
-    assert.equal(iframe.style.height, "1600px", `${fit}: overflowing content does`);
-  }
+  measureCanvasDocument(iframe, root as unknown as HTMLElement, 800);
+  // Rounding up would show a sliver of the document's background under the last block.
+  assert.equal(iframe.style.height, "1539.5px", "rounded scroll heights don't count");
+  scrollHeight = 1600;
+  measureCanvasDocument(iframe, root as unknown as HTMLElement, 800);
+  assert.equal(iframe.style.height, "1600px", "overflowing content does");
   bottom = 400.5;
   scrollHeight = 401;
-  measureCanvasDocument(iframe, root as unknown as HTMLElement, 800, "page");
+  measureCanvasDocument(iframe, root as unknown as HTMLElement, 800);
   assert.equal(iframe.style.height, "800px", "a page is still at least as tall as the viewport");
 });
 

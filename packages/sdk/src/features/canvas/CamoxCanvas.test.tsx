@@ -6,7 +6,6 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { CANVAS_SLOT_WIDTH } from "./canvasItems";
-import { CANVAS_SHELF_MARKER_OVERHANG } from "./CanvasShelfMarker";
 
 // Keep the real Canvas query/error/selection orchestration, without loading editors.
 registerHooks({
@@ -22,7 +21,6 @@ registerHooks({
           project: () => ({queryKey: ["project"]}),
           pageList: () => ({queryKey: ["pages"]}),
           page: () => ({queryKey: ["page"]}),
-          pagesUsingBlock: ({type}) => ({queryKey: ["blockPages", type]}),
           canvasFrame: ({projectUuid, runtimeBasePath, pathname}) =>
             ({queryKey: ["canvasFrame", projectUuid, runtimeBasePath, null, pathname]}),
           discoveredPath: () => ({queryKey: ["discoveredPath"]}),
@@ -43,8 +41,7 @@ registerHooks({
         export const useNavigate = () => globalThis.CanvasNavigate;
         export const NavigationProvider = (props) => globalThis.CanvasNavigationProbe(props);`;
     if (specifier.endsWith("/CamoxAppContext"))
-      source =
-        "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks, getBlockById: (id) => globalThis.CanvasBlocks.find((block) => block._internal.id === id)})";
+      source = "export const useCamoxApp = () => ({getLayouts: () => []})";
     if (specifier === "@xstate/store-react")
       source =
         "export const useSelector = (_, selector) => selector({context: {viewportMode: globalThis.CanvasViewportMode ?? 'full'}})";
@@ -57,8 +54,6 @@ registerHooks({
     if (specifier.endsWith("/CanvasPreviewPageSlot"))
       source =
         "export const CanvasPreviewPageSlot = (props) => { globalThis.CanvasPreviewSlotProbe?.(props); return null }";
-    if (specifier.endsWith("/CanvasBlockFrame"))
-      source = "export const CanvasBlockFrame = (props) => globalThis.CanvasBlockFrameProbe(props)";
     if (specifier.endsWith("/FieldToolbar")) source = "export const FieldToolbar = () => null";
     if (specifier.endsWith("/CanvasSidebar"))
       source = `export const CanvasSidebar = (props) => globalThis.CanvasSidebarProbe("Canvas", props)`;
@@ -105,8 +100,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let snap!: (key: string) => void;
   let snapTargets: { key: string }[] = [];
   let cameraWidth: number | undefined;
-  let failingBlock: string | undefined;
-  let blockPages: Record<string, { id: number }[]> = {};
   let initialTarget: { left: number } | undefined;
   let cameraKey = "";
   let cameraRow!: {
@@ -116,25 +109,17 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     onSnapStretched?: () => void;
   };
   let sidebarPathname: string | undefined;
-  const blockFrames = new Map<string, { onSelect: () => void }>();
   type SidebarProps = {
     page?: { key: string };
     navigator?: {
-      shelves: { key: string; items: { key: string }[] }[];
+      pages: { key: string }[];
       selectedKey?: string;
-      onShowItem: (key: string) => void;
-    };
-    catalog?: {
-      block: { _internal: { id: string } };
-      blocks?: { _internal: { id: string } }[];
-      projectId?: number;
+      onShowPage: (key: string) => void;
     };
     onShowWholeCanvas?: () => void;
   };
   const sidebars = new Map<string, SidebarProps>();
   const flyTo = (key: string) => flights.push(key);
-  const keptInView: [number, number][] = [];
-  const keepInView = (worldX: number, screenX: number) => keptInView.push([worldX, screenX]);
   const fitAll = () => actions.push("fit all");
   const globals = {
     React,
@@ -150,7 +135,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       hash: "",
       source: undefined as "canvas" | undefined,
     },
-    CanvasBlocks: [] as unknown[],
     CanvasNavigationProbe: (props: {
       location: { pathname: string };
       children: React.ReactNode;
@@ -161,14 +145,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     CanvasSidebarProbe: (side: string, props: SidebarProps) => {
       sidebars.set(side, props);
       return null;
-    },
-    CanvasBlockFrameProbe: (props: {
-      block: { _internal: { id: string } };
-      onSelect: () => void;
-    }) => {
-      blockFrames.set(props.block._internal.id, props);
-      if (props.block._internal.id === failingBlock) throw failure;
-      return <div>Block {props.block._internal.id}</div>;
     },
     CanvasNavigate: (options: { to: string; source?: "canvas" }) => {
       actions.push("navigate");
@@ -194,7 +170,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       snap = options.onSelect;
       snapTargets = options.targets;
       cameraWidth = options.width;
-      return { viewportRef: null, contentRef: null, flyTo, keepInView, fitAll };
+      return { viewportRef: null, contentRef: null, flyTo, fitAll };
     },
     CanvasHeaderProbe: (props: {
       page: { key: string };
@@ -225,9 +201,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
               ]
             : key === "layouts"
               ? []
-              : key === "blockPages"
-                ? (blockPages[queryKey[1] as string] ?? [])
-                : { pathname };
+              : { pathname };
       return {
         data,
         error,
@@ -322,7 +296,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         }
       });
     }
-    await t.test("Pages Shelf Marker spans the Pages above their headers", async () => {
+    await t.test("Pages sit side by side as snap targets, within the Canvas bounds", async () => {
       scenario = "";
       includeNewPage = false;
       globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
@@ -338,321 +312,32 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             frame.getAttribute("data-canvas-pathname"),
           ),
           ["/about", "/contact"],
-          "the marker takes no slot in the row",
         );
-        const label = host.querySelector('[data-canvas-shelf-marker-label="shelf:pages"]');
-        assert.equal(label?.textContent, "Pages (2)", "the label counts the Pages");
-        const bar = host.querySelector('[data-canvas-shelf-marker="shelf:pages"]');
-        assert.ok(bar, "the marker draws its bar");
-        assert.ok(!row.contains(bar), "the bar keeps a constant on-screen height");
-        assert.match(bar.getAttribute("style") ?? "", /2972px/, "the bar spans both Pages");
         assert.deepEqual(
           snapTargets.map(({ key }) => key),
           [...headers.keys()],
           "Pages are snap targets",
         );
-      } finally {
-        await React.act(async () => root.unmount());
-        host.remove();
-      }
-    });
-    await t.test(
-      "the Block Catalog follows the Pages with page-content blocks in title order",
-      async () => {
-        scenario = "";
-        includeNewPage = false;
-        const block = (id: string, title: string, layoutOnly = false) => ({
-          _internal: { id, title, description: `${title} description`, layoutOnly },
-        });
-        blockPages = { hero: [{ id: 1 }, { id: 2 }], tabs: [{ id: 2 }] };
-        globals.CanvasBlocks = [
-          block("tabs", "Tabs"),
-          block("navbar", "Navbar", true),
-          block("hero", "Hero"),
-          block("faq", "FAQ"),
-        ];
-        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-        Object.assign(globalThis, globals);
-        // Opening the Canvas for the first time in the session.
-        canvasStore.send({ type: "reset" });
-        const host = dom.document.createElement("div");
-        dom.document.body.append(host);
-        let root = createRoot(host as unknown as HTMLElement);
-        const blocksMarker = () =>
-          host.querySelector('[data-canvas-shelf-marker="shelf:blocks"]') as unknown as HTMLElement;
-        try {
-          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-          const row = host.querySelector("[data-canvas-items]")!;
-          assert.equal(
-            blocksMarker().getAttribute("aria-expanded"),
-            "false",
-            "the Block Catalog starts collapsed",
-          );
-          assert.equal(row.querySelector("[data-canvas-block]"), null, "block frames don't mount");
-          assert.doesNotMatch(host.textContent, /Block hero/);
-          assert.deepEqual(
-            snapTargets.map(({ key }) => key),
-            [...headers.keys()],
-            "collapsed blocks are not snap targets",
-          );
-          const collapsedWidth = cameraWidth;
-          await React.act(async () => blocksMarker().click());
-          assert.equal(blocksMarker().getAttribute("aria-expanded"), "true");
-          assert.deepEqual(
-            [...row.querySelectorAll("[data-canvas-slot]")].map((slot) =>
-              slot.getAttribute("data-canvas-slot"),
-            ),
-            [...headers.keys(), "block:faq", "block:hero", "block:tabs"],
-            "blocks follow the Pages alphabetically by title, without Layout-only Blocks",
-          );
-          assert.match(host.textContent, /Block hero/, "block frames render");
-          assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-shelf-marker-label]")].map(
-              (label) => label.textContent,
-            ),
-            ["Pages (2)", "Blocks (3)"],
-          );
-          const headerLefts = [...host.querySelectorAll("[data-canvas-header]")].map(
-            (header) => worldXs((header as unknown as HTMLElement).style.transform)[0]!,
-          );
-          const pitches = headerLefts.slice(1).map((left, index) => left - headerLefts[index]!);
-          const [pagePitch, shelfPitch, ...blockPitches] = pitches;
-          assert.deepEqual(
-            blockPitches,
-            blockPitches.map(() => pagePitch),
-            "block slots have the width and gap of Page slots",
-          );
-          assert.ok(shelfPitch! > pagePitch!, "the Pages and Blocks areas are further apart");
-          const blocksBar = host.querySelector(
-            '[data-canvas-shelf-marker="shelf:blocks"]',
-          ) as unknown as HTMLElement;
-          const [blocksStart] = worldXs(blocksBar.style.transform);
-          const [blocksEnd] = worldXs(blocksBar.style.width);
-          assert.equal(blocksStart, headerLefts[2], "the Blocks area starts at the first block");
-          assert.equal(
-            blocksEnd,
-            headerLefts[4]! + CANVAS_SLOT_WIDTH,
-            "the Blocks area ends with the last block",
-          );
-          assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-header] h2 > :last-child")].map(
-              (title) => title.textContent,
-            ),
-            ["FAQ", "Hero", "Tabs"],
-            "block headers show the block title below the usage",
-          );
-          assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-block-usage]")].map(
-              (usage) => usage.textContent,
-            ),
-            ["Unused", "Used on 2 pages", "Used on 1 page"],
-            "block headers show how many Pages use the block",
-          );
-          assert.deepEqual(
-            snapTargets.map(({ key }) => key),
-            [...headers.keys(), "block:faq", "block:hero", "block:tabs"],
-            "blocks are snap targets",
-          );
-          assert.equal(
-            cameraWidth,
-            headerLefts[4]! + CANVAS_SLOT_WIDTH,
-            "the Canvas bounds cover Pages and blocks",
-          );
-          assert.equal(
-            collapsedWidth,
-            headerLefts[2],
-            "collapsed, the Canvas bounds end at the Blocks marker",
-          );
-          await React.act(async () => blocksMarker().click());
-          assert.equal(
-            row.querySelector("[data-canvas-block]"),
-            null,
-            "collapsing unmounts blocks",
-          );
-          assert.equal(cameraWidth, collapsedWidth, "and shrinks the Canvas bounds again");
-          await React.act(async () => root.unmount());
-          root = createRoot(host as unknown as HTMLElement);
-          globals.CanvasLocation = {
-            pathname: "/camox/blocks/hero",
-            search: "",
-            hash: "",
-            source: undefined,
-          };
-          Object.assign(globalThis, globals);
-          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-          assert.equal(
-            blocksMarker().getAttribute("aria-expanded"),
-            "true",
-            "reopening the Canvas on a block expands the Block Catalog",
-          );
-          assert.equal(initialTarget?.left, headerLefts[3], "and opens the camera on the block");
-          globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-          Object.assign(globalThis, globals);
-          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-          globals.CanvasBlocks = [block("navbar", "Navbar", true)];
-          Object.assign(globalThis, globals);
-          await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-          assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-shelf-marker-label]")].map(
-              (label) => label.textContent,
-            ),
-            ["Pages (2)", "Blocks (0)"],
-            "the Blocks Shelf Marker shows with no blocks",
-          );
-        } finally {
-          await React.act(async () => root.unmount());
-          host.remove();
-          blockPages = {};
-          globals.CanvasBlocks = [];
-          Object.assign(globalThis, globals);
-        }
-      },
-    );
-    await t.test("blocks are selected by click, header or snap, and by URL", async () => {
-      scenario = "";
-      includeNewPage = false;
-      flights.length = 0;
-      actions.length = 0;
-      const block = (id: string, title: string, layoutOnly = false) => ({
-        _internal: { id, title, description: "", layoutOnly },
-      });
-      globals.CanvasBlocks = [
-        block("faq", "FAQ"),
-        block("hero", "Hero"),
-        block("nav", "Nav", true),
-      ];
-      globals.CanvasLocation = {
-        pathname: "/camox/blocks/hero",
-        search: "",
-        hash: "",
-        source: undefined,
-      };
-      const host = dom.document.createElement("div");
-      dom.document.body.append(host);
-      const root = createRoot(host as unknown as HTMLElement);
-      const signals: string[] = [];
-      const render = async () => {
-        Object.assign(globalThis, globals);
-        await React.act(async () =>
-          root.render(
-            <PreviewPreparationContext
-              value={{
-                ready: () => signals.push("ready"),
-                fail: (error) => signals.push(error.message),
-              }}
-            >
-              <CamoxCanvas runtimeBasePath="" />
-            </PreviewPreparationContext>,
-          ),
+        const headerLefts = [...host.querySelectorAll("[data-canvas-header]")].map(
+          (header) => worldXs((header as unknown as HTMLElement).style.transform)[0]!,
         );
-      };
-      const headerLeft = (key: string) =>
-        worldXs(
-          (host.querySelector(`[data-canvas-header="${key}"]`) as unknown as HTMLElement).style
-            .transform,
-        )[0];
-      try {
-        await render();
-        assert.deepEqual(signals, ["ready"], "a block link prepares the Canvas");
         assert.equal(
-          initialTarget?.left,
-          headerLeft("block:hero"),
-          "a block link opens the Canvas on the block",
-        );
-        assert.equal(cameraRow.selected, "block:hero");
-        assert.equal(flights.length, 0, "mount does not fly");
-
-        let flashes = 0;
-        let cancelled = 0;
-        Object.defineProperty(host.querySelector("[data-canvas-snap-ring]"), "animate", {
-          value: () => {
-            flashes++;
-            return { cancel: () => cancelled++ };
-          },
-        });
-        for (const [select, path, key] of [
-          [() => blockFrames.get("faq")!.onSelect(), "/camox/blocks/faq", "block:faq"],
-          [
-            () =>
-              (
-                host.querySelector(
-                  '[data-canvas-header="block:hero"] button',
-                ) as unknown as HTMLElement
-              ).click(),
-            "/camox/blocks/hero",
-            "block:hero",
-          ],
-          [() => snap("block:faq"), "/camox/blocks/faq", "block:faq"],
-          [() => snap([...headers.keys()][0]!), "/about", [...headers.keys()][0]],
-        ] as const) {
-          await React.act(async () => select());
-          assert.deepEqual(actions.splice(0), ["navigate"]);
-          assert.equal(flashes, 0, "selecting never flashes the viewport by itself");
-          assert.equal(globals.CanvasLocation.pathname, path);
-          await render();
-          // The camera flies to a selection it didn't snap to itself.
-          assert.equal(cameraRow.selected, key, "the camera holds the selection");
-          assert.equal(flights.length, 0, "the Canvas leaves flights to the camera");
-        }
-        cameraRow.onSnap!();
-        assert.equal(flashes, 1, "the camera snapping flashes the viewport");
-        cameraRow.onSnapStretched!();
-        assert.equal(cancelled, 1, "until a zoom stretches past the snap");
-
-        globals.CanvasLocation = {
-          pathname: "/camox/blocks/hero",
-          search: "",
-          hash: "",
-          source: undefined,
-        };
-        await render();
-        assert.equal(cameraRow.selected, "block:hero", "back/forward to a block selects it");
-        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-        await render();
-        assert.equal(cameraRow.selected, [...headers.keys()][0], "and back to a Page");
-
-        signals.length = 0;
-        globals.CanvasLocation = {
-          pathname: "/camox/blocks/nav",
-          search: "",
-          hash: "",
-          source: undefined,
-        };
-        await render();
-        assert.match(
-          signals.join(),
-          /No canvas page matches/,
-          "Layout-only Blocks aren't selectable",
+          cameraWidth,
+          headerLefts.at(-1)! + CANVAS_SLOT_WIDTH,
+          "the Canvas bounds end with the last Page",
         );
       } finally {
         await React.act(async () => root.unmount());
         host.remove();
-        globals.CanvasBlocks = [];
-        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-        Object.assign(globalThis, globals);
       }
     });
     await t.test(
-      "a selected block shows its placements in the Canvas sidebar, which leads back to the Canvas navigator",
+      "the Canvas sidebar's navigator shows the picked Page, and the back button the whole Canvas",
       async () => {
         scenario = "";
         includeNewPage = false;
         flights.length = 0;
-        const block = (id: string, title: string, layoutOnly = false) => ({
-          _internal: { id, title, description: "", layoutOnly },
-        });
-        globals.CanvasBlocks = [
-          block("tabs", "Tabs"),
-          block("nav", "Nav", true),
-          block("faq", "FAQ"),
-          block("hero", "Hero"),
-        ];
-        globals.CanvasLocation = {
-          pathname: "/camox/blocks/hero",
-          search: "",
-          hash: "",
-          source: undefined,
-        };
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
         const host = dom.document.createElement("div");
         dom.document.body.append(host);
         const root = createRoot(host as unknown as HTMLElement);
@@ -660,61 +345,37 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           Object.assign(globalThis, globals);
           await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
         };
-        const shown = (side: string) => {
-          const { page, catalog } = sidebars.get(side)!;
-          return {
-            page: page?.key,
-            block: catalog?.block._internal.id,
-            projectId: catalog?.projectId,
-          };
-        };
         const navigator = () => sidebars.get("Canvas")!.navigator!;
         const committingNavigate = globals.CanvasNavigate;
         const navigations: { to: string; source?: "canvas" }[] = [];
         try {
           await render();
-          assert.equal(shown("Canvas").page, undefined);
+          const [about, contact] = [...headers.keys()];
           assert.deepEqual(
-            { block: shown("Canvas").block, projectId: shown("Canvas").projectId },
-            { block: "hero", projectId: 1 },
-            "the Canvas sidebar shows the Pages holding the selected block's placements",
+            navigator().pages.map(({ key }) => key),
+            [about, contact],
+            "the navigator holds every Page, in Canvas order",
           );
-          assert.deepEqual(
-            navigator().shelves.map(({ key, items }) => [key, items.map((item) => item.key)]),
-            [
-              ["shelf:pages", [...headers.keys()]],
-              ["shelf:blocks", ["block:faq", "block:hero", "block:tabs"]],
-            ],
-            "the Canvas sidebar's navigator holds every item, under its shelf, in Canvas order",
-          );
-          assert.equal(navigator().selectedKey, "block:hero");
+          assert.equal(navigator().selectedKey, about);
 
-          // Picking a block in the navigator selects it without the canvas source.
+          // Picking a Page in the navigator selects it without the canvas source.
           globals.CanvasNavigate = (options) => {
             navigations.push(options);
           };
           await render();
-          await React.act(async () => navigator().onShowItem("block:tabs"));
-          assert.deepEqual(navigations.splice(0), [{ to: "/camox/blocks/tabs" }]);
-          globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/camox/blocks/tabs" };
-          await render();
-          assert.equal(cameraRow.selected, "block:tabs", "the camera flies to the picked block");
-          assert.equal(navigator().selectedKey, "block:tabs");
-          assert.equal(shown("Canvas").block, "tabs");
-
-          // Picking the selected item again has nothing to select, but still flies to it.
-          await React.act(async () => navigator().onShowItem("block:tabs"));
-          assert.deepEqual(navigations, []);
-          assert.deepEqual(flights, ["block:tabs"]);
-          flights.length = 0;
-
-          // Picking a Page in the Canvas sidebar's list of placements selects it the same way.
+          await React.act(async () => navigator().onShowPage(contact!));
+          assert.deepEqual(navigations.splice(0), [{ to: "/contact" }]);
           globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
           await render();
-          const contact = [...headers.keys()][1]!;
-          assert.equal(cameraRow.selected, contact, "the camera flies to the Page");
-          assert.equal(shown("Canvas").page, contact, "the Canvas sidebar shows the Page again");
-          assert.equal(shown("Canvas").block, undefined);
+          assert.equal(cameraRow.selected, contact, "the camera flies to the picked Page");
+          assert.equal(navigator().selectedKey, contact);
+          assert.equal(sidebars.get("Canvas")!.page?.key, contact);
+
+          // Picking the selected Page again has nothing to select, but still flies to it.
+          await React.act(async () => navigator().onShowPage(contact!));
+          assert.deepEqual(navigations, []);
+          assert.deepEqual(flights, [contact]);
+          flights.length = 0;
 
           // The back button leaves the selection from the Canvas, then zooms out to all of it.
           actions.length = 0;
@@ -730,7 +391,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           globals.CanvasNavigate = committingNavigate;
           await React.act(async () => root.unmount());
           host.remove();
-          globals.CanvasBlocks = [];
           globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
           Object.assign(globalThis, globals);
         }
@@ -809,10 +469,9 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
         Object.assign(globalThis, globals);
         frames.clear();
-        const slots: { pageId?: string; hidden?: boolean }[] = [];
+        const slots: { pageId?: string }[] = [];
         Object.assign(globalThis, {
-          CanvasPreviewSlotProbe: (props: { pageId?: string; hidden?: boolean }) =>
-            slots.push(props),
+          CanvasPreviewSlotProbe: (props: { pageId?: string }) => slots.push(props),
         });
         const { PreviewPageFrame, PreviewPageFrameContext } =
           await import("../preview/previewPageFrame");
@@ -841,18 +500,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.ok(slots.length > 0, "its slot takes the Preview page frame");
           assert.equal(frames.has("/about"), false, "the Canvas renders no second frame of it");
           assert.ok(frames.has("/contact"), "other Pages keep frames of their own");
-          assert.equal(slots.at(-1)?.hidden, false);
-
-          // The Preview's frame isn't inside its shelf, so collapsing the shelf hides it.
-          const marker = () =>
-            host.querySelector(
-              '[data-canvas-shelf-marker="shelf:pages"]',
-            ) as unknown as HTMLElement;
-          await React.act(async () => marker().click());
-          assert.equal(slots.at(-1)?.hidden, true, "collapsing its shelf hides the frame");
-          await React.act(async () => marker().click());
-          assert.equal(slots.at(-1)?.hidden, false, "expanding shows it again");
-          keptInView.length = 0;
 
           // Zooming out deselects the Page, but the Preview still shows it.
           globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/camox/canvas" };
@@ -913,7 +560,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           undefined,
           "the Canvas sidebar shows the Canvas",
         );
-        assert.equal(sidebars.get("Canvas")!.catalog, undefined);
         assert.equal(
           sidebars.get("Canvas")!.navigator!.selectedKey,
           undefined,
@@ -1080,54 +726,9 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         }
       },
     );
-    await t.test("a failing block frame stays in its own slot", async () => {
-      scenario = "";
-      includeNewPage = false;
-      const block = (id: string, title: string) => ({
-        _internal: { id, title, description: "", layoutOnly: false },
-      });
-      globals.CanvasBlocks = [block("faq", "FAQ"), block("hero", "Hero")];
-      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-      failingBlock = "faq";
-      Object.assign(globalThis, globals);
-      const host = dom.document.createElement("div");
-      dom.document.body.append(host);
-      const root = createRoot(host as unknown as HTMLElement, { onCaughtError: () => {} });
-      const errors: Error[] = [];
-      try {
-        await React.act(async () =>
-          root.render(
-            <PreviewPreparationContext value={{ ready: () => {}, fail: (e) => errors.push(e) }}>
-              <CamoxCanvas runtimeBasePath="" />
-            </PreviewPreparationContext>,
-          ),
-        );
-        const slot = (key: string) => host.querySelector(`[data-canvas-slot="${key}"]`)!;
-        assert.match(slot("block:faq").textContent, /This block could not be rendered/);
-        assert.match(slot("block:hero").textContent, /Block hero/, "other blocks still render");
-        assert.equal(
-          host.querySelectorAll("[data-canvas-pathname]").length,
-          2,
-          "Pages still render",
-        );
-        assert.deepEqual(errors, [], "a block failure does not fail the Canvas preparation");
-
-        failingBlock = undefined;
-        const retry = slot("block:faq").querySelector("button") as unknown as HTMLElement;
-        await React.act(async () => retry.click());
-        assert.match(slot("block:faq").textContent, /Block faq/, "the block can be retried");
-      } finally {
-        await React.act(async () => root.unmount());
-        host.remove();
-        failingBlock = undefined;
-        globals.CanvasBlocks = [];
-        Object.assign(globalThis, globals);
-      }
-    });
     await t.test("narrower devices center their frames in shaded areas", async () => {
       scenario = "";
       includeNewPage = false;
-      globals.CanvasBlocks = [{ _internal: { id: "hero", title: "Hero", layoutOnly: false } }];
       globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
       Object.assign(globalThis, globals);
       const host = dom.document.createElement("div");
@@ -1138,7 +739,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           (slot) => slot as unknown as HTMLElement,
         );
       const frames = () =>
-        [...host.querySelectorAll("[data-canvas-page], [data-canvas-block]")].map(
+        [...host.querySelectorAll("[data-canvas-page]")].map(
           (frame) => frame as unknown as HTMLElement,
         );
       const frameWidths = () => frames().map((frame) => frame.style.width);
@@ -1163,7 +764,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         for (const mode of ["tablet", "mobile"]) {
           Object.assign(globalThis, { CanvasViewportMode: mode });
           await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-          assert.equal(slots().length, 3, "Pages and blocks all have an area");
+          assert.equal(slots().length, 2, "every Page has an area");
           assert.ok(
             frameWidths().every((width) => parseFloat(width) < CANVAS_SLOT_WIDTH),
             `${mode} frames are narrower than their areas`,
@@ -1181,66 +782,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         await React.act(async () => root.unmount());
         host.remove();
         Object.assign(globalThis, { CanvasViewportMode: undefined });
-        globals.CanvasBlocks = [];
         Object.assign(globalThis, globals);
-      }
-    });
-    await t.test("clicking a Shelf Marker collapses and expands its area", async () => {
-      scenario = "";
-      includeNewPage = false;
-      flights.length = 0;
-      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
-      const host = dom.document.createElement("div");
-      dom.document.body.append(host);
-      const root = createRoot(host as unknown as HTMLElement);
-      const render = async () => {
-        Object.assign(globalThis, globals);
-        await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
-      };
-      const marker = () =>
-        host.querySelector('[data-canvas-shelf-marker="shelf:pages"]') as unknown as HTMLElement;
-      const toggle = () => React.act(async () => marker().click());
-      try {
-        await render();
-        assert.equal(marker().getAttribute("aria-expanded"), "true");
-        const expandedWidth = cameraWidth;
-        const frame = host.querySelector('[data-canvas-pathname="/about"]');
-        await toggle();
-        assert.equal(marker().getAttribute("aria-expanded"), "false");
-        assert.deepEqual(
-          keptInView.splice(0),
-          [[0, CANVAS_SHELF_MARKER_OVERHANG]],
-          "the collapsed bar takes the place of the marker's visible start",
-        );
-        assert.equal(host.querySelectorAll("[data-canvas-header]").length, 0, "headers hide");
-        assert.deepEqual(snapTargets, [], "hidden Pages are not snap targets");
-        assert.equal(
-          host.querySelector('[data-canvas-pathname="/about"]'),
-          frame,
-          "hidden Pages stay mounted",
-        );
-        assert.ok(frame!.closest('[data-canvas-shelf="shelf:pages"]')!.hasAttribute("inert"));
-        assert.ok(cameraWidth! < expandedWidth!, "the Canvas bounds leave out hidden Pages");
-        await toggle();
-        assert.equal(marker().getAttribute("aria-expanded"), "true");
-        assert.equal(cameraWidth, expandedWidth);
-        assert.deepEqual(keptInView, [], "expanding does not pan");
-        assert.equal(host.querySelectorAll("[data-canvas-header]").length, 2);
-        assert.equal(host.querySelector('[data-canvas-pathname="/about"]'), frame);
-        assert.ok(!frame!.closest('[data-canvas-shelf="shelf:pages"]')!.hasAttribute("inert"));
-
-        await toggle();
-        globals.CanvasLocation.pathname = "/contact";
-        await render();
-        assert.equal(
-          marker().getAttribute("aria-expanded"),
-          "true",
-          "selecting a hidden Page from outside the Canvas reveals it",
-        );
-        assert.equal(cameraRow.selected, [...headers.keys()][1], "and flies to it");
-      } finally {
-        await React.act(async () => root.unmount());
-        host.remove();
       }
     });
     await t.test("selection wiring", async () => {

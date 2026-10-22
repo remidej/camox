@@ -51,9 +51,9 @@ import {
   type PageHead,
 } from "../routes/pageRuntime";
 import {
-  matchCanvasOnlyPath,
   matchCollectionContentPath,
   STUDIO_ASSETS_PATH,
+  STUDIO_CANVAS_PATH,
   STUDIO_CONTENT_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
@@ -109,11 +109,8 @@ export interface PageRenderInput extends DraftRead {
   previewHandoff?: boolean;
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
-  /**
-   * A location only the Canvas shows, instead of a Page: the Canvas
-   * with nothing selected, or with a block of the Block Catalog selected.
-   */
-  canvasOnly?: { blockId?: string };
+  /** Whether the location is the Canvas with nothing selected, which only the Canvas shows. */
+  canvasOnly?: boolean;
   project?: MemberProject;
   presentation?: "public" | "studio";
   derived?: {
@@ -242,7 +239,7 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   const ownedRoute = matchRuntimeOwnedRoute(pathname);
   if (ownedRoute) return { kind: ownedRoute, pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
-  if (matchCanvasOnlyPath(pathname)) return { kind: "canvas", pathname };
+  if (pathname === STUDIO_CANVAS_PATH) return { kind: "canvas", pathname };
   if (
     pathname === STUDIO_CONTENT_PATH ||
     pathname === `${STUDIO_CONTENT_PATH}/` ||
@@ -1327,9 +1324,8 @@ ${renderClientEntryScript(options.studioClientEntryUrl)}
 }
 
 /**
- * The Canvas with nothing selected, or a block of the Block Catalog, renders the
- * page app, like a Page, so selecting it keeps the Canvas mounted. A block path
- * without a page-content block of that id redirects home.
+ * The Canvas with nothing selected renders the page app, like a Page, so
+ * selecting it keeps the Canvas mounted.
  */
 async function createCanvasOnlyResponse({
   options,
@@ -1345,23 +1341,6 @@ async function createCanvasOnlyResponse({
   request: Request;
   dataOnly?: boolean;
 }): Promise<Response> {
-  const { blockId } = matchCanvasOnlyPath(located.path)!;
-  const app = blockId ? await options.getCamoxApp?.() : undefined;
-  const block = blockId ? app?.getBlockById(blockId) : undefined;
-  if (blockId && (!block || block._internal.layoutOnly)) {
-    if (dataOnly)
-      return Response.json(
-        { kind: "canvas", message: "No block of the Block Catalog on this path", pathname },
-        { status: 404 },
-      );
-    return Response.redirect(
-      new URL(
-        withRuntimeBasePath(localizedPath("/", located.locale), options.runtimeBasePath),
-        request.url,
-      ),
-      302,
-    );
-  }
   if (
     !options.apiUrl ||
     !options.authenticationUrl ||
@@ -1376,7 +1355,7 @@ async function createCanvasOnlyResponse({
 
   const { project, clearAuthCookie } = await resolveRequestMember(request, options);
   const studio = project !== undefined;
-  const title = block?._internal.title ?? "Canvas";
+  const title = "Canvas";
   const input: PageRenderInput = {
     project,
     presentation: studio ? "studio" : "public",
@@ -1392,14 +1371,11 @@ async function createCanvasOnlyResponse({
     layoutIdentity: null,
     loaderData: null,
     dehydratedState: dehydrate(new QueryClient()),
-    canvasOnly: blockId ? { blockId } : {},
+    canvasOnly: true,
     // Nothing here reads the draft, but it is the one the Page left was in: client
     // navigation remounts the studio, hiding the Canvas, when the draft changes.
     draftId: studio ? getRequestDraftId(request, options) : undefined,
   };
-  // Block frames build their documents from the site head; there is no page content.
-  const document = (await options.getDocument?.()) ?? {};
-  await preparePreviewDocument(input, options, document, "");
   const headers = {
     "Cache-Control": "private, no-store",
     Vary: "Cookie",

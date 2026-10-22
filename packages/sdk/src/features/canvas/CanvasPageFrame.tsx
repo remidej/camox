@@ -108,8 +108,6 @@ function PageFrame({
     href,
     width,
     viewportHeight,
-    fit: "page",
-    subject: "page",
     mode,
   });
   const claim = useEditingFrameClaim(iframe, owner);

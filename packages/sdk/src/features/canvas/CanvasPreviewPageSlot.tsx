@@ -25,7 +25,6 @@ export function CanvasPreviewPageSlot({
   viewportHeight,
   selected,
   hovered,
-  hidden = false,
   shaded = false,
   onActivate,
 }: {
@@ -37,8 +36,6 @@ export function CanvasPreviewPageSlot({
   /** Whether the Page is selected. Once deselected, it keeps the frame, like a frame of the Canvas. */
   selected: boolean;
   hovered: boolean;
-  /** Whether the Page's shelf is collapsed. The frame isn't in the shelf, so it hides itself. */
-  hidden?: boolean;
   /** Whether the Canvas shades the slot around the page. */
   shaded?: boolean;
   onActivate: CanvasFrameActivate;
@@ -75,7 +72,6 @@ export function CanvasPreviewPageSlot({
       viewportHeight,
       mode,
       selected,
-      hidden,
       workspace,
       onInteract,
     };

@@ -34,8 +34,6 @@ export interface FollowWhere {
   location: { pathname: string; search: string; source?: NavigationSource };
   /** The key of the Page the editor is on, if any. */
   pageKey: string | null;
-  /** The path of a block definition's Block Catalog item, in the viewed Locale. */
-  blockCatalogPath: (blockType: string) => string;
 }
 
 /** A Page by its page row, which may not be on the Canvas yet, or by its Canvas item key. */
@@ -43,9 +41,6 @@ type PageRef = { pageId: string } | { key: string };
 
 /** The blocks touched on a Page, the topmost of which following selects. */
 type TouchedBlocks = { page: PageRef; blockIds: readonly string[] };
-
-/** Where a touched batch takes the editor. */
-type Destination = ({ kind: "page" } & TouchedBlocks) | { kind: "catalog"; blockType: string };
 
 const pageRowId = (page: FollowPage) => (page.owner.kind === "page" ? page.owner.pageId : null);
 
@@ -62,7 +57,7 @@ const currentPage = (where: FollowWhere) =>
 const refKey = (ref: PageRef) => ("key" in ref ? `key:${ref.key}` : `page:${ref.pageId}`);
 
 /** A touch located on a Page, with the block to select there, if any. */
-type Located = { page: PageRef; blockId?: string } | { catalog: string };
+type Located = { page: PageRef; blockId?: string };
 
 function locate(where: FollowWhere, here: FollowPage | undefined, touch: Touch): Located | null {
   // A touch in another Locale counts toward its page only where the viewed Locale shows it, and
@@ -90,14 +85,12 @@ function locate(where: FollowWhere, here: FollowPage | undefined, touch: Touch):
           );
     return page ? at({ key: page.key }, touch.blockId) : null;
   }
-  // A Synced Block's shared content: where the editor sees one of its Placements, or its item
-  // in the Block Catalog.
+  // A Synced Block's shared content: only where the editor sees one of its Placements.
   const placement = here?.blocks?.find((block) => block.type === touch.blockType);
-  if (here && placement) return at({ key: here.key }, placement.id);
-  return elsewhere ? null : { catalog: touch.blockType };
+  return here && placement ? at({ key: here.key }, placement.id) : null;
 }
 
-function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | null {
+function destinationOf(where: FollowWhere, batch: TouchedBatch): TouchedBlocks | null {
   const here = currentPage(where);
   // A deleted page gives no destination, and nothing else on it does either.
   const deletedPages = new Set(
@@ -118,17 +111,13 @@ function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | n
     return page ? `key:${page.key}` : refKey(ref);
   };
   for (const at of located) {
-    if ("catalog" in at) continue;
     const key = identity(at.page);
     const entry = touched.get(key) ?? { page: at.page, blockIds: [], count: 0 };
     entry.count += 1;
     if (at.blockId && !entry.blockIds.includes(at.blockId)) entry.blockIds.push(at.blockId);
     touched.set(key, entry);
   }
-  if (touched.size === 0) {
-    const catalog = located.find((at) => "catalog" in at);
-    return catalog && "catalog" in catalog ? { kind: "catalog", blockType: catalog.catalog } : null;
-  }
+  if (touched.size === 0) return null;
   const order = (ref: PageRef) => {
     const page = findPage(where, ref);
     return page ? where.pages.indexOf(page) : where.pages.length;
@@ -142,7 +131,7 @@ function destinationOf(where: FollowWhere, batch: TouchedBatch): Destination | n
         ? entry
         : best,
     );
-  return { kind: "page", page: chosen.page, blockIds: chosen.blockIds };
+  return { page: chosen.page, blockIds: chosen.blockIds };
 }
 
 /** The topmost of the touched blocks by its order on the page; ones not shown yet come last. */
@@ -187,7 +176,7 @@ export function createFollowAgent({
   /** When following last arrived on another page; it stays there for the minimum stay. */
   let arrivedAt = -Infinity;
   /** The latest destination on another page, waiting for the minimum stay or for its page. */
-  let pendingNavigation: Destination | null = null;
+  let pendingNavigation: TouchedBlocks | null = null;
   /** When the pending destination's page has to show by, once following could go there. */
   let pendingNavigationUntil = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -252,15 +241,11 @@ export function createFollowAgent({
       return;
     }
     const destination = pendingNavigation;
-    const pathname =
-      destination.kind === "catalog"
-        ? where.blockCatalogPath(destination.blockType)
-        : findPage(where, destination.page)?.pathname;
+    const pathname = findPage(where, destination.page)?.pathname;
     if (!pathname) return;
     pendingNavigation = null;
     arrivedAt = Date.now();
-    blocksToSelect =
-      destination.kind === "page" && destination.blockIds.length ? destination : null;
+    blocksToSelect = destination.blockIds.length ? destination : null;
     selected = null;
     void navigate({ to: `${pathname}${where.location.search}`, replace: true, source: "follow" });
   };
@@ -299,7 +284,7 @@ export function createFollowAgent({
       const destination = destinationOf(where, batch);
       if (!destination) return;
       const here = currentPage(where);
-      if (destination.kind === "page" && here && findPage(where, destination.page) === here) {
+      if (here && findPage(where, destination.page) === here) {
         // The latest destination is where the editor is: only move within the page, right away.
         pendingNavigation = null;
         clearTimer();

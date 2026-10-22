@@ -340,7 +340,7 @@ const PreviewPanel = ({
           className={cn(
             "absolute",
             !placed && "inset-0",
-            underCanvas && (!placed || placed.hidden) && "invisible",
+            underCanvas && !placed && "invisible",
             device && "checkered flex items-center justify-center",
           )}
         >

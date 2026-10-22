@@ -6,7 +6,6 @@ import {
   createCanvasDocument,
   observeCanvasDocument,
   pauseCanvasDocument,
-  type CanvasDocumentFit,
 } from "./canvasFrameDocument";
 import type { CanvasFrameMode } from "./canvasFrameMode";
 import { useCanvasFrameInput } from "./useCanvasFrameInput";
@@ -30,17 +29,12 @@ export function useCanvasFrame({
   href,
   width,
   viewportHeight,
-  fit,
-  subject,
   mode,
 }: {
   previewDocument: string | undefined;
   href: string;
   width: number;
   viewportHeight: number;
-  fit: CanvasDocumentFit;
-  /** What the frame previews, for error messages. */
-  subject: "page" | "block";
   mode: CanvasFrameMode;
 }) {
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
@@ -70,19 +64,13 @@ export function useCanvasFrame({
   React.useLayoutEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !mount) return;
-    const stop = observeCanvasDocument(
-      iframe,
-      mount,
-      viewportHeight,
-      fit,
-      () => restingRef.current,
-    );
+    const stop = observeCanvasDocument(iframe, mount, viewportHeight, () => restingRef.current);
     sizing.current = stop;
     return () => {
       stop();
       sizing.current = null;
     };
-  }, [mount, viewportHeight, width, fit]);
+  }, [mount, viewportHeight, width]);
   React.useEffect(() => {
     if (!mount || live) return;
     return pauseCanvasDocument(mount.ownerDocument);
@@ -98,7 +86,7 @@ export function useCanvasFrame({
         const loaded = iframeRef.current;
         const doc = loaded?.contentDocument;
         const root = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
-        if (!root) throw new Error(`The ${subject} preview document has no content root.`);
+        if (!root) throw new Error("The page preview document has no content root.");
         if (root === mount) return;
         root.replaceChildren();
         setMount(root);
@@ -107,7 +95,7 @@ export function useCanvasFrame({
         setFailure(toError(error));
       }
     },
-    onError: () => setFailure(new Error(`The ${subject} preview document could not load.`)),
+    onError: () => setFailure(new Error("The page preview document could not load.")),
   } satisfies React.ComponentProps<"iframe">;
   return { iframeRef, iframe, mount, iframeProps };
 }

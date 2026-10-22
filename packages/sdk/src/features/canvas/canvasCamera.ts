@@ -45,10 +45,6 @@ export const CANVAS_PADDING = 64;
 export const CANVAS_HEADER_HEIGHT = 52;
 /** Screen-space inset of a Page snapped to fit the viewport's width. */
 export const CANVAS_PAGE_FIT_PADDING = 24;
-/** Shelf Marker bar plus its gap above the Page headers. */
-export const CANVAS_SHELF_MARKER_HEIGHT = 32;
-/** Unscaled chrome above the row: Shelf Markers, then Page headers. */
-const CANVAS_CHROME_HEIGHT = CANVAS_HEADER_HEIGHT + CANVAS_SHELF_MARKER_HEIGHT;
 export const MAX_CANVAS_ZOOM = 2;
 /**
  * Below this, Pages are too small to read while every frame comes near the
@@ -193,7 +189,7 @@ export function fitCanvasPage(
   );
   return {
     x: (viewport.width - page.width * scale) / 2 - page.left * scale,
-    y: Math.min(CANVAS_PAGE_FIT_PADDING + CANVAS_CHROME_HEIGHT, viewport.height / 3),
+    y: Math.min(CANVAS_PAGE_FIT_PADDING + CANVAS_HEADER_HEIGHT, viewport.height / 3),
     scale,
   };
 }
@@ -208,17 +204,17 @@ export function placeCanvasPageAnchor(
 ): CanvasCamera {
   return {
     x: viewport.width / 2 - (page.left + page.width / 2) * scale,
-    // At document top retain room for the unscaled Shelf Markers and page headers.
+    // At document top retain room for the unscaled page headers.
     y: documentY > 0 ? -(documentY + frameOffsetY) * scale : fitCanvasPage(viewport, page).y,
     scale,
   };
 }
 
-/** Reserve readable padding, unscaled Shelf Markers and page headers in the fitted overview. */
+/** Reserve readable padding and unscaled page headers in the fitted overview. */
 export function canvasInsets(viewport: CanvasSize) {
   return {
     x: Math.min(CANVAS_PADDING, viewport.width / 4),
-    top: Math.min(CANVAS_PADDING + CANVAS_CHROME_HEIGHT, viewport.height / 3),
+    top: Math.min(CANVAS_PADDING + CANVAS_HEADER_HEIGHT, viewport.height / 3),
     bottom: Math.min(CANVAS_PADDING, viewport.height / 4),
   };
 }
