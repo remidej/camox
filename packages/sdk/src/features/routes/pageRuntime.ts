@@ -532,7 +532,7 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   if (description) meta.push({ property: "og:description", content: description });
   meta.push(
     { property: "og:type", content: "website" },
-    { property: "og:site_name", content: input.projectName },
+    { property: "og:site_name", content: project.name },
     { name: "twitter:card", content: "summary_large_image" },
   );
 
