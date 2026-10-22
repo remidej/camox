@@ -138,10 +138,6 @@ _Avoid_: Design system, style, skin
 One of the color sets a theme defines, such as light, dark or brand, that a block or part of one switches to.
 _Avoid_: Theme, mode
 
-**Component**:
-A reusable piece of UI in a website's code that blocks are built from, such as a button. It holds no content of its own.
-_Avoid_: Primitive, widget, UI kit
-
 ### Content
 
 **Page**:
@@ -175,10 +171,6 @@ _Avoid_: Repeater item, child, row
 **Collection Record**:
 One independently identified, reusable entry of a collection.
 _Avoid_: Item, entry, document
-
-**Label**:
-The text field of a collection that names its records to editors.
-_Avoid_: Title, display name
 
 **Reference**:
 A field that selects a collection record by identity instead of copying its content. A required reference can't be published empty.
