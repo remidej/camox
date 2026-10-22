@@ -19,13 +19,11 @@ Camox takes an active role in maintaining your website. It watches content as it
 
 ## Quick start
 
-```bash
-npm create camox@latest
-```
+Create a project from the dashboard at [app.camox.dev](https://app.camox.dev). Camox sets up its website from the Template and hosts it at `<slug>.camox.site`.
 
 ## How it works
 
-1. Create a project with `npm create camox@latest`.
+1. Create a project from the dashboard.
 2. Use your coding agent to define blocks in code.
 3. Create pages by assembling blocks. Either visually in the UI, or with the CLI using your agent
 4. Edit drafts, review changes, and publish when ready.

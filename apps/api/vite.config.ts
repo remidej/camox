@@ -12,14 +12,14 @@ import { experimental_readRawConfig, unstable_readConfig } from "wrangler";
 const migrations = await readD1Migrations(path.join(import.meta.dirname, "migrations"));
 
 const SANDBOX_CONFIG = "sandbox/wrangler.jsonc";
+const RELEASE_FAKES_CONFIG = "test/release-fakes.wrangler.jsonc";
 
 /**
- * The code mode sandbox Worker as Wrangler deploys it, for the tests to run it as an auxiliary
- * Worker: named as deployed, which the API's binding names, with its entry and QuickJS compiled
- * as its own module.
+ * A Worker as Wrangler bundles it, for the tests to run it as an auxiliary Worker: named as its
+ * configuration names it, with its entry and any Wasm compiled as their own modules.
  */
-async function sandboxWorker() {
-  const config = unstable_readConfig({ config: path.join(import.meta.dirname, SANDBOX_CONFIG) });
+async function bundledWorker(configPath: string) {
+  const config = unstable_readConfig({ config: path.join(import.meta.dirname, configPath) });
   const require = createRequire(import.meta.url);
   // Wrangler's exports map hides its bin, so locate it from the exported package.json.
   const wrangler = path.join(
@@ -27,20 +27,20 @@ async function sandboxWorker() {
     "bin/wrangler.js",
   );
   // Its own directory per run, as test shards configure in parallel.
-  const outdir = await mkdtemp(path.join(tmpdir(), "camox-codemode-sandbox-"));
+  const outdir = await mkdtemp(path.join(tmpdir(), `${config.name}-`));
   await promisify(execFile)(
     process.execPath,
-    [wrangler, "deploy", "--dry-run", "--config", SANDBOX_CONFIG, "--outdir", outdir],
+    [wrangler, "deploy", "--dry-run", "--config", configPath, "--outdir", outdir],
     { cwd: import.meta.dirname },
   );
   const wasm = (await readdir(outdir)).filter((file) => file.endsWith(".wasm"));
   return {
-    name: config.name,
+    name: config.name!,
     compatibilityDate: config.compatibility_date,
-    durableObjects: { CODEMODE_SANDBOX: "CodemodeSandbox" },
+    compatibilityFlags: config.compatibility_flags,
     modulesRoot: outdir,
     modules: [
-      { type: "ESModule" as const, path: path.join(outdir, "index.js") },
+      { type: "ESModule" as const, path: path.join(outdir, `${path.parse(config.main!).name}.js`) },
       ...wasm.map((file) => ({ type: "CompiledWasm" as const, path: path.join(outdir, file) })),
     ],
   };
@@ -68,15 +68,26 @@ async function wranglerConfigForTests() {
   return file;
 }
 
-/** Fakes for the release Workflow's bindings, which have no local simulator. */
-const releaseFakesWorker = {
-  name: "camox-release-fakes",
-  compatibilityDate: "2026-03-28",
-  compatibilityFlags: ["nodejs_compat"],
-  modules: true,
-  scriptPath: path.join(import.meta.dirname, "test/release-fakes.js"),
-  durableObjects: { SANDBOX: "FakeSandbox" },
-};
+/**
+ * The code mode sandbox Worker as deployed beside the API, whose binding names it (ADR 0018).
+ */
+async function sandboxWorker() {
+  return {
+    ...(await bundledWorker(SANDBOX_CONFIG)),
+    durableObjects: { CODEMODE_SANDBOX: "CodemodeSandbox" },
+  };
+}
+
+/**
+ * Fakes for the release and creation Workflows' bindings, which have no local simulator, with the
+ * Git server their repos' remotes are served by (test/release-fakes.js).
+ */
+async function releaseFakesWorker() {
+  return {
+    ...(await bundledWorker(RELEASE_FAKES_CONFIG)),
+    durableObjects: { SANDBOX: "FakeSandbox" },
+  };
+}
 
 export default defineConfig({
   logLevel: "silent",
@@ -105,37 +116,43 @@ export default defineConfig({
       {
         extends: true,
         plugins: [
-          cloudflareTest(async () => ({
-            // Tests must not inherit production-backed bindings (such as EMAIL).
-            remoteBindings: false,
-            wrangler: { configPath: await wranglerConfigForTests() },
-            miniflare: {
-              // The sandbox Worker the threads' code mode scripts run in, as deployed beside the
-              // API (ADR 0018).
-              workers: [await sandboxWorker(), releaseFakesWorker],
-              // The release Workflow's Cloudflare Artifacts namespace, sandboxes and email,
-              // faked (test/release-fakes.js).
-              serviceBindings: {
-                ARTIFACTS: { name: releaseFakesWorker.name, entrypoint: "FakeArtifacts" },
-                EMAIL: { name: releaseFakesWorker.name, entrypoint: "FakeEmail" },
-                RELEASE_FAKES: { name: releaseFakesWorker.name, entrypoint: "ReleaseFakes" },
+          cloudflareTest(async () => {
+            const fakes = await releaseFakesWorker();
+            return {
+              // Tests must not inherit production-backed bindings (such as EMAIL).
+              remoteBindings: false,
+              wrangler: { configPath: await wranglerConfigForTests() },
+              miniflare: {
+                // The sandbox Worker the threads' code mode scripts run in, as deployed beside the
+                // API (ADR 0018).
+                workers: [await sandboxWorker(), fakes],
+                // The Workflows' Cloudflare Artifacts namespace, sandboxes and email, faked
+                // (test/release-fakes.js).
+                serviceBindings: {
+                  ARTIFACTS: { name: fakes.name, entrypoint: "FakeArtifacts" },
+                  EMAIL: { name: fakes.name, entrypoint: "FakeEmail" },
+                  RELEASE_FAKES: { name: fakes.name, entrypoint: "ReleaseFakes" },
+                },
+                // Outbound fetches reach the fakes, which serve the fake repos' Git remotes and
+                // pass anything else through.
+                outboundService: fakes.name,
+                durableObjects: {
+                  SANDBOX: { className: "FakeSandbox", scriptName: fakes.name },
+                },
+                bindings: {
+                  CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+                  CF_TOKEN: "test-cloudflare-token",
+                  BETTER_AUTH_SECRET: "test-secret",
+                  GITHUB_CLIENT_ID: "test-client-id",
+                  GITHUB_CLIENT_SECRET: "test-client-secret",
+                  GOOGLE_CLIENT_ID: "test-client-id",
+                  GOOGLE_CLIENT_SECRET: "test-client-secret",
+                  OPEN_ROUTER_API_KEY: "test-api-key",
+                  TEST_MIGRATIONS: migrations,
+                },
               },
-              durableObjects: {
-                SANDBOX: { className: "FakeSandbox", scriptName: releaseFakesWorker.name },
-              },
-              bindings: {
-                CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
-                CF_TOKEN: "test-cloudflare-token",
-                BETTER_AUTH_SECRET: "test-secret",
-                GITHUB_CLIENT_ID: "test-client-id",
-                GITHUB_CLIENT_SECRET: "test-client-secret",
-                GOOGLE_CLIENT_ID: "test-client-id",
-                GOOGLE_CLIENT_SECRET: "test-client-secret",
-                OPEN_ROUTER_API_KEY: "test-api-key",
-                TEST_MIGRATIONS: migrations,
-              },
-            },
-          })),
+            };
+          }),
         ],
         test: {
           name: "integration",

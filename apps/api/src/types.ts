@@ -27,6 +27,10 @@ export type Bindings = {
   /** The `projects` Cloudflare Artifacts namespace: every project's repo, and the Template's. */
   ARTIFACTS: Artifacts;
   RELEASE_WORKFLOW: Workflow;
+  /** Copies the Template into a new project's repo, named after its Project ID. */
+  PROJECT_CREATION_WORKFLOW: Workflow<
+    import("./domains/project-creation/workflow").ProjectCreationParams
+  >;
   /** Moves every project to a newly published SDK, one project upgrade each. */
   UPGRADE_WORKFLOW: Workflow<import("./domains/upgrades/workflow").UpgradeParams>;
   PROJECT_UPGRADE_WORKFLOW: Workflow<

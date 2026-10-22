@@ -92,6 +92,12 @@
       "binding": "RELEASE_WORKFLOW",
       "class_name": "ReleaseWorkflow",
     },
+    // Copies the Template into a new project's repo (src/domains/project-creation/README.md).
+    {
+      "name": "camox-project-creation",
+      "binding": "PROJECT_CREATION_WORKFLOW",
+      "class_name": "ProjectCreationWorkflow",
+    },
     // Moves every project to a newly published SDK; deploy.yml starts it after each publish
     // (src/domains/upgrades/README.md).
     {

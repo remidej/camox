@@ -1,4 +1,10 @@
 import { projectIdSchema } from "@camox/api-contract/ids";
+import {
+  projectSlugSchema,
+  RESERVED_PROJECT_SLUGS,
+  UNAVAILABLE_SLUG_MESSAGES,
+  type UnavailableSlugReason,
+} from "@camox/api-contract/projects";
 import { and, eq, inArray, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
@@ -166,14 +172,25 @@ export const getProject = Effect.fn("projects.getProject")(function* (
   return yield* memberProject(ctx, user.id, eq(projects.id, id));
 });
 
+/** Why `slug` can't be given to a new project, or null when it can. */
+const unavailableSlugReason = Effect.fn("projects.unavailableSlugReason")(function* (
+  ctx: ServiceContext,
+  slug: string,
+) {
+  if (!projectSlugSchema.safeParse(slug).success) return "invalid" as UnavailableSlugReason;
+  if (RESERVED_PROJECT_SLUGS.has(slug)) return "reserved" as UnavailableSlugReason;
+  const existing = yield* Effect.promise(() =>
+    ctx.db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).get(),
+  );
+  return existing ? ("taken" as UnavailableSlugReason) : null;
+});
+
 export const checkProjectSlugAvailability = Effect.fn("projects.checkProjectSlugAvailability")(
   function* (ctx: ServiceContext, rawInput: z.input<typeof checkProjectSlugAvailabilityInput>) {
     yield* requireUser(ctx);
     const { slug } = yield* decodeInput(checkProjectSlugAvailabilityInput, rawInput);
-    const existing = yield* Effect.promise(() =>
-      ctx.db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).get(),
-    );
-    return { available: !existing };
+    const reason = yield* unavailableSlugReason(ctx, slug);
+    return reason ? { available: false, reason } : { available: true };
   },
 );
 
@@ -187,12 +204,12 @@ export const createProject = Effect.fn("projects.createProject")(function* (
   const input = yield* decodeInput(createProjectInput, rawInput);
   yield* assertOrgMembership(ctx.db, user.id, input.organizationId);
 
-  // Race condition guard: check slug uniqueness at insert time
-  const existing = yield* Effect.promise(() =>
-    ctx.db.select({ id: projects.id }).from(projects).where(eq(projects.slug, input.slug)).get(),
-  );
-  if (existing) {
-    return yield* new ConflictError({ message: "Slug is already taken" });
+  const unavailable = yield* unavailableSlugReason(ctx, input.slug);
+  if (unavailable === "taken") {
+    return yield* new ConflictError({ message: UNAVAILABLE_SLUG_MESSAGES.taken });
+  }
+  if (unavailable) {
+    return yield* new InvalidInputError({ message: UNAVAILABLE_SLUG_MESSAGES[unavailable] });
   }
 
   const deployToken = crypto.randomUUID();
@@ -206,14 +223,28 @@ export const createProject = Effect.fn("projects.createProject")(function* (
         slug: input.slug,
         deployToken,
         organizationId: input.organizationId,
+        status: "settingUp",
+        setupStep: "copyTemplate",
         createdAt: now,
         updatedAt: now,
       })
+      // Two requests for the same slug: the unique index lets one through.
+      .onConflictDoNothing({ target: projects.slug })
       .returning()
       .get(),
   );
+  if (!result) return yield* new ConflictError({ message: UNAVAILABLE_SLUG_MESSAGES.taken });
 
   yield* Effect.promise(() => insertInitialLocale(ctx.db, result.id, now));
+  // `<slug>.camox.site` answers at once, with the setup page until the first release deploys.
+  yield* Effect.promise(() => ctx.env.PROJECT_SLUGS.put(result.slug, result.uuid));
+  // Named after the Project ID, so the project's setup is one instance, and a repeated start fails.
+  yield* Effect.promise(() =>
+    ctx.env.PROJECT_CREATION_WORKFLOW.create({
+      id: result.uuid,
+      params: { projectId: result.uuid },
+    }),
+  );
 
   return result;
 });

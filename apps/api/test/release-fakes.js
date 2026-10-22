@@ -1,8 +1,21 @@
-// Fakes for the release and upgrade Workflows' Cloudflare Artifacts, sandbox and email bindings, run by the
-// integration tests as an auxiliary Worker (vite.config.ts). Plain JavaScript, since Miniflare
-// loads auxiliary Workers unbundled. Everything shares one isolate, so the fakes and the tests
-// that drive them through `ReleaseFakes` share this module's state, keyed by repo name.
+// Fakes for the release, creation and upgrade Workflows' Cloudflare Artifacts, sandbox and email
+// bindings, run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles it
+// with the fake Git server its repos' remotes are served by (fake-git-server.ts). Everything
+// shares one isolate, so the fakes and the tests that drive them through `ReleaseFakes` share this
+// module's state, keyed by repo name.
 import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+
+import {
+  FAKE_GIT_HOST,
+  commitFiles,
+  deleteGitRepo,
+  forkGitRepo,
+  gitLog,
+  hasGitRepo,
+  losePushResponse,
+  readGitFile,
+  serveGit,
+} from "./fake-git-server";
 
 /** @type {Map<string, Map<string, Record<string, string>>>} repo name → commit → path → content */
 const repos = new Map();
@@ -20,6 +33,17 @@ const held = new Map();
 const emailsSent = [];
 /** @type {string[]} texts that make a send throw when an email contains one */
 const failingEmails = [];
+/** @type {Map<string, number>} repo name → `get` calls left that find its fork still running */
+const forksRunning = new Map();
+/** @type {Set<string>} repos whose next fork lands but throws, as if its response were lost */
+const lostForkResponses = new Set();
+/** @type {Set<string>} repos every fork of fails */
+const failingForks = new Set();
+
+/** An error the way the Artifacts binding throws one: its code leads the message. */
+function artifactsError(code, message) {
+  return Object.assign(new Error(`${code}: ${message}`), { name: "ArtifactsError", code });
+}
 
 // The checkout script fetches `.../git/<namespace>/<repo>.git`, which tells the sandbox its repo.
 const REMOTE = /\/git\/[^/]+\/([^/'"]+)\.git/;
@@ -42,29 +66,72 @@ class FakeRepo extends RpcTarget {
     };
   }
 
+  async revokeToken() {
+    return true;
+  }
+
   /** @param {string} ref a commit, or `main` */
   commit(ref) {
-    return ref === "main" || ref === "refs/heads/main" ? mains.get(this.name) : ref;
+    return ref === "main" || ref === "refs/heads/main" ? (mains.get(this.name) ?? ref) : ref;
   }
 
   async info() {
     return {
+      id: this.name,
       name: this.name,
+      description: null,
       defaultBranch: "main",
-      remote: `https://0123456789abcdef0123456789abcdef.artifacts.cloudflare.net/git/projects/${this.name}.git`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastPushAt: null,
+      source: null,
+      readOnly: false,
+      remote: `https://${FAKE_GIT_HOST}/git/projects/${this.name}.git`,
     };
   }
 
   /** @param {{ ref: string, path: string }} args */
   async readFile({ ref, path }) {
-    const content = repos.get(this.name)?.get(this.commit(ref))?.[path];
-    return content === undefined ? null : new Blob([content]);
+    const content =
+      repos.get(this.name)?.get(this.commit(ref))?.[path] ??
+      (await readGitFile(this.name, ref, path));
+    return content === undefined || content === null ? null : new Blob([content]);
   }
 
-  /** The head of `ref`, as the only commit of its history. */
-  async log({ ref = "main" } = {}) {
-    const hash = this.commit(ref);
-    return hash && repos.get(this.name)?.has(hash) ? [{ hash, parents: [] }] : [];
+  /**
+   * Forks this repo. Like Cloudflare Artifacts, the fork runs in the background: the next `get`
+   * of the new repo finds it still running.
+   * @param {string} name
+   */
+  async fork(name) {
+    if (failingForks.has(name)) throw artifactsError("INTERNAL_ERROR", "Fork failed");
+    if (hasGitRepo(name) || repos.has(name)) {
+      throw artifactsError("ALREADY_EXISTS", `Repository already exists: ${name}`);
+    }
+    forkGitRepo(this.name, name);
+    forksRunning.set(name, 1);
+    if (lostForkResponses.delete(name)) throw new Error("Network connection lost.");
+    return {
+      id: name,
+      name,
+      description: null,
+      defaultBranch: "main",
+      remote: `https://${FAKE_GIT_HOST}/git/projects/${name}.git`,
+      token: `artifacts-write-token`,
+    };
+  }
+
+  /**
+   * The history of `main`: a pushed repo's head as its only commit, or a Git repo's commits.
+   * @param {{ ref?: string, limit?: number }} options
+   */
+  async log({ ref = "main", limit = 50 } = {}) {
+    if (repos.has(this.name)) {
+      const hash = this.commit(ref);
+      return repos.get(this.name)?.has(hash) ? [{ hash, parents: [] }] : [];
+    }
+    const commits = await gitLog(this.name);
+    return commits.slice(0, limit).map(({ oid, message }) => ({ hash: oid, message }));
   }
 
   // No Git objects: @cloudflare/ci then skips its cache, which these tests don't cover.
@@ -81,10 +148,20 @@ class FakeRepo extends RpcTarget {
 export class FakeArtifacts extends WorkerEntrypoint {
   /** @param {string} name */
   async get(name) {
-    if (!repos.has(name)) {
-      throw Object.assign(new Error(`Repository not found: ${name}`), { code: "NOT_FOUND" });
+    if (!repos.has(name) && !hasGitRepo(name)) {
+      throw artifactsError("NOT_FOUND", `Repository not found: ${name}`);
+    }
+    const running = forksRunning.get(name) ?? 0;
+    if (running > 0) {
+      forksRunning.set(name, running - 1);
+      throw artifactsError("FORK_IN_PROGRESS", `Repository is still forking: ${name}`);
     }
     return new FakeRepo(name);
+  }
+
+  /** @param {string} name */
+  async delete(name) {
+    return deleteGitRepo(name) || repos.delete(name);
   }
 }
 
@@ -225,8 +302,54 @@ export class ReleaseFakes extends WorkerEntrypoint {
   async emailsSent() {
     return emailsSent;
   }
+
+  /**
+   * Commits `files` as the whole of a Git repo's `main`, such as `template-default`'s.
+   * @param {string} repo
+   * @param {Record<string, string>} files
+   * @param {string} message
+   */
+  async commit(repo, files, message) {
+    return commitFiles(repo, files, message);
+  }
+
+  /**
+   * A file on a Git repo's branch or commit, or null.
+   * @param {string} repo
+   * @param {string} ref
+   * @param {string} path
+   */
+  async readFile(repo, ref, path) {
+    return readGitFile(repo, ref, path);
+  }
+
+  /** @param {string} repo The commits on a Git repo's `main`, newest first. */
+  async log(repo) {
+    return gitLog(repo);
+  }
+
+  /** @param {string} repo Makes the next fork into `repo` land but throw. */
+  async loseForkResponse(repo) {
+    lostForkResponses.add(repo);
+  }
+
+  /** @param {string} repo Makes every fork into `repo` fail. */
+  async failForks(repo) {
+    failingForks.add(repo);
+  }
+
+  /** @param {string} repo Makes the next push to `repo` land but answer with an error. */
+  async losePushResponse(repo) {
+    losePushResponse(repo);
+  }
 }
 
 export default {
-  fetch: () => new Response("Not found", { status: 404 }),
+  /**
+   * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, and
+   * anything else goes out as it would without the fakes.
+   * @param {Request} request
+   */
+  fetch: (request) =>
+    new URL(request.url).hostname === FAKE_GIT_HOST ? serveGit(request) : fetch(request),
 };

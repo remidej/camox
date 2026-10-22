@@ -1,0 +1,8 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Never deployed: vite.config.ts bundles it, with the fake Git server, for the integration tests.
+  "name": "camox-release-fakes",
+  "main": "release-fakes.js",
+  "compatibility_date": "2026-03-28",
+  "compatibility_flags": ["nodejs_compat"],
+}

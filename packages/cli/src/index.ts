@@ -63,7 +63,7 @@ const result = runSync(program as never, { help: "both" }) as Result;
 
 switch (result.command) {
   case "init":
-    await init.handler();
+    init.handler();
     break;
   case "login":
     await login.handler();
