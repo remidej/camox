@@ -40,6 +40,9 @@
       "bucket_name": "camox-release-cache",
     },
   ],
+  // Workers AI, for the agent's web tools: Cloudflare's Web Search API, and converting the pages
+  // it fetches to Markdown (src/domains/threads/web-tools.ts).
+  "ai": { "binding": "AI", "remote": true },
   "media": {
     "binding": "MEDIA",
     "remote": true,

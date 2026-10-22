@@ -95,6 +95,12 @@ export const answerWithScript = (code: string, { text }: { text?: string } = {})
   faux.appendResponses([fauxAssistantMessage(content, { stopReason: "toolUse" })]);
 };
 
+/** Scripts the model's next answer as a call of the tool `name`, outside code mode. */
+export const answerWithToolCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
+  faux.appendResponses([
+    fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" }),
+  ]);
+
 /**
  * What the model sees when it's called: the editors' messages, the tools it's offered, its last
  * tool's result, and the output of the last script it ran, without code mode's header.
