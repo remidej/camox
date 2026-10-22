@@ -78,6 +78,11 @@ export interface LayoutContextSource {
   record?: RecordPageValues;
 }
 
+/** A curated page's undecorated title: its meta title, or its path segment while it has none. */
+export function curatedPageTitle(page: { pathSegment: string; metaTitle?: string | null }) {
+  return page.metaTitle ?? page.pathSegment;
+}
+
 /** A curated page's context, from its editor metadata. Its path keeps its locale's prefix. */
 export function curatedLayoutContext(
   structure: {
@@ -95,7 +100,7 @@ export function curatedLayoutContext(
   return buildLayoutContext(
     { kind: "curated", title: "" },
     {
-      metaTitle: page.metaTitle ?? page.pathSegment,
+      metaTitle: curatedPageTitle(page),
       description: page.metaDescription ?? undefined,
       path: localizedPath(page.fullPath, locale),
       locale: locale.tag,

@@ -1,5 +1,6 @@
 import {
   createSchemaOrgGraph,
+  defineBreadcrumb,
   defineOrganization,
   defineWebPage,
   defineWebSite,
@@ -39,6 +40,8 @@ export interface PageNodeInput {
   datePublished?: Date;
   /** When the page was last published to Live. */
   dateModified?: Date;
+  /** Where the page sits in the website, from the home page down to the page itself. */
+  breadcrumb?: ReadonlyArray<{ name: string; url: string }>;
 }
 
 /** What a page's graph is built from. */
@@ -94,9 +97,24 @@ function pageNode(page: PageNodeInput, site: SiteGraphInput) {
   });
 }
 
+/** The page's breadcrumb, which the page node links. None for a page without crumbs. */
+function breadcrumbNodes(page: PageNodeInput) {
+  if (!page.breadcrumb?.length) return [];
+  return [
+    defineBreadcrumb({
+      "@id": `${page.url}#breadcrumb`,
+      itemListElement: page.breadcrumb.map((crumb) => ({ name: crumb.name, item: crumb.url })),
+    }),
+  ];
+}
+
 /** Every node a page's graph holds, before they are resolved and linked. */
 function graphNodes(input: PageGraphInput) {
-  return [...siteNodes(input.site, input.page.inLanguage), pageNode(input.page, input.site)];
+  return [
+    ...siteNodes(input.site, input.page.inLanguage),
+    pageNode(input.page, input.site),
+    ...breadcrumbNodes(input.page),
+  ];
 }
 
 /** A page's graph, resolved into JSON-LD. */

@@ -172,7 +172,12 @@ export function createApp({
         kind: layout._internal.kind,
         description: layout._internal.description,
         blocks: layout._internal.blockDefinitions,
-        ...(layout._internal.recordPages && { recordPages: layout._internal.recordPages }),
+        ...(layout._internal.recordPages && {
+          recordPages: {
+            collectionId: layout._internal.recordPages.collectionId,
+            field: layout._internal.recordPages.field,
+          },
+        }),
       }));
       const typesUsedInLayouts = new Set(
         layoutDefinitions.flatMap((layout) => layout.blocks.map((block) => block.type)),

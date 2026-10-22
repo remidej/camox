@@ -31,6 +31,7 @@ export interface ListedPage {
   id: string;
   nickname: string;
   fullPath: string;
+  pathSegment: string;
   layoutId: string;
   metaTitle: string | null;
   metaDescription: string | null;
