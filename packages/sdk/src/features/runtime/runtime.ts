@@ -534,8 +534,8 @@ export function createPageHeadInput(head: {
   const pageLinks: Link[] = [];
   for (const entry of links) {
     if (!entry.href) continue;
-    if (entry.rel === "icon") {
-      pageLinks.push({ rel: "icon", href: entry.href, "data-camox-page-head": "true" });
+    if (entry.rel === "icon" || entry.rel === "canonical") {
+      pageLinks.push({ rel: entry.rel, href: entry.href, "data-camox-page-head": "true" });
       continue;
     }
     // Another locale's version of the page (`hreflang`), or another format of it (`type`).
@@ -691,8 +691,48 @@ async function readAlternates<Head extends PageHead | null>(
   }: AlternatesReading & { located: RequestLocale; identity: PageIdentity; head: Head },
 ): Promise<{ alternates: AlternatePath[]; head: Head }> {
   const alternates = await findRequestAlternates(options, located, identity, reading);
-  const links = hreflangLinks(alternates, located.locales, absoluteUrl(request, options));
-  return { alternates, head: (head && withHreflangs(head, links)) as Head };
+  const url = absoluteUrl(request, options);
+  const links = hreflangLinks(alternates, located.locales, url);
+  const place = {
+    url: url(localizedPath(located.path, located.locale)),
+    locale: located.locale.tag,
+    alternates,
+  };
+  return {
+    alternates,
+    head: (head && withLocatedTags(withHreflangs(head, links), place)) as Head,
+  };
+}
+
+/** An Open Graph locale: a locale tag with an underscore, as in `de_CH`. */
+const ogLocale = (tag: string) => tag.replaceAll("-", "_");
+
+/**
+ * A page's head with where it is: its canonical URL, which never names a draft, and its locale
+ * among the locales it exists in.
+ */
+function withLocatedTags(
+  head: PageHead,
+  {
+    url,
+    locale,
+    alternates,
+  }: { url: string; locale: string; alternates: readonly AlternatePath[] },
+): PageHead {
+  const others = alternates.filter((alternate) => alternate.locale !== locale);
+  return {
+    ...head,
+    meta: [
+      ...(head.meta ?? []),
+      { property: "og:url", content: url },
+      { property: "og:locale", content: ogLocale(locale) },
+      ...others.map((other) => ({
+        property: "og:locale:alternate",
+        content: ogLocale(other.locale),
+      })),
+    ],
+    links: [...(head.links ?? []), { rel: "canonical", href: url }],
+  };
 }
 
 /** Where the page a request renders exists in each of the scope's locales: itself alone in one. */
