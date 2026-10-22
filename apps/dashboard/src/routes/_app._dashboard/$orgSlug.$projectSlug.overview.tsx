@@ -39,6 +39,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   InfoIcon,
+  PencilIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -54,6 +55,7 @@ import {
   type ProjectAnalytics,
   uploadFavicon,
 } from "@/lib/api";
+import { authClient } from "@/lib/auth-client";
 import { projectQueries } from "@/lib/queries";
 
 function Section({
@@ -82,6 +84,44 @@ export const Route = createFileRoute("/_app/_dashboard/$orgSlug/$projectSlug/ove
     meta: [{ title: "Camox Dashboard" }],
   }),
 });
+
+/**
+ * Opens the project's site in a new tab with the studio signed in: the API hands the site a
+ * one-time token, which it exchanges for a session of its own.
+ */
+function OpenStudioButton({ project }: { project: Project }) {
+  const [opening, setOpening] = useState(false);
+
+  const open = async () => {
+    // Opened before awaiting the token, so the browser counts it as the click's and doesn't block
+    // it. Cut from this tab, so the site's scripts can't navigate the dashboard.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+    setOpening(true);
+    try {
+      const { data } = await authClient.$fetch<{ url: string }>("/cross-domain/studio-authorize", {
+        method: "POST",
+        body: { callback: siteUrl(project) },
+      });
+      if (!data?.url) throw new Error("The API didn't sign the studio in");
+      if (tab) tab.location.href = data.url;
+      else window.location.assign(data.url);
+    } catch (error) {
+      tab?.close();
+      console.error("Failed to open the studio:", error);
+      toast.error("Could not open the studio");
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <Button type="button" disabled={opening} onClick={() => void open()}>
+      {opening ? <Spinner /> : <PencilIcon />}
+      Open the studio
+    </Button>
+  );
+}
 
 function ProjectSettingsFormInner({ project }: { project: Project }) {
   const form = useForm({
@@ -776,11 +816,14 @@ function ProjectSettingsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-12">
       {project.status === "live" ? (
-        <Section title="Website" description="Where your website is live.">
-          <Button variant="outline" nativeButton={false} render={<a href={siteUrl(project)} />}>
-            {project.slug}.camox.site
-            <ExternalLinkIcon />
-          </Button>
+        <Section title="Website" description="Where your website is live, and where you edit it.">
+          <div className="flex flex-wrap gap-2">
+            <OpenStudioButton project={project} />
+            <Button variant="outline" nativeButton={false} render={<a href={siteUrl(project)} />}>
+              {project.slug}.camox.site
+              <ExternalLinkIcon />
+            </Button>
+          </div>
         </Section>
       ) : (
         <Section
