@@ -35,6 +35,10 @@
     "./threads": {
       "types": "./src/threads.ts",
       "default": "./src/threads.ts"
+    },
+    "./projects": {
+      "types": "./src/projects.ts",
+      "default": "./src/projects.ts"
     }
   },
   "publishConfig": {
@@ -66,6 +70,10 @@
       "./threads": {
         "types": "./dist/threads.d.ts",
         "default": "./dist/threads.js"
+      },
+      "./projects": {
+        "types": "./dist/projects.d.ts",
+        "default": "./dist/projects.js"
       }
     }
   },

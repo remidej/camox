@@ -92,6 +92,12 @@
       "binding": "RELEASE_WORKFLOW",
       "class_name": "ReleaseWorkflow",
     },
+    // Copies the Template into a new project's repo (src/domains/project-creation/README.md).
+    {
+      "name": "camox-project-creation",
+      "binding": "PROJECT_CREATION_WORKFLOW",
+      "class_name": "ProjectCreationWorkflow",
+    },
   ],
   // Remote even in local dev, as Cloudflare Artifacts has no local simulator.
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "projects", "remote": true }],

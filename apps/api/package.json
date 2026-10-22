@@ -39,6 +39,7 @@
     "effect": "^4.0.5",
     "fractional-indexing": "^4.0.0",
     "hono": "^4.13.13",
+    "isomorphic-git": "^1.44.3",
     "outdent": "^0.8.0",
     "partyserver": "^0.5.10",
     "slugify": "^1.6.9",

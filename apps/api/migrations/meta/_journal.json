@@ -134,6 +134,13 @@
       "when": 1792622768077,
       "tag": "0018_studio_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1792656721213,
+      "tag": "0019_project_setup",
+      "breakpoints": true
     }
   ]
 }

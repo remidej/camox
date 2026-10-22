@@ -21,6 +21,10 @@ Live gets the new definitions before the new code is deployed. If the deploy fai
 
 The row ends `succeeded`, or `failed` with the step that gave up. Its `workflow_instance_id` names the Workflow instance, where the logs are. Restarting the instance re-runs the release and starts its row over as `running`.
 
+## A new project's first release
+
+Until a project is `live`, its releases carry its setup on (`../project-creation/README.md`): recording the release moves the setup step to `build`, the Workflow moves it to `publish` before deploying, and a succeeded release makes the project `live`. A release that gives up marks the project `setupFailed` at the step it belongs to (`install` and `release` are `build`, `deploy` is `publish`). A live project's releases leave its status alone.
+
 ## When a release fails
 
 A step that gives up after its retries fails the release. The Workflow records the row as `failed` with that step, then emails an alert to the alerts address: from `alerts@camox.dev` to the API's `ALERT_EMAIL_TO` var. The alert is its own step, so a replay of the instance doesn't send it again, though a step can rarely run twice. The alert (`alert.ts`, on the generic alert email in `src/lib/alert-email.ts`, in the layout of `src/lib/email.ts` that auth emails share) names the project, its Project ID, the commit and the failed step, and links to the Workflow instance in the Cloudflare dashboard. A row that can't be recorded or an alert that can't be sent is logged: it neither stops the other nor hides the release's own error.
