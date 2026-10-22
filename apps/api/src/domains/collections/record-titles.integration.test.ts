@@ -149,15 +149,15 @@ describe("record titles and descriptions", () => {
     });
   });
 
-  it("still syncs and reads a definition set naming records with the old label", async () => {
-    const f = await fixture({ label: "firstName" });
-    const ada = await f.person({ firstName: "Ada", lastName: "Lovelace", role: "Mathematician" });
+  it("rejects a definition set naming records with the old label", async () => {
+    const rejection = await fixture({ label: "firstName" }).catch((error) => error);
 
-    expect(
-      await callSeedingLive(routes.listRecords, { ...f.named, collectionId: "people" }, f.options),
-    ).toEqual([{ id: ada.id, title: "Ada", description: null, duplicatePageValue: false }]);
-    expect(
-      await callSeedingLive(routes.get, { ...f.named, collectionId: "people" }, f.options),
-    ).toMatchObject({ toTitle: "{{firstName}}", toDescription: null });
+    expect(rejection).toMatchObject({ code: "BAD_REQUEST" });
+    expect(rejection.data.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ["definitionSet", "collections", 0, "toTitle"] }),
+        expect.objectContaining({ message: expect.stringContaining('"label"') }),
+      ]),
+    );
   });
 });

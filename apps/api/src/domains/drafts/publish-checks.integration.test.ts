@@ -34,7 +34,8 @@ const authors = {
   collectionId: "authors",
   title: "Authors",
   description: "",
-  label: "name",
+  toTitle: "{{name}}",
+  toDescription: null,
   contentSchema: {
     type: "object" as const,
     properties: {

@@ -36,7 +36,8 @@ function collectionDefinition(collectionId: string) {
     collectionId,
     title: collectionId,
     description: "",
-    label: "name",
+    toTitle: "{{name}}",
+    toDescription: null,
     contentSchema: {
       type: "object" as const,
       properties: { name: { type: "string", fieldType: "String" as const } },

@@ -462,7 +462,8 @@ describe("collection records", () => {
     collectionId: "people",
     title: "People",
     description: "",
-    label: "name",
+    toTitle: "{{name}}",
+    toDescription: null,
     contentSchema: {
       type: "object" as const,
       properties: { name: text(), ...properties },
