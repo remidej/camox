@@ -10,8 +10,10 @@ bumps and changelogs from Conventional Commits.
 
 - Use descriptive Conventional Commit messages: `fix(sdk): ...` for bug fixes,
   `feat(cli): ...` for features, and `feat(sdk)!: ...` (or a `BREAKING CHANGE:`
-  footer) for breaking changes. These normally select patch, minor, and major
-  bumps respectively.
+  footer) for breaking changes. These select patch, minor, and major bumps,
+  except that before 1.0.0 a breaking change bumps the minor version
+  (`bump-minor-pre-major`). At launch, remove that option and release 1.0.0 once
+  with `release-as`.
 - When squash-merging, ensure the final squash commit follows this format;
   release-please reads the commits on `main`, not just the PR description.
 - Let release-please manage release versions and changelogs instead of bumping
@@ -22,11 +24,12 @@ bumps and changelogs from Conventional Commits.
 1. As changes reach `main`, release-please opens or updates a release PR with
    package version bumps, changelogs, and the version manifest.
 2. A maintainer reviews the proposed versions and release notes, then merges
-   the release PR when ready to publish.
-3. The resulting push to `main` creates the root GitHub release. The workflow's
-   `publish` job runs only when release-please reports `release_created`, and
-   only once the production deployment of the same commit has succeeded, so no
-   published SDK is ahead of the deployed API (ADR 0019).
+   the release PR when ready to ship.
+3. The resulting push to `main` creates the root GitHub release, and
+   release-please reports `release_created`. That starts the `deploy` job, which
+   runs the checks and tests, then deploys production (see Production
+   deployment). The `publish` job runs only once that deployment has succeeded,
+   so no published SDK is ahead of the deployed API (ADR 0019).
 4. It builds workspace packages and publishes, in order: `@camox/api-contract`,
    `@camox/ui`, `@camox/cli`, `create-camox`, and `camox`.
 5. The `refresh-template` job then pushes the Template at the published version
@@ -43,18 +46,16 @@ documentation, and chores.
 The `publish` job needs the repository secret `NPM_TOKEN` with permission to
 publish these packages. It uses `GITHUB_TOKEN` to manage release PRs and GitHub
 releases; repository settings must allow GitHub Actions to create pull requests.
-Bot-created PRs using that token do not normally trigger PR CI automatically, so
-ensure validation has run before merging a release PR.
+Bot-created PRs using that token do not trigger workflows, so a release PR has
+no checks of its own; the `deploy` job validates the release after the merge.
+If it fails, the GitHub release exists but nothing is deployed or published:
+fix forward, and the next release PR carries the fix.
 
 Publishing is sequential, not atomic: if a package fails, earlier packages may
 already be on npm. Check the registry and workflow logs before retrying; a rerun
-can fail on an already-published version. Rerunning the whole workflow also
-redeploys production, and may not report `release_created` again, so prefer
-rerunning only the failed jobs.
-
-Package releases share a workflow with hosted app deployments, but don't hold
-them back: ordinary pushes to `main` deploy the apps without waiting for a
-release PR or npm publication.
+can fail on an already-published version. Rerunning the whole workflow may
+not report `release_created` again, which skips the deploy and the publish, so
+prefer rerunning only the failed jobs.
 The landing command `camox release` builds and syncs the site; it does not create
 an npm release or invoke release-please.
 
@@ -71,10 +72,12 @@ include the regenerated route tree in the same commit. Do not edit it manually.
 
 ## Production deployment
 
-`.github/workflows/deploy.yml` deploys API, dashboard, and landing on pushes to
-`main`, before any npm release of the same commit. It can also be rerun manually on `main`.
-Active deployments are not canceled by new commits; only the newest pending run
-is retained. Avoid concurrent manual deployments from your machine.
+`.github/workflows/deploy.yml` runs the checks and tests, then deploys API,
+dashboard, landing, and dispatch, each time a release PR is merged, before the
+npm release of the same commit. Ordinary pushes to `main` don't deploy. To deploy
+`main` without a release, run the workflow manually from the Actions tab.
+Active deployments are not canceled by newer ones; only the newest pending
+deployment is retained. Avoid concurrent manual deployments from your machine.
 
 ### One-time setup
 
@@ -181,5 +184,5 @@ The production API must still support older published SDKs used by customers.
 
 GitHub does not normally trigger another workflow for commits pushed using its
 `GITHUB_TOKEN`. If automation starts committing directly to `main`, use an
-appropriate GitHub App token or explicitly dispatch deployment. Normal merges
-of release PRs by a user trigger deployment like any other merge.
+appropriate GitHub App token or explicitly dispatch deployment. A user merging
+a release PR triggers deployment.
