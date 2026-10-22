@@ -131,7 +131,7 @@ Declare a non-nullable icon with a required, prefixed default, then render inlin
 icon: field.icon({ default: "lucide:zap", title: "Icon" })
 
 // In the component (also supported as <item.Icon> inside repeaters):
-<block.Icon name="icon" className="size-6 text-primary" />
+<block.Icon name="icon" className="size-6 text-brand" />
 <block.Icon name="icon" aria-label="Fast" />
 ```
 
