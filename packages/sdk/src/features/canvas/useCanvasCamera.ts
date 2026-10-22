@@ -40,7 +40,13 @@ import { canvasStore } from "./canvasStore";
 const GESTURE_IDLE_MS = 180;
 /** A zoom ends once its input pauses this long; a stretch past a limit then springs back. */
 const ZOOM_END_MS = 120;
-const CAMERA_PROPERTIES = ["--canvas-x", "--canvas-y", "--canvas-zoom", "--canvas-pixel-ratio"];
+const CAMERA_PROPERTIES = [
+  "--canvas-x",
+  "--canvas-y",
+  "--canvas-zoom",
+  "--canvas-rest-zoom",
+  "--canvas-pixel-ratio",
+];
 /** The camera counts as moving until it has been still this long. */
 const CAMERA_SETTLE_MS = 150;
 /**
@@ -441,17 +447,22 @@ export function useCanvasCamera(
         else delete element.dataset.canvasPromoted;
       }
     };
-    // Overlapping blocks reflows their frames, so it changes only at rest.
-    const paintBlockOverlap = () => {
+    // What depends on the zoom but isn't scaled with the camera changes only at rest: the
+    // blocks' overlap reflows their frames, and sizes like a device pixel repaint the items.
+    const paintAtRest = () => {
       if (settle) return;
       const overlap = String(canvasBlockOverlap(camera.scale, ownerWindow.devicePixelRatio));
-      for (const element of [viewport, ...mirrors.current])
+      const zoom = String(camera.scale);
+      for (const element of [viewport, ...mirrors.current]) {
         if (element.dataset.canvasBlockOverlap !== overlap)
           element.dataset.canvasBlockOverlap = overlap;
+        if (element.style.getPropertyValue("--canvas-rest-zoom") !== zoom)
+          element.style.setProperty("--canvas-rest-zoom", zoom);
+      }
     };
     const setMoving = (moving: boolean) => {
       paintPromotion();
-      paintBlockOverlap();
+      paintAtRest();
       canvasStore.send({ type: "setCameraMoving", workspaceKey, moving });
     };
     const markMoving = () => {
@@ -474,13 +485,13 @@ export function useCanvasCamera(
       paintElement(element);
       paintPanState();
       paintPromotion();
-      paintBlockOverlap();
+      paintAtRest();
     };
     const paint = () => {
       paintElement(viewport);
       for (const element of mirrors.current) paintElement(element);
       paintPromotion();
-      paintBlockOverlap();
+      paintAtRest();
       remember();
     };
     const animate = (time: number) => {

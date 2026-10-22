@@ -1,5 +1,9 @@
-/** A device pixel, in the CSS pixels of the Canvas world the camera scales. */
-const DEVICE_PIXEL = "calc(1px / (var(--canvas-zoom, 1) * var(--canvas-pixel-ratio, 1)))";
+/**
+ * A device pixel, in the CSS pixels of the Canvas world the camera scales. It follows the zoom
+ * the camera last rested at: following each step of a zoom would repaint every item each frame.
+ */
+const DEVICE_PIXEL =
+  "calc(1px / (var(--canvas-rest-zoom, var(--canvas-zoom, 1)) * var(--canvas-pixel-ratio, 1)))";
 
 /**
  * The edge of a Page or block frame in the Canvas, drawn over the frame. Where

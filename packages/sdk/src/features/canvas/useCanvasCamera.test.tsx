@@ -1836,8 +1836,11 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     const promoted = (element: { dataset: object }) => "canvasPromoted" in element.dataset;
     const overlap = (element: { dataset: { canvasBlockOverlap?: string } }) =>
       Number(element.dataset.canvasBlockOverlap);
+    const restZoom = (element: { style: { getPropertyValue: (name: string) => string } }) =>
+      element.style.getPropertyValue("--canvas-rest-zoom");
     const zoomBy = async (key: string, times = 1) => {
       const overlapBefore = overlap(viewport);
+      const restZoomBefore = restZoom(viewport);
       for (let count = 0; count < times; count++)
         viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key }));
       flush();
@@ -1845,8 +1848,11 @@ void test("the camera paints onto mirrored elements outside the viewport until r
       assert.equal(promoted(viewport), true, `a moving camera promotes its layers at ${scale}`);
       assert.equal(promoted(mirror), true, "and the mirror's");
       assert.equal(overlap(viewport), overlapBefore, "a moving camera never reflows frames");
+      assert.equal(restZoom(viewport), restZoomBefore, "nor repaints page edges");
       await new Promise((resolve) => dom.setTimeout(resolve, 300));
       assert.equal(overlap(mirror), overlap(viewport), "frames in the mirror overlap blocks alike");
+      assert.equal(restZoom(viewport), String(scale), "settled, page edges follow the zoom");
+      assert.equal(restZoom(mirror), restZoom(viewport), "in the mirror too");
       return scale;
     };
     // Settled, layers stay promoted only where Chromium rasters them affordably and sharply.
@@ -1874,6 +1880,7 @@ void test("the camera paints onto mirrored elements outside the viewport until r
 
     release();
     assert.deepEqual(camera(mirror), ["", "", "", ""], "releasing clears the mirrored camera");
+    assert.equal(restZoom(mirror), "", "and its resting zoom");
     assert.equal(promoted(mirror), false, "releasing demotes the mirror");
     assert.equal(mirror.dataset.canvasBlockOverlap, undefined, "and stops its block overlap");
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
