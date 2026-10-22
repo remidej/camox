@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...create-camox-v0.45.0) (2026-10-22)
+
+
+### Features
+
+* hosted projects for marketing teams (rest of [#444](https://github.com/remidej/camox/issues/444)) ([#469](https://github.com/remidej/camox/issues/469)) ([f33cc9c](https://github.com/remidej/camox/commit/f33cc9c28bc88531277db3d7ed12dd5e48bed471))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...create-camox-v0.44.0) (2026-09-24)
 
 

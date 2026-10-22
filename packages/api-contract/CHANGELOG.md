@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...@camox/api-contract-v0.45.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* camox({ projectSlug }) must become camox({ projectId }) with the Project ID shown in the Camox dashboard. Requires the API from #457.
+* SDKs calling the six removed procedures stop syncing definitions. Deploy the API before publishing the SDK that calls definitions.sync.
+* remove comments ([#298](https://github.com/remidej/camox/issues/298))
+
+### Features
+
+* **api:** add and remove locales ([#366](https://github.com/remidej/camox/issues/366)) ([3c94915](https://github.com/remidej/camox/commit/3c94915db27c12cbc8145c7baafb4f2b59bfe6b1))
+* **api:** end threads with their drafts ([#424](https://github.com/remidej/camox/issues/424)) ([801955c](https://github.com/remidej/camox/commit/801955ce27418a2a1bafcc4525182b8aa2430741))
+* **api:** let localizations diverge in structure ([#388](https://github.com/remidej/camox/issues/388)) ([c9e1ece](https://github.com/remidej/camox/commit/c9e1ece3a8d4e9fb47955c05c967dbf51a65dabc))
+* artifacts in the studio and AI features ([#178](https://github.com/remidej/camox/issues/178)) ([27c789d](https://github.com/remidej/camox/commit/27c789d6a07c019790d2e68ba46d6f9ff9698087))
+* **canvas:** show block usage in the Block Catalog ([#167](https://github.com/remidej/camox/issues/167)) ([a0e3d78](https://github.com/remidej/camox/commit/a0e3d786124f5ada7e19f61b5302456e16e77bc6)), closes [#152](https://github.com/remidej/camox/issues/152)
+* **canvas:** show Synced Blocks' shared content in the Block Catalog ([#170](https://github.com/remidej/camox/issues/170)) ([ce154f5](https://github.com/remidej/camox/commit/ce154f5e5496d7b4fea3f6c5def6a7a4c999006c))
+* chat with the agent on Live ([#414](https://github.com/remidej/camox/issues/414)) ([5575471](https://github.com/remidej/camox/commit/557547172f46c9a85a51ac6d94d65717eef71d9b))
+* **collections:** add item authoring with media library assets ([0017fcc](https://github.com/remidej/camox/commit/0017fccc67a3870df4405a560cc99490c3d0cee2))
+* **collections:** make collection records plain content ([#257](https://github.com/remidej/camox/issues/257)) ([58a629a](https://github.com/remidej/camox/commit/58a629a20dfdda91116a6a8ef7d2668e98ea3e18))
+* comments in drafts ([#267](https://github.com/remidej/camox/issues/267)) ([cdf6327](https://github.com/remidej/camox/commit/cdf6327c1105331b9b8a1715ff042867eb060879)), closes [#241](https://github.com/remidej/camox/issues/241)
+* **content:** add experimental collection browsing and item forms ([6c211bb](https://github.com/remidej/camox/commit/6c211bb51ed661b16202c93b751c6185730298d6))
+* development drafts replace development environments ([#274](https://github.com/remidej/camox/issues/274)) ([e1f8a07](https://github.com/remidej/camox/commit/e1f8a07c69b594d7b9ccb455e8e20d615c015ba6)), closes [#246](https://github.com/remidej/camox/issues/246)
+* drafts v1 ([e6473b2](https://github.com/remidej/camox/commit/e6473b2ffd21e7ba3a404a03c6a73dccae136876))
+* edit blocks in a draft while Live stays unchanged ([#262](https://github.com/remidej/camox/issues/262)) ([4ea5fcd](https://github.com/remidej/camox/commit/4ea5fcda4eef980a6e43f1f133370618d783ce84))
+* follow the agent's changes on the Canvas ([#433](https://github.com/remidej/camox/issues/433)) ([94940c2](https://github.com/remidej/camox/commit/94940c27828524273e76fa18d87909ae80df95ac))
+* hosted projects for marketing teams (rest of [#444](https://github.com/remidej/camox/issues/444)) ([#469](https://github.com/remidej/camox/issues/469)) ([f33cc9c](https://github.com/remidej/camox/commit/f33cc9c28bc88531277db3d7ed12dd5e48bed471))
+* identify files, collection records and comments by UUIDv7 ([#253](https://github.com/remidej/camox/issues/253)) ([2efc5da](https://github.com/remidej/camox/commit/2efc5da7a6c56e6bc3428d954684fb23f36d1b80))
+* identify pages, blocks and repeatable items by UUIDv7 ([#260](https://github.com/remidej/camox/issues/260)) ([ee3a8c9](https://github.com/remidej/camox/commit/ee3a8c90af9bd5d79803c53cc5c4dc8b17fe56cb))
+* identify projects by a permanent Project ID instead of their slug ([#461](https://github.com/remidej/camox/issues/461)) ([d83992a](https://github.com/remidej/camox/commit/d83992afa7e73a2b8cbfb55255e107d7b1b0e44a))
+* make Live read-only ([#273](https://github.com/remidej/camox/issues/273)) ([4ff0e5e](https://github.com/remidej/camox/commit/4ff0e5ec4f1475daf0eff8a7e170c9aba9e8c0e9)), closes [#245](https://github.com/remidej/camox/issues/245)
+* navigation and realtime follow the selected draft ([#263](https://github.com/remidej/camox/issues/263)) ([4cbf39f](https://github.com/remidej/camox/commit/4cbf39feedda355995e10b177468f5a868f7c1b0)), closes [#237](https://github.com/remidej/camox/issues/237)
+* PostHog as a second analytics provider ([#391](https://github.com/remidej/camox/issues/391)) ([c55dcfe](https://github.com/remidej/camox/commit/c55dcfe6793427a1c20b5d1d8b8dbadde19c036a))
+* publish every locale together ([#387](https://github.com/remidej/camox/issues/387)) ([d0ea50f](https://github.com/remidej/camox/commit/d0ea50fc324f86fd6fe558d9ef36b63686e83913))
+* publish from the CLI and AI tools, and remove environments ([#275](https://github.com/remidej/camox/issues/275)) ([eb8369b](https://github.com/remidej/camox/commit/eb8369bd433b32cd31ad5f283aed691871e6b395)), closes [#248](https://github.com/remidej/camox/issues/248)
+* publish or discard a draft ([#264](https://github.com/remidej/camox/issues/264)) ([1698b1f](https://github.com/remidej/camox/commit/1698b1f53fe2dc8d19cde57fd9c5a6ff9b01c387)), closes [#236](https://github.com/remidej/camox/issues/236)
+* query-backed reference lists ([#145](https://github.com/remidej/camox/issues/145)) ([d4aefd9](https://github.com/remidej/camox/commit/d4aefd99e580d58b1df7d449eb92f9cd2ad14ab1))
+* remove comments ([#298](https://github.com/remidej/camox/issues/298)) ([400b1d9](https://github.com/remidej/camox/commit/400b1d995f4bf88cea175a3684e11c3f3a89fc5d))
+* **sdk:** count visitors in Google Analytics 4 on the first page load ([#379](https://github.com/remidej/camox/issues/379)) ([76a61c5](https://github.com/remidej/camox/commit/76a61c556c5b90d0427a319c1bb89b6627a58a5b))
+* start a draft from a Live thread ([#425](https://github.com/remidej/camox/issues/425)) ([1cf351e](https://github.com/remidej/camox/commit/1cf351e1cb7ae2aacfd7088ab6191b89d506d6f4))
+* steer and stop runs, and show failed turns ([#417](https://github.com/remidej/camox/issues/417)) ([24e4072](https://github.com/remidej/camox/commit/24e4072bd0d8cbbf127931d71da7b326f50b3780))
+* sync each website's Definition Set from one app module, atomically ([#435](https://github.com/remidej/camox/issues/435)) ([7e149ff](https://github.com/remidej/camox/commit/7e149ffde6f79f7aae88688c3362f60e21291387))
+* the drafts control ([#266](https://github.com/remidej/camox/issues/266)) ([59a3597](https://github.com/remidej/camox/commit/59a3597e77404748ad3c339edff396c3bfb9ee64)), closes [#242](https://github.com/remidej/camox/issues/242)
+
+
+### Bug Fixes
+
+* **drafts:** address the feat/drafts review findings ([#277](https://github.com/remidej/camox/issues/277)) ([1e46291](https://github.com/remidej/camox/commit/1e462917c3a258dba5e1134c9de3f8ed4fb4104f)), closes [#226](https://github.com/remidej/camox/issues/226)
+* **sdk:** keep @iconify/utils out of client bundles ([#290](https://github.com/remidej/camox/issues/290)) ([c0f0500](https://github.com/remidej/camox/commit/c0f05001bbf7683ff886942e77f0d4e4556f7ff9))
+
+
+### Performance Improvements
+
+* **sdk:** stop shipping Studio code and wasted requests to anonymous visitors ([#305](https://github.com/remidej/camox/issues/305)) ([71379a8](https://github.com/remidej/camox/commit/71379a80e87c6d798b8f5a6affec5d644ee692b5))
+
+
+### Refactoring
+
+* drop page and layout checkpoints and per-item publishing ([#256](https://github.com/remidej/camox/issues/256)) ([989cb75](https://github.com/remidej/camox/commit/989cb75c8f20cec2e7f69be00871c2dec34d7adb))
+* **sdk:** one draft scope per render and one catalog of studio reads ([#309](https://github.com/remidej/camox/issues/309)) ([eb91eb6](https://github.com/remidej/camox/commit/eb91eb6d00c181e9101a8e114d12c7ae6d79358d))
+
+
+### Miscellaneous
+
+* merge main into canvas landing ([6eb58c6](https://github.com/remidej/camox/commit/6eb58c6b36332a982b0330c45c26c0795c5e1112))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/api-contract-v0.44.0) (2026-09-24)
 
 
