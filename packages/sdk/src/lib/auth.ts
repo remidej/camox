@@ -342,6 +342,8 @@ export function useProcessOtt(
 
 interface AuthContextValue {
   initialAuthenticated?: boolean;
+  /** Whether a `?ott=` one-time token is still being exchanged for a session. */
+  exchangingToken?: boolean;
   authClient: CamoxAuthClient;
   authenticationUrl: string;
   apiUrl: string;
@@ -388,7 +390,7 @@ function useSessionState(authClient: CamoxAuthClient, track: boolean) {
 }
 
 export function useAuthState() {
-  const { authClient, initialAuthenticated = false } = useAuthContext();
+  const { authClient, initialAuthenticated = false, exchangingToken = false } = useAuthContext();
   const hydrated = React.useSyncExternalStore(
     subscribeToHydration,
     () => true,
@@ -398,6 +400,9 @@ export function useAuthState() {
   // anonymous: don't ask the API.
   const tracksSession = initialAuthenticated || (hydrated && hasStoredAuthCookie());
   const { data: session, isPending } = useSessionState(authClient, tracksSession);
+  // Not signed in yet, but about to be: a sign-in redirect now would fetch another token, and
+  // land back here before this one is exchanged, forever.
+  if (exchangingToken && !initialAuthenticated) return { isAuthenticated: false, isLoading: true };
   if (!tracksSession) return { isAuthenticated: false, isLoading: !hydrated };
   // Presentation only: every API operation still validates the actual session.
   const useInitial = !hydrated || isPending;
