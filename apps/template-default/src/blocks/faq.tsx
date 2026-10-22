@@ -31,15 +31,15 @@ const faq = createBlock({
       maxItems: Infinity,
       title: "Questions",
       toTitle: ({ content }) => content.question,
-      toMarkdown: (c) => [`Q: ${c.question}`, `A: ${c.answer}`],
+      toMarkdown: ({ content }) => [`Q: ${content.question}`, `A: ${content.answer}`],
     }),
   }),
   settings: (setting) => ({
     scheme: colorSchemeSetting(setting, "light"),
   }),
-  component: FaqComponent,
+  toReact: FaqComponent,
   toTitle: () => "FAQ",
-  toMarkdown: (c) => [c.items],
+  toMarkdown: ({ content }) => [content.items],
 });
 
 function FaqComponent() {

@@ -12,16 +12,12 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
-import {
-  curatedLayoutContext,
-  ogImageContext,
-  ogImageSearchParams,
-  type AnyLayoutContext,
-} from "../../core/layoutContext";
+import { curatedLayoutContext, type AnyLayoutContext } from "../../core/layoutContext";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
 import { linkFallbackLocale } from "../../lib/link-pages";
 import { localeHeaders, UNNAMED_DEFAULT_LOCALE, type LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
+import { PAGE_IMAGE_SIZE, pageImageUrl } from "../og/pageImage";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
 
@@ -446,16 +442,13 @@ export async function createMarkdownResponse({
 
 /** What a page's title and description are built from. */
 export interface PageMetaInput {
-  layout:
-    | Pick<Layout["_internal"], "id" | "toTitle" | "toDescription" | "imageFromContext">
-    | undefined;
+  layout: Pick<Layout["_internal"], "id" | "toTitle" | "toDescription"> | undefined;
   /** The context the layout's `to*` options receive. */
   context: AnyLayoutContext;
 }
 
 export interface PageHeadInput extends PageMetaInput {
-  /** The title an old `buildOgImage` shows; defaults to the built title. */
-  ogImageTitle?: string;
+  /** The editor's custom image, which replaces the one `/og` renders. */
   customOgImageUrl?: string | null;
   origin: string;
   faviconUrl: string;
@@ -511,23 +504,17 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   if (description) meta.push({ name: "description", content: description });
 
   const { page, project } = input.context;
-  // `toImage` gets the page's own title and description; an old `buildOgImage` the built ones.
-  const ogImageParams = ogImageSearchParams(
-    input.layout?.imageFromContext
-      ? { layoutId: input.layout.id, ...input.context }
-      : {
-          layoutId: input.layout?.id,
-          page: { title: input.ogImageTitle ?? title, description },
-          project,
-        },
-  );
-  const ogImageUrl = input.customOgImageUrl ?? `${input.origin}/og?${ogImageParams.toString()}`;
+  const ogImageUrl = pageImageUrl({
+    origin: input.origin,
+    path: page.path,
+    customImageUrl: input.customOgImageUrl,
+  });
 
   meta.push(
     { property: "og:title", content: title },
     { property: "og:image", content: ogImageUrl },
-    { property: "og:image:width", content: "1200" },
-    { property: "og:image:height", content: "630" },
+    { property: "og:image:width", content: String(PAGE_IMAGE_SIZE.width) },
+    { property: "og:image:height", content: String(PAGE_IMAGE_SIZE.height) },
   );
   if (description) meta.push({ property: "og:description", content: description });
   meta.push(
@@ -547,13 +534,6 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   return { meta, links };
 }
 
-/** The shared image `/og` renders for the layout its query names. */
-export async function createOgImageResponse(camoxApp: CamoxApp, url: URL): Promise<Response> {
-  const layout = camoxApp.getLayoutById(url.searchParams.get("layoutId") || "");
-  if (!layout?._internal.toImage) return new Response("Not found", { status: 404 });
-  return layout._internal.toImage(ogImageContext(url.searchParams));
-}
-
 /** A curated page's head. Its paths keep the prefix of the page's `locale`. */
 export function buildCamoxPageHead(
   camoxApp: CamoxApp,
@@ -563,10 +543,8 @@ export function buildCamoxPageHead(
   if (!loaderData) return {};
 
   const { page, origin, faviconUrl } = loaderData;
-  const metaInput = curatedPageMetaInput(camoxApp, page, locale);
   return buildPageHead({
-    ...metaInput,
-    ogImageTitle: metaInput.context.page.title,
+    ...curatedPageMetaInput(camoxApp, page, locale),
     customOgImageUrl: page.page.customOgImageUrl,
     origin,
     faviconUrl,

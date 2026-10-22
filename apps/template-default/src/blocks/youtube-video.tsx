@@ -48,9 +48,9 @@ const youtubeVideo = createBlock({
       title: "Fullscreen",
     }),
   }),
-  component: YouTubeVideoComponent,
+  toReact: YouTubeVideoComponent,
   toTitle: ({ content }) => content.url,
-  toMarkdown: (c) => [c.url],
+  toMarkdown: ({ content }) => [content.url],
 });
 
 function extractVideoId(url: string): string | null {

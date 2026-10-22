@@ -14,13 +14,13 @@ const articlesIndex = createBlock({
     articles: field.referenceList(articles, {
       title: "Articles",
       query: { orderBy: { title: "asc" } },
-      toMarkdown: (article) => [
-        `- [${article.title}](/articles/${article.slug}): ${article.excerpt}`,
+      toMarkdown: ({ content }) => [
+        `- [${content.title}](/articles/${content.slug}): ${content.excerpt}`,
       ],
     }),
   }),
-  component: ArticlesIndexComponent,
-  toMarkdown: (c) => [`# ${c.title}`, c.articles],
+  toReact: ArticlesIndexComponent,
+  toMarkdown: ({ content }) => [`# ${content.title}`, content.articles],
 });
 
 function ArticlesIndexComponent() {

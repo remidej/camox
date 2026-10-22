@@ -35,12 +35,17 @@ const article = createBlock({
       maxItems: Infinity,
       title: "Sections",
       toTitle: ({ content }) => content.title,
-      toMarkdown: (c) => [`## ${c.title}`, c.body],
+      toMarkdown: ({ content }) => [`## ${content.title}`, content.body],
     }),
   }),
-  component: ArticleComponent,
+  toReact: ArticleComponent,
   toTitle: ({ content }) => content.title,
-  toMarkdown: (c) => [c.meta, `# ${c.title}`, c.introduction, c.sections],
+  toMarkdown: ({ content }) => [
+    content.meta,
+    `# ${content.title}`,
+    content.introduction,
+    content.sections,
+  ],
 });
 
 function ArticleComponent() {

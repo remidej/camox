@@ -28,8 +28,8 @@ const gallery = createBlock({
       title: "Columns",
     }),
   }),
-  component: GalleryComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.images],
+  toReact: GalleryComponent,
+  toMarkdown: ({ content }) => [`## ${content.title}`, content.images],
 });
 
 function GalleryComponent() {

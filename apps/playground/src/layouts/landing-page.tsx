@@ -13,9 +13,10 @@ const landingPageLayout = createLayout({
     after: [footerBlock],
     initial: [() => import("../blocks/hero"), () => import("../blocks/statistics")],
   },
-  component: LandingPageLayout,
-  buildMetaTitle: ({ pageMetaTitle, projectName }) => `${projectName} | ${pageMetaTitle}`,
-  buildOgImage: ({ title, description, projectName }) => (
+  toReact: LandingPageLayout,
+  toTitle: ({ page, project }) => `${project.name} | ${page.title}`,
+  toDescription: ({ page }) => page.description,
+  toImage: ({ page, project }) => (
     <div
       style={{
         display: "flex",
@@ -29,7 +30,7 @@ const landingPageLayout = createLayout({
         fontFamily: "sans-serif",
       }}
     >
-      {projectName && (
+      {project.name && (
         <div
           style={{
             fontSize: 24,
@@ -39,7 +40,7 @@ const landingPageLayout = createLayout({
             letterSpacing: "0.1em",
           }}
         >
-          {projectName}
+          {project.name}
         </div>
       )}
       <div
@@ -54,9 +55,9 @@ const landingPageLayout = createLayout({
           textOverflow: "ellipsis",
         }}
       >
-        {title}
+        {page.title}
       </div>
-      {description && (
+      {page.description && (
         <div
           style={{
             fontSize: 28,
@@ -67,7 +68,7 @@ const landingPageLayout = createLayout({
             textOverflow: "ellipsis",
           }}
         >
-          {description}
+          {page.description}
         </div>
       )}
     </div>

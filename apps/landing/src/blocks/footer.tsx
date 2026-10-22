@@ -29,12 +29,12 @@ const footer = createBlock({
       maxItems: 12,
       title: "Links",
       toTitle: ({ content }) => content.link,
-      toMarkdown: (c) => [c.link],
+      toMarkdown: ({ content }) => [content.link],
     }),
   }),
-  component: FooterComponent,
+  toReact: FooterComponent,
   toTitle: () => "Footer",
-  toMarkdown: (c) => [c.logo, c.links],
+  toMarkdown: ({ content }) => [content.logo, content.links],
 });
 
 /** A range across the middle of the container, on a baseline (y=104) that runs to both ends. */

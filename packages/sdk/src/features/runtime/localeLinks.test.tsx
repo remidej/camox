@@ -73,7 +73,7 @@ const links = createBlock({
     team: field.link({ default: { text: "", href: "/", newTab: false } }),
     body: field.string({ default: "" }),
   }),
-  component: () => (
+  toReact: () => (
     <nav>
       <links.Link name="pricing">{({ to, children }) => <a href={to}>{children}</a>}</links.Link>
       <links.Link name="team">{({ to, children }) => <a href={to}>{children}</a>}</links.Link>

@@ -31,8 +31,8 @@ const hero = createBlock({
   title: "Hero",
   description: "A title",
   content: (field: ContentFieldBuilder) => ({ title: field.string({ default: "" }) }),
-  component: () => <hero.Field name="title">{(props) => <h1 {...props} />}</hero.Field>,
-  toMarkdown: (content: { title: string }) => [content.title],
+  toReact: () => <hero.Field name="title">{(props) => <h1 {...props} />}</hero.Field>,
+  toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
 });
 const camoxApp = createApp({ blocks: [hero as unknown as Block] });
 

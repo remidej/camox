@@ -12,8 +12,8 @@ export const Layout = createLayout("articles.$slug")({
   description: "One article of the Articles collection, found by its slug.",
   blocks: { before: [navbarBlock, backToArticlesBlock], after: [footerBlock] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
-  buildMetaDescription: ({ item }) => item.excerpt || undefined,
+  toTitle: ({ page, project }) => `${page.title} | ${project.name}`,
+  toDescription: ({ content }) => content.excerpt || undefined,
   toMarkdown: ({ item }) => [
     `# ${item.title}`,
     `By ${item.author.name}`,
@@ -21,7 +21,7 @@ export const Layout = createLayout("articles.$slug")({
     item.excerpt,
     item.body,
   ],
-  component: ArticlePage,
+  toReact: ArticlePage,
 });
 
 function ArticlePage() {

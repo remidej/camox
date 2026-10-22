@@ -12,11 +12,11 @@ const recentArticles = createBlock({
     articles: field.referenceList(articles, {
       title: "Articles",
       query: { orderBy: { publishedAt: "desc" }, limit: 3 },
-      toMarkdown: (article) => [`### ${article.title}`, article.excerpt],
+      toMarkdown: ({ content }) => [`### ${content.title}`, content.excerpt],
     }),
   }),
-  component: RecentArticlesComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.articles],
+  toReact: RecentArticlesComponent,
+  toMarkdown: ({ content }) => [`## ${content.title}`, content.articles],
 });
 
 function RecentArticlesComponent() {

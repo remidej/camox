@@ -44,12 +44,14 @@ const youtubeDemo = createBlock({
       maxItems: Infinity,
       title: "Chapters",
       toTitle: ({ content }) => `${content.timestamp} ${content.title}`,
-      toMarkdown: (c) => [`**${c.timestamp}** — ${c.title}: ${c.description}`],
+      toMarkdown: ({ content }) => [
+        `**${content.timestamp}** — ${content.title}: ${content.description}`,
+      ],
     }),
   }),
-  component: YoutubeDemoComponent,
+  toReact: YoutubeDemoComponent,
   toTitle: ({ content }) => content.title,
-  toMarkdown: (c) => [`# ${c.title}`, c.embed, c.chapters],
+  toMarkdown: ({ content }) => [`# ${content.title}`, content.embed, content.chapters],
 });
 
 function parseTimestamp(text: string): number {
