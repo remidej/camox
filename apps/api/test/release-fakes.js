@@ -420,16 +420,27 @@ export class ReleaseFakes extends WorkerEntrypoint {
   }
 }
 
+/** The host of a public website the agent reads in tests (web-tools.integration.test.ts). */
+const FAKE_WEB_HOST = "website.camox.test";
+
+/** A page of the fake public website, served as Markdown, so reading it needs no Workers AI. */
+const serveWebsite = (/** @type {Request} */ request) =>
+  new Response(`# ${new URL(request.url).pathname}\n\nOpening hours: 9am to 5pm.\n`, {
+    headers: { "content-type": "text/markdown; charset=utf-8" },
+  });
+
 export default {
   /**
    * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, the
-   * Cloudflare API its fake, and anything else goes out as it would without the fakes.
+   * Cloudflare API its fake, the fake public website its pages, and anything else goes out as it
+   * would without the fakes.
    * @param {Request} request
    */
   fetch: (request) => {
     const { hostname } = new URL(request.url);
     if (hostname === FAKE_GIT_HOST) return serveGit(request);
     if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);
+    if (hostname === FAKE_WEB_HOST) return serveWebsite(request);
     return fetch(request);
   },
 };
