@@ -49,6 +49,7 @@ const youtubeVideo = createBlock({
     }),
   }),
   component: YouTubeVideoComponent,
+  toTitle: ({ content }) => content.url,
   toMarkdown: (c) => [c.url],
 });
 

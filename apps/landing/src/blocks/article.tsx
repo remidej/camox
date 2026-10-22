@@ -34,10 +34,12 @@ const article = createBlock({
       minItems: 1,
       maxItems: Infinity,
       title: "Sections",
+      toTitle: ({ content }) => content.title,
       toMarkdown: (c) => [`## ${c.title}`, c.body],
     }),
   }),
   component: ArticleComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: (c) => [c.meta, `# ${c.title}`, c.introduction, c.sections],
 });
 

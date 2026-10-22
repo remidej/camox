@@ -45,10 +45,12 @@ const withoutWith = createBlock({
       minItems: 2,
       maxItems: 8,
       title: "Comparisons",
+      toTitle: ({ content }) => content.without,
       toMarkdown: (c) => [`**Without:** ${c.without}\n**With:** ${c.with}`],
     }),
   }),
   component: WithoutWithComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: (c) => [
     c.pill,
     `## ${c.title}`,

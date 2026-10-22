@@ -42,6 +42,7 @@ const illustratedFeatures = createBlock({
       minItems: 1,
       maxItems: Infinity,
       title: "Features",
+      toTitle: ({ content }) => content.title,
       toMarkdown: (c) => [`**${c.title}** ${c.description}`, c.illustration],
     }),
   }),
@@ -53,6 +54,7 @@ const illustratedFeatures = createBlock({
     }),
   }),
   component: IllustratedFeaturesComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: (c) => [c.pill, `# ${c.title}`, c.description, c.items],
 });
 
