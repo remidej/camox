@@ -153,6 +153,7 @@ export const layoutBundleSchema = z.strictObject({
         .strictObject({ projectApiKey: z.string(), region: posthogRegionSchema })
         .nullable(),
     }),
+    socialProfiles: z.array(z.string()),
   }),
   layout: z.strictObject({
     layoutId: z.string(),
