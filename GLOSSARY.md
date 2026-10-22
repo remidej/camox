@@ -128,6 +128,20 @@ _Avoid_: Content type, table, model
 The code-owned head configuration (title, meta, links, scripts) shared by every page of the website.
 _Avoid_: Root layout, shell, head
 
+### Design (code-owned)
+
+**Theme**:
+The design decisions in a website's code that every block draws from: colors, fonts, type sizes, corner radii and spacing.
+_Avoid_: Design system, style, skin
+
+**Color Scheme**:
+One of the color sets a theme defines, such as light, dark or brand, that a block or part of one switches to.
+_Avoid_: Theme, mode
+
+**Component**:
+A reusable piece of UI in a website's code that blocks are built from, such as a button. It holds no content of its own.
+_Avoid_: Primitive, widget, UI kit
+
 ### Content
 
 **Page**:
