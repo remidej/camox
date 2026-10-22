@@ -39,6 +39,8 @@ export function recordLink(id: string): RecordLink {
 /** The id of the record a value links, when it is a record link. */
 export function linkedRecordId(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  // A link holds nothing else: a node with a record's `@id` is the record's node.
+  if (Object.keys(value).length !== 1) return undefined;
   const id = (value as { "@id"?: unknown })["@id"];
   if (typeof id !== "string" || !id.startsWith(RECORD_LINK_PREFIX)) return undefined;
   return id.slice(RECORD_LINK_PREFIX.length);

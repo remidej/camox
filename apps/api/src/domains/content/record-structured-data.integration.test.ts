@@ -80,6 +80,7 @@ const testimonial = {
       reviewBody: "{{quote}}",
       author: "{{author}}",
       about: "{{topic}}",
+      itemReviewed: "{{author.employer}}",
     },
   },
 };
@@ -144,7 +145,13 @@ describe("records as linked entities", () => {
     const { structuredData, recordStructuredData } = await f.read();
 
     expect(structuredData[block.id]).toEqual([
-      { "@type": "Review", reviewBody: "Great", author: { "@id": `camox:record:${f.ada.id}` } },
+      {
+        "@type": "Review",
+        reviewBody: "Great",
+        author: { "@id": `camox:record:${f.ada.id}` },
+        // A referenced record's own references link too.
+        itemReviewed: { "@id": `camox:record:${f.acme.id}` },
+      },
     ]);
     expect(recordStructuredData.nodes[f.ada.id]).toEqual({
       "@type": "Person",

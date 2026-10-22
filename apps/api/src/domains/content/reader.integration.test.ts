@@ -370,7 +370,7 @@ describe("the content reader", () => {
         queries,
         markdownQueries,
         structuredDataQueries: counting.count(),
-        nodes: Object.values(structuredData).flat().length,
+        nodes: Object.values(structuredData.blocks).flat().length,
         blocks: bundle.blocks.length,
       };
     };

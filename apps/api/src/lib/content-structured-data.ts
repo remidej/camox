@@ -123,11 +123,10 @@ function resolveToken(
     }
     const recordProperties = (record.contentSchema as { properties?: Record<string, unknown> })
       ?.properties;
-    const value = resolveField(recordProperties?.[field], record.content[field], {
-      ...ctx,
-      references: record.references,
-    });
-    return value;
+    const recordCtx = { ...ctx, references: record.references };
+    const kind = readField(recordProperties?.[field])?.kind;
+    if (kind === "Reference" || kind === "ReferenceList") return referenced(field, recordCtx);
+    return resolveField(recordProperties?.[field], record.content[field], recordCtx);
   }
   return undefined;
 }
