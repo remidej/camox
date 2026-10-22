@@ -35,11 +35,15 @@ Read [Block Definitions](../camox/references/block-definitions.md) and, when cre
 
 ## Use the existing styling stack
 
-Strongly prefer the project's existing shadcn components and Tailwind utilities for all styling. Inspect and reuse existing components, theme tokens, and styling conventions before building new ones. Compose or extend them to match the reference.
+Learn the project's **Theme** before styling: read its main stylesheet, the CSS file that imports Tailwind. Its tokens and the comments beside them say what each color, font, text size, radius and spacing is for, and which **Color Schemes** a block can switch to. Take each token's meaning from its comment, not from its name.
 
-If the reference uses another styling system, recreate its appearance and behavior with the project's existing shadcn components and Tailwind utilities; do not copy or introduce the reference's styling dependencies.
+Reuse the project's **Components**, such as its button or card, and compose or extend them to match the reference. Build a new Component only when none fits.
 
-Do not install other styling libraries or rely on raw CSS, custom stylesheets, or inline styles. Express layout, spacing, typography, colors, responsive behavior, and interactive states through Tailwind and the existing shadcn components.
+Style through the Theme's utilities rather than raw colors or stock palette classes, so a rebrand stays one stylesheet edit. To match the reference's colors, fonts and radii, change the Theme's values in the stylesheet; when the reference needs a role the Theme lacks, add a token there with a comment explaining it.
+
+If the reference uses another styling system, recreate its appearance and behavior with the project's Components and Tailwind utilities; do not copy or introduce the reference's styling dependencies.
+
+Express layout, spacing, typography, colors, responsive behavior, and interactive states through Tailwind and the project's Components. Do not install other styling libraries or add separate stylesheets or inline styles.
 
 ## Keep definitions generic
 
