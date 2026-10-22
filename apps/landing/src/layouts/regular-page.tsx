@@ -12,9 +12,10 @@ const regularPageLayout = createLayout({
     after: [footerBlock],
     initial: [() => import("../blocks/hero")],
   },
-  component: RegularPageLayout,
-  buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
-  buildOgImage: ({ title, description, projectName }) => (
+  toReact: RegularPageLayout,
+  toTitle: ({ page, project }) => `${page.title} | ${project.name}`,
+  toDescription: ({ page }) => page.description,
+  toImage: ({ page, project }) => (
     <div
       style={{
         display: "flex",
@@ -28,7 +29,7 @@ const regularPageLayout = createLayout({
         fontFamily: "sans-serif",
       }}
     >
-      {projectName && (
+      {project.name && (
         <div
           style={{
             fontSize: 24,
@@ -38,7 +39,7 @@ const regularPageLayout = createLayout({
             letterSpacing: "0.1em",
           }}
         >
-          {projectName}
+          {project.name}
         </div>
       )}
       <div
@@ -53,9 +54,9 @@ const regularPageLayout = createLayout({
           textOverflow: "ellipsis",
         }}
       >
-        {title}
+        {page.title}
       </div>
-      {description && (
+      {page.description && (
         <div
           style={{
             fontSize: 28,
@@ -66,7 +67,7 @@ const regularPageLayout = createLayout({
             textOverflow: "ellipsis",
           }}
         >
-          {description}
+          {page.description}
         </div>
       )}
     </div>

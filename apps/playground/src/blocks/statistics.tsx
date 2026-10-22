@@ -54,11 +54,13 @@ const statistics = createBlock({
       minItems: 4,
       maxItems: 8,
       title: "Statistics",
-      toMarkdown: (c, s) => [s.accent("brand", `**${c.number}** — ${c.label}`)],
+      toMarkdown: ({ content, settings }) => [
+        settings.accent("brand", `**${content.number}** — ${content.label}`),
+      ],
     }),
   }),
-  component: StatisticsComponent,
-  toMarkdown: (c) => [`## ${c.subtitle}`, c.description, c.statistics],
+  toReact: StatisticsComponent,
+  toMarkdown: ({ content }) => [`## ${content.subtitle}`, content.description, content.statistics],
 });
 
 // The bar beside each statistic: its accent color, fading out downward.

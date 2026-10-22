@@ -51,8 +51,8 @@ export const Layout = createLayout("pokemon.$name")({
     return { data: list.results.map(({ name }) => ({ params: { name } })) };
   },
   // Metadata and Markdown follow the loader: their `data` is inferred from it.
-  buildMetaTitle: ({ data }) => `${pokemonName(data.name)} ${pokemonNumber(data.id)} – Pokédex`,
-  buildMetaDescription: ({ data }) =>
+  toTitle: ({ data }) => `${pokemonName(data.name)} ${pokemonNumber(data.id)} – Pokédex`,
+  toDescription: ({ data }) =>
     `${pokemonName(data.name)}, a Pokémon of type ${data.types.map(({ type }) => type.name).join(" and ")}.`,
   toMarkdown: ({ data }) => [
     `# ${pokemonName(data.name)} ${pokemonNumber(data.id)}`,
@@ -63,7 +63,7 @@ export const Layout = createLayout("pokemon.$name")({
       .map(({ base_stat, stat }) => `- ${statNames[stat.name] ?? stat.name}: ${base_stat}`)
       .join("\n"),
   ],
-  component: PokemonPage,
+  toReact: PokemonPage,
 });
 
 const statNames: Record<string, string> = {

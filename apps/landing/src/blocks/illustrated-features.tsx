@@ -42,7 +42,10 @@ const illustratedFeatures = createBlock({
       minItems: 1,
       maxItems: Infinity,
       title: "Features",
-      toMarkdown: (c) => [`**${c.title}** ${c.description}`, c.illustration],
+      toMarkdown: ({ content }) => [
+        `**${content.title}** ${content.description}`,
+        content.illustration,
+      ],
     }),
   }),
   settings: (setting) => ({
@@ -52,8 +55,13 @@ const illustratedFeatures = createBlock({
       title: "Columns per row",
     }),
   }),
-  component: IllustratedFeaturesComponent,
-  toMarkdown: (c) => [c.pill, `# ${c.title}`, c.description, c.items],
+  toReact: IllustratedFeaturesComponent,
+  toMarkdown: ({ content }) => [
+    content.pill,
+    `# ${content.title}`,
+    content.description,
+    content.items,
+  ],
 });
 
 function IllustratedFeaturesComponent() {

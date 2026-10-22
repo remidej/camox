@@ -13,8 +13,11 @@ const pokedexHeader = createBlock({
     tagline: field.string({ title: "Tagline", default: "/ Field guide" }),
     cta: field.string({ title: "Call to action", default: "Meet a Pokémon ↗" }),
   }),
-  component: PokedexHeaderComponent,
-  toMarkdown: (c) => [`${c.title} ${c.tagline}`, `[${c.cta}](/pokemon/pikachu)`],
+  toReact: PokedexHeaderComponent,
+  toMarkdown: ({ content }) => [
+    `${content.title} ${content.tagline}`,
+    `[${content.cta}](/pokemon/pikachu)`,
+  ],
 });
 
 function PokedexHeaderComponent() {
