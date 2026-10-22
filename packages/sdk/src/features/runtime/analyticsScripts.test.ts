@@ -86,6 +86,7 @@ const pokedex = {
     title: "Pokédex",
     toTitle: ({ page }: { page: { title: string } }) => page.title,
     toDescription: ({ page }: { page: { description?: string } }) => page.description,
+    toStructuredData: () => undefined,
   },
 };
 const hero = { _internal: { id: "hero", title: "Hero" } };

@@ -127,6 +127,7 @@ const pokedex = {
     title: "Pokédex",
     toTitle: ({ page }: { page: { title: string } }) => page.title,
     toDescription: ({ page }: { page: { description?: string } }) => page.description,
+    toStructuredData: () => undefined,
     // Looks up a record, as a record page's loader does.
     loader: async ({ context }: { context: LayoutRequestContext }) => {
       await getRecordLookup(context).findByField({

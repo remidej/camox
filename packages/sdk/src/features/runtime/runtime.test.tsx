@@ -16,10 +16,11 @@ const layout = {
   afterBlockIds: [],
   updatedAt: "2026-01-01",
 };
-/** The `toTitle` and `toDescription` a layout gets by default. */
+/** The `toTitle`, `toDescription` and `toStructuredData` a layout gets by default. */
 const meta = {
   toTitle: ({ page }: { page: { title: string } }) => page.title,
   toDescription: ({ page }: { page: { description?: string } }) => page.description,
+  toStructuredData: () => undefined,
 };
 const app = {
   getLayouts: () => [

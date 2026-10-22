@@ -13,6 +13,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { curatedLayoutContext, type AnyLayoutContext } from "../../core/layoutContext";
+import { isArticle, type LayoutStructuredData } from "../../core/structuredData";
 import { createDraftScope, withoutDraft } from "../../lib/draft-scope";
 import { linkFallbackLocale } from "../../lib/link-pages";
 import { localeHeaders, UNNAMED_DEFAULT_LOCALE, type LocaleView } from "../../lib/locale-path";
@@ -442,7 +443,9 @@ export async function createMarkdownResponse({
 
 /** What a page's title and description are built from. */
 export interface PageMetaInput {
-  layout: Pick<Layout["_internal"], "id" | "toTitle" | "toDescription"> | undefined;
+  layout:
+    | Pick<Layout["_internal"], "id" | "toTitle" | "toDescription" | "toStructuredData">
+    | undefined;
   /** The context the layout's `to*` options receive. */
   context: AnyLayoutContext;
 }
@@ -464,8 +467,13 @@ export function buildPageMeta(input: PageMetaInput): { title: string; descriptio
   return { title, ...(description && { description }) };
 }
 
+/** What a page's layout says the page is, from the page's context. */
+export function declarePage(input: PageMetaInput): LayoutStructuredData | undefined {
+  return input.layout?.toStructuredData(input.context);
+}
+
 /** A curated page's meta input. Its path keeps the prefix of the page's `locale`. */
-function curatedPageMetaInput(
+export function curatedPageMetaInput(
   camoxApp: CamoxApp | undefined,
   page: PageStructure,
   locale: LocaleView = UNNAMED_DEFAULT_LOCALE,
@@ -501,6 +509,7 @@ export type PageHead = {
 /** The head every page gets, whatever its layout kind. */
 export function buildPageHead(input: PageHeadInput): PageHead {
   const { title, description } = buildPageMeta(input);
+  const declared = declarePage(input);
 
   const meta: Array<Record<string, string>> = [{ title }];
   if (description) meta.push({ name: "description", content: description });
@@ -520,7 +529,7 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   );
   if (description) meta.push({ property: "og:description", content: description });
   meta.push(
-    { property: "og:type", content: "website" },
+    { property: "og:type", content: declared && isArticle(declared) ? "article" : "website" },
     { property: "og:site_name", content: project.name },
     { name: "twitter:card", content: "summary_large_image" },
   );
