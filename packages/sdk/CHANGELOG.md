@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.47.0](https://github.com/remidej/camox/compare/camox-v0.46.0...camox-sdk-v0.47.0) (2026-10-22)
+
+
+### Features
+
+* **sdk:** sign in from the show-canvas shortcut when signed out ([#490](https://github.com/remidej/camox/issues/490)) ([c040fdd](https://github.com/remidej/camox/commit/c040fdd78a464ffcf4747811950d7f9eb0715fbb))
+* **sdk:** snap the Canvas camera from a window of zoom and position ([#493](https://github.com/remidej/camox/issues/493)) ([63d51b8](https://github.com/remidej/camox/commit/63d51b88a367992fbd10b777b99f8bc7b5ae2789))
+
+
+### Bug Fixes
+
+* **sdk:** keep a zoomed-out Canvas camera in place as pages resize ([#491](https://github.com/remidej/camox/issues/491)) ([e4135a3](https://github.com/remidej/camox/commit/e4135a341b11ac57232d1d9d6df09b6b97f3b52c))
+
 ## [0.46.0](https://github.com/remidej/camox/compare/camox-v0.45.0...camox-sdk-v0.46.0) (2026-10-22)
 
 
