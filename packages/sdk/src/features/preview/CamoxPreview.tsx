@@ -30,7 +30,7 @@ import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { studioStore } from "../studio/studioStore";
-import { AddBlockDialog } from "./components/AddBlockDialog";
+import { AddBlockSheet } from "./components/AddBlockSheet";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview, prefetchCanvas } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
@@ -444,7 +444,7 @@ export const PreviewShell = ({
   React.useEffect(() => {
     if (!isMobileStudio) return;
     previewStore.send({ type: "hideCanvas" });
-    previewStore.send({ type: "closeAddBlockDialog" });
+    previewStore.send({ type: "closeAddBlockSheet" });
   }, [isMobileStudio]);
 
   useCanvasOnlyLocation(
@@ -535,7 +535,7 @@ export const PreviewShell = ({
             <>
               <CreatePageModal />
               {/* It adds to the page at the current location, which a Canvas-only one has none of. */}
-              {pageId != null && <AddBlockDialog />}
+              {pageId != null && <AddBlockSheet />}
             </>
           )}
         </div>

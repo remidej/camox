@@ -184,7 +184,7 @@ export type ViewportMode = "full" | "tablet" | "mobile";
 interface PreviewContext {
   view: WebsiteView;
   isToolbarHidden: boolean;
-  addBlockDialog: { afterPosition?: string | null } | null;
+  addBlockSheet: { afterPosition?: string | null } | null;
   isCreatePageModalOpen: boolean;
   editingPageId: string | null;
   viewportMode: ViewportMode;
@@ -194,7 +194,7 @@ interface PreviewContext {
 const initialPreviewContext: PreviewContext = {
   view: "preview",
   isToolbarHidden: false,
-  addBlockDialog: null,
+  addBlockSheet: null,
   isCreatePageModalOpen: false,
   editingPageId: null,
   viewportMode: "full",
@@ -244,7 +244,7 @@ export const previewStore = createStore({
       return {
         ...context,
         editingContext: owner ? targetContext(owner, null) : null,
-        addBlockDialog: null,
+        addBlockSheet: null,
       };
     },
     activateLayout: (context, event: { layoutId: string }) => {
@@ -253,7 +253,7 @@ export const previewStore = createStore({
       return {
         ...context,
         editingContext: targetContext(owner, null),
-        addBlockDialog: null,
+        addBlockSheet: null,
       };
     },
     selectTarget: (context, event: EditingContext) => ({
@@ -263,7 +263,7 @@ export const previewStore = createStore({
     setFocusedBlock: (context, event: EditingOwner & { blockId: string }) => ({
       ...context,
       editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
-      addBlockDialog: null,
+      addBlockSheet: null,
     }),
     selectItem: (context, event: EditingOwner & { blockId: string; itemId: string }) => ({
       ...context,
@@ -405,18 +405,18 @@ export const previewStore = createStore({
         ? { ...context.editingContext, selection: null }
         : null,
     }),
-    openAddBlockDialog: (context, event: { afterPosition?: string | null }) => ({
+    openAddBlockSheet: (context, event: { afterPosition?: string | null }) => ({
       ...context,
-      addBlockDialog: { afterPosition: event.afterPosition },
+      addBlockSheet: { afterPosition: event.afterPosition },
     }),
-    closeAddBlockDialog: (context) => ({
+    closeAddBlockSheet: (context) => ({
       ...context,
-      addBlockDialog: null,
+      addBlockSheet: null,
     }),
     focusCreatedBlock: (context, event: EditingOwner & { blockId: string }) => ({
       ...context,
       editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
-      addBlockDialog: null,
+      addBlockSheet: null,
     }),
     openCreatePageModal: (context) => ({
       ...context,

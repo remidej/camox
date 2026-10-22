@@ -62,7 +62,7 @@ function CuratedAddBlockListener({ frame }: { frame: EditingFrameElement | null 
         }
 
         previewStore.send({
-          type: "openAddBlockDialog",
+          type: "openAddBlockSheet",
           afterPosition,
         });
       }

@@ -56,9 +56,9 @@ registerHooks({
               onClick: () => navigate({to: "/created", replace: true}),
             }, "Create page");
           }`;
-      if (specifier.endsWith("/AddBlockDialog"))
+      if (specifier.endsWith("/AddBlockSheet"))
         source = `${probeImports}
-          export function AddBlockDialog({focusCreatedBlock}) {
+          export function AddBlockSheet({focusCreatedBlock}) {
             return React.createElement("div", {
               "data-add-block": useLocation().pathname,
               "data-focus-created-block": String(focusCreatedBlock),

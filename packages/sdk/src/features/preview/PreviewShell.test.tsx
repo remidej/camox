@@ -50,8 +50,8 @@ registerHooks({
       source = stubs[specifier] ?? source;
       // Like the real one, it reads the page at the current location, and
       // waits forever on a Canvas-only one, which has none.
-      if (specifier === "./components/AddBlockDialog")
-        source = `export const AddBlockDialog = () => {
+      if (specifier === "./components/AddBlockSheet")
+        source = `export const AddBlockSheet = () => {
           if (globalThis.testPathname === "/camox/canvas") throw new Promise(() => {});
           return null;
         }`;

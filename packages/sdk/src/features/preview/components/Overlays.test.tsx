@@ -75,7 +75,7 @@ void test("only the active page resolves add requests, including layout boundari
     });
     let opened = 0;
     const subscription = previewStore.subscribe((snapshot) => {
-      if (snapshot.context.addBlockDialog) opened++;
+      if (snapshot.context.addBlockSheet) opened++;
     });
     for (const [insertPosition, blockPosition, override, expected] of [
       ["before", "a0", undefined, ""],
@@ -84,7 +84,7 @@ void test("only the active page resolves add requests, including layout boundari
       ["after", "layout-before", "", ""],
       ["before", "layout-after", null, null],
     ] as const) {
-      previewStore.send({ type: "closeAddBlockDialog" });
+      previewStore.send({ type: "closeAddBlockSheet" });
       const before = opened;
       await React.act(async () => {
         dom.dispatchEvent(
@@ -99,21 +99,21 @@ void test("only the active page resolves add requests, including layout boundari
         );
       });
       assert.equal(opened, before + 1, "inactive canvas listeners must not open the picker");
-      assert.equal(previewStore.getSnapshot().context.addBlockDialog?.afterPosition, expected);
+      assert.equal(previewStore.getSnapshot().context.addBlockSheet?.afterPosition, expected);
     }
-    previewStore.send({ type: "closeAddBlockDialog" });
+    previewStore.send({ type: "closeAddBlockSheet" });
     previewStore.send({ type: "hideCanvas" });
     dom.dispatchEvent(
       new dom.MessageEvent("message", {
         data: { type: "CAMOX_ADD_BLOCK_REQUEST", insertPosition: "after", blockPosition: "a0" },
       }),
     );
-    assert.equal(previewStore.getSnapshot().context.addBlockDialog, null);
+    assert.equal(previewStore.getSnapshot().context.addBlockSheet, null);
     subscription.unsubscribe();
   } finally {
     await React.act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "closeAddBlockDialog" });
+    previewStore.send({ type: "closeAddBlockSheet" });
     previewStore.send({ type: "hideCanvas" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {

@@ -9,13 +9,7 @@ import {
   CommandList,
   commandFilter,
 } from "@camox/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@camox/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@camox/ui/sheet";
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
@@ -34,7 +28,7 @@ import { previewStore, sameEditingOwner } from "../previewStore";
 import { getGridNavigationIndex } from "./blockGridNavigation";
 import { BlockThumbnail } from "./BlockThumbnail";
 
-const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boolean }) => {
+const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boolean }) => {
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
   const [search, setSearch] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -47,7 +41,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     };
   }, []);
   const gridRef = React.useRef<HTMLDivElement>(null);
-  const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
+  const sheet = useSelector(previewStore, (state) => state.context.addBlockSheet);
   const studioCache = useStudioCache();
   const projectUuid = useProjectUuid();
   const pathname = useLocalePath();
@@ -173,17 +167,17 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     return counts;
   }, [page, pageBlocks]);
 
-  // Each dialog opening starts fresh.
-  const [previousDialog, setPreviousDialog] = React.useState(dialog);
-  if (dialog !== previousDialog) {
-    setPreviousDialog(dialog);
+  // Each sheet opening starts fresh.
+  const [previousSheet, setPreviousSheet] = React.useState(sheet);
+  if (sheet !== previousSheet) {
+    setPreviousSheet(sheet);
     setHighlightedValue("");
     setSearch("");
     setError(null);
   }
 
   const handleAddBlock = async (block: Block) => {
-    if (!page || !dialog || submitting.current) return;
+    if (!page || !sheet || submitting.current) return;
 
     submitting.current = true;
     setError(null);
@@ -196,7 +190,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
         type: block._internal.id,
         content: bundle.content,
         settings: bundle.settings,
-        afterPosition: dialog.afterPosition,
+        afterPosition: sheet.afterPosition,
         repeatableItems: bundle.repeatableItems,
       });
       // A completed insertion must not steal focus after navigating away,
@@ -204,11 +198,11 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       const context = previewStore.getSnapshot().context;
       if (!mounted.current) return;
       if (focusCreatedBlock && !sameEditingOwner(context.editingContext, owner)) return;
-      if (context.addBlockDialog !== dialog) return;
-      previewStore.send({ type: "closeAddBlockDialog" });
+      if (context.addBlockSheet !== sheet) return;
+      previewStore.send({ type: "closeAddBlockSheet" });
       if (focusCreatedBlock) previewStore.send({ type: "focusCreatedBlock", ...owner, blockId });
     } catch {
-      if (previewStore.getSnapshot().context.addBlockDialog === dialog) {
+      if (previewStore.getSnapshot().context.addBlockSheet === sheet) {
         setError("Could not add this block. Please try again.");
       }
     } finally {
@@ -224,27 +218,31 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   };
 
   return (
-    <Dialog
-      open={dialog != null}
+    <Sheet
+      open={sheet != null}
       onOpenChange={(open) => {
         if (!open && !submitting.current) {
-          previewStore.send({ type: "closeAddBlockDialog" });
+          previewStore.send({ type: "closeAddBlockSheet" });
         }
       }}
     >
-      <DialogContent className="flex h-[min(85dvh,900px)] flex-col gap-4 overflow-hidden sm:max-w-6xl">
-        <DialogHeader className="pr-8">
-          <DialogTitle>Add a block</DialogTitle>
-          <DialogDescription>
+      {/* Wide enough for three thumbnails per row. */}
+      <SheetContent
+        side="right"
+        className="gap-0 overflow-hidden data-[side=right]:w-full data-[side=right]:sm:max-w-4xl"
+      >
+        <SheetHeader className="pr-12">
+          <SheetTitle>Add a block</SheetTitle>
+          <SheetDescription>
             Search blocks, use the arrow keys to browse, and press Enter to add.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
         <Command
           label="Search blocks"
           shouldFilter={false}
           value={selectedValue}
           onValueChange={setHighlightedValue}
-          className="h-0 min-h-0 flex-1 rounded-none! bg-transparent! p-0!"
+          className="h-0 min-h-0 flex-1 rounded-none! bg-transparent! px-4! pt-0! pb-0!"
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
             if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
@@ -278,13 +276,13 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
           />
           <CommandList
             label="Available blocks"
-            className="mt-4 max-h-none min-h-0 flex-1 pb-2"
+            className="mt-4 max-h-none min-h-0 flex-1 pb-4"
             aria-busy={createBlock.isPending}
           >
             <CommandEmpty>No blocks found.</CommandEmpty>
             <CommandGroup
               ref={gridRef}
-              className="p-0 [&>[cmdk-group-items]]:grid [&>[cmdk-group-items]]:grid-cols-1 [&>[cmdk-group-items]]:gap-4 sm:[&>[cmdk-group-items]]:grid-cols-2 lg:[&>[cmdk-group-items]]:grid-cols-3"
+              className="@container p-0 [&>[cmdk-group-items]]:grid [&>[cmdk-group-items]]:grid-cols-1 [&>[cmdk-group-items]]:gap-4 @xl:[&>[cmdk-group-items]]:grid-cols-2 @3xl:[&>[cmdk-group-items]]:grid-cols-3"
             >
               {filteredBlocks.map((block: Block) => (
                 <CommandItem
@@ -317,15 +315,19 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
             </CommandGroup>
           </CommandList>
         </Command>
-        {createBlock.isPending && <p role="status">Adding block…</p>}
-        {error && (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
+        {(createBlock.isPending || error) && (
+          <div className="border-border border-t p-4">
+            {createBlock.isPending && <p role="status">Adding block…</p>}
+            {error && (
+              <p role="alert" className="text-destructive">
+                {error}
+              </p>
+            )}
+          </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 };
 
-export { AddBlockDialog };
+export { AddBlockSheet };
