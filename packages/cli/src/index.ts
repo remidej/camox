@@ -26,7 +26,7 @@ type Result =
   | { command: "init" }
   | { command: "login" }
   | { command: "logout"; cwd?: string }
-  | { command: "release" }
+  | Parameters<typeof release.handler>[0]
   | Parameters<typeof preview.handler>[0]
   | Parameters<typeof status.handler>[0]
   | Parameters<typeof pages.handler>[0]
@@ -72,7 +72,7 @@ switch (result.command) {
     logout.handler(result);
     break;
   case "release":
-    release.handler();
+    release.handler(result);
     break;
   case "preview":
     await preview.handler(result);

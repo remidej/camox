@@ -292,6 +292,43 @@ void test("a release syncs the app's blocks to Live: its requests name no draft"
   );
 });
 
+void test("a dry-run release builds for Live without a login or a Deploy Token, and syncs nothing", async (t) => {
+  const checkout = await devCheckout(t);
+  // Nobody is logged in where the upgrade job builds a project.
+  await rm(join(checkout.root, ".camox"), { recursive: true });
+  for (const [name, value] of Object.entries({
+    CAMOX_INTERNAL_RELEASE: "dry-run",
+    CAMOX_DEPLOY_TOKEN: undefined,
+  })) {
+    const previous = process.env[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+    t.after(() => {
+      if (previous === undefined) delete process.env[name];
+      else process.env[name] = previous;
+    });
+  }
+  const plugin = camox({
+    projectId: CHECKOUT_PROJECT_ID,
+    _internal: { apiUrl: checkout.apiUrl, authenticationUrl: AUTHENTICATION_URL },
+  });
+
+  const config = await resolveConfig(
+    {
+      configFile: false,
+      root: checkout.root,
+      logLevel: "silent",
+      plugins: [{ name: "vite-plugin-cloudflare" }, plugin],
+    },
+    "build",
+  );
+  await (plugin.closeBundle as () => Promise<void>)();
+
+  // Built as a release would be: for Live, not a development draft.
+  assert.equal(config.define?.__CAMOX_DEVELOPMENT_DRAFT__, "false");
+  assert.deepEqual(checkout.requests, []);
+});
+
 void test("the dev server skips afterSync when definition sync fails", async (t) => {
   const checkout = await devCheckout(t, { failSync: true });
   let calls = 0;
