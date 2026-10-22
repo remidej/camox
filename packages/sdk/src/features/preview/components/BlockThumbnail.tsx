@@ -21,6 +21,8 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
   const [content, setContent] = React.useState<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = React.useState(VIEWPORT_HEIGHT);
   const bundle = React.useMemo(() => block._internal.getPeekBundle(), [block]);
+  // Ignores stylesheet loads from an earlier initialization of the frame.
+  const initialization = React.useRef(0);
 
   const initialize = React.useCallback(() => {
     const doc = frame?.contentDocument;
@@ -33,8 +35,21 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
     const base = doc.createElement("base");
     base.href = source.baseURI;
     doc.head.appendChild(base);
+    // Cloned stylesheet links load again, so wait for them before rendering the block,
+    // or it shows unstyled for a moment.
+    const stylesheetsLoaded: Promise<unknown>[] = [];
     source.querySelectorAll('style, link[rel="stylesheet"]').forEach((style) => {
-      if (isSiteStyle(style)) doc.head.appendChild(style.cloneNode(true));
+      if (!isSiteStyle(style)) return;
+      const clone = style.cloneNode(true) as Element;
+      if (clone.localName === "link") {
+        stylesheetsLoaded.push(
+          new Promise((resolve) => {
+            clone.addEventListener("load", resolve, { once: true });
+            clone.addEventListener("error", resolve, { once: true });
+          }),
+        );
+      }
+      doc.head.appendChild(clone);
     });
     if (source !== document) {
       for (const [from, to] of [
@@ -59,7 +74,10 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
     `;
     doc.head.appendChild(reset);
     doc.body.setAttribute("inert", "");
-    setRoot(mount);
+    const generation = ++initialization.current;
+    void Promise.all(stylesheetsLoaded).then(() => {
+      if (initialization.current === generation) setRoot(mount);
+    });
   }, [frame, sourceDocument]);
 
   React.useEffect(() => {
@@ -131,7 +149,6 @@ export const BlockThumbnail = ({ block, className }: { block: Block; className?:
   const ref = React.useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = React.useState(false);
   const [width, setWidth] = React.useState(0);
-  const checkerSize = 8 * (1 + width / VIEWPORT_WIDTH);
 
   React.useEffect(() => {
     const element = ref.current;
@@ -154,17 +171,9 @@ export const BlockThumbnail = ({ block, className }: { block: Block; className?:
     <div
       ref={ref}
       className={cn(
-        "checkered pointer-events-none relative flex h-28 w-full items-center overflow-hidden",
+        "bg-muted pointer-events-none relative flex h-28 w-full items-center overflow-hidden",
         className,
       )}
-      style={
-        width > 0
-          ? {
-              backgroundSize: `${checkerSize * 2}px ${checkerSize * 2}px`,
-              backgroundPosition: `0 0, 0 ${checkerSize}px, ${checkerSize}px ${-checkerSize}px, ${-checkerSize}px 0`,
-            }
-          : undefined
-      }
       aria-hidden="true"
     >
       {isVisible && width > 0 && <ThumbnailFrame block={block} width={width} />}

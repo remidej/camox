@@ -59,7 +59,7 @@ void test("page activation preserves same-page selection and clears a different 
   });
 });
 
-void test("block dialog preserves insertion intent and closing leaves selection unchanged", async () => {
+void test("add-block sheet preserves insertion intent and closing leaves selection unchanged", async () => {
   const { previewStore: store } = await import("./previewStore");
   const [selected] = store.transition(store.getInitialSnapshot(), {
     type: "setFocusedBlock",
@@ -69,19 +69,19 @@ void test("block dialog preserves insertion intent and closing leaves selection 
   });
 
   for (const afterPosition of [undefined, null, "", "a0"]) {
-    const [opened] = store.transition(selected, { type: "openAddBlockDialog", afterPosition });
-    assert.deepEqual(opened.context.addBlockDialog, { afterPosition });
+    const [opened] = store.transition(selected, { type: "openAddBlockSheet", afterPosition });
+    assert.deepEqual(opened.context.addBlockSheet, { afterPosition });
     assert.equal(opened.context.editingContext, selected.context.editingContext);
-    const [closed] = store.transition(opened, { type: "closeAddBlockDialog" });
-    assert.equal(closed.context.addBlockDialog, null);
+    const [closed] = store.transition(opened, { type: "closeAddBlockSheet" });
+    assert.equal(closed.context.addBlockSheet, null);
     assert.equal(closed.context.editingContext, selected.context.editingContext);
 
     const [samePage] = store.transition(opened, { type: "activatePage", pageId: "3" });
-    assert.equal(samePage.context.addBlockDialog, opened.context.addBlockDialog);
+    assert.equal(samePage.context.addBlockSheet, opened.context.addBlockSheet);
     const [otherPage] = store.transition(opened, { type: "activatePage", pageId: "4" });
-    assert.equal(otherPage.context.addBlockDialog, null);
+    assert.equal(otherPage.context.addBlockSheet, null);
     const [layout] = store.transition(opened, { type: "activateLayout", layoutId: "news" });
-    assert.equal(layout.context.addBlockDialog, null);
+    assert.equal(layout.context.addBlockSheet, null);
   }
 });
 
@@ -182,7 +182,7 @@ void test("parent navigation, insertion focus and modal state remain independent
     pageId: "3",
     selection: { type: "block", blockId: "7" },
   });
-  [snapshot] = store.transition(snapshot, { type: "openAddBlockDialog", afterPosition: "a0" });
+  [snapshot] = store.transition(snapshot, { type: "openAddBlockSheet", afterPosition: "a0" });
   [snapshot] = store.transition(snapshot, {
     type: "focusCreatedBlock",
     kind: "page",
@@ -194,7 +194,7 @@ void test("parent navigation, insertion focus and modal state remain independent
     pageId: "4",
     selection: { type: "block", blockId: "9" },
   });
-  assert.equal(snapshot.context.addBlockDialog, null);
+  assert.equal(snapshot.context.addBlockSheet, null);
   assert.equal(snapshot.context.editingPageId, "99");
   [snapshot] = store.transition(snapshot, { type: "clearSelection" });
   assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: "4", selection: null });

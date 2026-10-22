@@ -3,7 +3,7 @@ import * as React from "react";
 import { useProjectUuid } from "../../../lib/auth";
 import { reads, useRead } from "../../../lib/studio-reads";
 import { useLocalePath } from "../../../lib/view-locale";
-import { AddBlockDialog } from "../../preview/components/AddBlockDialog";
+import { AddBlockSheet } from "../../preview/components/AddBlockSheet";
 import { PageInfo } from "../../preview/components/PageInfo";
 import { PageTree } from "../../preview/components/PageTree";
 import { PreviewEditingOwnerContext } from "../../preview/previewSelection";
@@ -27,7 +27,7 @@ export function CuratedPageInspector() {
           <PageInfo pageId={pageId} scrollable={false} />
         </div>
       </PageOverview>
-      <AddBlockDialog focusCreatedBlock={owner?.kind === "page" && owner.pageId === pageId} />
+      <AddBlockSheet focusCreatedBlock={owner?.kind === "page" && owner.pageId === pageId} />
     </>
   );
 }

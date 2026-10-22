@@ -474,7 +474,7 @@ const PageTree = ({ collapsible = false }: { collapsible?: boolean }) => {
       variant="secondary"
       onClick={() => {
         previewStore.send({
-          type: "openAddBlockDialog",
+          type: "openAddBlockSheet",
         });
       }}
     >
