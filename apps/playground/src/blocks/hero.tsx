@@ -2,7 +2,7 @@ import { createBlock } from "camox/createBlock";
 
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
-import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const hero = createBlock({
@@ -31,11 +31,7 @@ const hero = createBlock({
     }),
   }),
   settings: (setting) => ({
-    scheme: setting.enum({
-      default: "dark",
-      options: colorSchemeOptions,
-      title: "Color scheme",
-    }),
+    scheme: colorSchemeSetting(setting, "dark"),
     compact: setting.boolean({
       default: false,
       title: "Compact",

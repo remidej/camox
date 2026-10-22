@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { MobileMenu } from "@/components/ui/mobile-menu";
-import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const navbar = createBlock({
@@ -46,11 +46,7 @@ const navbar = createBlock({
       default: true,
       title: "Sticky",
     }),
-    scheme: setting.enum({
-      default: "dark",
-      options: colorSchemeOptions,
-      title: "Color scheme",
-    }),
+    scheme: colorSchemeSetting(setting, "dark"),
   }),
   component: NavbarComponent,
   toMarkdown: (c) => [c.title, c.links, c.cta],

@@ -2,7 +2,7 @@ import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 
 import { Container } from "@/components/ui/container";
-import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 
 const footer = createBlock({
   id: "footer",
@@ -26,11 +26,7 @@ const footer = createBlock({
     }),
   }),
   settings: (setting) => ({
-    scheme: setting.enum({
-      default: "dark",
-      options: colorSchemeOptions,
-      title: "Color scheme",
-    }),
+    scheme: colorSchemeSetting(setting, "dark"),
   }),
   component: FooterComponent,
   toMarkdown: (c) => [c.title, c.links],
