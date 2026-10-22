@@ -32,9 +32,9 @@ type ButtonVariantProps = VariantProps<typeof buttonVariants>;
 type ButtonLinkProps = Omit<ComponentProps<typeof Link>, "to" | "href"> &
   ({ to: string; href?: never } | { href: string; to?: never });
 
-type ButtonButtonProps = ComponentProps<"button"> & { to?: never; href?: never };
+type NativeButtonProps = ComponentProps<"button"> & { to?: never; href?: never };
 
-type ButtonProps = ButtonVariantProps & (ButtonLinkProps | ButtonButtonProps);
+type ButtonProps = ButtonVariantProps & (ButtonLinkProps | NativeButtonProps);
 
 /**
  * A link when given `href` (or a link field's props, which carry `to`), a <button> otherwise.
@@ -50,7 +50,7 @@ function Button({ className, variant, size, ...props }: ButtonProps) {
     <button
       data-slot="button"
       type="button"
-      {...(props as ButtonButtonProps)}
+      {...(props as NativeButtonProps)}
       className={classes}
     />
   );
