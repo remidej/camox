@@ -106,3 +106,5 @@ toImage: ({ page, project }) => (
   </div>
 ),
 ```
+
+The site serves the image at `/og?path=<page path>` for real pages only, rendered from the page as it is published. An editor's custom image replaces it, and a layout without one gets Camox's default image showing the page title and project name.
