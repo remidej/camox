@@ -1,7 +1,8 @@
-# Deploys Camox from main, then publishes the SDK when release-please cuts a release. Publishing
+# On every push to main, release-please only updates its release PR. Merging that PR cuts a
+# release, which runs the checks and tests, deploys Camox, then publishes the SDK. Publishing
 # waits for the deploy of the same commit, so no published SDK is ahead of the deployed API
 # (ADR 0019). Each publish refreshes the Template that new projects fork, then upgrades every
-# project to it.
+# project to it. Running the workflow by hand deploys main without a release.
 name: Deploy
 
 on:
@@ -17,17 +18,17 @@ permissions:
 env:
   NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
 
-# Finish an active deployment; newer commits may replace a pending run.
-concurrency:
-  group: production-deploy
-  cancel-in-progress: false
-
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    needs: release-please
+    if: ${{ github.ref == 'refs/heads/main' && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+    # Finish an active deployment; a newer release may replace a pending one.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -118,6 +119,9 @@ jobs:
   release-please:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write

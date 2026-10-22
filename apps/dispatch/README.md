@@ -10,7 +10,7 @@ pnpm --filter @camox/dispatch test        # routing tests, with a fake KV map an
 pnpm --filter @camox/dispatch run deploy  # also creates the *.camox.site/* route
 ```
 
-CI deploys it from `main` with the rest of Camox (`.github/workflows/deploy.yml`).
+CI deploys it with the rest of Camox on each release (`.github/workflows/deploy.yml`).
 
 ## Cloudflare setup
 
