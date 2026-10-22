@@ -3,6 +3,10 @@ import { Link } from "camox/navigation";
 import type { ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { MobileMenu } from "@/components/ui/mobile-menu";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
+import { cn } from "@/lib/utils";
 
 const navbar = createBlock({
   id: "navbar",
@@ -42,6 +46,7 @@ const navbar = createBlock({
       default: true,
       title: "Sticky",
     }),
+    scheme: colorSchemeSetting(setting, "dark"),
   }),
   component: NavbarComponent,
   toMarkdown: (c) => [c.title, c.links, c.cta],
@@ -49,58 +54,60 @@ const navbar = createBlock({
 
 function NavbarComponent(): ReactElement {
   const sticky = navbar.useSetting("sticky");
+  const scheme = navbar.useSetting("scheme");
 
   const innerContent = (
-    <div className="container mx-auto px-4">
-      <div className="flex h-16 items-center justify-between">
+    <Container>
+      <div className="h-navbar flex items-center justify-between">
         <navbar.Link name="title">
-          {(props) => <Link {...props} className="text-foreground text-lg font-bold" />}
+          {(props) => <Link {...props} className="text-ink font-heading text-lg font-bold" />}
         </navbar.Link>
 
-        <div className="flex items-center gap-6">
-          <navbar.Repeater name="links">
-            {(linkItem) => (
-              <linkItem.Link name="link">
-                {(props) => (
-                  <Link
-                    {...props}
-                    className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-                  />
-                )}
-              </linkItem.Link>
-            )}
-          </navbar.Repeater>
+        <div className="flex items-center gap-2 md:gap-6">
+          <MobileMenu wrapperClassName="order-last md:order-none">
+            <navbar.Repeater name="links">
+              {(linkItem) => (
+                <linkItem.Link name="link">
+                  {(props) => (
+                    <Link
+                      {...props}
+                      className="text-ink-muted hover:text-ink text-sm transition-colors"
+                    />
+                  )}
+                </linkItem.Link>
+              )}
+            </navbar.Repeater>
+          </MobileMenu>
 
           <navbar.Link name="cta">
-            {(props) => (
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={<Link {...props} />}
-              />
-            )}
+            {(props) => <Button {...props} size="sm" variant="outline" />}
           </navbar.Link>
         </div>
       </div>
-    </div>
+    </Container>
   );
 
   if (!sticky) {
-    return <nav className="dark bg-background border-border border-b">{innerContent}</nav>;
+    return (
+      <Section as="nav" scheme={scheme} className="border-b py-0">
+        {innerContent}
+      </Section>
+    );
   }
 
   return (
     <>
-      <div aria-hidden className="dark bg-background h-16 border-b border-transparent" />
+      <div aria-hidden className={cn(scheme, "bg-canvas h-navbar border-b border-transparent")} />
       <navbar.Detached>
         {(props) => (
-          <nav
+          <Section
             {...props}
-            className="dark bg-background border-border fixed top-0 right-0 left-0 z-50 border-b"
+            as="nav"
+            scheme={scheme}
+            className="fixed top-0 right-0 left-0 z-50 border-b py-0"
           >
             {innerContent}
-          </nav>
+          </Section>
         )}
       </navbar.Detached>
     </>

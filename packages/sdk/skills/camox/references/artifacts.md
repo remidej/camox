@@ -104,25 +104,25 @@ Read it when you act rather than once at startup: it's `null` until the frame co
 
 ### Theme: `camox.theme` and `camox.onTheme`
 
-Artifacts match the website automatically. The website's theme tokens (its CSS custom properties, such as `--background` or `--primary`) are applied to the artifact's `:root`, with the values that apply where the artifact sits on the page: inside a `.dark` section, an artifact gets the dark values. When the website's theme changes, for example when a visitor toggles dark mode, the tokens are applied again. Style with the tokens and CSS needs nothing else:
+Artifacts match the website automatically. The website's theme tokens (its CSS custom properties, named by each website; for instance `--canvas` or `--brand`) are applied to the artifact's `:root`, with the values of the color scheme where the artifact sits on the page: inside a block with the `dark` class, an artifact gets the dark color scheme's values. When the color scheme around the artifact changes, for example when a visitor switches the website to its dark color scheme, the tokens are applied again. Read the website's stylesheet for the tokens it defines and what each is for. Style with the tokens and CSS needs nothing else:
 
 ```css
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--canvas);
+  color: var(--ink);
 }
 ```
 
 `camox.theme` holds the same tokens for scripts:
 
-- `tokens`: each token's raw value, such as `{ "--primary": "oklch(0.55 0.2 260)", "--radius": "0.5rem" }`.
-- `colors`: each color token as sRGB channels from 0 to 255, such as `{ "--primary": { r: 37, g: 99, b: 235 } }`, including tokens written in `oklch()`. Use these for canvas, three.js or WebGL, which can't read CSS variables.
+- `tokens`: each token's raw value, such as `{ "--brand": "oklch(0.55 0.2 260)", "--radius": "0.5rem" }`.
+- `colors`: each color token as sRGB channels from 0 to 255, such as `{ "--brand": { r: 37, g: 99, b: 235 } }`, including tokens written in `oklch()`. Use these for canvas, three.js or WebGL, which can't read CSS variables.
 
 `camox.onTheme(callback)` calls `callback(theme)` whenever the tokens change, and returns a function that unsubscribes. It isn't called for the theme the artifact already has, so draw once with `camox.theme`, then on each change:
 
 ```js
 const draw = ({ colors }) => {
-  const { r, g, b } = colors["--primary"];
+  const { r, g, b } = colors["--brand"];
   material.color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
 };
 draw(window.camox.theme);

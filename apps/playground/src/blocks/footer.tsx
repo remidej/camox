@@ -1,6 +1,9 @@
 import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
+
 const footer = createBlock({
   id: "footer",
   title: "Footer",
@@ -44,17 +47,15 @@ const currentYear = new Date().getFullYear();
 
 function FooterComponent() {
   return (
-    <footer className="dark bg-background py-16">
-      <div className="container mx-auto px-4">
+    <Section as="footer" scheme="dark" className="py-16">
+      <Container>
         <div className="flex flex-col gap-12 md:flex-row md:gap-16">
           {/* Left side: Logo + copyright */}
           <div className="shrink-0 md:w-1/4">
             <footer.Field name="title">
-              {(props) => <div {...props} className="text-foreground mb-2 text-2xl font-bold" />}
+              {(props) => <div {...props} className="text-ink mb-2 text-2xl font-bold" />}
             </footer.Field>
-            <p className="text-muted-foreground text-sm">
-              &copy; {currentYear} All rights reserved.
-            </p>
+            <p className="text-ink-muted text-sm">&copy; {currentYear} All rights reserved.</p>
           </div>
 
           {/* Right side: Link columns */}
@@ -63,7 +64,7 @@ function FooterComponent() {
               {(column) => (
                 <div>
                   <column.Field name="title">
-                    {(props) => <h3 {...props} className="text-foreground mb-4 font-semibold" />}
+                    {(props) => <h3 {...props} className="text-ink mb-4 font-semibold" />}
                   </column.Field>
                   <ul className="space-y-2">
                     <column.Repeater name="links">
@@ -73,7 +74,7 @@ function FooterComponent() {
                             {(props) => (
                               <Link
                                 {...props}
-                                className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                                className="text-ink-muted hover:text-ink text-sm transition-colors"
                               />
                             )}
                           </linkItem.Link>
@@ -86,8 +87,8 @@ function FooterComponent() {
             </footer.Repeater>
           </div>
         </div>
-      </div>
-    </footer>
+      </Container>
+    </Section>
   );
 }
 

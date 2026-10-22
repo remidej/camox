@@ -6,6 +6,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Container } from "@/components/ui/container";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 
 const faq = createBlock({
   id: "faq",
@@ -31,32 +33,37 @@ const faq = createBlock({
       toMarkdown: (c) => [`Q: ${c.question}`, `A: ${c.answer}`],
     }),
   }),
+  settings: (setting) => ({
+    scheme: colorSchemeSetting(setting, "light"),
+  }),
   component: FaqComponent,
   toMarkdown: (c) => [c.items],
 });
 
 function FaqComponent() {
+  const scheme = faq.useSetting("scheme");
+
   return (
-    <section className="py-12 sm:py-16 md:py-20">
-      <div className="mx-auto max-w-2xl px-4">
+    <Section scheme={scheme}>
+      <Container className="max-w-text">
         <Accordion>
           <faq.Repeater name="items">
-            {(item, index) => (
-              <AccordionItem value={index}>
-                <AccordionTrigger className="items-center text-lg">
+            {(item) => (
+              <AccordionItem>
+                <AccordionTrigger className="text-title items-center">
                   <item.Field name="question">{(props) => <span {...props} />}</item.Field>
                 </AccordionTrigger>
                 <AccordionContent>
                   <item.Field name="answer">
-                    {(props) => <p {...props} className="text-muted-foreground text-base" />}
+                    {(props) => <p {...props} className="text-ink-muted text-base" />}
                   </item.Field>
                 </AccordionContent>
               </AccordionItem>
             )}
           </faq.Repeater>
         </Accordion>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 

@@ -29,12 +29,10 @@ const customerHighlights = createBlock({
 
 function CustomerHighlightsComponent() {
   return (
-    <section className="bg-background py-16">
-      <div className="container mx-auto px-4">
+    <section className="bg-canvas py-16">
+      <div className="max-w-page px-gutter mx-auto">
         <customerHighlights.Field name="title">
-          {(props) => (
-            <h2 {...props} className="text-foreground mb-10 text-center text-3xl font-semibold" />
-          )}
+          {(props) => <h2 {...props} className="text-heading mb-10 text-center" />}
         </customerHighlights.Field>
         <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <customerHighlights.Repeater name="highlights">
@@ -42,8 +40,8 @@ function CustomerHighlightsComponent() {
               <li
                 className={
                   highlight.useSetting("emphasized")
-                    ? "border-primary rounded-lg border-2 p-6"
-                    : "border-border rounded-lg border p-6"
+                    ? "border-brand rounded-lg border-2 p-6"
+                    : "border-line rounded-lg border p-6"
                 }
               >
                 <highlight.Reference name="customer">
@@ -53,13 +51,13 @@ function CustomerHighlightsComponent() {
                         {(props) => <img {...props} className="h-8 max-w-24 object-contain" />}
                       </customer.Image>
                       <customer.Field name="company">
-                        {(props) => <span {...props} className="text-foreground font-semibold" />}
+                        {(props) => <span {...props} className="text-ink font-semibold" />}
                       </customer.Field>
                     </div>
                   )}
                 </highlight.Reference>
                 <highlight.Field name="note">
-                  {(props) => <p {...props} className="text-muted-foreground" />}
+                  {(props) => <p {...props} className="text-ink-muted" />}
                 </highlight.Field>
               </li>
             )}

@@ -1,5 +1,7 @@
 import { createBlock } from "camox/createBlock";
 
+import { Container } from "@/components/ui/container";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const youtubeVideo = createBlock({
@@ -20,14 +22,7 @@ const youtubeVideo = createBlock({
       default: false,
       title: "Full Width",
     }),
-    theme: setting.enum({
-      options: {
-        light: "Light",
-        dark: "Dark",
-      },
-      default: "light",
-      title: "Theme",
-    }),
+    scheme: colorSchemeSetting(setting, "light"),
     autoplay: setting.boolean({
       default: false,
       title: "Autoplay",
@@ -102,7 +97,7 @@ function getYouTubeEmbedUrl(url: string, params: YouTubeParams): string {
 
 function YouTubeVideoComponent() {
   const fullWidth = youtubeVideo.useSetting("fullWidth");
-  const theme = youtubeVideo.useSetting("theme");
+  const scheme = youtubeVideo.useSetting("scheme");
   const autoplay = youtubeVideo.useSetting("autoplay");
   const mute = youtubeVideo.useSetting("mute");
   const controls = youtubeVideo.useSetting("controls");
@@ -119,39 +114,36 @@ function YouTubeVideoComponent() {
     fullscreen,
   };
 
-  return (
-    <section className={cn(theme === "dark" ? "dark" : "light")}>
-      <div className={cn("bg-background", !fullWidth && "py-12")}>
-        <div className={cn(!fullWidth && "container mx-auto px-4")}>
-          <youtubeVideo.Embed name="url">
-            {(_props, { url }) => (
-              <div
-                className={cn(
-                  "relative w-full",
-                  !fullWidth && "overflow-hidden rounded-lg shadow-lg",
-                )}
-                style={{ paddingBottom: "56.25%" }}
-              >
-                <iframe
-                  src={getYouTubeEmbedUrl(url, params)}
-                  title="YouTube video"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen={fullscreen}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    border: 0,
-                  }}
-                />
-              </div>
-            )}
-          </youtubeVideo.Embed>
+  const video = (
+    <youtubeVideo.Embed name="url">
+      {(_props, { url }) => (
+        <div
+          className={cn("relative w-full", !fullWidth && "rounded-card overflow-hidden shadow-lg")}
+          style={{ paddingBottom: "56.25%" }}
+        >
+          <iframe
+            src={getYouTubeEmbedUrl(url, params)}
+            title="YouTube video"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen={fullscreen}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              border: 0,
+            }}
+          />
         </div>
-      </div>
-    </section>
+      )}
+    </youtubeVideo.Embed>
+  );
+
+  return (
+    <Section scheme={scheme} className={cn(fullWidth && "py-0")}>
+      {fullWidth ? video : <Container>{video}</Container>}
+    </Section>
   );
 }
 

@@ -1,5 +1,7 @@
 import { createBlock } from "camox/createBlock";
 
+import { Container } from "@/components/ui/container";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const youtubeVideo = createBlock({
@@ -20,14 +22,7 @@ const youtubeVideo = createBlock({
       default: false,
       title: "Full Width",
     }),
-    theme: setting.enum({
-      options: {
-        light: "Light",
-        dark: "Dark",
-      },
-      default: "light",
-      title: "Theme",
-    }),
+    scheme: colorSchemeSetting(setting, "light"),
     autoplay: setting.boolean({
       default: false,
       title: "Autoplay",
@@ -126,7 +121,7 @@ function getYouTubeEmbedUrl(url: string, params: YouTubeParams): string {
 
 function YouTubeVideoComponent() {
   const fullWidth = youtubeVideo.useSetting("fullWidth");
-  const theme = youtubeVideo.useSetting("theme");
+  const scheme = youtubeVideo.useSetting("scheme");
   const autoplay = youtubeVideo.useSetting("autoplay");
   const mute = youtubeVideo.useSetting("mute");
   const loop = youtubeVideo.useSetting("loop");
@@ -149,31 +144,31 @@ function YouTubeVideoComponent() {
     keyboard,
   };
 
-  return (
-    <section className={cn(theme === "dark" ? "dark" : "light")}>
-      <div className={cn("bg-background", !fullWidth && "py-12")}>
-        <div className={cn(!fullWidth && "container mx-auto px-4")}>
-          <youtubeVideo.Embed name="url">
-            {(_props, { url }) => (
-              <div
-                className={cn(
-                  "relative w-full aspect-video",
-                  !fullWidth && "rounded-lg overflow-hidden shadow-lg",
-                )}
-              >
-                <iframe
-                  src={getYouTubeEmbedUrl(url, params)}
-                  title="YouTube video"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen={fullscreen}
-                  className="absolute inset-0 h-full w-full"
-                />
-              </div>
-            )}
-          </youtubeVideo.Embed>
+  const embed = (
+    <youtubeVideo.Embed name="url">
+      {(_props, { url }) => (
+        <div
+          className={cn(
+            "relative w-full aspect-video",
+            !fullWidth && "rounded-card overflow-hidden shadow-lg",
+          )}
+        >
+          <iframe
+            src={getYouTubeEmbedUrl(url, params)}
+            title="YouTube video"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen={fullscreen}
+            className="absolute inset-0 h-full w-full"
+          />
         </div>
-      </div>
-    </section>
+      )}
+    </youtubeVideo.Embed>
+  );
+
+  return (
+    <Section scheme={scheme} className={cn(fullWidth && "py-0")}>
+      {fullWidth ? embed : <Container>{embed}</Container>}
+    </Section>
   );
 }
 

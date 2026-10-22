@@ -3,6 +3,8 @@ import { X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
 
 const contactSales = createBlock({
   id: "contact-sales",
@@ -27,20 +29,18 @@ function ContactSalesComponent() {
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(false);
   return (
-    <section className="bg-muted py-24">
-      <div className="container mx-auto px-4 text-center">
+    <Section scheme="tint">
+      <Container className="text-center">
         <contactSales.Field name="title">
-          {(props) => (
-            <h2 {...props} className="text-foreground mb-4 text-3xl font-bold tracking-tight" />
-          )}
+          {(props) => <h2 {...props} className="text-heading mb-4" />}
         </contactSales.Field>
         <contactSales.Field name="description">
-          {(props) => <p {...props} className="text-muted-foreground mx-auto mb-8 max-w-xl" />}
+          {(props) => <p {...props} className="text-lead text-ink-muted mx-auto mb-8 max-w-xl" />}
         </contactSales.Field>
         <Button size="lg" onClick={() => setOpen(true)}>
           <contactSales.Field name="cta">{(props) => <span {...props} />}</contactSales.Field>
         </Button>
-      </div>
+      </Container>
 
       {/* A side sheet as tall as the viewport: `fixed` and `h-screen` (100vh). */}
       {open && (
@@ -50,7 +50,7 @@ function ContactSalesComponent() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-sales-title"
-            className="bg-background absolute top-0 right-0 flex h-screen w-full max-w-md flex-col shadow-xl"
+            className="bg-panel absolute top-0 right-0 flex h-screen w-full max-w-md flex-col shadow-xl"
           >
             <header className="flex items-center justify-between border-b p-6">
               <contactSales.Field name="sheetTitle">
@@ -58,12 +58,17 @@ function ContactSalesComponent() {
                   <h2 {...props} id="contact-sales-title" className="text-lg font-semibold" />
                 )}
               </contactSales.Field>
-              <Button variant="ghost" size="icon" aria-label="Close" onClick={() => setOpen(false)}>
+              <Button
+                variant="plain"
+                className="size-10 px-0"
+                aria-label="Close"
+                onClick={() => setOpen(false)}
+              >
                 <X />
               </Button>
             </header>
             {sent ? (
-              <p className="text-muted-foreground p-6">Thanks! We'll be in touch.</p>
+              <p className="text-ink-muted p-6">Thanks! We'll be in touch.</p>
             ) : (
               <form
                 className="flex flex-1 flex-col gap-4 overflow-y-auto p-6"
@@ -74,19 +79,19 @@ function ContactSalesComponent() {
               >
                 <label className="flex flex-col gap-1 text-sm font-medium">
                   Name
-                  <input required className="rounded-md border px-3 py-2 font-normal" />
+                  <input required className="rounded-control border px-3 py-2 font-normal" />
                 </label>
                 <label className="flex flex-col gap-1 text-sm font-medium">
                   Work email
                   <input
                     required
                     type="email"
-                    className="rounded-md border px-3 py-2 font-normal"
+                    className="rounded-control border px-3 py-2 font-normal"
                   />
                 </label>
                 <label className="flex flex-1 flex-col gap-1 text-sm font-medium">
                   Message
-                  <textarea className="min-h-32 flex-1 rounded-md border px-3 py-2 font-normal" />
+                  <textarea className="rounded-control min-h-32 flex-1 border px-3 py-2 font-normal" />
                 </label>
                 {/* Pinned to the bottom of the viewport-tall sheet. */}
                 <Button type="submit" className="mt-auto">
@@ -97,7 +102,7 @@ function ContactSalesComponent() {
           </aside>
         </div>
       )}
-    </section>
+    </Section>
   );
 }
 

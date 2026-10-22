@@ -1,69 +1,70 @@
-import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
+import { createContext, use, useId, type ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
 
-function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
+/*
+ * A native accordion: each item is a <details>, and items share one `name`, so the browser
+ * keeps only one open at a time. It works without JS and ships none to visitors.
+ */
+
+const AccordionNameContext = createContext<string | undefined>(undefined);
+
+function Accordion({ className, name, ...props }: ComponentProps<"div"> & { name?: string }) {
+  const generatedName = useId();
   return (
-    <AccordionPrimitive.Root
-      data-slot="accordion"
-      className={cn("flex w-full flex-col", className)}
-      {...props}
-    />
+    <AccordionNameContext value={name ?? generatedName}>
+      <div data-slot="accordion" className={cn("flex w-full flex-col", className)} {...props} />
+    </AccordionNameContext>
   );
 }
 
-function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
+function AccordionItem({ className, ...props }: ComponentProps<"details">) {
+  const name = use(AccordionNameContext);
   return (
-    <AccordionPrimitive.Item
+    <details
       data-slot="accordion-item"
-      className={cn("not-last:border-b", className)}
+      name={name}
+      className={cn(
+        "group/accordion-item not-last:border-b",
+        // Opening animates only where browsers can animate <details> content natively.
+        "[interpolate-size:allow-keywords] supports-[interpolate-size:allow-keywords]:details-content:h-0 supports-[interpolate-size:allow-keywords]:details-content:overflow-clip supports-[interpolate-size:allow-keywords]:details-content:transition-[height,content-visibility] supports-[interpolate-size:allow-keywords]:details-content:transition-discrete supports-[interpolate-size:allow-keywords]:open:details-content:h-auto motion-reduce:details-content:transition-none",
+        className,
+      )}
       {...props}
     />
   );
 }
 
-function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.Trigger.Props) {
+function AccordionTrigger({ className, children, ...props }: ComponentProps<"summary">) {
   return (
-    <AccordionPrimitive.Header className="flex">
-      <AccordionPrimitive.Trigger
-        data-slot="accordion-trigger"
-        className={cn(
-          "group/accordion-trigger relative flex flex-1 items-start justify-between rounded-md border border-transparent py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:after:border-ring aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        <ChevronDownIcon
-          data-slot="accordion-trigger-icon"
-          className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
-        />
-        <ChevronUpIcon
-          data-slot="accordion-trigger-icon"
-          className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
-        />
-      </AccordionPrimitive.Trigger>
-    </AccordionPrimitive.Header>
-  );
-}
-
-function AccordionContent({ className, children, ...props }: AccordionPrimitive.Panel.Props) {
-  return (
-    <AccordionPrimitive.Panel
-      data-slot="accordion-content"
-      className="data-open:animate-accordion-down data-closed:animate-accordion-up overflow-hidden text-sm"
+    <summary
+      data-slot="accordion-trigger"
+      className={cn(
+        "rounded-control flex cursor-pointer list-none items-start justify-between gap-4 py-4 text-left text-sm font-medium hover:underline [&::-webkit-details-marker]:hidden",
+        className,
+      )}
       {...props}
     >
-      <div
-        className={cn(
-          "h-(--accordion-panel-height) pt-0 pb-4 data-ending-style:h-0 data-starting-style:h-0 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
-          className,
-        )}
-      >
-        {children}
-      </div>
-    </AccordionPrimitive.Panel>
+      {children}
+      <ChevronDownIcon
+        aria-hidden
+        className="text-ink-muted pointer-events-none size-4 shrink-0 transition-transform group-open/accordion-item:rotate-180 motion-reduce:transition-none"
+      />
+    </summary>
+  );
+}
+
+function AccordionContent({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="accordion-content"
+      className={cn(
+        "pt-0 pb-4 text-sm [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-ink [&_p:not(:last-child)]:mb-4",
+        className,
+      )}
+      {...props}
+    />
   );
 }
 

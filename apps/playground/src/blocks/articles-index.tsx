@@ -26,12 +26,12 @@ const articlesIndex = createBlock({
 function ArticlesIndexComponent() {
   const localized = useLocalizedHref();
   return (
-    <section className="bg-background py-16">
-      <div className="container mx-auto max-w-3xl px-4">
+    <section className="bg-canvas py-16">
+      <div className="px-gutter mx-auto max-w-3xl">
         <articlesIndex.Field name="title">
-          {(props) => <h1 {...props} className="text-foreground mb-8 text-4xl font-bold" />}
+          {(props) => <h1 {...props} className="text-display mb-8" />}
         </articlesIndex.Field>
-        <ul className="divide-border divide-y">
+        <ul className="divide-line divide-y">
           <articlesIndex.ReferenceList name="articles">
             {(article) => (
               <li className="py-4">
@@ -41,14 +41,11 @@ function ArticlesIndexComponent() {
                     <a href={localized(`/articles/${slug}`)} className="group block">
                       <article.Field name="title">
                         {(props) => (
-                          <h2
-                            {...props}
-                            className="text-foreground font-medium group-hover:underline"
-                          />
+                          <h2 {...props} className="text-ink font-medium group-hover:underline" />
                         )}
                       </article.Field>
                       <article.Field name="excerpt">
-                        {(props) => <p {...props} className="text-muted-foreground mt-1 text-sm" />}
+                        {(props) => <p {...props} className="text-ink-muted mt-1 text-sm" />}
                       </article.Field>
                     </a>
                   )}

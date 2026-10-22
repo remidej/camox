@@ -77,27 +77,22 @@ function IllustratedFeaturesComponent() {
           }
         />
       </div>
-      <div className="border-border overflow-hidden rounded-2xl border">
+      <div className="rounded-card overflow-hidden border">
         <div
-          className={`bg-border grid grid-cols-1 gap-px ${columns === "3" ? "md:grid-cols-3" : "md:grid-cols-2"}`}
+          className={`bg-line grid grid-cols-1 gap-px ${columns === "3" ? "md:grid-cols-3" : "md:grid-cols-2"}`}
         >
           <illustratedFeatures.Repeater name="items">
             {(item) => (
-              <div className="bg-background flex h-full flex-col justify-between gap-6 px-6 pt-6">
+              <div className="bg-canvas flex h-full flex-col justify-between gap-6 px-6 pt-6">
                 <div className="flex flex-col gap-2">
                   <item.Field name="title">
-                    {(props) => (
-                      <h3
-                        {...props}
-                        className="text-foreground text-xl font-semibold tracking-tight"
-                      />
-                    )}
+                    {(props) => <h3 {...props} className="text-ink text-title" />}
                   </item.Field>
                   <item.Field name="description">
-                    {(props) => <p {...props} className="text-muted-foreground text-base" />}
+                    {(props) => <p {...props} className="text-ink-muted text-base" />}
                   </item.Field>
                 </div>
-                <div className="border-border aspect-5/3 overflow-hidden rounded-t-xl border-t border-r border-l">
+                <div className="rounded-t-card aspect-5/3 overflow-hidden border-t border-r border-l">
                   <item.Artifact name="illustration">
                     {(props) => <iframe {...props} className="size-full" />}
                   </item.Artifact>

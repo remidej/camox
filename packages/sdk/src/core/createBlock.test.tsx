@@ -59,6 +59,18 @@ void test("synced is independent of layoutOnly", () => {
   assert.equal(layoutBlock._internal.layoutOnly, true);
 });
 
+void test("a block's wrapper leaves its background to the website's stylesheet", () => {
+  const block = createBlock({ ...options, component: () => <p>Hi</p> });
+  const html = renderToStaticMarkup(
+    <block._internal.Component
+      mode="site"
+      blockData={{ _id: "1", type: "navigation", position: "a0", content: {} as never }}
+    />,
+  );
+  assert.match(html, /^<div[^>]+data-camox-viewport-block="1"/);
+  assert.doesNotMatch(html, /background/);
+});
+
 void test("rejects fields declared in the wrong context by untyped callers", () => {
   const setting = { fieldType: "Boolean", type: "boolean", default: true };
   const text = { fieldType: "String", type: "string", default: "" };

@@ -44,24 +44,21 @@ function PokedexComponent() {
   const localized = useLocalizedHref();
   return (
     <section
-      className="bg-background text-foreground border-border border-y py-16 sm:py-24"
+      className="bg-canvas text-ink border-line border-y py-16 sm:py-24"
       aria-label="Pokémon of the week"
     >
       <div className="mx-auto max-w-6xl px-5 sm:px-8">
         <div className="mb-10 max-w-2xl">
-          <p className="text-muted-foreground mb-4 flex items-center gap-2 text-xs font-bold tracking-[0.2em] uppercase">
-            <span aria-hidden="true" className="size-2 rounded-full bg-red-500" />
+          <p className="text-eyebrow text-ink-muted mb-4 flex items-center gap-2 uppercase">
+            <span aria-hidden="true" className="bg-brand size-2 rounded-full" />
             The weekly selection
           </p>
           <pokedex.Field name="title">
-            {(props) => <h2 {...props} className="text-3xl font-bold tracking-tight sm:text-5xl" />}
+            {(props) => <h2 {...props} className="text-heading" />}
           </pokedex.Field>
           <pokedex.Field name="description">
             {(props) => (
-              <p
-                {...props}
-                className="text-muted-foreground mt-5 text-base leading-relaxed sm:text-lg"
-              />
+              <p {...props} className="text-ink-muted mt-5 text-base leading-relaxed sm:text-lg" />
             )}
           </pokedex.Field>
         </div>
@@ -70,7 +67,7 @@ function PokedexComponent() {
             {(item) => (
               <item.Field name="name">
                 {(_props, { text }) => (
-                  <li className="border-border bg-card flex h-full flex-col rounded-2xl border p-6">
+                  <li className="border-line bg-panel flex h-full flex-col rounded-2xl border p-6">
                     <PokemonSpotlight name={text} />
                   </li>
                 )}
@@ -80,7 +77,7 @@ function PokedexComponent() {
         </ul>
         <a
           href={localized("/pokedex")}
-          className="focus-visible:ring-ring mt-8 inline-flex rounded-sm font-semibold underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
+          className="focus-visible:ring-brand mt-8 inline-flex rounded-sm font-semibold underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
         >
           Explore the full Pokédex →
         </a>
@@ -117,11 +114,11 @@ function PokemonSpotlight({ name }: { name: string }) {
   });
 
   if (!validName) {
-    return <p className="text-muted-foreground">Set a Pokémon name in the editor sidebar.</p>;
+    return <p className="text-ink-muted">Set a Pokémon name in the editor sidebar.</p>;
   }
   if (error) {
     return (
-      <div role="status" className="text-muted-foreground">
+      <div role="status" className="text-ink-muted">
         <p>{error.message}</p>
         <button type="button" onClick={() => void refetch()} className="mt-3 underline">
           Try again
@@ -131,10 +128,7 @@ function PokemonSpotlight({ name }: { name: string }) {
   }
   if (isPending) {
     return (
-      <p
-        role="status"
-        className="text-muted-foreground flex aspect-square items-center justify-center"
-      >
+      <p role="status" className="text-ink-muted flex aspect-square items-center justify-center">
         Loading Pokémon…
       </p>
     );
@@ -143,11 +137,11 @@ function PokemonSpotlight({ name }: { name: string }) {
   return (
     <a
       href={localized(`/pokemon/${data.name}`)}
-      className="focus-visible:ring-ring flex flex-1 flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+      className="focus-visible:ring-brand flex flex-1 flex-col rounded-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
       aria-label={`Explore ${pokemonName(data.name)}`}
     >
-      <h3 className="mb-4 text-xl font-semibold">{pokemonName(data.name)}</h3>
-      <span className="text-muted-foreground font-mono text-xs">{pokemonNumber(data.id)}</span>
+      <h3 className="text-title mb-4">{pokemonName(data.name)}</h3>
+      <span className="text-ink-muted font-mono text-xs">{pokemonNumber(data.id)}</span>
       <PokemonArtwork
         key={data.name}
         name={data.name}

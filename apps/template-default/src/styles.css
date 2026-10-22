@@ -1,162 +1,268 @@
+/*
+ * The site's Theme. Every color, font, text size, radius, spacing and motion token the
+ * blocks use is defined here, so a rebrand happens in this file.
+ *
+ * - Rebrand by editing the brand inputs on :root, the fonts and the radius roles.
+ * - Style with the utilities these tokens generate (`bg-canvas`, `text-ink-muted`,
+ *   `text-display`, `rounded-card`, `py-section`, ...), never raw color values.
+ * - Tailwind's color palette is removed on purpose: `bg-blue-500` doesn't exist. Only
+ *   `white`, `black`, `transparent` and `current` remain besides the color roles below.
+ *   Tailwind's text sizes, radii, shadows, spacing scale and breakpoints all still work.
+ */
+
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/noto-serif";
+@import "@fontsource-variable/hanken-grotesk";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * `dark:` matches the element carrying `.dark` and everything inside it. Tokens already
+ * switch inside a `.dark` element, so use `dark:` only for exceptions, such as swapping a
+ * logo.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
 
-body {
-  @apply m-0;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+/*
+ * Color schemes. Put a scheme class (`light`, `dark`, `brand` or `tint`) on any element and
+ * everything inside it uses that scheme's color roles. Schemes nest: a `.light` element
+ * inside a `.dark` one is light again.
+ *
+ * Each scheme sets every color role:
+ * - `canvas`: the background of a block.
+ * - `panel`: anything raised on the canvas, such as cards and inputs.
+ * - `ink`: main text and icons.
+ * - `ink-muted`: secondary text.
+ * - `line`: borders and dividers.
+ * - `brand`: the emphasis color, as a fill (solid button) or as ink (link, icon, focus ring).
+ * - `ink-on-brand`: text on a `brand` fill.
+ * - `success`, `warning`, `error`: feedback colors, used as ink plus a faint fill of
+ *   themselves (for instance `text-error bg-error/10`).
+ *
+ * Any ink reads on any surface of the same scheme, so only `brand` has a paired ink.
+ * Neutral hovers and subtle fills are `ink` at low opacity (`hover:bg-ink/5`), so there is
+ * no hover token. Each scheme also sets `color-scheme`, so native controls and scrollbars
+ * follow it.
+ */
 
+/*
+ * Brand inputs. Every scheme derives its colors from the first three values, so a rebrand
+ * starts here. Schemes never hardcode a brand color.
+ */
 :root {
-  --background: oklch(0.99 0.01 260);
-  --foreground: oklch(0 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0 0 0);
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.96 0.02 260);
-  --secondary-foreground: oklch(0.22 0.05 260);
-  --muted: oklch(0.96 0.02 260);
-  --muted-foreground: oklch(0.55 0.05 260);
-  --accent: oklch(0.96 0.02 260);
-  --accent-foreground: oklch(0.22 0.05 260);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.02 260);
-  --input: oklch(0.92 0.02 260);
-  --ring: oklch(0.7 0.05 260);
-  --chart-1: oklch(0.871 0.02 260);
-  --chart-2: oklch(0.62 0.19 260);
-  --chart-3: oklch(0.5 0.12 260);
-  --chart-4: oklch(0.4 0.08 260);
-  --chart-5: oklch(0.3 0.05 260);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.99 0.01 260);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0.62 0.19 260);
-  --sidebar-primary-foreground: oklch(0.984 0.019 200.873);
-  --sidebar-accent: oklch(0.96 0.02 260);
-  --sidebar-accent-foreground: oklch(0.22 0.05 260);
-  --sidebar-border: oklch(0.92 0.02 260);
-  --sidebar-ring: oklch(0.7 0.05 260);
+  /* The brand color. Keep it dark enough for white text on it (the brand scheme). */
+  --brand-color: oklch(0.52 0.2 262);
+  /* A lighter brand color that reads on dark backgrounds, used by the dark scheme. */
+  --brand-color-on-dark: oklch(0.74 0.14 262);
+  /* The hue (0-360) that tints every gray, so neutrals lean toward the brand. */
+  --neutral-hue: 262;
+  /* The case of eyebrows (the Eyebrow Component): `uppercase`, or `none` to keep it as typed. */
+  --eyebrow-case: uppercase;
 }
 
+/* Light: the default scheme of the page, for most content blocks. */
+:root,
+.light {
+  color-scheme: light;
+  --canvas: oklch(0.995 0.002 var(--neutral-hue));
+  --panel: oklch(0.965 0.008 var(--neutral-hue));
+  --ink: oklch(0.2 0.02 var(--neutral-hue));
+  --ink-muted: oklch(0.48 0.02 var(--neutral-hue));
+  --line: oklch(0.9 0.01 var(--neutral-hue));
+  --brand: var(--brand-color);
+  --ink-on-brand: oklch(1 0 0);
+  --success: oklch(0.5 0.13 150);
+  /* A dark amber, so warnings stay readable as text on light surfaces. */
+  --warning: oklch(0.52 0.12 65);
+  --error: oklch(0.53 0.2 27);
+}
+
+/* Dark: for heroes, navbars, footers and dark bands. */
 .dark {
-  --background: oklch(0.17 0.05 260);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.22 0.05 260);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.22 0.05 260);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.3 0.05 260);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.3 0.05 260);
-  --muted-foreground: oklch(0.72 0.03 260);
-  --accent: oklch(0.3 0.05 260);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.55 0.05 260);
-  --chart-1: oklch(0.871 0.02 260);
-  --chart-2: oklch(0.62 0.19 260);
-  --chart-3: oklch(0.5 0.12 260);
-  --chart-4: oklch(0.4 0.08 260);
-  --chart-5: oklch(0.3 0.05 260);
-  --sidebar: oklch(0.22 0.05 260);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.62 0.19 260);
-  --sidebar-primary-foreground: oklch(0.984 0.019 200.873);
-  --sidebar-accent: oklch(0.3 0.05 260);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.55 0.05 260);
+  color-scheme: dark;
+  --canvas: oklch(0.18 0.02 var(--neutral-hue));
+  --panel: oklch(0.23 0.022 var(--neutral-hue));
+  --ink: oklch(0.97 0.005 var(--neutral-hue));
+  --ink-muted: oklch(0.73 0.02 var(--neutral-hue));
+  --line: oklch(1 0 0 / 12%);
+  --brand: var(--brand-color-on-dark);
+  --ink-on-brand: oklch(0.18 0.02 var(--neutral-hue));
+  --success: oklch(0.77 0.15 150);
+  --warning: oklch(0.83 0.14 80);
+  --error: oklch(0.72 0.17 25);
 }
 
+/*
+ * Brand: a band filled with the brand color, such as a call to action. `brand` turns white
+ * and `ink-on-brand` turns into the brand color, so solid buttons and focus rings stay
+ * visible on it.
+ */
+.brand {
+  color-scheme: dark;
+  --canvas: var(--brand-color);
+  --panel: color-mix(in oklch, var(--brand-color) 86%, white);
+  --ink: oklch(1 0 0);
+  --ink-muted: oklch(1 0 0 / 80%);
+  --line: oklch(1 0 0 / 25%);
+  --brand: oklch(1 0 0);
+  --ink-on-brand: var(--brand-color);
+  --success: oklch(0.86 0.13 150);
+  --warning: oklch(0.88 0.13 85);
+  --error: oklch(0.84 0.1 25);
+}
+
+/*
+ * Tint: the light scheme with `canvas` and `panel` swapped, for a light-gray band where
+ * cards turn white.
+ */
+.tint {
+  color-scheme: light;
+  --canvas: oklch(0.965 0.008 var(--neutral-hue));
+  --panel: oklch(0.995 0.002 var(--neutral-hue));
+  --ink: oklch(0.2 0.02 var(--neutral-hue));
+  --ink-muted: oklch(0.48 0.02 var(--neutral-hue));
+  --line: oklch(0.88 0.012 var(--neutral-hue));
+  --brand: var(--brand-color);
+  --ink-on-brand: oklch(1 0 0);
+  --success: oklch(0.5 0.13 150);
+  --warning: oklch(0.52 0.12 65);
+  --error: oklch(0.53 0.2 27);
+}
+
+/*
+ * The variables Camox's editor reads from the site: highlighted text, and the fill and text
+ * of an empty image. Declared on every scheme so they follow the scheme they're used in.
+ */
+:root,
+.light,
+.dark,
+.brand,
+.tint {
+  --camox-highlight: var(--brand);
+  --camox-placeholder: var(--panel);
+  --camox-placeholder-ink: var(--ink-muted);
+}
+
+/* Maps the color roles to utilities (`bg-canvas`, `text-ink`, `border-line`, ...). */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Inter Variable", sans-serif;
-  --font-heading: "Inter Variable", sans-serif;
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  /* Removes Tailwind's default palette, then adds back plain white and black. */
+  --color-*: initial;
+  --color-white: #fff;
+  --color-black: #000;
+
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-ink-on-brand: var(--ink-on-brand);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+}
+
+@theme {
+  /*
+   * Fonts. Change these to change the brand's type pairing.
+   */
+  /* Every heading (h1 to h4 get it from the base layer below): `font-heading`. */
+  --font-heading: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Everything else; the page's default font: `font-body`. */
+  --font-body: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Code, pre and kbd. The system stack, so visitors download no font for it. */
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  /* Tailwind's switch for the page font. */
+  --default-font-family: var(--font-body);
+  --default-mono-font-family: var(--font-mono);
+
+  /*
+   * Text roles. Each sets size, line height, letter spacing and weight together, so every
+   * block's headings match. Fluid sizes combine rem and vw, never vw alone, so zooming the
+   * page still grows them. Tailwind's own sizes (`text-sm`, `text-xl`, ...) still work for
+   * everything else.
+   */
+  /* `text-display`: the hero h1, once per page. */
+  --text-display: clamp(2.5rem, 1.75rem + 3.2vw, 4.5rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.035em;
+  --text-display--font-weight: 700;
+  /* `text-heading`: the h2 of a block. */
+  --text-heading: clamp(1.875rem, 1.45rem + 1.8vw, 3rem);
+  --text-heading--line-height: 1.12;
+  --text-heading--letter-spacing: -0.025em;
+  --text-heading--font-weight: 700;
+  /* `text-title`: the h3 of a card or of an item in a list. */
+  --text-title: clamp(1.125rem, 1.05rem + 0.35vw, 1.375rem);
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.01em;
+  --text-title--font-weight: 600;
+  /* `text-lead`: the intro paragraph under a display or heading. */
+  --text-lead: clamp(1.125rem, 1.05rem + 0.35vw, 1.3125rem);
+  --text-lead--line-height: 1.55;
+  /* `text-eyebrow`: the small label above a heading. */
+  --text-eyebrow: 0.8125rem;
+  --text-eyebrow--line-height: 1.4;
+  --text-eyebrow--letter-spacing: 0.08em;
+  --text-eyebrow--font-weight: 600;
+
+  /*
+   * Radius roles. Tailwind's `rounded-*` sizes still work; use these so the brand's shape
+   * is a one-line change (for instance pill buttons and sharp cards).
+   */
+  /* `rounded-control`: buttons, inputs and badges. */
+  --radius-control: 0.5rem;
+  /* `rounded-card`: cards and images. */
+  --radius-card: 0.875rem;
+
+  /*
+   * Layout. Blocks share these so every block has the same width and rhythm.
+   */
+  /* `max-w-page`: the maximum width of a block's content. */
+  --container-page: 76rem;
+  /* `max-w-text`: a readable width for centered intros and single columns of text. */
+  --container-text: 42rem;
+  /* `px-gutter`: the fluid side padding between the content and the screen edge. */
+  --spacing-gutter: clamp(1rem, 0.5rem + 2.5vw, 2.5rem);
+  /* `py-section`: the fluid vertical padding of a block; the main density knob. */
+  --spacing-section: clamp(4rem, 2.75rem + 5vw, 7.5rem);
+  /* `h-navbar`: the navbar's height, also the offset of anchor links below it. */
+  --spacing-navbar: 4rem;
+
+  /*
+   * Motion. Tailwind's defaults for every `transition-*` utility, retuned to feel quick
+   * and soft.
+   */
+  --default-transition-duration: 180ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  a:focus-visible {
-    @apply border-ring ring-ring/50 rounded-md ring-3 outline-none;
+    @apply border-line;
   }
   html {
-    @apply font-sans;
-    font-size: 14px;
-    @media (width >= theme(--breakpoint-sm)) {
-      font-size: 15px;
-    }
-    @media (width >= theme(--breakpoint-md)) {
-      font-size: 16px;
-    }
+    /* Anchor targets land below the sticky navbar instead of under it. */
+    scroll-padding-top: var(--spacing-navbar);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-}
-
-@utility container {
-  margin-inline: auto;
-  padding-inline: 0.5rem;
-  max-width: 80rem;
-  @media (width >= theme(--breakpoint-sm)) {
-    padding-inline: 1rem;
+  body {
+    @apply bg-canvas text-ink m-0;
   }
-  @media (width >= theme(--breakpoint-md)) {
-    padding-inline: 2rem;
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    text-wrap: balance;
+  }
+  /*
+   * Focus rings use `brand`, which stays visible on every scheme, the brand one included.
+   * Read `--brand`, not `--color-brand`: that alias is resolved once on :root, so it would
+   * ignore the scheme around the focused element.
+   */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
   }
 }

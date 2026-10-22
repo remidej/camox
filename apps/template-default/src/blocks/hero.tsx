@@ -1,7 +1,8 @@
 import { createBlock } from "camox/createBlock";
-import { Link } from "camox/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { colorSchemeSetting, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const hero = createBlock({
@@ -32,11 +33,7 @@ const hero = createBlock({
       default: true,
       title: "With illustration",
     }),
-    theme: setting.enum({
-      default: "dark",
-      options: { light: "Light", dark: "Dark" },
-      title: "Theme",
-    }),
+    scheme: colorSchemeSetting(setting, "dark"),
   }),
   component: HeroComponent,
   toMarkdown: (c, s) => [`# ${c.title}`, c.description, s.withIllustration(c.illustration), c.cta],
@@ -44,48 +41,38 @@ const hero = createBlock({
 
 function HeroComponent() {
   const withIllustration = hero.useSetting("withIllustration");
-  const theme = hero.useSetting("theme");
+  const scheme = hero.useSetting("scheme");
 
   return (
-    <section
-      className={cn(
-        theme === "dark" ? "dark" : "light",
-        "bg-background py-16 sm:py-24 md:py-28",
-        !withIllustration && "flex flex-col items-center justify-center",
-      )}
+    <Section
+      scheme={scheme}
+      className={cn(!withIllustration && "flex flex-col items-center justify-center")}
     >
-      <div className="container mx-auto">
+      <Container>
         <div
           className={cn(
             withIllustration
               ? "grid items-center gap-12 lg:grid-cols-[1fr_auto]"
-              : "mx-auto max-w-3xl text-center",
+              : "max-w-text mx-auto text-center",
           )}
         >
           <div className={cn(withIllustration && "text-left")}>
             <hero.Field name="title">
-              {(props) => (
-                <h1
-                  {...props}
-                  className="text-foreground mb-6 text-4xl font-bold tracking-tight sm:text-6xl"
-                />
-              )}
+              {(props) => <h1 {...props} className="text-display mb-6" />}
             </hero.Field>
             <hero.Field name="description">
-              {(props) => <p {...props} className="text-muted-foreground mb-10 text-xl" />}
+              {(props) => <p {...props} className="text-lead text-ink-muted mb-10" />}
             </hero.Field>
-            <hero.Link name="cta">
-              {(props) => <Button size="lg" nativeButton={false} render={<Link {...props} />} />}
-            </hero.Link>
+            <hero.Link name="cta">{(props) => <Button {...props} size="lg" />}</hero.Link>
           </div>
           {withIllustration && (
             <hero.Image name="illustration">
-              {(props) => <img {...props} className="h-auto w-full max-w-md rounded-lg" />}
+              {(props) => <img {...props} className="rounded-card h-auto w-full max-w-md" />}
             </hero.Image>
           )}
         </div>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 

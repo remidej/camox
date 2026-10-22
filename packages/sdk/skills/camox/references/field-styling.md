@@ -14,7 +14,7 @@ Spread the field's render-prop `props` onto the element to preserve inline editi
 <myBlock.Field name="title">{(props) => <h1 {...props} />}</myBlock.Field>
 ```
 
-Camox owns inline markup so editing and published output have the same appearance. Customize appearance with `textStyle` and `linkStyle` (these replace the old `components` prop):
+Camox owns inline markup so editing and published output have the same appearance. Customize appearance with `textStyle` and `linkStyle` (these replace the old `components` prop). Utilities below, such as `text-brand`, are examples; use the ones the project's Theme defines:
 
 ```tsx
 <myBlock.Field
@@ -31,12 +31,12 @@ Camox owns inline markup so editing and published output have the same appearanc
       };
     }
     return {
-      className: bold ? "text-primary" : undefined,
+      className: bold ? "text-brand" : undefined,
       style: bold && italic ? { letterSpacing: "0.02em" } : undefined,
     };
   }}
   linkStyle={({ external }) => ({
-    className: external ? "text-blue-600" : "text-primary font-medium",
+    className: external ? "text-ink-muted" : "text-brand font-medium",
   })}
 >
   {(props) => <p {...props} />}
@@ -45,6 +45,6 @@ Camox owns inline markup so editing and published output have the same appearanc
 
 - `textStyle` receives `{ bold, italic, strikethrough, highlight }` and returns `{ className?, style? }` or `undefined`. For text runs, `highlight` is false and the other flags describe explicit content formatting, not inherited heading styles. Unmarked text keeps its parent's typography.
 - `linkStyle` receives `{ target, href, external, pageId }` and returns the same appearance-only object. Links are underlined by default; override `style.textDecorationLine` to change that.
-- Camox also calls `textStyle` once for each shared highlight wrapper with `{ highlight: true, bold: false, italic: false, strikethrough: false }`. That result styles the whole range; its children receive their own text-run calls. `highlight` identifies the wrapper being styled, not whether a run is inside a highlight. This keeps one continuous background when bold/italic formatting changes within the range. Highlights default to the site's `--primary` text color, falling back to `currentColor`. Return a custom `style.color` to change it, or use a clipped background with transparent text fill to render a gradient, as shown above.
+- Camox also calls `textStyle` once for each shared highlight wrapper with `{ highlight: true, bold: false, italic: false, strikethrough: false }`. That result styles the whole range; its children receive their own text-run calls. `highlight` identifies the wrapper being styled, not whether a run is inside a highlight. This keeps one continuous background when bold/italic formatting changes within the range. Highlights default to the website's `--camox-highlight` color, falling back to `currentColor`. Return a custom `style.color` to change it, or use a clipped background with transparent text fill to render a gradient, as shown above.
 - Styles apply to inline children; the outer element's `className` stays on that element and is inherited normally. Explicit formatting defaults (combined italic, strikethrough, highlight color) use inline styles; use `style` to override those defaults rather than competing utility classes.
 - These props accept appearance only, never replacement elements, children, or event handlers. They also work on `item.Field` inside repeaters. The sidebar editor shows default formatting; field-specific styles apply on the page.

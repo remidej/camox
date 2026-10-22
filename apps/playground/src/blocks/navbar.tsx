@@ -4,6 +4,8 @@ import { Link } from "camox/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const navbar = createBlock({
@@ -55,10 +57,10 @@ const navbar = createBlock({
 
 function NavbarContent() {
   return (
-    <div className="container mx-auto px-4">
-      <div className="flex h-16 items-center justify-between">
+    <Container>
+      <div className="h-navbar flex items-center justify-between">
         <navbar.Link name="title">
-          {(props) => <Link {...props} className="text-foreground text-xl font-bold" />}
+          {(props) => <Link {...props} className="text-xl font-bold" />}
         </navbar.Link>
 
         <div className="flex items-center gap-6">
@@ -68,19 +70,17 @@ function NavbarContent() {
                 {(props) => (
                   <Link
                     {...props}
-                    className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                    className="text-ink-muted hover:text-ink text-sm transition-colors"
                   />
                 )}
               </linkItem.Link>
             )}
           </navbar.Repeater>
 
-          <navbar.Link name="cta">
-            {(props) => <Button size="sm" nativeButton={false} render={<Link {...props} />} />}
-          </navbar.Link>
+          <navbar.Link name="cta">{(props) => <Button {...props} size="sm" />}</navbar.Link>
         </div>
       </div>
-    </div>
+    </Container>
   );
 }
 
@@ -110,29 +110,31 @@ function NavbarComponent() {
   }, [floating]);
 
   return (
-    <div className="dark relative">
+    <div className="relative">
       {/* Sentinel element — when this scrolls out, the navbar floats */}
       <div ref={sentinelRef} className="absolute top-[calc(100%+50px)] h-0 w-full p-2" />
       {/* Static navbar */}
-      <nav className="bg-background border-border border-b">
+      <Section as="nav" scheme="dark" className="border-b py-0">
         <NavbarContent />
-      </nav>
+      </Section>
 
       {/* Floating navbar */}
       {floating && (
         <navbar.Detached>
           {(props) => (
-            <nav
+            <Section
               {...props}
+              as="nav"
+              scheme="dark"
               className={cn(
-                "fixed top-4 left-4 right-4 z-50 rounded-xl border border-border bg-background/80 backdrop-blur-lg shadow-lg transition-all",
+                "fixed top-4 left-4 right-4 z-50 rounded-card border bg-canvas/80 py-0 backdrop-blur-lg shadow-lg transition-all",
                 isFloating
                   ? "translate-y-0 opacity-100"
                   : "-translate-y-[calc(100%+2rem)] opacity-0 pointer-events-none",
               )}
             >
               <NavbarContent />
-            </nav>
+            </Section>
           )}
         </navbar.Detached>
       )}

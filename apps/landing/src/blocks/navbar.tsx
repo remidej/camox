@@ -1,9 +1,12 @@
-import { Button } from "@camox/ui/button";
 import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { MobileMenu } from "@/components/ui/mobile-menu";
+import { Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const navbar = createBlock({
@@ -40,16 +43,16 @@ function NavbarContent() {
     : "https://app.camox.dev";
 
   return (
-    <div className="container">
-      <div className="flex h-14 items-center justify-between">
+    <Container>
+      <div className="h-navbar flex items-center justify-between">
         <Link to="/" className="flex items-center">
           <navbar.Image name="logo">
             {(props) => <img {...props} className="h-7 w-auto" />}
           </navbar.Image>
         </Link>
 
-        <div className="flex items-center gap-6">
-          <div className="hidden items-center gap-4 md:flex">
+        <div className="flex items-center gap-2 md:gap-6">
+          <MobileMenu wrapperClassName="order-last md:order-none" className="md:gap-4">
             <navbar.Repeater name="links">
               {(linkItem) => (
                 <linkItem.Link name="link">
@@ -57,21 +60,14 @@ function NavbarContent() {
                 </linkItem.Link>
               )}
             </navbar.Repeater>
-          </div>
+          </MobileMenu>
 
-          <Button
-            size="sm"
-            variant="outline"
-            nativeButton={false}
-            render={
-              <a href={dashboardUrl}>
-                Dashboard <ArrowRight className="text-muted-foreground" />
-              </a>
-            }
-          />
+          <Button href={dashboardUrl} size="sm" variant="outline">
+            Dashboard <ArrowRight className="text-ink-muted" />
+          </Button>
         </div>
       </div>
-    </div>
+    </Container>
   );
 }
 
@@ -99,15 +95,17 @@ function NavbarComponent() {
       <div ref={sentinelRef} className="absolute top-0 h-px w-full" />
       <navbar.Detached>
         {(props) => (
-          <nav
+          <Section
             {...props}
+            as="nav"
+            scheme="dark"
             className={cn(
-              "fixed inset-x-0 top-0 z-50 transition-colors",
-              isScrolled && "border-border border-b bg-black",
+              "fixed inset-x-0 top-0 z-50 bg-transparent py-0 transition-colors",
+              isScrolled && "border-b bg-black",
             )}
           >
             <NavbarContent />
-          </nav>
+          </Section>
         )}
       </navbar.Detached>
     </>

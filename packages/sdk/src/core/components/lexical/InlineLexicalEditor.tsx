@@ -26,6 +26,7 @@ import { InlineContentEditable } from "./InlineContentEditable";
 import { InlineStylesPlugin } from "./InlineStylesPlugin";
 import { MaxLengthPlugin } from "./MaxLengthPlugin";
 import { SelectionBroadcaster } from "./SelectionBroadcaster";
+import { SummaryToggleGuard } from "./SummaryToggleGuard";
 
 interface InlineLexicalEditorProps extends MarkdownToReactNodesOptions {
   initialState: string | Record<string, unknown>;
@@ -230,6 +231,7 @@ export function InlineLexicalEditor({
       <ExternalStateSync externalState={externalState} />
       <EscapeHandler />
       <EnterAsLineBreakHandler />
+      <SummaryToggleGuard />
       <PasteUrlAsLinkHandler />
       <FocusBlurHandler onFocus={handleFocus} onBlur={handleBlur} />
       <InlineStylesPlugin

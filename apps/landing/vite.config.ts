@@ -6,6 +6,10 @@ import { defineConfig } from "vite-plus";
 
 import { checkoutHostname } from "../../scripts/dev-hostname";
 
+// Tests render Components and compile the stylesheet in Node: they need neither the Worker
+// nor Camox's dev runtime.
+const isTest = Boolean(process.env.VITEST);
+
 const config = defineConfig({
   server: {
     port: Number(process.env.CAMOX_DEV_LANDING_PORT ?? 3001),
@@ -17,12 +21,18 @@ const config = defineConfig({
   plugins: [
     checkoutHostname(process.env.CAMOX_DEV_HOSTNAME),
     tailwindcss(),
-    cloudflare(),
-    camox({
-      projectId: "01a15fff-627a-72f1-ba3b-dc5fde0bbb45",
-    }),
+    !isTest && cloudflare(),
+    !isTest &&
+      camox({
+        projectId: "01a15fff-627a-72f1-ba3b-dc5fde0bbb45",
+      }),
     react({ compiler: true }),
   ],
+  test: {
+    environment: "node",
+    // Process stylesheets, so tests can read the compiled Theme.
+    css: true,
+  },
   optimizeDeps: {
     include: ["@paper-design/shaders-react"],
   },

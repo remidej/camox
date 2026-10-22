@@ -110,7 +110,7 @@ function YoutubeDemoComponent() {
       <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-3 md:gap-8">
         <div
           ref={playerRef}
-          className="bg-accent/30 border-accent relative overflow-hidden rounded-xl border md:col-span-2 md:col-start-2"
+          className="bg-ink/5 border-ink/10 rounded-card relative overflow-hidden border md:col-span-2 md:col-start-2"
         >
           {startSeconds === null ? (
             <div className="relative">
@@ -123,8 +123,8 @@ function YoutubeDemoComponent() {
                 aria-label="Play video"
                 className="group/play absolute inset-0 flex cursor-pointer items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2"
               >
-                <span className="bg-primary flex size-20 items-center justify-center rounded-full shadow-2xl transition-transform group-hover/play:scale-105">
-                  <Play className="text-primary-foreground size-10 translate-x-0.5 fill-current" />
+                <span className="bg-brand flex size-20 items-center justify-center rounded-full shadow-2xl transition-transform group-hover/play:scale-105">
+                  <Play className="text-ink-on-brand size-10 translate-x-0.5 fill-current" />
                 </span>
               </button>
             </div>
@@ -163,33 +163,33 @@ function YoutubeDemoComponent() {
                       handleSeek();
                     }
                   }}
-                  className="group/chapter relative cursor-pointer rounded-md pb-10 last:pb-0 focus-visible:outline-2 focus-visible:outline-offset-2"
+                  className="group/chapter rounded-control relative cursor-pointer pb-10 last:pb-0 focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   <div className="absolute top-0 bottom-0 left-3 z-10 flex w-2.5 flex-col items-center text-base">
                     <div
                       aria-hidden="true"
-                      className="connector-above bg-muted-foreground/75 h-[calc(1rem+0.5lh-5px)] w-px shrink-0"
+                      className="connector-above bg-ink-muted/75 h-[calc(1rem+0.5lh-5px)] w-px shrink-0"
                     />
                     <div
                       aria-hidden="true"
-                      className="border-muted-foreground/75 group-hover/chapter:bg-muted-foreground/75 size-2.5 shrink-0 rounded-full border-2 transition-colors group-hover/chapter:border-transparent"
+                      className="border-ink-muted/75 group-hover/chapter:bg-ink-muted/75 size-2.5 shrink-0 rounded-full border-2 transition-colors group-hover/chapter:border-transparent"
                     />
                     <div
                       aria-hidden="true"
-                      className="timeline-connector bg-muted-foreground/75 w-px flex-1"
+                      className="timeline-connector bg-ink-muted/75 w-px flex-1"
                     />
                   </div>
-                  <div className="group-hover/chapter:bg-accent/40 flex flex-col gap-1 rounded-md py-4 pr-3 pl-8 transition-colors">
+                  <div className="group-hover/chapter:bg-ink/5 rounded-control flex flex-col gap-1 py-4 pr-3 pl-8 transition-colors">
                     <div className="flex items-center gap-2">
                       <item.Field name="title">
                         {(props) => (
                           <h3
                             {...props}
-                            className="text-foreground text-base font-semibold tracking-tight"
+                            className="text-ink text-base font-semibold tracking-tight"
                           />
                         )}
                       </item.Field>
-                      <div className="border-muted-foreground/40 text-muted-foreground flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 opacity-0 transition-opacity group-hover/chapter:opacity-100">
+                      <div className="border-ink-muted/40 text-ink-muted rounded-control flex items-center gap-1.5 border px-1.5 py-0.5 opacity-0 transition-opacity group-hover/chapter:opacity-100">
                         <SkipForward aria-hidden="true" className="size-3.5 shrink-0" />
                         <item.Field name="timestamp">
                           {(props, { text }) => {
@@ -205,7 +205,7 @@ function YoutubeDemoComponent() {
                       </div>
                     </div>
                     <item.Field name="description">
-                      {(props) => <p {...props} className="text-muted-foreground text-sm" />}
+                      {(props) => <p {...props} className="text-ink-muted text-sm" />}
                     </item.Field>
                   </div>
                 </div>

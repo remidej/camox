@@ -35,35 +35,35 @@ const landscapeLayers = [
   },
 ];
 
+// The contract each website's stylesheet sets for empty images. Declaring them
+// on every color scheme selector lets a placeholder in a dark block resolve dark.
+const placeholderFill = "var(--camox-placeholder, #f1f3f5)";
+const placeholderInk = "var(--camox-placeholder-ink, #64748b)";
+
 function PlaceholderLandscape() {
   const id = React.useId();
 
-  // Resolve the site's base color through inheritance, supporting both complete
-  // colors and legacy HSL channels. Mixing with opaque slate shades the terrain
-  // without letting any of the rear silhouettes show through the foreground.
+  // Mixing the placeholder color with opaque slate shades the terrain without
+  // letting any of the rear silhouettes show through the foreground.
   return (
-    <g color="#f1f3f5">
-      <g style={{ color: "hsl(var(--muted))" }}>
-        <g style={{ color: "var(--color-muted, var(--muted))" }}>
-          <defs>
-            {landscapeLayers.map(({ shade }, index) => (
-              <linearGradient key={index} id={`${id}-hill-${index}`} x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0"
-                  stopColor={`color-mix(in oklab, currentColor ${100 - shade}%, #64748b)`}
-                />
-                <stop
-                  offset="1"
-                  stopColor={`color-mix(in oklab, currentColor ${104 - shade}%, #64748b)`}
-                />
-              </linearGradient>
-            ))}
-          </defs>
-          {landscapeLayers.map(({ path }, index) => (
-            <path key={index} d={path} fill={`url(#${id}-hill-${index})`} />
-          ))}
-        </g>
-      </g>
+    <g style={{ color: placeholderFill }}>
+      <defs>
+        {landscapeLayers.map(({ shade }, index) => (
+          <linearGradient key={index} id={`${id}-hill-${index}`} x1="0" y1="0" x2="0" y2="1">
+            <stop
+              offset="0"
+              stopColor={`color-mix(in oklab, currentColor ${100 - shade}%, #64748b)`}
+            />
+            <stop
+              offset="1"
+              stopColor={`color-mix(in oklab, currentColor ${104 - shade}%, #64748b)`}
+            />
+          </linearGradient>
+        ))}
+      </defs>
+      {landscapeLayers.map(({ path }, index) => (
+        <path key={index} d={path} fill={`url(#${id}-hill-${index})`} />
+      ))}
     </g>
   );
 }
@@ -117,13 +117,7 @@ export function renderImagePlaceholder(
       focusable="false"
       {...svgProps}
     >
-      {/* Each inheritance level provides a valid fallback when a theme uses
-          legacy HSL channels rather than a complete CSS color (or vice versa). */}
-      <g fill="#f1f3f5">
-        <g style={{ fill: "hsl(var(--muted))" }}>
-          <rect width="1200" height="800" style={{ fill: "var(--color-muted, var(--muted))" }} />
-        </g>
-      </g>
+      <rect width="1200" height="800" style={{ fill: placeholderFill }} />
       <PlaceholderLandscape />
       <foreignObject x="60" y="300" width="1080" height="200">
         <div
@@ -134,42 +128,32 @@ export function renderImagePlaceholder(
             height: "100%",
             fontFamily: "inherit",
             fontSize: 48,
-            color: "#64748b",
           }}
         >
-          {/* Resolve either token format through inheritance before painting the background. */}
-          <div style={{ color: "#f1f3f5", maxWidth: "100%" }}>
-            <div style={{ color: "hsl(var(--muted))" }}>
-              <div style={{ color: "var(--color-muted, var(--muted))" }}>
-                <span
-                  style={{
-                    display: "block",
-                    background: "currentColor",
-                    borderRadius: 16,
-                    padding: "16px 28px",
-                  }}
-                >
-                  <span style={{ color: "#64748b" }}>
-                    <span style={{ color: "hsl(var(--muted-foreground))" }}>
-                      <span
-                        style={{
-                          color: "var(--color-muted-foreground, var(--muted-foreground))",
-                          display: "block",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          lineHeight: 1.25,
-                          userSelect: "none",
-                        }}
-                      >
-                        {getImagePlaceholderTitle(value)}
-                      </span>
-                    </span>
-                  </span>
-                </span>
-              </div>
-            </div>
-          </div>
+          <span
+            style={{
+              display: "block",
+              maxWidth: "100%",
+              color: placeholderFill,
+              background: "currentColor",
+              borderRadius: 16,
+              padding: "16px 28px",
+            }}
+          >
+            <span
+              style={{
+                color: placeholderInk,
+                display: "block",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                lineHeight: 1.25,
+                userSelect: "none",
+              }}
+            >
+              {getImagePlaceholderTitle(value)}
+            </span>
+          </span>
         </div>
       </foreignObject>
     </svg>

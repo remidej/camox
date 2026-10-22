@@ -3,6 +3,8 @@ import { Check, Copy } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
 
 const terminalCommand = createBlock({
   id: "terminal-command",
@@ -35,11 +37,11 @@ function CopyTerminalCommandComponent() {
   };
 
   return (
-    <section className="dark bg-background py-16">
-      <div className="container mx-auto px-4">
+    <Section scheme="dark" className="py-16">
+      <Container>
         <div className="mx-auto max-w-4xl">
           <terminalCommand.Field name="label">
-            {(props) => <div {...props} className="text-muted-foreground mb-4 text-sm" />}
+            {(props) => <div {...props} className="text-ink-muted mb-4 text-sm" />}
           </terminalCommand.Field>
 
           <terminalCommand.Field name="command">
@@ -47,19 +49,16 @@ function CopyTerminalCommandComponent() {
               <div {...props} className="group relative">
                 <div
                   onClick={handleCopy}
-                  className="cursor-pointer rounded-lg border border-gray-800 bg-gray-950 p-6 transition-colors hover:border-gray-700"
+                  className="rounded-card border-line bg-panel hover:border-ink/25 cursor-pointer border p-6 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-4">
-                    <code
-                      ref={commandRef}
-                      className="flex-1 font-mono text-2xl text-gray-100 md:text-3xl"
-                    >
+                    <code ref={commandRef} className="flex-1 font-mono text-2xl md:text-3xl">
                       {props.children}
                     </code>
                     <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-10 w-10 shrink-0 text-gray-400 hover:bg-gray-800 hover:text-gray-100"
+                      variant="plain"
+                      aria-label="Copy command"
+                      className="text-ink-muted hover:text-ink size-10 px-0"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCopy();
@@ -73,8 +72,8 @@ function CopyTerminalCommandComponent() {
             )}
           </terminalCommand.Field>
         </div>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 

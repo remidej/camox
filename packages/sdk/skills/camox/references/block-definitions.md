@@ -100,7 +100,7 @@ Only Boolean/Enum settings support these conditionals. A repeater's `s` refers t
 
 ## Content Field Types
 
-`content` and a repeater's `content` receive a `field` builder; `settings` receive a `setting` builder. Each builder only offers what its context accepts: `field` has no `enum` or `boolean`, and `setting` has nothing else. Supply defaults for scalar fields; images/files get automatic placeholders, lists use `defaultItems`, and repeaters use their item schemas and bounds.
+`content` and a repeater's `content` receive a `field` builder; `settings` receive a `setting` builder. Each builder only offers what its context accepts: `field` has no `enum` or `boolean`, and `setting` has nothing else. Supply defaults for scalar fields; images/files get automatic placeholders (empty images paint with the stylesheet's `--camox-placeholder` and `--camox-placeholder-ink`), lists use `defaultItems`, and repeaters use their item schemas and bounds.
 
 ### field.string
 
@@ -131,7 +131,7 @@ Declare a non-nullable icon with a required, prefixed default, then render inlin
 icon: field.icon({ default: "lucide:zap", title: "Icon" })
 
 // In the component (also supported as <item.Icon> inside repeaters):
-<block.Icon name="icon" className="size-6 text-primary" />
+<block.Icon name="icon" className="size-6 text-brand" />
 <block.Icon name="icon" aria-label="Fast" />
 ```
 
@@ -308,7 +308,7 @@ Use the matching helper, **not `block.Repeater`**. Its `(props, data)` callback 
 
 ### Settings — `block.useSetting`
 
-Read settings inside the component with `myBlock.useSetting("theme")`.
+Read settings inside the component with `myBlock.useSetting("name")`. For example, `myBlock.useSetting("scheme")` returns the color scheme an editor picked in the block's "Color scheme" setting.
 
 ### Detached rendering — `block.Detached`
 
