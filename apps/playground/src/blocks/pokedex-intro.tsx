@@ -52,24 +52,21 @@ function PokedexComponent() {
   const localized = useLocalizedHref();
   return (
     <section
-      className="bg-background text-foreground border-border border-y py-16 sm:py-24"
+      className="bg-canvas text-ink border-line border-y py-16 sm:py-24"
       aria-label="Pokédex"
     >
       <div className="mx-auto max-w-6xl px-5 sm:px-8">
         <div className="mb-10 max-w-2xl">
-          <p className="text-muted-foreground mb-4 flex items-center gap-2 text-xs font-bold tracking-[0.2em] uppercase">
-            <span aria-hidden="true" className="size-2 rounded-full bg-red-500" />
+          <p className="text-eyebrow text-ink-muted mb-4 flex items-center gap-2 uppercase">
+            <span aria-hidden="true" className="bg-brand size-2 rounded-full" />
             The type collection
           </p>
           <pokedex.Field name="title">
-            {(props) => <h1 {...props} className="text-3xl font-bold tracking-tight sm:text-5xl" />}
+            {(props) => <h1 {...props} className="text-heading" />}
           </pokedex.Field>
           <pokedex.Field name="description">
             {(props) => (
-              <p
-                {...props}
-                className="text-muted-foreground mt-5 text-base leading-relaxed sm:text-lg"
-              />
+              <p {...props} className="text-ink-muted mt-5 text-base leading-relaxed sm:text-lg" />
             )}
           </pokedex.Field>
         </div>
@@ -80,7 +77,7 @@ function PokedexComponent() {
               <li key={type}>
                 <a
                   href={localized(`/pokemon-types/${type}`)}
-                  className="group border-border focus-visible:ring-ring flex h-full flex-col gap-6 rounded-2xl border p-5 transition-transform hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  className="group border-line focus-visible:ring-brand flex h-full flex-col gap-6 rounded-2xl border p-5 transition-transform hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
                   style={{ background: `linear-gradient(140deg, ${color}18, ${color}04)` }}
                   aria-label={`Explore ${pokemonName(type)} Pokémon`}
                 >
@@ -97,7 +94,7 @@ function PokedexComponent() {
                     {pokemonName(type)}
                     <span
                       aria-hidden="true"
-                      className="text-muted-foreground transition-transform group-hover:translate-x-1"
+                      className="text-ink-muted transition-transform group-hover:translate-x-1"
                     >
                       ↗
                     </span>

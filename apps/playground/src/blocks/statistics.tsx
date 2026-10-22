@@ -1,5 +1,9 @@
 import { createBlock } from "camox/createBlock";
 
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
+import { cn } from "@/lib/utils";
+
 const statistics = createBlock({
   id: "statistics",
   title: "Statistics",
@@ -37,54 +41,48 @@ const statistics = createBlock({
         }),
       }),
       settings: (setting) => ({
-        color: setting.enum({
-          default: "teal",
+        accent: setting.enum({
+          default: "brand",
           options: {
-            teal: "Teal",
-            purple: "Purple",
-            amber: "Amber",
-            rose: "Rose",
+            brand: "Brand",
+            ink: "Ink",
+            muted: "Muted",
           },
-          title: "Color",
+          title: "Accent",
         }),
       }),
       minItems: 4,
       maxItems: 8,
       title: "Statistics",
-      toMarkdown: (c, s) => [s.color("teal", `**${c.number}** — ${c.label}`)],
+      toMarkdown: (c, s) => [s.accent("brand", `**${c.number}** — ${c.label}`)],
     }),
   }),
   component: StatisticsComponent,
   toMarkdown: (c) => [`## ${c.subtitle}`, c.description, c.statistics],
 });
 
+// The bar beside each statistic: its accent color, fading out downward.
+const accentBarClasses: Record<string, string> = {
+  brand: "from-brand to-brand/10",
+  ink: "from-ink to-ink/10",
+  muted: "from-ink-muted to-ink-muted/10",
+};
+
 function StatisticsComponent() {
   return (
-    <section className="dark bg-background py-24">
-      <div className="container mx-auto px-4">
+    <Section scheme="dark">
+      <Container>
         <div className="mx-auto max-w-6xl">
           {/* Header section */}
           <div className="mb-16">
             <statistics.Field name="title">
-              {(props) => (
-                <div
-                  {...props}
-                  className="text-primary mb-4 text-sm font-semibold tracking-wider uppercase"
-                />
-              )}
+              {(props) => <p {...props} className="text-eyebrow text-brand mb-4 uppercase" />}
             </statistics.Field>
             <statistics.Field name="subtitle">
-              {(props) => (
-                <h2
-                  {...props}
-                  className="text-foreground mb-6 text-4xl font-bold sm:text-5xl lg:text-6xl"
-                />
-              )}
+              {(props) => <h2 {...props} className="text-heading mb-6" />}
             </statistics.Field>
             <statistics.Field name="description">
-              {(props) => (
-                <p {...props} className="text-muted-foreground max-w-3xl text-lg leading-relaxed" />
-              )}
+              {(props) => <p {...props} className="text-lead text-ink-muted max-w-3xl" />}
             </statistics.Field>
           </div>
 
@@ -92,26 +90,23 @@ function StatisticsComponent() {
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
             <statistics.Repeater name="statistics">
               {(stat) => {
-                const color = stat.useSetting("color");
-                const borderClass = {
-                  teal: "bg-linear-to-b from-teal-400 to-blue-500",
-                  purple: "bg-linear-to-b from-purple-400 to-fuchsia-500",
-                  amber: "bg-linear-to-b from-amber-400 to-orange-500",
-                  rose: "bg-linear-to-b from-rose-400 to-pink-500",
-                }[color];
+                const accent = stat.useSetting("accent");
                 return (
                   <div className="flex gap-3">
-                    <div className={`w-0.5 ${borderClass}`} />
+                    <div
+                      className={cn(
+                        "w-0.5 bg-linear-to-b",
+                        accentBarClasses[accent] ?? accentBarClasses.brand,
+                      )}
+                    />
                     <div className="flex flex-col">
-                      <stat.Icon name="icon" className="text-primary mb-2 size-5" />
+                      <stat.Icon name="icon" className="text-brand mb-2 size-5" />
                       <stat.Field name="number">
-                        {(props) => (
-                          <div {...props} className="text-foreground mb-2 text-4xl font-bold" />
-                        )}
+                        {(props) => <div {...props} className="mb-2 text-4xl font-bold" />}
                       </stat.Field>
                       <stat.Field name="label">
                         {(props) => (
-                          <p {...props} className="text-muted-foreground text-sm leading-relaxed" />
+                          <p {...props} className="text-ink-muted text-sm leading-relaxed" />
                         )}
                       </stat.Field>
                     </div>
@@ -121,8 +116,8 @@ function StatisticsComponent() {
             </statistics.Repeater>
           </div>
         </div>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 

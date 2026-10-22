@@ -16,8 +16,8 @@ const authorBio = createBlock({
 
 function AuthorBioComponent() {
   return (
-    <section className="bg-background py-16">
-      <div className="container mx-auto max-w-3xl px-4">
+    <section className="bg-canvas py-16">
+      <div className="px-gutter mx-auto max-w-3xl">
         <authorBio.Reference name="author">
           {(author) => (
             <div className="flex flex-col gap-6 sm:flex-row">
@@ -26,10 +26,10 @@ function AuthorBioComponent() {
               </author.Image>
               <div className="flex-1">
                 <author.Field name="name">
-                  {(props) => <h2 {...props} className="text-foreground text-2xl font-semibold" />}
+                  {(props) => <h2 {...props} className="text-title" />}
                 </author.Field>
                 <author.Field name="bio">
-                  {(props) => <p {...props} className="text-muted-foreground mt-2" />}
+                  {(props) => <p {...props} className="text-ink-muted mt-2" />}
                 </author.Field>
               </div>
             </div>

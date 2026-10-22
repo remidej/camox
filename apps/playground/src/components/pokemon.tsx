@@ -43,7 +43,7 @@ export function TypeBadge({ name }: { name: string }) {
   return (
     <a
       href={localized(`/pokemon-types/${name}`)}
-      className="border-border bg-background/80 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
+      className="border-line bg-canvas/80 text-ink hover:bg-ink/5 focus-visible:ring-brand inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
     >
       <span className="size-2 rounded-full" style={{ backgroundColor: typeColor(name) }} />
       {pokemonName(name)}
@@ -73,7 +73,7 @@ export function PokemonArtwork({
       <div
         role="img"
         aria-label={`Artwork unavailable for ${pokemonName(name)}`}
-        className={`text-muted-foreground flex items-center justify-center text-5xl font-light ${className}`}
+        className={`text-ink-muted flex items-center justify-center text-5xl font-light ${className}`}
       >
         ?
       </div>

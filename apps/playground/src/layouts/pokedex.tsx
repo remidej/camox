@@ -51,13 +51,13 @@ function PokedexPage() {
   );
 
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
+    <div className="bg-canvas text-ink flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-12 sm:px-8">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold">All Pokémon</h2>
-            <p role="status" className="text-muted-foreground">
+            <p role="status" className="text-ink-muted">
               {matches.length} Pokémon found
             </p>
           </div>
@@ -74,7 +74,7 @@ function PokedexPage() {
                 setSearch(event.target.value);
                 setLimit(48);
               }}
-              className="border-border bg-card w-72 rounded-xl border px-4 py-3"
+              className="border-line bg-panel w-72 rounded-xl border px-4 py-3"
             />
           </div>
         </div>
@@ -83,11 +83,9 @@ function PokedexPage() {
             <li key={item.name}>
               <a
                 href={localized(`/pokemon/${item.name}`)}
-                className="border-border bg-card hover:bg-muted flex h-full flex-col rounded-2xl border p-4"
+                className="border-line bg-panel hover:bg-ink/5 flex h-full flex-col rounded-2xl border p-4"
               >
-                <span className="text-muted-foreground font-mono text-xs">
-                  {pokemonNumber(item.id)}
-                </span>
+                <span className="text-ink-muted font-mono text-xs">{pokemonNumber(item.id)}</span>
                 <PokemonArtwork
                   name={item.name}
                   src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${item.id}.png`}
@@ -104,7 +102,7 @@ function PokedexPage() {
           <button
             type="button"
             onClick={() => setLimit((value) => value + 48)}
-            className="border-border mx-auto mt-8 block rounded-full border px-6 py-3"
+            className="border-line mx-auto mt-8 block rounded-full border px-6 py-3"
           >
             Show more Pokémon
           </button>

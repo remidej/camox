@@ -22,7 +22,7 @@ function BackToArticlesComponent() {
           <a
             {...props}
             href={localized("/articles")}
-            className="text-muted-foreground hover:text-foreground text-sm"
+            className="text-ink-muted hover:text-ink text-sm"
           />
         )}
       </backToArticles.Field>

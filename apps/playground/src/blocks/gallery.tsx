@@ -37,11 +37,9 @@ function GalleryComponent() {
 
   return (
     <section className="py-16">
-      <div className="container mx-auto px-4">
+      <div className="max-w-page px-gutter mx-auto">
         <gallery.Field name="title">
-          {(props) => (
-            <h2 {...props} className="text-foreground mb-8 text-3xl font-bold tracking-tight" />
-          )}
+          {(props) => <h2 {...props} className="text-heading mb-8" />}
         </gallery.Field>
         <div
           className={cn(
