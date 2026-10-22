@@ -75,7 +75,7 @@ Do this before the first deploy that includes the release Workflow, as the API's
    pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --config release-sandbox/wrangler.jsonc
    ```
 
-3. **A Cloudflare API token for deploys**, with _Account › Workers Scripts › Edit_ on Camox's account, so that `wrangler deploy --dispatch-namespace production` can upload user Workers. Give it and the account ID to the API:
+3. **A Cloudflare API token for deploys**, with _Account › Workers Admin_ on Camox's account, so that `wrangler deploy --dispatch-namespace production` can create user Workers and project deletion can delete them (_Workers Editor_ can do neither). Give it and the account ID to the API:
 
    ```sh
    pnpm exec wrangler secret put CF_TOKEN
