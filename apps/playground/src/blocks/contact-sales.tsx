@@ -22,6 +22,7 @@ const contactSales = createBlock({
     sheetTitle: field.string({ default: "Contact sales", title: "Sheet title" }),
   }),
   toReact: ContactSalesComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.description],
 });
 

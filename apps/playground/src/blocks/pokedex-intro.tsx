@@ -39,6 +39,7 @@ const pokedex = createBlock({
     }),
   }),
   toReact: PokedexComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [
     `## ${content.title}`,
     content.description,

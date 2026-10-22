@@ -16,6 +16,7 @@ const logoGrid = createBlock({
     }),
   }),
   toReact: LogoGridComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.customers],
 });
 

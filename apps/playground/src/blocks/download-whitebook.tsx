@@ -35,6 +35,7 @@ const downloadWhitebook = createBlock({
     }),
   }),
   toReact: DownloadWhitebookComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [
     `## ${content.title}`,
     content.description,

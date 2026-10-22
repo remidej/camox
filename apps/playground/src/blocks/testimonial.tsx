@@ -18,6 +18,7 @@ const testimonial = createBlock({
     company: field.reference(customers, { title: "Company" }),
   }),
   toReact: TestimonialComponent,
+  toTitle: ({ content }) => content.author,
   toMarkdown: ({ content }) => [
     `> ${content.quote}`,
     `— ${content.author}, ${content.title}, ${content.company.company}`,

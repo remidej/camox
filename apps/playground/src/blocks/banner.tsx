@@ -9,6 +9,7 @@ const banner = createBlock({
     title: field.string({ default: "Title" }),
   }),
   toReact: BannerComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [content.title],
 });
 

@@ -25,10 +25,12 @@ const largeParagraphsGroup = createBlock({
       minItems: 1,
       maxItems: Infinity,
       title: "Paragraphs",
+      toTitle: ({ content }) => content.title,
       toMarkdown: ({ content }) => [`**${content.title}** ${content.description}`],
     }),
   }),
   toReact: LargeParagraphsGroupComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.items],
 });
 

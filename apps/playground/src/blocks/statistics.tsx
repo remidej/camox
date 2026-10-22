@@ -54,12 +54,14 @@ const statistics = createBlock({
       minItems: 4,
       maxItems: 8,
       title: "Statistics",
+      toTitle: ({ content }) => `${content.number} ${content.label}`,
       toMarkdown: ({ content, settings }) => [
         settings.accent("brand", `**${content.number}** — ${content.label}`),
       ],
     }),
   }),
   toReact: StatisticsComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.subtitle}`, content.description, content.statistics],
 });
 

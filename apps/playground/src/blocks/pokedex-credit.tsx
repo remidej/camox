@@ -18,6 +18,7 @@ const pokedexCredit = createBlock({
     }),
   }),
   toReact: PokedexCreditComponent,
+  toTitle: ({ content }) => content.note,
   toMarkdown: ({ content }) => [content.note, content.source],
 });
 

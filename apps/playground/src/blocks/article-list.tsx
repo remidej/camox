@@ -16,6 +16,7 @@ const articleList = createBlock({
     }),
   }),
   toReact: ArticleListComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.articles],
 });
 
