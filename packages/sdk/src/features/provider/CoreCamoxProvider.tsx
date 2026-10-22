@@ -87,16 +87,24 @@ export function CoreCamoxProvider({
     seededProject.current = initialProject;
   }
 
-  // The React Compiler skips this component (it reads refs while rendering), so
-  // the context value is memoized by hand: every field of every frame reads it.
-  const authContext = React.useMemo(
-    () => ({ authClient, authenticationUrl, apiUrl, projectUuid, initialAuthenticated }),
-    [authClient, authenticationUrl, apiUrl, projectUuid, initialAuthenticated],
-  );
-
   // OTT processing deliberately does not blank the public tree. Successful
   // exchange still reloads after mirroring the server cookie.
   const { ready, error } = useProcessOtt(authClient, { projectUuid, apiUrl }, initialAuthenticated);
+  const exchangingToken = !ready;
+
+  // The React Compiler skips this component (it reads refs while rendering), so
+  // the context value is memoized by hand: every field of every frame reads it.
+  const authContext = React.useMemo(
+    () => ({
+      authClient,
+      authenticationUrl,
+      apiUrl,
+      projectUuid,
+      initialAuthenticated,
+      exchangingToken,
+    }),
+    [authClient, authenticationUrl, apiUrl, projectUuid, initialAuthenticated, exchangingToken],
+  );
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- reads window.location after hydration
