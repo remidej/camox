@@ -1920,7 +1920,7 @@ export async function handleCamoxRequest(
   }
 
   if (match.kind === "logo") {
-    return createProjectLogoResponse(request, options.apiUrl);
+    return createProjectLogoResponse(request, options);
   }
 
   if (match.kind === "sitemap") {
