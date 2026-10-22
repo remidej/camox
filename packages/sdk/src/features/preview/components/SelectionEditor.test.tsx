@@ -247,7 +247,7 @@ async function renderSidebar(
         toMarkdown: () => [],
       }),
     }),
-    component: () => null,
+    toReact: () => null,
     toMarkdown: () => [],
   });
   const file = {

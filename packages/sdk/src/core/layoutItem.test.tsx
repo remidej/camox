@@ -50,8 +50,8 @@ const ArticlePage = createLayout("articles.$slug")({
   description: "",
   blocks: { before: [], after: [] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  component: () => (
+  toTitle: ({ page }) => page.title,
+  toReact: () => (
     <ArticlePage.Item>
       {(article) => (
         <article data-id={article.id} aria-label={article.label}>
@@ -112,7 +112,7 @@ const editingRuntime = {
 };
 
 function render(result: AnyLayoutLoaderResult | undefined) {
-  // The layout's old `component` reads nothing from the page's context.
+  // This layout's toReact reads nothing from the page's context.
   const Component = ArticlePage._internal.toReact as React.ComponentType<{
     children: React.ReactNode;
   }>;

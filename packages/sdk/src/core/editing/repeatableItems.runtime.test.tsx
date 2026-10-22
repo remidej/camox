@@ -81,7 +81,7 @@ void test("editable repeatable items render the author's elements as-is and stay
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <dl>
         <block.Repeater name="specs">
           {(spec) => (
