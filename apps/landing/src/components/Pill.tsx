@@ -8,10 +8,7 @@ export function Pill({ className, ...props }: PillProps) {
   return (
     <span
       {...props}
-      className={cn(
-        "text-primary inline-block rounded-full text-sm font-semibold uppercase",
-        className,
-      )}
+      className={cn("text-brand text-eyebrow inline-block rounded-full uppercase", className)}
     />
   );
 }

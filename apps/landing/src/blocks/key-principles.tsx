@@ -59,32 +59,22 @@ function KeyPrinciplesComponent() {
           {(props) => <Pill {...props} className="mb-6" />}
         </keyPrinciples.Field>
         <keyPrinciples.Field name="title">
-          {(props) => (
-            <h2
-              {...props}
-              className="text-foreground text-3xl leading-tight font-semibold tracking-tight sm:text-4xl"
-            />
-          )}
+          {(props) => <h2 {...props} className="text-ink text-heading" />}
         </keyPrinciples.Field>
       </div>
-      <div className="border-border w-full overflow-hidden rounded-2xl border">
-        <div className="bg-border grid grid-cols-1 gap-px md:grid-cols-3">
+      <div className="rounded-card w-full overflow-hidden border">
+        <div className="bg-line grid grid-cols-1 gap-px md:grid-cols-3">
           <keyPrinciples.Repeater name="items">
             {(item) => {
               const showLink = item.useSetting("showLink");
               return (
-                <div className="bg-popover flex h-full flex-col gap-4 p-6 sm:p-8">
-                  <CircleCheck aria-hidden className="text-muted-foreground size-5" />
+                <div className="bg-panel flex h-full flex-col gap-4 p-6 sm:p-8">
+                  <CircleCheck aria-hidden className="text-ink-muted size-5" />
                   <item.Field name="title">
-                    {(props) => (
-                      <h3
-                        {...props}
-                        className="text-foreground text-xl font-semibold tracking-tight"
-                      />
-                    )}
+                    {(props) => <h3 {...props} className="text-ink text-title" />}
                   </item.Field>
                   <item.Field name="description">
-                    {(props) => <p {...props} className="text-muted-foreground text-base" />}
+                    {(props) => <p {...props} className="text-ink-muted text-base" />}
                   </item.Field>
                   {showLink && (
                     <div className="mt-auto pt-4">

@@ -13,7 +13,7 @@ export function CaretLink({ className, children, ...props }: CaretLinkProps) {
     <Link
       {...props}
       className={cn(
-        "text-primary inline-flex items-center gap-1 py-1 text-sm font-medium",
+        "text-brand inline-flex items-center gap-1 py-1 text-sm font-medium",
         className,
       )}
     >

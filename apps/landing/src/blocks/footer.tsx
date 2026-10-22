@@ -3,6 +3,8 @@ import { Link } from "camox/navigation";
 import { useId } from "react";
 
 import { blockSideBorder } from "@/components/BlockContainer";
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const footer = createBlock({
@@ -39,12 +41,12 @@ const ridge =
 
 /**
  * A nod to the chamois in the logo: the footer's top border, drawn as a
- * mountain ridgeline across the container, with a faint primary-colour glow in
+ * mountain ridgeline across the container, with a faint brand-colour glow in
  * the sky behind it, like the hour before sunrise. It keeps the proportions it
  * has in the full-width (1280px) container on every screen: narrower screens
  * render it wider than the container (`--ridge-span`) and crop the flat
  * baseline, so the range itself spans the container on mobile. The stroke stays
- * 1px in the block-border colour.
+ * 1px in the line colour.
  */
 function Ridgeline() {
   const id = useId();
@@ -64,9 +66,9 @@ function Ridgeline() {
             r="1"
             gradientTransform="translate(0.5 1) scale(0.55 1) translate(-0.5 -1)"
           >
-            <stop offset="0" stopColor="var(--primary)" stopOpacity={0.22} />
-            <stop offset="0.5" stopColor="var(--primary)" stopOpacity={0.08} />
-            <stop offset="1" stopColor="var(--primary)" stopOpacity={0} />
+            <stop offset="0" stopColor="var(--brand)" stopOpacity={0.22} />
+            <stop offset="0.5" stopColor="var(--brand)" stopOpacity={0.08} />
+            <stop offset="1" stopColor="var(--brand)" stopOpacity={0} />
           </radialGradient>
           <clipPath id={`${id}-sky`}>
             <path d={`${ridge} V0 H0 Z`} />
@@ -76,7 +78,7 @@ function Ridgeline() {
         <path
           d={ridge}
           fill="none"
-          stroke="var(--border)"
+          stroke="var(--line)"
           strokeWidth={1}
           vectorEffect="non-scaling-stroke"
         />
@@ -92,12 +94,12 @@ function FooterComponent() {
   return (
     // The ridgeline is the separator, so the footer overlaps and hides the bottom
     // border of the block above (2px rather than 1px to survive fractional offsets).
-    <footer className="dark bg-background relative -mt-0.5">
-      <div
+    <Section as="footer" scheme="dark" className="relative -mt-0.5 py-0">
+      <Container
         className={cn(
           // The content clears the ridgeline (as tall as `--ridge-span` × 112/1280 of
           // the container's width) by 2rem. From xl the container stops growing.
-          "relative container pt-[calc(var(--ridge-span)*112/1280+2rem)] pb-10 [--ridge-span:185%] sm:pb-12 md:[--ridge-span:140%] lg:[--ridge-span:100%] xl:pt-36",
+          "relative pt-[calc(var(--ridge-span)*112/1280+2rem)] pb-10 [--ridge-span:185%] sm:pb-12 md:[--ridge-span:140%] lg:[--ridge-span:100%] xl:pt-36",
           blockSideBorder,
         )}
       >
@@ -109,7 +111,7 @@ function FooterComponent() {
                 {(props) => <img {...props} className="h-6 w-auto" />}
               </footer.Image>
             </Link>
-            <div className="text-muted-foreground text-sm">&copy; {currentYear}</div>
+            <div className="text-ink-muted text-sm">&copy; {currentYear}</div>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:justify-end">
@@ -119,7 +121,7 @@ function FooterComponent() {
                   {(props) => (
                     <Link
                       {...props}
-                      className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                      className="text-ink-muted hover:text-ink text-sm transition-colors"
                     />
                   )}
                 </linkItem.Link>
@@ -127,8 +129,8 @@ function FooterComponent() {
             </footer.Repeater>
           </div>
         </div>
-      </div>
-    </footer>
+      </Container>
+    </Section>
   );
 }
 

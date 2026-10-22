@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { blockSideBorder } from "@/components/BlockContainer";
 import { TerminalCard } from "@/components/TerminalCard";
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const hero = createBlock({
@@ -51,9 +53,10 @@ function HeroComponent() {
 
   return (
     <>
-      <section
+      <Section
         ref={sectionRef}
-        className="bg-background dark border-border relative flex flex-col items-center justify-center overflow-hidden border-b"
+        scheme="dark"
+        className="relative flex flex-col items-center justify-center overflow-hidden border-b py-0"
       >
         <PulsingBorder
           colors={["#047857", "#065f46", "#064e3b", "#3b0764", "#4c1d95"]}
@@ -77,37 +80,32 @@ function HeroComponent() {
           marginBottom={0}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
         />
-        <div className="relative container pt-32 pb-24 md:pt-48 md:pb-32">
+        <Container className="relative pt-32 pb-24 md:pt-48 md:pb-32">
           <div className="mx-auto max-w-3xl text-center">
             <hero.Field name="title">
-              {(props) => (
-                <h1
-                  {...props}
-                  className="text-foreground mb-6 text-4xl leading-tight font-medium tracking-tight text-balance sm:text-5xl md:text-6xl"
-                />
-              )}
+              {(props) => <h1 {...props} className="text-ink text-display mb-6 text-balance" />}
             </hero.Field>
             <hero.Field name="description">
-              {(props) => <p {...props} className="mb-10 text-xl opacity-75" />}
+              {(props) => <p {...props} className="text-ink/75 text-lead mb-10" />}
             </hero.Field>
           </div>
-        </div>
-      </section>
-      <div className="bg-background">
-        <div className={cn("container h-12 px-4", blockSideBorder)}>
+        </Container>
+      </Section>
+      <div className="dark bg-canvas">
+        <Container className={cn("h-12 px-4", blockSideBorder)}>
           <div className="relative z-10 mx-auto max-w-xl -translate-y-1/2">
             <TerminalCard>
               <hero.Field name="command">
                 {(props) => (
                   <code
                     {...props}
-                    className="text-foreground block text-base font-medium whitespace-nowrap"
+                    className="text-ink block text-base font-medium whitespace-nowrap"
                   />
                 )}
               </hero.Field>
             </TerminalCard>
           </div>
-        </div>
+        </Container>
       </div>
     </>
   );

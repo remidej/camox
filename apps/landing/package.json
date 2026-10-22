@@ -8,14 +8,14 @@
     "build": "vp build",
     "release": "camox release",
     "preview": "wrangler dev",
+    "test": "vp test --run",
     "deploy": "pnpm release && wrangler deploy"
   },
   "dependencies": {
-    "@base-ui/react": "^1.9.0",
-    "@camox/ui": "workspace:*",
     "@paper-design/shaders-react": "^0.0.81",
     "@tailwindcss/vite": "^4.3.3",
     "camox": "workspace:*",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
     "react": "catalog:",
@@ -30,7 +30,6 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "^6.1.2",
     "oxc-transform-react": "^0.152.0",
-    "tw-animate-css": "^1.4.0",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "wrangler": "^4.151.0"

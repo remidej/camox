@@ -89,8 +89,8 @@ function FeatureVideoGridComponent() {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:gap-8">
         <featureVideoGrid.Repeater name="items">
           {(item) => (
-            <article className="border-border bg-background overflow-hidden rounded-2xl border">
-              <div className="border-border bg-muted border-b">
+            <article className="bg-canvas rounded-card overflow-hidden border">
+              <div className="bg-ink/12 border-b">
                 <div className="aspect-video overflow-hidden">
                   <item.File name="video">
                     {(_props, { url }) => (
@@ -114,7 +114,7 @@ function FeatureVideoGridComponent() {
                     {(props) => (
                       <p
                         {...props}
-                        className="text-muted-foreground mb-3 text-xs font-medium tracking-[0.16em] uppercase"
+                        className="text-ink-muted mb-3 text-xs font-medium tracking-[0.16em] uppercase"
                       />
                     )}
                   </item.Field>
@@ -122,28 +122,23 @@ function FeatureVideoGridComponent() {
                     {(props) => (
                       <h3
                         {...props}
-                        className="text-foreground text-2xl leading-tight font-semibold tracking-tight"
+                        className="text-ink text-2xl leading-tight font-semibold tracking-tight"
                       />
                     )}
                   </item.Field>
                 </div>
                 <item.Field name="description">
                   {(props) => (
-                    <p
-                      {...props}
-                      className="text-muted-foreground max-w-prose text-sm leading-snug"
-                    />
+                    <p {...props} className="text-ink-muted max-w-prose text-sm leading-snug" />
                   )}
                 </item.Field>
                 <div className="flex flex-wrap gap-2">
                   <item.Repeater name="points">
                     {(point) => (
-                      <div className="border-border bg-popover flex items-center gap-2 rounded-full border px-3 py-1.5">
-                        <Check aria-hidden className="text-muted-foreground size-3.5 shrink-0" />
+                      <div className="bg-panel flex items-center gap-2 rounded-full border px-3 py-1.5">
+                        <Check aria-hidden className="text-ink-muted size-3.5 shrink-0" />
                         <point.Field name="text">
-                          {(props) => (
-                            <span {...props} className="text-foreground text-xs font-medium" />
-                          )}
+                          {(props) => <span {...props} className="text-ink text-xs font-medium" />}
                         </point.Field>
                       </div>
                     )}

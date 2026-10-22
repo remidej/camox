@@ -75,7 +75,7 @@ const regularPageLayout = createLayout({
 
 function RegularPageLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="dark bg-background text-foreground flex min-h-screen flex-col font-[Archivo,Inter,system-ui,sans-serif]">
+    <main className="dark bg-canvas text-ink flex min-h-screen flex-col">
       <regularPageLayout.BeforeBlocks />
       <div className="flex-1">{children}</div>
       <regularPageLayout.AfterBlocks />

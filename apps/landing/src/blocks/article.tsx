@@ -45,29 +45,23 @@ function ArticleComponent() {
   return (
     <BlockContainer>
       <article className="mx-auto max-w-3xl px-4">
-        <header className="border-border border-b pb-10 sm:pb-12">
+        <header className="border-b pb-10 sm:pb-12">
           <article.Field name="meta">
             {(props) => (
-              <p
-                {...props}
-                className="text-primary mb-5 text-sm font-semibold tracking-wide uppercase"
-              />
+              <p {...props} className="text-brand text-eyebrow mb-5 tracking-wide uppercase" />
             )}
           </article.Field>
           <article.Field name="title">
             {(props) => (
               <h1
                 {...props}
-                className="text-foreground text-4xl leading-tight font-semibold tracking-tight sm:text-5xl"
+                className="text-ink text-4xl leading-tight font-semibold tracking-tight sm:text-5xl"
               />
             )}
           </article.Field>
           <article.Field name="introduction">
             {(props) => (
-              <p
-                {...props}
-                className="text-muted-foreground mt-6 text-lg leading-relaxed sm:text-xl"
-              />
+              <p {...props} className="text-ink-muted mt-6 text-lg leading-relaxed sm:text-xl" />
             )}
           </article.Field>
         </header>
@@ -77,18 +71,13 @@ function ArticleComponent() {
             {(section) => (
               <section className="scroll-mt-24">
                 <section.Field name="title">
-                  {(props) => (
-                    <h2
-                      {...props}
-                      className="text-foreground text-xl font-semibold tracking-tight sm:text-2xl"
-                    />
-                  )}
+                  {(props) => <h2 {...props} className="text-ink text-title sm:text-2xl" />}
                 </section.Field>
                 <section.Field name="body">
                   {(props) => (
                     <p
                       {...props}
-                      className="text-foreground mt-3 text-base leading-7 whitespace-pre-line sm:text-lg sm:leading-8"
+                      className="text-ink mt-3 text-base leading-7 whitespace-pre-line sm:text-lg sm:leading-8"
                     />
                   )}
                 </section.Field>

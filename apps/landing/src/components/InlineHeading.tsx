@@ -9,14 +9,8 @@ type InlineHeadingProps = Omit<ComponentProps<"p">, "title"> & {
 
 export function InlineHeading({ lead, continuation, className, ...props }: InlineHeadingProps) {
   return (
-    <p
-      {...props}
-      className={cn(
-        "text-foreground text-3xl leading-tight font-semibold tracking-tight sm:text-4xl",
-        className,
-      )}
-    >
-      {lead} <span className="text-muted-foreground">{continuation}</span>
+    <p {...props} className={cn("text-ink text-heading", className)}>
+      {lead} <span className="text-ink-muted">{continuation}</span>
     </p>
   );
 }
