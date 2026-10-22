@@ -121,14 +121,14 @@ function YouTubeVideoComponent() {
 
   return (
     <section className={cn(theme === "dark" ? "dark" : "light")}>
-      <div className={cn("bg-background", !fullWidth && "py-12")}>
-        <div className={cn(!fullWidth && "container mx-auto px-4")}>
+      <div className={cn("bg-canvas", !fullWidth && "py-section")}>
+        <div className={cn(!fullWidth && "max-w-page px-gutter mx-auto")}>
           <youtubeVideo.Embed name="url">
             {(_props, { url }) => (
               <div
                 className={cn(
                   "relative w-full",
-                  !fullWidth && "overflow-hidden rounded-lg shadow-lg",
+                  !fullWidth && "rounded-card overflow-hidden shadow-lg",
                 )}
                 style={{ paddingBottom: "56.25%" }}
               >

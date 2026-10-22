@@ -51,10 +51,10 @@ function NavbarComponent(): ReactElement {
   const sticky = navbar.useSetting("sticky");
 
   const innerContent = (
-    <div className="container mx-auto px-4">
-      <div className="flex h-16 items-center justify-between">
+    <div className="max-w-page px-gutter mx-auto">
+      <div className="h-navbar flex items-center justify-between">
         <navbar.Link name="title">
-          {(props) => <Link {...props} className="text-foreground text-lg font-bold" />}
+          {(props) => <Link {...props} className="text-ink font-heading text-lg font-bold" />}
         </navbar.Link>
 
         <div className="flex items-center gap-6">
@@ -64,7 +64,7 @@ function NavbarComponent(): ReactElement {
                 {(props) => (
                   <Link
                     {...props}
-                    className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                    className="text-ink-muted hover:text-ink text-sm transition-colors"
                   />
                 )}
               </linkItem.Link>
@@ -87,18 +87,15 @@ function NavbarComponent(): ReactElement {
   );
 
   if (!sticky) {
-    return <nav className="dark bg-background border-border border-b">{innerContent}</nav>;
+    return <nav className="dark bg-canvas border-b">{innerContent}</nav>;
   }
 
   return (
     <>
-      <div aria-hidden className="dark bg-background h-16 border-b border-transparent" />
+      <div aria-hidden className="dark bg-canvas h-navbar border-b border-transparent" />
       <navbar.Detached>
         {(props) => (
-          <nav
-            {...props}
-            className="dark bg-background border-border fixed top-0 right-0 left-0 z-50 border-b"
-          >
+          <nav {...props} className="dark bg-canvas fixed top-0 right-0 left-0 z-50 border-b">
             {innerContent}
           </nav>
         )}

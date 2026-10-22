@@ -50,29 +50,24 @@ function HeroComponent() {
     <section
       className={cn(
         theme === "dark" ? "dark" : "light",
-        "bg-background py-16 sm:py-24 md:py-28",
+        "bg-canvas text-ink py-section",
         !withIllustration && "flex flex-col items-center justify-center",
       )}
     >
-      <div className="container mx-auto">
+      <div className="max-w-page px-gutter mx-auto">
         <div
           className={cn(
             withIllustration
               ? "grid items-center gap-12 lg:grid-cols-[1fr_auto]"
-              : "mx-auto max-w-3xl text-center",
+              : "max-w-text mx-auto text-center",
           )}
         >
           <div className={cn(withIllustration && "text-left")}>
             <hero.Field name="title">
-              {(props) => (
-                <h1
-                  {...props}
-                  className="text-foreground mb-6 text-4xl font-bold tracking-tight sm:text-6xl"
-                />
-              )}
+              {(props) => <h1 {...props} className="text-display mb-6" />}
             </hero.Field>
             <hero.Field name="description">
-              {(props) => <p {...props} className="text-muted-foreground mb-10 text-xl" />}
+              {(props) => <p {...props} className="text-lead text-ink-muted mb-10" />}
             </hero.Field>
             <hero.Link name="cta">
               {(props) => <Button size="lg" nativeButton={false} render={<Link {...props} />} />}
@@ -80,7 +75,7 @@ function HeroComponent() {
           </div>
           {withIllustration && (
             <hero.Image name="illustration">
-              {(props) => <img {...props} className="h-auto w-full max-w-md rounded-lg" />}
+              {(props) => <img {...props} className="rounded-card h-auto w-full max-w-md" />}
             </hero.Image>
           )}
         </div>
