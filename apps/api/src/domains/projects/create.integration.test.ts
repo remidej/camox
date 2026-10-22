@@ -7,6 +7,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import { projects } from "../../schema";
+import type { Bindings } from "../../types";
+
+const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
+
+type Fakes = { emailsSent(): Promise<{ subject: string; text: string }[]> };
+
+/** The emails about a project: every alert names its Project ID. */
+async function emailsAbout(projectId: string) {
+  return (await fakes.emailsSent()).filter(({ text }) => text.includes(projectId));
+}
 
 // Creating a project from the dashboard: the API refuses slugs it can't give, then records the
 // project as setting up, maps its `<slug>.camox.site` host to its Project ID, and starts the
@@ -16,9 +26,10 @@ import { projects } from "../../schema";
  * Creates a project as a member of the fixture's organization, while the creation Workflow's
  * steps do nothing: what they do is the creation Workflow's tests' concern.
  */
-async function createAsMember(slug: string, name = "Acme") {
+async function createAsMember(slug: string, name = "Acme", bindings: Partial<Bindings> = {}) {
   const fixture = await createProjectFixture(crypto.randomUUID());
-  const context = createRpcContext(fixture.db, fixture.memberUser);
+  const member = createRpcContext(fixture.db, fixture.memberUser);
+  const context = { ...member, env: { ...member.env, ...bindings } };
   await using creations = await introspectWorkflow(env.PROJECT_CREATION_WORKFLOW);
   await creations.modifyAll(async (m) => {
     await m.mockStepResult({ name: "fork the Template" }, null);
@@ -70,6 +81,42 @@ describe("creating a project", () => {
 
     const instance = await env.PROJECT_CREATION_WORKFLOW.get(created.uuid);
     expect(instance.id).toBe(created.uuid);
+  });
+
+  it("fails its setup at the first step, and alerts Rémi, when its creation Workflow can't start", async () => {
+    const slug = uniqueSlug();
+    const { db, create } = await createAsMember(slug, "Acme", {
+      PROJECT_CREATION_WORKFLOW: {
+        create: () => Promise.reject(new Error("Workflows are down")),
+        get: (id: string) => env.PROJECT_CREATION_WORKFLOW.get(id),
+      } as unknown as Bindings["PROJECT_CREATION_WORKFLOW"],
+    });
+
+    const created = await create();
+
+    const row = await db.select().from(projects).where(eq(projects.slug, slug)).get();
+    expect(row).toMatchObject({ status: "setupFailed", setupStep: "copyTemplate" });
+    expect(created.status).toBe("setupFailed");
+    const emails = await emailsAbout(created.uuid);
+    expect(emails).toEqual([expect.objectContaining({ subject: "Setup failed: Acme" })]);
+    expect(emails[0]!.text).toContain("Failed step: Copying the Template\n");
+  });
+
+  it("fails its setup at the first step, and alerts Rémi, when its host can't be mapped", async () => {
+    const slug = uniqueSlug();
+    const { db, create } = await createAsMember(slug, "Acme", {
+      PROJECT_SLUGS: {
+        put: () => Promise.reject(new Error("KV is down")),
+      } as unknown as Bindings["PROJECT_SLUGS"],
+    });
+
+    const created = await create();
+
+    const row = await db.select().from(projects).where(eq(projects.slug, slug)).get();
+    expect(row).toMatchObject({ status: "setupFailed", setupStep: "copyTemplate" });
+    expect(await emailsAbout(created.uuid)).toEqual([
+      expect.objectContaining({ subject: "Setup failed: Acme" }),
+    ]);
   });
 
   it("refuses a reserved slug with a clear message, creating nothing", async () => {

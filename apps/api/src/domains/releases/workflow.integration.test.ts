@@ -1,11 +1,14 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { call } from "@orpc/server";
 import { introspectWorkflowInstance, type WorkflowInstanceIntrospector } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { router } from "../../router";
 import { projects, releases } from "../../schema";
+import type { Bindings } from "../../types";
 
 // A push to a project's repo releases it: the release Workflow installs, runs `camox release`
 // and deploys the project's Worker, each in a sandbox, and records the release as a row.
@@ -16,6 +19,8 @@ const fakes = (env as unknown as { RELEASE_FAKES: ReleaseFakes }).RELEASE_FAKES;
 type ReleaseFakes = {
   push(repo: string, commit: string, files: Record<string, string>): Promise<void>;
   failCommand(repo: string, pattern: string, times: number): Promise<void>;
+  hold(repo: string, pattern: string): Promise<void>;
+  letGo(repo: string): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
   failEmailsAbout(pattern: string): Promise<void>;
   emailsSent(): Promise<Email[]>;
@@ -336,6 +341,50 @@ describe("a push to a project's main branch", () => {
       }),
     ]);
     expect(rows[0]!.startedAt).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("a release that a project's deletion overtakes", () => {
+  /**
+   * Starts a release, then deletes its project while `camox release` runs, as deleting it from
+   * the dashboard removes its rows, and waits for the release to end.
+   */
+  async function releaseWhileDeleting(end: "complete" | "errored", { failRelease = false } = {}) {
+    const { db, project, memberUser } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const member = createRpcContext(db, memberUser);
+    // Its cleanup is the deletion Workflow's tests' concern.
+    const cleanUp = {
+      create: async () => undefined,
+    } as unknown as Bindings["PROJECT_DELETION_WORKFLOW"];
+    const context = { ...member, env: { ...member.env, PROJECT_DELETION_WORKFLOW: cleanUp } };
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+    if (failRelease) await fakes.failCommand(project.uuid, "camox release", Infinity);
+    await fakes.hold(project.uuid, "camox release");
+    const released = receivePush(pushEvent(project.uuid, "refs/heads/main", commit), end);
+    while (!(await fakes.commandsRun(project.uuid)).some((run) => run.command.includes("camox"))) {
+      await scheduler.wait(20);
+    }
+    await call(router.projects.delete, { id: project.id }, { context });
+    await fakes.letGo(project.uuid);
+    await released;
+    return project;
+  }
+
+  it("doesn't deploy the deleted project's Worker, nor alert", async () => {
+    const project = await releaseWhileDeleting("complete");
+
+    const commands = (await fakes.commandsRun(project.uuid)).map(({ command }) => command);
+    expect(commands).toEqual(["pnpm install --frozen-lockfile", "pnpm exec camox release"]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("doesn't alert when it then fails", async () => {
+    const project = await releaseWhileDeleting("errored", { failRelease: true });
+
+    expect(await emailsAbout(project.uuid)).toEqual([]);
   });
 });
 

@@ -42,6 +42,8 @@ import type { GenerationRequest } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { repeatableItemSeedSchema } from "../layouts/service";
 import { insertInitialLocale } from "../locales/service";
+import { sendSetupFailureAlert } from "../project-creation/alert";
+import { sendCleanupFailureAlert } from "../project-deletion/alert";
 import { itemsInProject } from "../repeatable-items/roots";
 import { analyticsColumns, analyticsOf, analyticsProvidersInput } from "./analytics";
 
@@ -236,18 +238,53 @@ export const createProject = Effect.fn("projects.createProject")(function* (
   if (!result) return yield* new ConflictError({ message: UNAVAILABLE_SLUG_MESSAGES.taken });
 
   yield* Effect.promise(() => insertInitialLocale(ctx.db, result.id, now));
-  // `<slug>.camox.site` answers at once, with the setup page until the first release deploys.
-  yield* Effect.promise(() => ctx.env.PROJECT_SLUGS.put(result.slug, result.uuid));
-  // Named after the Project ID, so the project's setup is one instance, and a repeated start fails.
-  yield* Effect.promise(() =>
-    ctx.env.PROJECT_CREATION_WORKFLOW.create({
-      id: result.uuid,
-      params: { projectId: result.uuid },
-    }),
+  const started = yield* Effect.promise(() =>
+    startSetup(ctx.env, result).then(
+      () => true,
+      (error: unknown) => {
+        console.error("Setup not started", result.uuid, error);
+        return false;
+      },
+    ),
   );
+  if (started) return result;
 
-  return result;
+  // The setup gave up before its Workflow could: it fails at its first step, as one would.
+  const failed = yield* Effect.promise(() =>
+    ctx.db
+      .update(projects)
+      .set({ status: "setupFailed", setupStep: "copyTemplate" })
+      .where(eq(projects.id, result.id))
+      .returning()
+      .get(),
+  );
+  yield* Effect.promise(() =>
+    sendSetupFailureAlert(ctx.env, {
+      project: { projectId: result.uuid, name: result.name },
+      failedStep: "copyTemplate",
+      workflowInstanceId: null,
+    }).catch((alertError: unknown) => console.error("Setup failure alert not sent", alertError)),
+  );
+  return failed ?? result;
 });
+
+/** Maps a new project's host to it, then starts its creation Workflow. */
+async function startSetup(env: ServiceContext["env"], project: { slug: string; uuid: string }) {
+  // `<slug>.camox.site` answers at once, with the setup page until the first release deploys.
+  await env.PROJECT_SLUGS.put(project.slug, project.uuid);
+  // Named after the Project ID, so the project's setup is one instance, and a repeated start fails.
+  try {
+    await env.PROJECT_CREATION_WORKFLOW.create({
+      id: project.uuid,
+      params: { projectId: project.uuid },
+    });
+  } catch (error) {
+    // A start whose response was lost: the instance exists.
+    await env.PROJECT_CREATION_WORKFLOW.get(project.uuid).catch(() => {
+      throw error;
+    });
+  }
+}
 
 export const updateProject = Effect.fn("projects.updateProject")(function* (
   ctx: ServiceContext,
@@ -391,12 +428,26 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   // `<slug>.camox.site` answers with the not-found page at once.
   yield* Effect.promise(() => ctx.env.PROJECT_SLUGS.delete(project.slug));
   // Its Worker and repo are cleaned up in the background. Named after the Project ID, so a
-  // project's cleanup is one instance.
+  // project's cleanup is one instance. The project is gone either way: a cleanup that can't
+  // start leaves them behind, for Rémi to delete.
   yield* Effect.promise(() =>
     ctx.env.PROJECT_DELETION_WORKFLOW.create({
       id: project.uuid,
       params: { projectId: project.uuid, name: project.name },
-    }),
+    }).then(
+      () => undefined,
+      async (error: unknown) => {
+        console.error("Cleanup not started", project.uuid, error);
+        await sendCleanupFailureAlert(ctx.env, {
+          project: { projectId: project.uuid, name: project.name },
+          failedSteps: ["Starting the cleanup"],
+          leftBehind: [`Worker ${project.uuid}`, `repo ${project.uuid}`],
+          workflowInstanceId: null,
+        }).catch((alertError: unknown) =>
+          console.error("Cleanup failure alert not sent", alertError),
+        );
+      },
+    ),
   );
   return result;
 });

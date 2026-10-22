@@ -8,7 +8,7 @@ import type { Bindings } from "../../types";
 type UpgradeEnv = Bindings & CiBindings;
 
 /** The steps of a project's upgrade that run in a sandbox, in order. */
-export type UpgradeStep = "bump" | "build" | "push";
+export type UpgradeStep = "update" | "build" | "push";
 
 /** What the upgrade Workflow starts a project's upgrade with. */
 export type ProjectUpgradeParams = CiParams<CloudflareArtifacts> & {
@@ -38,8 +38,8 @@ const CAMOX_PACKAGE = /^(camox|@camox\/[a-z0-9-]+)$/;
 
 /**
  * One project's move to a new SDK, started by the upgrade Workflow (`workflow.ts`) on the commit
- * its `main` points to. In sandboxes, through `@cloudflare/ci`, it bumps the Camox packages,
- * builds as a release would without syncing anything, then commits the bumped `package.json` and
+ * its `main` points to. In sandboxes, through `@cloudflare/ci`, it moves the Camox packages to the new version,
+ * builds as a release would without syncing anything, then commits the changed `package.json` and
  * lockfile and pushes them to `main`, which releases the project. Nothing else in the project
  * changes. A project that doesn't build isn't pushed, so it keeps serving its previous release.
  */
@@ -52,7 +52,7 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
     const params = event.payload as ProjectUpgradeParams;
     const { camoxVersion } = params;
 
-    let current: UpgradeStep = "bump";
+    let current: UpgradeStep = "update";
     const run = async (
       from: Pick<CiContext, "runner">,
       name: UpgradeStep,
@@ -63,10 +63,10 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
     };
 
     try {
-      const bumped = await run(ci, "bump", async () => ({
-        command: `${await step.do("read the Camox packages", () => bumpCommand(this.env, params))} && pnpm install --no-frozen-lockfile`,
+      const updated = await run(ci, "update", async () => ({
+        command: `${await step.do("read the Camox packages", () => setVersionsCommand(this.env, params))} && pnpm install --no-frozen-lockfile`,
       }));
-      const built = await run(bumped, "build", async () => ({
+      const built = await run(updated, "build", async () => ({
         command: "pnpm exec camox release --dry-run",
       }));
       await run(built, "push", async () => ({
@@ -101,7 +101,7 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
  * Sets every Camox package the project depends on to the new version, in the section it's in.
  * Only `package.json` changes; the install that follows updates the lockfile.
  */
-async function bumpCommand(env: Bindings, params: ProjectUpgradeParams) {
+async function setVersionsCommand(env: Bindings, params: ProjectUpgradeParams) {
   using repo = await env.ARTIFACTS.get(params.repo);
   const file = await repo.readFile({ ref: params.sha, path: "package.json" });
   if (!file) throw new Error("The project has no package.json.");
@@ -116,7 +116,7 @@ async function bumpCommand(env: Bindings, params: ProjectUpgradeParams) {
 }
 
 /**
- * Commits the bumped `package.json` and lockfile on top of the commit the upgrade built, and
+ * Commits the changed `package.json` and lockfile on top of the commit the upgrade built, and
  * pushes it to `main`. The workspace has no `.git`, so the step fetches that commit first. Its
  * author and dates are fixed, so a retried push makes the same commit and pushes nothing new. A
  * `main` that moved since is refused, rather than overwritten.

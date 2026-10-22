@@ -37,6 +37,7 @@ export type Bindings = {
   >;
   /** Moves every project to a newly published SDK, one project upgrade each. */
   UPGRADE_WORKFLOW: Workflow<import("./domains/upgrades/workflow").UpgradeParams>;
+  /** Moves one project to a newly published SDK, and pushes it to `main` if it builds. */
   PROJECT_UPGRADE_WORKFLOW: Workflow<
     import("./domains/upgrades/project-workflow").ProjectUpgradeParams
   >;

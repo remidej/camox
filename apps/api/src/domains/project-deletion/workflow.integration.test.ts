@@ -91,6 +91,7 @@ describe("a cleanup that gives up", () => {
     const [email] = emails;
     expect(email!.text).toContain(`Project ID: ${projectId}\n`);
     expect(email!.text).toContain("Failed step: Deleting the Worker\n");
+    expect(email!.text).toContain(`Left behind: Worker ${projectId}\n`);
     expect(email!.text).toContain(
       `https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/workers/workflows/camox-project-deletion/instance/${projectId}`,
     );

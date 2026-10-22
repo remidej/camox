@@ -1,6 +1,6 @@
 import type { ProjectSetupStep } from "@camox/api-contract/projects";
 
-import { sendAlert } from "../../lib/alert-email";
+import { type AlertProject, projectDetails, sendAlert, workflowLink } from "../../lib/alert-email";
 import type { Bindings } from "../../types";
 
 /** The creation Workflow's name, as `workflows` in wrangler.jsonc declares it. */
@@ -10,30 +10,28 @@ const CREATION_WORKFLOW_NAME = "camox-project-creation";
 const SETUP_STEP_NAMES: Record<ProjectSetupStep, string> = {
   copyTemplate: "Copying the Template",
   build: "Building",
-  publish: "Publishing",
+  serve: "Publishing",
 };
 
 export type FailedSetup = {
-  /** The project by its Project ID, and its name. */
-  project: { projectId: string; name: string };
+  project: AlertProject;
   failedStep: ProjectSetupStep;
-  workflowInstanceId: string;
+  /** The creation Workflow's instance that gave up, or null when it couldn't be started. */
+  workflowInstanceId: string | null;
 };
 
 /** Emails the alerts address that a new project's setup gave up before its first release. */
 export function sendSetupFailureAlert(env: Bindings, setup: FailedSetup): Promise<void> {
   const step = SETUP_STEP_NAMES[setup.failedStep];
+  const { name } = setup.project;
+  const failure =
+    setup.workflowInstanceId === null
+      ? `Setting up ${name} failed before its creation Workflow started.`
+      : `Setting up ${name} failed at ${step}.`;
   return sendAlert(env, {
-    subject: `Setup failed: ${setup.project.name}`,
-    failure: `Setting up ${setup.project.name} failed at ${step}. Its page tells its organization that Camox will fix it.`,
-    details: [
-      { label: "Project", value: setup.project.name },
-      { label: "Project ID", value: setup.project.projectId },
-      { label: "Failed step", value: step },
-    ],
-    link: {
-      label: "Open the Workflow instance",
-      url: `https://dash.cloudflare.com/${env.CLOUDFLARE_ACCOUNT_ID}/workers/workflows/${CREATION_WORKFLOW_NAME}/instance/${encodeURIComponent(setup.workflowInstanceId)}`,
-    },
+    subject: `Setup failed: ${name}`,
+    failure: `${failure} Its page tells its organization that Camox will fix it.`,
+    details: [...projectDetails(setup.project), { label: "Failed step", value: step }],
+    link: workflowLink(env, CREATION_WORKFLOW_NAME, setup.workflowInstanceId),
   });
 }

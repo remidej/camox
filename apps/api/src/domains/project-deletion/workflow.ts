@@ -34,22 +34,34 @@ const UNDERWAY = new Set<InstanceStatus["status"]>([
 export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, ProjectDeletionParams> {
   async run(event: WorkflowEvent<ProjectDeletionParams>, step: WorkflowStep) {
     const { projectId, name } = event.payload;
-    const failures: { step: string; error: unknown }[] = [];
-    const attempt = async (label: string, stepName: string, work: () => Promise<unknown>) => {
+    const failures: { step: string; leftBehind: string; error: unknown }[] = [];
+    const attempt = async (
+      label: string,
+      leftBehind: string,
+      stepName: string,
+      work: () => Promise<unknown>,
+    ) => {
       try {
         await step.do(stepName, async () => {
           await work();
           return null;
         });
       } catch (error) {
-        failures.push({ step: label, error });
+        failures.push({ step: label, leftBehind, error });
       }
     };
 
-    await attempt("Stopping the setup", "stop the setup", () => this.stopSetup(projectId));
-    await attempt("Deleting the Worker", "delete the Worker", () => this.deleteWorker(projectId));
+    await attempt(
+      "Stopping the setup",
+      `creation Workflow instance ${projectId}`,
+      "stop the setup",
+      () => this.stopSetup(projectId),
+    );
+    await attempt("Deleting the Worker", `Worker ${projectId}`, "delete the Worker", () =>
+      this.deleteWorker(projectId),
+    );
     // False when there's no repo: never forked, or deleted by an earlier attempt.
-    await attempt("Deleting the repo", "delete the repo", () =>
+    await attempt("Deleting the repo", `repo ${projectId}`, "delete the repo", () =>
       this.env.ARTIFACTS.delete(projectId),
     );
 
@@ -61,6 +73,7 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
         sendCleanupFailureAlert(this.env, {
           project: { projectId, name },
           failedSteps: failures.map((failure) => failure.step),
+          leftBehind: failures.map((failure) => failure.leftBehind),
           workflowInstanceId: event.instanceId,
         }),
       )

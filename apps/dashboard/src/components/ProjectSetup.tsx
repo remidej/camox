@@ -8,7 +8,7 @@ import type { Project } from "@/lib/api";
 const STEP_LABELS: Record<ProjectSetupStep, string> = {
   copyTemplate: "Copying the Template",
   build: "Building",
-  publish: "Publishing",
+  serve: "Publishing",
 };
 
 type StepState = "done" | "running" | "failed" | "pending";

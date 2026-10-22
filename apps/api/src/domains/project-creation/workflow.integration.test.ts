@@ -211,7 +211,7 @@ describe("a setup that fails", () => {
 
     expect(await statusOf(db, project.id)).toEqual({
       status: "setupFailed",
-      setupStep: "publish",
+      setupStep: "serve",
     });
     expect(await emailsAbout(project.uuid)).toHaveLength(1);
   });

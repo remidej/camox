@@ -12,7 +12,7 @@ import { projects } from "../../schema";
 import { PROJECTS_PER_BATCH } from "./workflow";
 
 // After each SDK publish, the upgrade Workflow moves every project to the new SDK: in a sandbox,
-// it bumps the Camox packages, builds without releasing, and pushes only what builds to `main`,
+// it moves the Camox packages to the new version, builds without releasing, and pushes only what builds to `main`,
 // which releases it. Cloudflare Artifacts, the sandbox and email are faked at their bindings
 // (test/release-fakes.js).
 
@@ -129,7 +129,7 @@ describe("upgrading every project to a new SDK", () => {
     }
   });
 
-  it("bumps, builds without releasing, then pushes each project that builds to main", async () => {
+  it("updates the Camox packages, builds without releasing, then pushes each project that builds to main", async () => {
     const first = await projectOn("0.9.1");
     const second = await projectOn("0.9.2");
 
@@ -146,7 +146,7 @@ describe("upgrading every project to a new SDK", () => {
     }
   });
 
-  it("commits only the bumped package.json and lockfile, on top of the main it built", async () => {
+  it("commits only the changed package.json and lockfile, on top of the main it built", async () => {
     const { project, head } = await projectOn("0.9.1");
 
     await upgradeTo(NEW_VERSION);
@@ -164,7 +164,7 @@ describe("upgrading every project to a new SDK", () => {
     for (const { env } of others) expect(Object.values(env).join("\n")).not.toContain("write");
   });
 
-  it("bumps every Camox package a project depends on, where it depends on it", async () => {
+  it("updates every Camox package a project depends on, where it depends on it", async () => {
     const { project } = await projectOn("0.9.1", {
       "package.json": packageJson(
         { camox: "^0.9.1", "@camox/ui": "^0.9.1", react: "^19.3.1" },
@@ -215,7 +215,7 @@ describe("upgrading every project to a new SDK", () => {
     expect(email!.text).toContain(`${WORKFLOWS}/camox-upgrade/instance/${instanceId}`);
   });
 
-  it("doesn't push a project whose bump doesn't install", async () => {
+  it("doesn't push a project whose update doesn't install", async () => {
     const { project } = await projectOn("0.9.1");
     await fakes.failCommand(project.uuid, "pnpm install", Infinity);
 
@@ -223,7 +223,7 @@ describe("upgrading every project to a new SDK", () => {
 
     expect(await pushesToMain(project.uuid)).toEqual([]);
     const [email] = await emailsAbout(project.uuid);
-    expect(email?.text).toContain(`${project.uuid}, failed at its bump step`);
+    expect(email?.text).toContain(`${project.uuid}, failed at its update step`);
   });
 
   it("still pushes when a step fails and its retry passes, and alerts nobody", async () => {
@@ -259,6 +259,35 @@ describe("upgrading every project to a new SDK", () => {
 
     expect(await commands(project.uuid)).toEqual([]);
     expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("leaves alone a project still setting up, whose first release isn't done", async () => {
+    const { db, project } = await projectOn("0.9.1");
+    await db
+      .update(projects)
+      .set({ status: "settingUp", setupStep: "build" })
+      .where(eq(projects.id, project.id));
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toEqual([]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("upgrades a project on a pre-release of the new SDK", async () => {
+    const { project } = await projectOn(`${NEW_VERSION}-beta.1`);
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await pushesToMain(project.uuid)).toHaveLength(1);
+  });
+
+  it("leaves alone a project on a pre-release of a newer SDK", async () => {
+    const { project } = await projectOn("0.10.1-beta.1");
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await commands(project.uuid)).toEqual([]);
   });
 
   it("lists a project whose repo can't be read, and upgrades the others", async () => {

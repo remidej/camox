@@ -105,7 +105,7 @@ async function setupFailed(db: Database, projectId: string) {
  * Whether the Artifacts binding threw `code`, such as `ALREADY_EXISTS`. An `ArtifactsError` that
  * crossed an RPC boundary keeps its code only in its message.
  */
-export function isArtifactsError(error: unknown, code: ArtifactsErrorCode): boolean {
+function isArtifactsError(error: unknown, code: ArtifactsErrorCode): boolean {
   if (!(error instanceof Error)) return false;
   if ((error as { code?: unknown }).code === code) return true;
   return new RegExp(`\\b${code}\\b`).test(error.message);

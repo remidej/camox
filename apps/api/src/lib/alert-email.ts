@@ -16,9 +16,42 @@ export type Alert = {
   link: { label: string; url: string };
 };
 
+/** A Workflow in the Cloudflare dashboard, where its instances are. */
+function workflowUrl(accountId: string, workflowName: string) {
+  return `https://dash.cloudflare.com/${accountId}/workers/workflows/${workflowName}`;
+}
+
 /** A Workflow instance in the Cloudflare dashboard, where its logs are. */
 export function workflowInstanceUrl(accountId: string, workflowName: string, instanceId: string) {
-  return `https://dash.cloudflare.com/${accountId}/workers/workflows/${workflowName}/instance/${encodeURIComponent(instanceId)}`;
+  return `${workflowUrl(accountId, workflowName)}/instance/${encodeURIComponent(instanceId)}`;
+}
+
+/** A project as an alert names it: by its Project ID, and its name. */
+export type AlertProject = { projectId: string; name: string };
+
+/** The details that name a project in an alert. */
+export function projectDetails({ name, projectId }: AlertProject): Alert["details"] {
+  return [
+    { label: "Project", value: name },
+    { label: "Project ID", value: projectId },
+  ];
+}
+
+/**
+ * An alert's link to the Workflow instance that gave up, or to the Workflow itself when the
+ * instance couldn't be started.
+ */
+export function workflowLink(
+  env: Bindings,
+  workflowName: string,
+  instanceId: string | null,
+): Alert["link"] {
+  return instanceId === null
+    ? { label: "Open the Workflow", url: workflowUrl(env.CLOUDFLARE_ACCOUNT_ID, workflowName) }
+    : {
+        label: "Open the Workflow instance",
+        url: workflowInstanceUrl(env.CLOUDFLARE_ACCOUNT_ID, workflowName, instanceId),
+      };
 }
 
 function renderText(alert: Alert): string {

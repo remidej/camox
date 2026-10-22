@@ -7,6 +7,11 @@ import { describe, expect, it } from "vite-plus/test";
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import { layouts, locales, projects } from "../../schema";
+import type { Bindings } from "../../types";
+
+const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
+
+type Fakes = { emailsSent(): Promise<{ subject: string; text: string }[]> };
 
 // Deleting a project from the dashboard: during the request, the API removes the project's rows
 // and its `<slug>.camox.site` host, so the site goes offline at once, then starts the deletion
@@ -54,6 +59,31 @@ describe("deleting a project", () => {
 
     const instance = await env.PROJECT_DELETION_WORKFLOW.get(project.uuid);
     expect(instance.id).toBe(project.uuid);
+  });
+
+  it("alerts Rémi, naming what's left behind, when its cleanup can't start", async () => {
+    const { db, project, memberUser } = await createProjectFixture(crypto.randomUUID());
+    await db.update(projects).set({ name: "Acme" }).where(eq(projects.id, project.id));
+    const member = createRpcContext(db, memberUser);
+    const context = {
+      ...member,
+      env: {
+        ...member.env,
+        PROJECT_DELETION_WORKFLOW: {
+          create: () => Promise.reject(new Error("Workflows are down")),
+          get: (id: string) => env.PROJECT_DELETION_WORKFLOW.get(id),
+        } as unknown as Bindings["PROJECT_DELETION_WORKFLOW"],
+      },
+    };
+
+    await call(router.projects.delete, { id: project.id }, { context });
+
+    const emails = (await fakes.emailsSent()).filter(({ text }) => text.includes(project.uuid));
+    expect(emails).toEqual([expect.objectContaining({ subject: "Cleanup failed: Acme" })]);
+    expect(emails[0]!.text).toContain(`Project ID: ${project.uuid}\n`);
+    expect(emails[0]!.text).toContain(
+      `Left behind: Worker ${project.uuid}, repo ${project.uuid}\n`,
+    );
   });
 
   it("refuses someone outside its organization, leaving its host up", async () => {

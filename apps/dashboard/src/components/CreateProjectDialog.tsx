@@ -33,7 +33,7 @@ function useDebouncedValue<T>(value: T, delay: number) {
 }
 
 /**
- * Why `slug` can't be used, as the marketer is told it, or nothing while it's free or still being
+ * Why `slug` can't be used, as the member is told it, or nothing while it's free or still being
  * checked. The format is checked here, then reserved and taken slugs by the API.
  */
 function useSlugProblem(slug: string) {
@@ -57,7 +57,7 @@ function useSlugProblem(slug: string) {
   };
 }
 
-/** The dialog a marketer creates a project in: its name and slug, which is its address. */
+/** The dialog a member creates a project in: its name and slug, which is its address. */
 export function CreateProjectDialog({
   organizationId,
   orgSlug,

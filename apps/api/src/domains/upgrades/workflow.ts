@@ -1,6 +1,6 @@
 import type { CloudflareArtifacts } from "@cloudflare/ci";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { asc, ne } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { createDb } from "../../db";
 import type { Bindings } from "../../types";
@@ -37,11 +37,33 @@ const PROJECT_UPGRADE_TIMEOUT = "2 hours";
 // Plain semver, which the upgrade's commands and commit message take as is.
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
-/** Whether `version` comes before `than`, by their major, minor and patch numbers. */
+/**
+ * Whether `version` comes before `than` by semver precedence: by major, minor and patch, then a
+ * pre-release before its release (`0.45.0-beta.1` < `0.45.0`), and pre-releases by their
+ * identifiers, numeric ones by value and before alphanumeric ones. Build metadata is ignored.
+ */
 function isOlder(version: string, than: string) {
-  const parts = (v: string) => v.split(/[.-]/, 3).map(Number);
-  const [a, b] = [parts(version), parts(than)];
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+  const parse = (v: string) => {
+    const [core = "", pre] = v.split("+", 1)[0]!.split(/-(.*)/s, 2);
+    return { core: core.split(".").map(Number), pre: pre === undefined ? [] : pre.split(".") };
+  };
+  const [a, b] = [parse(version), parse(than)];
+  for (let i = 0; i < 3; i++) {
+    if (a.core[i] !== b.core[i]) return (a.core[i] ?? 0) < (b.core[i] ?? 0);
+  }
+  // A release outranks its pre-releases.
+  if (a.pre.length === 0 || b.pre.length === 0) return a.pre.length > b.pre.length;
+  const numeric = /^\d+$/;
+  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+    const [x, y] = [a.pre[i], b.pre[i]];
+    // A shorter run of identifiers comes first when the longer one starts with it.
+    if (x === undefined || y === undefined) return x === undefined;
+    if (x === y) continue;
+    const [xNumeric, yNumeric] = [numeric.test(x), numeric.test(y)];
+    if (xNumeric && yNumeric) return Number(x) < Number(y);
+    if (xNumeric !== yNumeric) return xNumeric;
+    return x < y;
+  }
   return false;
 }
 
@@ -68,12 +90,13 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
       throw new Error(`Not a published SDK version: ${JSON.stringify(camoxVersion)}`);
     }
 
-    // A project whose setup failed already alerted Rémi, who sets it up again from the Template.
+    // Only live projects. One still setting up gets the new SDK from the Template, or from a
+    // later upgrade. One whose setup failed already alerted Rémi, who sets it up again.
     const all = await step.do("list the projects", async () => {
       return createDb(this.env.DB)
         .select({ projectId: projects.uuid, name: projects.name })
         .from(projects)
-        .where(ne(projects.status, "setupFailed"))
+        .where(eq(projects.status, "live"))
         .orderBy(asc(projects.id));
     });
 
@@ -90,13 +113,13 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
       for (const upgrade of upgrades) {
         if (upgrade.status === "current") continue;
         if (upgrade.status === "unreadable") {
-          failed.push({ ...upgrade.project, instanceId: null, failure: "unreadable" });
+          failed.push({ project: upgrade.project, instanceId: null, failure: "unreadable" });
           continue;
         }
         const outcome = await this.outcome(step, upgrade);
         if (!outcome.upgraded) {
           failed.push({
-            ...upgrade.project,
+            project: upgrade.project,
             instanceId: upgrade.instanceId,
             failure: outcome.failedStep ?? "unfinished",
           });
@@ -119,7 +142,7 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
         }),
       );
     }
-    return { failed: failed.map(({ projectId }) => projectId) };
+    return { failed: failed.map(({ project }) => project.projectId) };
   }
 
   /**
@@ -184,6 +207,8 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
     upgrade: StartedUpgrade,
   ): Promise<ProjectUpgradeOutcome> {
     try {
+      // Waited for one at a time, but none is lost: an instance buffers the events sent before it
+      // waits for them (https://developers.cloudflare.com/workflows/build/events-and-parameters/).
       const ended = await step.waitForEvent<ProjectUpgradeOutcome>(
         `wait for ${upgrade.project.projectId}`,
         { type: upgradeEndedEvent(upgrade.project.projectId), timeout: PROJECT_UPGRADE_TIMEOUT },

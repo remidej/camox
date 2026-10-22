@@ -45,7 +45,7 @@ export const projectSlugSchema = /* @__PURE__ */ z
 /** Why a slug can't be given to a new project. */
 export type UnavailableSlugReason = "invalid" | "reserved" | "taken";
 
-/** What a marketer is told when a slug can't be used, by reason. */
+/** What a member is told when a slug can't be used, by reason. */
 export const UNAVAILABLE_SLUG_MESSAGES: Record<UnavailableSlugReason, string> = {
   invalid: "Use lowercase letters, digits and hyphens, without a hyphen at either end.",
   reserved: "This slug is reserved by Camox. Choose another.",
@@ -60,12 +60,8 @@ export type ProjectStatus = "settingUp" | "live" | "setupFailed";
 
 /**
  * The steps a project's setup goes through before it's live, as its page lists them: copying the
- * Template into its repo, then its first release building it and publishing its Worker.
+ * Template into its repo, then its first release building it and serving it from its Worker.
  */
-export type ProjectSetupStep = "copyTemplate" | "build" | "publish";
+export type ProjectSetupStep = "copyTemplate" | "build" | "serve";
 
-export const PROJECT_SETUP_STEPS: readonly ProjectSetupStep[] = [
-  "copyTemplate",
-  "build",
-  "publish",
-];
+export const PROJECT_SETUP_STEPS: readonly ProjectSetupStep[] = ["copyTemplate", "build", "serve"];

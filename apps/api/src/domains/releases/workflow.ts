@@ -101,9 +101,15 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         command: "pnpm exec camox release",
         env: { CAMOX_DEPLOY_TOKEN: await deployToken(db, started.projectId) },
       }));
+      // A project deleted during its release stops it quietly, before it deploys a Worker its
+      // cleanup may already have deleted. A deletion during the deploy can still race it.
+      const exists = await step.do("check the project still exists", () =>
+        projectExists(db, started.projectId),
+      );
+      if (!exists) return;
       if (started.settingUp) {
-        await step.do("follow the setup to publishing", () =>
-          followSetup(db, started.projectId, { status: "settingUp", setupStep: "publish" }),
+        await step.do("follow the setup to serving", () =>
+          followSetup(db, started.projectId, { status: "settingUp", setupStep: "serve" }),
         );
       }
       await run(released, "deploy", async () => ({
@@ -130,9 +136,11 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         .catch((recordError: unknown) => console.error("Failed release not recorded", recordError));
       // Its own step, so that a retry of a later step or a replay of the instance doesn't send
       // it again. A step can still run more than once, so the alert can, rarely, go out twice.
+      // Nobody is alerted about a project deleted during its release.
       await step
-        .do("alert the failed release", () =>
-          sendReleaseFailureAlert(this.env, {
+        .do("alert the failed release", async () => {
+          if (!(await projectExists(db, started.projectId))) return;
+          await sendReleaseFailureAlert(this.env, {
             project: {
               projectId: push.repo,
               // An instance started before the name was recorded replays an output without it.
@@ -141,8 +149,8 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
             commit: push.sha,
             failedStep,
             workflowInstanceId: event.instanceId,
-          }),
-        )
+          });
+        })
         .catch((alertError: unknown) =>
           console.error("Release failure alert not sent", alertError),
         );
@@ -177,11 +185,21 @@ async function deployToken(db: Database, projectId: number) {
   return project.deployToken;
 }
 
+/** Whether the project, by its row id, hasn't been deleted. */
+async function projectExists(db: Database, projectId: number) {
+  const project = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .get();
+  return project !== undefined;
+}
+
 /** The setup step each release step belongs to, as the project's page names them. */
 const SETUP_STEPS: Record<ReleaseStep, ProjectSetupStep> = {
   install: "build",
   release: "build",
-  deploy: "publish",
+  deploy: "serve",
 };
 
 /** Moves a project that isn't live yet along its setup. A live project stays live. */

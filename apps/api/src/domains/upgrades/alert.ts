@@ -1,4 +1,9 @@
-import { sendAlert, workflowInstanceUrl } from "../../lib/alert-email";
+import {
+  type AlertProject,
+  sendAlert,
+  workflowInstanceUrl,
+  workflowLink,
+} from "../../lib/alert-email";
 import type { Bindings } from "../../types";
 import type { UpgradeStep } from "./project-workflow";
 
@@ -7,9 +12,7 @@ const UPGRADE_WORKFLOW_NAME = "camox-upgrade";
 const PROJECT_UPGRADE_WORKFLOW_NAME = "camox-project-upgrade";
 
 export type FailedUpgrade = {
-  /** The project by its Project ID, and its name. */
-  projectId: string;
-  name: string;
+  project: AlertProject;
   /** The project's upgrade, where its logs are, if it started. */
   instanceId: string | null;
   /**
@@ -38,25 +41,21 @@ export function sendUpgradeFailureAlert(
   return sendAlert(env, {
     subject: `Upgrade to Camox ${upgrade.camoxVersion}: ${projectsLabel} didn't build`,
     failure: `${projectsLabel} couldn't be upgraded to Camox ${upgrade.camoxVersion}, so nothing was pushed to their main branch. They keep serving their previous release.`,
-    details: upgrade.failed.map((project) => ({
+    details: upgrade.failed.map(({ project, instanceId, failure }) => ({
       label: project.name,
-      value: `${project.projectId}, ${describe(project.failure)}`,
+      value: `${project.projectId}, ${describe(failure)}`,
       url:
-        project.instanceId === null
+        instanceId === null
           ? undefined
           : workflowInstanceUrl(
               env.CLOUDFLARE_ACCOUNT_ID,
               PROJECT_UPGRADE_WORKFLOW_NAME,
-              project.instanceId,
+              instanceId,
             ),
     })),
     link: {
+      ...workflowLink(env, UPGRADE_WORKFLOW_NAME, upgrade.workflowInstanceId),
       label: "Open the upgrade",
-      url: workflowInstanceUrl(
-        env.CLOUDFLARE_ACCOUNT_ID,
-        UPGRADE_WORKFLOW_NAME,
-        upgrade.workflowInstanceId,
-      ),
     },
   });
 }

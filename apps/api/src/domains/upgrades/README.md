@@ -4,13 +4,13 @@ Every SDK publish upgrades every project to it (GLOSSARY.md), so that the API on
 
 ## Steps
 
-The upgrade lists every project but those whose setup failed, which already alerted Rémi, then goes through them in batches. For each project, it reads the commit `main` points to and the `camox` version its `pnpm-lock.yaml` installs. A project already on that version or a newer one is left alone, so re-running an upgrade only redoes the projects it didn't move. Any other project gets its own `camox-project-upgrade` Workflow instance (`project-workflow.ts`), which runs on `@cloudflare/ci` in the release sandboxes, on that commit:
+The upgrade lists every live project, leaving out those still setting up and those whose setup failed, which already alerted Rémi, then goes through them in batches. For each project, it reads the commit `main` points to and the `camox` version its `pnpm-lock.yaml` installs. A project already on that version or a newer one is left alone, so re-running an upgrade only redoes the projects it didn't move. Any other project gets its own `camox-project-upgrade` Workflow instance (`project-workflow.ts`), which runs on `@cloudflare/ci` in the release sandboxes, on that commit:
 
-1. **`bump`:** sets every Camox package the project depends on (`camox`, `@camox/*`) to `^<version>` in its `package.json` with `npm pkg set`, then `pnpm install --no-frozen-lockfile` updates the lockfile.
+1. **`update`:** sets every Camox package the project depends on (`camox`, `@camox/*`) to `^<version>` in its `package.json` with `npm pkg set`, then `pnpm install --no-frozen-lockfile` updates the lockfile.
 2. **`build`:** `pnpm exec camox release --dry-run`, which builds the website as a release would, for Live, without logging in or syncing its definitions.
 3. **`push`:** commits only `package.json` and `pnpm-lock.yaml`, as "Upgrade Camox to <version>", on top of the commit it built, and pushes it to `main`. That push releases the project (`../releases/README.md`). If `main` moved during the upgrade, the push is refused rather than overwriting it. The commit's author and dates are fixed, so a retried push makes the same commit and pushes nothing new.
 
-Nothing else changes a project's code: no codemods, no agent fixes. A project whose bump or build fails isn't pushed, so its `main` stays as it was and it keeps serving its previous release.
+Nothing else changes a project's code: no codemods, no agent fixes. A project whose update or build fails isn't pushed, so its `main` stays as it was and it keeps serving its previous release.
 
 Each project upgrade tells the upgrade how it ended with an event. If none comes within two hours, the upgrade reads the instance's status instead.
 
