@@ -1,4 +1,4 @@
-// Fakes for the release Workflow's Cloudflare Artifacts and sandbox bindings, run by the
+// Fakes for the release Workflow's Cloudflare Artifacts, sandbox and email bindings, run by the
 // integration tests as an auxiliary Worker (vite.config.ts). Plain JavaScript, since Miniflare
 // loads auxiliary Workers unbundled. Everything shares one isolate, so the fakes and the tests
 // that drive them through `ReleaseFakes` share this module's state, keyed by repo name.
@@ -10,6 +10,10 @@ const repos = new Map();
 const commandsRun = new Map();
 /** @type {Map<string, { pattern: string, times: number }[]>} repo name → commands that fail */
 const failures = new Map();
+/** @type {{ from: unknown, to: string, subject: string, text: string, html: string }[]} */
+const emailsSent = [];
+/** @type {string[]} texts that make a send throw when an email contains one */
+const failingEmails = [];
 
 // The checkout script fetches `.../git/<namespace>/<repo>.git`, which tells the sandbox its repo.
 const REMOTE = /\/git\/[^/]+\/([^/'"]+)\.git/;
@@ -116,6 +120,19 @@ export class FakeSandbox extends DurableObject {
   async destroy() {}
 }
 
+/** The `send_email` binding: records each email instead of sending it. */
+export class FakeEmail extends WorkerEntrypoint {
+  /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
+  async send(message) {
+    const { from, to, subject, text, html } = message;
+    if (failingEmails.some((pattern) => text.includes(pattern))) {
+      throw new Error("Email sending is down");
+    }
+    emailsSent.push({ from, to, subject, text, html });
+    return { messageId: crypto.randomUUID() };
+  }
+}
+
 /** What the tests use to arrange a push and read what the sandbox ran. */
 export class ReleaseFakes extends WorkerEntrypoint {
   /**
@@ -142,6 +159,19 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} repo */
   async commandsRun(repo) {
     return commandsRun.get(repo) ?? [];
+  }
+
+  /**
+   * Makes every send of an email whose text contains `pattern` throw.
+   * @param {string} pattern
+   */
+  async failEmailsAbout(pattern) {
+    failingEmails.push(pattern);
+  }
+
+  /** Every email sent through the fake `send_email` binding, in order. */
+  async emailsSent() {
+    return emailsSent;
   }
 }
 

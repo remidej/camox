@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { createDb, type Database } from "../../db";
 import type { Bindings } from "../../types";
 import { projects } from "../projects/schema";
+import { sendReleaseFailureAlert } from "./alert";
 import { camoxVersionInLockfile } from "./lockfile";
 import { releases, type ReleaseStep } from "./schema";
 
@@ -42,7 +43,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
 
     const started = await step.do("record the release", async () => {
       const project = await db
-        .select({ id: projects.id })
+        .select({ id: projects.id, name: projects.name })
         .from(projects)
         .where(eq(projects.uuid, push.repo))
         .get();
@@ -66,7 +67,8 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         })
         // A restarted instance keeps its ID: re-running a release starts its row over.
         .onConflictDoUpdate({ target: releases.workflowInstanceId, set: running });
-      return { projectId: project.id };
+      // `projectId` is the project's row id, not its Project ID (`push.repo`).
+      return { projectId: project.id, projectName: project.name as string | undefined };
     });
     if (!started) return;
 
@@ -97,9 +99,32 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       }));
     } catch (error) {
       const failedStep = current;
-      await step.do("record the failed release", () =>
-        end(db, event.instanceId, { status: "failed", failedStep }),
-      );
+      // Reached only once a step has given up for good. Neither recording the failure nor
+      // alerting stops the other or hides why the release failed. Nothing touches the deployed
+      // Worker: the previous code keeps serving.
+      await step
+        .do("record the failed release", () =>
+          end(db, event.instanceId, { status: "failed", failedStep }),
+        )
+        .catch((recordError: unknown) => console.error("Failed release not recorded", recordError));
+      // Its own step, so that a retry of a later step or a replay of the instance doesn't send
+      // it again. A step can still run more than once, so the alert can, rarely, go out twice.
+      await step
+        .do("alert the failed release", () =>
+          sendReleaseFailureAlert(this.env, {
+            project: {
+              projectId: push.repo,
+              // An instance started before the name was recorded replays an output without it.
+              name: started.projectName ?? push.repo,
+            },
+            commit: push.sha,
+            failedStep,
+            workflowInstanceId: event.instanceId,
+          }),
+        )
+        .catch((alertError: unknown) =>
+          console.error("Release failure alert not sent", alertError),
+        );
       throw error;
     }
     await step.do("record the succeeded release", () =>

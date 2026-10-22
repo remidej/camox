@@ -7,12 +7,14 @@
   "routes": [{ "pattern": "api.camox.dev", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.dev",
+    // The alerts address. An Email Routing rule forwards it to an inbox (src/domains/releases/README.md).
+    "ALERT_EMAIL_TO": "alerts@camox.dev",
   },
   "send_email": [
     {
       "name": "EMAIL",
       "remote": true,
-      "allowed_sender_addresses": ["auth@camox.dev"],
+      "allowed_sender_addresses": ["auth@camox.dev", "alerts@camox.dev"],
     },
   ],
   "d1_databases": [
