@@ -138,7 +138,7 @@ function ArticlePage() {
 - `layout.Item` exists only when every return of the loader is a record of one collection. On a loader that may return external data or records of several collections, using it is a type error. At runtime it renders nothing when the result isn't a record.
 - In Studio, editors edit record page fields in place, like a referenced record's: purple overlays, selection, and the record's fields in the sidebar. Edits change the shared record everywhere it appears.
 - `toMarkdown` also receives `item`, the same Markdown builder as a reference list's `toMarkdown`: interpolate fields (`item.title`, `item.author.name`, `item.cover`) and Camox fills them with the live record, rich text included. `data` stays the raw record. Markdown always shows live content, whoever asks.
-- `toTitle`, `toDescription` and `toReact` also receive `content`, the record's String fields as plain text. Their `page.title` is the record's title.
+- `toTitle`, `toDescription`, `toImage` and `toReact` also receive `content`, the record's String fields as plain text. Their `page.title` is the record's title.
 - To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged. Type it as the helper's loader (`ReturnType<typeof articlePages.loader>`) to keep `layout.Item` and `item` typed:
 
 ```tsx
@@ -176,8 +176,8 @@ export const Layout = createLayout("pokemon.$name")({
 });
 ```
 
-- **Put `loader` before `toTitle`, `toDescription`, `toReact`, and `toMarkdown`.** TypeScript infers their `data` from the loader only in that order. Otherwise the loader is inferred as `never` and fails to type-check.
-- `toTitle`, `toDescription` and `toReact` receive the same context as on curated pages (see [Layout Definitions](layout-definitions.md#the-to-options-and-their-context)), plus `data` and `params`. Here `page.title` is the layout's `title` (the record's title on record pages) and `page.description` is absent.
+- **Put `loader` before `toTitle`, `toDescription`, `toImage`, `toReact`, and `toMarkdown`.** TypeScript infers their `data` from the loader only in that order. Otherwise the loader is inferred as `never` and fails to type-check.
+- `toTitle`, `toDescription`, `toImage` and `toReact` receive the same context as on curated pages (see [Layout Definitions](layout-definitions.md#the-to-options-and-their-context)), plus `data` and `params`. Here `page.title` is the layout's `title` (the record's title on record pages) and `page.description` is absent.
 - `toDescription` may return `undefined`: these pages then have no description.
 - `toMarkdown` returns the page's Markdown Representation as a list of strings. Empty strings are dropped and the rest joined with blank lines. A request with `Accept: text/markdown` gets YAML front matter (the `title` and `description` the head shows, and the page's `url`), then the live before-block Markdown, then this output, then the live after-block Markdown. Curated pages' Markdown opens with the same front matter. Without `toMarkdown`, the page answers HTML only. `throw notFound()` in the loader answers 404. Curated layouts cannot declare `toMarkdown`: their Markdown comes from their blocks.
 - The playground's Pokémon, Pokémon type, and Pokédex layouts declare these. Try `curl -H "Accept: text/markdown" http://localhost:3000/pokemon/pikachu`.
