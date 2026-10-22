@@ -1,8 +1,8 @@
-// Fakes for the release and creation Workflows' Cloudflare Artifacts, sandbox and email bindings,
-// run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles it with the
-// fake Git server its repos' remotes are served by (fake-git-server.ts). Everything shares one
-// isolate, so the fakes and the tests that drive them through `ReleaseFakes` share this module's
-// state, keyed by repo name.
+// Fakes for the release, creation and deletion Workflows' Cloudflare Artifacts, sandbox and email
+// bindings and the Cloudflare API they call, run by the integration tests as an auxiliary Worker
+// (vite.config.ts), which bundles it with the fake Git server its repos' remotes are served by
+// (fake-git-server.ts). Everything shares one isolate, so the fakes and the tests that drive them
+// through `ReleaseFakes` share this module's state, keyed by repo name.
 import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
 import {
@@ -33,6 +33,45 @@ const forksRunning = new Map();
 const lostForkResponses = new Set();
 /** @type {Set<string>} repos every fork of fails */
 const failingForks = new Set();
+/** @type {Set<string>} the user Workers in the `production` dispatch namespace */
+const userWorkers = new Set();
+/** @type {Set<string>} user Workers every deletion of fails */
+const failingWorkerDeletions = new Set();
+
+/** The Cloudflare API token and account the API is given in tests (vite.config.ts). */
+const CLOUDFLARE_API_TOKEN = "test-cloudflare-token";
+const CLOUDFLARE_ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
+// Deleting a user Worker from a dispatch namespace, through the Cloudflare API.
+const DISPATCH_SCRIPT =
+  /^\/client\/v4\/accounts\/([^/]+)\/workers\/dispatch\/namespaces\/([^/]+)\/scripts\/([^/]+)$/;
+
+/**
+ * The part of the Cloudflare API the Workflows call with Camox's token: deleting a user Worker
+ * from the `production` dispatch namespace. Answers as Cloudflare does, with a JSON envelope.
+ * @param {Request} request
+ */
+function serveCloudflareApi(request) {
+  const envelope = (status, errors = []) =>
+    Response.json({ success: status < 400, errors, messages: [], result: null }, { status });
+  if (request.headers.get("authorization") !== `Bearer ${CLOUDFLARE_API_TOKEN}`) {
+    return envelope(403, [{ code: 10000, message: "Authentication error" }]);
+  }
+  const match = DISPATCH_SCRIPT.exec(new URL(request.url).pathname);
+  if (request.method !== "DELETE" || !match) {
+    return envelope(404, [{ code: 7003, message: "No route for that URI" }]);
+  }
+  const [, account, namespace, name] = match;
+  if (account !== CLOUDFLARE_ACCOUNT_ID || namespace !== "production") {
+    return envelope(403, [{ code: 10000, message: "Authentication error" }]);
+  }
+  if (failingWorkerDeletions.has(name)) {
+    return envelope(500, [{ code: 10013, message: "An unknown error has occurred" }]);
+  }
+  if (!userWorkers.delete(name)) {
+    return envelope(404, [{ code: 10007, message: "This Worker does not exist on your account." }]);
+  }
+  return envelope(200);
+}
 
 /** An error the way the Artifacts binding throws one: its code leads the message. */
 function artifactsError(code, message) {
@@ -290,14 +329,38 @@ export class ReleaseFakes extends WorkerEntrypoint {
   async losePushResponse(repo) {
     losePushResponse(repo);
   }
+
+  /** @param {string} repo Whether a Git repo or a pushed repo of that name exists. */
+  async hasRepo(repo) {
+    return hasGitRepo(repo) || repos.has(repo);
+  }
+
+  /** @param {string} name Deploys a user Worker into the `production` dispatch namespace. */
+  async deployWorker(name) {
+    userWorkers.add(name);
+  }
+
+  /** @param {string} name Whether the `production` dispatch namespace has that user Worker. */
+  async hasWorker(name) {
+    return userWorkers.has(name);
+  }
+
+  /** @param {string} name Makes every deletion of that user Worker fail. */
+  async failWorkerDeletions(name) {
+    failingWorkerDeletions.add(name);
+  }
 }
 
 export default {
   /**
-   * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, and
-   * anything else goes out as it would without the fakes.
+   * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, the
+   * Cloudflare API its fake, and anything else goes out as it would without the fakes.
    * @param {Request} request
    */
-  fetch: (request) =>
-    new URL(request.url).hostname === FAKE_GIT_HOST ? serveGit(request) : fetch(request),
+  fetch: (request) => {
+    const { hostname } = new URL(request.url);
+    if (hostname === FAKE_GIT_HOST) return serveGit(request);
+    if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);
+    return fetch(request);
+  },
 };

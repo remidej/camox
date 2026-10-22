@@ -31,6 +31,10 @@ export type Bindings = {
   PROJECT_CREATION_WORKFLOW: Workflow<
     import("./domains/project-creation/workflow").ProjectCreationParams
   >;
+  /** Deletes a deleted project's Worker and repo, named after its Project ID. */
+  PROJECT_DELETION_WORKFLOW: Workflow<
+    import("./domains/project-deletion/workflow").ProjectDeletionParams
+  >;
   /** The release sandbox Worker's Container sandboxes, one per release step. */
   SANDBOX: DurableObjectNamespace<import("@cloudflare/ci/worker").CiSandbox>;
   /** Where the release sandboxes keep their workspace snapshots, which cache installs. */
