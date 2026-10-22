@@ -20,6 +20,7 @@ const articlesIndex = createBlock({
     }),
   }),
   toReact: ArticlesIndexComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`# ${content.title}`, content.articles],
 });
 

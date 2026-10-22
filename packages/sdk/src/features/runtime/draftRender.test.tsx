@@ -33,6 +33,7 @@ const hero = createBlock({
   content: (field: ContentFieldBuilder) => ({ title: field.string({ default: "" }) }),
   toReact: () => <hero.Field name="title">{(props) => <h1 {...props} />}</hero.Field>,
   toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+  toTitle: () => "Hero",
 });
 const camoxApp = createApp({ blocks: [hero as unknown as Block] });
 

@@ -14,6 +14,7 @@ const pokedexHeader = createBlock({
     cta: field.string({ title: "Call to action", default: "Meet a Pokémon ↗" }),
   }),
   toReact: PokedexHeaderComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [
     `${content.title} ${content.tagline}`,
     `[${content.cta}](/pokemon/pikachu)`,

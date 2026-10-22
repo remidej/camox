@@ -11,6 +11,7 @@ const authorBio = createBlock({
     author: field.reference(authors, { title: "Author" }),
   }),
   toReact: AuthorBioComponent,
+  toTitle: () => "Author bio",
   toMarkdown: ({ content }) => [`## ${content.author.name}`, content.author.bio],
 });
 

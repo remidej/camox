@@ -17,9 +17,11 @@ const block = createBlock({
       minItems: 1,
       maxItems: 5,
       toMarkdown: ({ content }) => [content.text],
+      toTitle: () => "Item",
     }),
   }),
   toMarkdown: ({ content }) => [content.text],
+  toTitle: () => "Artifacts",
 });
 
 createBlock({
@@ -34,6 +36,7 @@ createBlock({
     fixed: field.artifact({ size: "fixed" }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "",
 });
 
 // Collection records can't hold artifacts (ADR 0001).
@@ -69,12 +72,14 @@ createBlock({
       minItems: 1,
       maxItems: 5,
       toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
   }),
   settings: (setting) => ({
     accent: setting.enum({ default: "blue", options: { blue: "Blue", red: "Red" } }),
   }),
   toMarkdown: ({ content }) => [content.headline],
+  toTitle: () => "",
 });
 
 createBlock({
@@ -88,6 +93,7 @@ createBlock({
     visual: field.artifact({ size: "fill", data: ["headlin"] }),
   }),
   toMarkdown: ({ content }) => [content.headline],
+  toTitle: () => "",
 });
 
 createBlock({
@@ -100,6 +106,7 @@ createBlock({
     visual: field.artifact({ size: "fill", data: ["accent"] }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "",
 });
 
 createBlock({
@@ -116,11 +123,13 @@ createBlock({
       minItems: 1,
       maxItems: 5,
       toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
     // @ts-expect-error Repeaters are not Artifact Data.
     list: field.artifact({ size: "fill", data: ["items"] }),
   }),
   toMarkdown: () => [],
+  toTitle: () => "",
 });
 
 createBlock({
@@ -139,9 +148,11 @@ createBlock({
       minItems: 1,
       maxItems: 5,
       toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
   }),
   toMarkdown: ({ content }) => [content.headline],
+  toTitle: () => "",
 });
 
 function TypeCheck() {

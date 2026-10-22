@@ -12,6 +12,7 @@ function block(id: string): Block {
     content: (field: ContentFieldBuilder) => ({ title: field.string({ default: id }) }),
     toReact: () => null,
     toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+    toTitle: () => "Block",
   });
   return definition as unknown as Block;
 }

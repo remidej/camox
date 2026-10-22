@@ -10,6 +10,7 @@ const backToArticles = createBlock({
     text: field.string({ title: "Text", default: "← All articles" }),
   }),
   toReact: BackToArticlesComponent,
+  toTitle: ({ content }) => content.text,
   toMarkdown: ({ content }) => [`[${content.text}](/articles)`],
 });
 

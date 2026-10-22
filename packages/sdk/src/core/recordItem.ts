@@ -82,7 +82,7 @@ export function recordMarkdownTemplate(
   toMarkdown: (item: unknown) => readonly string[],
 ): string[] {
   return resolveToMarkdown(
-    (item) => toMarkdown(item),
+    ({ content }) => toMarkdown(content),
     undefined,
     "item",
     collection._internal.contentSchema.properties,

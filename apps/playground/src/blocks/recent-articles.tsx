@@ -16,6 +16,7 @@ const recentArticles = createBlock({
     }),
   }),
   toReact: RecentArticlesComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.articles],
 });
 

@@ -609,8 +609,7 @@ function createViewBlock(options: EditableOptions) {
         normalizedContent[key] = value.map((item) => item.content);
       }
     }
-    // The old `component` gets the settings too, and ignores them.
-    const ToReact = (options.toReact ?? options.component) as React.ComponentType<any>;
+    const ToReact = options.toReact as React.ComponentType<any>;
     const settings = { ...settingsDefaults, ...blockData.settings };
     return (
       <div
@@ -647,11 +646,7 @@ function createViewBlock(options: EditableOptions) {
       "block",
       fields.content,
     ),
-    ...(options.toTitle
-      ? {
-          toTitle: resolveToTitle(options.toTitle as any, fields.settings, "block", fields.content),
-        }
-      : {}),
+    toTitle: resolveToTitle(options.toTitle as any, fields.settings, "block", fields.content),
   };
   const settingsSchema = settingsTypeboxSchema
     ? {

@@ -253,10 +253,12 @@ async function renderSidebar(
         minItems: 1,
         maxItems: 5,
         toMarkdown: () => [],
+        toTitle: () => "People",
       }),
     }),
     toReact: () => null,
     toMarkdown: () => [],
+    toTitle: () => "Testimonial",
   });
   const file = {
     id: FILE_ID,

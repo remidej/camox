@@ -64,8 +64,9 @@ async function renderPageTree(t: TestContext, seeded: SeededBlock[]) {
       title: id,
       description: "Page tree fixture",
       content: (field) => ({ text: field.string({ default: "" }) }),
-      component: () => null,
+      toReact: () => null,
       toMarkdown: () => [],
+      toTitle: () => "Block",
     }),
   );
   const client = new QueryClient({

@@ -21,6 +21,7 @@ export const artifactBlock = createBlock({
       minItems: 1,
       maxItems: 3,
       toMarkdown: () => [],
+      toTitle: () => "Item",
     }),
   }),
   toMarkdown: () => [],
@@ -34,6 +35,7 @@ export const artifactBlock = createBlock({
       </artifactBlock.Repeater>
     </>
   ),
+  toTitle: () => "Visual",
 });
 
 /** A block whose artifacts share sibling fields and settings as Artifact Data. */
@@ -57,6 +59,7 @@ export const chartBlock = createBlock({
       minItems: 1,
       maxItems: 3,
       toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Item",
     }),
   }),
   settings: (setting) => ({
@@ -71,6 +74,7 @@ export const chartBlock = createBlock({
       </chartBlock.Repeater>
     </>
   ),
+  toTitle: () => "Chart",
 });
 
 const chartSource = `<!doctype html><title>Chart</title><script>document.title = camox.data.headline</script>`;

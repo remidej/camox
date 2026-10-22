@@ -14,7 +14,7 @@ import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
 // Every layout output is a `to*` option receiving one context: the page (its undecorated title,
 // description, path and locale), the project, the loader's data and params on code-owned pages,
-// and the record's values as `content` on record pages. The old option names keep working.
+// and the record's values as `content` on record pages.
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
 
@@ -181,19 +181,9 @@ async function frontMatterOf(response: Response | null) {
 
 const shared = { description: "", blocks: { before: [], after: [] } };
 
-void test("a layout's toTitle and toDescription build the head and front matter buildMetaTitle and buildMetaDescription did", async (t) => {
+void test("a layout's toTitle and toDescription build the head and front matter", async (t) => {
   mockApi(t);
-  const before = [
-    createLayout("regular")({
-      ...shared,
-      title: "Regular",
-      kind: "curated",
-      component: ({ children }) => children,
-      buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
-      buildMetaDescription: ({ pageMetaDescription }) => `${pageMetaDescription}.`,
-    }),
-  ];
-  const after = [
+  const layouts = [
     createLayout("regular")({
       ...shared,
       title: "Regular",
@@ -203,21 +193,14 @@ void test("a layout's toTitle and toDescription build the head and front matter 
       toDescription: ({ page }) => `${page.description}.`,
     }),
   ];
-  const expected = {
+  assert.deepEqual(await headOf(await visit(layouts, "/de/preise")), {
     title: "Preise | Real project",
     description: "Was es kostet.",
     ogTitle: "Preise | Real project",
     ogDescription: "Was es kostet.",
-  };
-  assert.deepEqual(await headOf(await visit(before, "/de/preise")), expected);
-  assert.deepEqual(await headOf(await visit(after, "/de/preise")), expected);
-  const markdown = { Accept: "text/markdown" };
-  assert.equal(
-    await frontMatterOf(await visit(after, "/de/preise", markdown)),
-    await frontMatterOf(await visit(before, "/de/preise", markdown)),
-  );
+  });
   assert.match(
-    (await frontMatterOf(await visit(after, "/de/preise", markdown))) ?? "",
+    (await frontMatterOf(await visit(layouts, "/de/preise", { Accept: "text/markdown" }))) ?? "",
     /^title: "Preise \| Real project"\ndescription: "Was es kostet\."/,
   );
 });
@@ -231,6 +214,7 @@ function layoutsWith(toTitle: (context: Record<string, any>) => string) {
       kind: "curated",
       toReact: ({ children }) => children,
       toTitle,
+      toDescription: ({ page }) => page.description,
     }),
     createLayout("pokedex")({
       ...shared,
@@ -238,6 +222,7 @@ function layoutsWith(toTitle: (context: Record<string, any>) => string) {
       kind: "singleton",
       toReact: () => null,
       toTitle,
+      toDescription: ({ page }) => page.description,
     }),
     createLayout("pokemon.$name")({
       ...shared,
@@ -246,6 +231,7 @@ function layoutsWith(toTitle: (context: Record<string, any>) => string) {
       loader: async ({ params }) => ({ kind: "data", data: { name: params.name.toUpperCase() } }),
       toReact: () => null,
       toTitle,
+      toDescription: ({ page }) => page.description,
     }),
     createLayout("articles.$slug")({
       ...shared,
@@ -254,6 +240,7 @@ function layoutsWith(toTitle: (context: Record<string, any>) => string) {
       ...articles.pages({ by: "slug", param: "slug" }),
       toReact: () => null,
       toTitle,
+      toDescription: ({ page }) => page.description,
     }),
   ];
 }
@@ -318,6 +305,7 @@ void test("layouts render through toReact, with the page's context as props besi
         </main>
       ),
       toTitle: ({ page }) => page.title,
+      toDescription: ({ page }) => page.description,
     }),
     createLayout("articles.$slug")({
       ...shared,
@@ -328,6 +316,7 @@ void test("layouts render through toReact, with the page's context as props besi
         <main>{`${page.title}: ${content.summary} (${params.slug})`}</main>
       ),
       toTitle: ({ page }) => page.title,
+      toDescription: ({ page }) => page.description,
     }),
   ];
   assert.equal(
@@ -335,18 +324,6 @@ void test("layouts render through toReact, with the page's context as props besi
     "Preise in de at /de/preise, by Real project",
   );
   assert.equal(await mainOf(await visit(layouts, "/de/articles/hallo")), "Hallo: Ein Gruß (hallo)");
-});
-
-void test("a layout's old component still renders the page", async (t) => {
-  mockApi(t);
-  const layout = createLayout("regular")({
-    ...shared,
-    title: "Regular",
-    kind: "curated",
-    component: ({ children }) => <main>Old{children}</main>,
-    buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  });
-  assert.equal(await mainOf(await visit([layout], "/de/preise")), "Old");
 });
 
 void test("toImage renders the page's shared image from the page's context", async (t) => {
@@ -373,28 +350,6 @@ void test("toImage renders the page's shared image from the page's context", asy
       page: { title: "Preise", description: "Was es kostet", path: "/de/preise", locale: "de" },
       project: { name: "Real project" },
     },
-  ]);
-});
-
-void test("a layout's old buildOgImage still gets the built title", async (t) => {
-  mockApi(t);
-  const received: unknown[] = [];
-  const layout = createLayout("pokedex")({
-    ...shared,
-    title: "Pokedex",
-    kind: "singleton",
-    component: () => null,
-    buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
-    buildOgImage: (params) => {
-      received.push(params);
-      return <div>{params.title}</div>;
-    },
-  });
-  const html = await (await visit([layout], "/pokedex"))!.text();
-  const ogImage = decode(html.match(/<meta property="og:image" content="([^"]*)"/)?.[1]);
-  await visit([layout], ogImage!.slice("https://site.test".length));
-  assert.deepEqual(received, [
-    { title: "Pokedex | Real project", description: "", projectName: "Real project" },
   ]);
 });
 

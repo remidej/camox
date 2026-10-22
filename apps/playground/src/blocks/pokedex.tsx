@@ -28,10 +28,12 @@ const pokedex = createBlock({
       }),
       minItems: 3,
       maxItems: 3,
+      toTitle: ({ content }) => content.name,
       toMarkdown: ({ content }) => [`- ${content.name}`],
     }),
   }),
   toReact: PokedexComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [
     `## ${content.title}`,
     content.description,

@@ -19,6 +19,7 @@ const myBlock = createBlock({
     title: field.string({ default: "Welcome" }),
   }),
   toReact: MyBlockComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`# ${content.title}`],
 });
 
@@ -47,6 +48,7 @@ For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, 
 | `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.        |
 | `synced`      | no       | Defaults to false. Shares content/settings across placements; see below.                     |
 | `toReact`     | yes      | Named React function component. Receives `{ content, settings }` as props.                   |
+| `toTitle`     | yes      | `({ content, settings }) => ...` one-line title; see below.                                  |
 | `toMarkdown`  | yes      | `({ content, settings }) => [...]` markdown builder; see below.                              |
 
 ## Synced blocks (`synced`, optional)
@@ -58,6 +60,18 @@ For shared navbar/footer data across layouts, use `layoutOnly: true, synced: tru
 - Editing any placement updates the shared content everywhere. New placements reuse existing data rather than resetting to defaults.
 - Position, layout slot, and deletion remain per placement; deleting one placement leaves the others.
 - Enabling syncing on an existing type applies the oldest placement's data to all placements. Disabling it leaves independently editable copies.
+
+## Titles (`toTitle`)
+
+Required on blocks and repeaters. Names each block and repeatable item in the studio and to agents until it has a Summary, which always wins once it exists. Receives `{ content, settings }` like `toMarkdown` and returns one line: a field, a template literal, or a fixed string for blocks with no telling field.
+
+```tsx
+toTitle: ({ content }) => content.title;
+toTitle: ({ content }) => `${content.number} ${content.label}`;
+toTitle: () => "Navigation";
+```
+
+Titles read the default locale's content as plain text: a Link reads as its text. References aren't resolved in titles, so name a block by its own fields.
 
 ## Markdown Representation (`toMarkdown`)
 
@@ -207,7 +221,7 @@ field.artifact({ size: "fill", data: ["headline", "variant"] }); // shares sibli
 
 ### field.repeater
 
-Structured items with their own content, optional settings, and required `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
+Structured items with their own content, optional settings, and required `toTitle` and `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
 
 ```tsx
 field.repeater({
@@ -221,6 +235,7 @@ field.repeater({
   minItems: 1,
   maxItems: 10,
   title: "Features",
+  toTitle: ({ content }) => content.name,
   toMarkdown: ({ content, settings }) => [
     `### ${content.name}`,
     settings.highlighted(content.description),

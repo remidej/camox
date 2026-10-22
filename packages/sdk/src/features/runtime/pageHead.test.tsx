@@ -136,6 +136,7 @@ const layoutOptions = {
   blocks: { before: [], after: [] },
   toReact: () => <main />,
   toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 const app = createApp({

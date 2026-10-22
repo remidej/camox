@@ -29,6 +29,7 @@ const gallery = createBlock({
     }),
   }),
   toReact: GalleryComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.images],
 });
 

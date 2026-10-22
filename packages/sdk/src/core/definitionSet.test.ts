@@ -15,6 +15,7 @@ function block(id: string, layoutOnly = false): Block {
     content: (field: ContentFieldBuilder) => ({ title: field.string({ default: `${id} text` }) }),
     toReact: () => null,
     toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+    toTitle: () => "Block",
   }) as unknown as Block;
 }
 
@@ -23,6 +24,7 @@ const layoutOptions = {
   description: "A layout",
   toReact: ({ children }: { children: unknown }) => children as never,
   toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 function curated(
@@ -44,6 +46,7 @@ function singleton() {
     blocks: { before: [], after: [] },
     toReact: () => null,
     toTitle: ({ page }: { page: { title: string } }) => page.title,
+    toDescription: ({ page }) => page.description,
   });
 }
 

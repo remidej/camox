@@ -26,6 +26,7 @@ const options = {
     return null;
   },
   toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
+  toTitle: () => "Navigation",
 };
 
 void test("repeaters without an item limit serialize without maxItems", () => {
@@ -37,9 +38,11 @@ void test("repeaters without an item limit serialize without maxItems", () => {
         minItems: 1,
         maxItems: Infinity,
         toMarkdown: ({ content }) => [content.title],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
+    toTitle: () => "Block",
   });
   const schema = JSON.parse(JSON.stringify(block._internal.contentSchema));
   assert.equal("maxItems" in schema.properties.items, false);
@@ -98,6 +101,7 @@ void test("a link field renders a link to an existing page and plain text for a 
     }),
     toReact: () => <block.Link name="cta">{(props) => <a {...props} />}</block.Link>,
     toMarkdown: () => [],
+    toTitle: () => "Block",
   });
   const render = (pageId: string) => {
     const queryClient = new QueryClient();

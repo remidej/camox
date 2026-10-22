@@ -7,6 +7,7 @@ const blockOptions = {
   content: () => ({}),
   toReact: () => null,
   toMarkdown: () => [],
+  toTitle: () => "Block",
 };
 const pageBlock = createBlock({ ...blockOptions, id: "hero" });
 const layoutOnlyBlock = createBlock({ ...blockOptions, id: "navbar", layoutOnly: true });
@@ -16,6 +17,7 @@ const layoutOptions = {
   description: "",
   toReact: ({ children }: { children: React.ReactNode }) => children,
   toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 // Initial blocks are module imports, so layouts don't load them on every page.

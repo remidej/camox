@@ -37,6 +37,7 @@ const ${camelName} = createBlock({
     title: field.string({ default: "Title" }),
   }),
   toReact: ${pascalName}Component,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [content.title],
 });
 

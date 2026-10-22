@@ -31,6 +31,7 @@ void test("useData unwraps exactly once and preserves falsy payloads and no-load
     kind: "singleton",
     loader: (): LayoutLoaderResult<unknown> => ({ kind: "data", data: null }),
     toReact: Content,
+    toDescription: ({ page }) => page.description,
   });
   function Content() {
     const data = layout.useData();
@@ -59,6 +60,7 @@ void test("useData unwraps exactly once and preserves falsy payloads and no-load
     ...options,
     kind: "singleton",
     toReact: StaticContent,
+    toDescription: ({ page }) => page.description,
   });
   function StaticContent() {
     assert.equal(staticLayout.useData(), undefined);
@@ -84,6 +86,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
       return { kind: "data", data: { name: params.name, nested: { data: [0, false, null] } } };
     },
     toReact: Pokemon,
+    toDescription: ({ page }) => page.description,
   });
   function Pokemon() {
     const pokemon = layout.useData();
@@ -238,6 +241,7 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
       loader: () => {
         throw thrown;
       },
+      toDescription: ({ page }) => page.description,
     });
     const app = createApp({ blocks: [], layouts: [layout] });
     const runtimeOptions: RuntimeOptions = {
@@ -269,6 +273,7 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
       kind: "singleton",
       toReact: () => null,
       loader: () => result as LayoutLoaderResult,
+      toDescription: ({ page }) => page.description,
     });
     const app = createApp({ blocks: [], layouts: [layout] });
     for (const path of ["/invalid", "/_camox/data?path=/invalid"]) {
@@ -304,12 +309,14 @@ function codeOwnedPagesApp() {
     kind: "derived",
     loader: async () => ({ kind: "data", data: null }),
     toReact: () => null,
+    toDescription: ({ page }) => page.description,
   });
   const about = createLayout("about")({
     ...options,
     kind: "singleton",
     toMarkdown: ({ data }) => [`# About ${String(data)}`],
     toReact: () => null,
+    toDescription: ({ page }) => page.description,
   });
   return createApp({ blocks: [], layouts: [pokemon, types, about] });
 }

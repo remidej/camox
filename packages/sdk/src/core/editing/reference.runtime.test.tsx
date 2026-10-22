@@ -122,6 +122,7 @@ void test("editable reference placements write one source and retain placement s
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const client = new QueryClient();
   const render = (selected: string | null = source.id) =>
@@ -203,6 +204,7 @@ void test("an unset reference placeholder names the collection and selects the r
     toReact: () => (
       <block.Reference name="customer">{(customer) => <h2>{customer.title}</h2>}</block.Reference>
     ),
+    toTitle: () => "",
   });
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
@@ -295,6 +297,7 @@ void test("clicks inside a placed record select its record field or the record f
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -461,6 +464,7 @@ void test("record images and files select their record field for that placement 
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -584,6 +588,7 @@ void test("record embeds select their record field for that placement only", asy
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -679,6 +684,7 @@ void test("editable reference lists render their linked records in stored order"
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const render = (customerIds: string[]) =>
     renderToStaticMarkup(
@@ -748,6 +754,7 @@ void test("editable query-backed lists render resolved records with the same sco
         minItems: 1,
         maxItems: 2,
         toMarkdown: () => [],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: () => [],
@@ -757,6 +764,7 @@ void test("editable query-backed lists render resolved records with the same sco
         <block.Repeater name="rows">{(row) => <ol>{list(row as never)}</ol>}</block.Repeater>
       </>
     ),
+    toTitle: () => "",
   });
   const render = (mode: "site" | "peek", resolved: ReferenceRecord[]) =>
     renderToStaticMarkup(
@@ -836,6 +844,7 @@ void test("an empty reference list shows an add placeholder on the Canvas that f
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
@@ -933,6 +942,7 @@ void test("clicks inside a listed record select its record field or the record f
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -1088,6 +1098,7 @@ void test("inline edits of a listed record write the shared record and refresh e
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
   const client = new QueryClient();
   const render = () =>
@@ -1190,6 +1201,7 @@ void test("images and files of listed records select their record field for that
         </block.ReferenceList>
       </ul>
     ),
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -1303,6 +1315,7 @@ void test("repeatable items place records of their own, selected and linked per 
         minItems: 1,
         maxItems: 6,
         toMarkdown: ({ content }) => [content.customer.name],
+        toTitle: () => "Item",
       }),
     }),
     toMarkdown: ({ content }) => [content.logos],
@@ -1325,6 +1338,7 @@ void test("repeatable items place records of their own, selected and linked per 
         )}
       </block.Repeater>
     ),
+    toTitle: () => "",
   });
   const item = (id: string, content: Record<string, unknown>, references = {}) => ({
     id,
@@ -1509,6 +1523,7 @@ void test("records placed by a block render the records they link, one hop furth
         )}
       </block.Reference>
     ),
+    toTitle: () => "",
   });
   const app = {
     getCollectionById: (id: string) =>

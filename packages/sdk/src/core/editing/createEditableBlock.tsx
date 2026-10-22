@@ -173,7 +173,8 @@ interface BlockBaseOptions<
    *     content: (field) => ({ name: field.string({ default: "Item" }) }),
    *     minItems: 1,
    *     maxItems: 10,
-   *     toMarkdown: (c) => [c.name],
+   *     toTitle: ({ content }) => content.name,
+   *     toMarkdown: ({ content }) => [content.name],
    *   }),
    * })
    */
@@ -205,8 +206,7 @@ interface BlockBaseOptions<
    * (`settings.showCta(content.cta)`) or an enum with a value
    * (`settings.variant("banner", [...])`) to wrap lines in a conditional. Each returned entry
    * becomes a paragraph (joined with `\n\n`). Lines where all referenced fields resolve to empty
-   * (or whose condition is false) are omitted at render time. The old positional form,
-   * `(c, s) => [...]`, still works.
+   * (or whose condition is false) are omitted at render time.
    *
    * @example
    * toMarkdown: ({ content, settings }) => [
@@ -223,7 +223,7 @@ interface BlockBaseOptions<
    * @example
    * toTitle: ({ content }) => content.title
    */
-  toTitle?: ToTitleBuilder<TSchemaShape, TSettingsShape>;
+  toTitle: ToTitleBuilder<TSchemaShape, TSettingsShape>;
 }
 
 /** What a block's `toReact` receives as props: its content and settings. */
@@ -236,23 +236,16 @@ export interface BlockContext<
 }
 
 /**
- * The React component that renders the block, as `toReact` or under its old name, `component`,
- * never both. Should use the Field component returned by createBlock to render editable content.
+ * The React component that renders the block. Should use the Field component returned by
+ * createBlock to render editable content.
  */
 type BlockToReact<
   TSchemaShape extends Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema>,
-> =
-  | {
-      /** Renders the block, with its content and settings as props. */
-      toReact: React.ComponentType<BlockContext<TSchemaShape, TSettingsShape>>;
-      component?: never;
-    }
-  | {
-      /** @deprecated Use `toReact`, which also receives the block's settings. */
-      component: React.ComponentType<Pick<BlockContext<TSchemaShape, TSettingsShape>, "content">>;
-      toReact?: never;
-    };
+> = {
+  /** Renders the block, with its content and settings as props. */
+  toReact: React.ComponentType<BlockContext<TSchemaShape, TSettingsShape>>;
+};
 
 type CreateBlockOptions<
   TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
@@ -472,16 +465,12 @@ export function createEditableBlock<
       "block",
       fields.content,
     ),
-    ...(options.toTitle
-      ? {
-          toTitle: resolveToTitle<TSchemaShape, TSettingsShape>(
-            options.toTitle,
-            fields.settings,
-            "block",
-            fields.content,
-          ),
-        }
-      : {}),
+    toTitle: resolveToTitle<TSchemaShape, TSettingsShape>(
+      options.toTitle,
+      fields.settings,
+      "block",
+      fields.content,
+    ),
   };
 
   // Build settings schema (if provided)
@@ -553,8 +542,8 @@ export function createEditableBlock<
       ? Record<string, never>
       : Static<ReturnType<typeof TypeBoxType.Object<TSettingsShape>>>;
 
-  /** Renders the block, with its content and settings as props; the old `component` too. */
-  const ToReact = (options.toReact ?? options.component) as React.ComponentType<{
+  /** Renders the block, with its content and settings as props. */
+  const ToReact = options.toReact as React.ComponentType<{
     content: TContent;
     settings: TSettings;
   }>;

@@ -23,9 +23,11 @@ const block = createBlock({
       minItems: 1,
       maxItems: 5,
       toMarkdown: ({ content }) => [content.text],
+      toTitle: () => "Item",
     }),
   }),
   toMarkdown: ({ content }) => [content.text],
+  toTitle: () => "Icons",
 });
 
 function TypeCheck() {

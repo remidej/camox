@@ -8,8 +8,8 @@ import { createApp } from "./createApp";
 import { createBlock, type Block } from "./createBlock";
 
 // Blocks and repeatable items declare their outputs as `to*` options: `toReact` renders the block
-// with `{ content, settings }` as props, and `toMarkdown` reads `({ content, settings })`. The old
-// `component` and positional `toMarkdown(content, settings)` keep working.
+// with `{ content, settings }` as props, and `toMarkdown` and `toTitle` read
+// `({ content, settings })`.
 
 Object.assign(globalThis, { React });
 
@@ -25,10 +25,11 @@ const fields = {
       settings: (setting: any) => ({ featured: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 3,
-      toMarkdown: (item: any, itemSettings: any) => [
-        `- ${item.name}`,
-        itemSettings.featured("(featured)"),
+      toMarkdown: ({ content, settings }: any) => [
+        `- ${content.name}`,
+        settings.featured("(featured)"),
       ],
+      toTitle: () => "Item",
     }),
   }),
   settings: (setting: any) => ({
@@ -47,59 +48,29 @@ async function markdownTemplatesOf(block: unknown) {
   return { block: schema.toMarkdown, item: schema.properties.items?.toMarkdown };
 }
 
-void test("a block's and a repeatable item's toMarkdown read { content, settings } like the positional form", async () => {
-  const positional = createBlock({
+void test("a block's and a repeatable item's toMarkdown read { content, settings }", async () => {
+  const block = createBlock({
     ...fields,
-    component: () => null,
-    toMarkdown: (c: any, s: any) => [`# ${c.title}`, s.showCta(c.cta), s.tone("loud", c.title)],
-  });
-  const destructured = createBlock({
-    ...fields,
-    content: (field: any) => ({
-      ...fields.content(field),
-      items: field.repeater({
-        content: (item: any) => ({ name: item.string({ default: "Item" }) }),
-        settings: (setting: any) => ({ featured: setting.boolean({ default: false }) }),
-        minItems: 1,
-        maxItems: 3,
-        toMarkdown: ({ content, settings }: any) => [
-          `- ${content.name}`,
-          settings.featured("(featured)"),
-        ],
-      }),
-    }),
     toReact: () => null,
     toMarkdown: ({ content, settings }: any) => [
       `# ${content.title}`,
       settings.showCta(content.cta),
       settings.tone("loud", content.title),
     ],
+    toTitle: () => "Block",
   });
-  const expected = {
+  assert.deepEqual(await markdownTemplatesOf(block), {
     block: [
       "# {{title}}",
       "{{#if settings.showCta}}{{cta}}{{/if}}",
       '{{#if (eq settings.tone "loud")}}{{title}}{{/if}}',
     ],
     item: ["- {{name}}", "{{#if itemSettings.featured}}(featured){{/if}}"],
-  };
-  assert.deepEqual(await markdownTemplatesOf(positional), expected);
-  assert.deepEqual(await markdownTemplatesOf(destructured), expected);
+  });
 });
 
-void test("a positional toMarkdown still reads fields named content or settings", async () => {
+void test("toMarkdown reads fields named content or settings through content", async () => {
   const block = createBlock({
-    id: "quote",
-    title: "Quote",
-    description: "A quote",
-    content: (field: any) => ({
-      content: field.string({ default: "Hi" }),
-      settings: field.string({ default: "Ho" }),
-    }),
-    component: () => null,
-    toMarkdown: (c: any) => [c.content, `> ${c.settings}`],
-  });
-  const destructured = createBlock({
     id: "quote",
     title: "Quote",
     description: "A quote",
@@ -109,10 +80,9 @@ void test("a positional toMarkdown still reads fields named content or settings"
     }),
     toReact: () => null,
     toMarkdown: ({ content }: any) => [content.content, `> ${content.settings}`],
+    toTitle: () => "Quote",
   });
-  const expected = ["{{content}}", "> {{settings}}"];
-  assert.deepEqual((await markdownTemplatesOf(block)).block, expected);
-  assert.deepEqual((await markdownTemplatesOf(destructured)).block, expected);
+  assert.deepEqual((await markdownTemplatesOf(block)).block, ["{{content}}", "> {{settings}}"]);
 });
 
 void test("a block's and a repeatable item's toTitle sync as one-line templates", async () => {
@@ -157,15 +127,7 @@ void test("a block renders through toReact, with its content and settings as pro
       <p>{`${content.title}, ${settings.tone}, ${settings.showCta ? content.cta : "no cta"}`}</p>
     ),
     toMarkdown: () => [],
+    toTitle: () => "Block",
   });
   assert.match(render(block, { title: "Hello" }, { tone: "loud" }), /<p>Hello, loud, Start<\/p>/);
-});
-
-void test("a block's old component still renders it", () => {
-  const block = createBlock({
-    ...fields,
-    component: ({ content }) => <p>{content.title}</p>,
-    toMarkdown: () => [],
-  });
-  assert.match(render(block, { title: "Hello" }, {}), /<p>Hello<\/p>/);
 });

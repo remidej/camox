@@ -20,10 +20,12 @@ const customerHighlights = createBlock({
       minItems: 1,
       maxItems: 6,
       title: "Highlights",
+      toTitle: ({ content }) => content.note,
       toMarkdown: ({ content }) => [`${content.customer.company}: ${content.note}`],
     }),
   }),
   toReact: CustomerHighlightsComponent,
+  toTitle: ({ content }) => content.title,
   toMarkdown: ({ content }) => [`## ${content.title}`, content.highlights],
 });
 

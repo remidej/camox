@@ -60,6 +60,7 @@ void test("an unselected Canvas Page shows its text as the site does, with no vi
     content: (field) => ({ title: field.string({ default: "" }) }),
     toMarkdown: () => [],
     toReact: () => <block.Field name="title">{(props) => <h1 {...props} />}</block.Field>,
+    toTitle: () => "",
   });
 
   const window = new Window();
@@ -125,6 +126,7 @@ void test("an editable block's wrapper leaves its background to the website's st
     content: () => ({}),
     toMarkdown: () => [],
     toReact: () => <p>Hi</p>,
+    toTitle: () => "",
   });
 
   const window = new Window();

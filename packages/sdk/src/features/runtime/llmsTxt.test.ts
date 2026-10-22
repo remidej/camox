@@ -24,6 +24,7 @@ const layoutOptions = {
   blocks: { before: [], after: [] },
   toReact: () => null,
   toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toDescription: ({ page }: { page: { description: string | undefined } }) => page.description,
 };
 
 const defaultLayout = createLayout("default")({
@@ -31,6 +32,7 @@ const defaultLayout = createLayout("default")({
   kind: "curated",
   title: "Page",
   toReact: ({ children }) => children,
+  toDescription: ({ page }) => page.description,
 });
 
 type MockPage = {
