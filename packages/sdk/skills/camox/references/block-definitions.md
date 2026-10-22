@@ -308,7 +308,7 @@ Use the matching helper, **not `block.Repeater`**. Its `(props, data)` callback 
 
 ### Settings — `block.useSetting`
 
-Read settings inside the component with `myBlock.useSetting("theme")`.
+Read settings inside the component with `myBlock.useSetting("name")`. For example, `myBlock.useSetting("scheme")` returns the color scheme an editor picked in the block's "Color scheme" setting.
 
 ### Detached rendering — `block.Detached`
 

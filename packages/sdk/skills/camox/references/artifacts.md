@@ -104,7 +104,7 @@ Read it when you act rather than once at startup: it's `null` until the frame co
 
 ### Theme: `camox.theme` and `camox.onTheme`
 
-Artifacts match the website automatically. The website's theme tokens (its CSS custom properties, named by each website; for instance `--canvas` or `--brand`) are applied to the artifact's `:root`, with the values that apply where the artifact sits on the page: inside a `.dark` section, an artifact gets the dark values. When the website's theme changes, for example when a visitor toggles dark mode, the tokens are applied again. Read the website's stylesheet for the tokens it defines and what each is for. Style with the tokens and CSS needs nothing else:
+Artifacts match the website automatically. The website's theme tokens (its CSS custom properties, named by each website; for instance `--canvas` or `--brand`) are applied to the artifact's `:root`, with the values of the color scheme where the artifact sits on the page: inside a block with the `dark` class, an artifact gets the dark color scheme's values. When the color scheme around the artifact changes, for example when a visitor switches the website to its dark color scheme, the tokens are applied again. Read the website's stylesheet for the tokens it defines and what each is for. Style with the tokens and CSS needs nothing else:
 
 ```css
 body {
