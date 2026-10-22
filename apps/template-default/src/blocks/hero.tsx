@@ -2,6 +2,8 @@ import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { colorSchemeOptions, Section } from "@/components/ui/section";
 import { cn } from "@/lib/utils";
 
 const hero = createBlock({
@@ -32,10 +34,10 @@ const hero = createBlock({
       default: true,
       title: "With illustration",
     }),
-    theme: setting.enum({
+    scheme: setting.enum({
       default: "dark",
-      options: { light: "Light", dark: "Dark" },
-      title: "Theme",
+      options: colorSchemeOptions,
+      title: "Color scheme",
     }),
   }),
   component: HeroComponent,
@@ -44,17 +46,14 @@ const hero = createBlock({
 
 function HeroComponent() {
   const withIllustration = hero.useSetting("withIllustration");
-  const theme = hero.useSetting("theme");
+  const scheme = hero.useSetting("scheme");
 
   return (
-    <section
-      className={cn(
-        theme === "dark" ? "dark" : "light",
-        "bg-canvas text-ink py-section",
-        !withIllustration && "flex flex-col items-center justify-center",
-      )}
+    <Section
+      scheme={scheme}
+      className={cn(!withIllustration && "flex flex-col items-center justify-center")}
     >
-      <div className="max-w-page px-gutter mx-auto">
+      <Container>
         <div
           className={cn(
             withIllustration
@@ -79,8 +78,8 @@ function HeroComponent() {
             </hero.Image>
           )}
         </div>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 

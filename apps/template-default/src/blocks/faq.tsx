@@ -6,6 +6,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Container } from "@/components/ui/container";
+import { colorSchemeOptions, Section } from "@/components/ui/section";
 
 const faq = createBlock({
   id: "faq",
@@ -31,14 +33,23 @@ const faq = createBlock({
       toMarkdown: (c) => [`Q: ${c.question}`, `A: ${c.answer}`],
     }),
   }),
+  settings: (setting) => ({
+    scheme: setting.enum({
+      default: "light",
+      options: colorSchemeOptions,
+      title: "Color scheme",
+    }),
+  }),
   component: FaqComponent,
   toMarkdown: (c) => [c.items],
 });
 
 function FaqComponent() {
+  const scheme = faq.useSetting("scheme");
+
   return (
-    <section className="bg-canvas text-ink py-section">
-      <div className="max-w-text px-gutter mx-auto">
+    <Section scheme={scheme}>
+      <Container className="max-w-text">
         <Accordion>
           <faq.Repeater name="items">
             {(item, index) => (
@@ -55,8 +66,8 @@ function FaqComponent() {
             )}
           </faq.Repeater>
         </Accordion>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 

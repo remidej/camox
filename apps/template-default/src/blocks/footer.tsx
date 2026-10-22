@@ -1,6 +1,9 @@
 import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 
+import { Container } from "@/components/ui/container";
+import { colorSchemeOptions, Section } from "@/components/ui/section";
+
 const footer = createBlock({
   id: "footer",
   title: "Footer",
@@ -22,6 +25,13 @@ const footer = createBlock({
       toMarkdown: (c) => [c.link],
     }),
   }),
+  settings: (setting) => ({
+    scheme: setting.enum({
+      default: "dark",
+      options: colorSchemeOptions,
+      title: "Color scheme",
+    }),
+  }),
   component: FooterComponent,
   toMarkdown: (c) => [c.title, c.links],
 });
@@ -30,9 +40,11 @@ const footer = createBlock({
 const currentYear = new Date().getFullYear();
 
 function FooterComponent() {
+  const scheme = footer.useSetting("scheme");
+
   return (
-    <footer className="dark bg-canvas border-t py-6">
-      <div className="max-w-page px-gutter mx-auto">
+    <Section as="footer" scheme={scheme} className="border-t py-6">
+      <Container>
         <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6 sm:gap-y-2">
           <div className="flex items-center gap-2">
             <footer.Field name="title">
@@ -56,8 +68,8 @@ function FooterComponent() {
             </footer.Repeater>
           </div>
         </div>
-      </div>
-    </footer>
+      </Container>
+    </Section>
   );
 }
 

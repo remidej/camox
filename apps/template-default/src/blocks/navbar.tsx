@@ -3,6 +3,9 @@ import { Link } from "camox/navigation";
 import type { ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { colorSchemeOptions, Section } from "@/components/ui/section";
+import { cn } from "@/lib/utils";
 
 const navbar = createBlock({
   id: "navbar",
@@ -42,6 +45,11 @@ const navbar = createBlock({
       default: true,
       title: "Sticky",
     }),
+    scheme: setting.enum({
+      default: "dark",
+      options: colorSchemeOptions,
+      title: "Color scheme",
+    }),
   }),
   component: NavbarComponent,
   toMarkdown: (c) => [c.title, c.links, c.cta],
@@ -49,9 +57,10 @@ const navbar = createBlock({
 
 function NavbarComponent(): ReactElement {
   const sticky = navbar.useSetting("sticky");
+  const scheme = navbar.useSetting("scheme");
 
   const innerContent = (
-    <div className="max-w-page px-gutter mx-auto">
+    <Container>
       <div className="h-navbar flex items-center justify-between">
         <navbar.Link name="title">
           {(props) => <Link {...props} className="text-ink font-heading text-lg font-bold" />}
@@ -83,21 +92,30 @@ function NavbarComponent(): ReactElement {
           </navbar.Link>
         </div>
       </div>
-    </div>
+    </Container>
   );
 
   if (!sticky) {
-    return <nav className="dark bg-canvas border-b">{innerContent}</nav>;
+    return (
+      <Section as="nav" scheme={scheme} className="border-b py-0">
+        {innerContent}
+      </Section>
+    );
   }
 
   return (
     <>
-      <div aria-hidden className="dark bg-canvas h-navbar border-b border-transparent" />
+      <div aria-hidden className={cn(scheme, "bg-canvas h-navbar border-b border-transparent")} />
       <navbar.Detached>
         {(props) => (
-          <nav {...props} className="dark bg-canvas fixed top-0 right-0 left-0 z-50 border-b">
+          <Section
+            {...props}
+            as="nav"
+            scheme={scheme}
+            className="fixed top-0 right-0 left-0 z-50 border-b py-0"
+          >
             {innerContent}
-          </nav>
+          </Section>
         )}
       </navbar.Detached>
     </>

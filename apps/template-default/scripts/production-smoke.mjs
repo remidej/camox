@@ -34,6 +34,12 @@ try {
     join(root, "smoke-worker.ts"),
     `import { Dialog } from "@base-ui/react/dialog";
 import camox from "camox/worker";
+import { block as faq } from "@/blocks/faq";
+import { block as footer } from "@/blocks/footer";
+import { block as hero } from "@/blocks/hero";
+import { block as navbar } from "@/blocks/navbar";
+import { block as youtubeVideo } from "@/blocks/youtube-video";
+import { Section } from "@/components/ui/section";
 import { ImageResponse } from "camox/_internal/imageResponse";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -46,7 +52,19 @@ export default {
     const bytes = new Uint8Array(await image.arrayBuffer());
     const html = renderToStaticMarkup(createElement(Dialog.Root, null,
       createElement(Dialog.Trigger, null, "Production smoke")));
-    return Response.json({ html, png: Array.from(bytes.slice(0, 8)) });
+    const settings = Object.fromEntries(
+      [faq, footer, hero, navbar, youtubeVideo].map((block) => [
+        block._internal.id,
+        block._internal.settingsSchema?.properties ?? {},
+      ]),
+    );
+    const sections = Object.fromEntries(
+      ["light", "dark", "brand", "tint"].map((scheme) => [
+        scheme,
+        renderToStaticMarkup(createElement(Section, { scheme }, "Content")),
+      ]),
+    );
+    return Response.json({ html, png: Array.from(bytes.slice(0, 8)), settings, sections });
   },
 };
 `,
@@ -116,6 +134,27 @@ export default {
       const result = await response.json();
       assert.match(result.html, /Production smoke/);
       assert.deepEqual(result.png, [137, 80, 78, 71, 13, 10, 26, 10]);
+
+      // Editors pick the same color schemes on every Template block.
+      const defaultSchemes = { hero: "dark", navbar: "dark", footer: "dark", faq: "light", "youtube-video": "light" };
+      assert.deepEqual(Object.keys(result.settings).sort(), Object.keys(defaultSchemes).sort());
+      for (const [blockId, defaultScheme] of Object.entries(defaultSchemes)) {
+        const settings = result.settings[blockId];
+        assert.equal("theme" in settings, false, blockId + " still has a theme setting.");
+        assert.ok(settings.scheme, blockId + " has no scheme setting.");
+        assert.equal(settings.scheme.title, "Color scheme", blockId);
+        assert.deepEqual(
+          settings.scheme.enumLabels,
+          { light: "Light", dark: "Dark", brand: "Brand", tint: "Tint" },
+          blockId,
+        );
+        assert.equal(settings.scheme.default, defaultScheme, blockId);
+      }
+
+      // A block's Section puts everything inside it in the chosen color scheme.
+      for (const [scheme, html] of Object.entries(result.sections)) {
+        assert.match(html, new RegExp('^<section class="([^"]* )?' + scheme + '( [^"]*)?">Content</section>$'), scheme);
+      }
     } finally {
       await server.close();
     }
