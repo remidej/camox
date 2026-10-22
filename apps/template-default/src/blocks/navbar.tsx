@@ -81,14 +81,7 @@ function NavbarComponent(): ReactElement {
           </navbar.Repeater>
 
           <navbar.Link name="cta">
-            {(props) => (
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={<Link {...props} />}
-              />
-            )}
+            {(props) => <Button {...props} size="sm" variant="outline" />}
           </navbar.Link>
         </div>
       </div>

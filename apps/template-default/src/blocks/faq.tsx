@@ -52,8 +52,8 @@ function FaqComponent() {
       <Container className="max-w-text">
         <Accordion>
           <faq.Repeater name="items">
-            {(item, index) => (
-              <AccordionItem value={index}>
+            {(item) => (
+              <AccordionItem>
                 <AccordionTrigger className="text-title items-center">
                   <item.Field name="question">{(props) => <span {...props} />}</item.Field>
                 </AccordionTrigger>
