@@ -41,7 +41,11 @@ import {
   resolveAssetValue,
 } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
-import { useArtifactHost, useInitialArtifactData } from "../hooks/useArtifactHost";
+import {
+  ArtifactsRunContext,
+  useArtifactHost,
+  useInitialArtifactData,
+} from "../hooks/useArtifactHost";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
@@ -49,6 +53,7 @@ import { useOverlayState } from "../hooks/useOverlayState";
 import {
   artifactFrameProps,
   artifactPlaceholderProps,
+  artifactStandInProps,
   isArtifactSource,
   type ArtifactRenderProps,
 } from "../lib/artifact";
@@ -1249,10 +1254,14 @@ export function createEditableBlock<
     const initialData = useInitialArtifactData(value, data);
     const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
 
+    const runs = React.use(ArtifactsRunContext);
+
     const frame = children({
-      ...(isArtifactSource(value)
-        ? artifactFrameProps(value, { fontLinks, data: initialData })
-        : artifactPlaceholderProps()),
+      ...(!isArtifactSource(value)
+        ? artifactPlaceholderProps()
+        : runs
+          ? artifactFrameProps(value, { fontLinks, data: initialData })
+          : artifactStandInProps(value)),
       ...hostProps,
     });
     return (

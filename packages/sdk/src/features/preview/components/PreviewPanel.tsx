@@ -452,8 +452,10 @@ function PreviewPageClip({
       data-preview-page-clip
       className={cn(
         className,
+        // It covers the whole Canvas, but only its frame takes input: the Canvas's other
+        // items stay reachable around it.
         slot &&
-          "overflow-clip data-[canvas-pan]:pointer-events-none data-[canvas-pan]:**:pointer-events-none",
+          "pointer-events-none overflow-clip *:pointer-events-auto data-[canvas-pan]:**:pointer-events-none",
       )}
       style={slot && rect ? { ...rect, zIndex: PREVIEW_PAGE_Z_INDEX } : undefined}
     >

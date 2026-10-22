@@ -28,6 +28,7 @@ import {
 } from "../artifact.fixtures";
 import { createArtifactPage, type ArtifactWindow } from "../artifactProtocol.fixtures";
 import { createApp } from "../createApp";
+import { ArtifactsRunContext } from "../hooks/useArtifactHost";
 
 // Render real block definitions through the studio's editing runtime. The harness substitutes
 // only the network, auth, iframe and selection boundaries of the editable block. Showing the Canvas comes
@@ -111,8 +112,29 @@ void test("the studio preview shows a placeholder for empty artifacts", () => {
   for (const frame of frames) {
     assert.equal(frame.getAttribute("title"), "Empty artifact");
     assert.match(frame.getAttribute("srcdoc") ?? "", /Empty artifact/);
-    assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
+    // Nothing runs in a placeholder, so it renders in the website's process, not one of its own.
+    assert.doesNotMatch(frame.getAttribute("srcdoc") ?? "", /<script/);
+    assert.equal(frame.getAttribute("sandbox"), "allow-same-origin");
   }
+});
+
+void test("where artifacts don't run, the studio preview shows their title in a still frame", () => {
+  const frames = renderArtifactFrames(
+    { visual: source, slides: [{ scene: "" }] },
+    ({ children }) => (
+      <ArtifactsRunContext value={false}>
+        <CompleteBlockEditingRuntimeProvider>{children}</CompleteBlockEditingRuntimeProvider>
+      </ArtifactsRunContext>
+    ),
+  );
+  assert.equal(frames.length, 2);
+  const [standIn, placeholder] = frames;
+  const document = standIn.getAttribute("srcdoc") ?? "";
+  assert.equal(standIn.getAttribute("title"), "Orbiting moons");
+  assert.match(document, /<p>Orbiting moons<\/p>/);
+  assert.doesNotMatch(document, /<script|<svg/, "neither the runtime nor the source loads");
+  assert.equal(standIn.getAttribute("sandbox"), "allow-same-origin");
+  assert.equal(placeholder.getAttribute("title"), "Empty artifact");
 });
 
 /** Mounts the artifact block in the studio with the Canvas shown or hidden. */

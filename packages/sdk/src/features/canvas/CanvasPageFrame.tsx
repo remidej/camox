@@ -3,6 +3,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
 
+import { ArtifactsRunContext } from "../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../core/hooks/useIsEditable";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Overlays } from "../preview/components/Overlays";
@@ -22,18 +23,23 @@ import type { PageRenderInput } from "../runtime/runtime";
 import { canvasPageHref, measureCanvasDocument } from "./canvasFrameDocument";
 import type { CanvasFrameMode } from "./canvasFrameMode";
 import { CanvasOverlays } from "./CanvasOverlays";
+import { useFrameSettled } from "./canvasThumbnails";
 import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./useCanvasFrame";
 
 function PageContentCommitted({
   selected,
   frame,
   viewportHeight,
+  onCommitted,
 }: {
   selected: boolean;
   frame: React.RefObject<HTMLIFrameElement | null>;
   viewportHeight: number;
+  onCommitted: () => void;
 }) {
   const preparation = React.useContext(PreviewPreparationContext);
+  const committed = React.useEffectEvent(onCommitted);
+  React.useEffect(() => committed(), []);
   React.useEffect(() => {
     if (!selected) return;
     const iframe = frame.current;
@@ -71,6 +77,8 @@ export interface CanvasPageFrameProps {
    */
   mode?: CanvasFrameMode;
   onActivate: CanvasFrameActivate;
+  /** Called once the frame's content has settled, and each time it settles after changing. */
+  onSettled?: (frame: HTMLIFrameElement) => void;
 }
 
 /**
@@ -90,6 +98,7 @@ function PageFrame({
   hovered = false,
   mode = "live",
   onActivate,
+  onSettled,
 }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
   const href = canvasPageHref(input);
@@ -104,6 +113,9 @@ function PageFrame({
     mode,
   });
   const claim = useEditingFrameClaim(iframe, owner);
+  // Until the page's content commits, the frame shows its loading state.
+  const [committed, setCommitted] = React.useState(false);
+  useFrameSettled(committed ? iframe : null, mount, onSettled);
   const activateOwner = (source: CanvasFrameActivation) => {
     if (!owner) return;
     onActivate(owner, source, claim());
@@ -142,34 +154,38 @@ function PageFrame({
                     <React.Suspense fallback={<div role="status">Loading page…</div>}>
                       {/* Only the selected Page offers visual editing. The others render
                           as the site does, still live, and a click only selects the Page. */}
-                      <EditableSurfaceContext value={selected}>
-                        <div
-                          style={{ display: "contents" }}
-                          onPointerDownCapture={activate}
-                          onFocusCapture={activate}
-                          onClickCapture={activate}
-                          // Selecting/editing must not navigate the iframe away from its portal.
-                          onClick={preventLinkNavigation}
-                        >
-                          {input.derived ? (
-                            <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
-                          ) : (
-                            <EditablePageContent />
-                          )}
-                          <PreviewFrameEffects />
-                          <Overlays
-                            frame={iframe}
-                            owner={owner}
-                            canAddBlocks={owner?.kind === "page"}
-                          />
-                          {/* This commits only after onLoad and the portal's content resolves. */}
-                          <PageContentCommitted
-                            selected={selected}
-                            frame={iframeRef}
-                            viewportHeight={viewportHeight}
-                          />
-                        </div>
-                      </EditableSurfaceContext>
+                      {/* Only its artifacts run, too. */}
+                      <ArtifactsRunContext value={selected}>
+                        <EditableSurfaceContext value={selected}>
+                          <div
+                            style={{ display: "contents" }}
+                            onPointerDownCapture={activate}
+                            onFocusCapture={activate}
+                            onClickCapture={activate}
+                            // Selecting/editing must not navigate the iframe away from its portal.
+                            onClick={preventLinkNavigation}
+                          >
+                            {input.derived ? (
+                              <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
+                            ) : (
+                              <EditablePageContent />
+                            )}
+                            <PreviewFrameEffects />
+                            <Overlays
+                              frame={iframe}
+                              owner={owner}
+                              canAddBlocks={owner?.kind === "page"}
+                            />
+                            {/* This commits only after onLoad and the portal's content resolves. */}
+                            <PageContentCommitted
+                              selected={selected}
+                              frame={iframeRef}
+                              viewportHeight={viewportHeight}
+                              onCommitted={() => setCommitted(true)}
+                            />
+                          </div>
+                        </EditableSurfaceContext>
+                      </ArtifactsRunContext>
                     </React.Suspense>
                   </React.Activity>,
                   mount,

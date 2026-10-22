@@ -1,10 +1,11 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createStore } from "@xstate/store";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectUuid } from "../../lib/auth";
+import { useOptionalDraftScope } from "../../lib/draft-scope";
 import { parseLocalePath } from "../../lib/locale-path";
 import { pageMutations } from "../../lib/queries";
 import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
@@ -27,6 +28,7 @@ import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
+import { canvasBlockOverlap } from "./canvasFrameDocument";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
   CANVAS_ITEM_GAP,
@@ -63,6 +65,13 @@ import {
 import { selectedCanvasPage } from "./canvasSelection";
 import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
 import { canvasStore, setShelfCollapsed, useCollapsedShelves } from "./canvasStore";
+import {
+  CANVAS_THUMBNAIL_MAX_ZOOM,
+  canvasThumbnailsSupported,
+  CanvasThumbnailsContext,
+  createCanvasThumbnails,
+  useCanvasThumbnail,
+} from "./canvasThumbnails";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { CanvasSidebar } from "./sidebar/CanvasSidebar";
 import { useCanvasCamera } from "./useCanvasCamera";
@@ -128,30 +137,153 @@ type CanvasPagePreviewProps = {
   selected: boolean;
   hovered: boolean;
   onActivate: CanvasFrameActivate;
+  /** Selects the Page, from a click on its still image. */
+  onSelect: () => void;
 };
 
 /**
  * A Page loads its frame once it first comes near the Canvas viewport, and the
  * selected Page right away, wherever the camera is. The frame then stays
  * mounted, but only runs while selected and the camera is still.
+ *
+ * Zoomed out, or away from the camera, a Page shows a still image of its frame
+ * instead, once it has one: the frame unmounts. Its frame comes back near the
+ * camera when zoomed in, out of sight until it settles, so the swap doesn't show.
+ * Frames come and go only while the camera is still.
  */
 function CanvasPagePreview(props: CanvasPagePreviewProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const { near, reached } = useCanvasNearness(ref);
   const mode = useCanvasFrameMode({ near, selected: props.selected });
-  // Once loaded, even only for being selected, a frame stays.
+  const workspaceKey = React.use(CanvasWorkspaceContext)?.workspaceKey;
+  const draftId = useOptionalDraftScope().draftId;
+  const { locale } = useViewLocale();
+  const key = JSON.stringify([
+    draftId,
+    locale,
+    props.runtimeBasePath,
+    props.pathname,
+    props.derivedLayoutId ?? null,
+    props.viewport.width,
+  ]);
+  const { thumbnails, thumbnail, refreshing } = useCanvasThumbnail(key);
+  const zoomedOut = useSelector(canvasStore, (state) => {
+    if (!thumbnails || workspaceKey == null) return false;
+    return (state.context.views[workspaceKey]?.camera.scale ?? 0.4) < CANVAS_THUMBNAIL_MAX_ZOOM;
+  });
+  // Once loaded, even only for being selected, a frame stays, unless an image replaces it.
   const [loaded, setLoaded] = React.useState(false);
   if ((reached || props.selected) && !loaded) setLoaded(true);
+  const wantsLive = props.selected || (near && !zoomedOut);
+  const wantsFrame = loaded && (wantsLive || refreshing || !thumbnail);
+  const [frameShown, setFrameShown] = React.useState(false);
+  const [settledFrame, setSettledFrame] = React.useState<HTMLIFrameElement | null>(null);
+  // Each time the frame settles, it asks for a capture. Captures wait for the
+  // camera to stop, like frames coming and going.
+  const [settles, setSettles] = React.useState(0);
+  const [captured, setCaptured] = React.useState(0);
+  const captureRequested = settles > captured;
+  const waiting = frameShown !== wantsFrame || captureRequested;
+  const moving = useSelector(
+    canvasStore,
+    (state) =>
+      !!thumbnails && waiting && workspaceKey != null && !!state.context.moving[workspaceKey],
+  );
+  // Without an image, there is nothing to show but the frame.
+  if (frameShown !== wantsFrame && (!moving || !thumbnail)) {
+    setFrameShown(wantsFrame);
+    if (!wantsFrame) {
+      setSettledFrame(null);
+      setCaptured(settles);
+    }
+  }
+  const imageShown = !!thumbnail && !(frameShown && settledFrame && wantsLive);
+
+  // A stale image refreshes once near the camera, if no frame does it already.
+  const stale = !!thumbnail?.stale && near && !wantsLive;
+  React.useEffect(() => {
+    if (!stale || !thumbnails) return;
+    return thumbnails.requestRefresh(key);
+  }, [stale, thumbnails, key]);
+
+  const onSettled = (frame: HTMLIFrameElement) => {
+    setSettledFrame(frame);
+    setSettles((count) => count + 1);
+  };
+  const resting = mode === "resting";
+  const started = React.useRef(0);
+  React.useEffect(() => {
+    if (!captureRequested || moving || resting || !settledFrame || !thumbnails) return;
+    if (started.current >= settles) return;
+    const request = settles;
+    started.current = request;
+    // Sharp up to the zoom the live frame takes over at, with the blocks overlapping as they
+    // will in the frame then.
+    const pixelRatio = window.devicePixelRatio;
+    const options = {
+      scale: Math.min(1, CANVAS_THUMBNAIL_MAX_ZOOM * pixelRatio),
+      blockOverlap: canvasBlockOverlap(CANVAS_THUMBNAIL_MAX_ZOOM, pixelRatio),
+    };
+    const tokens = [props.pathname, props.pageId, props.derivedLayoutId].filter(
+      (token): token is string => !!token,
+    );
+    thumbnails
+      .capture(key, settledFrame, tokens, options)
+      .catch((error: unknown) => {
+        thumbnails.abandon(key);
+        console.warn(`[camox] Could not capture ${props.pathname} for the Canvas.`, error);
+      })
+      .finally(() => setCaptured((count) => Math.max(count, request)));
+  }, [
+    captureRequested,
+    settles,
+    moving,
+    resting,
+    settledFrame,
+    thumbnails,
+    key,
+    props.pathname,
+    props.pageId,
+    props.derivedLayoutId,
+  ]);
+
   return (
     <div
       ref={ref}
       style={{
+        position: "relative",
         minHeight: props.viewport.height,
         // Away from the camera, a frame that doesn't rest yet still isn't drawn.
         visibility: near || props.selected ? undefined : "hidden",
       }}
     >
-      {loaded && <CanvasPageFrameLoader {...props} mode={mode} />}
+      {frameShown && (
+        // Behind its image, a frame isn't drawn either.
+        <div style={{ visibility: imageShown ? "hidden" : undefined }}>
+          <CanvasPageFrameLoader
+            {...props}
+            mode={mode}
+            onSettled={thumbnails ? onSettled : undefined}
+          />
+        </div>
+      )}
+      {imageShown && thumbnail && (
+        <img
+          src={thumbnail.url}
+          alt=""
+          draggable={false}
+          data-canvas-thumbnail=""
+          onClick={(event) => {
+            if (!event.currentTarget.closest("[data-canvas-pan]")) props.onSelect();
+          }}
+          style={{
+            display: "block",
+            width: thumbnail.width,
+            height: thumbnail.height,
+            ...(frameShown ? { position: "absolute", top: 0, left: 0 } : {}),
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -166,7 +298,11 @@ function CanvasPageFrameLoader({
   hovered,
   mode,
   onActivate,
-}: CanvasPagePreviewProps & { mode: CanvasFrameMode }) {
+  onSettled,
+}: CanvasPagePreviewProps & {
+  mode: CanvasFrameMode;
+  onSettled?: (frame: HTMLIFrameElement) => void;
+}) {
   const projectUuid = useProjectUuid();
   const { data, error, isPending, isFetching, refetch } = useReadQuery(
     reads.canvasFrame({ projectUuid, runtimeBasePath, pathname, derivedLayoutId }),
@@ -200,6 +336,7 @@ function CanvasPageFrameLoader({
       hovered={hovered}
       mode={mode}
       onActivate={onActivate}
+      onSettled={onSettled}
     />
   );
 }
@@ -394,6 +531,7 @@ function CanvasPageItem({
               viewport={viewport}
               selected={selected}
               onActivate={onPageActivate}
+              onSelect={() => selectPage(pathname)}
             />
           ) : (
             <CanvasMessage>Choose a page path above to preview this layout.</CanvasMessage>
@@ -443,6 +581,34 @@ function useRenamePage() {
       parentPageId: page.parentPageId,
     });
   };
+}
+
+/**
+ * The still images of a workspace's Pages, where the browser draws them faithfully. They refresh
+ * while the camera is still, and all go stale when the website's code changes.
+ */
+function useWorkspaceThumbnails(workspaceKey: string) {
+  const queryClient = useQueryClient();
+  const app = useCamoxApp();
+  const [thumbnails] = React.useState(() =>
+    canvasThumbnailsSupported() ? createCanvasThumbnails(queryClient) : null,
+  );
+  React.useEffect(() => thumbnails?.connect(), [thumbnails]);
+  React.useEffect(() => {
+    if (!thumbnails) return;
+    const update = () =>
+      thumbnails.setMoving(!!canvasStore.getSnapshot().context.moving[workspaceKey]);
+    update();
+    const subscription = canvasStore.subscribe(update);
+    return () => subscription.unsubscribe();
+  }, [thumbnails, workspaceKey]);
+  const previousApp = React.useRef(app);
+  React.useEffect(() => {
+    if (previousApp.current === app) return;
+    previousApp.current = app;
+    thumbnails?.markAllStale();
+  }, [app, thumbnails]);
+  return thumbnails;
 }
 
 function CanvasWorkspace({
@@ -588,6 +754,7 @@ function CanvasWorkspace({
     () => ({ workspaceKey, mirrorCamera, reveal }),
     [workspaceKey, mirrorCamera, reveal],
   );
+  const thumbnails = useWorkspaceThumbnails(workspaceKey);
   // A collapsing marker's area may start off-screen. Its vertical bar should take
   // the place of the marker's visible part, so pan before the collapse paints.
   const collapsingShelf = React.useRef<string | null>(null);
@@ -670,81 +837,83 @@ function CanvasWorkspace({
       }}
     >
       <CanvasWorkspaceContext value={workspace}>
-        {/* Overlays follow the selection being made, so they hide as soon as zooming out deselects. */}
-        <CanvasOverlaysShownContext value={!!intendedItemKey}>
-          <div
-            ref={contentRef}
-            data-canvas-items
-            // The camera decides when the row is promoted; see PROMOTED_ZOOM_RANGE.
-            className="absolute top-0 left-0 flex w-max items-start in-data-[canvas-promoted]:will-change-transform"
-            style={{
-              gap: CANVAS_SHELF_GAP,
-              transform: CANVAS_WORLD_TRANSFORM,
-              transformOrigin: "0 0",
-            }}
-          >
-            {shelves.map((shelf) => {
-              // An empty shelf that isn't shown has no marker and no place in the row.
-              if (!isCanvasShelfShown(shelf)) return null;
-              const collapsed = collapsedShelves.has(shelf.key) || shelf.items.length === 0;
-              return (
-                // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
-                // Its items stay mounted in place, so expanding never reloads them, and
-                // keep their height, unless the shelf unmounts them while collapsed.
-                <div
-                  key={shelf.key}
-                  data-canvas-shelf={shelf.key}
-                  inert={collapsed}
-                  className={`flex shrink-0 items-start ${collapsed ? "invisible w-0" : ""}`}
-                  style={{ gap: CANVAS_ITEM_GAP }}
-                >
-                  {(collapsed && shelf.unmountedWhenCollapsed ? [] : shelf.items).map((item) => {
-                    if (item.kind === "block") {
+        <CanvasThumbnailsContext value={thumbnails}>
+          {/* Overlays follow the selection being made, so they hide as soon as zooming out deselects. */}
+          <CanvasOverlaysShownContext value={!!intendedItemKey}>
+            <div
+              ref={contentRef}
+              data-canvas-items
+              // The camera decides when the row is promoted; see PROMOTED_ZOOM_RANGE.
+              className="absolute top-0 left-0 flex w-max items-start in-data-[canvas-promoted]:will-change-transform"
+              style={{
+                gap: CANVAS_SHELF_GAP,
+                transform: CANVAS_WORLD_TRANSFORM,
+                transformOrigin: "0 0",
+              }}
+            >
+              {shelves.map((shelf) => {
+                // An empty shelf that isn't shown has no marker and no place in the row.
+                if (!isCanvasShelfShown(shelf)) return null;
+                const collapsed = collapsedShelves.has(shelf.key) || shelf.items.length === 0;
+                return (
+                  // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
+                  // Its items stay mounted in place, so expanding never reloads them, and
+                  // keep their height, unless the shelf unmounts them while collapsed.
+                  <div
+                    key={shelf.key}
+                    data-canvas-shelf={shelf.key}
+                    inert={collapsed}
+                    className={`flex shrink-0 items-start ${collapsed ? "invisible w-0" : ""}`}
+                    style={{ gap: CANVAS_ITEM_GAP }}
+                  >
+                    {(collapsed && shelf.unmountedWhenCollapsed ? [] : shelf.items).map((item) => {
+                      if (item.kind === "block") {
+                        return (
+                          <CanvasBlockItem
+                            key={item.key}
+                            itemKey={item.key}
+                            block={item.block}
+                            projectId={projectId}
+                            runtimeBasePath={runtimeBasePath}
+                            viewport={viewport}
+                            framed={framed}
+                            selected={item.block._internal.id === selectedBlock?._internal.id}
+                            selectBlock={selectFrameBlock}
+                          />
+                        );
+                      }
+                      const slot = pageSlots.get(item.key);
+                      if (!slot) return null;
+                      const { page, pathname } = slot;
                       return (
-                        <CanvasBlockItem
-                          key={item.key}
-                          itemKey={item.key}
-                          block={item.block}
-                          projectId={projectId}
-                          runtimeBasePath={runtimeBasePath}
-                          viewport={viewport}
+                        <CanvasPageItem
+                          key={page.key}
+                          page={page}
+                          pathname={pathname}
+                          selected={page.key === selectedPage?.key}
+                          hover={hover}
+                          // The Preview's page shows the Preview's own frame, so toggling the Canvas keeps its
+                          // state. Deselecting it keeps it there too, rather than remount it.
+                          previewed={
+                            !!previewPageFrame &&
+                            page.key === previewedPage?.key &&
+                            pathname === previewedPath
+                          }
+                          collapsed={collapsed}
                           framed={framed}
-                          selected={item.block._internal.id === selectedBlock?._internal.id}
-                          selectBlock={selectFrameBlock}
+                          viewport={viewport}
+                          runtimeBasePath={runtimeBasePath}
+                          onActivate={onActivate}
+                          selectPage={selectFramePage}
                         />
                       );
-                    }
-                    const slot = pageSlots.get(item.key);
-                    if (!slot) return null;
-                    const { page, pathname } = slot;
-                    return (
-                      <CanvasPageItem
-                        key={page.key}
-                        page={page}
-                        pathname={pathname}
-                        selected={page.key === selectedPage?.key}
-                        hover={hover}
-                        // The Preview's page shows the Preview's own frame, so toggling the Canvas keeps its
-                        // state. Deselecting it keeps it there too, rather than remount it.
-                        previewed={
-                          !!previewPageFrame &&
-                          page.key === previewedPage?.key &&
-                          pathname === previewedPath
-                        }
-                        collapsed={collapsed}
-                        framed={framed}
-                        viewport={viewport}
-                        runtimeBasePath={runtimeBasePath}
-                        onActivate={onActivate}
-                        selectPage={selectFramePage}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        </CanvasOverlaysShownContext>
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </CanvasOverlaysShownContext>
+        </CanvasThumbnailsContext>
       </CanvasWorkspaceContext>
       <CanvasShelfMarkers
         markers={markers}

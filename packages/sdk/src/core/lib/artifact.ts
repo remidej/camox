@@ -153,9 +153,44 @@ const PLACEHOLDER_SOURCE = `<!doctype html>
   <body><p>Empty artifact<br />Ask an agent to create it</p></body>
 </html>`;
 
+/**
+ * The frame props of a still page: no script runs in it, so it can keep the website's origin,
+ * and render in the website's own browser process rather than one of its own.
+ */
+function stillFrameProps(srcDoc: string, title: string): ArtifactFrameProps {
+  return { srcDoc, sandbox: "allow-same-origin", allow: "", title, loading: "lazy" };
+}
+
 /** The frame props of an empty artifact in the studio preview, so it takes the block's frame. */
 export function artifactPlaceholderProps(): ArtifactFrameProps {
-  return artifactFrameProps(PLACEHOLDER_SOURCE);
+  return stillFrameProps(PLACEHOLDER_SOURCE, "Empty artifact");
+}
+
+/**
+ * The frame props of an artifact that doesn't run, such as one on a Canvas Page that isn't
+ * selected: a still page with only the artifact's title, over whatever is behind the frame.
+ */
+export function artifactStandInProps(source: string): ArtifactFrameProps {
+  const title = artifactTitle(source);
+  const text = escapeAttribute(title);
+  const document = `<!doctype html>
+<html>
+  <head>
+    <title>${text}</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        place-items: center;
+        color: #a1a1aa;
+        font: 14px/1.4 system-ui, sans-serif;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body><p>${text}</p></body>
+</html>`;
+  return stillFrameProps(document, title);
 }
 
 /** Whether a stored artifact value holds a source to render. */

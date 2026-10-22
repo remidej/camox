@@ -14,6 +14,13 @@ import {
  */
 export const ArtifactStudioContext = React.createContext<ArtifactStudio | null>(null);
 
+/**
+ * Whether artifacts run their source here, or show a still stand-in. On the Canvas, only the
+ * selected item's artifacts run: each running artifact gets a browser process of its own, which
+ * the Canvas waits on for every frame while the camera moves.
+ */
+export const ArtifactsRunContext = React.createContext(true);
+
 /** What a block shares with the host of its artifact's frame. */
 export type ArtifactHostInput = {
   studio: ArtifactStudio | null;

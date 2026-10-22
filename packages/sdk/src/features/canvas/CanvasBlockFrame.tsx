@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import type { Block } from "../../core/createBlock";
 import { BlockEditingRuntimeProvider } from "../../core/editing/BlockEditingRuntime";
-import { ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
+import { ArtifactStudioContext, ArtifactsRunContext } from "../../core/hooks/useArtifactHost";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import { reads, useRead } from "../../lib/studio-reads";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
@@ -68,6 +68,7 @@ function BlockFrame({
   runtimeBasePath,
   width,
   viewportHeight,
+  selected,
   onSelect,
   previewDocument,
   mode,
@@ -103,24 +104,27 @@ function BlockFrame({
           // as on the live website instead, with no editing affordances.
           <BlockEditingRuntimeProvider runtime={null}>
             <ArtifactStudioContext value={CATALOG_ARTIFACT_STUDIO}>
-              <CanvasFrameProviders pathname="/" href={href} mount={mount} iframe={iframe}>
-                <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
-                  <div
-                    style={{ display: "flow-root" }}
-                    onPointerDownCapture={onSelect}
-                    onFocusCapture={onSelect}
-                    onClick={preventLinkNavigation}
-                  >
-                    <React.Suspense fallback={<div role="status">Loading block…</div>}>
-                      {synced ? (
-                        <SyncedBlockContent block={block} projectId={projectId} />
-                      ) : (
-                        <DefaultBlockContent block={block} />
-                      )}
-                    </React.Suspense>
-                  </div>
-                </React.Activity>
-              </CanvasFrameProviders>
+              {/* Like Pages, only the selected block runs its artifacts. */}
+              <ArtifactsRunContext value={selected}>
+                <CanvasFrameProviders pathname="/" href={href} mount={mount} iframe={iframe}>
+                  <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
+                    <div
+                      style={{ display: "flow-root" }}
+                      onPointerDownCapture={onSelect}
+                      onFocusCapture={onSelect}
+                      onClick={preventLinkNavigation}
+                    >
+                      <React.Suspense fallback={<div role="status">Loading block…</div>}>
+                        {synced ? (
+                          <SyncedBlockContent block={block} projectId={projectId} />
+                        ) : (
+                          <DefaultBlockContent block={block} />
+                        )}
+                      </React.Suspense>
+                    </div>
+                  </React.Activity>
+                </CanvasFrameProviders>
+              </ArtifactsRunContext>
             </ArtifactStudioContext>
           </BlockEditingRuntimeProvider>,
           mount,
