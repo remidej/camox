@@ -30,7 +30,8 @@ const AUTHOR_ID = "00000000-0000-4000-8000-000000000002";
 const AUTHOR: ReferenceRecord = {
   id: AUTHOR_ID,
   collectionId: "authors",
-  label: "Ada",
+  title: "Ada",
+  description: null,
   content: { name: "Ada" },
 };
 /** The article as the API stores it. */
@@ -103,7 +104,8 @@ const authors = createCollection({
   title: "Authors",
   description: "",
   content: (field) => ({ name: field.string({ default: "" }) }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 
 const articles = createCollection({
@@ -115,7 +117,8 @@ const articles = createCollection({
     slug: field.string({ default: "" }),
     author: field.reference(authors),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 const ArticlePage = createLayout("articles.$slug")({
@@ -175,7 +178,8 @@ function setup() {
   article = {
     id: ARTICLE_ID,
     collectionId: "articles",
-    label: "Hello",
+    title: "Hello",
+    description: null,
     content: { title: "Hello", slug: "hello", author: AUTHOR_ID },
     references: { author: AUTHOR },
     updatedAt: 3,

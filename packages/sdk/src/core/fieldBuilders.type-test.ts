@@ -61,5 +61,6 @@ createCollection({
     // @ts-expect-error Collections cannot store repeaters yet.
     items: field.repeater,
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });

@@ -5,7 +5,8 @@ import type { LayoutCollectionItemResult, LayoutRoutesResult, RecordPages } from
 import {
   collectionFieldBuilder,
   type CollectionFieldBuilder,
-  type StringField,
+  type RecordTemplateContext,
+  resolveRecordTemplate,
 } from "./lib/contentType";
 import { notFound } from "./notFound";
 import { getRecordLookup, type LayoutRequestContext } from "./requestContext";
@@ -21,18 +22,21 @@ type TextKey<T extends Record<string, TSchema>> = {
 
 /**
  * A definition only: record authoring and querying are not public SDK APIs.
- * `label` is checked against `content`'s return type: typing it against `T` directly would fix
- * `T` before the `content` callback is inferred.
+ *
+ * `toTitle` and `toDescription` are templates of the record's String fields, such as
+ * `` ({ content }) => `${content.firstName} ${content.lastName}` ``. The API fills them with each
+ * record's plain text wherever records are named: studio lists and pickers, record pages,
+ * `llms.txt` and agents. `toDescription` may return nothing, and records then have no description.
  */
 export function createCollection<
   const T extends Record<string, TSchema> & ReservedFieldNames,
-  const L extends string,
 >(options: {
   id: string;
   title: string;
   description: string;
-  content: (field: CollectionFieldBuilder) => T & Record<NoInfer<L>, StringField>;
-  label: L;
+  content: (field: CollectionFieldBuilder) => T;
+  toTitle: (context: RecordTemplateContext<NoInfer<T>>) => string;
+  toDescription: (context: RecordTemplateContext<NoInfer<T>>) => string | undefined;
 }): Collection<T> {
   if (!options.id.trim()) throw new Error("Collection id is required");
   const content: T = options.content(collectionFieldBuilder);
@@ -60,8 +64,15 @@ export function createCollection<
       );
     }
   }
-  if (content[options.label]?.fieldType !== "String") {
-    throw new Error("Collection label must name a String field");
+  const toTitle = resolveRecordTemplate(options.toTitle, content);
+  if (toTitle === null) throw new Error(`Collection "${options.id}": toTitle returned nothing`);
+  const toDescription = resolveRecordTemplate(options.toDescription, content);
+  for (const template of [toTitle, toDescription]) {
+    for (const [, name] of (template ?? "").matchAll(/\{\{([^}]*)\}\}/g)) {
+      // Templates read fields as plain text: a token of a reference's field names no field here.
+      if (content[name!]?.fieldType !== "String")
+        throw new Error(`Collection "${options.id}": "${name}" names no String field`);
+    }
   }
   const id = options.id;
   return {
@@ -91,6 +102,8 @@ export function createCollection<
             collectionId: id,
             data: {
               id: record.id,
+              ...(record.title !== undefined && { title: record.title }),
+              ...(record.description !== undefined && { description: record.description }),
               content: record.content as Static<TObject<T>>,
               ...(record.references && { references: record.references }),
               ...(record.updatedAt != null && { updatedAt: record.updatedAt }),
@@ -114,7 +127,7 @@ export function createCollection<
                 kind: "collection-item",
                 collectionId: id,
                 id: record.id,
-                label: record.label,
+                title: record.title,
               },
             })),
           };
@@ -126,7 +139,8 @@ export function createCollection<
       id,
       title: options.title,
       description: options.description,
-      label: options.label as string as TextKey<T>,
+      toTitle,
+      toDescription,
       contentSchema: TypeBox.Object(content, { additionalProperties: false }),
     },
   };
@@ -159,7 +173,10 @@ export type Collection<T extends Record<string, TSchema> = any> = {
     id: string;
     title: string;
     description: string;
-    label: TextKey<T>;
+    /** The token template titling each record, such as `{{firstName}} {{lastName}}`. */
+    toTitle: string;
+    /** The token template describing each record, or null when records have no description. */
+    toDescription: string | null;
     contentSchema: TObject<T>;
   };
 };

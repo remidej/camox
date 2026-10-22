@@ -452,7 +452,8 @@ function createViewBlock(options: EditableOptions) {
         >
           {children({
             id: record.id,
-            label: record.label,
+            title: record.title,
+            description: record.description,
             Field,
             Image: ReferenceImage,
             File: ReferenceFile,

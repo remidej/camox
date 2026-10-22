@@ -17,7 +17,8 @@ const authors = createCollection({
   title: "Authors",
   description: "",
   content: (field) => ({ name: field.string() }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 
 const articles = createCollection({
@@ -29,7 +30,8 @@ const articles = createCollection({
     slug: field.string(),
     author: field.reference(authors),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 const layoutOptions = {
@@ -48,7 +50,8 @@ const UNKNOWN_ID = "00000000-0000-4000-8000-000000000008";
 const AUTHOR = {
   id: "00000000-0000-4000-8000-000000000007",
   collectionId: "authors",
-  label: "Ada",
+  title: "Ada",
+  description: null,
   content: { name: "Ada" },
 };
 const TWIN_IDS = ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"];
@@ -148,7 +151,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
         json: apiRecords.map((record) => ({
           id: record.id,
           value: record.content[input.field],
-          label: record.content.title,
+          title: record.content.title,
         })),
       });
     }
@@ -375,7 +378,7 @@ void test("every discovered page loads its record", async (t) => {
   assert.deepEqual(loadedIds, [FIRST_ID, SECOND_ID]);
 });
 
-void test("discovered entries name their record and its Label", async (t) => {
+void test("discovered entries name their record and its title", async (t) => {
   mockApi(t, discoverable);
   const pages = articles.pages({ by: "slug", param: "slug" });
   let discovered: unknown;
@@ -397,7 +400,7 @@ void test("discovered entries name their record and its Label", async (t) => {
           kind: "collection-item",
           collectionId: "articles",
           id: FIRST_ID,
-          label: "First title",
+          title: "First title",
         },
       },
       {
@@ -406,7 +409,7 @@ void test("discovered entries name their record and its Label", async (t) => {
           kind: "collection-item",
           collectionId: "articles",
           id: SECOND_ID,
-          label: "Second title",
+          title: "Second title",
         },
       },
     ],
@@ -440,7 +443,7 @@ void test("route discovery finds a record's page by its value in the locale the 
     if (url.pathname.endsWith("/locales/list")) return localesResponse(["en", "de"]);
     if (!url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) return api(request);
     const slug = slugs[request.headers.get(LOCALE_HEADER) ?? "en"];
-    return Response.json({ json: [{ id: FIRST_ID, value: slug, label: "First title" }] });
+    return Response.json({ json: [{ id: FIRST_ID, value: slug, title: "First title" }] });
   });
   const pathIn = async (locale?: string) => {
     const response = await request(

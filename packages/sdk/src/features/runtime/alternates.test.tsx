@@ -114,7 +114,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         json: (ARTICLES[locale] ?? []).map(({ id, content }) => ({
           id,
           value: content.slug,
-          label: content.title,
+          title: content.title,
         })),
       });
     throw new Error(`Unexpected API request ${procedure}`);
@@ -126,7 +126,8 @@ const articles = createCollection({
   title: "Articles",
   description: "",
   content: (field) => ({ title: field.string(), slug: field.string() }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 /** A layout's locale switcher, and a link that stays in the locale. */

@@ -19,6 +19,10 @@ export interface CollectionRecordId {
 /** A collection record as a record page loads it. */
 export interface LoadedRecord<Content = Record<string, unknown>> {
   id: string;
+  /** Its title, as the API evaluates its collection's `toTitle`. */
+  title?: string;
+  /** Its description, as the API evaluates its collection's `toDescription`: null for none. */
+  description?: string | null;
   content: Content;
   /** The records it links, resolved by Camox with the record as the first hop. */
   references?: ReferenceRecord["references"];
@@ -36,12 +40,12 @@ export interface RecordLookup {
   }): Promise<LoadedRecord[]>;
   /**
    * Every record whose String field's plain text can be a path segment, with that text and the
-   * record's Label. Records sharing a value are all listed.
+   * record's title. Records sharing a value are all listed.
    */
   listPageValues(input: {
     collectionId: string;
     field: string;
-  }): Promise<Array<{ id: string; value: string; label: string }>>;
+  }): Promise<Array<{ id: string; value: string; title: string }>>;
 }
 
 interface RequestContextState {

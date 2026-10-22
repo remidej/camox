@@ -9,7 +9,7 @@ import type { AnyLayoutContext, CuratedLayoutContext, LoadedLayoutContext } from
 import type { ContentProxy } from "./lib/contentType";
 import { RecordScope } from "./lib/recordScope";
 import type { ReferenceScope } from "./lib/reference";
-import { asCollectionItem, fieldPlainText } from "./recordItem";
+import { asCollectionItem } from "./recordItem";
 import type { CollectionRecordId, LayoutRequestContext, LoadedRecord } from "./requestContext";
 
 export type { LayoutRequestContext } from "./requestContext";
@@ -147,8 +147,8 @@ type LoaderReturn = AnyLayoutLoaderResult | PromiseLike<AnyLayoutLoaderResult>;
 /** The record a discovered page renders, independent of its current params. */
 export interface LayoutRouteTarget extends CollectionRecordId {
   kind: "collection-item";
-  /** The record's Label, which names its page where pages are listed (llms.txt). */
-  label?: string;
+  /** The record's title, which names its page where pages are listed (llms.txt). */
+  title?: string;
 }
 
 /** Route discovery result: the params of each page a derived layout can render. */
@@ -481,11 +481,17 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
     if (!result) return null;
     const collection = app?.getCollectionById(result.collectionId);
     if (!collection) return null;
-    const { contentSchema, label } = collection._internal;
+    const { contentSchema } = collection._internal;
     const { id, content, references } = result.data;
     const readOnly = (
       <RecordScope
-        record={{ id, label: fieldPlainText(content[label]), content, references }}
+        record={{
+          id,
+          title: result.data.title ?? "",
+          description: result.data.description ?? null,
+          content,
+          references,
+        }}
         properties={contentSchema.properties}
         hop={1}
       >
@@ -495,7 +501,7 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
     if (!editingRuntime?.renderLayoutItem) return readOnly;
     return editingRuntime.renderLayoutItem({
       collectionId: result.collectionId,
-      labelField: label,
+      collection,
       properties: contentSchema.properties,
       record: result.data,
       children,

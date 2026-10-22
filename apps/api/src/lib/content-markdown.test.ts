@@ -5,13 +5,14 @@ import { contentToMarkdown } from "./content-markdown";
 const record = (id: string, name: string) => ({
   id,
   collectionId: "customers",
-  label: name,
+  title: name,
+  description: null,
   content: { name },
   contentSchema: { properties: { name: { type: "string", fieldType: "String" } } },
 });
 
 describe("reference list Markdown", () => {
-  it("falls back to each record's label without a per-use toMarkdown", () => {
+  it("falls back to each record's title without a per-use toMarkdown", () => {
     const markdown = contentToMarkdown(
       ["{{customers}}"],
       { customers: { fieldType: "ReferenceList" } },

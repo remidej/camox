@@ -91,7 +91,8 @@ const ADA = "ada";
 const ada = {
   id: ADA,
   collectionId: "people",
-  label: "Ada Lovelace",
+  title: "Ada Lovelace",
+  description: null,
   content: { name: "Ada Lovelace", role: "CTO" },
 };
 const acmeContent = {
@@ -121,7 +122,8 @@ const acmeContent = {
 const acme = {
   id: ACME,
   collectionId: "customers",
-  label: "Acme",
+  title: "Acme",
+  description: null,
   content: acmeContent,
   // Records placed by the block resolve the records they link (the second hop).
   references: { contact: ada },
@@ -132,11 +134,12 @@ const CREATED = "created";
 const INITECH = "initech";
 const listedRecords = [
   acme,
-  { ...acme, id: GLOBEX, label: "Globex", content: { ...acmeContent, name: "Globex" } },
+  { ...acme, id: GLOBEX, title: "Globex", content: { ...acmeContent, name: "Globex" } },
   {
     ...acme,
     id: INITECH,
-    label: "Initech",
+    title: "Initech",
+    description: null,
     content: { ...acmeContent, name: "Initech" },
   },
 ];
@@ -202,7 +205,8 @@ async function renderSidebar(
       name: field.string({ title: "Name" }),
       role: field.string({ title: "Role" }),
     }),
-    label: "name",
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const customers = createCollection({
     id: "customers",
@@ -216,7 +220,8 @@ async function renderSidebar(
       logo: field.image({ title: "Logo" }),
       gallery: field.imageList({ title: "Gallery" }),
     }),
-    label: "name",
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
 
   const definition = createBlock({
@@ -310,16 +315,16 @@ async function renderSidebar(
     testStudioCache(client).set(reads.fileUsageCount(id), options.fileUsage ?? 3);
   }
   let records = [
-    { id: ACME, label: "Acme" },
-    { id: GLOBEX, label: "Globex" },
-    { id: INITECH, label: "Initech" },
+    { id: ACME, title: "Acme", description: null },
+    { id: GLOBEX, title: "Globex", description: null },
+    { id: INITECH, title: "Initech", description: null },
   ];
   testStudioCache(client).set(
     reads.records({ projectUuid: "site", collectionId: "customers" }),
     records as never,
   );
   testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "people" }), [
-    { id: ADA, label: "Ada Lovelace" },
+    { id: ADA, title: "Ada Lovelace", description: null },
   ] as never);
   testStudioCache(client).set(
     reads.collection({ projectUuid: "site", collectionId: "customers" }),
@@ -327,7 +332,8 @@ async function renderSidebar(
       collectionId: "customers",
       title: "Customers",
       description: "",
-      label: "name",
+      toTitle: "{{name}}",
+      toDescription: null,
       contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
     } as never,
   );
@@ -352,7 +358,7 @@ async function renderSidebar(
     writes.push({ procedure, input: json });
     if (procedure === "collectionDefinitions/createRecord") {
       const content = (json as { content: Record<string, unknown> }).content;
-      records = [...records, { id: CREATED, label: String(content.name) }];
+      records = [...records, { id: CREATED, title: String(content.name), description: null }];
       return Response.json({ json: { id: CREATED, content, createdAt: 1, updatedAt: 1 } });
     }
     if (procedure === "collectionDefinitions/editRecord") {
@@ -435,15 +441,15 @@ async function renderSidebar(
     previewPartners: () =>
       (
         testStudioCache(client).get(reads.blockBundle(BLOCK_ID)) as unknown as {
-          repeatableItems: { references: { partners: { label: string }[] } }[];
+          repeatableItems: { references: { partners: { title: string }[] } }[];
         }
-      ).repeatableItems[0]!.references.partners.map((record) => record.label),
+      ).repeatableItems[0]!.references.partners.map((record) => record.title),
     previewLogos: () =>
       (
         testStudioCache(client).get(reads.blockBundle(BLOCK_ID)) as unknown as {
-          block: { references: { logos: { label: string; content: { name: string } }[] } };
+          block: { references: { logos: { title: string; content: { name: string } }[] } };
         }
-      ).block.references.logos.map((record) => `${record.label}: ${record.content.name}`),
+      ).block.references.logos.map((record) => `${record.title}: ${record.content.name}`),
     /** Whether a button with this accessible name is on screen (dialogs included). */
     hasButton: (name: string) => button(name) != null,
     text: () => host.textContent ?? "",

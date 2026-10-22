@@ -76,7 +76,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       // Reports the source each lookup named, so layouts can show it.
       const { json: input } = (await request.json()) as { json: { source?: string } };
       const source = input.source ?? "none";
-      return Response.json({ json: [{ id: source, value: source, label: source }] });
+      return Response.json({ json: [{ id: source, value: source, title: source }] });
     }
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });

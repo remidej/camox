@@ -1072,7 +1072,7 @@ async function createLayoutMarkdownResponse(
       id: data.id,
       toMarkdown: template,
     });
-    return { body: [body], data, record: recordPageValues(collection, data.content) };
+    return { body: [body], data, record: recordPageValues(collection, data) };
   };
   let rendered: Awaited<ReturnType<typeof layoutMarkdown>>;
   try {
@@ -1197,7 +1197,7 @@ async function createDerivedResponse(
           params: match.params,
           record:
             record && recordCollection
-              ? recordPageValues(recordCollection, record.data.content)
+              ? recordPageValues(recordCollection, record.data)
               : undefined,
         }),
         origin: new URL(request.url).origin,

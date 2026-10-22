@@ -14,5 +14,6 @@ export const collection = createCollection({
     body: field.string(),
     author: field.reference(authors, { title: "Author" }),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: ({ content }) => content.excerpt,
 });

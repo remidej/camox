@@ -192,7 +192,7 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
     if (!definition) continue;
     owners.set(collectionId, { kind: "collection", name: collectionId, title: definition.title });
     for (const record of yield* reader.shown.records(collectionId, group)) {
-      labels.set(record.id, record.label);
+      labels.set(record.id, record.title);
     }
   }
 

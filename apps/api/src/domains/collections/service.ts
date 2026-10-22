@@ -256,7 +256,8 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
           collectionId: collectionDefinitions.collectionId,
           title: collectionDefinitions.title,
           description: collectionDefinitions.description,
-          label: collectionDefinitions.label,
+          toTitle: collectionDefinitions.toTitle,
+          toDescription: collectionDefinitions.toDescription,
         })
         .from(collectionDefinitions)
         .where(
@@ -281,12 +282,12 @@ export const getCollectionDefinition = Effect.fn("collections.getCollectionDefin
   const reader = contentReader(ctx, { projectId: project.id, draft: scope });
   const definition = yield* reader.collection(input.collectionId);
   if (!definition) return yield* new NotFoundError();
-  const { collectionId, title, description, label, contentSchema } = definition;
-  return { collectionId, title, description, label, contentSchema };
+  const { collectionId, title, description, toTitle, toDescription, contentSchema } = definition;
+  return { collectionId, title, description, toTitle, toDescription, contentSchema };
 }, Effect.scoped);
 
 /**
- * The studio's record list: each record's id and plain text label, newest first, and whether
+ * The studio's record list: each record's id, title and description, newest first, and whether
  * another record's page is found by the same value (ADR 0009).
  */
 export const listCollectionRecords = Effect.fn("collections.listCollectionRecords")(function* (
@@ -308,7 +309,8 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
       const shown = yield* reader.shown.records(definition.collectionId, records);
       return shown.map((record) => ({
         id: record.id,
-        label: record.label,
+        title: record.title,
+        description: record.description,
         duplicatePageValue: duplicates.has(record.id),
       }));
     }),
@@ -403,7 +405,7 @@ export const findRecordsByFieldInput = namingProject(pageValueFields.extend({ va
 
 /**
  * Each record with its String field's plain text, when that text can be a path segment, and its
- * Label.
+ * title and description.
  */
 const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(function* (
   ctx: ServiceContext,
@@ -419,9 +421,9 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
   );
   const shown = yield* reader.shown.records(definition.collectionId, rows);
   return rows.flatMap((row, index) => {
-    const { content, label } = shown[index]!;
+    const { content, title, description } = shown[index]!;
     const value = pageValue(content, input.field);
-    return value === null ? [] : [{ row, value, label }];
+    return value === null ? [] : [{ row, value, title, description }];
   });
 });
 
@@ -442,8 +444,10 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
         collection.definition.collectionId,
         records.filter((record) => record.value === input.value).map(({ row }) => row),
       );
-      return views.map(({ id, content, updatedAt, references }) => ({
+      return views.map(({ id, title, description, content, updatedAt, references }) => ({
         id,
+        title,
+        description,
         content,
         updatedAt,
         references,
@@ -453,8 +457,8 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
 });
 
 /**
- * The records that can have a record page, with the value of their `field` and their Label:
- * route discovery, and the name of each record page.
+ * The records that can have a record page, with the value of their `field`, their title and
+ * description: route discovery, and the name of each record page.
  * Records sharing a value are all listed, so the caller can report the ambiguity.
  */
 export const listRecordPageValues = Effect.fn("collections.listRecordPageValues")(function* (
@@ -464,7 +468,12 @@ export const listRecordPageValues = Effect.fn("collections.listRecordPageValues"
   const input = yield* decodeInput(listRecordPageValuesInput, rawInput);
   return yield* inCollection(ctx, input, "public", (collection) =>
     Effect.map(recordsWithPageValues(ctx, input, collection), (records) =>
-      records.map(({ row, value, label }) => ({ id: row.id, value, label })),
+      records.map(({ row, value, title, description }) => ({
+        id: row.id,
+        value,
+        title,
+        description,
+      })),
     ),
   );
 });

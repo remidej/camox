@@ -2534,7 +2534,8 @@ export function createEditableBlock<
         >
           {children({
             id: record.id,
-            label: record.label,
+            title: record.title,
+            description: record.description,
             Field,
             Image: ReferenceImage,
             File: ReferenceFile,
@@ -2644,7 +2645,7 @@ export function createEditableBlock<
     <div
       data-camox-field-id={fieldId}
       data-camox-collection-record-id={record?.id}
-      data-camox-reference-label={record?.label}
+      data-camox-reference-label={record?.title}
       data-camox-overlay-mode="reference"
       {...overlay}
       {...placedRecord.wrapperProps}
@@ -2809,14 +2810,14 @@ export function createEditableBlock<
    */
   const LayoutItem = ({
     collectionId,
-    labelField,
+    collection,
     properties,
     record,
     children,
     fallback,
   }: LayoutItemProps) => {
     const editingOwner = React.use(PreviewEditingOwnerContext);
-    const latest = useLatestRecord({ collectionId, labelField, loaded: record });
+    const latest = useLatestRecord({ collectionId, collection, loaded: record });
     if (editingOwner?.kind !== "layout" || !latest) return fallback;
     return (
       <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>

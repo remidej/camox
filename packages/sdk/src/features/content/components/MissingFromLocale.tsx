@@ -82,7 +82,7 @@ function missingGroups(missing: MissingFromLocale, collections: readonly Collect
         entity: "record",
         id: record.id,
         collectionId: record.collectionId,
-        name: record.label || "Untitled item",
+        name: record.title || "Untitled item",
       })),
     });
   }

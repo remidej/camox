@@ -10,5 +10,6 @@ export const collection = createCollection({
     bio: field.string(),
     portrait: field.image({ title: "Portrait" }),
   }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: ({ content }) => content.bio,
 });

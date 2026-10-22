@@ -93,7 +93,7 @@ export async function listLivePages({
             : `derived:${page.path}`,
           fullPath: page.path,
           layoutId: layout._internal.id,
-          title: page.label || page.path,
+          title: page.title || page.path,
           hasMarkdown: servesMarkdown(layout),
         }));
       }),

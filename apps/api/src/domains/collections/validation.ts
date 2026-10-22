@@ -126,20 +126,57 @@ export const contentSchemaInput = z
     }
   });
 
+const recordTextTemplate = z.string().max(10_000);
+
 export const collectionDefinitionInput = z
   .object({
     collectionId: z.string().min(1),
     title: z.string().min(1),
     description: z.string(),
-    label: z.string(),
+    // Token templates of String fields, such as `{{firstName}} {{lastName}}`.
+    toTitle: recordTextTemplate.optional(),
+    toDescription: recordTextTemplate.nullable().optional(),
+    /**
+     * The ADR 0019 bridge: SDKs from before record titles name records by one String field, read
+     * as a title template naming it, with no description. Exactly one of `label` and `toTitle`.
+     */
+    label: z.string().optional(),
     contentSchema: contentSchemaInput,
   })
   .strict()
   .superRefine((definition, ctx) => {
-    if (definition.contentSchema.properties[definition.label]?.fieldType !== "String") {
+    if ((definition.label === undefined) === (definition.toTitle === undefined)) {
+      ctx.addIssue({ code: "custom", message: "Give either toTitle or label" });
+      return;
+    }
+    if (definition.toTitle !== undefined && definition.toDescription === undefined) {
+      ctx.addIssue({ code: "custom", path: ["toDescription"], message: "toDescription: required" });
+    }
+    if (
+      definition.label !== undefined &&
+      definition.contentSchema.properties[definition.label]?.fieldType !== "String"
+    ) {
       ctx.addIssue({ code: "custom", message: "Label must name a String field" });
     }
-  });
+    const templates = { toTitle: definition.toTitle, toDescription: definition.toDescription };
+    for (const [option, template] of Object.entries(templates)) {
+      for (const [, name] of (template ?? "").matchAll(/\{\{([^}]*)\}\}/g)) {
+        // Templates read fields as plain text.
+        if (definition.contentSchema.properties[name!]?.fieldType !== "String") {
+          ctx.addIssue({
+            code: "custom",
+            path: [option],
+            message: `${option}: "${name}" names no String field`,
+          });
+        }
+      }
+    }
+  })
+  .transform(({ label, toTitle, toDescription, ...definition }) => ({
+    ...definition,
+    toTitle: toTitle ?? `{{${label}}}`,
+    toDescription: label === undefined ? (toDescription ?? null) : null,
+  }));
 
 /** A stored asset: a reference to a file, resolved on read like a block's. */
 export type AssetValue = { _fileId: string };

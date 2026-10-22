@@ -33,12 +33,13 @@ const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string({ title: "Name" }),
     company: field.string({ title: "Company" }),
     logo: field.image({ title: "Logo" }),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const app = createApp({ blocks: [], collections: [customers] });
 
@@ -46,17 +47,18 @@ const ADA = "a6479288-341f-4008-b118-dea6d8dd9158";
 const GRACE = "4f0b4a8f-1df4-4b44-9c1a-2b67b10e1e4b";
 const CREATED = "8b2f3b1e-6c9f-4f0e-9a43-0b9b6e3f6b7d";
 
-type RecordSummary = { id: string; label: string };
+type RecordSummary = { id: string; title: string; description: string | null };
 
 const defaultRecords: RecordSummary[] = [
-  { id: ADA, label: "Ada" },
-  { id: GRACE, label: "Grace" },
+  { id: ADA, title: "Ada", description: "Analytical Engines" },
+  { id: GRACE, title: "Grace", description: null },
 ];
 
 const adaRecord: NormalizedCollectionRecord = {
   id: ADA,
   collectionId: "customers",
-  label: "Ada",
+  title: "Ada",
+  description: null,
   content: {
     name: "Ada",
     company: "Analytical Engines",
@@ -120,7 +122,8 @@ async function renderReference(
       collectionId: "customers",
       title: "Customers",
       description: "",
-      label: "name",
+      toTitle: "{{name}}",
+      toDescription: null,
       contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
     },
   );
@@ -189,7 +192,10 @@ async function renderReference(
 
   const find = (text: string) =>
     [...document.querySelectorAll<HTMLElement>('button,[role="option"]')].find(
-      (element) => (element.getAttribute("aria-label") ?? element.textContent?.trim()) === text,
+      (element) =>
+        (element.getAttribute("aria-label") ??
+          element.querySelector("[data-record-title]")?.textContent ??
+          element.textContent?.trim()) === text,
     );
   const click = async (text: string) => {
     const element = find(text);
@@ -219,7 +225,9 @@ async function renderReference(
     });
   };
   const options_ = () =>
-    [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+    [...document.querySelectorAll('[role="option"]')].map(
+      (option) => option.querySelector("[data-record-title]")?.textContent,
+    );
 
   return {
     window,
@@ -245,7 +253,7 @@ async function renderReference(
   };
 }
 
-void test("a linked record shows a card with its label and collection", async () => {
+void test("a linked record shows a card with its title and collection", async () => {
   const view = await renderReference({ value: ADA, record: adaRecord });
   try {
     const card = view.host.querySelector<HTMLElement>("[data-record-card]");
@@ -275,7 +283,7 @@ void test("unlinking clears the reference immediately and restores the picker", 
   }
 });
 
-void test("the picker searches records by label and links the choice", async () => {
+void test("the picker searches records by title and links the choice", async () => {
   const view = await renderReference();
   try {
     assert.ok(!view.find("Create item"), "creating lives only in the picker");
@@ -296,6 +304,22 @@ void test("the picker searches records by label and links the choice", async () 
   }
 });
 
+void test("the picker shows each record's description under its title", async () => {
+  const view = await renderReference();
+  try {
+    await view.click("Select item");
+    const descriptions = [...document.querySelectorAll('[role="option"]')].map((option) =>
+      option.textContent?.replace(
+        option.querySelector("[data-record-title]")?.textContent ?? "",
+        "",
+      ),
+    );
+    assert.deepEqual(descriptions, ["Analytical Engines", ""]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
 void test("the picker explains when the collection has no records yet", async () => {
   const view = await renderReference({ records: [] });
   try {
@@ -308,7 +332,7 @@ void test("the picker explains when the collection has no records yet", async ()
   }
 });
 
-void test("Create item prefills the label from the search, links the saved record, and cancel changes nothing", async (t: TestContext) => {
+void test("Create item prefills the title's first field from the search, links the saved record, and cancel changes nothing", async (t: TestContext) => {
   const created: Record<string, unknown>[] = [];
   let records = defaultRecords;
   t.mock.method(globalThis, "fetch", async (request: Request) => {
@@ -316,7 +340,7 @@ void test("Create item prefills the label from the search, links the saved recor
     const body = (await request.json()) as { json: Record<string, unknown> };
     if (path.endsWith("/createRecord")) {
       created.push(body.json);
-      records = [{ id: CREATED, label: "Acme" }, ...defaultRecords];
+      records = [{ id: CREATED, title: "Acme", description: null }, ...defaultRecords];
       return Response.json({
         json: { id: CREATED, content: body.json.content, createdAt: 1, updatedAt: 1 },
       });
@@ -334,7 +358,11 @@ void test("Create item prefills the label from the search, links the saved recor
   };
   try {
     await createFromSearch("Acme");
-    assert.equal(nameField()?.value, "Acme", "the label field is prefilled from the search");
+    assert.equal(
+      nameField()?.value,
+      "Acme",
+      "the title's first field is prefilled from the search",
+    );
     await view.click("Close");
     assert.ok(!view.sheet.target, "cancel closes the sheet");
     assert.deepEqual(view.changes, [], "cancel leaves the link unchanged");

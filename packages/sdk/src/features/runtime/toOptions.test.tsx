@@ -102,13 +102,16 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       const { json: input } = (await request.json()) as { json: { value: string } };
       const article = ARTICLES[locale];
       return Response.json({
-        json: article?.slug === input.value ? [{ id: HELLO, content: article }] : [],
+        json:
+          article?.slug === input.value
+            ? [{ id: HELLO, title: article.title, description: article.summary, content: article }]
+            : [],
       });
     }
     if (procedure === "collectionDefinitions/listRecordPageValues") {
       const article = ARTICLES[locale];
       return Response.json({
-        json: article ? [{ id: HELLO, value: article.slug, label: article.title }] : [],
+        json: article ? [{ id: HELLO, value: article.slug, title: article.title }] : [],
       });
     }
     throw new Error(`Unexpected API request ${procedure}`);
@@ -120,7 +123,8 @@ const articles = createCollection({
   title: "Articles",
   description: "",
   content: (field) => ({ title: field.string(), slug: field.string(), summary: field.string() }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 const visit = (
@@ -254,7 +258,7 @@ function layoutsWith(toTitle: (context: Record<string, any>) => string) {
   ];
 }
 
-void test("page.title is the editor's meta title, the layout's title, or the record's Label, beside the page's path, locale and project", async (t) => {
+void test("page.title is the editor's meta title, the layout's title, or the record's title, beside the page's path, locale and project", async (t) => {
   mockApi(t);
   const layouts = layoutsWith(
     ({ page, project }) => `${page.title}|${page.path}|${page.locale}|${project.name}`,
@@ -266,13 +270,13 @@ void test("page.title is the editor's meta title, the layout's title, or the rec
   assert.equal(await titleOf("/de/articles/hallo"), "Hallo|/de/articles/hallo|de|Real project");
 });
 
-void test("page.description is the editor's description on curated pages, and absent elsewhere", async (t) => {
+void test("page.description is the editor's description on curated pages, the record's on record pages, and absent elsewhere", async (t) => {
   mockApi(t);
   const layouts = layoutsWith(({ page }) => page.description ?? "none");
   const titleOf = async (path: string) => (await headOf(await visit(layouts, path))).title;
   assert.equal(await titleOf("/de/preise"), "Was es kostet");
   assert.equal(await titleOf("/de/pokedex"), "none");
-  assert.equal(await titleOf("/de/articles/hallo"), "none");
+  assert.equal(await titleOf("/de/articles/hallo"), "Ein Gruß");
 });
 
 void test("toTitle and toDescription get the loader's data and params, and the record's values as content", async (t) => {
@@ -287,7 +291,7 @@ void test("toTitle and toDescription get the loader's data and params, and the r
     params: { name: "pikachu" },
   });
   assert.deepEqual(await titleOf("/de/articles/hallo"), {
-    data: { id: HELLO, content: ARTICLES.de },
+    data: { id: HELLO, title: "Hallo", description: "Ein Gruß", content: ARTICLES.de },
     params: { slug: "hallo" },
     content: { title: "Hallo", slug: "hallo", summary: "Ein Gruß" },
   });

@@ -46,7 +46,8 @@ createCollection({
     // @ts-expect-error The collection field builder does not offer artifacts.
     visual: field.artifact({ size: "fill" }),
   }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 
 // Artifact Data names sibling content fields and settings.

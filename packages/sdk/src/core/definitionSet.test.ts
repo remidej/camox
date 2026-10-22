@@ -91,7 +91,8 @@ void test("layouts carry their declared blocks and collections their schemas", a
     title: "Articles",
     description: "Editorial",
     content: (field) => ({ title: field.string({ minLength: 1 }) }),
-    label: "title",
+    toTitle: ({ content }) => content.title,
+    toDescription: () => undefined,
   });
   const app = createApp({
     blocks: [navbar],
@@ -116,8 +117,12 @@ void test("layouts carry their declared blocks and collections their schemas", a
     ],
   );
   assert.deepEqual(
-    set.collections.map(({ collectionId, label }) => ({ collectionId, label })),
-    [{ collectionId: "articles", label: "title" }],
+    set.collections.map(({ collectionId, toTitle, toDescription }) => ({
+      collectionId,
+      toTitle,
+      toDescription,
+    })),
+    [{ collectionId: "articles", toTitle: "{{title}}", toDescription: null }],
   );
   assert.deepEqual(set.collections[0].contentSchema.required, ["title"]);
 });

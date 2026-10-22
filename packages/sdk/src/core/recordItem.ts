@@ -2,6 +2,7 @@ import type { Collection } from "./createCollection";
 import type { RecordPageValues } from "./layoutContext";
 import { resolveToMarkdown } from "./lib/contentType";
 import { isLexicalState, lexicalStateToPlainText } from "./lib/lexicalState";
+import type { LoadedRecord } from "./requestContext";
 
 /**
  * The value when it names a collection record (a `collection-item` loader result or route
@@ -31,14 +32,39 @@ export function recordPlainText(
 }
 
 /** The record a record page renders, as its layout's context names it. */
-export function recordPageValues(
-  collection: Collection,
-  content: Record<string, unknown>,
-): RecordPageValues {
+export function recordPageValues(collection: Collection, record: LoadedRecord): RecordPageValues {
   return {
-    title: fieldPlainText(content[collection._internal.label]),
-    content: recordPlainText(collection, content),
+    title: record.title ?? "",
+    description: record.description ?? undefined,
+    content: recordPlainText(collection, record.content),
   };
+}
+
+/**
+ * A record's title and description: its collection's templates filled with its fields' plain
+ * text, as the API fills them. For records edited here, before the API names them again.
+ */
+export function recordText(
+  collection: Pick<Collection, "_internal"> | undefined,
+  content: Record<string, unknown>,
+): { title: string; description: string | null } {
+  const fill = (template: string) =>
+    template
+      .replace(/\{\{([^}]*)\}\}/g, (_token, name: string) => fieldPlainText(content[name]))
+      .trim();
+  const toDescription = collection?._internal.toDescription;
+  return {
+    title: collection ? fill(collection._internal.toTitle) : "",
+    description: (toDescription && fill(toDescription)) || null,
+  };
+}
+
+/**
+ * The first field a collection's title template names, such as `firstName` in
+ * `{{firstName}} {{lastName}}`: where a new record's name goes.
+ */
+export function titleField(toTitle: string): string | undefined {
+  return /\{\{([^}]*)\}\}/.exec(toTitle)?.[1];
 }
 
 /** A String field's text, whether it is stored as plain text or rich-text state. */

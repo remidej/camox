@@ -10,10 +10,13 @@ import { localizedPath, type LocaleView } from "../lib/locale-path";
 export interface LayoutPage {
   /**
    * The undecorated title: the editor's or generated meta title on curated pages, the layout's
-   * title on singleton and derived pages, the record's Label on record pages.
+   * title on singleton and derived pages, the record's title on record pages.
    */
   title: string;
-  /** The editor's or generated description on curated pages. Absent otherwise. */
+  /**
+   * The editor's or generated description on curated pages, the record's description on record
+   * pages. Absent otherwise.
+   */
   description: string | undefined;
   /** The page's path, with its locale's prefix. */
   path: string;
@@ -56,8 +59,10 @@ export type AnyLayoutContext = CuratedLayoutContext &
 
 /** The record a record page renders, as its context names it. */
 export interface RecordPageValues {
-  /** The record's Label, as plain text. */
+  /** The record's title, from its collection's `toTitle`. */
   title: string;
+  /** The record's description, from its collection's `toDescription`, if it has one. */
+  description: string | undefined;
   /** The record's String fields as plain text. */
   content: Record<string, string>;
 }
@@ -153,7 +158,11 @@ export function buildLayoutContext(
       project,
     };
   return {
-    page: { title: source.record?.title ?? layout.title, description: undefined, ...page },
+    page: {
+      title: source.record?.title ?? layout.title,
+      description: source.record?.description,
+      ...page,
+    },
     project,
     data: source.data,
     params: source.params ?? {},

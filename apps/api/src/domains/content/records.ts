@@ -11,7 +11,8 @@ import { loadFiles, resolveAssets } from "./files";
 import {
   attachFiles,
   recordFileIds,
-  recordLabel,
+  recordText,
+  type RecordText,
   resolveReferences,
   type ResolvedReferences,
 } from "./references";
@@ -22,11 +23,13 @@ export type RecordRow = Pick<
   "id" | "collectionId" | "content" | "createdAt" | "updatedAt"
 >;
 
-/** A record as readers see it, conformed to its collection (ADR 0007), with its label. */
-export type ShownRecord = {
+/**
+ * A record as readers see it, conformed to its collection (ADR 0007), with its title and
+ * description.
+ */
+export type ShownRecord = RecordText & {
   id: string;
   collectionId: string;
-  label: string;
   content: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
@@ -53,7 +56,7 @@ export const shownRecords = Effect.fn("content.shownRecords")(function* (
       return {
         id: row.id,
         collectionId,
-        label: recordLabel(definition, content),
+        ...recordText(definition, content),
         content,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,

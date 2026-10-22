@@ -41,7 +41,13 @@ const DRAFT = "019a0000-0000-7000-8000-000000000001";
 const project = { id: 1, slug: "site", name: "Site" };
 const en = { tag: "en", isDefault: true };
 const de = { tag: "de", isDefault: false };
-const articles = { collectionId: "articles", title: "Articles", description: "", label: "title" };
+const articles = {
+  collectionId: "articles",
+  title: "Articles",
+  description: "",
+  toTitle: "{{title}}",
+  toDescription: null,
+};
 
 type Call = { path: string; input: unknown; locale: string | null };
 
@@ -50,7 +56,7 @@ function mockApi(
   t: test.TestContext,
   missing: MissingFromLocale = {
     pages: [{ id: "pricing", fullPath: "/pricing", nickname: "Pricing" }],
-    records: [{ id: "hello", collectionId: "articles", label: "Hello" }],
+    records: [{ id: "hello", collectionId: "articles", title: "Hello" }],
   },
 ) {
   const calls: Call[] = [];
@@ -211,7 +217,7 @@ void test("adding a record back asks the API in the language viewed, and drops i
 });
 
 void test("shows no records while collections aren't shown", async (t) => {
-  mockApi(t, { pages: [], records: [{ id: "hello", collectionId: "articles", label: "Hello" }] });
+  mockApi(t, { pages: [], records: [{ id: "hello", collectionId: "articles", title: "Hello" }] });
   const host = await render(t, de, []);
 
   assert.equal(missingSection(host), undefined);

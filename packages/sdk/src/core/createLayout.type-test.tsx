@@ -134,7 +134,8 @@ const articles = createCollection({
   title: "Articles",
   description: "",
   content: (field) => ({ title: field.string(), slug: field.string(), cover: field.image() }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 const ArticlePage = createLayout("articles.$slug")({
   ...singletonOptions,
@@ -161,7 +162,8 @@ const authors = createCollection({
   title: "Authors",
   description: "",
   content: (field) => ({ name: field.string(), portrait: field.image() }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const posts = createCollection({
   id: "posts",
@@ -173,7 +175,8 @@ const posts = createCollection({
     cover: field.image(),
     author: field.reference(authors),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 const postPages = posts.pages({ by: "slug", param: "slug" });
 const PostPage = createLayout("posts.$slug")({
@@ -192,7 +195,7 @@ function ItemTypeCheck() {
   return (
     <PostPage.Item>
       {(post) => (
-        <article aria-label={post.label}>
+        <article aria-label={post.title}>
           <post.Field name="title">{(props) => <h1 {...props} />}</post.Field>
           {/* @ts-expect-error Field renders String fields only. */}
           <post.Field name="cover">{(props) => <h1 {...props} />}</post.Field>

@@ -23,7 +23,6 @@ const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string({ default: "Never fabricate" }),
     logo: field.image(),
@@ -31,12 +30,15 @@ const customers = createCollection({
     download: field.file({ accept: ["application/pdf"] }),
     downloads: field.fileList({ accept: ["application/pdf"] }),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const id = "c0f2b5f1-ffb8-4aa1-a052-42a27caa8555";
 const record: ReferenceRecord = {
   id,
   collectionId: "customers",
-  label: "Source label",
+  title: "Source label",
+  description: null,
   content: { name: "Acme", logo: null, images: [] },
 };
 
@@ -77,7 +79,7 @@ void test("public scopes render source fields and labels, never fabricate missin
         {(customer) => {
           calls++;
           return (
-            <section aria-label={customer.label}>
+            <section aria-label={customer.title}>
               <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
               <customer.Image name="logo">{(props) => <img {...props} />}</customer.Image>
               <customer.ImageList name="images">{(props) => <img {...props} />}</customer.ImageList>
@@ -216,7 +218,8 @@ void test("reference lists render each resolved record in stored order and nothi
   const second: ReferenceRecord = {
     id: "5a1f0c0e-5d8c-4c55-8f2e-0d3f0b6f4a11",
     collectionId: "customers",
-    label: "Beta label",
+    title: "Beta label",
+    description: null,
     content: { name: "Beta" },
   };
   const block = createBlock({
@@ -229,7 +232,7 @@ void test("reference lists render each resolved record in stored order and nothi
       <ul>
         <block.ReferenceList name="customers">
           {(customer) => (
-            <li aria-label={customer.label} data-id={customer.id}>
+            <li aria-label={customer.title} data-id={customer.id}>
               <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
             </li>
           )}
@@ -278,7 +281,7 @@ void test("reference lists render each resolved record in stored order and nothi
 });
 
 void test("query-backed lists store nothing and render their resolved records in query order", () => {
-  const second: ReferenceRecord = { ...record, id: "beta", label: "Beta label" };
+  const second: ReferenceRecord = { ...record, id: "beta", title: "Beta label" };
   const query = { orderBy: { name: "asc" }, limit: 3 } as const;
   const recent = contentFieldBuilder.referenceList(customers, {
     query,
@@ -303,8 +306,9 @@ void test("query-backed lists store nothing and render their resolved records in
         id: "reserved",
         title: "",
         description: "",
-        label: "name",
         content: (field) => ({ name: field.string(), publishedAt: field.string() }) as never,
+        toTitle: ({ content }) => content.name,
+        toDescription: () => undefined,
       }),
     /"publishedAt": reserved field name/,
   );
@@ -326,14 +330,14 @@ void test("query-backed lists store nothing and render their resolved records in
       <>
         <ul>
           <block.ReferenceList name="customers">
-            {(customer) => <li aria-label={customer.label}>{customer.id}</li>}
+            {(customer) => <li aria-label={customer.title}>{customer.id}</li>}
           </block.ReferenceList>
         </ul>
         <block.Repeater name="rows">
           {(row) => (
             <ol>
               <row.ReferenceList name="customers">
-                {(customer) => <li aria-label={customer.label}>{customer.id}</li>}
+                {(customer) => <li aria-label={customer.title}>{customer.id}</li>}
               </row.ReferenceList>
             </ol>
           )}
@@ -412,12 +416,12 @@ void test("repeatable items render the records they link, at any repeater depth"
         {(logo) => (
           <article>
             <logo.Reference name="customer">
-              {(customer) => <h2 aria-label={customer.label}>{customer.id}</h2>}
+              {(customer) => <h2 aria-label={customer.title}>{customer.id}</h2>}
             </logo.Reference>
             <logo.Repeater name="quotes">
               {(quote) => (
                 <quote.ReferenceList name="speakers">
-                  {(speaker) => <i>{speaker.label}</i>}
+                  {(speaker) => <i>{speaker.title}</i>}
                 </quote.ReferenceList>
               )}
             </logo.Repeater>
@@ -484,20 +488,23 @@ void test("placed records render the records they link, and nothing a hop furthe
     id: "authors",
     title: "Authors",
     description: "",
-    label: "name",
     content: (field) => ({ name: field.string(), employer: field.reference(customers) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
   });
   const articles = createCollection({
     id: "articles",
     title: "Articles",
     description: "",
-    label: "title",
     content: (field) => ({ title: field.string(), coauthors: field.referenceList(authors) }),
+    toTitle: ({ content }) => content.title,
+    toDescription: () => undefined,
   });
   const author: ReferenceRecord = {
     id: "jane",
     collectionId: "authors",
-    label: "Jane",
+    title: "Jane",
+    description: null,
     content: { name: "Jane Doe", employer: id },
   };
   const block = createBlock({
@@ -510,7 +517,7 @@ void test("placed records render the records they link, and nothing a hop furthe
       <block.Reference name="article">
         {(article) => (
           <article.ReferenceList name="coauthors">
-            {(coauthor) => <i>{"Reference" in coauthor ? "deeper" : coauthor.label}</i>}
+            {(coauthor) => <i>{"Reference" in coauthor ? "deeper" : coauthor.title}</i>}
           </article.ReferenceList>
         )}
       </block.Reference>
@@ -531,7 +538,8 @@ void test("placed records render the records they link, and nothing a hop furthe
                   article: {
                     id: "launch",
                     collectionId: "articles",
-                    label: "Launch",
+                    title: "Launch",
+                    description: null,
                     content: { title: "Launch", coauthors: ["jane"] },
                     references: { coauthors: [author] },
                   },

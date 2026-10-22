@@ -270,6 +270,30 @@ export function resolveToMarkdown<
   return out;
 }
 
+/** A collection's String fields as field tokens: what its record templates can name. */
+export type RecordTextProxy<TShape extends Record<string, TSchema>> = {
+  [K in keyof TShape & string as TShape[K] extends { fieldType: "String" } ? K : never]: string &
+    FieldToken;
+};
+
+/** What a collection's `toTitle` and `toDescription` receive: the record's String fields. */
+export interface RecordTemplateContext<TShape extends Record<string, TSchema>> {
+  content: RecordTextProxy<TShape>;
+}
+
+/**
+ * Runs a collection's record template, such as `toTitle`, into the token template the API fills
+ * with each record's plain text. Null when it returns nothing.
+ */
+export function resolveRecordTemplate<TShape extends Record<string, TSchema>>(
+  template: (context: RecordTemplateContext<TShape>) => string | undefined,
+  contentShape: TShape,
+): string | null {
+  const content = createContentProxy(contentShape) as unknown as RecordTextProxy<TShape>;
+  const result = template({ content });
+  return result === undefined || result === null || String(result) === "" ? null : String(result);
+}
+
 /* -------------------------------------------------------------------------------------------------
  * EmbedURL branded type
  * -----------------------------------------------------------------------------------------------*/
@@ -887,7 +911,6 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       default: null,
       // Used by the typed child scope, not a copy of a record's content.
       referenceSchema: collection._internal.contentSchema,
-      labelField: collection._internal.label,
     }) as ReferenceSchema<T>,
   referenceList: <T extends Record<string, TSchema>>(
     collection: Collection<T>,
@@ -923,7 +946,6 @@ export const contentFieldBuilder: ContentFieldBuilder = {
           }),
       // Used by the typed child scope, not a copy of a record's content.
       referenceSchema: collection._internal.contentSchema,
-      labelField: collection._internal.label,
     }) as ReferenceListSchema<T>,
   repeater: <
     T extends Record<string, TSchema>,

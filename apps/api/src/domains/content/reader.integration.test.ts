@@ -91,7 +91,7 @@ async function fixture() {
     collectionId: "people",
     title: "People",
     description: "",
-    label: "name",
+    toTitle: "{{name}}",
     contentSchema: peopleSchema,
     schemaHash: "people",
   });
@@ -259,7 +259,7 @@ describe("the content reader", () => {
       return {
         title: block.content.title,
         summary: block.summary,
-        author: author.label,
+        author: author.title,
         avatar: (author.content.avatar as { url: string }).url,
         files: bundle.files.map((file) => file.url),
       };
@@ -317,7 +317,7 @@ describe("the content reader", () => {
 
     const view = await runService(f.reader(null).item(item));
     expect(view!.item.summary).toBe("First card");
-    expect((view!.item.references.who as ResolvedReference).label).toBe("Ada");
+    expect((view!.item.references.who as ResolvedReference).title).toBe("Ada");
     const [shown] = await runService(f.reader(null).shown.items([item]));
     expect(shown!.summary).toBe("First card");
   });

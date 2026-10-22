@@ -6,7 +6,6 @@ const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string({ default: "" }),
     logo: field.image(),
@@ -16,6 +15,8 @@ const customers = createCollection({
     category: field.enum({ options: { a: "A" }, default: "a" }),
     images: field.imageList(),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const block = createBlock({
   id: "testimonial",
@@ -70,7 +71,7 @@ function ListTypeChecks() {
   return (
     <block.ReferenceList name="customers">
       {(customer) => (
-        <li key={customer.id} aria-label={customer.label}>
+        <li key={customer.id} aria-label={customer.title}>
           <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
           <customer.Image name="logo">{(props) => <img {...props} />}</customer.Image>
           <customer.File name="file">{(props) => <a {...props} />}</customer.File>
@@ -185,23 +186,25 @@ const authors = createCollection({
   id: "authors",
   title: "Authors",
   description: "",
-  label: "name",
   content: (field) => ({
     name: field.string(),
     portrait: field.image(),
     employer: field.reference(customers),
   }),
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const articles = createCollection({
   id: "articles",
   title: "Articles",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     author: field.reference(authors),
     coauthors: field.referenceList(authors),
   }),
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 const teaser = createBlock({
   id: "teaser",
@@ -303,32 +306,35 @@ createCollection({
   id: "reserved",
   title: "Reserved",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     // @ts-expect-error Reserved for record metadata in query orderBy.
     publishedAt: field.string(),
   }),
+  toTitle: () => "Reserved",
+  toDescription: () => undefined,
 });
 createCollection({
   id: "reserved-created",
   title: "Reserved",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     // @ts-expect-error Reserved for record metadata in query orderBy.
     createdAt: field.boolean({ default: false }),
   }),
+  toTitle: () => "Reserved",
+  toDescription: () => undefined,
 });
 createCollection({
   id: "queries",
   title: "Queries",
   description: "",
-  label: "title",
   content: (field) => ({
     title: field.string(),
     // @ts-expect-error Collections never hold query-backed lists.
     latest: field.referenceList(articles, { query: {} }),
   }),
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });

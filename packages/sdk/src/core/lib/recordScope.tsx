@@ -162,7 +162,7 @@ export function RecordScope({
   hop,
   children,
 }: {
-  record: Pick<ReferenceRecord, "id" | "label" | "content" | "references">;
+  record: Pick<ReferenceRecord, "id" | "title" | "description" | "content" | "references">;
   properties: Record<string, any>;
   hop: 1 | 2;
   children: (scope: any) => React.ReactNode;
@@ -176,7 +176,8 @@ export function RecordScope({
       <LinksContext.Provider value={hop === 1 ? record.references : undefined}>
         {children({
           id: record.id,
-          label: record.label,
+          title: record.title,
+          description: record.description,
           Field,
           Image,
           File,

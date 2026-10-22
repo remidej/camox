@@ -31,7 +31,8 @@ const versionedColumns = {
 const resolvedReferenceSchema = z.strictObject({
   id: z.string(),
   collectionId: z.string(),
-  label: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
   content: authoredContentSchema,
   contentSchema: z.unknown(),
   get references() {

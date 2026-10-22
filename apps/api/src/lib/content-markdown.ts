@@ -114,7 +114,7 @@ function resolveLine(
 /**
  * Render a reference list's resolved records (already ordered, and limited to published
  * ones for live reads) as a bulleted list, one item per record via the per-use
- * `toMarkdown`. Without one, each record falls back to its label.
+ * `toMarkdown`. Without one, each record falls back to its title.
  */
 function resolveReferenceList(
   schema: { toMarkdown?: readonly string[] },
@@ -132,7 +132,7 @@ function resolveReferenceList(
           files: ctx.files,
           references: record.references,
         })
-      : record.label;
+      : record.title;
     if (md) itemParts.push(toListItem(md));
   }
   return itemParts.length > 0 ? itemParts.join("\n") : undefined;

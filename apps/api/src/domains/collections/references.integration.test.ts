@@ -1098,7 +1098,7 @@ async function queryFixture() {
     runService(getBlock(inScope(reader === "member" ? ctx : publicCtx, null), { id: block.id }));
   /** The titles a list resolves to, in order. */
   const titles = async (field: keyof typeof lists, reader: Reader) =>
-    ((await bundle(reader)).block.references[field] as ResolvedReference[]).map((r) => r.label);
+    ((await bundle(reader)).block.references[field] as ResolvedReference[]).map((r) => r.title);
   const markdown = async (reader: Reader) =>
     (
       await runService(
@@ -1396,7 +1396,7 @@ describe("query-backed reference lists", () => {
       getPageByPath(inScope(f.publicCtx, null), { projectUuid: f.project.uuid, path: "/articles" }),
     );
     const block = live.blocks.find((candidate) => candidate.id === f.block.id)!;
-    expect((block.references.byTitle as ResolvedReference[]).map((r) => r.label)).toEqual([
+    expect((block.references.byTitle as ResolvedReference[]).map((r) => r.title)).toEqual([
       "Bravo",
       "Charlie",
       "Delta",
@@ -1420,7 +1420,7 @@ describe("query-backed reference lists", () => {
     const f = await queryFixture();
     const latest = async (reader: Reader) =>
       ((await f.bundle(reader)).repeatableItems[0].references.latest as ResolvedReference[]).map(
-        (record) => record.label,
+        (record) => record.title,
       );
     await f.create("Late", 6000);
     for (const reader of readers) {

@@ -23,7 +23,10 @@ export const collectionDefinitions = sqliteTable(
     collectionId: text("collection_id").notNull(),
     title: text().notNull(),
     description: text().notNull(),
-    label: text().notNull(),
+    // Token templates naming each record (`{{firstName}} {{lastName}}`), filled on read. A
+    // collection without a description template gives its records none.
+    toTitle: text("to_title").notNull(),
+    toDescription: text("to_description"),
     contentSchema: text("content_schema", { mode: "json" })
       .notNull()
       .$type<Record<string, unknown>>(),

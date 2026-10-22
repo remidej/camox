@@ -116,7 +116,8 @@ const authors = createCollection({
   title: "Authors",
   description: "",
   content: (field) => ({ name: field.string() }),
-  label: "name",
+  toTitle: ({ content }) => content.name,
+  toDescription: () => undefined,
 });
 const articles = createCollection({
   id: "articles",
@@ -127,7 +128,8 @@ const articles = createCollection({
     slug: field.string(),
     author: field.reference(authors),
   }),
-  label: "title",
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
 });
 
 createLayout("articles.$slug")({

@@ -135,7 +135,7 @@ async function fixture() {
     callSeedingLive(router.collectionDefinitions.deleteRecord, { ...authors, id }, member(headers));
   const authorNames = async (headers: Headers = {}) =>
     (await call(router.collectionDefinitions.listRecords, authors, member(headers)))
-      .map((record) => record.label)
+      .map((record) => record.title)
       .sort();
   const createArticle = (title: string, headers: Headers = {}) =>
     callSeedingLive(
@@ -159,9 +159,9 @@ async function fixture() {
   const references = async (blockId: string, headers: Headers = {}) =>
     (await call(router.blocks.get, { id: blockId }, member(headers))).block.references;
   const bylineAuthor = async (blockId: string, headers: Headers = {}) =>
-    ((await references(blockId, headers)).author as ResolvedReference | null)?.label ?? null;
+    ((await references(blockId, headers)).author as ResolvedReference | null)?.title ?? null;
   const recentTitles = async (blockId: string, headers: Headers = {}) =>
-    ((await references(blockId, headers)).recent as ResolvedReference[]).map((r) => r.label);
+    ((await references(blockId, headers)).recent as ResolvedReference[]).map((r) => r.title);
   const usageCount = async (id: string, headers: Headers = {}) =>
     (
       await call(

@@ -198,7 +198,8 @@ export function createApp({
         collectionId: _internal.id,
         title: _internal.title,
         description: _internal.description,
-        label: _internal.label,
+        toTitle: _internal.toTitle,
+        toDescription: _internal.toDescription,
         contentSchema: JSON.parse(JSON.stringify(_internal.contentSchema)),
       }));
       return {

@@ -1,5 +1,7 @@
 import { isLexicalState, lexicalStateToPlainText } from "@/core/lib/lexicalState";
 
+import { titleField } from "../../core/recordItem";
+
 export type FieldSchema = {
   fieldType:
     | "String"
@@ -26,10 +28,12 @@ export type FieldSchema = {
   items?: { accept?: string[] };
 };
 
-export function collectionFormFields(contentSchema: unknown, label: string) {
+/** The form's fields, the one the record's title starts with first. */
+export function collectionFormFields(contentSchema: unknown, toTitle: string) {
   const schema = contentSchema as { properties: Record<string, FieldSchema> };
+  const first = titleField(toTitle);
   return Object.entries(schema.properties).sort(
-    ([a], [b]) => Number(b === label) - Number(a === label),
+    ([a], [b]) => Number(b === first) - Number(a === first),
   );
 }
 

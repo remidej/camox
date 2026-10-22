@@ -34,7 +34,7 @@ function LogoGridComponent() {
               <li className="flex flex-col items-center gap-2">
                 <customer.Image name="logo">
                   {(props) => (
-                    <img {...props} alt={customer.label} className="h-10 max-w-32 object-contain" />
+                    <img {...props} alt={customer.title} className="h-10 max-w-32 object-contain" />
                   )}
                 </customer.Image>
                 <customer.Field name="company">
