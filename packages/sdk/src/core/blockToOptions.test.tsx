@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import * as React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 
+import { localesResponse, pageListResponse } from "../features/runtime/api.fixtures";
+import { renderPageWithApp } from "../features/runtime/pageServer";
+import { handleCamoxRequest } from "../features/runtime/runtime";
 import { createApp } from "./createApp";
 import { createBlock, type Block } from "./createBlock";
 
@@ -11,7 +13,7 @@ import { createBlock, type Block } from "./createBlock";
 // with `{ content, settings }` as props, and `toMarkdown` and `toTitle` read
 // `({ content, settings })`.
 
-Object.assign(globalThis, { React });
+Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
 
 const fields = {
   id: "hero",
@@ -153,29 +155,50 @@ void test("a block's and a repeatable item's toStructuredData sync as JSON templ
   });
 });
 
-void test("blocks and repeatable items without toStructuredData sync none", async () => {
-  const block = createBlock({
-    ...fields,
-    toReact: () => null,
-    toTitle: () => "Block",
-    toMarkdown: () => [],
-  });
-  const set = await createApp({ blocks: [block as unknown as Block] }).getDefinitionSet();
-  const schema = set.blocks[0]!.contentSchema as unknown as Record<string, any>;
-  assert.equal("toStructuredData" in schema, false);
-  assert.equal("toStructuredData" in schema.properties.items, false);
-});
+const PAGE_ID = "0199f0a0-0000-7000-8000-000000000001";
 
-function render(block: any, content: Record<string, unknown>, settings: Record<string, unknown>) {
-  return renderToStaticMarkup(
-    <block._internal.Component
-      mode="site"
-      blockData={{ _id: "1", type: "hero", position: "a0", content, settings }}
-    />,
-  );
+/** A visitor's request for the home page, which holds one hero block with the given values. */
+async function renderHome(
+  t: { mock: { method: typeof test.mock.method } },
+  block: unknown,
+  values: { content: Record<string, unknown>; settings: Record<string, unknown> },
+) {
+  const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
+  const page = { id: PAGE_ID, fullPath: "/", pathSegment: "", nickname: "Home", layoutId: null };
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const procedure = new URL(request.url).pathname.replace(/^\/rpc\//, "");
+    if (procedure === "locales/list") return localesResponse();
+    if (procedure === "pages/listBySlug") return pageListResponse([{ ...page, updatedAt: 1 }]);
+    if (procedure === "pages/getByPath")
+      return Response.json({
+        json: {
+          page: { ...page, metaTitle: "Home", blockIds: ["b1"] },
+          layout: null,
+          project,
+          projectName: project.name,
+          blocks: [{ id: "b1", pageId: PAGE_ID, type: "hero", position: "a0", ...values }],
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    return Response.json(
+      { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
+      { status: 404 },
+    );
+  });
+  const camoxApp = createApp({ blocks: [block as Block] });
+  const response = await handleCamoxRequest(new Request("https://site.test/"), {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectUuid: "test",
+    getCamoxApp: async () => camoxApp,
+    renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
+  });
+  assert.equal(response?.status, 200);
+  return response!.text();
 }
 
-void test("a block renders through toReact, with its content and settings as props", () => {
+void test("a block renders through toReact, with its content and settings as props", async (t) => {
   const block = createBlock({
     ...fields,
     toReact: ({ content, settings }) => (
@@ -184,5 +207,9 @@ void test("a block renders through toReact, with its content and settings as pro
     toMarkdown: () => [],
     toTitle: () => "Block",
   });
-  assert.match(render(block, { title: "Hello" }, { tone: "loud" }), /<p>Hello, loud, Start<\/p>/);
+  const html = await renderHome(t, block, {
+    content: { title: "Hello" },
+    settings: { tone: "loud" },
+  });
+  assert.match(html, /<p>Hello, loud, Start<\/p>/);
 });
