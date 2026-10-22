@@ -1,4 +1,4 @@
-import { isQueryBacked, isSystemOrderKey } from "@camox/api-contract";
+import { isQueryBacked, isSystemOrderKey, nonStringTemplateFields } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -172,15 +172,15 @@ export const collectionDefinitionInput = z
     }
     const templates = { toTitle: definition.toTitle, toDescription: definition.toDescription };
     for (const [option, template] of Object.entries(templates)) {
-      for (const [, name] of (template ?? "").matchAll(/\{\{([^}]*)\}\}/g)) {
-        // Templates read fields as plain text.
-        if (definition.contentSchema.properties[name!]?.fieldType !== "String") {
-          ctx.addIssue({
-            code: "custom",
-            path: [option],
-            message: `${option}: "${name}" names no String field`,
-          });
-        }
+      for (const name of nonStringTemplateFields(
+        template ?? "",
+        definition.contentSchema.properties,
+      )) {
+        ctx.addIssue({
+          code: "custom",
+          path: [option],
+          message: `${option}: "${name}" names no String field`,
+        });
       }
     }
   })

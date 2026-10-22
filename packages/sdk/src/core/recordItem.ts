@@ -1,4 +1,10 @@
-import { recordLink, type RecordLink } from "@camox/api-contract";
+import {
+  recordLink,
+  type RecordLink,
+  recordText as fillRecordText,
+  type RecordText,
+  templateFields,
+} from "@camox/api-contract";
 
 import type { Collection } from "./createCollection";
 import type { RecordPageValues } from "./layoutContext";
@@ -85,16 +91,9 @@ export function recordPageValues(collection: Collection, record: LoadedRecord): 
 export function recordText(
   collection: Pick<Collection, "_internal"> | undefined,
   content: Record<string, unknown>,
-): { title: string; description: string | null } {
-  const fill = (template: string) =>
-    template
-      .replace(/\{\{([^}]*)\}\}/g, (_token, name: string) => fieldPlainText(content[name]))
-      .trim();
-  const toDescription = collection?._internal.toDescription;
-  return {
-    title: collection ? fill(collection._internal.toTitle) : "",
-    description: (toDescription && fill(toDescription)) || null,
-  };
+): RecordText {
+  if (!collection) return { title: "", description: null };
+  return fillRecordText(collection._internal, (name) => fieldPlainText(content[name]));
 }
 
 /**
@@ -102,7 +101,7 @@ export function recordText(
  * `{{firstName}} {{lastName}}`: where a new record's name goes.
  */
 export function titleField(toTitle: string): string | undefined {
-  return /\{\{([^}]*)\}\}/.exec(toTitle)?.[1];
+  return templateFields(toTitle)[0];
 }
 
 /** A String field's text, whether it is stored as plain text or rich-text state. */

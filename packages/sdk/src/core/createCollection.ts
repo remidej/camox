@@ -1,4 +1,8 @@
-import { SYSTEM_ORDER_KEYS, type SystemOrderKey } from "@camox/api-contract";
+import {
+  nonStringTemplateFields,
+  SYSTEM_ORDER_KEYS,
+  type SystemOrderKey,
+} from "@camox/api-contract";
 import { Type as TypeBox, type Static, type TObject, type TSchema } from "@sinclair/typebox";
 
 import type { LayoutCollectionItemResult, LayoutRoutesResult, RecordPages } from "./createLayout";
@@ -82,11 +86,10 @@ export function createCollection<
   if (toTitle === null) throw new Error(`Collection "${options.id}": toTitle returned nothing`);
   const toDescription = resolveRecordTemplate(options.toDescription, content);
   for (const template of [toTitle, toDescription]) {
-    for (const [, name] of (template ?? "").matchAll(/\{\{([^}]*)\}\}/g)) {
-      // Templates read fields as plain text: a token of a reference's field names no field here.
-      if (content[name!]?.fieldType !== "String")
-        throw new Error(`Collection "${options.id}": "${name}" names no String field`);
-    }
+    // Templates read fields as plain text: a token of a reference's field names no field here.
+    const [name] = nonStringTemplateFields(template ?? "", content);
+    if (name !== undefined)
+      throw new Error(`Collection "${options.id}": "${name}" names no String field`);
   }
   const id = options.id;
   return {

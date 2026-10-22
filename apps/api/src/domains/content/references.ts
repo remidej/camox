@@ -1,3 +1,4 @@
+import { recordText as fillRecordText, type RecordText } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -126,26 +127,18 @@ function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1, textOrder: Intl.C
   return textOrder.compare(a.key, b.key) * sign || byId;
 }
 
-/** How a record names itself: its title, and its description, or null when it has none. */
-export type RecordText = { title: string; description: string | null };
+export type { RecordText };
 
 /** A record's title and description: its collection's templates filled with its plain text. */
 export function recordText(
   definition: Pick<CollectionDefinition, "toTitle" | "toDescription">,
   content: Record<string, unknown>,
 ): RecordText {
-  const fill = (template: string) =>
-    template
-      .replace(/\{\{([^}]*)\}\}/g, (_token, name: string) => {
-        const value = content[name];
-        if (typeof value !== "string" && (typeof value !== "object" || value === null)) return "";
-        return lexicalStateToPlainText(value as string | Record<string, unknown>);
-      })
-      .trim();
-  return {
-    title: fill(definition.toTitle),
-    description: (definition.toDescription && fill(definition.toDescription)) || null,
-  };
+  return fillRecordText(definition, (name) => {
+    const value = content[name];
+    if (typeof value !== "string" && (typeof value !== "object" || value === null)) return "";
+    return lexicalStateToPlainText(value as string | Record<string, unknown>);
+  });
 }
 
 /** What one holder's reference field resolves to, before records load. */
