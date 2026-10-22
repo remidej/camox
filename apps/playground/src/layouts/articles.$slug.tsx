@@ -26,7 +26,7 @@ export const Layout = createLayout("articles.$slug")({
 
 function ArticlePage() {
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
+    <div className="bg-canvas text-ink flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
       <main className="mx-auto w-full max-w-3xl flex-1 px-5 pb-12 sm:px-8">
         <Layout.Item>
@@ -48,7 +48,7 @@ function ArticlePage() {
                 )}
               </article.Reference>
               <article.Field name="excerpt">
-                {(props) => <p {...props} className="text-muted-foreground mt-4 text-lg" />}
+                {(props) => <p {...props} className="text-ink-muted mt-4 text-lg" />}
               </article.Field>
               <article.Image name="cover">
                 {(props) => <img {...props} className="mt-8 w-full rounded-lg object-cover" />}

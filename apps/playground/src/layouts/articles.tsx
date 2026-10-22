@@ -15,7 +15,7 @@ export const Layout = createLayout("articles")({
 
 function ArticlesPage() {
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
+    <div className="bg-canvas text-ink flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
       <div className="flex-1" />
       <Layout.AfterBlocks />

@@ -21,14 +21,11 @@ const logoGrid = createBlock({
 
 function LogoGridComponent() {
   return (
-    <section className="bg-background py-16">
-      <div className="container mx-auto px-4">
+    <section className="bg-canvas py-16">
+      <div className="max-w-page px-gutter mx-auto">
         <logoGrid.Field name="title">
           {(props) => (
-            <h2
-              {...props}
-              className="text-muted-foreground mb-10 text-center text-sm font-semibold tracking-wide uppercase"
-            />
+            <h2 {...props} className="text-eyebrow text-ink-muted mb-10 text-center uppercase" />
           )}
         </logoGrid.Field>
         <ul className="grid grid-cols-2 items-center gap-8 sm:grid-cols-3 lg:grid-cols-6">
@@ -41,7 +38,7 @@ function LogoGridComponent() {
                   )}
                 </customer.Image>
                 <customer.Field name="company">
-                  {(props) => <span {...props} className="text-muted-foreground text-sm" />}
+                  {(props) => <span {...props} className="text-ink-muted text-sm" />}
                 </customer.Field>
               </li>
             )}

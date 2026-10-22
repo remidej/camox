@@ -1,13 +1,33 @@
-import type { ClassValue } from "clsx";
-import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { clsx, type ClassValue } from "clsx";
+import { extendTailwindMerge } from "tailwind-merge";
 
-export function cn(...inputs: Array<ClassValue>) {
+// Teaches tailwind-merge the Theme's token names (see src/styles.css), so it knows that
+// `text-title` is a size and `text-ink` a color, and merges each against its own kind.
+// Add a name here when adding a token to the Theme.
+const twMerge = extendTailwindMerge({
+  extend: {
+    theme: {
+      color: [
+        "canvas",
+        "panel",
+        "ink",
+        "ink-muted",
+        "line",
+        "brand",
+        "ink-on-brand",
+        "success",
+        "warning",
+        "error",
+      ],
+      text: ["display", "heading", "title", "lead", "eyebrow"],
+      font: ["heading", "body"],
+      radius: ["control", "card"],
+      container: ["page", "text"],
+      spacing: ["gutter", "section", "navbar"],
+    },
+  },
+});
+
+export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-// Keep in sync with packages/sdk/src/lib/utils.tsx
-export const INPUT_FOCUS_STYLES =
-  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive";
-export const INPUT_BASE_STYLES =
-  "border-input placeholder:text-muted-foreground rounded-md border bg-transparent text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";

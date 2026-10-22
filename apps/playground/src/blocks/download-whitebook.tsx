@@ -1,7 +1,9 @@
 import { createBlock } from "camox/createBlock";
 import { Download } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { Container } from "@/components/ui/container";
+import { Section } from "@/components/ui/section";
 
 const downloadWhitebook = createBlock({
   id: "download-whitebook",
@@ -38,51 +40,41 @@ const downloadWhitebook = createBlock({
 
 function DownloadWhitebookComponent() {
   return (
-    <section className="bg-background py-24">
-      <div className="container mx-auto px-4">
+    <Section scheme="light">
+      <Container>
         <div className="mx-auto flex max-w-5xl flex-col lg:flex-row lg:items-center lg:gap-16">
           <downloadWhitebook.Image name="cover">
             {(props) => (
               <img
                 {...props}
-                className="mb-10 w-full max-w-xs rounded-lg shadow-lg lg:mb-0 lg:max-w-sm"
+                className="rounded-card mb-10 w-full max-w-xs shadow-lg lg:mb-0 lg:max-w-sm"
               />
             )}
           </downloadWhitebook.Image>
           <div className="flex-1">
             <downloadWhitebook.Field name="title">
-              {(props) => (
-                <h2
-                  {...props}
-                  className="text-foreground mb-4 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
-                />
-              )}
+              {(props) => <h2 {...props} className="text-heading mb-4" />}
             </downloadWhitebook.Field>
             <downloadWhitebook.Field name="description">
-              {(props) => (
-                <p {...props} className="text-muted-foreground mb-8 text-lg leading-relaxed" />
-              )}
+              {(props) => <p {...props} className="text-lead text-ink-muted mb-8" />}
             </downloadWhitebook.Field>
             <downloadWhitebook.File name="file">
               {(fileProps) => (
                 <downloadWhitebook.Field name="cta">
                   {(ctaProps) => (
-                    <Button
-                      size="lg"
-                      nativeButton={false}
-                      render={<a {...fileProps} {...ctaProps} />}
-                    >
-                      <Download className="mr-2 h-5 w-5" />
+                    // A plain <a>: the file's URL is a download, not a page of the site.
+                    <a {...fileProps} {...ctaProps} className={buttonVariants({ size: "lg" })}>
+                      <Download className="size-5" />
                       {ctaProps.children}
-                    </Button>
+                    </a>
                   )}
                 </downloadWhitebook.Field>
               )}
             </downloadWhitebook.File>
           </div>
         </div>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }
 
