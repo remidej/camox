@@ -544,7 +544,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
                     <button
                       type="button"
                       className={cn(
-                        "hover:text-foreground flex h-7 min-w-0 cursor-pointer items-center truncate text-left transition-colors",
+                        "hover:text-foreground block h-7 max-w-full cursor-pointer truncate text-left leading-7 transition-colors",
                         item.isCurrent && "text-foreground font-medium",
                       )}
                       onClick={item.onClick}
