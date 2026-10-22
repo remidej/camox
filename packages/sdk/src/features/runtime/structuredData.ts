@@ -5,12 +5,23 @@ import {
   defineWebSite,
 } from "@unhead/schema-org";
 
+import {
+  isArticle,
+  isCreativeWork,
+  isWebPageKind,
+  type LayoutStructuredData,
+  type MainEntity,
+  type WebPageKind,
+} from "../../core/structuredData";
+
 /**
  * Structured Data: the JSON-LD graph in each page's head. The runtime assembles it with
  * `@unhead/schema-org` from what Camox knows about the website and the page.
  *
  * To grow the graph, add what it's built from to `PageGraphInput` and the nodes it gives to
- * `graphNodes`: the site's nodes come from `siteNodes`, the page's from `pageNode`.
+ * `graphNodes`: the site's nodes come from `siteNodes`, the page's from `pageNode`, and the
+ * layout's main entity from `mainEntityNode`. Definitions' nodes are typed by Camox's vocabulary,
+ * in `core/structuredData`.
  */
 
 /** The website, the same on every page of a locale. */
@@ -45,6 +56,8 @@ export interface PageNodeInput {
 export interface PageGraphInput {
   site: SiteGraphInput;
   page: PageNodeInput;
+  /** What the page's layout says the page is. */
+  declared?: LayoutStructuredData;
 }
 
 /** A JSON-LD document holding one graph. */
@@ -78,11 +91,18 @@ function siteNodes(site: SiteGraphInput, inLanguage: string) {
   ];
 }
 
-/** The page's own node, part of the WebSite. */
-function pageNode(page: PageNodeInput, site: SiteGraphInput) {
+/** The `@id`s of a page's nodes, derived from its URL. */
+function pageNodeIds(pageUrl: string) {
+  return { page: `${pageUrl}#webpage`, mainEntity: `${pageUrl}#main-entity` };
+}
+
+/** The page's own node, part of the WebSite, of the kind its layout says, or a plain WebPage. */
+function pageNode(page: PageNodeInput, site: SiteGraphInput, declared?: LayoutStructuredData) {
+  const kind: WebPageKind | undefined = declared && isWebPageKind(declared) ? declared : undefined;
   return defineWebPage({
-    "@type": "WebPage",
-    "@id": `${page.url}#webpage`,
+    ...kind,
+    "@type": kind?.["@type"] ?? "WebPage",
+    "@id": pageNodeIds(page.url).page,
     url: page.url,
     name: page.name,
     ...(page.description && { description: page.description }),
@@ -91,12 +111,41 @@ function pageNode(page: PageNodeInput, site: SiteGraphInput) {
     ...(page.image && { primaryImageOfPage: { url: page.image } }),
     ...(page.datePublished && { datePublished: page.datePublished.toISOString() }),
     ...(page.dateModified && { dateModified: page.dateModified.toISOString() }),
+    ...(declared && !kind && { mainEntity: { "@id": pageNodeIds(page.url).mainEntity } }),
   });
 }
 
+/**
+ * The thing a page is about, as its own node, filled from the page where its layout leaves
+ * properties out: its name or headline, description, URL and image for every type, and its
+ * dates, publisher and language for creative works.
+ */
+function mainEntityNode(entity: MainEntity, page: PageNodeInput, site: SiteGraphInput) {
+  const work = isCreativeWork(entity);
+  return {
+    ...(isArticle(entity) ? { headline: page.name } : { name: page.name }),
+    ...(page.description && { description: page.description }),
+    url: page.url,
+    ...(page.image && { image: page.image }),
+    ...(work && {
+      ...(page.datePublished && { datePublished: page.datePublished.toISOString() }),
+      ...(page.dateModified && { dateModified: page.dateModified.toISOString() }),
+      publisher: { "@id": siteNodeIds(site.url).organization },
+      inLanguage: page.inLanguage,
+    }),
+    ...entity,
+    "@id": pageNodeIds(page.url).mainEntity,
+    mainEntityOfPage: { "@id": pageNodeIds(page.url).page },
+  };
+}
+
 /** Every node a page's graph holds, before they are resolved and linked. */
-function graphNodes(input: PageGraphInput) {
-  return [...siteNodes(input.site, input.page.inLanguage), pageNode(input.page, input.site)];
+function graphNodes({ site, page, declared }: PageGraphInput) {
+  return [
+    ...siteNodes(site, page.inLanguage),
+    pageNode(page, site, declared),
+    ...(declared && !isWebPageKind(declared) ? [mainEntityNode(declared, page, site)] : []),
+  ];
 }
 
 /** A page's graph, resolved into JSON-LD. */

@@ -45,16 +45,17 @@ export { myLayout as layout };
 
 ## The `createLayout` options
 
-| Option          | Required | Description                                                                                            |
-| --------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `id`            | yes      | Unique kebab-case identifier matching the filename without extension.                                  |
-| `title`         | yes      | CMS display name.                                                                                      |
-| `description`   | yes      | Guidance for users and agents on which pages suit this layout.                                         |
-| `blocks`        | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.                         |
-| `toReact`       | yes      | Named function component receiving the context and `{ children }` as props.                            |
-| `toTitle`       | yes      | `(context) => string`: the head title, `og:title`, and the Markdown front matter's `title`.            |
-| `toDescription` | yes      | `(context) => string \| undefined`: the head description and `og:description`. May return `undefined`. |
-| `toImage`       | no       | `(context) => JSX`: the sharing image; see below.                                                      |
+| Option             | Required | Description                                                                                            |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------ |
+| `id`               | yes      | Unique kebab-case identifier matching the filename without extension.                                  |
+| `title`            | yes      | CMS display name.                                                                                      |
+| `description`      | yes      | Guidance for users and agents on which pages suit this layout.                                         |
+| `blocks`           | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.                         |
+| `toReact`          | yes      | Named function component receiving the context and `{ children }` as props.                            |
+| `toTitle`          | yes      | `(context) => string`: the head title, `og:title`, and the Markdown front matter's `title`.            |
+| `toDescription`    | yes      | `(context) => string \| undefined`: the head description and `og:description`. May return `undefined`. |
+| `toImage`          | no       | `(context) => JSX`: the sharing image; see below.                                                      |
+| `toStructuredData` | no       | `(context) => node \| undefined`: what the page is, in its JSON-LD; see below.                         |
 
 ## The `to*` options and their context
 
@@ -108,3 +109,24 @@ toImage: ({ page, project }) => (
 ```
 
 The site serves the image at `/og?path=<page path>` for real pages only, rendered from the page as it is published. An editor's custom image replaces it, and a layout without one gets Camox's default image showing the page title and project name.
+
+## Structured Data — `toStructuredData` (optional)
+
+Every page's head carries a JSON-LD graph that Camox builds itself: the project's `Organization` and `WebSite`, and a `WebPage` named and described by `toTitle` and `toDescription`, with its URL, language, image and publish dates. `toStructuredData` only says what the page is. Return one of:
+
+- **A kind of web page**, which the page's node becomes: `AboutPage`, `ContactPage`, `CollectionPage`, `FAQPage`, `ProfilePage`, `ItemPage`, `QAPage`, `SearchResultsPage`, `CheckoutPage`, `MedicalWebPage` or `RealEstateListing`.
+- **A main entity**, emitted as its own node and linked as the page's `mainEntity`: an Article type (`BlogPosting`, `NewsArticle`, `TechArticle`, …), `Product`, `Event`, `Person`, `Place`, `Review`, `Question`, `HowTo`, `Recipe`, `Course`, `JobPosting`, `SoftwareApplication`, `VideoObject`, `ImageObject`, `Book`, `Service`, …. Camox fills what you leave out: the name (an Article's `headline`), description, URL and image, plus the dates, publisher and language of creative works. Values you set win. An Article makes `og:type` `article`.
+
+```tsx
+toStructuredData: () => ({ "@type": "AboutPage" }),
+// A derived layout: the post is the page's main entity.
+toStructuredData: ({ data }) => ({ "@type": "BlogPosting", wordCount: data.wordCount }),
+toStructuredData: ({ data }) => ({
+  "@type": "Product",
+  offers: { price: data.price, priceCurrency: "EUR" },
+}),
+```
+
+- Only the listed types type-check, each with only its schema.org properties. There's no way out to the rest of schema.org.
+- Properties search engines require and Camox can't fill are required, such as a `Product`'s `offers`, `review` or `aggregateRating`, an `Event`'s `startDate` and `location`, and a `JobPosting`'s `datePosted` and `hiringOrganization`.
+- Layouts can't return `Organization` or `WebSite`: Camox builds the website's own from the project.

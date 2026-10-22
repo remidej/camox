@@ -11,6 +11,7 @@ import { RecordScope } from "./lib/recordScope";
 import type { ReferenceScope } from "./lib/reference";
 import { asCollectionItem, fieldPlainText } from "./recordItem";
 import type { CollectionRecordId, LayoutRequestContext, LoadedRecord } from "./requestContext";
+import type { KnownPropertiesOnly, LayoutStructuredData } from "./structuredData";
 
 export type { LayoutRequestContext } from "./requestContext";
 export type {
@@ -20,6 +21,13 @@ export type {
   LoadedLayoutContext,
   RecordLayoutContext,
 } from "./layoutContext";
+export type {
+  LayoutStructuredData,
+  MainEntity,
+  StructuredDataNode,
+  StructuredDataType,
+  WebPageKind,
+} from "./structuredData";
 
 /* -------------------------------------------------------------------------------------------------
  * createLayout
@@ -247,11 +255,17 @@ type Renamed<Old, New> =
   | (New & { [K in keyof Old]?: never });
 
 /**
- * A layout's outputs, each receiving the page's context: `toReact`, `toTitle`, `toDescription`
- * and `toImage`. The old names (`component`, `buildMetaTitle`, `buildMetaDescription`,
- * `buildOgImage`) still work, but never beside their new ones.
+ * A layout's outputs, each receiving the page's context: `toReact`, `toTitle`, `toDescription`,
+ * `toImage` and `toStructuredData`. The old names (`component`, `buildMetaTitle`,
+ * `buildMetaDescription`, `buildOgImage`) still work, but never beside their new ones.
  */
-type LayoutOutputs<Context, Children, OldTitle, OldDescription> = Renamed<
+type LayoutOutputs<
+  Context,
+  Children,
+  OldTitle,
+  OldDescription,
+  Declared extends LayoutStructuredData | undefined,
+> = Renamed<
   { component: React.ComponentType<Children> },
   { toReact: React.ComponentType<Context & Children> }
 > &
@@ -263,7 +277,17 @@ type LayoutOutputs<Context, Children, OldTitle, OldDescription> = Renamed<
   Renamed<
     { buildOgImage?: (params: OgImageParams) => React.ReactElement },
     { toImage?: (context: Context) => React.ReactElement }
-  >;
+  > & {
+    /**
+     * What the page is: a kind of web page (`AboutPage`, `ContactPage`, …), which its node
+     * becomes, or a main entity (`BlogPosting`, `Product`, `Event`, …), which Camox emits as the
+     * page's `mainEntity`. Camox fills the main entity's name or headline, description, URL,
+     * image, dates, publisher and language where the layout leaves them out.
+     */
+    toStructuredData?: (
+      context: Context,
+    ) => Declared & KnownPropertiesOnly<Declared, LayoutStructuredData>;
+  };
 
 /** The collection a layout's record pages render, and the field each record is found by. */
 export type RecordPages = { collectionId: string; field: string };
@@ -292,6 +316,7 @@ type CreateLayoutOptions<
   TAfter extends readonly LayoutBlock[],
   TInitial extends readonly InitialBlockImport[],
   Result extends LoaderReturn = LoaderReturn,
+  Declared extends LayoutStructuredData | undefined = LayoutStructuredData | undefined,
 > = LayoutBaseOptions<TBefore, TAfter, TInitial> & {
   kind?: "curated" | "derived" | "singleton";
   loader?: (context: LayoutLoaderContext) => Result;
@@ -305,7 +330,8 @@ type CreateLayoutOptions<
     LoadedContext<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
     { children: React.ReactNode },
     BuildMetaTitle<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
-    BuildMetaDescription<LoaderData<Result>, Record<string, string>, RecordFields<Result>>
+    BuildMetaDescription<LoaderData<Result>, Record<string, string>, RecordFields<Result>>,
+    Declared
   >;
 
 /** Every option a layout may define, as the implementation reads them. */
@@ -323,6 +349,7 @@ type AnyLayoutOptions = LayoutBaseOptions<any, any, any> & {
   toDescription?: (context: any) => string | undefined;
   buildOgImage?: (params: OgImageParams) => React.ReactElement;
   toImage?: (context: any) => React.ReactElement;
+  toStructuredData?: (context: any) => LayoutStructuredData | undefined;
 };
 
 /** The old metadata callbacks, run with the context the new options receive. */
@@ -584,6 +611,9 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
         | undefined,
       /** The page's shared image, which `/og` renders. Without one, Camox's default image. */
       toImage,
+      /** What the page is, from the page's context. Without it, a plain web page. */
+      toStructuredData: (context: AnyLayoutContext): LayoutStructuredData | undefined =>
+        options.toStructuredData?.(context),
       blockDefinitions,
       loadInitialBlockBundles,
       /** Renders the layout around the page, with the page's context as props. */
@@ -623,6 +653,7 @@ type FileOptions<
   B extends readonly LayoutBlock[],
   A extends readonly LayoutBlock[],
   I extends readonly InitialBlockImport[],
+  Declared extends LayoutStructuredData | undefined,
 > = Omit<LayoutBaseOptions<B, A, I>, "id"> &
   (
     | ({
@@ -635,7 +666,8 @@ type FileOptions<
         CuratedLayoutContext,
         { children: React.ReactNode },
         BuildMetaTitle<undefined, Record<string, never>>,
-        BuildMetaDescription<undefined, Record<string, never>>
+        BuildMetaDescription<undefined, Record<string, never>>,
+        Declared
       >)
     | ({
         kind: "singleton";
@@ -656,7 +688,8 @@ type FileOptions<
         LoadedContext<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
         { children?: never },
         BuildMetaTitle<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
-        BuildMetaDescription<LoaderData<Result>, Record<string, never>, RecordFields<Result>>
+        BuildMetaDescription<LoaderData<Result>, Record<string, never>, RecordFields<Result>>,
+        Declared
       >)
     | ({
         kind: "derived";
@@ -673,7 +706,8 @@ type FileOptions<
         LoadedContext<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
         { children?: never },
         BuildMetaTitle<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
-        BuildMetaDescription<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>
+        BuildMetaDescription<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>,
+        Declared
       >)
   );
 
@@ -682,7 +716,8 @@ export function createLayout<
   const A extends readonly LayoutBlock[],
   const I extends readonly InitialBlockImport[] = [],
   Result extends LoaderReturn = never,
->(options: CreateLayoutOptions<B, A, I, Result>): LayoutFor<Result>;
+  Declared extends LayoutStructuredData | undefined = undefined,
+>(options: CreateLayoutOptions<B, A, I, Result, Declared>): LayoutFor<Result>;
 export function createLayout<const Id extends string>(
   id: Id,
 ): <
@@ -690,10 +725,13 @@ export function createLayout<const Id extends string>(
   const B extends readonly LayoutBlock[] = [],
   const A extends readonly LayoutBlock[] = [],
   const I extends readonly InitialBlockImport[] = [],
+  Declared extends LayoutStructuredData | undefined = undefined,
 >(
-  options: FileOptions<Id, Result, B, A, I>,
+  options: FileOptions<Id, Result, B, A, I, Declared>,
 ) => LayoutFor<Result>;
-export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any, any>): any {
+export function createLayout(
+  idOrOptions: string | CreateLayoutOptions<any, any, any, any, any>,
+): any {
   if (typeof idOrOptions !== "string")
     return createLayoutDefinition(idOrOptions as AnyLayoutOptions);
   return (options: AnyLayoutOptions) => createLayoutDefinition({ ...options, id: idOrOptions });

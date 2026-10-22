@@ -18,6 +18,7 @@ import {
   type LayoutRequestContext,
   type RecordLookup,
 } from "../../core/requestContext";
+import type { LayoutStructuredData } from "../../core/structuredData";
 import { draftNamedBy } from "../../lib/draft-scope";
 import { serializeJsonForHtml } from "../../lib/html";
 import {
@@ -41,6 +42,8 @@ import {
   buildPageHead,
   buildPageMeta,
   createMarkdownResponse,
+  curatedPageMetaInput,
+  declarePage,
   parseMarkdownPath,
   createServerApiClient,
   createServerStudioCache,
@@ -834,18 +837,28 @@ async function readAlternates<Head extends PageHead | null>(
   };
 }
 
-/** What a page's Structured Data says beyond its head: its project, and when it was published. */
+/**
+ * What a page's Structured Data says beyond its head: its project, when it was published, and
+ * what its layout says it is.
+ */
 interface PageDescription {
   project: { id: number; name: string; updatedAt: number | string };
   /** The page's first and last publish times on Live, in milliseconds. */
   published?: { first?: number | null; last?: number | null };
+  declared?: LayoutStructuredData;
 }
 
 /** What a curated page's Structured Data says beyond its head. */
-function curatedPageDescription({ page, project, projectName }: PageStructure): PageDescription {
+function curatedPageDescription(
+  camoxApp: CamoxApp | undefined,
+  structure: PageStructure,
+  locale: LocaleView,
+): PageDescription {
+  const { page, project, projectName } = structure;
   return {
     project: { ...project, name: projectName },
     published: { first: page.firstPublishedAt, last: page.publishedAt },
+    declared: declarePage(curatedPageMetaInput(camoxApp, structure, locale)),
   };
 }
 
@@ -862,7 +875,7 @@ function withStructuredData(
   head: PageHead,
   place: { url: string; locale: string },
   site: SiteGraphInput,
-  { published }: PageDescription,
+  { published, declared }: PageDescription,
 ): PageHead {
   const name = head.meta?.find((entry) => entry.title)?.title ?? "";
   const graph = buildPageGraph({
@@ -876,6 +889,7 @@ function withStructuredData(
       ...(published?.first && { datePublished: new Date(published.first) }),
       ...(published?.last && { dateModified: new Date(published.last) }),
     },
+    declared,
   });
   return {
     ...head,
@@ -1054,7 +1068,7 @@ async function createPageHtmlResponse({
       located,
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {},
-      described: curatedPageDescription(result.data.page),
+      described: curatedPageDescription(camoxApp, result.data.page, located.locale),
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: result.draftId,
     });
@@ -1364,6 +1378,20 @@ async function createDerivedResponse(
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
+    const pageMeta = {
+      layout: match.layout._internal,
+      context: buildLayoutContext(match.layout._internal, {
+        path: pathname,
+        locale: located.locale.tag,
+        projectName: shared.projectName,
+        data: serializedResult?.data,
+        params: match.params,
+        record:
+          record && recordCollection
+            ? recordPageValues(recordCollection, record.data.content)
+            : undefined,
+      }),
+    };
     const { alternates, head: pageHead } = await readAlternates(request, options, {
       located,
       identity:
@@ -1371,23 +1399,15 @@ async function createDerivedResponse(
           ? { kind: "record", layout: match.layout, recordId: record.data.id }
           : { kind: "code-owned" },
       head: buildPageHead({
-        layout: match.layout._internal,
-        context: buildLayoutContext(match.layout._internal, {
-          path: pathname,
-          locale: located.locale.tag,
-          projectName: shared.projectName,
-          data: serializedResult?.data,
-          params: match.params,
-          record:
-            record && recordCollection
-              ? recordPageValues(recordCollection, record.data.content)
-              : undefined,
-        }),
+        ...pageMeta,
         origin: new URL(request.url).origin,
         faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
         hasMarkdown: match.layout._internal.toMarkdown !== undefined,
       }),
-      described: { project: { ...shared.project, name: shared.projectName } },
+      described: {
+        project: { ...shared.project, name: shared.projectName },
+        declared: declarePage(pageMeta),
+      },
       authCookieHeader,
       draftId: read.draftId,
     });
@@ -1668,7 +1688,7 @@ async function createPageDataResponse({
       located,
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null,
-      described: curatedPageDescription(result.data.page),
+      described: curatedPageDescription(camoxApp, result.data.page, located.locale),
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: result.draftId,
     });
