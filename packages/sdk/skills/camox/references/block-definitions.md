@@ -294,6 +294,15 @@ items: field.repeater({
 toStructuredData: ({ content }) => content.items,
 ```
 
+Settings show a part of the template only while they hold: a Boolean setting takes the part, an Enum setting the option it must equal, then the part. The part is left out otherwise, and a list it shows inside a list adds its entries:
+
+```tsx
+toStructuredData: ({ content, settings }) => [
+  { "@type": "Product", name: content.name, description: settings.variant("detailed", content.description), offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" } },
+  settings.showFaq(content.questions),
+],
+```
+
 ## Rendering in the Component
 
 Field renderers receive `(props, data)`:

@@ -80,3 +80,25 @@ export function isPageUrlMarker(value: unknown): value is PageUrlMarker {
     typeof (value as { path?: unknown }).path === "string"
   );
 }
+
+/**
+ * A part of a block's or repeatable item's template shown only while one of its settings holds:
+ * a Boolean setting is on, or an Enum setting `equals` a value. The API evaluates `show` when it
+ * does and leaves the part out otherwise; a list in a list adds its entries.
+ */
+export type SettingCondition = {
+  "@camox": "if";
+  setting: `settings.${string}` | `itemSettings.${string}`;
+  equals?: string;
+  show: unknown;
+};
+
+/** Whether a template's value is shown only under a setting. */
+export function isSettingCondition(value: unknown): value is SettingCondition {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { "@camox"?: unknown })["@camox"] === "if" &&
+    typeof (value as { setting?: unknown }).setting === "string"
+  );
+}

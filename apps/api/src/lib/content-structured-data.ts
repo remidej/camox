@@ -1,4 +1,9 @@
-import type { EvaluatedNode, StructuredDataValue } from "@camox/api-contract";
+import {
+  type EvaluatedNode,
+  isSettingCondition,
+  type SettingCondition,
+  type StructuredDataValue,
+} from "@camox/api-contract";
 
 import { pointersOf, readField } from "../domains/_shared/fields";
 import type { ResolvedReference, ResolvedReferences } from "../domains/content/reader";
@@ -66,11 +71,15 @@ function evaluate(
   ctx: StructuredDataContext,
 ): Value {
   if (typeof template === "string") return evaluateString(template, properties, content, ctx);
+  if (isSettingCondition(template)) {
+    return holds(template, ctx) ? evaluate(template.show, properties, content, ctx) : undefined;
+  }
   if (Array.isArray(template)) {
     const values = template.flatMap((entry) => {
       const value = evaluate(entry, properties, content, ctx);
-      // A repeater's token in a list adds its items' nodes to the list.
-      if (Array.isArray(value) && typeof entry === "string") return value;
+      // A repeater's token, or a list shown under a setting, adds its entries to the list.
+      if (Array.isArray(value) && (typeof entry === "string" || isSettingCondition(entry)))
+        return value;
       return value === undefined ? [] : [value];
     });
     return values.length > 0 ? values : undefined;
@@ -85,6 +94,13 @@ function evaluate(
   }
   if (typeof template === "number" || typeof template === "boolean") return template;
   return undefined;
+}
+
+/** Whether the setting a part of a template is shown under holds: on, or equal to its value. */
+function holds({ setting, equals }: SettingCondition, ctx: StructuredDataContext) {
+  const [root, name] = setting.split(".") as ["settings" | "itemSettings", string];
+  const value = (root === "settings" ? ctx.settings : ctx.itemSettings)?.[name];
+  return equals === undefined ? Boolean(value) : value === equals;
 }
 
 function evaluateString(

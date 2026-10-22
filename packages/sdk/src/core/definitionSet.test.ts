@@ -160,6 +160,64 @@ void test("without initial blocks, the homepage is empty on the first curated la
   assert.deepEqual(homepage, { layoutId: "first", blocks: [], hasInitialBlocks: false });
 });
 
+void test("block and item Structured Data sync what settings show as conditions the API evaluates", async () => {
+  const promo = createBlock({
+    id: "promo",
+    title: "Promo",
+    description: "A product",
+    content: (field: ContentFieldBuilder) => ({
+      name: field.string({ default: "Laptop" }),
+      items: field.repeater({
+        content: (item) => ({ question: item.string({ default: "Why?" }) }),
+        settings: (setting) => ({ answered: setting.boolean({ default: true }) }),
+        minItems: 1,
+        maxItems: 3,
+        toMarkdown: () => [],
+        toTitle: () => "Item",
+        toStructuredData: ({ content, settings }) => ({
+          "@type": "Question",
+          name: content.question,
+          acceptedAnswer: settings.answered({ "@type": "Answer", text: "Yes" }),
+        }),
+      }),
+    }),
+    settings: (setting) => ({
+      featured: setting.boolean({ default: false }),
+      tone: setting.enum({ default: "quiet", options: { quiet: "Quiet", loud: "Loud" } }),
+    }),
+    toReact: () => null,
+    toMarkdown: () => [],
+    toTitle: () => "Promo",
+    toStructuredData: ({ content, settings }) => [
+      {
+        "@type": "Product",
+        name: content.name,
+        description: settings.tone("loud", content.name),
+        offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+      },
+      settings.featured(content.items),
+    ],
+  }) as unknown as Block;
+
+  const set = await createApp({ blocks: [promo] }).getDefinitionSet();
+
+  const schema = set.blocks[0]!.contentSchema as Record<string, any>;
+  assert.deepEqual(schema.toStructuredData, [
+    {
+      "@type": "Product",
+      name: "{{name}}",
+      description: { "@camox": "if", setting: "settings.tone", equals: "loud", show: "{{name}}" },
+      offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+    },
+    { "@camox": "if", setting: "settings.featured", show: "{{items}}" },
+  ]);
+  assert.deepEqual(schema.properties.items.toStructuredData.acceptedAnswer, {
+    "@camox": "if",
+    setting: "itemSettings.answered",
+    show: { "@type": "Answer", text: "Yes" },
+  });
+});
+
 void test("without a curated layout, the Definition Set declares no homepage", async () => {
   const app = createApp({ blocks: [], layouts: [singleton()] });
 

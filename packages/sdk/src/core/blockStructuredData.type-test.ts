@@ -84,6 +84,77 @@ createBlock({
   }),
 });
 
+/* Settings show parts of a template only while they hold, typed as the part they show. */
+
+createBlock({
+  ...base,
+  id: "settings",
+  content,
+  settings: (setting) => ({
+    featured: setting.boolean({ default: false }),
+    tone: setting.enum({ default: "quiet", options: { quiet: "Quiet", loud: "Loud" } }),
+  }),
+  toStructuredData: ({ content, settings }) => [
+    {
+      "@type": "Product",
+      name: content.name,
+      description: settings.featured("Best seller"),
+      sku: settings.tone("loud", content.name),
+      offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+    },
+    settings.featured({
+      "@type": "VideoObject",
+      name: content.name,
+      embedUrl: content.video,
+      thumbnailUrl: "https://acme.test/thumbnail.png",
+      uploadDate: "2026-01-01",
+    }),
+    settings.featured(content.questions),
+  ],
+});
+createBlock({
+  ...base,
+  id: "settings-unknown-value",
+  content,
+  settings: (setting) => ({
+    tone: setting.enum({ default: "quiet", options: { quiet: "Quiet", loud: "Loud" } }),
+  }),
+  toStructuredData: ({ content, settings }) => ({
+    "@type": "Person",
+    // @ts-expect-error An Enum setting holds one of its options.
+    name: settings.tone("shouty", content.name),
+  }),
+});
+createBlock({
+  ...base,
+  id: "settings-invented",
+  content,
+  settings: (setting) => ({ featured: setting.boolean({ default: false }) }),
+  // @ts-expect-error What a setting shows is checked against Camox's vocabulary too.
+  toStructuredData: ({ content, settings }) =>
+    settings.featured({ "@type": "Spaceship", name: content.name }),
+});
+createBlock({
+  ...base,
+  id: "item-settings",
+  content: (field) => ({
+    items: field.repeater({
+      content: (item) => ({ name: item.string({ default: "Ada" }) }),
+      settings: (setting) => ({ answered: setting.boolean({ default: true }) }),
+      minItems: 1,
+      maxItems: 3,
+      toMarkdown: () => [],
+      toTitle: () => "Item",
+      toStructuredData: ({ content, settings }) => ({
+        "@type": "Question",
+        name: content.name,
+        acceptedAnswer: { "@type": "Answer", text: "Yes" },
+        answerCount: settings.answered(1),
+      }),
+    }),
+  }),
+});
+
 /* Icons and artifacts aren't Structured Data. */
 
 createBlock({

@@ -1,4 +1,8 @@
-import { referenceQueryProblem, type SystemOrderKey } from "@camox/api-contract";
+import {
+  referenceQueryProblem,
+  type SettingCondition as ApiSettingCondition,
+  type SystemOrderKey,
+} from "@camox/api-contract";
 import { uuidv7JsonSchema } from "@camox/api-contract/ids";
 import {
   Type as TypeBoxType,
@@ -338,13 +342,61 @@ export type StructuredDataProxy<TShape extends Record<string, TSchema>> = {
   ]: StructuredDataToken<TShape[K]>;
 };
 
+/**
+ * One setting in a Structured Data template: shows a part of the template only while it holds,
+ * typed as the part it shows. A Boolean takes the part; an Enum takes the option it must equal,
+ * then the part. Settings of other shapes aren't conditions.
+ */
+type StructuredDataSettingCallable<T extends TSchema> =
+  Static<T> extends boolean
+    ? <const V>(value: V) => V
+    : Static<T> extends string
+      ? <const V>(equals: Static<T>, value: V) => V
+      : never;
+
+/** A block's or repeatable item's settings, as its Structured Data template reads them. */
+export type StructuredDataSettingsProxy<TShape extends Record<string, TSchema>> = {
+  [K in keyof TShape & string]: StructuredDataSettingCallable<TShape[K]>;
+};
+
+/** A part of a Structured Data template shown only while a setting holds. */
+class SettingCondition {
+  constructor(
+    public readonly scope: SettingsScope,
+    public readonly settingName: string,
+    public readonly equals: string | null,
+    public readonly show: unknown,
+  ) {}
+}
+
+function createStructuredDataSettingsProxy<TShape extends Record<string, TSchema>>(
+  settingsShape: TShape | undefined,
+  scope: SettingsScope,
+): StructuredDataSettingsProxy<TShape> {
+  return new Proxy({} as StructuredDataSettingsProxy<TShape>, {
+    get(_target, prop) {
+      if (typeof prop !== "string") return undefined;
+      const fieldType = (settingsShape?.[prop] as { fieldType?: string } | undefined)?.fieldType;
+      if (fieldType === "Boolean") {
+        return (value: unknown) => new SettingCondition(scope, prop, null, value);
+      }
+      if (fieldType === "Enum") {
+        return (equals: string, value: unknown) => new SettingCondition(scope, prop, equals, value);
+      }
+      throw new Error(
+        `toStructuredData settings proxy: "${prop}" is not a Boolean or Enum setting on this ${scope}.`,
+      );
+    },
+  });
+}
+
 /** What a block's or repeatable item's `toStructuredData` receives. */
 export interface StructuredDataContext<
   TContent extends Record<string, TSchema>,
   TSettings extends Record<string, TSchema> = Record<string, never>,
 > {
   content: StructuredDataProxy<TContent>;
-  settings: SettingsProxy<TSettings>;
+  settings: StructuredDataSettingsProxy<TSettings>;
 }
 
 /**
@@ -361,8 +413,14 @@ export type ToStructuredDataBuilder<
 /** A template's value as the Definition Set syncs it: JSON, with tokens as `{{field}}`. */
 function serializeTemplate(value: unknown): unknown {
   if (value instanceof FieldToken) return value.toString();
-  if (value instanceof Conditional) {
-    throw new Error("toStructuredData doesn't take settings conditionals.");
+  if (value instanceof SettingCondition) {
+    const condition: ApiSettingCondition = {
+      "@camox": "if",
+      setting: `${value.scope === "block" ? "settings" : "itemSettings"}.${value.settingName}`,
+      ...(value.equals !== null && { equals: value.equals }),
+      show: serializeTemplate(value.show),
+    };
+    return condition;
   }
   if (Array.isArray(value)) return value.map(serializeTemplate);
   if (typeof value === "object" && value !== null) {
@@ -386,7 +444,7 @@ export function resolveToStructuredData<
   contentShape?: TContent,
 ): unknown {
   const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TContent>;
-  const settings = createSettingsProxy<TSettings>(settingsShape, scope);
+  const settings = createStructuredDataSettingsProxy<TSettings>(settingsShape, scope);
   return serializeTemplate(builder({ content, settings }));
 }
 

@@ -265,4 +265,88 @@ describe("block and repeatable item structured data", () => {
 
     expect((await f.read()).structuredData[block.id]).toBeUndefined();
   });
+
+  it("keeps what a template shows under a setting only when the setting holds", async () => {
+    const f = await fixture();
+    const when = (setting: string, show: unknown, equals?: string) => ({
+      "@camox": "if",
+      setting,
+      ...(equals !== undefined && { equals }),
+      show,
+    });
+    await syncDefinitionSet(f.db, f.project, {
+      blocks: [
+        {
+          blockId: "promo",
+          title: "Promo",
+          description: "A product",
+          contentSchema: {
+            type: "object",
+            properties: {
+              name: string,
+              items: {
+                type: "array",
+                fieldType: "Repeater",
+                items: { type: "object", properties: { question: string } },
+                itemSettingsSchema: { properties: { answered: { default: true } } },
+                toMarkdown: ["{{question}}"],
+                toTitle: "{{question}}",
+                toStructuredData: {
+                  "@type": "Question",
+                  name: "{{question}}",
+                  answerCount: when("itemSettings.answered", 1),
+                },
+              },
+            },
+            toMarkdown: ["{{name}}"],
+            toTitle: "{{name}}",
+            toStructuredData: [
+              {
+                "@type": "Product",
+                name: "{{name}}",
+                award: when("settings.featured", "Best seller"),
+                slogan: when("settings.tone", "Buy {{name}}!", "loud"),
+                offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+              },
+              when("settings.featured", [
+                { "@type": "VideoObject", name: "{{name}} ad" },
+                "{{items}}",
+              ]),
+            ],
+          },
+          settingsSchema: {
+            properties: { featured: { default: false }, tone: { default: "quiet" } },
+          },
+        },
+      ],
+    });
+    const content = { name: "Laptop", items: [{ question: "Why?" }] };
+    const plain = await f.create("promo", content);
+    const featured = await call(
+      router.blocks.create,
+      { pageId: f.help.id, type: "promo", content, settings: { featured: true, tone: "loud" } },
+      f.member(f.en),
+    );
+
+    const { structuredData } = await f.read();
+
+    expect(structuredData[plain.id]).toEqual([
+      {
+        "@type": "Product",
+        name: "Laptop",
+        offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+      },
+    ]);
+    expect(structuredData[featured.id]).toEqual([
+      {
+        "@type": "Product",
+        name: "Laptop",
+        award: "Best seller",
+        slogan: "Buy Laptop!",
+        offers: { "@type": "Offer", price: 49, priceCurrency: "EUR" },
+      },
+      { "@type": "VideoObject", name: "Laptop ad" },
+      { "@type": "Question", name: "Why?", answerCount: 1 },
+    ]);
+  });
 });
