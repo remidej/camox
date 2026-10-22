@@ -14,6 +14,7 @@ import {
   hasGitRepo,
   losePushResponse,
   readGitFile,
+  readGitLink,
   serveGit,
 } from "./fake-git-server";
 
@@ -79,9 +80,15 @@ function serveCloudflareApi(request) {
   return envelope(200);
 }
 
-/** An error the way the Artifacts binding throws one: its code leads the message. */
-function artifactsError(code, message) {
-  return Object.assign(new Error(`${code}: ${message}`), { name: "ArtifactsError", code });
+/**
+ * An error the way the Artifacts binding's errors reach a Worker in production: `code` is in
+ * neither the error nor its message (`ArtifactsError: repo already exists: <name>`), so it
+ * only names the case here.
+ * @param {ArtifactsErrorCode} _code
+ * @param {string} message
+ */
+function artifactsError(_code, message) {
+  return Object.assign(new Error(message), { name: "ArtifactsError" });
 }
 
 // The checkout script fetches `.../git/<namespace>/<repo>.git`, which tells the sandbox its repo.
@@ -145,7 +152,7 @@ class FakeRepo extends RpcTarget {
   async fork(name) {
     if (failingForks.has(name)) throw artifactsError("INTERNAL_ERROR", "Fork failed");
     if (hasGitRepo(name) || repos.has(name)) {
-      throw artifactsError("ALREADY_EXISTS", `Repository already exists: ${name}`);
+      throw artifactsError("ALREADY_EXISTS", `repo already exists: ${name}`);
     }
     forkGitRepo(this.name, name);
     forksRunning.set(name, 1);
@@ -345,7 +352,7 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /**
    * Commits `files` as the whole of a Git repo's `main`, such as `template-default`'s.
    * @param {string} repo
-   * @param {Record<string, string>} files
+   * @param {Record<string, import("./fake-git-server").FakeFile>} files
    * @param {string} message
    */
   async commit(repo, files, message) {
@@ -360,6 +367,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async readFile(repo, ref, path) {
     return readGitFile(repo, ref, path);
+  }
+
+  /**
+   * Where a symlink on a Git repo's branch or commit points, or null when it isn't one.
+   * @param {string} repo
+   * @param {string} ref
+   * @param {string} path
+   */
+  async readLink(repo, ref, path) {
+    return readGitLink(repo, ref, path);
   }
 
   /** @param {string} repo The commits on a Git repo's `main`, newest first. */

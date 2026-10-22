@@ -32,8 +32,11 @@ export function hasGitRepo(name: string) {
   return repos.has(name);
 }
 
+/** A file's content, or a symlink to `symlink`. */
+export type FakeFile = string | { symlink: string };
+
 /** Commits `files` as the whole tree of `main` in `name`, creating the repo if needed. */
-export async function commitFiles(name: string, files: Record<string, string>, message: string) {
+export async function commitFiles(name: string, files: Record<string, FakeFile>, message: string) {
   let fs = repos.get(name);
   if (!fs) {
     fs = new MemoryFs();
@@ -56,18 +59,20 @@ export async function commitFiles(name: string, files: Record<string, string>, m
   return commit;
 }
 
-async function writeTree(fs: MemoryFs, files: Record<string, string>): Promise<string> {
-  const here = new Map<string, string>();
-  const below = new Map<string, Record<string, string>>();
+async function writeTree(fs: MemoryFs, files: Record<string, FakeFile>): Promise<string> {
+  const here = new Map<string, FakeFile>();
+  const below = new Map<string, Record<string, FakeFile>>();
   for (const [path, content] of Object.entries(files)) {
     const [head, ...rest] = path.split("/");
     if (rest.length === 0) here.set(head!, content);
     else below.set(head!, { ...below.get(head!), [rest.join("/")]: content });
   }
   const entries = [];
-  for (const [path, content] of here) {
+  for (const [path, file] of here) {
+    const link = typeof file === "object";
+    const content = link ? file.symlink : file;
     const oid = await git.writeBlob({ ...bare(fs), blob: new TextEncoder().encode(content) });
-    entries.push({ mode: "100644", path, oid, type: "blob" as const });
+    entries.push({ mode: link ? "120000" : "100644", path, oid, type: "blob" as const });
   }
   for (const [path, subtree] of below) {
     entries.push({
@@ -98,6 +103,27 @@ export async function readGitFile(name: string, ref: string, path: string) {
   try {
     const oid = await git.resolveRef({ ...bare(fs), ref }).catch(() => ref);
     const { blob } = await git.readBlob({ ...bare(fs), oid, filepath: path });
+    return new TextDecoder().decode(blob);
+  } catch {
+    return null;
+  }
+}
+
+/** Where a symlink at a branch or commit points, or null when it isn't one. */
+export async function readGitLink(name: string, ref: string, path: string) {
+  const fs = repos.get(name);
+  if (!fs) return null;
+  try {
+    const oid = await git.resolveRef({ ...bare(fs), ref }).catch(() => ref);
+    const slash = path.lastIndexOf("/");
+    const { tree } = await git.readTree({
+      ...bare(fs),
+      oid,
+      filepath: slash === -1 ? undefined : path.slice(0, slash),
+    });
+    const entry = tree.find(({ path: entryPath }) => entryPath === path.slice(slash + 1));
+    if (entry?.mode !== "120000") return null;
+    const { blob } = await git.readBlob({ ...bare(fs), oid: entry.oid });
     return new TextDecoder().decode(blob);
   } catch {
     return null;

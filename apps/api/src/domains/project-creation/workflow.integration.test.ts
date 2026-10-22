@@ -14,8 +14,13 @@ import { projects } from "../../schema";
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
 
 type Fakes = {
-  commit(repo: string, files: Record<string, string>, message: string): Promise<string>;
+  commit(
+    repo: string,
+    files: Record<string, string | { symlink: string }>,
+    message: string,
+  ): Promise<string>;
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
+  readLink(repo: string, ref: string, path: string): Promise<string | null>;
   log(repo: string): Promise<{ oid: string; message: string }[]>;
   loseForkResponse(repo: string): Promise<void>;
   failForks(repo: string): Promise<void>;
@@ -36,6 +41,9 @@ const TEMPLATE = {
   "wrangler.jsonc": `{\n  "name": "${PLACEHOLDER_ID}", // camox-cli:replace-project-id\n  "main": "camox/worker",\n}\n`,
   "src/document.ts": `export default { title: "{{projectName}}" };\n`,
   "src/blocks/hero.tsx": `const title = "Let's get going on {{projectName}}";\n`,
+  // apps/template-default links its agent skills from the SDK, which a clone doesn't install.
+  ".agents/skills/camox": { symlink: "../../node_modules/camox/skills/camox" },
+  ".claude/skills/camox": { symlink: "../../.agents/skills/camox" },
 };
 
 const TEMPLATE_COMMIT = "Update the Template to camox 0.9.1";
@@ -127,6 +135,9 @@ describe("setting up a new project", () => {
       `const title = "Let's get going on Acme & Co";\n`,
     );
     expect(JSON.parse((await read("package.json"))!).name).toBe(project.slug);
+    expect(await fakes.readLink(project.uuid, "main", ".claude/skills/camox")).toBe(
+      "../../.agents/skills/camox",
+    );
     const [created, template] = await fakes.log(project.uuid);
     expect(created?.message).toBe("Create Acme & Co");
     expect(template?.message).toBe(TEMPLATE_COMMIT);

@@ -24,4 +24,4 @@ A release can still be running when its project is deleted. It checks that the p
 
 ## On Cloudflare
 
-Nothing to provision: `wrangler deploy` creates the Workflow, and the `CF_TOKEN` that deploys user Workers into the `production` namespace (_Account › Workers Scripts › Edit_, `../releases/README.md`) can also delete them.
+Nothing to provision: `wrangler deploy` creates the Workflow, and the `CF_TOKEN` that deploys user Workers into the `production` namespace (_Account › Workers Admin_, `../releases/README.md`) can also delete them.
