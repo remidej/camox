@@ -196,6 +196,10 @@ _Avoid_: Description, label, excerpt
 A value AI derives from content (a summary, a page's SEO, or a file's alt text and filename), kept beside the content rather than in it, so producing one never changes a draft. A value written by hand takes its place. SEO and alt text are generated in each locale; summaries and filenames in the default locale only.
 _Avoid_: AI field, AI metadata, derived content
 
+**Structured Data**:
+The JSON-LD graph Camox renders in each page's head, describing the website's Organization, the website and the page as linked nodes, built from the project, the page and definitions' `toStructuredData`.
+_Avoid_: Schema, schema markup, rich snippets
+
 **Markdown Representation**:
 The text a block, or a layout rendering loaded data, declares to stand for its content when read by agents.
 _Avoid_: Export, plain text

@@ -1,7 +1,7 @@
 import { DEVELOPMENT_DRAFT, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
-import type { Link, Meta, UseHeadInput } from "unhead/types";
+import type { Link, Meta, Script, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { AnyLayoutLoaderResult } from "../../core/createLayout";
@@ -51,6 +51,7 @@ import {
   type DraftRead,
   type MemberProject,
   type PageHead,
+  type PageStructure,
 } from "../routes/pageRuntime";
 import {
   matchCollectionContentPath,
@@ -65,11 +66,13 @@ import { omitArtifactSources } from "./artifactSources";
 import { type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
 import { formatLlmsTxt } from "./llmsTxt";
 import { getPageBlockTypes } from "./pageBlockTypes";
+import { createProjectLogoResponse, projectLogo } from "./projectLogo";
 import {
   matchRuntimeOwnedRoute,
   RUNTIME_ROUTE_PATHS,
   type RuntimeOwnedRouteKind,
 } from "./runtimeRoutes";
+import { buildPageGraph, serializeStructuredData, type SiteGraphInput } from "./structuredData";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
@@ -507,10 +510,7 @@ function createDefaultHeadInput(stylesheetUrl?: string): UseHeadInput {
   };
 }
 
-export function createPageHeadInput(head: {
-  meta?: Array<Record<string, string>>;
-  links?: Array<Record<string, string>>;
-}): UseHeadInput {
+export function createPageHeadInput(head: PageHead): UseHeadInput {
   const meta = head.meta ?? [];
   const links = head.links ?? [];
   const title = meta.find((entry) => entry.title)?.title;
@@ -550,10 +550,20 @@ export function createPageHeadInput(head: {
     }
   }
 
+  // Only JSON-LD: its text is data, which never runs.
+  const pageScripts: Script[] = (head.scripts ?? [])
+    .filter((entry) => entry.type === "application/ld+json")
+    .map((entry) => ({
+      type: "application/ld+json" as const,
+      innerHTML: entry.text,
+      "data-camox-page-head": "true",
+    }));
+
   return {
     ...(title && { title }),
     meta: pageMeta,
     link: pageLinks,
+    script: pageScripts,
   };
 }
 
@@ -607,7 +617,7 @@ async function preparePreviewDocument(
 ) {
   const siteHead = renderHead(
     document,
-    createPageHeadInput((input.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
+    createPageHeadInput((input.head ?? {}) as PageHead),
     options.stylesheetUrl,
     undefined,
     input.locale,
@@ -687,8 +697,14 @@ async function readAlternates<Head extends PageHead | null>(
     located,
     identity,
     head,
+    described,
     ...reading
-  }: AlternatesReading & { located: RequestLocale; identity: PageIdentity; head: Head },
+  }: AlternatesReading & {
+    located: RequestLocale;
+    identity: PageIdentity;
+    head: Head;
+    described: PageDescription;
+  },
 ): Promise<{ alternates: AlternatePath[]; head: Head }> {
   const alternates = await findRequestAlternates(options, located, identity, reading);
   const url = absoluteUrl(request, options);
@@ -698,9 +714,72 @@ async function readAlternates<Head extends PageHead | null>(
     locale: located.locale.tag,
     alternates,
   };
+  const site = {
+    url: url("/"),
+    name: described.project.name,
+    logo: projectLogo(url, described.project),
+  };
   return {
     alternates,
-    head: (head && withLocatedTags(withHreflangs(head, links), place)) as Head,
+    head: (head &&
+      withStructuredData(
+        withLocatedTags(withHreflangs(head, links), place),
+        place,
+        site,
+        described,
+      )) as Head,
+  };
+}
+
+/** What a page's Structured Data says beyond its head: its project, and when it was published. */
+interface PageDescription {
+  project: { id: number; name: string; updatedAt: number | string };
+  /** The page's first and last publish times on Live, in milliseconds. */
+  published?: { first?: number | null; last?: number | null };
+}
+
+/** What a curated page's Structured Data says beyond its head. */
+function curatedPageDescription({ page, project, projectName }: PageStructure): PageDescription {
+  return {
+    project: { ...project, name: projectName },
+    published: { first: page.firstPublishedAt, last: page.publishedAt },
+  };
+}
+
+/** The value of a head's meta tag, by its name or property. */
+function headMeta(head: PageHead, key: string): string | undefined {
+  return head.meta?.find((entry) => entry.name === key || entry.property === key)?.content;
+}
+
+/**
+ * A page's head with its Structured Data, which names and describes the page as the head does,
+ * with the head's page image.
+ */
+function withStructuredData(
+  head: PageHead,
+  place: { url: string; locale: string },
+  site: SiteGraphInput,
+  { published }: PageDescription,
+): PageHead {
+  const name = head.meta?.find((entry) => entry.title)?.title ?? "";
+  const graph = buildPageGraph({
+    site,
+    page: {
+      url: place.url,
+      name,
+      description: headMeta(head, "description"),
+      inLanguage: place.locale,
+      image: headMeta(head, "og:image"),
+      ...(published?.first && { datePublished: new Date(published.first) }),
+      ...(published?.last && { dateModified: new Date(published.last) }),
+    },
+  });
+  return {
+    ...head,
+    scripts: [
+      ...(head.scripts ?? []),
+      { type: "application/ld+json", text: serializeStructuredData(graph) },
+    ],
   };
 }
 
@@ -872,6 +951,7 @@ async function createPageHtmlResponse({
       located,
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {},
+      described: curatedPageDescription(result.data.page),
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: result.draftId,
     });
@@ -1204,6 +1284,7 @@ async function createDerivedResponse(
         faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
         hasMarkdown: match.layout._internal.toMarkdown !== undefined,
       }),
+      described: { project: { ...shared.project, name: shared.projectName } },
       authCookieHeader,
       draftId: read.draftId,
     });
@@ -1484,6 +1565,7 @@ async function createPageDataResponse({
       located,
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null,
+      described: curatedPageDescription(result.data.page),
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: result.draftId,
     });
@@ -1552,6 +1634,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "og") {
     return createOgResponse(request, options);
+  }
+
+  if (match.kind === "logo") {
+    return createProjectLogoResponse(request, options.apiUrl);
   }
 
   if (match.kind === "sitemap") {

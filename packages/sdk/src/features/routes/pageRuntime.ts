@@ -501,6 +501,8 @@ export function withFrontMatter(
 export type PageHead = {
   meta?: Array<Record<string, string>>;
   links?: Array<Record<string, string>>;
+  /** Scripts with their text, such as the page's Structured Data. */
+  scripts?: Array<{ type: string; text: string }>;
 };
 
 /** The head every page gets, whatever its layout kind. */
