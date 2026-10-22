@@ -1,6 +1,7 @@
 import { Effect, Exit } from "effect";
 import { z } from "zod";
 
+import { isObject } from "../../lib/is-object";
 import { isLexicalState, lexicalStateToPlainText } from "../../lib/lexical-state";
 import { normalizeFieldValue } from "../blocks/asset-value";
 import { validateContent } from "../blocks/validate-content";
@@ -18,10 +19,6 @@ import { assetFileId, defaultOf, type Field, fieldsOf, itemSchemas } from "./fie
  * Nothing here writes: the stored content is left as it is, so a field that comes back
  * finds its content again.
  */
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 /** Whether a write would accept this value for the field: the same check, applied on read. */
 function blockValueHasKind(field: Field, value: unknown, rootSchema: unknown) {

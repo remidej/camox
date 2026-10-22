@@ -86,7 +86,8 @@ function evaluateConditionals(line: string, ctx: SettingsContext): string | null
   return current;
 }
 
-const PLACEHOLDER_RE = /\{\{(\w+(?:\.\w+)*)\}\}/g;
+/** A field token, such as `{{name}}`, or `{{author.name}}` through references: group 1 is its path. */
+export const FIELD_TOKEN = /\{\{(\w+(?:\.\w+)*)\}\}/g;
 
 function resolveLine(
   line: string,
@@ -94,7 +95,7 @@ function resolveLine(
   content: Record<string, unknown>,
   ctx: SettingsContext,
 ): string | null {
-  const placeholders = [...line.matchAll(PLACEHOLDER_RE)].map((m) => m[1]);
+  const placeholders = [...line.matchAll(FIELD_TOKEN)].map((m) => m[1]);
   if (placeholders.length === 0) return line;
 
   const resolve = (key: string) => {
@@ -122,7 +123,7 @@ function resolveLine(
   const resolvedValues = placeholders.map(resolve);
   if (resolvedValues.every((v) => !v)) return null;
 
-  return line.replace(PLACEHOLDER_RE, (_match, key: string) => {
+  return line.replace(FIELD_TOKEN, (_match, key: string) => {
     return resolve(key) ?? "";
   });
 }

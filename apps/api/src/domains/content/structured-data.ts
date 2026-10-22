@@ -16,9 +16,9 @@ import {
 } from "../../lib/content-structured-data";
 import { pages } from "../../schema";
 import { nestChildItems } from "../_shared/block-markers";
-import { propertiesOf } from "../_shared/fields";
+import { propertiesOf, structuredDataTemplateOf } from "../_shared/fields";
 import type { ContentScope } from "../collections/identity";
-import { inDefaultLocale, type ReadScope } from "../drafts/scope";
+import { inDefaultLocale, localeOf, type ReadScope } from "../drafts/scope";
 import type { BlockBundle } from "./blocks";
 import { selectInChunks } from "./chunks";
 import type { CollectionDefinition, Definitions } from "./definitions";
@@ -31,11 +31,6 @@ export type BlockStructuredData = Record<string, EvaluatedNode[]>;
 
 /** A bundle's Structured Data: its blocks' nodes, and the nodes of the records they reference. */
 export type BundleStructuredData = { blocks: BlockStructuredData; records: RecordStructuredData };
-
-/** The locale a scope names, if any; without one it reads the default locale. */
-function localeOf(scope: ReadScope): string | undefined {
-  return scope !== null && "locale" in scope ? scope.locale : undefined;
-}
 
 /**
  * The Structured Data nodes of a bundle's blocks, from their definitions' `toStructuredData`
@@ -56,7 +51,7 @@ export const blockStructuredData = Effect.fn("content.blockStructuredData")(func
 ): Effect.fn.Return<BundleStructuredData> {
   const blockDefinitions = yield* definitions.blocks();
   const collections = yield* definitions.collections();
-  const record = recordValue(collections);
+  const referenceValue = recordValue(collections);
   const files = new Map(bundle.files.map((file) => [file.id, file]));
   // Item content holds markers for nested repeaters; each item gets its own copy to nest into.
   const items = bundle.repeatableItems.map((item) => ({
@@ -69,26 +64,25 @@ export const blockStructuredData = Effect.fn("content.blockStructuredData")(func
     (item) => item.blockId,
   );
   const templated = bundle.blocks.flatMap((block) => {
-    const schema = blockDefinitions.get(block.type)?.contentSchema as
-      | { toStructuredData?: unknown }
-      | undefined;
-    if (schema?.toStructuredData === undefined) return [];
+    const schema = blockDefinitions.get(block.type)?.contentSchema;
+    const template = structuredDataTemplateOf(schema);
+    if (template === undefined) return [];
     const content: Record<string, unknown> = { ...(block.content as Record<string, unknown>) };
     const blockItems = topItems.get(block.id) ?? [];
     for (const fieldName of new Set(blockItems.map((item) => item.fieldName))) {
       content[fieldName] = blockItems.filter((item) => item.fieldName === fieldName);
     }
-    return [{ block, schema, content }];
+    return [{ block, schema, template, content }];
   });
   const evaluateAll = (pageUrl: StructuredDataContext["pageUrl"]) =>
-    templated.map(({ block, schema, content }) => ({
+    templated.map(({ block, schema, template, content }) => ({
       id: block.id,
-      nodes: contentToStructuredData(schema.toStructuredData, propertiesOf(schema), content, {
+      nodes: contentToStructuredData(template, propertiesOf(schema), content, {
         settings: block.settings as Record<string, unknown> | null,
         files,
         references: block.references,
         pageUrl,
-        record,
+        referenceValue,
       }),
     }));
 
@@ -192,11 +186,11 @@ export function recordNode(
       references: record.references,
       // Collections hold no links to pages.
       pageUrl: () => undefined,
-      record: recordValue(collections),
+      referenceValue: recordValue(collections),
     },
   );
   if (!node) return undefined;
-  const named = ARTICLE_TYPES.includes(node["@type"] as never) ? "headline" : "name";
+  const named = ARTICLE_TYPES.some((type) => type === node["@type"]) ? "headline" : "name";
   return {
     ...(record.title && { [named]: record.title }),
     ...(record.description && { description: record.description }),

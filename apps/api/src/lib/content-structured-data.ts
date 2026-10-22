@@ -5,10 +5,11 @@ import {
   type StructuredDataValue,
 } from "@camox/api-contract";
 
-import { pointersOf, readField } from "../domains/_shared/fields";
+import { pointersOf, readField, structuredDataTemplateOf } from "../domains/_shared/fields";
 import type { ResolvedReference, ResolvedReferences } from "../domains/content/reader";
-import { contentToPlainText } from "./content-markdown";
+import { contentToPlainText, FIELD_TOKEN } from "./content-markdown";
 import { transformedImage } from "./image-transform";
+import { isObject } from "./is-object";
 import { lexicalStateToPlainText } from "./lexical-state";
 
 // Blocks' and repeatable items' `toStructuredData` templates are JSON whose strings may hold
@@ -39,16 +40,14 @@ export type StructuredDataContext = {
    * The value a reference to a record takes: a link to its node, or its title when its collection
    * has no Structured Data. Without it, references are left out.
    */
-  record?: (record: ResolvedReference) => StructuredDataValue | undefined;
+  referenceValue?: (record: ResolvedReference) => StructuredDataValue | undefined;
 };
 
 type Value = StructuredDataValue | undefined;
 
-const TOKEN = /^\{\{(\w+(?:\.\w+)*)\}\}$/;
-const HAS_TOKEN = /\{\{\w+(?:\.\w+)*\}\}/;
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+/** A template string that is one token alone, which takes its field's value. */
+const LONE_TOKEN = new RegExp(`^${FIELD_TOKEN.source}$`);
+const HAS_TOKEN = new RegExp(FIELD_TOKEN.source);
 
 /**
  * The nodes a template gives for content: the node it returns, or each node of the list it
@@ -109,7 +108,7 @@ function evaluateString(
   content: Record<string, unknown>,
   ctx: StructuredDataContext,
 ): Value {
-  const token = TOKEN.exec(template)?.[1];
+  const token = LONE_TOKEN.exec(template)?.[1];
   if (token !== undefined) return resolveToken(token, properties, content, ctx);
   if (!HAS_TOKEN.test(template)) return template;
   const text = contentToPlainText(template, properties, content, ctx);
@@ -150,7 +149,7 @@ function resolveToken(
 /** A reference field's records as links or titles: one for a reference, a list for a list. */
 function referenced(name: string, ctx: StructuredDataContext): Value {
   const resolved = ctx.references?.[name];
-  const valueOf = ctx.record;
+  const valueOf = ctx.referenceValue;
   if (!resolved || !valueOf) return undefined;
   if (!Array.isArray(resolved)) return valueOf(resolved);
   const values = resolved.flatMap((record) => valueOf(record) ?? []);
@@ -195,7 +194,7 @@ function resolveField(schema: unknown, value: unknown, ctx: StructuredDataContex
 
 /** A repeater's items as their template's nodes, in order. None without a template. */
 function repeatedNodes(schema: unknown, value: unknown, ctx: StructuredDataContext): Value {
-  const template = isObject(schema) ? schema.toStructuredData : undefined;
+  const template = structuredDataTemplateOf(schema);
   const itemProperties = isObject(schema) && isObject(schema.items) ? schema.items.properties : {};
   if (template === undefined || !Array.isArray(value)) return undefined;
   const nodes = value.flatMap((item) => {

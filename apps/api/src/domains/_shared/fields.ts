@@ -1,6 +1,7 @@
 import { QUERY_LIMIT_CAP } from "@camox/api-contract";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 
+import { isObject } from "../../lib/is-object";
 import { pageTextLinkIds } from "../../lib/lexical-state";
 
 /**
@@ -81,10 +82,6 @@ export type Field = FieldBase &
       }
     | { kind: "Unknown" }
   );
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function stringsOf(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -190,6 +187,11 @@ export function markdownOf(
  */
 export function titleTemplateOf(schema: unknown): string | undefined {
   return isObject(schema) && typeof schema.toTitle === "string" ? schema.toTitle : undefined;
+}
+
+/** The Structured Data template of a block's content schema or a repeater's, if it has one. */
+export function structuredDataTemplateOf(schema: unknown): unknown {
+  return isObject(schema) ? schema.toStructuredData : undefined;
 }
 
 /** The field schemas of a content schema, by name, as Markdown templates name them. */
