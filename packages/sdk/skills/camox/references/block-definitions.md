@@ -18,8 +18,8 @@ const myBlock = createBlock({
   content: (field) => ({
     title: field.string({ default: "Welcome" }),
   }),
-  component: MyBlockComponent,
-  toMarkdown: (c) => [`# ${c.title}`],
+  toReact: MyBlockComponent,
+  toMarkdown: ({ content }) => [`# ${content.title}`],
 });
 
 function MyBlockComponent() {
@@ -46,8 +46,8 @@ For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, 
 | `settings`    | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`. |
 | `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.        |
 | `synced`      | no       | Defaults to false. Shares content/settings across placements; see below.                     |
-| `component`   | yes      | Named React function component.                                                              |
-| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                               |
+| `toReact`     | yes      | Named React function component. Receives `{ content, settings }` as props.                   |
+| `toMarkdown`  | yes      | `({ content, settings }) => [...]` markdown builder; see below.                              |
 
 ## Synced blocks (`synced`, optional)
 
@@ -61,12 +61,16 @@ For shared navbar/footer data across layouts, use `layoutOnly: true, synced: tru
 
 ## Markdown Representation (`toMarkdown`)
 
-Required on blocks and repeaters. Receives typed proxies `c` (content) and `s` (settings); returns entries joined with `\n\n` for AI summaries and SEO. Lines whose referenced fields are all empty, or whose condition is false, are omitted.
+Required on blocks and repeaters. Receives `{ content, settings }`, typed proxies of the block's content and settings; returns entries joined with `\n\n` for AI summaries and SEO. Lines whose referenced fields are all empty, or whose condition is false, are omitted.
 
-Use bare `c.field` for single-field lines and template literals for markdown or combined fields:
+Use bare `content.field` for single-field lines and template literals for markdown or combined fields:
 
 ```tsx
-toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.company}`, c.photo];
+toMarkdown: ({ content }) => [
+  `> ${content.quote}`,
+  `— ${content.author}, ${content.company}`,
+  content.photo,
+];
 ```
 
 Field resolution:
@@ -87,16 +91,16 @@ Field resolution:
 Boolean settings wrap one line or an array; Enum settings match a variant:
 
 ```tsx
-toMarkdown: (c, s) => [
-  `# ${c.title}`,
-  s.showCta(c.cta),
-  s.showDetails([c.subtitle, c.description]),
-  s.variant("banner", `**${c.headline}** — ${c.subtext}`),
-  s.variant("inline", `${c.headline}: ${c.cta}`),
+toMarkdown: ({ content, settings }) => [
+  `# ${content.title}`,
+  settings.showCta(content.cta),
+  settings.showDetails([content.subtitle, content.description]),
+  settings.variant("banner", `**${content.headline}** — ${content.subtext}`),
+  settings.variant("inline", `${content.headline}: ${content.cta}`),
 ];
 ```
 
-Only Boolean/Enum settings support these conditionals. A repeater's `s` refers to the item's settings, not the parent block's.
+Only Boolean/Enum settings support these conditionals. A repeater's `settings` refers to the item's settings, not the parent block's.
 
 ## Content Field Types
 
@@ -217,7 +221,10 @@ field.repeater({
   minItems: 1,
   maxItems: 10,
   title: "Features",
-  toMarkdown: (c, s) => [`### ${c.name}`, s.highlighted(c.description)],
+  toMarkdown: ({ content, settings }) => [
+    `### ${content.name}`,
+    settings.highlighted(content.description),
+  ],
 });
 ```
 

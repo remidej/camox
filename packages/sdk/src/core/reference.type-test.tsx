@@ -27,11 +27,11 @@ const block = createBlock({
     customers: field.referenceList(customers, { maxItems: 6 }),
     heading: field.string({ default: "" }),
   }),
-  component: () => null,
-  toMarkdown: (c) => {
+  toReact: () => null,
+  toMarkdown: ({ content }) => {
     // @ts-expect-error Unknown source field.
-    void c.customer.missing;
-    return [c.customer.name];
+    void content.customer.missing;
+    return [content.customer.name];
   },
 });
 
@@ -109,18 +109,18 @@ const logoGrid = createBlock({
   description: "",
   content: (field) => ({
     customers: field.referenceList(customers, {
-      toMarkdown: (c) => {
+      toMarkdown: ({ content }) => {
         // @ts-expect-error Unknown collection field.
-        void c.missing;
-        return [c.name, c.logo];
+        void content.missing;
+        return [content.name, content.logo];
       },
     }),
   }),
-  component: () => null,
-  toMarkdown: (c) => {
+  toReact: () => null,
+  toMarkdown: ({ content }) => {
     // @ts-expect-error The list is included whole, not through one record's fields.
-    void c.customers.name;
-    return [c.customers];
+    void content.customers.name;
+    return [content.customers];
   },
 });
 void logoGrid;
@@ -139,15 +139,15 @@ const logoWall = createBlock({
       settings: (setting) => ({ emphasized: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 6,
-      toMarkdown: (c) => {
+      toMarkdown: ({ content }) => {
         // @ts-expect-error Unknown collection field.
-        void c.customer.missing;
-        return [c.customer.name, c.partners];
+        void content.customer.missing;
+        return [content.customer.name, content.partners];
       },
     }),
   }),
-  component: () => null,
-  toMarkdown: (c) => [c.logos],
+  toReact: () => null,
+  toMarkdown: ({ content }) => [content.logos],
 });
 
 function ItemTypeChecks() {
@@ -211,11 +211,11 @@ const teaser = createBlock({
   title: "Teaser",
   description: "",
   content: (field) => ({ article: field.reference(articles) }),
-  component: () => null,
-  toMarkdown: (c) => {
+  toReact: () => null,
+  toMarkdown: ({ content }) => {
     // @ts-expect-error Unknown field of the linked record.
-    void c.article.author.missing;
-    return [c.article.title, c.article.author.name, c.article.coauthors];
+    void content.article.author.missing;
+    return [content.article.title, content.article.author.name, content.article.coauthors];
   },
 });
 
@@ -256,7 +256,7 @@ const recentArticles = createBlock({
   content: (field) => ({
     recent: field.referenceList(articles, {
       query: { orderBy: { publishedAt: "desc" }, limit: 3 },
-      toMarkdown: (article) => [`## ${article.title}`],
+      toMarkdown: ({ content }) => [`## ${content.title}`],
     }),
     alphabetical: field.referenceList(articles, { query: { orderBy: { title: "asc" } } }),
     created: field.referenceList(articles, { query: { orderBy: { createdAt: "asc" } } }),
@@ -280,8 +280,8 @@ const recentArticles = createBlock({
     // @ts-expect-error There is no where filtering.
     filtered: field.referenceList(articles, { query: { where: { title: "x" } } }),
   }),
-  component: () => null,
-  toMarkdown: (c) => [c.recent],
+  toReact: () => null,
+  toMarkdown: ({ content }) => [content.recent],
 });
 
 function QueryTypeChecks() {

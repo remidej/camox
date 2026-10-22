@@ -1,13 +1,18 @@
 import { DEVELOPMENT_DRAFT, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
-import type { Link, Meta, UseHeadInput } from "unhead/types";
+import type { Link, Meta, Script, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
-import type { AnyLayoutLoaderResult } from "../../core/createLayout";
+import type { AnyLayoutLoaderResult, Layout } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoutes";
-import { buildLayoutContext } from "../../core/layoutContext";
+import {
+  buildLayoutContext,
+  curatedLayoutContext,
+  curatedPageTitle,
+  type AnyLayoutContext,
+} from "../../core/layoutContext";
 import { asCollectionItem, recordMarkdownTemplate, recordPageValues } from "../../core/recordItem";
 import {
   createRequestContext,
@@ -30,13 +35,13 @@ import {
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
 import { reads } from "../../lib/studio-reads";
+import { DefaultPageImage, renderPageImage } from "../og/pageImage";
 import {
   buildCamoxPageHead,
   buildFaviconUrl,
   buildPageHead,
   buildPageMeta,
   createMarkdownResponse,
-  createOgImageResponse,
   parseMarkdownPath,
   createServerApiClient,
   createServerStudioCache,
@@ -51,6 +56,7 @@ import {
   type DraftRead,
   type MemberProject,
   type PageHead,
+  type PageStructure,
 } from "../routes/pageRuntime";
 import {
   matchCollectionContentPath,
@@ -59,17 +65,26 @@ import {
   STUDIO_CONTENT_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
-import { alternatesByPage, findAlternates, hreflangLinks, type PageIdentity } from "./alternates";
+import {
+  alternatesByPage,
+  findAlternates,
+  hreflangLinks,
+  type LocaleReads,
+  type PageIdentity,
+} from "./alternates";
 import { type AnalyticsProviders, configuredProviders, renderAnalyticsScripts } from "./analytics";
 import { omitArtifactSources } from "./artifactSources";
-import { type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
+import { type Crumb, readBreadcrumb } from "./breadcrumbs";
+import { type ListedPage, type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
 import { formatLlmsTxt } from "./llmsTxt";
 import { getPageBlockTypes } from "./pageBlockTypes";
+import { createProjectLogoResponse, projectLogo } from "./projectLogo";
 import {
   matchRuntimeOwnedRoute,
   RUNTIME_ROUTE_PATHS,
   type RuntimeOwnedRouteKind,
 } from "./runtimeRoutes";
+import { buildPageGraph, serializeStructuredData, type SiteGraphInput } from "./structuredData";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
@@ -346,23 +361,32 @@ function absoluteUrl(request: Request, options: RuntimeOptions) {
   return (path: string) => `${origin}${withRuntimeBasePath(path, options.runtimeBasePath)}`;
 }
 
+/** An ETag derived from `text`. */
+async function etagOf(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return `"${[...new Uint8Array(digest)]
+    .slice(0, 16)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}"`;
+}
+
+/** Whether the request's `If-None-Match` names `etag`, so a 304 answers it. */
+function namesEtag(request: Request, etag: string): boolean {
+  return (request.headers.get("If-None-Match") ?? "")
+    .split(",")
+    .map((tag) => tag.trim().replace(/^W\//, ""))
+    .some((tag) => tag === etag || tag === "*");
+}
+
 /** `body` with an ETag derived from it, or a 304 when the request's `If-None-Match` names it. */
 async function withEtag(
   request: Request,
   body: string,
   headers: Record<string, string>,
 ): Promise<Response> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
-  const etag = `"${[...new Uint8Array(digest)]
-    .slice(0, 16)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")}"`;
-  const taggedHeaders = { ...headers, ETag: etag };
-  const matches = (request.headers.get("If-None-Match") ?? "")
-    .split(",")
-    .map((tag) => tag.trim().replace(/^W\//, ""))
-    .some((tag) => tag === etag || tag === "*");
-  if (matches) return new Response(null, { status: 304, headers: taggedHeaders });
+  const taggedHeaders = { ...headers, ETag: await etagOf(body) };
+  if (namesEtag(request, taggedHeaders.ETag))
+    return new Response(null, { status: 304, headers: taggedHeaders });
   return new Response(body, { headers: taggedHeaders });
 }
 
@@ -487,13 +511,102 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   }
 }
 
+/**
+ * The image of the page `/og?path=` names, by its path with its locale's prefix: its layout's
+ * `toImage`, or Camox's default image, rendered with the page's context. Only real pages have
+ * one, read as the page itself would be, in the draft the URL names for a member.
+ */
 async function createOgResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
   if (!camoxApp) {
     return Response.json({ message: "Camox app registry is not available." }, { status: 500 });
   }
+  const source = await readPageImageSource(request, options, camoxApp);
+  if (!source) return new Response("Not found", { status: 404 });
+  // The image is drawn from the page's context alone, so the context validates it without
+  // rendering it. Caches keep it, but ask again each time: a publish shows up at once.
+  const headers = {
+    ETag: await etagOf(JSON.stringify([source.layout?.id ?? null, source.context])),
+    "Cache-Control": isPrivateRender(request, options) ? "private, no-store" : "public, no-cache",
+  };
+  if (namesEtag(request, headers.ETag)) return new Response(null, { status: 304, headers });
+  const toImage = source.layout?.toImage ?? DefaultPageImage;
+  const image = await renderPageImage(toImage(source.context));
+  for (const [name, value] of Object.entries(headers)) image.headers.set(name, value);
+  return image;
+}
 
-  return createOgImageResponse(camoxApp, new URL(request.url));
+/** The layout and context of the page `/og` names, or null when it names no page. */
+async function readPageImageSource(
+  request: Request,
+  options: RuntimeOptions,
+  app: CamoxApp,
+): Promise<{ layout: Layout["_internal"] | undefined; context: AnyLayoutContext } | null> {
+  const { apiUrl, projectUuid } = options;
+  const path = new URL(request.url).searchParams.get("path");
+  if (!apiUrl || !projectUuid || !path?.startsWith("/")) return null;
+  const located = await locateRequest(request, options, path);
+  if (matchLocalizedRoute(located.path)?.kind !== "page") return null;
+
+  const { project } = await resolveRequestMember(request, options);
+  const member = project !== undefined;
+  const authCookieHeader = member ? getServerAuthCookieHeader(request.headers) : undefined;
+  const requestedDraft = getRequestDraftId(request, options);
+  const api = (draftId: string | undefined) =>
+    createServerApiClient(apiUrl, { authCookieHeader, draftId, locale: located.locale });
+
+  const match = matchDerivedLayout(app.getLayouts(), located.path);
+  /** A code-owned page: its loader runs in the draft the layout read settled on. */
+  const codeOwned = async (match: DerivedMatch) => {
+    const layout = match.layout._internal;
+    const { value: shared, draftId } = await readDraftOrLive(requestedDraft, member, (draftId) =>
+      api(draftId).layouts.get({ projectUuid, layoutId: layout.id }),
+    );
+    const result = await loadLayoutResult(
+      app,
+      match,
+      createLayoutRequestContext(options, member ? "draft" : "live", {
+        authCookieHeader,
+        draftId,
+        locale: located.locale,
+      }),
+      located.locale,
+    );
+    const record = asCollectionItem(result);
+    const collection = record && app.getCollectionById(record.collectionId);
+    return {
+      layout,
+      context: buildLayoutContext(layout, {
+        path,
+        locale: located.locale.tag,
+        projectName: shared.projectName,
+        data: result?.data,
+        params: match.params,
+        record: record && collection ? recordPageValues(collection, record.data) : undefined,
+      }),
+    };
+  };
+  /** A curated page, or else a derived layout's page, as the page's HTML falls back. */
+  const curated = async () => {
+    try {
+      const { value: page } = await readDraftOrLive(requestedDraft, member, (draftId) =>
+        api(draftId).pages.getByPath({ path: located.path, projectUuid }),
+      );
+      return {
+        layout: page.layout ? app.getLayoutById(page.layout.layoutId)?._internal : undefined,
+        context: curatedLayoutContext(page, located.locale),
+      };
+    } catch (error) {
+      if (isNotFoundError(error) && match) return codeOwned(match);
+      throw error;
+    }
+  };
+  try {
+    return match?.layout._internal.kind === "singleton" ? await codeOwned(match) : await curated();
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
+  }
 }
 
 function createDefaultHeadInput(stylesheetUrl?: string): UseHeadInput {
@@ -507,10 +620,7 @@ function createDefaultHeadInput(stylesheetUrl?: string): UseHeadInput {
   };
 }
 
-export function createPageHeadInput(head: {
-  meta?: Array<Record<string, string>>;
-  links?: Array<Record<string, string>>;
-}): UseHeadInput {
+export function createPageHeadInput(head: PageHead): UseHeadInput {
   const meta = head.meta ?? [];
   const links = head.links ?? [];
   const title = meta.find((entry) => entry.title)?.title;
@@ -550,10 +660,20 @@ export function createPageHeadInput(head: {
     }
   }
 
+  // Only JSON-LD: its text is data, which never runs.
+  const pageScripts: Script[] = (head.scripts ?? [])
+    .filter((entry) => entry.type === "application/ld+json")
+    .map((entry) => ({
+      type: "application/ld+json" as const,
+      innerHTML: entry.text,
+      "data-camox-page-head": "true",
+    }));
+
   return {
     ...(title && { title }),
     meta: pageMeta,
     link: pageLinks,
+    script: pageScripts,
   };
 }
 
@@ -607,7 +727,7 @@ async function preparePreviewDocument(
 ) {
   const siteHead = renderHead(
     document,
-    createPageHeadInput((input.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
+    createPageHeadInput((input.head ?? {}) as PageHead),
     options.stylesheetUrl,
     undefined,
     input.locale,
@@ -687,10 +807,20 @@ async function readAlternates<Head extends PageHead | null>(
     located,
     identity,
     head,
+    described,
     ...reading
-  }: AlternatesReading & { located: RequestLocale; identity: PageIdentity; head: Head },
+  }: AlternatesReading & {
+    located: RequestLocale;
+    identity: PageIdentity;
+    head: Head;
+    described: PageDescription;
+  },
 ): Promise<{ alternates: AlternatePath[]; head: Head }> {
-  const alternates = await findRequestAlternates(options, located, identity, reading);
+  const localeReads = requestLocaleReads(options, reading);
+  const [alternates, crumbs] = await Promise.all([
+    findRequestAlternates(options, located, identity, localeReads),
+    head ? readRequestBreadcrumb(options, located, described.title, localeReads) : [],
+  ]);
   const url = absoluteUrl(request, options);
   const links = hreflangLinks(alternates, located.locales, url);
   const place = {
@@ -698,9 +828,91 @@ async function readAlternates<Head extends PageHead | null>(
     locale: located.locale.tag,
     alternates,
   };
+  const site = {
+    url: url("/"),
+    name: described.project.name,
+    logo: projectLogo(url, described.project),
+    socialProfiles: described.project.socialProfiles ?? [],
+  };
+  const breadcrumb = crumbs.map((crumb) => ({
+    name: crumb.name,
+    url: url(localizedPath(crumb.path, located.locale)),
+  }));
   return {
     alternates,
-    head: (head && withLocatedTags(withHreflangs(head, links), place)) as Head,
+    head: (head &&
+      withStructuredData(withLocatedTags(withHreflangs(head, links), place), place, site, {
+        ...described,
+        breadcrumb,
+      })) as Head,
+  };
+}
+
+/**
+ * What a page's Structured Data says beyond its head: its project, its undecorated title, and
+ * when it was published.
+ */
+interface PageDescription {
+  project: {
+    id: number;
+    name: string;
+    updatedAt: number | string;
+    /** Absent from APIs older than the social profiles Project Setting. */
+    socialProfiles?: readonly string[];
+  };
+  /** The page's undecorated title, which names its own crumb. */
+  title: string;
+  /** The page's first and last publish times on Live, in milliseconds. */
+  published?: { first?: number | null; last?: number | null };
+}
+
+/** What a curated page's Structured Data says beyond its head. */
+function curatedPageDescription({ page, project, projectName }: PageStructure): PageDescription {
+  return {
+    project: { ...project, name: projectName },
+    title: curatedPageTitle(page),
+    published: { first: page.firstPublishedAt, last: page.publishedAt },
+  };
+}
+
+/** The value of a head's meta tag, by its name or property. */
+function headMeta(head: PageHead, key: string): string | undefined {
+  return head.meta?.find((entry) => entry.name === key || entry.property === key)?.content;
+}
+
+/**
+ * A page's head with its Structured Data, which names and describes the page as the head does,
+ * with the head's page image.
+ */
+function withStructuredData(
+  head: PageHead,
+  place: { url: string; locale: string },
+  site: SiteGraphInput,
+  {
+    published,
+    breadcrumb,
+  }: PageDescription & { breadcrumb: ReadonlyArray<{ name: string; url: string }> },
+): PageHead {
+  const name = head.meta?.find((entry) => entry.title)?.title ?? "";
+  const graph = buildPageGraph({
+    site,
+    page: {
+      url: place.url,
+      name,
+      description: headMeta(head, "description"),
+      inLanguage: place.locale,
+      image: headMeta(head, "og:image"),
+      ...(published?.first && { datePublished: new Date(published.first) }),
+      ...(published?.last && { dateModified: new Date(published.last) }),
+      breadcrumb,
+    },
+  });
+  return {
+    ...head,
+    scripts: [
+      ...(head.scripts ?? []),
+      { type: "application/ld+json", text: serializeStructuredData(graph) },
+    ],
   };
 }
 
@@ -735,33 +947,73 @@ function withLocatedTags(
   };
 }
 
+/**
+ * What the head of the page a request renders reads in each locale, in the scope its page was
+ * read in. A locale's pages are read once, whatever reads them.
+ */
+interface RequestLocaleReads extends LocaleReads {
+  records(locale: LocaleView): RecordLookup | undefined;
+}
+
+function requestLocaleReads(
+  options: RuntimeOptions,
+  { authCookieHeader, draftId }: AlternatesReading,
+): RequestLocaleReads {
+  const { apiUrl, projectUuid } = options;
+  const reading = { authCookieHeader: draftId ? authCookieHeader : undefined, draftId };
+  const source = draftId ? "draft" : "live";
+  const pagesByLocale = new Map<string, Promise<readonly ListedPage[]>>();
+  return {
+    pages: (locale) => {
+      if (!apiUrl || !projectUuid) return Promise.resolve([]);
+      const read =
+        pagesByLocale.get(locale.tag) ??
+        createServerApiClient(apiUrl, { ...reading, locale })
+          .pages.listBySlug({ projectUuid })
+          .then(({ pages }) => pages);
+      pagesByLocale.set(locale.tag, read);
+      return read;
+    },
+    context: (locale) => createLayoutRequestContext(options, source, { ...reading, locale }),
+    records: (locale) => createRecordLookup(options, source, { ...reading, locale }),
+  };
+}
+
 /** Where the page a request renders exists in each of the scope's locales: itself alone in one. */
 async function findRequestAlternates(
   options: RuntimeOptions,
   located: RequestLocale,
   identity: PageIdentity,
-  { authCookieHeader, draftId }: AlternatesReading,
+  reads: LocaleReads,
 ): Promise<AlternatePath[]> {
   const { apiUrl, projectUuid } = options;
   const here = [{ locale: located.locale.tag, path: localizedPath(located.path, located.locale) }];
   if (!apiUrl || !projectUuid || located.locales.length < 2) return here;
   const app = await options.getCamoxApp?.();
-  const reading = { authCookieHeader: draftId ? authCookieHeader : undefined, draftId };
-  return findAlternates({
-    identity,
-    located,
-    layouts: app?.getLayouts() ?? [],
-    reads: {
-      pages: async (locale) =>
-        (
-          await createServerApiClient(apiUrl, { ...reading, locale }).pages.listBySlug({
-            projectUuid,
-          })
-        ).pages,
-      context: (locale) =>
-        createLayoutRequestContext(options, draftId ? "draft" : "live", { ...reading, locale }),
-    },
-  });
+  return findAlternates({ identity, located, layouts: app?.getLayouts() ?? [], reads });
+}
+
+/**
+ * The crumbs of the page a request renders, in its locale. Without them, the page still renders:
+ * a breadcrumb that can't be read is left out.
+ */
+async function readRequestBreadcrumb(
+  options: RuntimeOptions,
+  located: RequestLocale,
+  title: string,
+  reads: RequestLocaleReads,
+): Promise<Crumb[]> {
+  try {
+    return await readBreadcrumb({
+      path: located.path,
+      title,
+      app: await options.getCamoxApp?.(),
+      reads: { pages: () => reads.pages(located.locale), records: reads.records(located.locale) },
+    });
+  } catch (error) {
+    console.error("[camox] Couldn't read the page's breadcrumb.", error);
+    return [];
+  }
 }
 
 /** A page's head with its alternates' `hreflang` links. */
@@ -872,6 +1124,7 @@ async function createPageHtmlResponse({
       located,
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {},
+      described: curatedPageDescription(result.data.page),
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: result.draftId,
     });
@@ -1181,6 +1434,15 @@ async function createDerivedResponse(
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
+    const context = buildLayoutContext(match.layout._internal, {
+      path: pathname,
+      locale: located.locale.tag,
+      projectName: shared.projectName,
+      data: serializedResult?.data,
+      params: match.params,
+      record:
+        record && recordCollection ? recordPageValues(recordCollection, record.data) : undefined,
+    });
     const { alternates, head: pageHead } = await readAlternates(request, options, {
       located,
       identity:
@@ -1189,21 +1451,15 @@ async function createDerivedResponse(
           : { kind: "code-owned" },
       head: buildPageHead({
         layout: match.layout._internal,
-        context: buildLayoutContext(match.layout._internal, {
-          path: pathname,
-          locale: located.locale.tag,
-          projectName: shared.projectName,
-          data: serializedResult?.data,
-          params: match.params,
-          record:
-            record && recordCollection
-              ? recordPageValues(recordCollection, record.data)
-              : undefined,
-        }),
+        context,
         origin: new URL(request.url).origin,
         faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
         hasMarkdown: match.layout._internal.toMarkdown !== undefined,
       }),
+      described: {
+        project: { ...shared.project, name: shared.projectName },
+        title: context.page.title,
+      },
       authCookieHeader,
       draftId: read.draftId,
     });
@@ -1484,6 +1740,7 @@ async function createPageDataResponse({
       located,
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null,
+      described: curatedPageDescription(result.data.page),
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: result.draftId,
     });
@@ -1552,6 +1809,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "og") {
     return createOgResponse(request, options);
+  }
+
+  if (match.kind === "logo") {
+    return createProjectLogoResponse(request, options.apiUrl);
   }
 
   if (match.kind === "sitemap") {

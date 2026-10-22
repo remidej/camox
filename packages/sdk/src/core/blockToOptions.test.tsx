@@ -115,6 +115,32 @@ void test("a positional toMarkdown still reads fields named content or settings"
   assert.deepEqual((await markdownTemplatesOf(destructured)).block, expected);
 });
 
+void test("a block's and a repeatable item's toTitle sync as one-line templates", async () => {
+  const block = createBlock({
+    ...fields,
+    content: (field: any) => ({
+      ...fields.content(field),
+      items: field.repeater({
+        content: (item: any) => ({ name: item.string({ default: "Item" }) }),
+        minItems: 1,
+        maxItems: 3,
+        toTitle: ({ content }: any) => content.name,
+        toMarkdown: ({ content }: any) => [content.name],
+      }),
+    }),
+    toReact: () => null,
+    toTitle: ({ content }: any) => `${content.title}: ${content.cta}`,
+    toMarkdown: () => [],
+  });
+  const set = await createApp({ blocks: [block as unknown as Block] }).getDefinitionSet();
+  const schema = set.blocks[0]!.contentSchema as unknown as {
+    toTitle: string;
+    properties: { items: { toTitle: string } };
+  };
+  assert.equal(schema.toTitle, "{{title}}: {{cta}}");
+  assert.equal(schema.properties.items.toTitle, "{{name}}");
+});
+
 function render(block: any, content: Record<string, unknown>, settings: Record<string, unknown>) {
   return renderToStaticMarkup(
     <block._internal.Component

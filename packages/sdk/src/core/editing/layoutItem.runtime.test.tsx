@@ -127,8 +127,8 @@ const ArticlePage = createLayout("articles.$slug")({
   description: "",
   blocks: { before: [], after: [] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  component: () => (
+  toTitle: ({ page }) => page.title,
+  toReact: () => (
     <ArticlePage.Item>
       {(item) => (
         <article>
@@ -155,7 +155,7 @@ const featured = createEditableBlock({
   description: "",
   content: (field) => ({ article: field.reference(articles) }),
   toMarkdown: () => [],
-  component: () => (
+  toReact: () => (
     <featured.Reference name="article">
       {(item) => <item.Field name="title">{(props) => <h2 {...props} />}</item.Field>}
     </featured.Reference>
@@ -197,7 +197,7 @@ function setup() {
   const render = (result = loaded) => {
     editors.length = 0;
     pageTitleClicks = [];
-    // The layout's old `component` reads nothing from the page's context.
+    // This layout's toReact reads nothing from the page's context.
     const Component = ArticlePage._internal.toReact as React.ComponentType<{
       children: React.ReactNode;
     }>;

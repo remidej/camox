@@ -151,6 +151,9 @@ async function renderSidebar(
     company?: string | null;
     fileUsage?: number;
     logos?: string[];
+    /** The repeater item's Summary and title. */
+    itemSummary?: string;
+    itemTitle?: string;
     /** The repeater item's own reference and reference list. */
     sponsor?: string | null;
     partners?: string[];
@@ -252,7 +255,7 @@ async function renderSidebar(
         toMarkdown: () => [],
       }),
     }),
-    component: () => null,
+    toReact: () => null,
     toMarkdown: () => [],
   });
   const file = {
@@ -297,7 +300,8 @@ async function renderSidebar(
         fieldName: "people",
         parentItemId: null,
         position: "a0",
-        summary: "Ada",
+        summary: options.itemSummary ?? "Ada",
+        title: options.itemTitle ?? "",
         content: { name: "Ada", photo: logo, scene: "", sponsor, partners },
         settings: {},
         references: {
@@ -537,6 +541,41 @@ async function renderSidebar(
     },
   };
 }
+
+void test("an item without a Summary is named by its title in its repeater's list and the breadcrumb", async (t) => {
+  const options = { itemSummary: "", itemTitle: "Founder card" };
+  const list = await renderSidebar(
+    t,
+    { type: "block-field", blockId: BLOCK_ID, fieldName: "people", fieldType: "Repeater" },
+    options,
+  );
+  assert.match(list.text(), /People\s*Founder card/);
+
+  const item = await renderSidebar(
+    t,
+    { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID },
+    options,
+  );
+  assert.deepEqual(item.crumbs(), ["Page", "Testimonial", "People", "Founder card"]);
+});
+
+void test("an item's Summary wins over its title in its repeater's list and the breadcrumb", async (t) => {
+  const options = { itemSummary: "Ada", itemTitle: "Founder card" };
+  const list = await renderSidebar(
+    t,
+    { type: "block-field", blockId: BLOCK_ID, fieldName: "people", fieldType: "Repeater" },
+    options,
+  );
+  assert.match(list.text(), /People\s*Ada/);
+  assert.doesNotMatch(list.text(), /Founder card/);
+
+  const item = await renderSidebar(
+    t,
+    { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID },
+    options,
+  );
+  assert.deepEqual(item.crumbs(), ["Page", "Testimonial", "People", "Ada"]);
+});
 
 void test("block text field edits are saved to the block", async (t) => {
   const sidebar = await renderSidebar(t, {

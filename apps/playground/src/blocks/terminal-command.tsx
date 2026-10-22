@@ -21,8 +21,8 @@ const terminalCommand = createBlock({
       title: "Command",
     }),
   }),
-  component: CopyTerminalCommandComponent,
-  toMarkdown: (c) => [c.label, `\`${c.command}\``],
+  toReact: CopyTerminalCommandComponent,
+  toMarkdown: ({ content }) => [content.label, `\`${content.command}\``],
 });
 
 function CopyTerminalCommandComponent() {

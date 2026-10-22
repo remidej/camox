@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { reads, useReadQueries, useReadQuery } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { useEditingFrame } from "../editingFrame";
+import { entityName } from "../entityName";
 import { selectionHoverMessage } from "../overlayMessages";
 import { usePageRecordPlacer } from "../pageRecord";
 import { PreviewEditingOwnerContext } from "../previewSelection";
@@ -442,7 +443,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
       },
       {
         key: `item-${ancestor.id}`,
-        label: ancestor.summary || "Item",
+        label: entityName(ancestor, "Item"),
         hoverTarget: { type: "item" as const, blockId: block.id, itemId: ancestor.id },
         isCurrent:
           ancestor.id === currentItemId &&

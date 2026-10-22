@@ -218,6 +218,7 @@ export const CAMOX_OPTIMIZED_DEPS = [
   "camox > @tanstack/react-virtual",
   "camox > @unhead/react/client",
   "camox > @unhead/react/server",
+  "camox > @unhead/schema-org",
   "camox > @xstate/store",
   "camox > @xstate/store-react",
   "camox > better-auth/client/plugins",

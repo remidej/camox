@@ -8,8 +8,8 @@ const options = {
   title: "Pokédex",
   description: "A code-owned page",
   blocks: { before: [], after: [] },
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
-  component: () => null,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
+  toReact: () => null,
 };
 
 void test("singletons sync their kind, accept no loader, and do not seed curated pages", async () => {

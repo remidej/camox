@@ -64,8 +64,8 @@ const youtubeVideo = createBlock({
       title: "Keyboard Controls",
     }),
   }),
-  component: YouTubeVideoComponent,
-  toMarkdown: (c) => [c.url],
+  toReact: YouTubeVideoComponent,
+  toMarkdown: ({ content }) => [content.url],
 });
 
 function extractVideoId(url: string): string | null {

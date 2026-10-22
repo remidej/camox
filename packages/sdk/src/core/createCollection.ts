@@ -132,7 +132,7 @@ export function createCollection<
             })),
           };
         },
-        recordPages: { collectionId: id, field: by },
+        recordPages: { collectionId: id, field: by, param },
       };
     },
     _internal: {

@@ -170,7 +170,7 @@ function runInlineScripts(html: string) {
   context.window = context;
   for (const [, attributes, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
     // External scripts, data, and the Studio's own scripts, which need a real browser.
-    if (/\bsrc=|type="application\/json"|data-camox-studio/.test(attributes!)) continue;
+    if (/\bsrc=|type="application\/(?:ld\+)?json"|data-camox-studio/.test(attributes!)) continue;
     vm.runInContext(body!, context);
   }
   return {

@@ -138,6 +138,14 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     and(eq(pages.fullPath, fullPath), eq(pages.projectId, project.id)),
   );
   if (!page) return yield* new NotFoundError();
+  const draft = draftIn(scope);
+  // A draft's copy of a page keeps Live's publish times as they were when it was copied.
+  const live =
+    draft && page.draftId ? yield* overlay.liveRowFor(ctx.db, draft, pages, page.id) : page;
+  const published = {
+    firstPublishedAt: live?.firstPublishedAt ?? null,
+    publishedAt: live?.publishedAt ?? null,
+  };
   const layout =
     (yield* Effect.promise(() =>
       ctx.db
@@ -148,7 +156,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     )) ?? null;
   // A page whose layout was removed or is no longer curated isn't served (ADR 0007).
   if (!servesPages(layout)) return yield* new NotFoundError();
-  return { project, page, layout };
+  return { project, page: { ...page, ...published }, layout };
 });
 
 function layoutView(

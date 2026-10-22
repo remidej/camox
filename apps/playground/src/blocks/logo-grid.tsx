@@ -12,11 +12,11 @@ const logoGrid = createBlock({
     customers: field.referenceList(customers, {
       title: "Customers",
       maxItems: 12,
-      toMarkdown: (c) => [`${c.logo} ${c.company}`],
+      toMarkdown: ({ content }) => [`${content.logo} ${content.company}`],
     }),
   }),
-  component: LogoGridComponent,
-  toMarkdown: (c) => [`## ${c.title}`, c.customers],
+  toReact: LogoGridComponent,
+  toMarkdown: ({ content }) => [`## ${content.title}`, content.customers],
 });
 
 function LogoGridComponent() {

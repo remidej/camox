@@ -152,8 +152,8 @@ function LocaleSwitcher() {
 const layoutOptions = {
   description: "",
   blocks: { before: [], after: [] },
-  component: LocaleSwitcher,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: LocaleSwitcher,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
 };
 
 const app = createApp({

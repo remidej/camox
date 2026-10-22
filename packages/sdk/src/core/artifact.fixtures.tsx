@@ -24,7 +24,7 @@ export const artifactBlock = createBlock({
     }),
   }),
   toMarkdown: () => [],
-  component: () => (
+  toReact: () => (
     <>
       <artifactBlock.Artifact name="visual">
         {(props) => <iframe {...props} />}
@@ -56,14 +56,14 @@ export const chartBlock = createBlock({
       settings: (setting) => ({ highlighted: setting.boolean({ default: false }) }),
       minItems: 1,
       maxItems: 3,
-      toMarkdown: (c) => [c.label],
+      toMarkdown: ({ content }) => [content.label],
     }),
   }),
   settings: (setting) => ({
     accent: setting.enum({ default: "blue", options: { blue: "Blue", red: "Red" } }),
   }),
-  toMarkdown: (c) => [c.headline],
-  component: () => (
+  toMarkdown: ({ content }) => [content.headline],
+  toReact: () => (
     <>
       <chartBlock.Artifact name="chart">{(props) => <iframe {...props} />}</chartBlock.Artifact>
       <chartBlock.Repeater name="bars">

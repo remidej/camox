@@ -246,9 +246,6 @@ type Renamed<Old, New> =
   | (Old & { [K in keyof New]?: never })
   | (New & { [K in keyof Old]?: never });
 
-/** What `toImage` receives: `/og` knows the page and the project only. */
-export type LayoutToImage = (context: CuratedLayoutContext) => React.ReactElement;
-
 /**
  * A layout's outputs, each receiving the page's context: `toReact`, `toTitle`, `toDescription`
  * and `toImage`. The old names (`component`, `buildMetaTitle`, `buildMetaDescription`,
@@ -265,11 +262,14 @@ type LayoutOutputs<Context, Children, OldTitle, OldDescription> = Renamed<
   > &
   Renamed<
     { buildOgImage?: (params: OgImageParams) => React.ReactElement },
-    { toImage?: LayoutToImage }
+    { toImage?: (context: Context) => React.ReactElement }
   >;
 
-/** The collection a layout's record pages render, and the field each record is found by. */
-export type RecordPages = { collectionId: string; field: string };
+/**
+ * The collection a layout's record pages render, and the field each record is found by. `param`
+ * names the route param holding that field's value; only the collection and field are synced.
+ */
+export type RecordPages = { collectionId: string; field: string; param?: string };
 
 interface LayoutBaseOptions<
   TBefore extends readonly LayoutBlock[],
@@ -325,7 +325,7 @@ type AnyLayoutOptions = LayoutBaseOptions<any, any, any> & {
   buildMetaDescription?: BuildMetaDescription<unknown, unknown>;
   toDescription?: (context: any) => string | undefined;
   buildOgImage?: (params: OgImageParams) => React.ReactElement;
-  toImage?: LayoutToImage;
+  toImage?: (context: any) => React.ReactElement;
 };
 
 /** The old metadata callbacks, run with the context the new options receive. */
@@ -338,15 +338,19 @@ function legacyMetaOptions(options: AnyLayoutOptions, kind: AnyLayoutOptions["ki
     ...(context.content && { item: context.content }),
   });
   const { buildMetaTitle, buildMetaDescription, buildOgImage } = options;
+  const toTitle =
+    buildMetaTitle &&
+    ((context: AnyLayoutContext) =>
+      buildMetaTitle({
+        ...metaContext(context),
+        // The old callback got the layout's title on code-owned pages, record pages' included.
+        pageMetaTitle: kind === "curated" ? context.page.title : options.title,
+      }));
+  /** The page's built title, under the option's new name or its old one. */
+  const builtTitle = (context: AnyLayoutContext) =>
+    (options.toTitle ?? toTitle)?.(context) ?? context.page.title;
   return {
-    toTitle:
-      buildMetaTitle &&
-      ((context: AnyLayoutContext) =>
-        buildMetaTitle({
-          ...metaContext(context),
-          // The old callback got the layout's title on code-owned pages, record pages' included.
-          pageMetaTitle: kind === "curated" ? context.page.title : options.title,
-        })),
+    toTitle,
     toDescription:
       buildMetaDescription &&
       ((context: AnyLayoutContext) =>
@@ -356,9 +360,10 @@ function legacyMetaOptions(options: AnyLayoutOptions, kind: AnyLayoutOptions["ki
         })),
     toImage:
       buildOgImage &&
-      ((context: CuratedLayoutContext) =>
+      ((context: AnyLayoutContext) =>
         buildOgImage({
-          title: context.page.title,
+          // The old callback showed the built title on code-owned pages.
+          title: kind === "curated" ? context.page.title : builtTitle(context),
           description: context.page.description ?? "",
           projectName: context.project.name,
         })),
@@ -537,19 +542,8 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
   const legacy = legacyMetaOptions(options, options.kind ?? "curated");
   const toTitle = options.toTitle ?? legacy.toTitle;
   const toDescription = options.toDescription ?? legacy.toDescription;
-  const toImageElement = options.toImage ?? legacy.toImage;
-  const toImage = toImageElement
-    ? async (context: CuratedLayoutContext): Promise<Response> => {
-        // OG rendering is server-only. This guard also lets Vite remove the
-        // WASM import from client builds.
-        if (import.meta.env?.SSR === false) {
-          throw new Error("OG images can only be rendered on the server.");
-        }
-        const { ImageResponse } = await import("camox/_internal/imageResponse");
-        const jsx = toImageElement(context);
-        return new ImageResponse(jsx, { width: 1200, height: 630 });
-      }
-    : undefined;
+  const toImage: ((context: AnyLayoutContext) => React.ReactElement) | undefined =
+    options.toImage ?? legacy.toImage;
 
   const loadInitialBlockBundles =
     initialBlocks &&
@@ -597,13 +591,8 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
       toMarkdown: options.toMarkdown as
         | ((context: { data: unknown; params: unknown; item?: unknown }) => readonly string[])
         | undefined,
-      /** Renders the page's shared image. */
+      /** The page's shared image, which `/og` renders. Without one, Camox's default image. */
       toImage,
-      /**
-       * Whether the image comes from `toImage`, which gets the page's own title and description.
-       * Without it, `/og` is named by the built title, as an old `buildOgImage` expects.
-       */
-      imageFromContext: !!options.toImage,
       blockDefinitions,
       loadInitialBlockBundles,
       /** Renders the layout around the page, with the page's context as props. */

@@ -91,7 +91,7 @@ void describe("collection definitions", () => {
         content: (field) => ({ text: field.string({ default: "" }) }),
         minItems: 1,
         maxItems: 2,
-        toMarkdown: (c) => [c.text],
+        toMarkdown: ({ content }) => [content.text],
       }),
       { ...contentFieldBuilder.string({ default: "lucide:check" }), fieldType: "Icon" },
     ]) {

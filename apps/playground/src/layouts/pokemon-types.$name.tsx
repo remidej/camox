@@ -50,8 +50,8 @@ export const Layout = createLayout("pokemon-types.$name")({
     const list: { results: Array<{ name: string }> } = await response.json();
     return { data: list.results.map(({ name }) => ({ params: { name } })) };
   },
-  buildMetaTitle: ({ data }) => `${pokemonName(data.name)} type – Pokédex`,
-  buildMetaDescription: ({ data }) => `${data.pokemon.length} Pokémon have the ${data.name} type.`,
+  toTitle: ({ data }) => `${pokemonName(data.name)} type – Pokédex`,
+  toDescription: ({ data }) => `${data.pokemon.length} Pokémon have the ${data.name} type.`,
   toMarkdown: ({ data }) => {
     const names = (resources: NamedResource[]) =>
       resources.map(({ name }) => pokemonName(name)).join(", ") || "None";
@@ -63,7 +63,7 @@ export const Layout = createLayout("pokemon-types.$name")({
       `${data.pokemon.length} Pokémon: ${data.pokemon.map(({ pokemon }) => pokemonName(pokemon.name)).join(", ")}`,
     ];
   },
-  component: TypePage,
+  toReact: TypePage,
 });
 
 const PAGE_SIZE = 36;

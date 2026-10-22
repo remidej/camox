@@ -38,8 +38,8 @@ const layoutOptions = {
   title: "Article",
   description: "",
   blocks: { before: [], after: [] },
-  component: () => null,
-  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  toReact: () => null,
+  toTitle: ({ page }: { page: { title: string } }) => page.title,
 };
 
 const FIRST_ID = "00000000-0000-4000-8000-000000000001";
@@ -496,14 +496,14 @@ void test("toMarkdown fills the record's fields between the live layout blocks, 
   assertLookupsWithoutSource(lookups, 1);
 });
 
-void test("meta callbacks get the record's fields as plain text, in the head and the Markdown", async (t) => {
+void test("a record page's toTitle and toDescription get the record's fields as plain text, in the head and the Markdown", async (t) => {
   mockApi(t, withRenderedRecords);
   const layout = createLayout("articles.$slug")({
     ...layoutOptions,
     kind: "derived",
     ...articles.pages({ by: "slug", param: "slug" }),
-    buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
-    buildMetaDescription: ({ item }) => `About ${item.slug}`,
+    toTitle: ({ content, project }) => `${content.title} | ${project.name}`,
+    toDescription: ({ content }) => `About ${content.slug}`,
     toMarkdown: ({ item }) => [`# ${item.title}`],
   });
   const response = await request("/_camox/data?path=/articles/rich", [layout]);

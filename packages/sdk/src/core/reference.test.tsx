@@ -55,8 +55,11 @@ void test("reference schema stores nullable identity, defaults unset and emits p
     description: "",
     content: () => ({ customer: reference }),
     settings: (setting) => ({ show: setting.boolean({ default: true }) }),
-    component: () => null,
-    toMarkdown: (c, s) => [s.show(`Quote: ${c.customer.name}`), c.customer.name],
+    toReact: () => null,
+    toMarkdown: ({ content, settings }) => [
+      settings.show(`Quote: ${content.customer.name}`),
+      content.customer.name,
+    ],
   });
   assert.deepEqual(block._internal.getInitialContent(), { customer: null });
   assert.deepEqual(block._internal.getPeekBundle().block.content, { customer: null });
@@ -73,8 +76,8 @@ void test("public scopes render source fields and labels, never fabricate missin
     title: "",
     description: "",
     content: (field) => ({ customer: field.reference(customers) }),
-    toMarkdown: (c) => [c.customer.name],
-    component: () => (
+    toMarkdown: ({ content }) => [content.customer.name],
+    toReact: () => (
       <block.Reference name="customer">
         {(customer) => {
           calls++;
@@ -188,7 +191,7 @@ void test("reference list schema stores ordered identities, defaults empty and o
     title: "",
     description: "",
     content: (field) => ({ customers: field.referenceList(customers) }),
-    component: () => null,
+    toReact: () => null,
     toMarkdown: () => [],
   });
   assert.deepEqual(block._internal.getInitialContent(), { customers: [] });
@@ -202,11 +205,11 @@ void test("reference lists emit per-use record Markdown and are included by thei
     description: "",
     content: (field) => ({
       customers: field.referenceList(customers, {
-        toMarkdown: (c) => [`Logo of ${c.name}`, c.logo],
+        toMarkdown: ({ content }) => [`Logo of ${content.name}`, content.logo],
       }),
     }),
-    component: () => null,
-    toMarkdown: (c) => ["Trusted by:", c.customers],
+    toReact: () => null,
+    toMarkdown: ({ content }) => ["Trusted by:", content.customers],
   });
   const schema = block._internal.contentSchema;
   assert.deepEqual(schema.properties.customers.toMarkdown, ["Logo of {{name}}", "{{logo}}"]);
@@ -228,7 +231,7 @@ void test("reference lists render each resolved record in stored order and nothi
     description: "",
     content: (field) => ({ customers: field.referenceList(customers) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <ul>
         <block.ReferenceList name="customers">
           {(customer) => (
@@ -285,7 +288,7 @@ void test("query-backed lists store nothing and render their resolved records in
   const query = { orderBy: { name: "asc" }, limit: 3 } as const;
   const recent = contentFieldBuilder.referenceList(customers, {
     query,
-    toMarkdown: (c) => [c.name],
+    toMarkdown: ({ content }) => [content.name],
   });
   assert.deepEqual(recent.query, query);
   assert.equal("default" in recent, false);
@@ -326,7 +329,7 @@ void test("query-backed lists store nothing and render their resolved records in
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <>
         <ul>
           <block.ReferenceList name="customers">
@@ -411,7 +414,7 @@ void test("repeatable items render the records they link, at any repeater depth"
       }),
     }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Repeater name="logos">
         {(logo) => (
           <article>
@@ -513,7 +516,7 @@ void test("placed records render the records they link, and nothing a hop furthe
     description: "",
     content: (field) => ({ article: field.reference(articles) }),
     toMarkdown: () => [],
-    component: () => (
+    toReact: () => (
       <block.Reference name="article">
         {(article) => (
           <article.ReferenceList name="coauthors">

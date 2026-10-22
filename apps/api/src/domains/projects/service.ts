@@ -2,6 +2,7 @@ import { projectIdSchema } from "@camox/api-contract/ids";
 import {
   projectSlugSchema,
   RESERVED_PROJECT_SLUGS,
+  socialProfileUrlSchema,
   UNAVAILABLE_SLUG_MESSAGES,
   type UnavailableSlugReason,
 } from "@camox/api-contract/projects";
@@ -66,6 +67,11 @@ export const createProjectInput = z.object({
 export const updateProjectInput = z.object({ id: z.number(), name: z.string() });
 export const deleteProjectInput = z.object({ id: z.number() });
 export const updateProjectAnalyticsInput = analyticsProvidersInput.extend({ id: z.number() });
+/** The project's social profiles, in order, replacing the ones it had. */
+export const updateProjectSocialProfilesInput = z.object({
+  id: z.number(),
+  socialProfiles: z.array(socialProfileUrlSchema).max(50),
+});
 
 /** The homepage content a Definition Set declares: its layout and initial blocks. */
 export const homepageInput = z.object({
@@ -324,6 +330,25 @@ export const updateProjectAnalytics = Effect.fn("projects.updateProjectAnalytics
   yield* record(ctx.db, { kind: "project", projectId: id });
   return { analytics: analyticsOf(result), updatedAt: result.updatedAt };
 });
+
+/** Sets the social profiles: a Project Setting, so Live and every draft change at once. */
+export const updateProjectSocialProfiles = Effect.fn("projects.updateProjectSocialProfiles")(
+  function* (ctx: ServiceContext, rawInput: z.input<typeof updateProjectSocialProfilesInput>) {
+    const user = yield* requireUser(ctx);
+    const { id, socialProfiles } = yield* decodeInput(updateProjectSocialProfilesInput, rawInput);
+    yield* getAuthorizedProject(ctx.db, id, user.id);
+    const result = yield* Effect.promise(() =>
+      ctx.db
+        .update(projects)
+        .set({ socialProfiles, updatedAt: Date.now() })
+        .where(eq(projects.id, id))
+        .returning()
+        .get(),
+    );
+    yield* record(ctx.db, { kind: "project", projectId: id });
+    return { socialProfiles: result.socialProfiles, updatedAt: result.updatedAt };
+  },
+);
 
 export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   ctx: ServiceContext,

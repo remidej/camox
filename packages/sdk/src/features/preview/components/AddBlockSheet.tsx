@@ -96,6 +96,7 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
         settings: (variables.settings as Record<string, unknown>) ?? null,
         slot: null,
         summary: "",
+        title: "",
         position,
         createdAt: now,
         updatedAt: now,

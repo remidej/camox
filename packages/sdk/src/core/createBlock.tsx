@@ -25,6 +25,7 @@ import { artifactData } from "./lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  resolveToTitle,
   type FileValue,
   type ImageValue,
   type LinkValue,
@@ -181,6 +182,7 @@ function buildPeekItems(
         content: itemContent,
         settings: property.defaultItemSettings ? { ...property.defaultItemSettings } : null,
         summary: "",
+        title: "",
         position,
         createdAt: 0,
         updatedAt: 0,
@@ -645,6 +647,11 @@ function createViewBlock(options: EditableOptions) {
       "block",
       fields.content,
     ),
+    ...(options.toTitle
+      ? {
+          toTitle: resolveToTitle(options.toTitle as any, fields.settings, "block", fields.content),
+        }
+      : {}),
   };
   const settingsSchema = settingsTypeboxSchema
     ? {
@@ -723,6 +730,7 @@ function createViewBlock(options: EditableOptions) {
             settings: settingsDefaults,
             slot: null,
             summary: "",
+            title: "",
             position: "",
             createdAt: 0,
             updatedAt: 0,

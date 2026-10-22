@@ -472,8 +472,12 @@ const storedRow = <T extends ContentTable>(
   );
 
 /** The Live row a draft reads for an entity it doesn't store, in the draft's locale. */
-const liveRowFor = <T extends ContentTable>(db: Database, draft: Draft, table: T, id: string) =>
-  storedRow(db, null, draft, table, id);
+export const liveRowFor = <T extends ContentTable>(
+  db: Database,
+  draft: Draft,
+  table: T,
+  id: string,
+) => storedRow(db, null, draft, table, id);
 
 /**
  * The statements running a table's Live follow-ups for one Live entity, as it is when they run:

@@ -189,12 +189,16 @@ An uploaded image, video, or document available to the website's content. Like a
 _Avoid_: Media, upload
 
 **Summary**:
-A generated value: a short description of a block's or repeatable item's content, used to identify it to editors and agents.
+A generated value: a short description of a block's or repeatable item's content, used to identify it to editors and agents. Until one is generated or written by hand, the block or item is identified by its title, which its definition's `toTitle` builds from its default-locale content.
 _Avoid_: Description, label, excerpt
 
 **Generated Value**:
 A value AI derives from content (a summary, a page's SEO, or a file's alt text and filename), kept beside the content rather than in it, so producing one never changes a draft. A value written by hand takes its place. SEO and alt text are generated in each locale; summaries and filenames in the default locale only.
 _Avoid_: AI field, AI metadata, derived content
+
+**Structured Data**:
+The JSON-LD graph Camox renders in each page's head, describing the website's Organization, the website and the page as linked nodes, built from the project, the page and definitions' `toStructuredData`.
+_Avoid_: Schema, schema markup, rich snippets
 
 **Markdown Representation**:
 The text a block, or a layout rendering loaded data, declares to stand for its content when read by agents.

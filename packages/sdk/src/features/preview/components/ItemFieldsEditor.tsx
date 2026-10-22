@@ -613,6 +613,7 @@ const ItemFieldsEditor = ({
               .filter(Boolean) as Array<{
               id: string;
               summary: string;
+              title: string;
               position: string;
               content: Record<string, unknown>;
             }>;

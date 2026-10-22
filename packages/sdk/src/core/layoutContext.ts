@@ -83,6 +83,11 @@ export interface LayoutContextSource {
   record?: RecordPageValues;
 }
 
+/** A curated page's undecorated title: its meta title, or its path segment while it has none. */
+export function curatedPageTitle(page: { pathSegment: string; metaTitle?: string | null }) {
+  return page.metaTitle ?? page.pathSegment;
+}
+
 /** A curated page's context, from its editor metadata. Its path keeps its locale's prefix. */
 export function curatedLayoutContext(
   structure: {
@@ -100,49 +105,13 @@ export function curatedLayoutContext(
   return buildLayoutContext(
     { kind: "curated", title: "" },
     {
-      metaTitle: page.metaTitle ?? page.pathSegment,
+      metaTitle: curatedPageTitle(page),
       description: page.metaDescription ?? undefined,
       path: localizedPath(page.fullPath, locale),
       locale: locale.tag,
       projectName: structure.projectName,
     },
   );
-}
-
-/**
- * The query naming the shared image `/og` renders: the layout, the page's title, description,
- * path and locale, and the project's name.
- */
-export function ogImageSearchParams({
-  layoutId,
-  page,
-  project,
-}: {
-  layoutId: string | undefined;
-  page: { title: string; description?: string; path?: string; locale?: string };
-  project: LayoutProject;
-}): URLSearchParams {
-  return new URLSearchParams({
-    ...(layoutId && { layoutId }),
-    title: page.title,
-    ...(page.description && { description: page.description }),
-    ...(project.name && { projectName: project.name }),
-    ...(page.path && { path: page.path }),
-    ...(page.locale && { locale: page.locale }),
-  });
-}
-
-/** The context `/og` renders a layout's `toImage` with, from the query naming the image. */
-export function ogImageContext(searchParams: URLSearchParams): CuratedLayoutContext {
-  return {
-    page: {
-      title: searchParams.get("title") ?? "",
-      description: searchParams.get("description") ?? undefined,
-      path: searchParams.get("path") ?? "",
-      locale: searchParams.get("locale") ?? "",
-    },
-    project: { name: searchParams.get("projectName") ?? "" },
-  };
 }
 
 /** The context a layout's `to*` options receive on a page. */

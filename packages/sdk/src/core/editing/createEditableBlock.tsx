@@ -61,6 +61,7 @@ import { artifactData } from "../lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  resolveToTitle,
   type ArtifactDataCheck,
   type ArtifactSource,
   type ContentFieldBuilder,
@@ -70,6 +71,7 @@ import {
   type ImageValue,
   type FileValue,
   type ToMarkdownBuilder,
+  type ToTitleBuilder,
   type ItemSettingsBrand,
 } from "../lib/contentType.ts";
 import type { FieldType } from "../lib/fieldTypes.tsx";
@@ -214,6 +216,14 @@ interface BlockBaseOptions<
    * ]
    */
   toMarkdown: ToMarkdownBuilder<TSchemaShape, TSettingsShape>;
+  /**
+   * Names the block in the studio and to agents until it has a Summary: one line from
+   * `{ content, settings }`, read like `toMarkdown`'s, on the default locale's content.
+   *
+   * @example
+   * toTitle: ({ content }) => content.title
+   */
+  toTitle?: ToTitleBuilder<TSchemaShape, TSettingsShape>;
 }
 
 /** What a block's `toReact` receives as props: its content and settings. */
@@ -280,6 +290,7 @@ export interface PeekItem {
   content: unknown;
   settings: Record<string, unknown> | null;
   summary: string;
+  title: string;
   position: string;
   createdAt: number;
   updatedAt: number;
@@ -415,6 +426,7 @@ function buildPeekItems(
         content: { ...itemContent },
         settings: itemSettingsDefaults ? { ...itemSettingsDefaults } : null,
         summary: "",
+        title: "",
         position,
         createdAt: 0,
         updatedAt: 0,
@@ -460,6 +472,16 @@ export function createEditableBlock<
       "block",
       fields.content,
     ),
+    ...(options.toTitle
+      ? {
+          toTitle: resolveToTitle<TSchemaShape, TSettingsShape>(
+            options.toTitle,
+            fields.settings,
+            "block",
+            fields.content,
+          ),
+        }
+      : {}),
   };
 
   // Build settings schema (if provided)
@@ -3057,6 +3079,7 @@ export function createEditableBlock<
             settings: settingsDefaults,
             slot: null,
             summary: "",
+            title: "",
             position: "",
             createdAt: 0,
             updatedAt: 0,

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c14980e9-4ace-499d-9bde-e1ea16a2a356",
+  "id": "e8e73bf4-d1d0-4b62-8c75-bec65aa6fa93",
   "prevId": "86298ee2-3c88-4565-982b-6ce5842da461",
   "tables": {
     "account": {
@@ -627,6 +627,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "social_profiles": {
+          "name": "social_profiles",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "created_at": {
           "name": "created_at",
@@ -2001,18 +2009,11 @@
           "notNull": true,
           "autoincrement": false
         },
-        "to_title": {
-          "name": "to_title",
+        "label": {
+          "name": "label",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "to_description": {
-          "name": "to_description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "content_schema": {
