@@ -12,14 +12,22 @@ import { createLogger, createServer, type ViteDevServer } from "vite-plus";
 
 import { installDevSignInLink } from "./devSignIn";
 
+/** The API's answer to a studio authorization: the callback with its one-time token, if any. */
+function signInUrl(token: unknown) {
+  return typeof token === "string"
+    ? { url: `http://localhost:5173/?ott=${token}` }
+    : { url: token };
+}
+
 void test("prints a checkout-specific sign-in link on the actual Vite port after API startup", async () => {
   let requests = 0;
   const api = createHttpServer((req, res) => {
     requests++;
-    assert.equal(req.url, "/api/auth/one-time-token/generate");
+    assert.equal(req.method, "POST");
+    assert.equal(req.url, "/api/auth/cross-domain/studio-authorize");
     assert.equal(req.headers.authorization, "Bearer checkout-session");
     res.writeHead(requests === 1 ? 503 : 200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ token: "test-ott" }));
+    res.end(JSON.stringify(signInUrl("test-ott")));
   });
   await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
   const address = api.address();
@@ -132,7 +140,7 @@ function signInFixture(t: TestContext) {
   let launchError = false;
   t.mock.method(globalThis, "fetch", async () => {
     requests++;
-    return Response.json({ token });
+    return Response.json(signInUrl(token));
   });
   t.mock.method(
     childProcess,
@@ -276,7 +284,7 @@ void test("an atomic marker prevents reopening across independent instances and 
         let launches = 0;
         let printed = 0;
         childProcess.spawn = () => { launches++; throw new Error("Unexpected browser launch"); };
-        globalThis.fetch = async () => Response.json({ token: "subprocess-token" });
+        globalThis.fetch = async () => Response.json(${JSON.stringify(signInUrl("subprocess-token"))});
         const server = {
           config: { root: "independent-process", logger: { info() { printed++; }, warn() {} } },
           resolvedUrls: { local: ["http://localhost:5173/"], network: [] },

@@ -22,6 +22,8 @@ export const session = sqliteTable("session", {
     .notNull()
     .references(() => user.id),
   activeOrganizationId: text("activeOrganizationId"),
+  /** A session handed to the studio on a site, whose scripts can read it: it can't sign anything else in. */
+  studio: int("studio", { mode: "boolean" }).notNull().default(false),
   createdAt: int("createdAt", { mode: "timestamp_ms" }).notNull(),
   updatedAt: int("updatedAt", { mode: "timestamp_ms" }).notNull(),
 });

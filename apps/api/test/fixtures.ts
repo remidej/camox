@@ -25,6 +25,7 @@ import {
   member,
   organizationTable,
   projects,
+  session,
   user,
 } from "../src/schema";
 import type { Bindings } from "../src/types";
@@ -95,6 +96,27 @@ const membership = (organizationId: string, userId: string, role: "owner" | "mem
   role,
   createdAt: new Date(now),
 });
+
+/** Signs `userId` in, as the dashboard's sign-in does, returning the session's token. */
+export async function createSessionFixture(
+  userId: string,
+  { activeOrganizationId }: { activeOrganizationId?: string } = {},
+) {
+  const token = `session-${crypto.randomUUID()}`;
+  const signedInAt = new Date();
+  await createDb(env.DB)
+    .insert(session)
+    .values({
+      id: `session-id-${token}`,
+      token,
+      userId,
+      activeOrganizationId,
+      expiresAt: new Date(signedInAt.getTime() + 60 * 60_000),
+      createdAt: signedInAt,
+      updatedAt: signedInAt,
+    });
+  return token;
+}
 
 /** Adds another member to an organization, as a teammate of the fixture's member. */
 export async function addMember(db: ReturnType<typeof createDb>, organizationId: string) {

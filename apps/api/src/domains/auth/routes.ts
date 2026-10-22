@@ -1,10 +1,11 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { bearer, oneTimeToken, organization } from "better-auth/plugins";
+import { bearer, organization } from "better-auth/plugins";
 import { Hono } from "hono";
 import slugify from "slugify";
 
 import type { Database } from "../../db";
+import { isLoopbackHostname } from "../../lib/loopback";
 import {
   user,
   session,
@@ -21,6 +22,7 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
 } from "./email";
+import { isStudioHostOf } from "./studio-hosts";
 
 // --- Auth Factory ---
 
@@ -44,8 +46,7 @@ export function getCookieDomain(siteUrl: string): string | undefined {
   try {
     const siteHost = new URL(siteUrl).hostname;
     // Worktrees share cookies across ports, never across checkout hostnames.
-    if (siteHost === "localhost" || siteHost.endsWith(".localhost")) return undefined;
-    if (siteHost === "127.0.0.1" || siteHost === "[::1]") return undefined;
+    if (isLoopbackHostname(siteHost)) return undefined;
     if (siteHost === "camox.dev" || siteHost.endsWith(".camox.dev")) return ".camox.dev";
     return `.${siteHost}`;
   } catch {
@@ -133,8 +134,10 @@ export function createAuth(
           });
         },
       }),
-      crossDomain({ siteUrl: env.DASHBOARD_URL }),
-      oneTimeToken(),
+      crossDomain({
+        siteUrl: env.DASHBOARD_URL,
+        isStudioHost: (callback, userId) => isStudioHostOf(db, env.PROJECT_SLUGS, callback, userId),
+      }),
       bearer(),
     ],
     databaseHooks: {

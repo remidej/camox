@@ -1,0 +1,1 @@
+ALTER TABLE `session` ADD `studio` integer DEFAULT false NOT NULL;
