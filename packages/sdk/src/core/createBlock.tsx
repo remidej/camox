@@ -641,16 +641,11 @@ function createViewBlock(options: EditableOptions) {
     description: options.description,
     properties: typeboxSchema.properties,
     required: Object.keys(fields.content),
-    toMarkdown: resolveToMarkdown(
-      options.toMarkdown as any,
-      fields.settings,
-      "block",
-      fields.content,
-    ),
-    toTitle: resolveToTitle(options.toTitle as any, fields.settings, "block", fields.content),
+    toMarkdown: resolveToMarkdown(options.toMarkdown, fields.settings, "block", fields.content),
+    toTitle: resolveToTitle(options.toTitle, fields.settings, "block", fields.content),
     ...(options.toStructuredData && {
       toStructuredData: resolveToStructuredData(
-        options.toStructuredData as any,
+        options.toStructuredData,
         fields.settings,
         "block",
         fields.content,
