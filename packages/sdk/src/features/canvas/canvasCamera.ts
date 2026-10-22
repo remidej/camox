@@ -52,14 +52,14 @@ export const MAX_CANVAS_ZOOM = 2;
  */
 export const MIN_CANVAS_ZOOM = 0.1;
 /** Log-scale zoom per pixel of Ctrl/⌘ + wheel, including trackpad pinches. */
-export const CANVAS_WHEEL_ZOOM_RATE = 0.01056;
+export const CANVAS_WHEEL_ZOOM_RATE = 0.012672;
 
 /** Relative (log-scale) bands make the detent feel the same at every page width. */
-export const ZOOM_SNAP_CAPTURE = 0.14;
-export const ZOOM_SNAP_RELEASE = 0.18;
+export const ZOOM_SNAP_CAPTURE = 0.168;
+export const ZOOM_SNAP_RELEASE = 0.216;
 /** Fractions of viewport width: acquire near center, then hold a wider detent. */
-export const PAN_SNAP_CAPTURE = 0.12;
-export const PAN_SNAP_RELEASE = 0.18;
+export const PAN_SNAP_CAPTURE = 0.144;
+export const PAN_SNAP_RELEASE = 0.216;
 
 export function isCanvasPageScale(scale: number, pageScale: number | undefined) {
   return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) < 1e-8;

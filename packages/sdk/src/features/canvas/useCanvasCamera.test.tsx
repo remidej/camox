@@ -629,7 +629,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     const heldSteps = Math.floor(zoomDelta(ZOOM_SNAP_RELEASE)) - 1;
     for (let count = 0; count < heldSteps; count++) wheel(0, 1, { ctrlKey: true });
     flush();
-    assert.deepEqual(read(), beforeZoom, "small zoom-out input is held without recentering");
+    assertCamera(beforeZoom, "small zoom-out input is held without recentering");
     assert.deepEqual(selections, ["page"], "held snap never repeats selection");
     for (let count = 0; count < 2; count++) wheel(0, 1, { ctrlKey: true });
     flush(checkAnchor);
