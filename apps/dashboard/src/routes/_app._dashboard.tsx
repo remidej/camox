@@ -33,7 +33,7 @@ import { CheckIcon, ChevronRight, ChevronsUpDownIcon, Loader2, PlusIcon } from "
 import { Suspense, useState } from "react";
 import slugify from "slugify";
 
-import { CreateProjectGuide } from "@/components/CreateProjectGuide";
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { authClient } from "@/lib/auth-client";
 import { organizationQueries, projectQueries } from "@/lib/queries";
 
@@ -304,11 +304,12 @@ function ProjectPicker() {
         </DropdownMenu>
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <CreateProjectGuide />
-        </DialogContent>
-      </Dialog>
+      <CreateProjectDialog
+        organizationId={activeProject.organizationId}
+        orgSlug={orgSlug}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+      />
     </>
   );
 }

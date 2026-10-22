@@ -37,6 +37,8 @@ export const organizationQueries = {
     }),
 };
 
+const SETUP_POLL_INTERVAL_MS = 3000;
+
 export const projectQueries = {
   all: () => ["projects"] as const,
 
@@ -50,5 +52,8 @@ export const projectQueries = {
     queryOptions({
       queryKey: [...projectQueries.all(), "getBySlug", slug] as const,
       queryFn: () => api.projects.getBySlug({ slug }),
+      // Follows a project's setup until it's live or has failed.
+      refetchInterval: (query) =>
+        query.state.data?.status === "settingUp" ? SETUP_POLL_INTERVAL_MS : false,
     }),
 };

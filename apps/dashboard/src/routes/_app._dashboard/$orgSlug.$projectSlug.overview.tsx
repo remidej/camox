@@ -33,9 +33,18 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { CopyIcon, EyeIcon, EyeOffIcon, InfoIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  CopyIcon,
+  ExternalLinkIcon,
+  EyeIcon,
+  EyeOffIcon,
+  InfoIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { ProjectSetup, siteUrl } from "@/components/ProjectSetup";
 import {
   api,
   deleteFavicon,
@@ -766,6 +775,21 @@ function ProjectSettingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-12">
+      {project.status === "live" ? (
+        <Section title="Website" description="Where your website is live.">
+          <Button variant="outline" nativeButton={false} render={<a href={siteUrl(project)} />}>
+            {project.slug}.camox.site
+            <ExternalLinkIcon />
+          </Button>
+        </Section>
+      ) : (
+        <Section
+          title="Setting up your website"
+          description="Camox is copying the Template and publishing your website. It takes a few minutes."
+        >
+          <ProjectSetup project={project} />
+        </Section>
+      )}
       <Section title="Project settings" description="Manage your project's general configuration.">
         <ProjectSettingsFormInner key={project.id} project={project} />
       </Section>
