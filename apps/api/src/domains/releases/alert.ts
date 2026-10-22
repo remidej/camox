@@ -1,4 +1,4 @@
-import { sendAlert } from "../../lib/alert-email";
+import { sendAlert, workflowInstanceUrl } from "../../lib/alert-email";
 import type { Bindings } from "../../types";
 import type { ReleaseStep } from "./schema";
 
@@ -13,11 +13,6 @@ export type FailedRelease = {
   workflowInstanceId: string;
 };
 
-/** The release's Workflow instance in the Cloudflare dashboard, where its logs are. */
-function workflowInstanceUrl(accountId: string, instanceId: string) {
-  return `https://dash.cloudflare.com/${accountId}/workers/workflows/${RELEASE_WORKFLOW_NAME}/instance/${encodeURIComponent(instanceId)}`;
-}
-
 /** Emails the alerts address that a release gave up. The project keeps serving its previous code. */
 export function sendReleaseFailureAlert(env: Bindings, release: FailedRelease): Promise<void> {
   return sendAlert(env, {
@@ -31,7 +26,11 @@ export function sendReleaseFailureAlert(env: Bindings, release: FailedRelease): 
     ],
     link: {
       label: "Open the Workflow instance",
-      url: workflowInstanceUrl(env.CLOUDFLARE_ACCOUNT_ID, release.workflowInstanceId),
+      url: workflowInstanceUrl(
+        env.CLOUDFLARE_ACCOUNT_ID,
+        RELEASE_WORKFLOW_NAME,
+        release.workflowInstanceId,
+      ),
     },
   });
 }

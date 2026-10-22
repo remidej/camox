@@ -1,4 +1,4 @@
-// Fakes for the release Workflow's Cloudflare Artifacts, sandbox and email bindings, run by the
+// Fakes for the release and upgrade Workflows' Cloudflare Artifacts, sandbox and email bindings, run by the
 // integration tests as an auxiliary Worker (vite.config.ts). Plain JavaScript, since Miniflare
 // loads auxiliary Workers unbundled. Everything shares one isolate, so the fakes and the tests
 // that drive them through `ReleaseFakes` share this module's state, keyed by repo name.
@@ -6,10 +6,16 @@ import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
 /** @type {Map<string, Map<string, Record<string, string>>>} repo name → commit → path → content */
 const repos = new Map();
-/** @type {Map<string, { command: string, env: Record<string, string> }[]>} repo name → commands */
+/** @type {Map<string, string>} repo name → the commit its `main` points to */
+const mains = new Map();
+/** @type {Map<string, { command: string, env: Record<string, string>, order: number }[]>} repo name → commands */
 const commandsRun = new Map();
+/** Counts every command run, in any repo, so tests can order commands across repos. */
+let commandsRunCount = 0;
 /** @type {Map<string, { pattern: string, times: number }[]>} repo name → commands that fail */
 const failures = new Map();
+/** @type {Map<string, string>} repo name → a command that waits until the test lets it go */
+const held = new Map();
 /** @type {{ from: unknown, to: string, subject: string, text: string, html: string }[]} */
 const emailsSent = [];
 /** @type {string[]} texts that make a send throw when an email contains one */
@@ -36,10 +42,29 @@ class FakeRepo extends RpcTarget {
     };
   }
 
+  /** @param {string} ref a commit, or `main` */
+  commit(ref) {
+    return ref === "main" || ref === "refs/heads/main" ? mains.get(this.name) : ref;
+  }
+
+  async info() {
+    return {
+      name: this.name,
+      defaultBranch: "main",
+      remote: `https://0123456789abcdef0123456789abcdef.artifacts.cloudflare.net/git/projects/${this.name}.git`,
+    };
+  }
+
   /** @param {{ ref: string, path: string }} args */
   async readFile({ ref, path }) {
-    const content = repos.get(this.name)?.get(ref)?.[path];
+    const content = repos.get(this.name)?.get(this.commit(ref))?.[path];
     return content === undefined ? null : new Blob([content]);
+  }
+
+  /** The head of `ref`, as the only commit of its history. */
+  async log({ ref = "main" } = {}) {
+    const hash = this.commit(ref);
+    return hash && repos.get(this.name)?.has(hash) ? [{ hash, parents: [] }] : [];
   }
 
   // No Git objects: @cloudflare/ci then skips its cache, which these tests don't cover.
@@ -90,7 +115,7 @@ export class FakeSandbox extends DurableObject {
     const command = WRAPPED.exec(wrapped)?.[1] ?? wrapped;
     const repo = this.repo ?? "";
     const run = commandsRun.get(repo) ?? [];
-    run.push({ command, env: { ...options.env } });
+    run.push({ command, env: { ...options.env }, order: commandsRunCount++ });
     commandsRun.set(repo, run);
 
     const failure = failures.get(repo)?.find(({ pattern, times }) => {
@@ -98,7 +123,18 @@ export class FakeSandbox extends DurableObject {
     });
     if (failure) failure.times -= 1;
     const exitCode = failure ? 1 : 0;
-    return { id: crypto.randomUUID(), waitForExit: async () => ({ exitCode }) };
+    const waits = () => {
+      const pattern = held.get(repo);
+      return pattern !== undefined && command.includes(pattern);
+    };
+    return {
+      id: crypto.randomUUID(),
+      waitForExit: async () => {
+        // Polls, as a promise can't be settled from the test's request.
+        while (waits()) await scheduler.wait(20);
+        return { exitCode };
+      },
+    };
   }
 
   async createBackup({ dir }) {
@@ -136,6 +172,7 @@ export class FakeEmail extends WorkerEntrypoint {
 /** What the tests use to arrange a push and read what the sandbox ran. */
 export class ReleaseFakes extends WorkerEntrypoint {
   /**
+   * Pushes a commit to the repo's `main`, creating the repo if needed.
    * @param {string} repo
    * @param {string} commit
    * @param {Record<string, string>} files
@@ -144,6 +181,7 @@ export class ReleaseFakes extends WorkerEntrypoint {
     const commits = repos.get(repo) ?? new Map();
     commits.set(commit, files);
     repos.set(repo, commits);
+    mains.set(repo, commit);
   }
 
   /**
@@ -154,6 +192,20 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failCommand(repo, pattern, times) {
     failures.set(repo, [...(failures.get(repo) ?? []), { pattern, times }]);
+  }
+
+  /**
+   * Makes runs of a command containing `pattern` wait to exit until `letGo` is called.
+   * @param {string} repo
+   * @param {string} pattern
+   */
+  async hold(repo, pattern) {
+    held.set(repo, pattern);
+  }
+
+  /** @param {string} repo */
+  async letGo(repo) {
+    held.delete(repo);
   }
 
   /** @param {string} repo */

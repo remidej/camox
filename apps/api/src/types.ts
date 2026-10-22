@@ -27,6 +27,11 @@ export type Bindings = {
   /** The `projects` Cloudflare Artifacts namespace: every project's repo, and the Template's. */
   ARTIFACTS: Artifacts;
   RELEASE_WORKFLOW: Workflow;
+  /** Moves every project to a newly published SDK, one project upgrade each. */
+  UPGRADE_WORKFLOW: Workflow<import("./domains/upgrades/workflow").UpgradeParams>;
+  PROJECT_UPGRADE_WORKFLOW: Workflow<
+    import("./domains/upgrades/project-workflow").ProjectUpgradeParams
+  >;
   /** The release sandbox Worker's Container sandboxes, one per release step. */
   SANDBOX: DurableObjectNamespace<import("@cloudflare/ci/worker").CiSandbox>;
   /** Where the release sandboxes keep their workspace snapshots, which cache installs. */

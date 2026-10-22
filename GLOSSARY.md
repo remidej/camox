@@ -42,6 +42,10 @@ _Avoid_: Site setting, config
 What a change to a project's code starts: building the website, syncing its definitions to Live (adding any content they declare that Live lacks), then serving the new code. A failed release leaves the previous code served.
 _Avoid_: Build, deploy, ship
 
+**Upgrade**:
+Moving a project's code to a newly published SDK, and releasing it if it builds. Every SDK publish upgrades every project; one that doesn't build keeps its code and its previous release.
+_Avoid_: Migration, bump
+
 **Deploy Token**:
 The secret that authorizes a release for a project.
 _Avoid_: Sync secret, API key

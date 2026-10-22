@@ -92,6 +92,18 @@
       "binding": "RELEASE_WORKFLOW",
       "class_name": "ReleaseWorkflow",
     },
+    // Moves every project to a newly published SDK; deploy.yml starts it after each publish
+    // (src/domains/upgrades/README.md).
+    {
+      "name": "camox-upgrade",
+      "binding": "UPGRADE_WORKFLOW",
+      "class_name": "UpgradeWorkflow",
+    },
+    {
+      "name": "camox-project-upgrade",
+      "binding": "PROJECT_UPGRADE_WORKFLOW",
+      "class_name": "ProjectUpgradeWorkflow",
+    },
   ],
   // Remote even in local dev, as Cloudflare Artifacts has no local simulator.
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "projects", "remote": true }],

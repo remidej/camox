@@ -1,6 +1,7 @@
 # Deploys Camox from main, then publishes the SDK when release-please cuts a release. Publishing
 # waits for the deploy of the same commit, so no published SDK is ahead of the deployed API
-# (ADR 0019), and each publish refreshes the Template that new projects fork.
+# (ADR 0019). Each publish refreshes the Template that new projects fork, then upgrades every
+# project to it.
 name: Deploy
 
 on:
@@ -204,3 +205,27 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # Moves every project to the SDK just published, once new projects fork it, with the API's
+  # `camox-upgrade` Workflow (apps/api/src/domains/upgrades/README.md). Projects that build are
+  # pushed to `main` and released; the Workflow emails the ones that don't.
+  upgrade-projects:
+    needs: refresh-template
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the upgrade
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          version=$(node -p 'require("./packages/sdk/package.json").version')
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"params\":{\"camoxVersion\":\"$version\"}}" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workflows/camox-upgrade/instances"
