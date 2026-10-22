@@ -32,14 +32,21 @@ try {
   );
   await writeFile(
     join(root, "smoke-worker.ts"),
-    `import { Dialog } from "@base-ui/react/dialog";
-import camox from "camox/worker";
+    `import camox from "camox/worker";
 import { block as faq } from "@/blocks/faq";
 import { block as footer } from "@/blocks/footer";
 import { block as hero } from "@/blocks/hero";
 import { block as navbar } from "@/blocks/navbar";
 import { block as youtubeVideo } from "@/blocks/youtube-video";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
+import { NavigationProvider } from "camox/navigation";
 import { ImageResponse } from "camox/_internal/imageResponse";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -50,8 +57,18 @@ export default {
     const element = createElement("div", { style: { color: "black", background: "white" } }, "Production smoke");
     const image = new ImageResponse(element, { width: 320, height: 160 });
     const bytes = new Uint8Array(await image.arrayBuffer());
-    const html = renderToStaticMarkup(createElement(Dialog.Root, null,
-      createElement(Dialog.Trigger, null, "Production smoke")));
+    const html = renderToStaticMarkup(createElement(Accordion, null,
+      ["Production smoke", "Second question"].map((question) =>
+        createElement(AccordionItem, { key: question },
+          createElement(AccordionTrigger, null, question),
+          createElement(AccordionContent, null, "Answer")))));
+    const location = { hash: "", href: "http://localhost/", pathname: "/", search: "" };
+    // A link field hands its render prop "to", not "href".
+    const buttons = {
+      link: renderToStaticMarkup(createElement(NavigationProvider, { initialLocation: location },
+        createElement(Button, { to: "/pricing", children: "Get started" }))),
+      button: renderToStaticMarkup(createElement(Button, null, "Get started")),
+    };
     const settings = Object.fromEntries(
       [faq, footer, hero, navbar, youtubeVideo].map((block) => [
         block._internal.id,
@@ -64,7 +81,7 @@ export default {
         renderToStaticMarkup(createElement(Section, { scheme }, "Content")),
       ]),
     );
-    return Response.json({ html, png: Array.from(bytes.slice(0, 8)), settings, sections });
+    return Response.json({ html, buttons, png: Array.from(bytes.slice(0, 8)), settings, sections });
   },
 };
 `,
@@ -133,6 +150,16 @@ export default {
       assert.equal(response.status, 200, await response.clone().text());
       const result = await response.json();
       assert.match(result.html, /Production smoke/);
+
+      // The Accordion is native: its <details> share one name, so only one opens at a time.
+      const names = [...result.html.matchAll(/<details[^>]*\\bname="([^"]+)"/g)].map((m) => m[1]);
+      assert.equal(names.length, 2, result.html);
+      assert.equal(new Set(names).size, 1, result.html);
+      assert.match(result.html, /<summary[^>]*>Production smoke/);
+
+      // A Button given a link renders a link; otherwise a <button>.
+      assert.match(result.buttons.link, /^<a [^>]*href="\\/pricing"[^>]*>Get started<\\/a>$/);
+      assert.match(result.buttons.button, /^<button [^>]*>Get started<\\/button>$/);
       assert.deepEqual(result.png, [137, 80, 78, 71, 13, 10, 26, 10]);
 
       // Editors pick the same color schemes on every Template block.

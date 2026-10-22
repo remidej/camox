@@ -1,5 +1,4 @@
 import { createBlock } from "camox/createBlock";
-import { Link } from "camox/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
@@ -68,9 +67,7 @@ function HeroComponent() {
             <hero.Field name="description">
               {(props) => <p {...props} className="text-lead text-ink-muted mb-10" />}
             </hero.Field>
-            <hero.Link name="cta">
-              {(props) => <Button size="lg" nativeButton={false} render={<Link {...props} />} />}
-            </hero.Link>
+            <hero.Link name="cta">{(props) => <Button {...props} size="lg" />}</hero.Link>
           </div>
           {withIllustration && (
             <hero.Image name="illustration">
