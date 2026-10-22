@@ -552,6 +552,11 @@ export function buildPageHead(input: PageHeadInput): PageHead {
     { property: "og:image:height", content: "630" },
   );
   if (description) meta.push({ property: "og:description", content: description });
+  meta.push(
+    { property: "og:type", content: "website" },
+    { property: "og:site_name", content: input.projectName },
+    { name: "twitter:card", content: "summary_large_image" },
+  );
 
   const links: Array<Record<string, string>> = [{ rel: "icon", href: input.faviconUrl }];
   if (input.hasMarkdown)
