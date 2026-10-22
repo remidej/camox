@@ -45,6 +45,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { MobileMenu } from "@/components/ui/mobile-menu";
 import { Section } from "@/components/ui/section";
 import { NavigationProvider } from "camox/navigation";
 import { ImageResponse } from "camox/_internal/imageResponse";
@@ -69,6 +70,8 @@ export default {
         createElement(Button, { to: "/pricing", children: "Get started" }))),
       button: renderToStaticMarkup(createElement(Button, null, "Get started")),
     };
+    const mobileMenu = renderToStaticMarkup(createElement(MobileMenu, null,
+      createElement("a", { href: "/pricing" }, "Pricing")));
     const settings = Object.fromEntries(
       [faq, footer, hero, navbar, youtubeVideo].map((block) => [
         block._internal.id,
@@ -81,7 +84,7 @@ export default {
         renderToStaticMarkup(createElement(Section, { scheme }, "Content")),
       ]),
     );
-    return Response.json({ html, buttons, png: Array.from(bytes.slice(0, 8)), settings, sections });
+    return Response.json({ html, buttons, mobileMenu, png: Array.from(bytes.slice(0, 8)), settings, sections });
   },
 };
 `,
@@ -161,6 +164,14 @@ export default {
       assert.match(result.buttons.link, /^<a [^>]*href="\\/pricing"[^>]*>Get started<\\/a>$/);
       assert.match(result.buttons.button, /^<button [^>]*>Get started<\\/button>$/);
       assert.deepEqual(result.png, [137, 80, 78, 71, 13, 10, 26, 10]);
+
+      // The Mobile menu needs no JS: a control opens the single list of links as a popover.
+      const popover = result.mobileMenu.match(/<(\\w+)(?=[^>]*\\bpopover\\b)[^>]*\\bid="([^"]+)"[^>]*>(.*?)<\\/\\1>/);
+      assert.ok(popover, result.mobileMenu);
+      assert.match(popover[3], /<a href="\\/pricing">Pricing<\\/a>/);
+      // HTML attribute names are case-insensitive, and React renders this one as "popoverTarget".
+      const target = result.mobileMenu.match(/<button [^>]*\\bpopovertarget="([^"]+)"/i);
+      assert.equal(target?.[1], popover[2], result.mobileMenu);
 
       // Editors pick the same color schemes on every Template block.
       const defaultSchemes = { hero: "dark", navbar: "dark", footer: "dark", faq: "light", "youtube-video": "light" };
