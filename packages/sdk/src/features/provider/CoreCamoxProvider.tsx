@@ -25,18 +25,6 @@ export interface CoreCamoxProviderProps {
   initialProject?: Project;
 }
 
-export function isLocalhostPreview() {
-  if (typeof window === "undefined") return false;
-  const { hostname } = window.location;
-  return (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]" ||
-    hostname === "::1"
-  );
-}
-
 export function CoreCamoxProvider({
   apiUrl,
   authenticationUrl,

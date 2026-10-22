@@ -26,6 +26,7 @@ import { CanvasSidebarSkeleton } from "../canvas/sidebar/CanvasSidebarSkeleton";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { takeShowCanvasRequest } from "../provider/signInShortcut";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
@@ -440,6 +441,12 @@ export const PreviewShell = ({
     if (layoutId != null) return { kind: "layout", layoutId };
     return null;
   }, [pageId, layoutId]);
+
+  React.useEffect(() => {
+    if (isAuthenticated && takeShowCanvasRequest() && !isMobileStudio) {
+      previewStore.send({ type: "showCanvas" });
+    }
+  }, [isAuthenticated, isMobileStudio]);
 
   React.useEffect(() => {
     if (!isMobileStudio) return;

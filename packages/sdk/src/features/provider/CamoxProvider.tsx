@@ -6,8 +6,8 @@ import { useSignInRedirect } from "../../lib/auth";
 import { useLocation } from "../navigation/navigation";
 import { STUDIO_BASE_PATH } from "../studio/routes";
 import { AuthenticatedCamoxProvider } from "./AuthenticatedCamoxProvider";
-import { CoreCamoxProvider, isLocalhostPreview } from "./CoreCamoxProvider";
-import { LocalhostPreviewProvider } from "./LocalhostPreviewProvider";
+import { CoreCamoxProvider } from "./CoreCamoxProvider";
+import { useSignInShortcut } from "./signInShortcut";
 
 interface CamoxProviderProps {
   apiUrl: string;
@@ -29,11 +29,9 @@ function UnauthenticatedExperience({ children }: { children: React.ReactNode }) 
   React.useEffect(() => {
     if (isStudio) signInRedirect();
   }, [isStudio, signInRedirect]);
+  useSignInShortcut(!isStudio);
 
   if (isStudio) return null;
-  if (isLocalhostPreview()) {
-    return <LocalhostPreviewProvider>{children}</LocalhostPreviewProvider>;
-  }
   return <div className="bg-background min-h-screen">{children}</div>;
 }
 

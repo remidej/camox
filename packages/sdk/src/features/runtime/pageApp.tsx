@@ -13,8 +13,9 @@ import { CuratedPageContent } from "../page/CuratedPageContent";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
-import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
+import { CoreCamoxProvider } from "../provider/CoreCamoxProvider";
 import { PreviewSignInPage } from "../provider/PreviewSignInPage";
+import { useSignInShortcut } from "../provider/signInShortcut";
 import { EditingFallbackSlot } from "./editingFallback";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
@@ -77,11 +78,6 @@ const LazyEditablePageExperience = React.lazy(() =>
     default: module.EditablePageExperience,
   })),
 );
-const LazyLocalhostPreviewProvider = React.lazy(() =>
-  import("../provider/LocalhostPreviewProvider").then((module) => ({
-    default: module.LocalhostPreviewProvider,
-  })),
-);
 
 /** Editing lists and adds any block, so it waits for every definition, not only the page's. */
 function AllBlocks({ camoxApp, children }: { camoxApp: CamoxApp; children: React.ReactNode }) {
@@ -130,6 +126,7 @@ function PageExperience({
   React.useEffect(() => {
     if (studioOnly && !isAuthenticated && !isLoading) signIn();
   }, [studioOnly, isAuthenticated, isLoading, signIn]);
+  useSignInShortcut(hasHydrated && !studioOnly && !isAuthenticated && !isLoading);
 
   const loading = <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>;
   const readOnlyPage = input.routeKind ? (
@@ -170,15 +167,6 @@ function PageExperience({
     );
   }
   if (studioOnly) return null;
-  if (hasHydrated && isLocalhostPreview()) {
-    return (
-      <React.Suspense fallback={readOnlyPage}>
-        <AllBlocks camoxApp={camoxApp}>
-          <LazyLocalhostPreviewProvider>{readOnlyPage}</LazyLocalhostPreviewProvider>
-        </AllBlocks>
-      </React.Suspense>
-    );
-  }
   // After sign-out, the containing document still belongs to studio. Do not
   // suddenly put site markup under its styles or theme while auth reconciles.
   if (studioDocument) return <div style={{ height: "100vh" }}>{isolatedPage}</div>;
