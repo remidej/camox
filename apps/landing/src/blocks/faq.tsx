@@ -39,17 +39,17 @@ const faq = createBlock({
 function FaqComponent() {
   return (
     <BlockContainer>
-      <div className="mx-auto max-w-2xl px-4">
+      <div className="max-w-text mx-auto px-4">
         <Accordion>
           <faq.Repeater name="items">
-            {(item, index) => (
-              <AccordionItem value={index}>
+            {(item) => (
+              <AccordionItem>
                 <AccordionTrigger className="items-center text-lg">
                   <item.Field name="question">{(props) => <span {...props} />}</item.Field>
                 </AccordionTrigger>
                 <AccordionContent>
                   <item.Field name="answer">
-                    {(props) => <p {...props} className="text-muted-foreground text-base" />}
+                    {(props) => <p {...props} className="text-ink-muted text-base" />}
                   </item.Field>
                 </AccordionContent>
               </AccordionItem>

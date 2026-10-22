@@ -1,27 +1,240 @@
+/*
+ * The landing page's Theme. Every color, font, text size, radius and spacing token the
+ * blocks use is defined here, with the same mechanics and conventions as the Template's
+ * Theme, so a rebrand happens in this file.
+ *
+ * The values reproduce Camox's look: an emerald brand on zinc neutrals, Archivo, and the
+ * 0.7rem radius. The dashboard and the studio keep their own design system
+ * (packages/ui/src/styles/globals.css); the two are kept in sync by hand.
+ *
+ * - Rebrand by editing the brand inputs on :root, the fonts and the radius roles.
+ * - Style with the utilities these tokens generate (`bg-canvas`, `text-ink-muted`,
+ *   `text-heading`, `rounded-card`, `py-section`, ...), never raw color values.
+ * - Tailwind's color palette is removed on purpose: `bg-emerald-500` doesn't exist. Only
+ *   `white`, `black`, `transparent` and `current` remain besides the color roles below.
+ *   Tailwind's text sizes, radii, shadows, spacing scale and breakpoints all still work.
+ */
+
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "../../../packages/ui/src/styles/globals.css";
 @source "./";
 
-/* The variables Camox reads from the page. Declared on each color scheme
-   selector that redefines the tokens, so they resolve per scheme. */
-:root,
-.dark {
-  --camox-highlight: var(--primary);
-  --camox-placeholder: var(--muted);
-  --camox-placeholder-ink: var(--muted-foreground);
+/*
+ * `dark:` matches the element carrying `.dark` and everything inside it. Tokens already
+ * switch inside a `.dark` element, so use `dark:` only for exceptions, such as swapping a
+ * logo.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Color schemes. Put a scheme class (`light`, `dark`, `brand` or `tint`) on any element and
+ * everything inside it uses that scheme's color roles. Schemes nest: a `.light` element
+ * inside a `.dark` one is light again. The landing page is dark: the document and every
+ * block carry `.dark`.
+ *
+ * Each scheme sets every color role:
+ * - `canvas`: the background of a block.
+ * - `panel`: anything raised on the canvas, such as cards and table headers.
+ * - `ink`: main text and icons.
+ * - `ink-muted`: secondary text.
+ * - `line`: borders and dividers.
+ * - `brand`: the emphasis color, as a fill (solid button) or as ink (link, icon, focus ring).
+ * - `ink-on-brand`: text on a `brand` fill.
+ * - `success`, `warning`, `error`: feedback colors, used as ink plus a faint fill of
+ *   themselves (for instance `text-error bg-error/10`).
+ *
+ * Any ink reads on any surface of the same scheme, so only `brand` has a paired ink.
+ * Neutral hovers and subtle fills are `ink` at low opacity (`hover:bg-ink/5`), so there is
+ * no hover token. Each scheme also sets `color-scheme`, so native controls and scrollbars
+ * follow it.
+ */
+
+/*
+ * Brand inputs. Every scheme derives its colors from the first three values, so a rebrand
+ * starts here. Schemes never hardcode a brand color.
+ */
+:root {
+  /* The brand color: Camox's emerald (Tailwind's emerald-500). */
+  --brand-color: oklch(0.696 0.17 162.48);
+  /*
+   * The brand color on dark backgrounds, used by the dark scheme. Camox uses a deeper
+   * emerald (emerald-600) there, which keeps its light text readable on brand fills.
+   */
+  --brand-color-on-dark: oklch(0.596 0.145 163.225);
+  /* The hue (0-360) that tints every gray: zinc's cool, faintly violet gray. */
+  --neutral-hue: 286;
 }
 
-@utility container {
-  margin-inline: auto;
-  padding-inline: 0.5rem;
-  max-width: 80rem;
-  @media (width >= theme(--breakpoint-sm)) {
-    padding-inline: 2rem;
-  }
-  @media (width >= theme(--breakpoint-md)) {
-    padding-inline: 3rem;
-  }
+/* Light: for light blocks. */
+:root,
+.light {
+  color-scheme: light;
+  --canvas: oklch(1 0 0);
+  --panel: oklch(0.967 0.001 var(--neutral-hue));
+  --ink: oklch(0.141 0.005 var(--neutral-hue));
+  --ink-muted: oklch(0.552 0.016 var(--neutral-hue));
+  --line: oklch(0.92 0.004 var(--neutral-hue));
+  --brand: var(--brand-color);
+  /* A near-white tinted with the brand's hue. */
+  --ink-on-brand: oklch(from var(--brand-color) 0.979 0.021 h);
+  --success: oklch(0.5 0.13 150);
+  /* A dark amber, so warnings stay readable as text on light surfaces. */
+  --warning: oklch(0.52 0.12 65);
+  --error: oklch(0.577 0.245 27.325);
+}
+
+/* Dark: the landing page's scheme, for every block. */
+.dark {
+  color-scheme: dark;
+  --canvas: oklch(0.141 0.005 var(--neutral-hue));
+  --panel: oklch(0.175 0.0055 var(--neutral-hue));
+  --ink: oklch(0.985 0 0);
+  --ink-muted: oklch(0.705 0.015 var(--neutral-hue));
+  --line: oklch(1 0 0 / 10%);
+  --brand: var(--brand-color-on-dark);
+  --ink-on-brand: oklch(from var(--brand-color) 0.979 0.021 h);
+  --success: oklch(0.77 0.15 150);
+  --warning: oklch(0.83 0.14 80);
+  --error: oklch(0.704 0.191 22.216);
+}
+
+/*
+ * Brand: a band filled with the brand color, such as a call to action. `brand` turns white
+ * and `ink-on-brand` turns into the brand color, so solid buttons and focus rings stay
+ * visible on it.
+ */
+.brand {
+  color-scheme: dark;
+  --canvas: var(--brand-color);
+  --panel: color-mix(in oklch, var(--brand-color) 86%, white);
+  --ink: oklch(1 0 0);
+  --ink-muted: oklch(1 0 0 / 80%);
+  --line: oklch(1 0 0 / 25%);
+  --brand: oklch(1 0 0);
+  --ink-on-brand: var(--brand-color);
+  --success: oklch(0.86 0.13 150);
+  --warning: oklch(0.88 0.13 85);
+  --error: oklch(0.84 0.1 25);
+}
+
+/*
+ * Tint: the light scheme with `canvas` and `panel` swapped, for a light-gray band where
+ * cards turn white.
+ */
+.tint {
+  color-scheme: light;
+  --canvas: oklch(0.967 0.001 var(--neutral-hue));
+  --panel: oklch(1 0 0);
+  --ink: oklch(0.141 0.005 var(--neutral-hue));
+  --ink-muted: oklch(0.552 0.016 var(--neutral-hue));
+  --line: oklch(0.92 0.004 var(--neutral-hue));
+  --brand: var(--brand-color);
+  --ink-on-brand: oklch(from var(--brand-color) 0.979 0.021 h);
+  --success: oklch(0.5 0.13 150);
+  --warning: oklch(0.52 0.12 65);
+  --error: oklch(0.577 0.245 27.325);
+}
+
+/*
+ * The variables Camox's editor reads from the site: highlighted text, and the fill and text
+ * of an empty image. Declared on every scheme so they follow the scheme they're used in.
+ */
+:root,
+.light,
+.dark,
+.brand,
+.tint {
+  --camox-highlight: var(--brand);
+  --camox-placeholder: var(--panel);
+  --camox-placeholder-ink: var(--ink-muted);
+}
+
+/* Maps the color roles to utilities (`bg-canvas`, `text-ink`, `border-line`, ...). */
+@theme inline {
+  /* Removes Tailwind's default palette, then adds back plain white and black. */
+  --color-*: initial;
+  --color-white: #fff;
+  --color-black: #000;
+
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-ink-on-brand: var(--ink-on-brand);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+}
+
+@theme {
+  /*
+   * Fonts. Change these to change the brand's type pairing. Archivo is loaded from Google
+   * Fonts in src/document.ts.
+   */
+  /* Every heading (h1 to h4 get it from the base layer below): `font-heading`. */
+  --font-heading: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  /* Everything else; the page's default font: `font-body`. */
+  --font-body: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  /* Code, pre and kbd. The system stack, so visitors download no font for it. */
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  /* Tailwind's switch for the page font. */
+  --default-font-family: var(--font-body);
+  --default-mono-font-family: var(--font-mono);
+
+  /*
+   * Text roles. Each sets size, line height, letter spacing and weight together, so every
+   * block's headings match. The sizes step up at Tailwind's breakpoints (see the base layer
+   * below). Tailwind's own sizes (`text-sm`, `text-xl`, ...) still work for everything else.
+   */
+  /* `text-display`: the hero h1, once per page. */
+  --text-display: 2.25rem;
+  --text-display--line-height: 1.25;
+  --text-display--letter-spacing: -0.025em;
+  --text-display--font-weight: 500;
+  /* `text-heading`: the h2 of a block, and the inline headings that open a block. */
+  --text-heading: 1.875rem;
+  --text-heading--line-height: 1.25;
+  --text-heading--letter-spacing: -0.025em;
+  --text-heading--font-weight: 600;
+  /* `text-title`: the h3 of a card or of an item in a list. */
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.4;
+  --text-title--letter-spacing: -0.025em;
+  --text-title--font-weight: 600;
+  /* `text-lead`: the intro paragraph under a display or heading. */
+  --text-lead: 1.25rem;
+  --text-lead--line-height: 1.4;
+  /* `text-eyebrow`: the small label above a heading (the Pill), uppercase. */
+  --text-eyebrow: 0.875rem;
+  --text-eyebrow--line-height: calc(1.25 / 0.875);
+  --text-eyebrow--font-weight: 600;
+
+  /*
+   * Radius roles. Tailwind's `rounded-*` sizes still work; use these so the brand's shape
+   * is a one-line change (for instance pill buttons and sharp cards).
+   */
+  /* `rounded-control`: buttons and other small controls. */
+  --radius-control: calc(0.7rem - 2px);
+  /* `rounded-card`: cards, grids of cells and media frames. */
+  --radius-card: 1rem;
+
+  /*
+   * Layout. Blocks share these so every block has the same width and rhythm. The gutter and
+   * the section spacing step up at Tailwind's breakpoints (see the base layer below).
+   */
+  /* `max-w-page`: the maximum width of a block's content. */
+  --container-page: 80rem;
+  /* `max-w-text`: a readable width for centered intros and single columns of text. */
+  --container-text: 42rem;
+  /* `px-gutter`: the side padding between the content and the screen edge. */
+  --spacing-gutter: 0.5rem;
+  /* `py-section`: the vertical padding of a block; the main density knob. */
+  --spacing-section: 3rem;
+  /* `h-navbar`: the navbar's height, also the offset of anchor links below it. */
+  --spacing-navbar: 3.5rem;
 }
 
 /* Two hairline vertical rules with a wider gutter than `border-style: double`
@@ -30,14 +243,14 @@
 @utility block-side-border {
   @media (width >= theme(--breakpoint-xl)) {
     position: relative;
-    border-inline: 1px solid var(--border);
+    border-inline: 1px solid var(--color-line);
     &::before,
     &::after {
       content: "";
       position: absolute;
       inset-block: 0;
       width: 1px;
-      background: var(--border);
+      background: var(--color-line);
       pointer-events: none;
     }
     &::before {
@@ -50,14 +263,49 @@
 }
 
 @layer base {
+  /* The text roles, the gutter and the section spacing step up with the screen. */
+  :root {
+    @media (width >= theme(--breakpoint-sm)) {
+      --text-display: 3rem;
+      --text-heading: 2.25rem;
+      --spacing-gutter: 2rem;
+      --spacing-section: 4rem;
+    }
+    @media (width >= theme(--breakpoint-md)) {
+      --text-display: 3.75rem;
+      --spacing-gutter: 3rem;
+      --spacing-section: 5rem;
+    }
+  }
+  * {
+    @apply border-line;
+  }
   html {
     font-size: 15px;
+    /* Anchor targets land below the fixed navbar instead of under it. */
+    scroll-padding-top: var(--spacing-navbar);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     @media (width >= theme(--breakpoint-sm)) {
       font-size: 15.5px;
     }
     @media (width >= theme(--breakpoint-md)) {
       font-size: 16px;
     }
+  }
+  body {
+    @apply bg-canvas text-ink m-0;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+  }
+  /* Focus rings use `brand`, which stays visible on every scheme, the brand one included. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
 }
 

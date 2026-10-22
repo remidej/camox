@@ -77,51 +77,51 @@ function WithoutWithComponent() {
         />
       </div>
 
-      <div className="border-border mt-12 overflow-hidden rounded-2xl border sm:mt-16">
-        <div className="border-border grid grid-cols-2 border-b">
-          <div className="bg-popover px-5 py-4 sm:px-6">
+      <div className="rounded-card mt-12 overflow-hidden border sm:mt-16">
+        <div className="grid grid-cols-2 border-b">
+          <div className="bg-panel px-5 py-4 sm:px-6">
             <withoutWith.Field name="withoutLabel">
               {(props) => (
                 <p
                   {...props}
-                  className="text-muted-foreground text-xs font-semibold tracking-[0.14em] uppercase"
+                  className="text-ink-muted text-xs font-semibold tracking-[0.14em] uppercase"
                 />
               )}
             </withoutWith.Field>
           </div>
-          <div className="border-border bg-popover border-l px-5 py-4 sm:px-6">
+          <div className="bg-panel border-l px-5 py-4 sm:px-6">
             <withoutWith.Field name="withLabel">
               {(props) => (
                 <p
                   {...props}
-                  className="text-muted-foreground text-xs font-semibold tracking-[0.14em] uppercase"
+                  className="text-ink-muted text-xs font-semibold tracking-[0.14em] uppercase"
                 />
               )}
             </withoutWith.Field>
           </div>
         </div>
-        <div className="bg-border grid gap-px">
+        <div className="bg-line grid gap-px">
           <withoutWith.Repeater name="comparisons">
             {(item) => (
               <article className="grid grid-cols-2">
-                <div className="bg-background flex min-w-0 items-center gap-3 p-5 sm:p-6">
-                  <span className="bg-destructive/10 flex size-7 shrink-0 items-center justify-center rounded-full">
-                    <X aria-hidden className="text-destructive size-4 stroke-[2.5]" />
+                <div className="bg-canvas flex min-w-0 items-center gap-3 p-5 sm:p-6">
+                  <span className="bg-error/10 flex size-7 shrink-0 items-center justify-center rounded-full">
+                    <X aria-hidden className="text-error size-4 stroke-[2.5]" />
                   </span>
                   <item.Field name="without">
                     {(props) => (
-                      <p {...props} className="text-foreground text-base font-medium sm:text-lg" />
+                      <p {...props} className="text-ink text-base font-medium sm:text-lg" />
                     )}
                   </item.Field>
                 </div>
 
-                <div className="border-border bg-background flex min-w-0 items-center gap-3 border-l p-5 sm:p-6">
-                  <span className="bg-primary/10 flex size-7 shrink-0 items-center justify-center rounded-full">
-                    <Check aria-hidden className="text-primary size-4 stroke-[2.5]" />
+                <div className="bg-canvas flex min-w-0 items-center gap-3 border-l p-5 sm:p-6">
+                  <span className="bg-brand/10 flex size-7 shrink-0 items-center justify-center rounded-full">
+                    <Check aria-hidden className="text-brand size-4 stroke-[2.5]" />
                   </span>
                   <item.Field name="with">
                     {(props) => (
-                      <p {...props} className="text-foreground text-base font-medium sm:text-lg" />
+                      <p {...props} className="text-ink text-base font-medium sm:text-lg" />
                     )}
                   </item.Field>
                 </div>
