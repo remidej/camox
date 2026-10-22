@@ -49,7 +49,7 @@ import { ProjectSetup, siteUrl } from "@/components/ProjectSetup";
 import {
   api,
   deleteFavicon,
-  FAVICON_PLACEHOLDER_URL,
+  DEFAULT_FAVICON_URL,
   getFaviconUrl,
   type Project,
   type ProjectAnalytics,
@@ -250,7 +250,7 @@ function FaviconSection({ project }: { project: Project }) {
   };
 
   const showsFavicon = pending ? pending.type === "upload" : hasCurrent;
-  const previewUrl = pendingUrl ?? (showsFavicon ? currentUrl : FAVICON_PLACEHOLDER_URL);
+  const previewUrl = pendingUrl ?? (showsFavicon ? currentUrl : DEFAULT_FAVICON_URL);
   const prompt = pendingFile
     ? pendingFile.name
     : showsFavicon

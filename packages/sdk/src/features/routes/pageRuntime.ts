@@ -335,21 +335,21 @@ export async function resolveMemberProject({
 }
 
 /**
- * The project's favicon, which falls back to the Camox mark when none was uploaded. Pass
- * `placeholder: false` to get a 404 instead, to learn whether there is one.
+ * The project's favicon, which falls back to the default favicon when none was uploaded.
+ * Pass `withDefault: false` to get a 404 instead, to learn whether there is one.
  */
 export function buildFaviconUrl(
   apiUrl: string,
   project: { id: number; updatedAt: number | string },
-  { placeholder = true }: { placeholder?: boolean } = {},
+  { withDefault = true }: { withDefault?: boolean } = {},
 ) {
   const url = `${apiUrl}/favicons/${project.id}?v=${project.updatedAt}`;
-  return placeholder ? `${url}&placeholder=camox` : url;
+  return withDefault ? `${url}&default=camox` : url;
 }
 
-/** The Camox mark a project without a favicon shows. */
-export function buildFaviconPlaceholderUrl(apiUrl: string) {
-  return `${apiUrl}/favicons/placeholder`;
+/** The default favicon, shown by a project without its own. */
+export function buildDefaultFaviconUrl(apiUrl: string) {
+  return `${apiUrl}/favicons/default`;
 }
 
 export function buildCamoxPageLoaderData(

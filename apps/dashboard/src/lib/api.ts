@@ -30,8 +30,8 @@ export type ProjectAnalytics = InferClientOutputs<
 
 const FAVICON_API_BASE = `${import.meta.env.VITE_API_URL!}/favicons`;
 
-/** The Camox mark a project's site shows until a favicon is uploaded. */
-export const FAVICON_PLACEHOLDER_URL = `${FAVICON_API_BASE}/placeholder`;
+/** The default favicon a project's site shows until one is uploaded. */
+export const DEFAULT_FAVICON_URL = `${FAVICON_API_BASE}/default`;
 
 export function getFaviconUrl(project: { id: number; updatedAt: number }) {
   return `${FAVICON_API_BASE}/${project.id}?v=${project.updatedAt}`;
