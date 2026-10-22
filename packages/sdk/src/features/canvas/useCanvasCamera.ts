@@ -20,8 +20,7 @@ import {
   fitCanvasPage,
   isCanvasCameraSnapped,
   isCanvasPageScale,
-  PAN_SNAP_CAPTURE,
-  PAN_SNAP_RELEASE,
+  isInCanvasSnapWindow,
   placeCanvasPageAnchor,
   snapCanvasZoom,
   stretchCanvasZoom,
@@ -380,16 +379,18 @@ export function useCanvasCamera(
       const intended = constrain({ ...base, x: start + delta.x, y: base.y + delta.y });
       gesture = { kind: "pan", time, rail, intendedX: intended.x, source };
       if (!delta.x) return { ...intended, x: base.x };
-      // The horizontal detent holds only at page fit, where the camera snaps.
+      // Panning near a page at a zoom near its fit snaps both onto the fit.
       const candidate = findCanvasSnapTarget(intended, viewportSize, targets());
       const fit = candidate && fitCanvasPage(viewportSize, candidate);
-      if (!candidate || !fit || !isCanvasPageScale(base.scale, fit.scale)) return intended;
-      const held = Math.abs(base.x - fit.x) < 1e-8;
-      const band = viewportSize.width * (held ? PAN_SNAP_RELEASE : PAN_SNAP_CAPTURE);
-      if (Math.abs(intended.x - fit.x) > band) return intended;
+      if (!candidate || !fit || fit.scale < minimumScale) return intended;
+      const held = isCanvasCameraSnapped(base, viewportSize, candidate);
+      if (!isInCanvasSnapWindow(intended, viewportSize, candidate, held)) return intended;
       if (selection !== candidate.key) rowRef.current?.onSnap?.();
       select(candidate.key);
-      return { ...intended, x: fit.x };
+      // Carry intent over to the fit's zoom, at the same offset from the page's
+      // center, so the release band measures from where the input would be.
+      gesture.intendedX += (candidate.left + candidate.width / 2) * (intended.scale - fit.scale);
+      return constrain({ x: fit.x, y: rescaleY(intended, fit.scale), scale: fit.scale });
     };
     // The end of a zoom: a stretch past a limit springs back to it.
     const endZoom = () => {

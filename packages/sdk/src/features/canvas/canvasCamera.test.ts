@@ -19,9 +19,12 @@ import {
   fitCanvasPage,
   isCanvasCameraSnapped,
   isCanvasPageScale,
+  isInCanvasSnapWindow,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
   snapCanvasZoom,
+  PAN_SNAP_CAPTURE,
+  PAN_SNAP_RELEASE,
   ZOOM_SNAP_CAPTURE,
   ZOOM_SNAP_RELEASE,
   zoomCanvasAt,
@@ -87,6 +90,34 @@ void test("a camera is snapped to a target only at its page fit, centered on it"
   const zoomedOut = zoomCanvasAt(fit, { x: viewport.width / 2, y: 0 }, fit.scale * 0.99);
   assert.equal(isCanvasCameraSnapped(zoomedOut, viewport, page), false);
   assert.equal(isCanvasCameraSnapped(fit, viewport, { ...page, left: page.left + 10 }), false);
+});
+
+void test("the snap window needs both zoom and position near the page fit, held wider", () => {
+  const viewport = { width: 900, height: 800 };
+  const page = { left: 1606, width: 1366 };
+  const fit = fitCanvasPage(viewport, page);
+  const center = page.left + page.width / 2;
+  // A camera at a log-scale zoom distance from the fit and a screen offset from the page's center.
+  const at = (zoom: number, offset: number) => {
+    const scale = fit.scale * Math.exp(zoom);
+    return { x: viewport.width / 2 + offset - center * scale, y: 0, scale };
+  };
+  const capture = { zoom: ZOOM_SNAP_CAPTURE, pan: viewport.width * PAN_SNAP_CAPTURE };
+  const release = { zoom: ZOOM_SNAP_RELEASE, pan: viewport.width * PAN_SNAP_RELEASE };
+  for (const held of [false, true]) {
+    const band = held ? release : capture;
+    for (const sign of [-1, 1]) {
+      const inside = at(sign * (band.zoom - 0.001), -sign * (band.pan - 1));
+      assert.equal(isInCanvasSnapWindow(inside, viewport, page, held), true);
+      const zoomedPast = at(sign * (band.zoom + 0.001), 0);
+      assert.equal(isInCanvasSnapWindow(zoomedPast, viewport, page, held), false);
+      const pannedPast = at(0, sign * (band.pan + 1));
+      assert.equal(isInCanvasSnapWindow(pannedPast, viewport, page, held), false);
+    }
+  }
+  const between = at((ZOOM_SNAP_CAPTURE + ZOOM_SNAP_RELEASE) / 2, 0);
+  assert.equal(isInCanvasSnapWindow(between, viewport, page, false), false);
+  assert.equal(isInCanvasSnapWindow(between, viewport, page, true), true);
 });
 
 void test("the zoom ceiling is the page fit, or the zoom limit without targets", () => {
