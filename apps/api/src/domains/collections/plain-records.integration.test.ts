@@ -41,7 +41,8 @@ const collections: NonNullable<TestDefinitionSet["collections"]> = [
     collectionId: "authors",
     title: "Authors",
     description: "",
-    label: "name",
+    toTitle: "{{name}}",
+    toDescription: null,
     contentSchema: {
       type: "object" as const,
       properties: {
@@ -56,7 +57,8 @@ const collections: NonNullable<TestDefinitionSet["collections"]> = [
     collectionId: "articles",
     title: "Articles",
     description: "",
-    label: "title",
+    toTitle: "{{title}}",
+    toDescription: null,
     contentSchema: {
       type: "object" as const,
       properties: {

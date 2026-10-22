@@ -456,7 +456,8 @@ describe("files in drafts", () => {
           collectionId: "people",
           title: "People",
           description: "",
-          label: "name",
+          toTitle: "{{name}}",
+          toDescription: null,
           contentSchema: {
             type: "object",
             properties: {
@@ -546,7 +547,8 @@ describe("file checks beyond blocks", () => {
           collectionId: "people",
           title: "People",
           description: "",
-          label: "name",
+          toTitle: "{{name}}",
+          toDescription: null,
           contentSchema: {
             type: "object",
             // Collection fields are never required.

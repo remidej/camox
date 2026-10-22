@@ -55,7 +55,6 @@ const property = z
     // Collection references are never required: unpublished targets resolve empty.
     required: z.literal(false).optional(),
     referenceSchema: z.unknown().optional(),
-    labelField: z.string().optional(),
     // Parsed only to reject it by name: collections never hold query-backed lists.
     query: z.unknown().optional(),
   })
@@ -134,13 +133,8 @@ export const collectionDefinitionInput = z
     title: z.string().min(1),
     description: z.string(),
     // Token templates of String fields, such as `{{firstName}} {{lastName}}`.
-    toTitle: recordTextTemplate.optional(),
-    toDescription: recordTextTemplate.nullable().optional(),
-    /**
-     * The ADR 0019 bridge: SDKs from before record titles name records by one String field, read
-     * as a title template naming it, with no description. Exactly one of `label` and `toTitle`.
-     */
-    label: z.string().optional(),
+    toTitle: recordTextTemplate,
+    toDescription: recordTextTemplate.nullable(),
     contentSchema: contentSchemaInput,
     /**
      * The JSON template of each record's Structured Data node, whose strings may hold field
@@ -157,19 +151,6 @@ export const collectionDefinitionInput = z
   })
   .strict()
   .superRefine((definition, ctx) => {
-    if ((definition.label === undefined) === (definition.toTitle === undefined)) {
-      ctx.addIssue({ code: "custom", message: "Give either toTitle or label" });
-      return;
-    }
-    if (definition.toTitle !== undefined && definition.toDescription === undefined) {
-      ctx.addIssue({ code: "custom", path: ["toDescription"], message: "toDescription: required" });
-    }
-    if (
-      definition.label !== undefined &&
-      definition.contentSchema.properties[definition.label]?.fieldType !== "String"
-    ) {
-      ctx.addIssue({ code: "custom", message: "Label must name a String field" });
-    }
     const templates = { toTitle: definition.toTitle, toDescription: definition.toDescription };
     for (const [option, template] of Object.entries(templates)) {
       for (const name of nonStringTemplateFields(
@@ -184,11 +165,9 @@ export const collectionDefinitionInput = z
       }
     }
   })
-  .transform(({ label, toTitle, toDescription, toStructuredData, ...definition }) => ({
+  .transform(({ toStructuredData, ...definition }) => ({
     ...definition,
     toStructuredData: toStructuredData ?? null,
-    toTitle: toTitle ?? `{{${label}}}`,
-    toDescription: label === undefined ? (toDescription ?? null) : null,
   }));
 
 /** A stored asset: a reference to a file, resolved on read like a block's. */

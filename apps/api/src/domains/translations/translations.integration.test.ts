@@ -127,7 +127,8 @@ async function fixture() {
         collectionId: "articles",
         title: "Articles",
         description: "",
-        label: "title",
+        toTitle: "{{title}}",
+        toDescription: null,
         contentSchema: {
           type: "object",
           properties: {

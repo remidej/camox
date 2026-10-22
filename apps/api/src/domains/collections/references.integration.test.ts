@@ -53,7 +53,8 @@ async function fixture(assets = false) {
         collectionId: "customers",
         title: "Customers",
         description: "",
-        label: "name",
+        toTitle: "{{name}}",
+        toDescription: null,
         contentSchema: {
           type: "object",
           properties: {
@@ -388,7 +389,8 @@ describe("reference lists", () => {
             collectionId: "partners",
             title: "Partners",
             description: "",
-            label: "name",
+            toTitle: "{{name}}",
+            toDescription: null,
             contentSchema: {
               type: "object",
               properties: {
@@ -424,7 +426,8 @@ describe("reference lists", () => {
             collectionId: "customers",
             title: "Customers",
             description: "",
-            label: "name",
+            toTitle: "{{name}}",
+            toDescription: null,
             contentSchema: {
               type: "object",
               properties: { name: { type: "string", fieldType: "String" } },
@@ -773,7 +776,8 @@ async function relationFixture() {
     collectionId,
     title: collectionId,
     description: "",
-    label: "name",
+    toTitle: "{{name}}",
+    toDescription: null,
     contentSchema: {
       type: "object" as const,
       properties: { name: { type: "string", fieldType: "String" as const }, ...properties },
@@ -1016,7 +1020,8 @@ async function queryFixture() {
         collectionId: "articles",
         title: "Articles",
         description: "",
-        label: "title",
+        toTitle: "{{title}}",
+        toDescription: null,
         contentSchema: articleSchema,
       },
     ],
