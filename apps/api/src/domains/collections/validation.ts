@@ -142,6 +142,18 @@ export const collectionDefinitionInput = z
      */
     label: z.string().optional(),
     contentSchema: contentSchemaInput,
+    /**
+     * The JSON template of each record's Structured Data node, whose strings may hold field
+     * tokens. Records of a collection without one have no node, and references to them read as
+     * their title.
+     */
+    toStructuredData: z
+      .record(z.string(), z.unknown())
+      .refine((node) => JSON.stringify(node).length <= 20_000, "toStructuredData: too large")
+      // Camox alone describes the website.
+      .refine((node) => node["@type"] !== "WebSite", "toStructuredData: can't be a WebSite")
+      .nullable()
+      .optional(),
   })
   .strict()
   .superRefine((definition, ctx) => {
@@ -172,8 +184,9 @@ export const collectionDefinitionInput = z
       }
     }
   })
-  .transform(({ label, toTitle, toDescription, ...definition }) => ({
+  .transform(({ label, toTitle, toDescription, toStructuredData, ...definition }) => ({
     ...definition,
+    toStructuredData: toStructuredData ?? null,
     toTitle: toTitle ?? `{{${label}}}`,
     toDescription: label === undefined ? (toDescription ?? null) : null,
   }));

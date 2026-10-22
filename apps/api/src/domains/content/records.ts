@@ -6,6 +6,7 @@ import { conformRecordContent } from "../_shared/conform-content";
 import { propertiesOf } from "../_shared/fields";
 import type { ContentScope } from "../collections/identity";
 import type { collectionRecords } from "../collections/schema";
+import type { FileView } from "../files/generated-metadata";
 import type { Definitions } from "./definitions";
 import { loadFiles, resolveAssets } from "./files";
 import {
@@ -14,8 +15,10 @@ import {
   recordText,
   type RecordText,
   resolveReferences,
+  type ResolvedReference,
   type ResolvedReferences,
 } from "./references";
+import { recordNode, recordStructuredData } from "./structured-data";
 
 /** What reads need of a stored record. */
 export type RecordRow = Pick<
@@ -75,15 +78,70 @@ export const recordViews = Effect.fn("content.recordViews")(function* (
   collectionId: string,
   rows: readonly RecordRow[],
 ) {
+  return (yield* loadRecordViews(db, at, definitions, collectionId, rows, 1)).views;
+});
+
+/**
+ * Records of one collection as `recordViews` reads them, each with its Structured Data: its own
+ * node, and the nodes of the records it references and of those they link. The records it
+ * references resolve their own references for their nodes, at the cost of one more query per
+ * chunk of ids, but `references` still holds the first hop only.
+ */
+export const describedRecordViews = Effect.fn("content.describedRecordViews")(function* (
+  db: Database,
+  at: ContentScope,
+  definitions: Definitions,
+  collectionId: string,
+  rows: readonly RecordRow[],
+) {
+  const { views, files, schema } = yield* loadRecordViews(
+    db,
+    at,
+    definitions,
+    collectionId,
+    rows,
+    2,
+  );
+  const collections = yield* definitions.collections();
+  return views.map((view) => {
+    const node = recordNode(collections, { ...view, contentSchema: schema }, files);
+    const records = recordStructuredData(collections, [view.references], files);
+    return {
+      ...view,
+      references: firstHop(view.references),
+      structuredData: { ...(node && { node }), records },
+    };
+  });
+});
+
+/** References as the first hop shows them: their records link nothing further. */
+function firstHop(references: ResolvedReferences): ResolvedReferences {
+  const strip = ({ references: _further, ...record }: ResolvedReference) => record;
+  return Object.fromEntries(
+    Object.entries(references).map(([name, value]) => [
+      name,
+      Array.isArray(value) ? value.map(strip) : value && strip(value),
+    ]),
+  );
+}
+
+const loadRecordViews = Effect.fn("content.loadRecordViews")(function* (
+  db: Database,
+  at: ContentScope,
+  definitions: Definitions,
+  collectionId: string,
+  rows: readonly RecordRow[],
+  hops: 1 | 2,
+) {
   const shown = yield* shownRecords(definitions, collectionId, rows);
-  if (shown.length === 0) return [];
+  if (shown.length === 0) return { views: [], files: new Map<string, FileView>(), schema: {} };
   const schema = (yield* definitions.collections()).get(collectionId)!.contentSchema;
   const resolved = yield* resolveReferences(
     db,
     at,
     definitions,
     shown.map((record) => ({ schema, content: record.content })),
-    1,
+    hops,
   );
   const fileIds = new Set<string>();
   recordFileIds(
@@ -91,13 +149,16 @@ export const recordViews = Effect.fn("content.recordViews")(function* (
     fileIds,
   );
   recordFileIds(resolved.records, fileIds);
-  const files = fileIds.size ? yield* loadFiles(db, at, fileIds) : new Map();
+  const files: ReadonlyMap<string, FileView> = fileIds.size
+    ? yield* loadFiles(db, at, fileIds)
+    : new Map();
   attachFiles(resolved.records, files);
-  return shown.map((record, index): RecordView => ({
+  const views = shown.map((record, index): RecordView => ({
     ...record,
     content: resolveAssets(schema, record.content, files),
     references: resolved.references[index]!,
   }));
+  return { views, files, schema };
 });
 
 /**

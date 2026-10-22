@@ -440,18 +440,26 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
     Effect.gen(function* () {
       const records = yield* recordsWithPageValues(ctx, input, collection);
       // The page's record is the first hop: it resolves the records it links, which link nothing.
-      const views = yield* collection.reader.records(
+      const rows = records.filter((record) => record.value === input.value).map(({ row }) => row);
+      const views = yield* collection.reader.describedRecords(
         collection.definition.collectionId,
-        records.filter((record) => record.value === input.value).map(({ row }) => row),
+        rows,
       );
-      return views.map(({ id, title, description, content, updatedAt, references }) => ({
-        id,
-        title,
-        description,
-        content,
-        updatedAt,
-        references,
-      }));
+      const published = new Map(rows.map((row) => [row.id, row]));
+      return views.map(
+        ({ id, title, description, content, updatedAt, references, structuredData }) => ({
+          id,
+          title,
+          description,
+          content,
+          updatedAt,
+          references,
+          structuredData,
+          // When the record was first and last published to Live, for its page's graph.
+          firstPublishedAt: published.get(id)?.firstPublishedAt ?? null,
+          publishedAt: published.get(id)?.publishedAt ?? null,
+        }),
+      );
     }),
   );
 });

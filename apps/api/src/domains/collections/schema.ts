@@ -27,6 +27,12 @@ export const collectionDefinitions = sqliteTable(
     // collection without a description template gives its records none.
     toTitle: text("to_title").notNull(),
     toDescription: text("to_description"),
+    // The JSON template of each record's Structured Data node, with field tokens; null when the
+    // collection's records have none.
+    toStructuredData: text("to_structured_data", { mode: "json" }).$type<Record<
+      string,
+      unknown
+    > | null>(),
     contentSchema: text("content_schema", { mode: "json" })
       .notNull()
       .$type<Record<string, unknown>>(),

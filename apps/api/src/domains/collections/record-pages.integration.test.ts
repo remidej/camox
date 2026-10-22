@@ -24,6 +24,7 @@ const { id, ...articleDefinition } = articles._internal;
 const serialized = JSON.parse(JSON.stringify({ ...articleDefinition, collectionId: id }));
 // Without the playground's slug pattern, editors can store any value, as in a real project.
 delete serialized.contentSchema.properties.slug.pattern;
+serialized.toStructuredData = { "@type": "BlogPosting", author: "{{author}}" };
 const definition = collectionDefinitionInput.parse(serialized);
 const { id: authorsId, ...authorDefinition } = authors._internal;
 const serializedAuthors = JSON.parse(
@@ -37,6 +38,7 @@ serializedAuthors.contentSchema.properties.featured = {
   default: null,
 };
 serializedAuthors.contentSchema.required.push("featured");
+serializedAuthors.toStructuredData = { "@type": "Person", subjectOf: "{{featured}}" };
 const authorsDefinition = collectionDefinitionInput.parse(serializedAuthors);
 const article = { title: "Hello", slug: "hello", excerpt: "", body: "", cover: null, author: null };
 const author = { name: "Ada", bio: "Writes about content.", portrait: null, featured: null };
@@ -83,6 +85,9 @@ describe("finding the records a record page renders", () => {
         content: { ...article, title: "Edited title", slug: "new-slug" },
         updatedAt: edited.updatedAt,
         references: { author: null },
+        structuredData: expect.objectContaining({ node: expect.anything() }),
+        firstPublishedAt: expect.any(Number),
+        publishedAt: expect.any(Number),
       },
     ];
     expect(await f.find("new-slug")).toEqual(expected);
@@ -106,6 +111,44 @@ describe("finding the records a record page renders", () => {
     });
     // The author is the second hop: its own reference stays an unresolved id.
     expect(found.references.author).not.toHaveProperty("references");
+  });
+
+  it("describes the record and the records it links as Structured Data, with its publish times", async () => {
+    const f = await fixture("structured-data");
+    const other = await f.create({ title: "Other", slug: "other" });
+    const ada = await f.createAuthor({ featured: other.id });
+    const record = await f.create({ author: ada.id });
+    const [published] = await f.find("hello");
+    await f.edit(record, { title: "Hello again", author: ada.id });
+
+    const [found] = await f.find("hello");
+
+    expect(found.structuredData).toEqual({
+      node: {
+        "@type": "BlogPosting",
+        "@id": `camox:record:${record.id}`,
+        headline: "Hello again",
+        author: { "@id": `camox:record:${ada.id}` },
+      },
+      records: {
+        nodes: {
+          [ada.id]: {
+            "@type": "Person",
+            "@id": `camox:record:${ada.id}`,
+            name: "Ada",
+            description: "Writes about content.",
+            // The author's own links resolve too, as on pages placing the record.
+            subjectOf: { "@id": `camox:record:${other.id}` },
+          },
+          [other.id]: expect.objectContaining({ headline: "Other" }),
+        },
+        referenced: [ada.id],
+      },
+    });
+    expect(found.references.author).not.toHaveProperty("references");
+    expect(found.firstPublishedAt).toBe(published.firstPublishedAt);
+    expect(found.publishedAt).toBeGreaterThanOrEqual(published.publishedAt!);
+    expect(published.firstPublishedAt).toEqual(expect.any(Number));
   });
 
   it("compares the plain text of values stored as rich text", async () => {

@@ -1,7 +1,7 @@
 import type { EvaluatedNode, StructuredDataValue } from "@camox/api-contract";
 
 import { pointersOf, readField } from "../domains/_shared/fields";
-import type { ResolvedReferences } from "../domains/content/reader";
+import type { ResolvedReference, ResolvedReferences } from "../domains/content/reader";
 import { contentToPlainText } from "./content-markdown";
 import { transformedImage } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
@@ -30,6 +30,11 @@ export type StructuredDataContext = {
   references?: ResolvedReferences;
   /** The value a link to a page of the website takes, by the page's id; none when it's gone. */
   pageUrl: (pageId: string) => StructuredDataValue | undefined;
+  /**
+   * The value a reference to a record takes: a link to its node, or its title when its collection
+   * has no Structured Data. Without it, references are left out.
+   */
+  record?: (record: ResolvedReference) => StructuredDataValue | undefined;
 };
 
 type Value = StructuredDataValue | undefined;
@@ -103,8 +108,12 @@ function resolveToken(
   ctx: StructuredDataContext,
 ): Value {
   const [root, ...path] = key.split(".");
-  if (path.length === 0) return resolveField(properties[root!], content[root!], ctx);
-  // A field of a referenced record reads as text. #506 makes a reference itself a node.
+  if (path.length === 0) {
+    const kind = readField(properties[root!])?.kind;
+    if (kind === "Reference" || kind === "ReferenceList") return referenced(root!, ctx);
+    return resolveField(properties[root!], content[root!], ctx);
+  }
+  // A field of a referenced record reads as its value.
   let record = ctx.references?.[root!];
   for (const [index, field] of path.entries()) {
     if (!record || Array.isArray(record)) return undefined;
@@ -121,6 +130,16 @@ function resolveToken(
     return value;
   }
   return undefined;
+}
+
+/** A reference field's records as links or titles: one for a reference, a list for a list. */
+function referenced(name: string, ctx: StructuredDataContext): Value {
+  const resolved = ctx.references?.[name];
+  const valueOf = ctx.record;
+  if (!resolved || !valueOf) return undefined;
+  if (!Array.isArray(resolved)) return valueOf(resolved);
+  const values = resolved.flatMap((record) => valueOf(record) ?? []);
+  return values.length > 0 ? values : undefined;
 }
 
 function resolveField(schema: unknown, value: unknown, ctx: StructuredDataContext): Value {
@@ -154,7 +173,7 @@ function resolveField(schema: unknown, value: unknown, ctx: StructuredDataContex
     case "Repeater":
       return repeatedNodes(schema, value, ctx);
     default:
-      // Icons and artifacts aren't Structured Data; lists and references come later (#506).
+      // Icons, artifacts and lists of files aren't Structured Data.
       return undefined;
   }
 }
@@ -183,10 +202,9 @@ function repeatedNodes(schema: unknown, value: unknown, ctx: StructuredDataConte
 /** An asset field's file: the scope's file it names, or the snapshot it holds. */
 function assetOf(value: unknown, ctx: StructuredDataContext): StructuredDataFile | undefined {
   if (!isObject(value)) return undefined;
-  if (typeof value._fileId === "string" && typeof value.url !== "string") {
-    return ctx.files.get(value._fileId);
-  }
-  if (typeof value.url !== "string") return undefined;
+  // Records' assets are snapshots of their files; the read's files have their dimensions too.
+  const file = typeof value._fileId === "string" ? ctx.files.get(value._fileId) : undefined;
+  if (file || typeof value.url !== "string") return file;
   return {
     url: value.url,
     alt: typeof value.alt === "string" ? value.alt : "",

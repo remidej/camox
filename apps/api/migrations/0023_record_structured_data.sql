@@ -1,0 +1,1 @@
+ALTER TABLE `collection_definitions` ADD `to_structured_data` text;

@@ -169,6 +169,11 @@ export const layoutBundleSchema = z.strictObject({
   files: z.array(fileSchema),
   /** Each block's Structured Data nodes, by block id. */
   structuredData: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),
+  /** The nodes of the records the blocks reference, by record id. */
+  recordStructuredData: z.strictObject({
+    nodes: z.record(z.string(), z.record(z.string(), z.unknown())),
+    referenced: z.array(z.string()),
+  }),
 });
 
 export const layoutSchema = z.strictObject({

@@ -125,7 +125,9 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     repeatableItems: content.repeatableItems,
     files: content.files,
     /** Each block's Structured Data nodes, by block id, for the graph of the layout's pages. */
-    structuredData,
+    structuredData: structuredData.blocks,
+    /** The nodes of the records the blocks reference, and of those these records link. */
+    recordStructuredData: structuredData.records,
   };
 }, Effect.scoped);
 

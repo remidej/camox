@@ -18,6 +18,7 @@ import {
 } from "./blocks";
 import { definitionsOf } from "./definitions";
 import {
+  describedRecordViews,
   recordMarkdown,
   type RecordRow,
   type RecordView,
@@ -25,13 +26,18 @@ import {
   type ShownRecord,
   shownRecords,
 } from "./records";
-import { blockStructuredData, type BlockStructuredData } from "./structured-data";
+import {
+  blockStructuredData,
+  type BlockStructuredData,
+  type BundleStructuredData,
+} from "./structured-data";
 
 export type {
   BlockBundle,
   BlockMarkdown,
   BlockSource,
   BlockStructuredData,
+  BundleStructuredData,
   RecordView,
   ShownBlock,
   ShownItem,
@@ -90,8 +96,8 @@ export function contentReader(ctx: { db: Database }, at: ContentScope) {
      */
     blocks: (source: BlockSource) => blockBundle(db, at, definitions, source),
     /**
-     * The Structured Data nodes of a bundle's blocks, by block id, from their templates. Reads
-     * only the pages the nodes link to.
+     * The Structured Data nodes of a bundle's blocks, by block id, from their templates, and the
+     * nodes of the records they reference. Reads only the pages the nodes link to.
      */
     structuredData: (bundle: BlockBundle) => blockStructuredData(db, at, definitions, bundle),
     /** The Markdown Representation of each block whose definition the scope has, by position. */
@@ -101,6 +107,12 @@ export function contentReader(ctx: { db: Database }, at: ContentScope) {
     /** Records with their files resolved and the records they reference (one hop). */
     records: (collectionId: string, rows: readonly RecordRow[]) =>
       recordViews(db, at, definitions, collectionId, rows),
+    /**
+     * Records as `records` reads them, each with its Structured Data, for record pages: its own
+     * node, and the nodes of the records it references, which link one hop further.
+     */
+    describedRecords: (collectionId: string, rows: readonly RecordRow[]) =>
+      describedRecordViews(db, at, definitions, collectionId, rows),
     /** A record's Markdown, from `toMarkdown` lines; undefined when the scope hides it. */
     recordMarkdown: (collectionId: string, row: RecordRow, toMarkdown: readonly string[]) =>
       recordMarkdown(db, at, definitions, collectionId, row, toMarkdown),
