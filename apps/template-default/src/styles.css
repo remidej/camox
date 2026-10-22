@@ -43,7 +43,7 @@
  */
 
 /*
- * Brand inputs. Every scheme derives its colors from these three values, so a rebrand
+ * Brand inputs. Every scheme derives its colors from the first three values, so a rebrand
  * starts here. Schemes never hardcode a brand color.
  */
 :root {
@@ -53,6 +53,8 @@
   --brand-color-on-dark: oklch(0.74 0.14 262);
   /* The hue (0-360) that tints every gray, so neutrals lean toward the brand. */
   --neutral-hue: 262;
+  /* The case of eyebrows (the Eyebrow Component): `uppercase`, or `none` to keep it as typed. */
+  --eyebrow-case: uppercase;
 }
 
 /* Light: the default scheme of the page, for most content blocks. */
