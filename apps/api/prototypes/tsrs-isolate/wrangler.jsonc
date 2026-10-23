@@ -1,0 +1,13 @@
+{
+  "name": "prototype-tsrs-isolate",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "rules": [
+    { "type": "Text", "globs": ["**/*.txt"] },
+    { "type": "CompiledWasm", "globs": ["**/*.wasm"] },
+  ],
+  "durable_objects": { "bindings": [{ "name": "CHECKER", "class_name": "Checker" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Checker"] }],
+  "observability": { "enabled": true },
+}

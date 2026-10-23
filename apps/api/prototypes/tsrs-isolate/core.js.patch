@@ -1,0 +1,10 @@
+--- /dev/fd/12	2026-10-23 15:27:26
++++ node_modules/@tsrs/wasm/core.js	2026-10-23 15:19:31
+@@ -186,6 +186,7 @@
+             if (e instanceof NotFoundError) {
+                 return -1;
+             }
++            (globalThis.TSRS_HOST_ERRORS ??= []).push(`op ${op}: ${e?.name}: ${e?.message ?? e}`);
+             return -2 - stage(String(e?.message ?? e));
+         }
+     };

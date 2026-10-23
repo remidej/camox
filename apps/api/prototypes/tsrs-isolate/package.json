@@ -1,0 +1,19 @@
+{
+  "name": "tsrs-proto",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@tsrs/wasm": "^0.18.0-ts7.1.0-dev.20260929"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}

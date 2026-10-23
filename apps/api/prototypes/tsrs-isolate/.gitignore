@@ -1,0 +1,6 @@
+*.txt
+*.json
+!package.json
+!wrangler.jsonc
+tsrs.wasm
+node_modules
