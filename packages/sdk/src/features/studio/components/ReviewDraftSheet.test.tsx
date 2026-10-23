@@ -53,6 +53,9 @@ const emptyPreview = {
   translating: [] as string[],
   defaultLocale: "en",
   token: "token-1",
+  overview: { status: "pending" } as
+    | { status: "none" | "pending" | "failed" }
+    | { status: "ready"; headline: string; bullets: string[] },
 };
 
 const conflictedPreview = {
@@ -203,6 +206,108 @@ void test("says nothing on Live changed when there's nothing to warn about, and 
     assert.match(dialogText(), /Home/);
     assert.match(dialogText(), /Hero/);
     assert.equal(buttonNamed(/Publish all/)?.disabled, false);
+  } finally {
+    await close();
+  }
+});
+
+const sheetTitle = () =>
+  window.document.querySelector('[data-slot="sheet-title"]')?.textContent ?? "";
+const sheetDescription = () =>
+  window.document.querySelector('[data-slot="sheet-description"]')?.textContent ?? "";
+const bullets = () =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-overview] li')].map(
+    (bullet) => bullet.textContent,
+  );
+
+void test("titles the review with the overview's headline, the draft's name and author above it, and lists its bullets", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      overview: {
+        status: "ready",
+        headline: "Retitles the homepage hero",
+        bullets: ["Home: the hero gets a new title", "Files: two images replaced"],
+      },
+    }),
+  );
+  drafted = { kind: "development" };
+  const close = await openReview();
+  try {
+    assert.equal(sheetTitle(), "Retitles the homepage hero");
+    assert.match(sheetDescription(), /Ada/);
+    assert.deepEqual(bullets(), ["Home: the hero gets a new title", "Files: two images replaced"]);
+  } finally {
+    await close();
+  }
+});
+
+void test("keeps a regular draft's name renamable above the headline", async (t) => {
+  mockApi(t, () =>
+    json({ ...emptyPreview, overview: { status: "ready", headline: "Retitles", bullets: [] } }),
+  );
+  const close = await openReview();
+  try {
+    assert.equal(sheetTitle(), "Retitles");
+    assert.ok(window.document.querySelector('input[aria-label="Draft name"]'));
+  } finally {
+    await close();
+  }
+});
+
+void test("says it's summarizing the draft while the overview is pending, titled with the draft's label", async (t) => {
+  mockApi(t, () => json({ ...emptyPreview, overview: { status: "pending" } }));
+  drafted = { kind: "development" };
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /Summarizing this draft…/);
+    assert.ok(window.document.querySelector('[role="dialog"] [data-slot="skeleton"]'));
+    assert.equal(sheetTitle(), "Development draft");
+  } finally {
+    await close();
+  }
+});
+
+void test("offers to retry an overview that failed, counting the changes and places meanwhile", async (t) => {
+  const record = {
+    entity: "record",
+    id: "019a0000-0000-7000-8000-000000000010",
+    label: "Ada",
+    owner: { kind: "collection", name: "authors", title: "Authors" },
+    locale: "en",
+    change: "created",
+  };
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/retryOverview") return json(null);
+    return json({
+      ...emptyPreview,
+      changes: [...emptyPreview.changes, record, { ...record, id: `${record.id}1` }],
+      overview: { status: "failed" },
+    });
+  });
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /Couldn't summarize this draft/);
+    assert.match(dialogText(), /3 changes in 2 places/);
+
+    await click(buttonNamed(/Retry/));
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/retryOverview").map((call) => call.input),
+      [{ projectId: 1 }],
+    );
+  } finally {
+    await close();
+  }
+});
+
+void test("says an empty draft has no changes, with no overview", async (t) => {
+  mockApi(t, () => json({ ...emptyPreview, changes: [], overview: { status: "none" } }));
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /This draft has no changes/);
+    assert.doesNotMatch(dialogText(), /Summarizing/);
+    assert.deepEqual(bullets(), []);
   } finally {
     await close();
   }

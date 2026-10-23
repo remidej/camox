@@ -11,6 +11,7 @@ import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import { catchUpReleaseWrites } from "../domains/drafts/catch-up";
+import { requestOverviewsOfWrites } from "../domains/drafts/overview";
 import { translateWrites } from "../domains/translations/service";
 import { aiServices, type AiServices } from "./ai-adapters";
 import type { ServiceError } from "./errors";
@@ -74,14 +75,19 @@ export type ServiceRequirements = Journal | AiServices;
  * The effect writes into a fresh journal. Once it succeeded, what it wrote in
  * a draft's default locale is translated into the draft's other locales, and
  * what a release wrote on Live into Live's in Camox's catch-up draft (ADR
- * 0017), and what it changed is sent to the project rooms before the promise
+ * 0017), the overview of every draft it wrote in is requested, and what it
+ * changed is sent to the project rooms before the promise
  * resolves; a failure sends nothing. It generates values and translations with
  * the Worker's model and job queue (`ai-adapters.ts`).
  */
 export async function runService<A>(
   effect: Effect.Effect<A, ServiceError, ServiceRequirements>,
 ): Promise<A> {
-  const work = Effect.tap(effect, () => Effect.andThen(translateWrites(), catchUpReleaseWrites()));
+  const work = Effect.tap(effect, () =>
+    Effect.andThen(translateWrites(), catchUpReleaseWrites()).pipe(
+      Effect.andThen(requestOverviewsOfWrites()),
+    ),
+  );
   const exit = await Effect.runPromiseExit(
     journaled(Effect.provideContext(work, aiServices()), announce),
   );

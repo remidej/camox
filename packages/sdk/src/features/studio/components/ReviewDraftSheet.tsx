@@ -23,6 +23,7 @@ import {
 } from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@camox/ui/sheet";
+import { Skeleton } from "@camox/ui/skeleton";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { useMutation } from "@tanstack/react-query";
@@ -451,9 +452,8 @@ function Changes({
   const groups = new Set(changes.map(placeOf));
   const locales = localesOf(changes, defaultLocale);
 
-  if (groups.size === 0) {
-    return <p className="text-muted-foreground text-sm">This draft has no changes.</p>;
-  }
+  // The overview above says the draft has no changes.
+  if (groups.size === 0) return null;
 
   const counts = (Object.keys(CHANGES) as Change[])
     .map((kind) => [kind, changes.filter((change) => change.change === kind).length] as const)
@@ -499,6 +499,66 @@ function Changes({
 }
 
 /**
+ * The draft's overview: the bullets AI wrote about its changes, in full, under the headline the
+ * header shows. While it's being written, skeleton lines; once it failed, a Retry and a plain
+ * count of the changes, so the draft can still be reviewed.
+ */
+function DraftOverview({ projectId, preview }: { projectId: number; preview: PublishPreview }) {
+  const { overview, changes } = preview;
+  const retry = useMutation({
+    ...draftMutations.retryOverview(),
+    onError: (error) => toast.error(error.message || "Could not summarize the draft"),
+  });
+
+  if (changes.length === 0) {
+    return <p className="text-muted-foreground text-sm">This draft has no changes.</p>;
+  }
+  if (overview.status === "ready") {
+    return (
+      <ul
+        data-overview
+        className="text-foreground/85 flex list-disc flex-col gap-1.5 pl-5 leading-relaxed"
+      >
+        {overview.bullets.map((bullet, index) => (
+          <li key={index}>{bullet}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (overview.status === "failed") {
+    const places = new Set(changes.map(placeOf)).size;
+    return (
+      <div data-overview className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-medium">Couldn't summarize this draft</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            disabled={retry.isPending}
+            onClick={() => retry.mutate({ projectId })}
+          >
+            {retry.isPending ? <Spinner /> : null}
+            Retry
+          </Button>
+        </div>
+        <p className="text-muted-foreground text-sm">
+          {plural(changes.length, "change")} in {plural(places, "place")}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div data-overview className="flex flex-col gap-2">
+      <Skeleton className="h-4 w-11/12" />
+      <Skeleton className="h-4 w-4/5" />
+      <Skeleton className="h-4 w-2/3" />
+      <p className="text-muted-foreground text-sm">Summarizing this draft…</p>
+    </div>
+  );
+}
+
+/**
  * Switches the studio to Live once its draft ended here, replacing the draft's URL entry. A
  * development draft never ends: publishing or discarding empties it, and dev mode stays in it.
  */
@@ -520,10 +580,12 @@ function DraftNameInput({
   projectId,
   draft,
   ref,
+  className,
 }: {
   projectId: number;
   draft: DraftSummary;
   ref: React.Ref<HTMLInputElement>;
+  className?: string;
 }) {
   const rename = useRenameDraft(projectId);
   const name = draft.name ?? "";
@@ -548,7 +610,10 @@ function DraftNameInput({
       placeholder={draftLabel({ ...draft, name: null })}
       title={draftLabel(draft)}
       maxLength={200}
-      className="hover:border-input focus-visible:border-ring focus-visible:ring-ring/50 placeholder:text-foreground focus:placeholder:text-muted-foreground -mx-1.5 h-8 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-1.5 text-base font-medium transition-[color,box-shadow,border-color] outline-none hover:shadow-xs focus-visible:ring-3"
+      className={cn(
+        "hover:border-input focus-visible:border-ring focus-visible:ring-ring/50 placeholder:text-foreground focus:placeholder:text-muted-foreground -mx-1.5 h-8 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-1.5 text-base font-medium transition-[color,box-shadow,border-color] outline-none hover:shadow-xs focus-visible:ring-3",
+        className,
+      )}
       onBlur={(event) => save(event.currentTarget)}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
@@ -641,6 +706,7 @@ export function ReviewDraftSheet({
   });
 
   const data = preview.data;
+  const headline = data?.overview.status === "ready" ? data.overview.headline : null;
   const busy = publish.isPending;
   const ready = !!data && data.blockers.length === 0 && !busy && !preview.isFetching;
   // Publishing waits for pending translations, so every locale goes live together (ADR 0017).
@@ -679,24 +745,51 @@ export function ReviewDraftSheet({
           className="w-full gap-0 data-[side=right]:sm:max-w-lg"
         >
           <div className="flex flex-col gap-1 border-b p-4 pr-12">
-            {draft.data?.kind === "regular" ? (
+            {headline ? (
+              // The overview's headline titles the review, under the draft's name and author.
               <>
-                <SheetTitle className="sr-only">{draftLabel(draft.data)}</SheetTitle>
-                <DraftNameInput ref={nameInput} projectId={projectId} draft={draft.data} />
+                <SheetDescription className="flex min-w-0 items-center gap-1">
+                  {draft.data?.kind === "regular" ? (
+                    <DraftNameInput
+                      ref={nameInput}
+                      projectId={projectId}
+                      draft={draft.data}
+                      className="placeholder:text-muted-foreground text-muted-foreground field-sizing-content h-6 w-auto max-w-full text-sm font-normal"
+                    />
+                  ) : (
+                    draft.data && <span className="truncate">{draftLabel(draft.data)}</span>
+                  )}
+                  {draft.data && (
+                    <span className="shrink-0">
+                      · {draft.data.createdBy.name}, started {timeAgo(draft.data.createdAt)}
+                    </span>
+                  )}
+                </SheetDescription>
+                <SheetTitle className="text-lg leading-snug font-semibold">{headline}</SheetTitle>
               </>
             ) : (
-              <SheetTitle className="text-base">
-                {draft.data ? draftLabel(draft.data) : "Draft"}
-              </SheetTitle>
+              <>
+                {draft.data?.kind === "regular" ? (
+                  <>
+                    <SheetTitle className="sr-only">{draftLabel(draft.data)}</SheetTitle>
+                    <DraftNameInput ref={nameInput} projectId={projectId} draft={draft.data} />
+                  </>
+                ) : (
+                  <SheetTitle className="text-base">
+                    {draft.data ? draftLabel(draft.data) : "Draft"}
+                  </SheetTitle>
+                )}
+                <SheetDescription>
+                  {draft.data
+                    ? `${draft.data.createdBy.name} · started ${timeAgo(draft.data.createdAt)}`
+                    : "Publishing applies this whole draft to Live."}
+                </SheetDescription>
+              </>
             )}
-            <SheetDescription>
-              {draft.data
-                ? `${draft.data.createdBy.name} · started ${timeAgo(draft.data.createdAt)}`
-                : "Publishing applies this whole draft to Live."}
-            </SheetDescription>
           </div>
           {data ? (
             <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+              <DraftOverview projectId={projectId} preview={data} />
               <Verdict preview={data} />
               <Insights preview={data} />
               <Changes changes={data.changes} defaultLocale={data.defaultLocale ?? undefined} />

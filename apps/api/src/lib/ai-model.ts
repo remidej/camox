@@ -88,8 +88,29 @@ export type MergeRequest = {
 /** The merged texts of a request, by key. A missing key keeps the localization's text. */
 export type Merges = Record<string, string>;
 
+/** One change a draft makes, as its review lists it. */
+export type OverviewChange = {
+  /** Where it sits: a page's name and path, a layout, a collection, the files or the languages. */
+  place: string;
+  /** What it is to people: a block's summary or title, a record's title, a file's filename. */
+  label: string;
+  change: "created" | "changed" | "deleted";
+  /** The BCP 47 tag of the locale it was made in, or null for what isn't localized. */
+  locale: string | null;
+};
+
+export type DraftOverviewRequest = {
+  /** The draft's name, or null while it has none. */
+  draftName: string | null;
+  changes: readonly OverviewChange[];
+};
+
+/** A Draft Overview: a one-sentence headline and bullets covering every change. */
+export type DraftOverview = { headline: string; bullets: string[] };
+
 /**
- * The model that writes generated values (ADR 0012) and translations (ADR 0015). Each call is
+ * The model that writes generated values (ADR 0012), translations (ADR 0015) and Draft
+ * Overviews. Each call is
  * bounded: it times out, retries transient failures, and fails with `AiCallError` once it gives
  * up. Requests and jobs get the OpenRouter adapter (`open-router-model.ts`); tests get a scripted
  * one.
@@ -106,5 +127,9 @@ export class AiModel extends Context.Service<
     readonly translate: (request: TranslationRequest) => Effect.Effect<Translations, AiCallError>;
     /** Merges texts of a localization changed by hand with their changed source, keeping both. */
     readonly merge: (request: MergeRequest) => Effect.Effect<Merges, AiCallError>;
+    /** Describes a draft's changes to the members reviewing it. */
+    readonly draftOverview: (
+      request: DraftOverviewRequest,
+    ) => Effect.Effect<DraftOverview, AiCallError>;
   }
 >()("camox/AiModel") {}

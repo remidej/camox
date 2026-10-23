@@ -7,6 +7,7 @@ import { z } from "zod";
 import { readMetadataImage } from "../domains/files/metadata-image";
 import {
   AiModel,
+  type DraftOverviewRequest,
   type MergeRequest,
   type TranslationContext,
   type TranslationRequest,
@@ -119,6 +120,18 @@ export const openRouterModel = (apiKey: string) =>
           }),
         ).pipe(Effect.map(({ merges }) => byAskedKey(request.texts, merges))),
       ),
+
+    draftOverview: (request) =>
+      retryAiCall("draftOverview", (abortController) =>
+        Effect.promise(() =>
+          chat({
+            adapter: createOpenRouterText(MODEL, apiKey),
+            abortController,
+            outputSchema: z.object({ headline: z.string(), bullets: z.array(z.string()) }),
+            messages: [{ role: "user", content: draftOverviewPrompt(request) }],
+          }),
+        ),
+      ),
   });
 
 /** The answered texts by key: only keys the request asked for count, a missing key keeps its text. */
@@ -202,6 +215,28 @@ function translationPrompt(request: TranslationRequest) {
     </constraints>
 
     <texts>${JSON.stringify(request.texts)}</texts>
+  `;
+}
+
+function draftOverviewPrompt(request: DraftOverviewRequest) {
+  return outdent`
+    <instruction>
+      A draft is a set of changes to a website, reviewed by its editors before it's published. Describe what this draft does, for an editor about to review it.
+    </instruction>
+
+    <constraints>
+      - "headline": one sentence about what the draft does as a whole, not a list of its changes
+      - "bullets": one bullet per page or category of content, together covering every change
+      - Group many similar changes into one bullet with a count ("12 blog posts get new SEO") rather than dropping any
+      - Mention removals as well as additions and edits
+      - Name pages by their name or path, and blocks, records and files by what they are to people
+      - Plain English, without markdown, technical terms or ids
+    </constraints>
+
+    <draft>
+      <name>${request.draftName ?? ""}</name>
+      <changes>${JSON.stringify(request.changes)}</changes>
+    </draft>
   `;
 }
 

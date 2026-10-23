@@ -46,6 +46,8 @@ export type Change =
   | { kind: "translations"; projectId: number; draftId: string }
   /** A generated value of an entity (ADR 0012): it shows with the entity, but never changes a draft. */
   | { kind: "generated"; entity: EntityKind; id: string; projectId: number; draftId: string | null }
+  /** A draft's overview: requested, written, or failed. It shows in the draft's review only. */
+  | { kind: "overview"; projectId: number; draftId: string }
   /** Definitions synced into Live by a release, or into a development draft by dev mode. */
   | { kind: "definitions"; projectId: number; draftId: string | null }
   /** A draft was started, renamed, or emptied: what the drafts list shows changed. */

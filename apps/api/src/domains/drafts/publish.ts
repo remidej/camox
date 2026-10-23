@@ -48,6 +48,7 @@ import { accessTo } from "./access";
 import { catchUpPending, isCatchUpDraft } from "./catch-up";
 import { checkContentProblems, CONTENT_PROBLEM_CODES, type ContentFinding } from "./content-checks";
 import * as overlay from "./overlay";
+import { clearStatements as clearOverviewStatements, type Overview, overviewOf } from "./overview";
 import { peopleNamed } from "./people";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
@@ -115,6 +116,8 @@ export type PublishPreview = {
   defaultLocale: string | null;
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
   token: string;
+  /** The draft's overview: AI's headline and bullets about its changes. */
+  overview: Overview;
 };
 
 export const previewPublishInput = z.object({ projectId: z.number() });
@@ -225,7 +228,7 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
 
 // --- Preview ---
 
-const computePreview = Effect.fn("drafts.computePreview")(function* (
+export const computePreview = Effect.fn("drafts.computePreview")(function* (
   ctx: ServiceContext,
   scope: Scope,
 ) {
@@ -326,6 +329,9 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   }));
 
   const translating = yield* translations.translatingLocales(ctx.db, [scope.id]);
+  const row = yield* Effect.promise(() =>
+    ctx.db.select().from(drafts).where(eq(drafts.id, scope.id)).get(),
+  );
 
   return {
     blockers,
@@ -336,6 +342,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     translating: translating.get(scope.id) ?? [],
     defaultLocale: (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null,
     token: encodeToken(storedConflicts),
+    overview: row ? overviewOf(row, changes.length > 0) : { status: "none" },
   } satisfies PublishPreview;
 });
 
@@ -465,7 +472,7 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
  * The draft a request names, which publishing and discarding need. They act on every locale,
  * whichever one the request names.
  */
-const requireDraft = Effect.fn("drafts.requireDraft")(function* (
+export const requireDraft = Effect.fn("drafts.requireDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
@@ -545,6 +552,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
       after: [
         ...(options.translated ? [translations.noPendingTranslationsGuard(scope.id)] : []),
         ...generatedValueStatements.publishStatements(ctx.db, scope),
+        ...clearOverviewStatements(ctx.db, scope.id),
         ...filePublishStatements(scope.projectId),
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
@@ -615,7 +623,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
 });
 
 /** Camox's own context, outside any request: it acts with no session. */
-const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
+export const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
   db,
   user: null,
   env,
@@ -684,6 +692,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
       now: Date.now(),
       alongside: [
         ...generatedValueStatements.discardStatements(ctx.db, scope.id),
+        ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
         ...thread.statements,
       ],

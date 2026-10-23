@@ -131,6 +131,7 @@ function mockApi(
         translating: [],
         defaultLocale: "en",
         token: "t",
+        overview: { status: "none" },
       });
     }
     if (path === "locales/list") return json([{ tag: "en", isDefault: true }]);

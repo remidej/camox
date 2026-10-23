@@ -256,6 +256,10 @@ _Avoid_: Force publish, skip translations
 A draft Camox opens to finish translations that a publish went ahead without, or to translate what a release added to Live, and publishes by itself once they're done. A project has at most one open.
 _Avoid_: Translation draft, system draft, bot draft
 
+**Draft Overview**:
+A headline and bullets AI writes about a draft's changes, shown at the top of its review. It describes the draft rather than its content, so it is not a Summary or a Generated Value: it is never published to Live, never a change or a conflict, and has no hand-written override.
+_Avoid_: Draft summary, changelog, description
+
 **Discard**:
 Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes

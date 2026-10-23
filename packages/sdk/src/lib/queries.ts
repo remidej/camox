@@ -79,6 +79,8 @@ export const projectMutations = {
 export const draftMutations = {
   publish: () => getOrpc().drafts.publish.mutationOptions(),
   discard: () => getOrpc().drafts.discard.mutationOptions(),
+  /** Requests the draft's overview again right away, once it failed. */
+  retryOverview: () => getOrpc().drafts.retryOverview.mutationOptions(),
 };
 
 /** Adding and removing locales: content writes, so on Live they start a draft (ADR 0015). */

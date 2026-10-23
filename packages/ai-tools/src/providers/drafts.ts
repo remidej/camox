@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   discardDraft,
   previewPublish,
+  type PublishPreview,
   publishDraft,
 } from "../../../../apps/api/src/domains/drafts/publish";
 import { runService } from "../../../../apps/api/src/lib/run-service";
@@ -58,6 +59,9 @@ const PREVIEW_SHAPE =
 
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
 
+/** A preview as the tools return it: the studio's Draft Overview stays out of them. */
+const listed = ({ overview: _overview, ...preview }: PublishPreview) => preview;
+
 export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   defineTool({
     name: "previewPublish",
@@ -70,7 +74,8 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     inputSchema: previewInput,
     outputSchema: publishPreviewSchema,
     meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
-    handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
+    handler: async () =>
+      runService(previewPublish(ctx, { projectId: ctx.projectId }).pipe(Effect.map(listed))),
   }),
   defineTool({
     name: "publishDraft",
@@ -98,7 +103,12 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const { token, publishAnyway } = publishToolInput.parse(input);
       const notPublished = (reason: NotPublishedReason, message: string) =>
         previewPublish(ctx, { projectId: ctx.projectId }).pipe(
-          Effect.map((preview) => ({ published: false as const, reason, message, preview })),
+          Effect.map((preview) => ({
+            published: false as const,
+            reason,
+            message,
+            preview: listed(preview),
+          })),
         );
       return runService(
         publishDraft(ctx, { projectId: ctx.projectId, token, publishAnyway }).pipe(
