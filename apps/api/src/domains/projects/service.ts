@@ -43,6 +43,7 @@ import { optimizedVideoKey } from "../files/video-optimization";
 import type { GenerationRequest } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { repeatableItemSeedSchema } from "../layouts/service";
+import { defaultLocaleOf } from "../locales/default-locale";
 import { insertInitialLocale } from "../locales/service";
 import { sendSetupFailureAlert } from "../project-creation/alert";
 import { sendCleanupFailureAlert } from "../project-deletion/alert";
@@ -100,10 +101,34 @@ export const listProjects = Effect.fn("projects.listProjects")(function* (
   const user = yield* requireUser(ctx);
   const { organizationId } = yield* decodeInput(listProjectsInput, rawInput);
   yield* assertOrgMembership(ctx.db, user.id, organizationId);
-  return yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.organizationId, organizationId)),
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ project: projects, customOgImageUrl: pages.customOgImageUrl })
+      .from(projects)
+      .leftJoin(
+        pages,
+        and(
+          eq(pages.projectId, projects.id),
+          overlay.storedIn(pages, null),
+          eq(pages.fullPath, "/"),
+          eq(pages.locale, defaultLocaleOf(projects.id)),
+        ),
+      )
+      .where(eq(projects.organizationId, organizationId)),
   );
+  return rows.map(({ project, customOgImageUrl }) => ({
+    ...project,
+    homepageOgImageUrl: customOgImageUrl || generatedOgImageUrl(project.slug, "/"),
+  }));
 });
+
+/**
+ * The image `<slug>.camox.site` generates for the page at `path`, as the website's own `og:image`
+ * names it (`pageImageUrl` in packages/sdk/src/features/og/pageImage.tsx).
+ */
+function generatedOgImageUrl(slug: string, path: string) {
+  return `https://${slug}.camox.site/og?${new URLSearchParams({ path }).toString()}`;
+}
 
 export const getFirstProject = Effect.fn("projects.getFirstProject")(function* (
   ctx: ServiceContext,
