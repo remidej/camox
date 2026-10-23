@@ -3,6 +3,7 @@ import app from "./index";
 import type { Bindings } from "./types";
 
 export { AiJobScheduler } from "./durable-objects/ai-job-scheduler";
+export { DraftCode } from "./durable-objects/draft-code";
 export { EdgeCachePurger } from "./durable-objects/edge-cache-purger";
 export { ProjectCode } from "./durable-objects/project-code";
 export { ProjectRoom } from "./durable-objects/project-room";

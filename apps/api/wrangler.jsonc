@@ -75,6 +75,12 @@
         "name": "PROJECT_CODE",
         "class_name": "ProjectCode",
       },
+      // Each draft with code's working copy, which the agent changes code in
+      // (src/durable-objects/draft-code.ts).
+      {
+        "name": "DRAFT_CODE",
+        "class_name": "DraftCode",
+      },
       // Runs the threads' code mode scripts in its own Worker (sandbox/wrangler.jsonc), so a
       // script that computes doesn't hold up a thread (ADR 0018).
       {
@@ -156,6 +162,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["ProjectCode"],
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["DraftCode"],
     },
   ],
   // Cloudflare caches the public reads the `EdgeCache` entrypoint answers, in front of the Worker

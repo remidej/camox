@@ -82,15 +82,21 @@ describe("the agent reading the website through code mode", () => {
 
     expect(offered.toSorted()).toEqual([
       "codemode",
+      "edit",
       "find",
       "grep",
       "ls",
+      "mv",
       "read",
+      "rm",
       "web_fetch",
       "web_search",
+      "write",
     ]);
     const scriptTools = lastAnswer(view)?.split(", ");
-    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage", "read", "grep"]));
+    expect(scriptTools).toEqual(
+      expect.arrayContaining(["listPages", "getPage", "read", "grep", "write", "mv"]),
+    );
     expect(scriptTools).not.toEqual(expect.arrayContaining(["web_fetch"]));
     expect(scriptTools).not.toEqual(expect.arrayContaining(["web_search"]));
   });

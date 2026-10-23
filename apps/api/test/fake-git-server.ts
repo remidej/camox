@@ -1,8 +1,9 @@
 // A Git server for the fake Cloudflare Artifacts namespace (release-fakes.js): bare repos held in
 // memory, served over Git's smart HTTP protocol the way Cloudflare Artifacts serves a repo's
 // `remote`, so that isomorphic-git clones from them and pushes to them as it does in production.
-// Only what isomorphic-git asks for is served: a full or depth-limited clone (no `haves`), and a
-// push with `report-status` over `side-band-64k`. Every push to `main` is recorded as the event
+// Only what isomorphic-git asks for is served: a full or depth-limited clone or fetch of any
+// branch or reachable commit (no `haves`), and a push to any branch with `report-status` over
+// `side-band-64k`, creating or deleting it. Every push to `main` is recorded as the event
 // Cloudflare Artifacts sends for it, for the tests to deliver (test/pushes.ts).
 import git from "isomorphic-git";
 
@@ -241,19 +242,42 @@ function readPktLines(body: Uint8Array) {
   return { lines, rest: body.subarray(at) };
 }
 
+/** Every branch of a repo, `main` first, with the commit it points to. */
+async function branchesOf(fs: MemoryFs) {
+  const names = await git.listBranches(bare(fs));
+  const refs = [];
+  for (const name of names.sort((a, b) => (a === "main" ? -1 : b === "main" ? 1 : 0))) {
+    const ref = `refs/heads/${name}`;
+    refs.push({ ref, oid: await git.resolveRef({ ...bare(fs), ref }) });
+  }
+  return refs;
+}
+
+/** The branches of a Git repo, `main` first, without `refs/heads/`. */
+export async function gitBranches(name: string) {
+  const fs = repos.get(name);
+  if (!fs) return [];
+  return (await branchesOf(fs)).map(({ ref }) => ref.slice("refs/heads/".length));
+}
+
 async function advertise(fs: MemoryFs, service: string) {
-  const head = await git.resolveRef({ ...bare(fs), ref: MAIN }).catch(() => null);
+  const branches = await branchesOf(fs);
+  const head = branches.find(({ ref }) => ref === MAIN)?.oid;
   const capabilities =
     service === "git-receive-pack"
-      ? "report-status side-band-64k agent=camox-fake"
-      : `side-band-64k ofs-delta shallow symref=HEAD:${MAIN} agent=camox-fake`;
-  const refs = head
-    ? [
-        pktLine(`${head} ${service === "git-upload-pack" ? "HEAD" : MAIN}\0${capabilities}\n`),
-        ...(service === "git-upload-pack" ? [pktLine(`${head} ${MAIN}\n`)] : []),
-      ]
-    : [pktLine(`${ZERO} capabilities^{}\0${capabilities}\n`)];
-  return concat([pktLine(`# service=${service}\n`), FLUSH, ...refs, FLUSH]);
+      ? "report-status side-band-64k delete-refs agent=camox-fake"
+      : `side-band-64k ofs-delta shallow allow-reachable-sha1-in-want symref=HEAD:${MAIN} agent=camox-fake`;
+  const refs = [
+    ...(service === "git-upload-pack" && head ? [{ ref: "HEAD", oid: head }] : []),
+    ...branches,
+  ];
+  const lines =
+    refs.length > 0
+      ? refs.map(({ ref, oid }, at) =>
+          pktLine(`${oid} ${ref}${at === 0 ? `\0${capabilities}` : ""}\n`),
+        )
+      : [pktLine(`${ZERO} capabilities^{}\0${capabilities}\n`)];
+  return concat([pktLine(`# service=${service}\n`), FLUSH, ...lines, FLUSH]);
 }
 
 /** Every object reachable from `commits`, through at most `depth` commits of history when given. */
@@ -312,8 +336,13 @@ async function receivePack(name: string, fs: MemoryFs, body: Uint8Array) {
   let status = `ok ${ref}\n`;
   if (current !== oldOid) {
     status = `ng ${ref} fetch first\n`;
+  } else if (newOid === ZERO) {
+    await git.deleteRef({ ...bare(fs), ref: ref! });
   } else {
-    if (rest.byteLength > 0) {
+    // A pack of no objects, as a push creating a branch at a commit the repo has sends.
+    const objects =
+      rest.byteLength >= 12 ? new DataView(rest.buffer, rest.byteOffset).getUint32(8) : 0;
+    if (objects > 0) {
       const path = `objects/pack/pack-${crypto.randomUUID()}.pack`;
       await fs.promises.mkdir("/objects/pack").catch(() => undefined);
       await fs.promises.writeFile(`/${path}`, rest);
