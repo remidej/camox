@@ -1,9 +1,9 @@
-import type { PublishPreview } from "@camox/api-contract";
 import {
   CONFLICTS_CHANGED_ERROR,
   type EndedDraft,
   TRANSLATIONS_PENDING_ERROR,
 } from "@camox/api-contract/drafts";
+import type { PublishPreview } from "@camox/api-contract/router";
 import {
   AlertDialog,
   AlertDialogAction,

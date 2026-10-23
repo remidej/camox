@@ -1,5 +1,5 @@
-import type { Router } from "@camox/api-contract";
 import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import type { Router } from "@camox/api-contract/router";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";

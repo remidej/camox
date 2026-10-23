@@ -1,7 +1,7 @@
 // What publishing the development draft would do, as the `previewPublish` tool returns it
 // (ADR 0009), and its plain-text rendering for a terminal.
 
-import type { PublishPreview } from "@camox/api-contract";
+import type { PublishPreview } from "@camox/api-contract/router";
 
 export type { PublishPreview };
 
