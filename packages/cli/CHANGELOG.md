@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.0](https://github.com/remidej/camox/compare/camox-v0.50.0...@camox/cli-v0.51.0) (2026-10-23)
+
+
+### Performance Improvements
+
+* **api-contract:** move the router types to a router entry ([#559](https://github.com/remidej/camox/issues/559)) ([a829969](https://github.com/remidej/camox/commit/a829969b3ed2d02074d53892389d74054527c276))
+
 ## [0.50.0](https://github.com/remidej/camox/compare/camox-v0.49.0...@camox/cli-v0.50.0) (2026-10-23)
 
 

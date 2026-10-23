@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.51.0](https://github.com/remidej/camox/compare/camox-v0.50.0...camox-sdk-v0.51.0) (2026-10-23)
+
+
+### Features
+
+* move Project Settings into the studio and make dashboard cards open the website ([#549](https://github.com/remidej/camox/issues/549)) ([58d24b8](https://github.com/remidej/camox/commit/58d24b80bfa04324de4a8b309d68b5ca6cd65ae3))
+
+
+### Performance Improvements
+
+* **api-contract:** move the router types to a router entry ([#559](https://github.com/remidej/camox/issues/559)) ([a829969](https://github.com/remidej/camox/commit/a829969b3ed2d02074d53892389d74054527c276))
+
 ## [0.50.0](https://github.com/remidej/camox/compare/camox-v0.49.0...camox-sdk-v0.50.0) (2026-10-23)
 
 
