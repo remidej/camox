@@ -237,15 +237,15 @@ The published state of the website, served to the public. Live only changes when
 _Avoid_: Production, production environment, main
 
 **Draft**:
-A named set of changes to the website's content, kept apart from Live until it is published or discarded, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or discard any of them. Editing while viewing Live always starts a new draft.
+A named set of changes to the website's content and code, kept apart from Live until it is published or discarded, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or discard any of them. Editing while viewing Live always starts a new draft.
 _Avoid_: Branch, environment, changeset, working copy
 
 **Development Draft**:
-A developer's personal draft in a project, whose definitions come from their local code instead of Live. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or discarded.
+A member's personal draft in a project whose code is on their machine rather than in Camox, so its definitions come from running the website locally. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or discarded.
 _Avoid_: Development environment, code draft, local draft
 
 **Publish**:
-Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
+Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, push, merge
 
 **Publish Anyway**:
@@ -261,7 +261,7 @@ Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes
 
 **Blocker**:
-A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path or an empty required reference.
+A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path, an empty required reference, or code that doesn't build or type check.
 _Avoid_: Error, validation failure
 
 **Conflict**:

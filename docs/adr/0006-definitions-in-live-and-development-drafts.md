@@ -1,5 +1,7 @@
 # Definitions live in Live and in development drafts
 
+Partly superseded by [Drafts carry code](0020-drafts-carry-code.md): any draft that changes code also holds its own definitions, synced from its preview.
+
 Environments used to hold their own copy of every definition: a release synced the production environment, and dev mode synced `dev:<email>`. Drafts (ADR 0003) remove environments, so definitions need a new home. Live holds the released definitions, and each development draft holds the complete set synced from its owner's local code. Regular drafts have no definitions of their own and read Live's. Definition rows are stored like content (ADR 0005): a Live row has no draft, and a development draft's row carries its draft's id. Every reader of definitions, from server validation to AI tools and the CLI, takes them from the draft it works in, falling back to Live.
 
 ## Considered Options
