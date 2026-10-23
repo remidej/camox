@@ -1,21 +1,13 @@
 import { and, eq, lte } from "drizzle-orm";
 import { Effect } from "effect";
-import { z } from "zod";
 
 import type { Database } from "../../db";
 import { AiJobQueue, jobName, type OverviewJob } from "../../lib/ai-job-queue";
-import { AiModel } from "../../lib/ai-model";
 import { Background } from "../../lib/background";
-import { decodeInput } from "../../lib/errors";
 import { Journal, record } from "../../lib/journal";
-import type { ServiceContext } from "../_shared/service-context";
 import { isCatchUpDraft } from "./catch-up";
 import * as overlay from "./overlay";
-import { overviewInput } from "./overview-input";
-// Reached lazily, when called: publishing reads overviews from this module too.
-import { camoxContext, computePreview, requireDraft } from "./publish";
 import { drafts } from "./schema";
-import { draftOf } from "./scope";
 
 // A draft's Draft Overview: a headline and bullets AI writes about its changes, shown at the top
 // of its review. It's stored on the draft, beside its name, rather than with generated values,
@@ -141,7 +133,7 @@ export const requestOverview = Effect.fn("drafts.requestOverview")(function* (
 });
 
 /** Records that the overview requested by `since` failed, unless another was requested since. */
-const failOverview = (db: Database, projectId: number, draftId: string, since: number) =>
+export const failOverview = (db: Database, projectId: number, draftId: string, since: number) =>
   Effect.gen(function* () {
     const failed = yield* Effect.promise(() =>
       db
@@ -151,47 +143,6 @@ const failOverview = (db: Database, projectId: number, draftId: string, since: n
     );
     if (failed.meta.changes > 0) yield* record(db, { kind: "overview", projectId, draftId });
   });
-
-/**
- * Writes a draft's overview from its changes, field by field (`overviewInput`), or nothing once
- * the draft ended, for a catch-up draft, or while it changes nothing. The model already retried a
- * failure: it's recorded, unless the overview was requested again since, and the job doesn't fail.
- */
-export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
-  db: Database,
-  job: OverviewJob,
-) {
-  const row = yield* Effect.promise(() =>
-    db.select().from(drafts).where(eq(drafts.id, job.draftId)).get(),
-  );
-  if (!row || isCatchUpDraft(row)) return;
-  const startedAt = Date.now();
-  const ctx = camoxContext(db);
-  const scope = draftOf(row);
-  const { changes, defaultLocale, fingerprint } = yield* computePreview(ctx, scope);
-  if (changes.length === 0) return;
-  const input = yield* overviewInput(ctx, scope, row.name, changes, defaultLocale);
-  const model = yield* AiModel;
-  const written = yield* Effect.result(model.draftOverview(input));
-  if (written._tag === "Failure") {
-    yield* Effect.logError(`[overview] ${jobName(job)} failed`, written.failure.cause);
-    return yield* failOverview(db, row.projectId, row.id, startedAt);
-  }
-  const { headline, bullets } = written.success;
-  yield* Effect.promise(() =>
-    db
-      .update(drafts)
-      .set({
-        overviewHeadline: headline,
-        overviewBullets: bullets,
-        overviewGeneratedAt: Date.now(),
-        overviewFingerprint: fingerprint,
-        overviewFailed: false,
-      })
-      .where(eq(drafts.id, row.id)),
-  );
-  yield* record(db, { kind: "overview", projectId: row.projectId, draftId: row.id });
-});
 
 /**
  * Clears a draft's overview in the batch that publishes or discards it: a regular draft goes with
@@ -247,18 +198,6 @@ export const requestIfOutdated = Effect.fn("drafts.requestOverviewIfOutdated")(f
   const awaitingDueJob = row.dueAt !== null && row.dueAt <= Date.now() && !writtenSinceRequested;
   if (awaitingDueJob) return;
   yield* requestOverview(db, draftId, { immediately: true });
-});
-
-export const retryOverviewInput = z.object({ projectId: z.number() });
-
-/** Requests the overview of the request's draft right away, as Retry does once it failed. */
-export const retryOverview = Effect.fn("drafts.retryOverview")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof retryOverviewInput>,
-) {
-  const { projectId } = yield* decodeInput(retryOverviewInput, rawInput);
-  const draft = yield* requireDraft(ctx, projectId);
-  yield* requestOverview(ctx.db, draft.id, { immediately: true });
 });
 
 /**

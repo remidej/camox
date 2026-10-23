@@ -21,7 +21,7 @@ import { router } from "../../router";
 import { blocks, pages } from "../../schema";
 import { runGenerationJob } from "../generated-values/generation";
 import { openCatchUpDraft } from "./catch-up";
-import { runOverviewJob } from "./overview";
+import { runOverviewJob } from "./overview-job";
 import { drafts } from "./schema";
 
 // The Draft Overview: a headline and bullets AI writes about a draft's changes, stored on the

@@ -1,5 +1,5 @@
 import type { Database } from "../db";
-import { runOverviewJob } from "../domains/drafts/overview";
+import { runOverviewJob } from "../domains/drafts/overview-job";
 import { runGenerationJob } from "../domains/generated-values/generation";
 import { runTranslationJob } from "../domains/translations/job";
 import { type AiJob, isOverviewJob, isTranslationJob } from "./ai-job-queue";

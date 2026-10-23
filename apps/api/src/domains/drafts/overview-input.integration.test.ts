@@ -21,8 +21,8 @@ import { runAiJob } from "../../lib/ai-jobs";
 import type { DraftOverviewRequest } from "../../lib/ai-model";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { runOverviewJob } from "./overview";
 import { CREATED_VALUES, MAX_INPUT_LENGTH, overviewInput } from "./overview-input";
+import { runOverviewJob } from "./overview-job";
 import { camoxContext, type Change } from "./publish";
 
 // What the model reads to write a draft's overview (#532): the draft's changes, field by field,
