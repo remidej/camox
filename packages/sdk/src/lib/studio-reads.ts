@@ -576,7 +576,20 @@ export interface StudioCache {
   edit: () => StudioEdit;
   /** Applies a realtime invalidation: a draft's reaches its own reads, Live's every scope's. */
   receive: (message: InvalidationMessage, projectId: number) => Promise<void>;
+  /**
+   * Calls `listener` with each change the cache's own operations make: the invalidations it
+   * receives, the values written to reads (optimistic or not), and the reads marked outdated.
+   * Fetches landing aren't changes. The renderer frame follows the studio's cache through it.
+   */
+  subscribe: (listener: (change: StudioCacheChange) => void) => () => void;
 }
+
+/** One change a studio cache's operations made. Keys name their scope last. */
+export type StudioCacheChange =
+  | { type: "received"; message: InvalidationMessage; projectId: number }
+  /** Without `value`, the read was forgotten. */
+  | { type: "wrote"; queryKey: QueryKey; value?: unknown }
+  | { type: "outdated"; queryKeys: QueryKey[] };
 
 /**
  * An optimistic change. Each read it touches is snapshotted first, and its in-flight fetch
@@ -633,6 +646,19 @@ export function createStudioCache({
     fill: (read, value) => queryClient.setQueryData(keyOf(read, target), value),
   });
   const neverAborted = () => new AbortController().signal;
+  const listeners = new Set<(change: StudioCacheChange) => void>();
+  const changed = (change: StudioCacheChange) => {
+    for (const listener of listeners) listener(change);
+  };
+  /** Writes `key`, and says so with the value it now holds. */
+  const write = (key: QueryKey, value: unknown) => {
+    const data = queryClient.setQueryData(key, value as never);
+    changed({ type: "wrote", queryKey: key, value: data });
+  };
+  const forget = (key: QueryKey) => {
+    queryClient.removeQueries({ queryKey: key, exact: true });
+    changed({ type: "wrote", queryKey: key });
+  };
 
   const options: StudioCache["options"] = (read, inDraft) => {
     const target = targetOf(inDraft);
@@ -680,18 +706,23 @@ export function createStudioCache({
   return {
     options,
     get: (read, inDraft) => queryClient.getQueryData(keyOf(read, targetOf(inDraft))),
-    set: (read, value, inDraft) =>
-      queryClient.setQueryData(keyOf(read, targetOf(inDraft)), value as never),
+    set: (read, value, inDraft) => write(keyOf(read, targetOf(inDraft)), value),
     land,
     ensure: async (read, inDraft) => {
       const cached = queryClient.getQueryData(keyOf(read, targetOf(inDraft)));
       return cached !== undefined ? (cached as never) : loadFully(read, inDraft);
     },
     reload: loadFully,
-    invalidate: (read, inDraft) =>
-      queryClient.invalidateQueries({ queryKey: keyOf(read, targetOf(inDraft)), exact: true }),
-    remove: (read, inDraft) =>
-      queryClient.removeQueries({ queryKey: keyOf(read, targetOf(inDraft)), exact: true }),
+    invalidate: (read, inDraft) => {
+      const queryKey = keyOf(read, targetOf(inDraft));
+      changed({ type: "outdated", queryKeys: [queryKey] });
+      return queryClient.invalidateQueries({ queryKey, exact: true });
+    },
+    remove: (read, inDraft) => forget(keyOf(read, targetOf(inDraft))),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     edit: () => {
       const target = targetOf();
       const snapshots = new Map<string, { key: QueryKey; data: unknown }>();
@@ -706,21 +737,24 @@ export function createStudioCache({
       };
       return {
         get: (read) => queryClient.getQueryData(keyOf(read, target)),
-        set: (read, value) => queryClient.setQueryData(touch(read), value as never),
-        remove: (read) => queryClient.removeQueries({ queryKey: touch(read), exact: true }),
+        set: (read, value) => write(touch(read), value),
+        remove: (read) => forget(touch(read)),
         rollback: () => {
           for (const { key, data } of snapshots.values()) {
-            if (data === undefined) queryClient.removeQueries({ queryKey: key, exact: true });
-            else queryClient.setQueryData(key, data);
+            if (data === undefined) forget(key);
+            else write(key, data);
           }
         },
         settle: () => {
-          for (const { key } of snapshots.values())
-            void queryClient.invalidateQueries({ queryKey: key, exact: true });
+          const queryKeys = [...snapshots.values()].map(({ key }) => key);
+          if (queryKeys.length) changed({ type: "outdated", queryKeys });
+          for (const queryKey of queryKeys)
+            void queryClient.invalidateQueries({ queryKey, exact: true });
         },
       };
     },
     receive: async (message, projectId) => {
+      changed({ type: "received", message, projectId });
       const keyScope =
         message.draftId === null ? null : await scope.keyScopeOfDraft(message.draftId, projectId);
       await Promise.all(

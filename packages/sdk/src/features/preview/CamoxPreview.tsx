@@ -28,6 +28,8 @@ import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { takeShowCanvasRequest } from "../provider/signInShortcut";
+import { RendererFramesProvider, RendererSlot } from "../renderer/RendererFrames";
+import { rendererFrameEnabled } from "../renderer/rendererOption";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
@@ -334,6 +336,24 @@ export const CamoxPreview = ({
   });
   const pageData = data && "page" in data ? data : undefined;
   const layout = data && !("page" in data) ? data : undefined;
+  // With the renderer frame, the studio never renders the page: the renderer does, in its slot.
+  const throughRenderer = useIsAuthenticated() && rendererFrameEnabled();
+  if (throughRenderer)
+    return (
+      <PageRecordContext value={derivedResult}>
+        <PreviewShell
+          pageData={pageData}
+          derivedLayout={layout}
+          pageLocation={shown?.location}
+          canvasOnly={canvasOnly}
+          runtimeBasePath={runtimeBasePath}
+        >
+          {pathname !== undefined && (
+            <RendererSlot pathname={pathname} derivedLayoutId={shownDerived?.layoutId} />
+          )}
+        </PreviewShell>
+      </PageRecordContext>
+    );
   return (
     <PageRecordContext value={derivedResult}>
       <PreviewShell
@@ -511,7 +531,7 @@ export const PreviewShell = ({
     return <>{children}</>;
   }
 
-  return (
+  const website = (
     <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
       <PreviewEditingOwnerContext value={editingOwner}>
         <div
@@ -551,6 +571,11 @@ export const PreviewShell = ({
       </PreviewEditingOwnerContext>
       <ContentCollectionItemSheet projectUuid={projectUuid} />
     </CollectionItemSheetProvider>
+  );
+  // One renderer frame for the whole Website Section: the Preview and every Canvas frame.
+  if (!rendererFrameEnabled()) return website;
+  return (
+    <RendererFramesProvider runtimeBasePath={runtimeBasePath}>{website}</RendererFramesProvider>
   );
 };
 

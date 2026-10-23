@@ -11,7 +11,12 @@ import {
   pageListResponse,
   pageMarkdownResponse,
 } from "./api.fixtures";
-import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
+import {
+  handleCamoxRequest,
+  isPublicRequest,
+  type PageRenderInput,
+  type RuntimeOptions,
+} from "./runtime";
 
 const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
 const layout = {
@@ -740,6 +745,43 @@ void test("a public page's hydration data leaves out the artifact sources its fr
   assert.ok(body.includes("Orbit diagram"));
   assert.ok(!head.includes("Orbit diagram"));
   assert.ok(head.includes("camox-artifact-source"));
+});
+
+void test("the renderer document loads the renderer's client, privately, without reading anything", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("The renderer reads its pages itself, once loaded");
+  });
+  const options: RuntimeOptions = {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectUuid: "test",
+    runtimeBasePath: "/site",
+    rendererClientEntryUrl: "/_chunks/camox-renderer-client.mjs",
+  };
+  const response = await handleCamoxRequest(
+    new Request("https://site.test/site/_camox/renderer?camox-draft=spring"),
+    options,
+  );
+  assert.equal(response?.status, 200);
+  assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
+  assert.match(response!.headers.get("Content-Type")!, /^text\/html/);
+  const html = await response!.text();
+  assert.match(
+    html,
+    /<script type="module" src="\/_chunks\/camox-renderer-client\.mjs"><\/script>/,
+  );
+  const data = html.match(/<script id="__CAMOX_DATA__" type="application\/json">(.*?)<\/script>/);
+  assert.deepEqual(JSON.parse(data![1]!), {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectUuid: "test",
+    runtimeBasePath: "/site",
+  });
+  assert.equal(
+    isPublicRequest(new Request("https://site.test/site/_camox/renderer"), options),
+    false,
+    "no shared cache keeps it",
+  );
 });
 
 void test("a runtime without an API or project says which of its routes it can't serve, reading nothing", async (t) => {

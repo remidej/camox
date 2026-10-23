@@ -9,6 +9,8 @@ export const RUNTIME_ROUTE_PATHS = {
   data: "/_camox/data",
   health: "/_camox/health",
   registry: "/_camox/registry",
+  /** The renderer frame's document (ADR 0023), which the studio loads to render its pages. */
+  renderer: "/_camox/renderer",
   routes: "/_camox/routes",
   logo: "/_camox/logo.png",
   og: "/og",
