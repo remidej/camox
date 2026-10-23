@@ -149,6 +149,18 @@ export async function readGitFile(name: string, ref: string, path: string) {
   }
 }
 
+/** A commit with its tree and parents, as the Artifacts binding's `readCommit` decodes it. */
+export async function readGitCommit(name: string, hash: string) {
+  const fs = repos.get(name);
+  if (!fs) return null;
+  try {
+    const { commit } = await git.readCommit({ ...bare(fs), oid: hash });
+    return { hash, treeHash: commit.tree, parents: commit.parent };
+  } catch {
+    return null;
+  }
+}
+
 /** Where a symlink at a branch or commit points, or null when it isn't one. */
 export async function readGitLink(name: string, ref: string, path: string) {
   const fs = repos.get(name);

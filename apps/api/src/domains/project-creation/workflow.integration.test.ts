@@ -242,6 +242,8 @@ describe("a setup that fails", () => {
     await setUp(project.uuid);
     await releaseFirstPush(project.uuid);
     await fakes.failCommand(project.uuid, "wrangler deploy", Infinity);
+    // A later push with a change: a push of the tree Live already serves releases nothing.
+    await fakes.commit(project.uuid, { ...TEMPLATE, "src/blocks/cta.tsx": "" }, "Add a CTA");
 
     await releaseFirstPush(project.uuid, "errored");
 
