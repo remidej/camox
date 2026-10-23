@@ -244,6 +244,10 @@ _Avoid_: Branch, environment, changeset, working copy
 A member's personal draft in a project whose code is on their machine rather than in Camox, so its definitions come from running the website locally. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or discarded.
 _Avoid_: Development environment, code draft, local draft
 
+**Revision**:
+One state of a draft's code, left by one agent turn or by one merge of Live's code, that the draft's preview shows. A contributors' term: editors only ever see the draft.
+_Avoid_: Version, build, snapshot
+
 **Publish**:
 Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, push, merge
