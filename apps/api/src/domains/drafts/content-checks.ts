@@ -74,6 +74,10 @@ export type ContentFinding = {
   locale: string | null;
   code: ContentProblemCode;
   field: string;
+  /** The kind of the content field the problem is in, when it's in one. */
+  fieldKind?: Field["kind"];
+  /** The block the problem's content sits in: the block itself, or an item's block. */
+  blockId?: string;
   message: string;
 };
 
@@ -216,6 +220,8 @@ export type Holder = {
   id: string;
   /** The locale of the localization holding the content. */
   locale: string;
+  /** The block holding the content: the block itself, or an item's block; null otherwise. */
+  blockId: string | null;
   projectId: number;
   /** Whether the draft created or changed it, rather than reading Live's. */
   changed: boolean;
@@ -273,6 +279,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
       entity: "block",
       id: block.id,
       locale: block.locale,
+      blockId: block.id,
       projectId: block.projectId,
       changed: changed(block),
       content: block.content,
@@ -288,6 +295,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
       entity: "sharedContent",
       id: shared.id,
       locale: shared.locale,
+      blockId: null,
       projectId: shared.projectId,
       changed: changed(shared),
       content: shared.content,
@@ -319,6 +327,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
         entity: "repeatableItem",
         id: item.id,
         locale: item.locale,
+        blockId: item.blockId,
         projectId,
         changed: changed(item),
         content: item.content,
@@ -335,6 +344,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
       entity: "record",
       id: record.id,
       locale: record.locale,
+      blockId: null,
       projectId: record.projectId,
       changed: changed(record),
       content: record.content,
@@ -344,6 +354,17 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   }
   return holders;
 });
+
+/** Where in a holder's content a problem is: its field's kind, and the block holding it. */
+export function placeOf(
+  holder: Holder,
+  field: Field | undefined,
+): Pick<ContentFinding, "fieldKind" | "blockId"> {
+  return {
+    ...(field && { fieldKind: field.kind }),
+    ...(holder.blockId !== null && { blockId: holder.blockId }),
+  };
+}
 
 /** What content checks point at: records and pages. Publishing checks files on its own. */
 type ContentPointer = Exclude<Pointer, { to: "file" }>;
@@ -365,16 +386,17 @@ function checkDanglingPointers(
   found: Findings,
 ) {
   for (const holder of holders) {
-    const missingByField = new Map<string, { title: string; missing: ContentPointer[] }>();
+    const missingByField = new Map<string, { field: Field; missing: ContentPointer[] }>();
     for (const { field, pointer } of pointersIn(holder.schema, holder.content)) {
       if (pointer.to === "file" || exists.draft(keyOf(holder.projectId, pointer))) continue;
       if (pointer.to === "record" && !isRequiredReference(field) && excludedRecord(pointer.id))
         continue;
-      const entry = missingByField.get(field.name) ?? { title: field.title, missing: [] };
+      const entry = missingByField.get(field.name) ?? { field, missing: [] };
       entry.missing.push(pointer);
       missingByField.set(field.name, entry);
     }
-    for (const [name, { title, missing }] of missingByField) {
+    for (const [name, { field, missing }] of missingByField) {
+      const { title } = field;
       const deletedByDraft = missing.some((pointer) =>
         exists.live(keyOf(holder.projectId, pointer)),
       );
@@ -385,6 +407,7 @@ function checkDanglingPointers(
         id: holder.id,
         code: missing[0].to === "page" ? "danglingPageLink" : "danglingReference",
         field: name,
+        ...placeOf(holder, field),
         message:
           !holder.changed && deletedByDraft
             ? `"${title}" points at ${what} this draft deletes: edit it in this draft`
@@ -414,6 +437,7 @@ function checkEmptyRequiredReferences(holders: Holder[], found: Findings) {
         id: holder.id,
         code: "emptyRequiredReference",
         field: field.name,
+        ...placeOf(holder, field),
         message: `"${field.title}" is required but empty`,
       });
     }
@@ -431,12 +455,14 @@ function checkWrongKinds(holders: Holder[], found: Findings) {
         ? wrongKindRecordFields(holder.schema, holder.content)
         : wrongKindBlockFields(holder.content, holder.schema, holder.rootSchema);
     for (const field of fields) {
-      const title = fieldOf(holder.schema, field)?.title ?? field;
+      const definition = fieldOf(holder.schema, field);
+      const title = definition?.title ?? field;
       (holder.changed ? found.blockers : found.warnings).push({
         entity: holder.entity,
         id: holder.id,
         code: "wrongKindValue",
         field,
+        ...placeOf(holder, definition),
         message: `"${title}" holds a value its definition no longer accepts, which reads as its default`,
       });
     }

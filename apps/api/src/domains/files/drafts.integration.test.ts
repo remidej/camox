@@ -444,6 +444,8 @@ describe("files in drafts", () => {
 
     const { blockers, warnings } = await f.preview(draftId);
     expect(f.codes(blockers)).toEqual([["emptyRequiredFile", empty.id]]);
+    // The studio goes to the field from what the blocker says about where it is.
+    expect(blockers[0]).toMatchObject({ field: "image", fieldKind: "Image", blockId: empty.id });
     expect(f.codes(warnings)).toEqual([["emptyRequiredFile", emptyOnLive.id]]);
   });
 
@@ -609,7 +611,7 @@ describe("file checks beyond blocks", () => {
     /** Each blocker's code and the kind of entity it's in. */
     const blocked = (problems: { code: string; entity: string }[]) =>
       problems.map(({ code, entity }) => `${code}:${entity}`).toSorted();
-    return { ...f, holdAssets, blocked };
+    return { ...f, cards, holdAssets, blocked };
   }
 
   it("an empty required image blocks publishing in an item and synced shared content the draft changed", async () => {
@@ -625,7 +627,11 @@ describe("file checks beyond blocks", () => {
       "emptyRequiredFile:repeatableItem",
       "emptyRequiredFile:sharedContent",
     ]);
-    expect(blockers.map((problem) => problem.id)).toContain(card);
+    expect(blockers.find((problem) => problem.id === card)).toMatchObject({
+      field: "photo",
+      fieldKind: "Image",
+      blockId: f.cards.id,
+    });
   });
 
   it("deleting a file an item, synced shared content and a record use on Live blocks publishing", async () => {

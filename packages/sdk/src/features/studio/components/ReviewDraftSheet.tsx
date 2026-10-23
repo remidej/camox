@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { localeLabel } from "../localeOptions";
+import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
 import { useRenameDraft } from "./RenameDraftDialog";
 
 type Subject = PublishPreview["changes"][number];
@@ -68,6 +69,45 @@ function placeOf(subject: Conflict | Lost, defaultLocale: string | null): string
   return `${place} · ${localeLabel(subject.locale)}`;
 }
 
+/** Where in the Canvas a blocker is, or null when it sits on no page, like a definition. */
+function blockerTarget(problem: Problem): CanvasTarget | null {
+  if (problem.owner?.kind !== "page") return null;
+  return {
+    pageId: problem.owner.id,
+    locale: problem.locale,
+    blockId: problem.blockId,
+    itemId: problem.entity === "repeatableItem" ? problem.id : null,
+    field:
+      problem.blockId && problem.field ? { name: problem.field, kind: problem.fieldKind } : null,
+  };
+}
+
+const isImage = (problem: Problem) =>
+  problem.fieldKind === "Image" || problem.fieldKind === "ImageList";
+
+/** What a blocker's action does, named by the fix where it's obvious. */
+function blockerActionLabel(problem: Problem): string {
+  switch (problem.code) {
+    case "emptyRequiredFile":
+      return isImage(problem) ? "Choose an image" : "Choose a file";
+    case "missingFile":
+    case "unacceptedFileType":
+      return isImage(problem) ? "Choose another image" : "Choose another file";
+    case "emptyRequiredReference":
+      return "Choose a record";
+    case "danglingReference":
+      return "Choose another record";
+    case "danglingPageLink":
+      return "Fix the link";
+    case "duplicatePath":
+      return "Fix the path";
+    case "missingMetaTitle":
+      return "Write a meta title";
+    default:
+      return "Show in Canvas";
+  }
+}
+
 type Tone = "danger" | "warning";
 
 const TONES: Record<Tone, { card: string; icon: string }> = {
@@ -96,11 +136,14 @@ function Card({
   tone,
   icon: Icon,
   title,
+  action,
   children,
 }: {
   tone: Tone;
   icon: LucideIcon;
   title: string;
+  /** What the member can do about it, under what it says. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -114,6 +157,7 @@ function Card({
           {title}
         </p>
         <div className="text-muted-foreground text-sm">{children}</div>
+        {action && <div className="pt-1">{action}</div>}
       </div>
     </li>
   );
@@ -125,9 +169,15 @@ const SHARED_MESSAGE_MIN = 3;
 /**
  * One card per blocker, saying what's wrong and where. Blockers sharing a message fold into one
  * card naming each: a development draft can hold dozens of definitions to release, and the
- * message is the same for each.
+ * message is the same for each. A blocker on a page has an action that shows it in the Canvas.
  */
-function BlockerCards({ blockers }: { blockers: Problem[] }) {
+function BlockerCards({
+  blockers,
+  onShow,
+}: {
+  blockers: Problem[];
+  onShow: (target: CanvasTarget) => void;
+}) {
   const byMessage = new Map<string, Problem[]>();
   for (const problem of blockers) {
     byMessage.set(problem.message, [...(byMessage.get(problem.message) ?? []), problem]);
@@ -136,12 +186,20 @@ function BlockerCards({ blockers }: { blockers: Problem[] }) {
     if (shared.length < SHARED_MESSAGE_MIN) {
       return shared.map((problem) => {
         const place = problemPlace(problem);
+        const target = blockerTarget(problem);
         return (
           <Card
             key={`${problem.code}:${problem.id}:${problem.locale}:${problem.field}`}
             tone="danger"
             icon={OctagonX}
             title={problem.message}
+            action={
+              target && (
+                <Button variant="outline" size="sm" onClick={() => onShow(target)}>
+                  {blockerActionLabel(problem)}
+                </Button>
+              )
+            }
           >
             {place ? `${problem.label} · ${place}` : problem.label}
           </Card>
@@ -294,11 +352,14 @@ function Cards({
   projectId,
   preview,
   onChanged,
+  onShow,
 }: {
   projectId: number;
   preview: PublishPreview;
   /** Reads the review again, after an action on a card changed the draft. */
   onChanged: () => void;
+  /** Shows a blocker in the Canvas. */
+  onShow: (target: CanvasTarget) => void;
 }) {
   const { blockers, conflicts, lost, changes, defaultLocale } = preview;
   if (blockers.length + conflicts.length + lost.length === 0) return null;
@@ -309,7 +370,7 @@ function Cards({
   );
   return (
     <ul className="flex flex-col gap-2">
-      <BlockerCards blockers={blockers} />
+      <BlockerCards blockers={blockers} onShow={onShow} />
       {conflicts.map((conflict) => (
         <Card
           key={conflictKey(conflict)}
@@ -568,6 +629,7 @@ export function ReviewDraftSheet({
   const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
   const locales = useReadQuery(reads.localeList({ projectId }), { enabled: open });
   const leaveDraft = useLeaveDraft();
+  const showInCanvas = useShowInCanvas();
   const popup = React.useRef<HTMLDivElement>(null);
   const nameInput = React.useRef<HTMLInputElement>(null);
   /**
@@ -709,6 +771,10 @@ export function ReviewDraftSheet({
                 projectId={projectId}
                 preview={data}
                 onChanged={() => void preview.refetch()}
+                onShow={(target) => {
+                  onOpenChange(false);
+                  void showInCanvas(target);
+                }}
               />
               <StatusLines preview={data} locales={locales.data ?? []} waiting={!!waiting} />
             </div>

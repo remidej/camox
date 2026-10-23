@@ -26,6 +26,7 @@ import {
   sharedContents,
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
+import type { Field } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { sharedPlacementId } from "../blocks/shared-content";
 import {
@@ -118,6 +119,10 @@ export type Problem = Subject &
   InLocale & {
     code: (typeof PROBLEM_CODES)[number];
     field: string;
+    /** The kind of the content field the problem is in, or null outside one. */
+    fieldKind: Field["kind"] | null;
+    /** The block the problem's content sits in: the block itself, or an item's block. */
+    blockId: string | null;
     message: string;
   };
 
@@ -238,6 +243,8 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
       locale: null,
       code: "definitionsDiffer",
       field: "",
+      fieldKind: null,
+      blockId: null,
       message,
     });
     for (const [definition, hash] of local) {
@@ -316,12 +323,16 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     locale,
     code,
     field,
+    fieldKind,
+    blockId,
     message,
   }: ContentFinding | Finding): Problem => ({
     ...describe(entity, id),
     locale,
     code,
     field,
+    fieldKind: fieldKind ?? null,
+    blockId: blockId ?? null,
     message,
   });
 
