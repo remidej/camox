@@ -1,5 +1,5 @@
 import { Tabs, TabsList, TabsTrigger } from "@camox/ui/tabs";
-import { createFileRoute, Link, Outlet, useMatchRoute, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useMatchRoute } from "@tanstack/react-router";
 
 import { organizationQueries, projectQueries } from "@/lib/queries";
 
@@ -35,9 +35,6 @@ export const Route = createFileRoute("/_app/_dashboard/$orgSlug")({
 function OrgLayout() {
   const { orgSlug } = Route.useParams();
   const matchRoute = useMatchRoute();
-  const { projectSlug } = useParams({ strict: false });
-
-  if (projectSlug) return <Outlet />;
 
   const isMembers = matchRoute({
     to: "/$orgSlug/members",
