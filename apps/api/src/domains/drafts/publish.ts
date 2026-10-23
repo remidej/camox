@@ -828,7 +828,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
     yield* thread.end;
-    yield* discardCode(ctx, scope.id);
+    yield* discardCode(ctx, { projectId, draftId: scope.id });
     yield* deleteUnreferencedBlobs(ctx, blobs);
     yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
     yield* recordEnded(ctx, projectId, ended);

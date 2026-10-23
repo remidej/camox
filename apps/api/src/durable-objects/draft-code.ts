@@ -7,6 +7,7 @@ import { CODE_ROOT, mountSkills, SKILLS_ROOT, writeFiles } from "../domains/code
 import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/remote-env";
 import { writeLine } from "../domains/code/write-line";
 import { MemoryFs, type MemoryFsEntry } from "../lib/memory-fs";
+import { tar, type TarEntry } from "../lib/tar";
 import type { Bindings } from "../types";
 
 const MAIN = "main";
@@ -27,6 +28,22 @@ export const TOKEN_RENEWAL_MS = 60 * 60 * 1000;
 const CHUNK_BYTES = 1 << 20;
 
 type StoredToken = { id: string; plaintext: string; expiresAt: string };
+
+/** The author of the commits the working copy makes. */
+const COMMIT_AUTHOR = { name: "Camox", email: "agent@camox.ai" };
+
+/** The lockfile, whose changes a build installs. */
+const LOCKFILE = "pnpm-lock.yaml";
+
+/** A commit `prepareCommit` made, not on the branch yet. */
+export type PreparedCommit = {
+  commit: string;
+  tree: string;
+  /** The tree's files, as a tar archive. */
+  files: Uint8Array;
+  /** The tree's `pnpm-lock.yaml`, if it has one. */
+  lockfile: string | null;
+};
 
 type NodeRow = {
   path: string;
@@ -126,6 +143,84 @@ export class DraftCode extends DurableObject<Bindings> {
       );
       this.#save(fs);
       return answer;
+    });
+  }
+
+  /**
+   * Stages the working copy's every change and makes, without moving the branch, the commit it
+   * would be: `message` on top of the branch's head. Returns the commit and its tree, with the
+   * tree's files as a tar archive, which a build streams into its sandbox, and the lockfile.
+   * Neither Git's directory nor the references mounted beside the files are in the tree.
+   */
+  prepareCommit({ message }: { message: string }): Promise<PreparedCommit> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const at = { fs, dir: CODE_ROOT };
+      const entries: TarEntry[] = [];
+      for (const [filepath, head, workdir, stage] of await git.statusMatrix(at)) {
+        if (workdir === 0) {
+          if (stage !== 0) await git.remove({ ...at, filepath });
+          continue;
+        }
+        if (!(head === 1 && workdir === 1 && stage === 1) && !(workdir === 2 && stage === 2)) {
+          await git.add({ ...at, filepath });
+        }
+        const entry = fs.entry(`/${filepath}`);
+        if (entry?.kind === "file") {
+          entries.push({ path: filepath, mode: entry.mode & 0o777, content: entry.data });
+        } else if (entry?.kind === "symlink") {
+          entries.push({ path: filepath, symlink: entry.target });
+        }
+      }
+      const commit = await git.commit({
+        ...at,
+        message,
+        author: COMMIT_AUTHOR,
+        noUpdateBranch: true,
+      });
+      this.#save(fs);
+      const { commit: read } = await git.readCommit({ ...at, oid: commit });
+      const lockfile = entries.find(({ path }) => path === LOCKFILE);
+      return {
+        commit,
+        tree: read.tree,
+        files: tar(entries),
+        lockfile:
+          lockfile && "content" in lockfile ? new TextDecoder().decode(lockfile.content) : null,
+      };
+    });
+  }
+
+  /**
+   * Moves the draft's branch to `commit`, which `prepareCommit` made, and pushes it. A commit of
+   * the tree the branch's head already has, such as one prepared again after the push of the
+   * first, leaves the head as it is. Returns the branch's head and its parents.
+   */
+  commit({ commit }: { commit: string }): Promise<{ commit: string; parents: string[] }> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const at = { fs, dir: CODE_ROOT };
+      const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
+      const ref = `refs/heads/${branch}`;
+      const head = await git.resolveRef({ ...at, ref });
+      const { commit: made } = await git.readCommit({ ...at, oid: commit });
+      let landed = commit;
+      if (head !== commit) {
+        const { commit: current } = await git.readCommit({ ...at, oid: head });
+        if (current.tree === made.tree) landed = head;
+        else if (made.parent.includes(head)) {
+          await git.writeRef({ ...at, ref, value: commit, force: true });
+        } else {
+          throw new Error("The draft's branch moved since this commit was prepared");
+        }
+      }
+      using artifacts = await this.env.ARTIFACTS.get(this.ctx.storage.kv.get<string>(REPO_KEY)!);
+      const { remote } = await artifacts.info();
+      const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
+      await git.push({ ...at, http, url: remote, headers, ref: branch, remoteRef: branch });
+      this.#save(fs);
+      const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
+      return { commit: landed, parents: pushed.parent };
     });
   }
 

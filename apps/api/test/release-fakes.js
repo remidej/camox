@@ -1,8 +1,9 @@
 // Fakes for the release, creation, deletion and upgrade Workflows' Cloudflare Artifacts, sandbox
-// and email bindings and the Cloudflare API they call, run by the integration tests as an
-// auxiliary Worker (vite.config.ts), which bundles it with the fake Git server its repos' remotes
-// are served by (fake-git-server.ts). Everything shares one isolate, so the fakes and the tests
-// that drive them through `ReleaseFakes` share this module's state, keyed by repo name.
+// and email bindings, the revision sandboxes the agent's builds run in, and the Cloudflare API
+// they call, run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles
+// it with the fake Git server its repos' remotes are served by (fake-git-server.ts). Everything
+// shares one isolate, so the fakes and the tests that drive them through `ReleaseFakes` share
+// this module's state, keyed by repo name.
 import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
 import {
@@ -299,6 +300,176 @@ export class FakeSandbox extends DurableObject {
   async destroy() {}
 }
 
+/**
+ * The files of a tar archive, by path, as text: regular files only, with PAX `path` records for
+ * long names, as the working copy writes them.
+ * @param {Uint8Array} tar
+ */
+function untar(tar) {
+  /** @type {Record<string, string>} */
+  const files = {};
+  const decoder = new TextDecoder();
+  const field = (at, length) => decoder.decode(tar.subarray(at, at + length)).replace(/\0.*$/s, "");
+  let longPath;
+  for (let at = 0; at + 512 <= tar.byteLength;) {
+    const name = field(at, 100);
+    if (!name) break;
+    const size = parseInt(field(at + 124, 12).trim() || "0", 8);
+    const type = field(at + 156, 1);
+    const prefix = field(at + 345, 155);
+    const body = tar.subarray(at + 512, at + 512 + size);
+    at += 512 + Math.ceil(size / 512) * 512;
+    if (type === "x") {
+      longPath = /\d+ path=(.*)\n/.exec(decoder.decode(body))?.[1];
+      continue;
+    }
+    const path = longPath ?? (prefix ? `${prefix}/${name}` : name);
+    longPath = undefined;
+    if (type === "0" || type === "") files[path] = decoder.decode(body);
+  }
+  return files;
+}
+
+/** @param {Uint8Array} bytes */
+const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+
+/** Reads a string, or the whole of a stream, as bytes. */
+async function bytesOf(/** @type {string | ReadableStream<Uint8Array>} */ content, encoding) {
+  if (typeof content === "string") {
+    return encoding === "base64"
+      ? Uint8Array.from(atob(content), (char) => char.charCodeAt(0))
+      : new TextEncoder().encode(content);
+  }
+  return new Uint8Array(await new Response(content).arrayBuffer());
+}
+
+/** @type {Map<string, { sandbox: string, files: Record<string, string>, archive: number[] | null }[]>} sandbox → builds */
+const revisionBuilds = new Map();
+/** @type {Map<string, { command: string, env: Record<string, string> | undefined }[]>} sandbox → commands */
+const revisionCommands = new Map();
+/** @type {{ marker: string, log: string }[]} builds of a tree with a file holding `marker` fail with `log` */
+const failingBuilds = [];
+/** Sandbox calls left that fail, as a sandbox whose container crashed does. */
+let sandboxFailures = 0;
+/** @type {Set<string>} the revision sandboxes destroyed */
+const destroyedSandboxes = new Set();
+/** @type {Map<string, string>} sandbox → how long it stays up idle */
+const sandboxSleepAfter = new Map();
+
+/** The build command the revision sandbox runs, and the command that archives its output. */
+const BUILD_COMMAND = /\bvp build\b/;
+const ARCHIVE_COMMAND = /^tar -czf (\S+) /;
+const EXTRACT_COMMAND = /\btar -xf (\S+) /;
+
+/**
+ * A revision's sandbox as `@cloudflare/sandbox`'s `getSandbox` drives it over RPC. Its files are
+ * held in memory and it runs nothing: extracting a tree reads the archive it was given, a build
+ * passes or fails as a test scripted for that tree, and archiving a passed build writes a fake
+ * archive naming the tree. Every call can be made to fail, as a crashed container's do.
+ */
+export class FakeRevisionSandbox extends DurableObject {
+  /** @type {string} */
+  name = "";
+  /** @type {Map<string, Uint8Array>} */
+  files = new Map();
+  /** @type {Record<string, string>} the tree last extracted into the workspace */
+  tree = {};
+  /** Whether the last build passed. */
+  built = false;
+
+  #crash() {
+    if (sandboxFailures > 0) {
+      sandboxFailures -= 1;
+      throw new Error("Container crashed while checking for ports");
+    }
+  }
+
+  async configure(configuration) {
+    this.name = configuration.sandboxName?.name ?? this.name;
+    if (configuration.sleepAfter !== undefined) {
+      sandboxSleepAfter.set(this.name, configuration.sleepAfter);
+    }
+  }
+
+  async writeFile(path, content, options = {}) {
+    this.#crash();
+    this.files.set(path, await bytesOf(content, options.encoding));
+    return { success: true, path, timestamp: new Date().toISOString() };
+  }
+
+  async exists(path) {
+    this.#crash();
+    return { success: true, path, exists: this.files.has(path), timestamp: "" };
+  }
+
+  async readFile(path, options = {}) {
+    this.#crash();
+    const bytes = this.files.get(path);
+    if (!bytes) throw new Error(`File not found: ${path}`);
+    const base64 = options.encoding === "base64";
+    return {
+      success: true,
+      path,
+      content: base64 ? toBase64(bytes) : new TextDecoder().decode(bytes),
+      encoding: base64 ? "base64" : "utf-8",
+      timestamp: "",
+    };
+  }
+
+  /**
+   * @param {string} command
+   * @param {{ env?: Record<string, string> }} options
+   */
+  async exec(command, options = {}) {
+    this.#crash();
+    const commands = revisionCommands.get(this.name) ?? [];
+    commands.push({ command, env: options.env });
+    revisionCommands.set(this.name, commands);
+    const result = (exitCode, stderr = "") => ({
+      success: exitCode === 0,
+      exitCode,
+      stdout: "",
+      stderr,
+      command,
+      duration: 0,
+      timestamp: "",
+    });
+    const extract = EXTRACT_COMMAND.exec(command);
+    if (extract) {
+      const tar = this.files.get(extract[1]);
+      if (!tar) return result(2, `tar: ${extract[1]}: Cannot open: No such file or directory`);
+      this.tree = untar(tar);
+      this.built = false;
+      return result(0);
+    }
+    if (BUILD_COMMAND.test(command)) {
+      const failing = failingBuilds.find(({ marker }) =>
+        Object.values(this.tree).some((content) => content.includes(marker)),
+      );
+      const builds = revisionBuilds.get(this.name) ?? [];
+      builds.push({ sandbox: this.name, files: this.tree, archive: null });
+      revisionBuilds.set(this.name, builds);
+      this.built = !failing;
+      return failing ? result(1, failing.log) : result(0);
+    }
+    const archive = ARCHIVE_COMMAND.exec(command);
+    if (archive) {
+      if (!this.built) return result(2, "tar: dist: Cannot stat: No such file or directory");
+      const bytes = new TextEncoder().encode(`fake build of ${await treeOf(this.tree)}`);
+      this.files.set(archive[1], bytes);
+      revisionBuilds.get(this.name).at(-1).archive = [...bytes];
+      return result(0);
+    }
+    return result(0);
+  }
+
+  async destroy() {
+    destroyedSandboxes.add(this.name);
+    this.files.clear();
+    this.tree = {};
+  }
+}
+
 /** The `send_email` binding: records each email instead of sending it. */
 export class FakeEmail extends WorkerEntrypoint {
   /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
@@ -437,6 +608,40 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} repo Whether a Git repo or a pushed repo of that name exists. */
   async hasRepo(repo) {
     return hasGitRepo(repo) || repos.has(repo);
+  }
+
+  /** @param {string} sandbox The builds a revision sandbox ran, oldest first. */
+  async revisionBuilds(sandbox) {
+    return revisionBuilds.get(sandbox) ?? [];
+  }
+
+  /** @param {string} sandbox The commands a revision sandbox ran, oldest first. */
+  async revisionCommands(sandbox) {
+    return revisionCommands.get(sandbox) ?? [];
+  }
+
+  /**
+   * Makes every build of a tree with a file containing `marker` fail, with `log` as its output.
+   * @param {string} marker
+   * @param {string} log
+   */
+  async failBuildsOf(marker, log) {
+    failingBuilds.push({ marker, log });
+  }
+
+  /** @param {number} times Makes the next `times` calls to any revision sandbox fail. */
+  async crashSandboxes(times) {
+    sandboxFailures = times;
+  }
+
+  /** @param {string} sandbox Whether a revision sandbox was destroyed. */
+  async sandboxDestroyed(sandbox) {
+    return destroyedSandboxes.has(sandbox);
+  }
+
+  /** @param {string} sandbox How long a revision sandbox was told to stay up idle. */
+  async sandboxSleepAfter(sandbox) {
+    return sandboxSleepAfter.get(sandbox);
   }
 
   /** @param {string} name Deploys a user Worker into the `production` dispatch namespace. */

@@ -36,6 +36,9 @@ export const drafts = sqliteTable(
     overviewFingerprint: text("overview_fingerprint"),
     // Whether the last attempt failed, the model having given up.
     overviewFailed: int("overview_failed", { mode: "boolean" }).notNull().default(false),
+    // A draft with code's last revision (`revisions`), the head of its branch. No foreign key, as
+    // revisions reference their draft.
+    headRevisionId: text("head_revision_id"),
   },
   (table) => [
     index("drafts_project_idx").on(table.projectId),

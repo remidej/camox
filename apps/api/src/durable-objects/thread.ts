@@ -53,6 +53,9 @@ import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code
 import { writeLine } from "../domains/code/write-line";
 import { accessTo } from "../domains/drafts/access";
 import { projects } from "../domains/projects/schema";
+import { buildRevision } from "../domains/revisions/build";
+import type { BuildResult } from "../domains/revisions/result";
+import { buildTool } from "../domains/revisions/tool";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
 import {
   studioAgentTools,
@@ -302,6 +305,7 @@ export class Thread extends DurableObject<Bindings> {
           ...webTools(this.env),
           ...codeReadingTools(),
           ...codeWritingTools(),
+          buildTool((invocation) => this.#build(invocation)),
         ],
         // Once a script ends, failed or not, the studios hear what its writes touched.
         wraps: [
@@ -478,6 +482,30 @@ export class Thread extends DurableObject<Bindings> {
     });
     this.#startingCode = started.catch(() => undefined);
     return started;
+  }
+
+  /** The last build, which the next waits for: a draft's sandbox builds one tree at a time. */
+  #building: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Builds the code the agent changed in the thread's draft, for the run `invocation` is part
+   * of, committing a revision when it passes.
+   */
+  async #build(invocation: ToolInvocation): Promise<BuildResult> {
+    const draftId = (await this.#settle())?.draftId;
+    if (!draftId || !(await this.#hasCode(draftId))) {
+      throw new Error(
+        "There's nothing to build: you haven't changed the website's code in this draft.",
+      );
+    }
+    const { api, context } = invocation;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
+    const built = this.#building.then(() =>
+      buildRevision(this.env, draftId, { leftBy: "build", run }),
+    );
+    this.#building = built.catch(() => undefined);
+    return built;
   }
 
   async #projectUuidOf(projectId: number) {
