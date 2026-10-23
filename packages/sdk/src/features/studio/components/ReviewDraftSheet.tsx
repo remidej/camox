@@ -471,8 +471,9 @@ function StatusLines({
 
 /**
  * The draft's overview: the bullets AI wrote about its changes, in full, under the headline the
- * header shows. While it's being written, skeleton lines; once it failed, a Retry and a plain
- * count of the changes, so the draft can still be reviewed.
+ * header shows, saying it's updating while they describe an older version of the draft. While
+ * it's first written, skeleton lines; once it failed, a Retry and a plain count of the changes,
+ * so the draft can still be reviewed.
  */
 function DraftOverview({ projectId, preview }: { projectId: number; preview: PublishPreview }) {
   const { overview, changes } = preview;
@@ -486,14 +487,20 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
   }
   if (overview.status === "ready") {
     return (
-      <ul
-        data-overview
-        className="text-foreground/85 flex list-disc flex-col gap-1.5 pl-5 leading-relaxed"
-      >
-        {overview.bullets.map((bullet, index) => (
-          <li key={index}>{bullet}</li>
-        ))}
-      </ul>
+      <div data-overview className="flex flex-col gap-2">
+        <ul className="text-foreground/85 flex list-disc flex-col gap-1.5 pl-5 leading-relaxed">
+          {overview.bullets.map((bullet, index) => (
+            <li key={index}>{bullet}</li>
+          ))}
+        </ul>
+        {/* The draft changed since: these describe an older version until the new ones land. */}
+        {overview.stale && (
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <Spinner aria-hidden className="size-3" />
+            Updating…
+          </p>
+        )}
+      </div>
     );
   }
   if (overview.status === "failed") {

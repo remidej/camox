@@ -59,7 +59,7 @@ const emptyPreview = {
   token: "token-1",
   overview: { status: "pending" } as
     | { status: "none" | "pending" | "failed" }
-    | { status: "ready"; headline: string; bullets: string[] },
+    | { status: "ready"; headline: string; bullets: string[]; stale: boolean },
 };
 
 const conflictedPreview = {
@@ -302,6 +302,7 @@ void test("titles the review with the overview's headline, the draft's name and 
         status: "ready",
         headline: "Retitles the homepage hero",
         bullets: ["Home: the hero gets a new title", "Files: two images replaced"],
+        stale: false,
       },
     }),
   );
@@ -318,12 +319,52 @@ void test("titles the review with the overview's headline, the draft's name and 
 
 void test("keeps a regular draft's name renamable above the headline", async (t) => {
   mockApi(t, () =>
-    json({ ...emptyPreview, overview: { status: "ready", headline: "Retitles", bullets: [] } }),
+    json({
+      ...emptyPreview,
+      overview: { status: "ready", headline: "Retitles", bullets: [], stale: false },
+    }),
   );
   const close = await openReview();
   try {
     assert.equal(sheetTitle(), "Retitles");
     assert.ok(window.document.querySelector('input[aria-label="Draft name"]'));
+  } finally {
+    await close();
+  }
+});
+
+void test("keeps showing a stale overview, saying it's updating", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      overview: {
+        status: "ready",
+        headline: "Retitles the homepage hero",
+        bullets: ["Home: the hero gets a new title"],
+        stale: true,
+      },
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.equal(sheetTitle(), "Retitles the homepage hero");
+    assert.deepEqual(bullets(), ["Home: the hero gets a new title"]);
+    assert.match(dialogText(), /Updating…/);
+  } finally {
+    await close();
+  }
+});
+
+void test("doesn't say a current overview is updating", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      overview: { status: "ready", headline: "Retitles", bullets: ["Home"], stale: false },
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.doesNotMatch(dialogText(), /Updating…/);
   } finally {
     await close();
   }

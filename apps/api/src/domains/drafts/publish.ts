@@ -51,7 +51,13 @@ import { catchUpPending, isCatchUpDraft } from "./catch-up";
 import { checkContentProblems, CONTENT_PROBLEM_CODES, type ContentFinding } from "./content-checks";
 import { type FieldDiff, fieldDiffsOf } from "./field-values";
 import * as overlay from "./overlay";
-import { clearStatements as clearOverviewStatements, type Overview, overviewOf } from "./overview";
+import {
+  clearStatements as clearOverviewStatements,
+  fingerprintOf,
+  type Overview,
+  overviewOf,
+  requestIfOutdated,
+} from "./overview";
 import { peopleNamed } from "./people";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
@@ -389,6 +395,19 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     change,
   }));
 
+  const fingerprint =
+    stored.length > 0
+      ? yield* fingerprintOf(
+          stored.map(({ entity, row, change }) => ({
+            entity,
+            id: row.id,
+            locale: overlay.localeOfRow(row),
+            change,
+            updatedAt: row.updatedAt,
+          })),
+        )
+      : null;
+
   const translating = yield* translations.translatingLocales(ctx.db, [scope.id]);
   const row = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, scope.id)).get(),
@@ -403,8 +422,10 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     translating: translating.get(scope.id) ?? [],
     defaultLocale,
     token: encodeToken(storedConflicts),
-    overview: row ? overviewOf(row, changes.length > 0) : { status: "none" },
-  } satisfies PublishPreview;
+    overview: row ? overviewOf(row, fingerprint) : ({ status: "none" } as const),
+    /** The fingerprint of the draft's changes, which its overview records: not in the preview. */
+    fingerprint,
+  } satisfies PublishPreview & { fingerprint: string | null };
 });
 
 // --- Generated values after publishing (ADR 0012) ---
@@ -554,7 +575,10 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
 ) {
   const { projectId } = yield* decodeInput(previewPublishInput, rawInput);
   const scope = yield* requireDraft(ctx, projectId);
-  return yield* computePreview(ctx, scope);
+  const { fingerprint: _, ...preview } = yield* computePreview(ctx, scope);
+  // Someone is reviewing the draft: an outdated overview is written now, not after the debounce.
+  yield* requestIfOutdated(ctx.db, scope.id, preview.overview);
+  return preview;
 });
 
 /**
