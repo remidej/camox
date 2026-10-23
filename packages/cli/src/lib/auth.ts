@@ -19,8 +19,8 @@ export {
   writeAuthTokenForUrl,
 } from "./auth-core";
 
-const CAMOX_URL = process.env.CAMOX_URL || "https://app.camox.dev";
-const CAMOX_API_URL = process.env.CAMOX_API_URL || "https://api.camox.dev";
+const CAMOX_URL = process.env.CAMOX_URL || "https://app.camox.ai";
+const CAMOX_API_URL = process.env.CAMOX_API_URL || "https://api.camox.ai";
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 // --- Token persistence (keyed by CAMOX_URL) ---

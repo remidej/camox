@@ -12,13 +12,13 @@ describe("sendOrganizationInvitationEmail", () => {
       to: "invitee@example.com",
       organizationName: "Acme & Co",
       inviterName: "Jane Doe",
-      url: "https://app.camox.dev/accept-invitation?invitationId=invite-123",
+      url: "https://app.camox.ai/accept-invitation?invitationId=invite-123",
     });
 
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
-        from: { name: "Camox", email: "auth@camox.dev" },
+        from: { name: "Camox", email: "auth@camox.ai" },
         to: "invitee@example.com",
         subject: "You're invited to join Acme & Co on Camox",
         text: expect.stringContaining("invitationId=invite-123"),

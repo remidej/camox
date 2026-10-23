@@ -38,13 +38,13 @@ Built for the web
 Sites have very different needs from apps. Camox was purpose-built to address them.
 
 - **SEO metadata generation** Camox always watches changes to your page content, and generates new title and description tags optimized for Google when needed.
-  ![Search result card for "page builder CMS" on Camox.site, showing the title "The page builder framework for coding agents — Camox" and a brief description of Camox as a CMS for developers, LLMs, and human editors.](https://api.camox.dev/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105468337-SERP%20Card@2x.webp)
+  ![Search result card for "page builder CMS" on Camox.site, showing the title "The page builder framework for coding agents — Camox" and a brief description of Camox as a CMS for developers, LLMs, and human editors.](https://api.camox.ai/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105468337-SERP%20Card@2x.webp)
 - **Optimized images, metadata included** All your assets get compressed and served in the most efficient format. And AI writes the file names and alternative text, ensuring good a11y.
-  ![Sunset over a ridge with a bright moon.](https://api.camox.dev/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105363716-Image%20Card@2x.webp)
+  ![Sunset over a ridge with a bright moon.](https://api.camox.ai/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105363716-Image%20Card@2x.webp)
 - **Open Graph image generation** Make your site stand out when shared on the web. All your pages get an OG image out of the box, using a template you can customize.
-  ![Tweet promoting Camox, a page builder framework for coding agents, with statistics on engagement like likes and shares.](https://api.camox.dev/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105566064-Post%20Card@2x.webp)
+  ![Tweet promoting Camox, a page builder framework for coding agents, with statistics on engagement like likes and shares.](https://api.camox.ai/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105566064-Post%20Card@2x.webp)
 - **Serve markdown to agents** When an LLM fetches a page on your site, they don't get HTML but markdown, the most token-efficient language. You define the block-to-markdown template, so nothing is lost in translation.
-  ![A visual representation of the markdown serving feature](https://api.camox.dev/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105428624-Doc%20Card@2x.webp)
+  ![A visual representation of the markdown serving feature](https://api.camox.ai/cdn-cgi/image/format=auto,quality=85,fit=scale-down,width=1280/files/serve/15/1779105428624-Doc%20Card@2x.webp)
 
 <!-- Stack — keep unchanged -->
 

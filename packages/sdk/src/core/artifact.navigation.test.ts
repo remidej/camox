@@ -43,10 +43,10 @@ void test("right after a click, an artifact navigates to internal paths through 
 
 void test("right after a click, an artifact opens external URLs in a new tab", async () => {
   const website = await artifactOnWebsite();
-  await website.navigate("https://camox.dev/blog", { clicked: true });
+  await website.navigate("https://camox.ai/blog", { clicked: true });
   assert.deepEqual(
     website.opened.map(([url, target]) => [url, target]),
-    [["https://camox.dev/blog", "_blank"]],
+    [["https://camox.ai/blog", "_blank"]],
   );
   assert.deepEqual(website.routed, []);
 });
@@ -54,7 +54,7 @@ void test("right after a click, an artifact opens external URLs in a new tab", a
 void test("without a click, an artifact can't navigate", async () => {
   const website = await artifactOnWebsite();
   await website.navigate("/pricing", { clicked: false });
-  await website.navigate("https://camox.dev/blog", { clicked: false });
+  await website.navigate("https://camox.ai/blog", { clicked: false });
   assert.deepEqual(website.routed, []);
   assert.deepEqual(website.opened, []);
 });

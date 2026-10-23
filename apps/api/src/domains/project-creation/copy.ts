@@ -5,7 +5,7 @@ import { MemoryFs } from "../../lib/memory-fs";
 
 const DIR = "/repo";
 const MAIN = "main";
-const AUTHOR = { name: "Camox", email: "noreply@camox.dev" };
+const AUTHOR = { name: "Camox", email: "noreply@camox.ai" };
 
 type NewProject = { projectId: string; name: string; slug: string };
 

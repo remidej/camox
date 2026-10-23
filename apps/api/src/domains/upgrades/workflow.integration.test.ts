@@ -196,8 +196,8 @@ describe("upgrading every project to a new SDK", () => {
     const emails = await emailsAbout(broken.project.uuid);
     expect(emails).toEqual([
       expect.objectContaining({
-        from: { name: "Camox", email: "alerts@camox.dev" },
-        to: "alerts@camox.dev",
+        from: { name: "Camox", email: "alerts@camox.ai" },
+        to: "alerts@camox.ai",
         subject: expect.stringContaining(NEW_VERSION),
       }),
     ]);

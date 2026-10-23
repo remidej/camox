@@ -6,7 +6,7 @@ import type { RouterClient } from "@orpc/server";
 
 import { installLocalhostDns } from "./local-dns";
 
-const CAMOX_API_URL = process.env.CAMOX_API_URL || "https://api.camox.dev";
+const CAMOX_API_URL = process.env.CAMOX_API_URL || "https://api.camox.ai";
 installLocalhostDns(new URL(CAMOX_API_URL).hostname);
 
 function authHeaders(token: string) {

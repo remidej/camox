@@ -4,17 +4,17 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-03-28",
   "compatibility_flags": ["nodejs_compat"],
-  "routes": [{ "pattern": "api.camox.dev", "custom_domain": true }],
+  "routes": [{ "pattern": "api.camox.ai", "custom_domain": true }],
   "vars": {
-    "DASHBOARD_URL": "https://app.camox.dev",
-    // The alerts address. An Email Routing rule forwards it to an inbox (src/domains/releases/README.md).
-    "ALERT_EMAIL_TO": "alerts@camox.dev",
+    "DASHBOARD_URL": "https://app.camox.ai",
+    // The alerts address, a Google Workspace alias that delivers to an inbox (src/domains/releases/README.md).
+    "ALERT_EMAIL_TO": "alerts@camox.ai",
   },
   "send_email": [
     {
       "name": "EMAIL",
       "remote": true,
-      "allowed_sender_addresses": ["auth@camox.dev", "alerts@camox.dev"],
+      "allowed_sender_addresses": ["auth@camox.ai", "alerts@camox.ai"],
     },
   ],
   "d1_databases": [

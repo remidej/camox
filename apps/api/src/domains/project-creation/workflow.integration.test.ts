@@ -92,7 +92,7 @@ async function releaseFirstPush(projectId: string, end: "complete" | "errored" =
           {
             id: head!.oid,
             message: head!.message,
-            author: { name: "Camox", email: "noreply@camox.dev" },
+            author: { name: "Camox", email: "noreply@camox.ai" },
           },
         ],
       },
@@ -204,7 +204,7 @@ describe("a setup that fails", () => {
     });
     const emails = await emailsAbout(project.uuid);
     expect(emails).toEqual([
-      expect.objectContaining({ to: "alerts@camox.dev", subject: expect.stringContaining("Acme") }),
+      expect.objectContaining({ to: "alerts@camox.ai", subject: expect.stringContaining("Acme") }),
     ]);
     const [email] = emails;
     expect(email!.text).toContain("Failed step: Copying the Template\n");

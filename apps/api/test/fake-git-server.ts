@@ -17,7 +17,7 @@ const ZERO = "0".repeat(40);
 const MAIN = "refs/heads/main";
 const AUTHOR = {
   name: "Camox",
-  email: "noreply@camox.dev",
+  email: "noreply@camox.ai",
   timestamp: 1_700_000_000,
   timezoneOffset: 0,
 };

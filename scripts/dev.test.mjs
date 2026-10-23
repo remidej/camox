@@ -153,7 +153,7 @@ await test("dashboard only bypasses OS DNS for local SSR transport", () => {
   const publicUrl = "http://camox-checkout.localhost:8788";
   assert.equal(apiTransportUrl(publicUrl, false), publicUrl);
   assert.equal(apiTransportUrl(publicUrl, true), "http://127.0.0.1:8788");
-  assert.equal(apiTransportUrl("https://api.camox.dev", true), "https://api.camox.dev");
+  assert.equal(apiTransportUrl("https://api.camox.ai", true), "https://api.camox.ai");
   assert.equal(
     apiTransportUrl("https://localhost.example.com", true),
     "https://localhost.example.com",

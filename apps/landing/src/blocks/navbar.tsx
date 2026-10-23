@@ -42,7 +42,7 @@ const navbar = createBlock({
 function NavbarContent() {
   const dashboardUrl = import.meta.env.DEV
     ? (import.meta.env.VITE_DASHBOARD_URL ?? "http://localhost:3274")
-    : "https://app.camox.dev";
+    : "https://app.camox.ai";
 
   return (
     <Container>

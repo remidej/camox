@@ -83,7 +83,7 @@ async function resolveRemote() {
 async function main() {
   const remote = await resolveRemote();
   const git = (cwd, argv) =>
-    run("git", ["-c", "user.name=Camox", "-c", "user.email=noreply@camox.dev", ...argv], {
+    run("git", ["-c", "user.name=Camox", "-c", "user.email=noreply@camox.ai", ...argv], {
       cwd,
       env: { ...process.env, ...remote.env },
     });

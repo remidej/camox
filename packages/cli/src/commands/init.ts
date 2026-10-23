@@ -11,7 +11,7 @@ export const parser = command(
 
 export const handler = init;
 
-const DASHBOARD_URL = process.env.CAMOX_URL || "https://app.camox.dev";
+const DASHBOARD_URL = process.env.CAMOX_URL || "https://app.camox.ai";
 
 /**
  * Projects are created from the dashboard, which hosts them, so `camox init` (and
