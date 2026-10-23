@@ -203,12 +203,33 @@ const seenRows = <T extends overlay.ContentTable>(
     return seen;
   });
 
+/** A field of an entity and its value, as short plain text. */
+export type FieldValue = { field: string; value: string };
+
+/** An entity's default-locale fields on Live and in a draft's copy, in field order. */
+export type EntityFields = {
+  /** Live's version's fields, or null when Live has none or deleted it. */
+  live: FieldValue[] | null;
+  /** The draft's copy's fields, or null when it holds none or deleted it. */
+  draft: FieldValue[] | null;
+  /** Whether the draft's copy sits elsewhere than Live's: another position or parent. */
+  moved: boolean;
+};
+
+const NO_FIELDS: EntityFields = { live: null, draft: null, moved: false };
+
+/** What places an entity among its siblings: changing only these moves it. */
+const PLACEMENT = ["position", "pageId", "layoutId", "slot", "blockId", "parentItemId"] as const;
+
+const movedBetween = (live: Record<string, unknown>, draft: Record<string, unknown>) =>
+  PLACEMENT.some((column) => column in draft && live[column] !== draft[column]);
+
 /**
- * For entities a draft holds a copy of, the default-locale fields where Live's version and the
- * draft's copy differ, as short plain text in field order, with titles from their definitions.
- * An entity either side deleted, or that isn't one with fields, like a locale, has none.
+ * For entities a draft holds a copy of, their default-locale fields on Live and in the draft, as
+ * short plain text in field order, with titles from the draft's definitions. An entity that
+ * isn't one with fields, like a locale, has none.
  */
-export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
+export const fieldValuesOf = Effect.fn("drafts.fieldValuesOf")(function* (
   ctx: ServiceContext,
   scope: Scope,
   entities: readonly { entity: overlay.EntityKind; id: string }[],
@@ -216,7 +237,7 @@ export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
   const defaultTag = yield* defaultLocaleTag(ctx.db, scope.projectId);
   const pairs = new Map<
     string,
-    { live: Record<string, unknown>; draft: Record<string, unknown> }
+    { live: Record<string, unknown> | null; draft: Record<string, unknown>; moved: boolean }
   >();
   const key = (entity: string, id: string) => `${entity}:${id}`;
   const rowsByKind = new Map<ComparedKind, { live: unknown[]; draft: unknown[] }>();
@@ -226,10 +247,15 @@ export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
     const { live, draft } = yield* bothRows(ctx, scope, TABLES[entity], ids, defaultTag);
     const kept = { live: [] as unknown[], draft: [] as unknown[] };
     for (const [id, draftRow] of draft) {
-      const liveRow = live.get(id);
-      if (!liveRow || liveRow.deleted || draftRow.deleted) continue;
-      pairs.set(key(entity, id), { live: liveRow, draft: draftRow });
-      kept.live.push(liveRow);
+      if (draftRow.deleted) continue;
+      const found = live.get(id);
+      const liveRow = found && !found.deleted ? found : null;
+      pairs.set(key(entity, id), {
+        live: liveRow,
+        draft: draftRow,
+        moved: liveRow !== null && movedBetween(liveRow, draftRow),
+      });
+      if (liveRow) kept.live.push(liveRow);
       kept.draft.push(draftRow);
     }
     rowsByKind.set(entity, kept);
@@ -281,6 +307,7 @@ export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
     const schemas = schemaOf.get(entityKey);
     if (!schemas) continue;
     for (const row of [pair.live, pair.draft]) {
+      if (!row) continue;
       for (const [schema, values] of [
         [schemas.content, row.content],
         [schemas.settings, row.settings],
@@ -311,7 +338,7 @@ export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
     file: (id) => filenames.get(id) ?? "Missing file",
   };
 
-  const diffs = new Map<string, FieldDiff[]>();
+  const values = new Map<string, EntityFields>();
   for (const [entityKey, pair] of pairs) {
     const entity = entityKey.slice(0, entityKey.indexOf(":"));
     const schemas = schemaOf.get(entityKey);
@@ -319,16 +346,39 @@ export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
     if (entity === "page") fields = PAGE_FIELDS;
     else if (entity === "file") fields = FILE_FIELDS;
     else if (schemas) fields = schemaFields(schemas.content, schemas.settings, targets);
-    diffs.set(
-      entityKey,
-      fields.flatMap(({ title, read }) => {
-        const live = short(read(pair.live));
-        const draft = short(read(pair.draft));
-        return live === draft ? [] : [{ field: title, live, draft }];
-      }),
-    );
+    const valuesIn = (row: Record<string, unknown>) =>
+      fields.map(({ title, read }) => ({ field: title, value: short(read(row)) }));
+    values.set(entityKey, {
+      live: pair.live && valuesIn(pair.live),
+      draft: valuesIn(pair.draft),
+      moved: pair.moved,
+    });
   }
 
+  return (entity: overlay.EntityKind, id: string): EntityFields =>
+    (isCompared(entity) && values.get(key(entity, id))) || NO_FIELDS;
+});
+
+/** The fields whose values differ between Live's version and the draft's copy. */
+export function differingFields({ live, draft }: EntityFields): FieldDiff[] {
+  if (!live || !draft) return [];
+  return draft.flatMap(({ field, value }, index) => {
+    const before = live[index]?.value ?? "";
+    return before === value ? [] : [{ field, live: before, draft: value }];
+  });
+}
+
+/**
+ * For entities a draft holds a copy of, the default-locale fields where Live's version and the
+ * draft's copy differ, as short plain text in field order, with titles from their definitions.
+ * An entity either side deleted, or that isn't one with fields, like a locale, has none.
+ */
+export const fieldDiffsOf = Effect.fn("drafts.fieldDiffsOf")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  entities: readonly { entity: overlay.EntityKind; id: string }[],
+) {
+  const valuesOf = yield* fieldValuesOf(ctx, scope, entities);
   return (entity: overlay.EntityKind, id: string): FieldDiff[] =>
-    isCompared(entity) ? (diffs.get(key(entity, id)) ?? []) : [];
+    differingFields(valuesOf(entity, id));
 });

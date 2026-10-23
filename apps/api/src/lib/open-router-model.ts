@@ -231,11 +231,17 @@ function draftOverviewPrompt(request: DraftOverviewRequest) {
       - Mention removals as well as additions and edits
       - Name pages by their name or path, and blocks, records and files by what they are to people
       - Plain English, without markdown, technical terms or ids
+      - Say what changed using the values: "Pro goes from $29 to $20" rather than "Pricing plans changed"
+      - A change "moved" only changed its position on its page
+      - A page with "pagesUnder" changed its path, and so did that many pages under it: mention it once
+      - "localeEdits" are edits made by hand in other languages: summarize them per language
+      - When the changes come as "places", there are too many to list: describe each place from its counts
     </constraints>
 
     <draft>
       <name>${request.draftName ?? ""}</name>
-      <changes>${JSON.stringify(request.changes)}</changes>
+      ${"changes" in request ? `<changes>${JSON.stringify(request.changes)}</changes>` : `<places>${JSON.stringify(request.places)}</places>`}
+      <localeEdits>${JSON.stringify(request.localeEdits)}</localeEdits>
     </draft>
   `;
 }

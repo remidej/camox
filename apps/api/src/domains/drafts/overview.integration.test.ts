@@ -160,7 +160,15 @@ describe("a draft's overview", () => {
         method: "draftOverview",
         request: {
           draftName: "Spring",
-          changes: [{ place: "Home (/)", label: "Hero", change: "changed", locale: "en" }],
+          changes: [
+            {
+              place: "Home (/)",
+              label: "Hero",
+              change: "changed",
+              fields: [{ field: "title", before: "Live", after: "Mine" }],
+            },
+          ],
+          localeEdits: [],
         },
       },
     ]);

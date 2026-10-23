@@ -11,8 +11,9 @@ import { Journal, record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
 import { isCatchUpDraft } from "./catch-up";
 import * as overlay from "./overlay";
+import { overviewInput } from "./overview-input";
 // Reached lazily, when called: publishing reads overviews from this module too.
-import { camoxContext, type Change, computePreview, requireDraft } from "./publish";
+import { camoxContext, computePreview, requireDraft } from "./publish";
 import { drafts } from "./schema";
 import { draftOf } from "./scope";
 
@@ -110,21 +111,10 @@ const failOverview = (db: Database, projectId: number, draftId: string, since: n
     if (failed.meta.changes > 0) yield* record(db, { kind: "overview", projectId, draftId });
   });
 
-/** Where a change sits, as the model reads it: its page's name and path, or what else holds it. */
-function placeOf(change: Change): string {
-  const { owner, entity } = change;
-  if (entity === "locale") return "Languages";
-  if (!owner) return entity === "file" ? "Files" : "Elsewhere";
-  if (owner.kind === "layout") return `Layout ${owner.name}`;
-  if (owner.kind === "syncedBlock") return `Synced block ${owner.title}`;
-  if (owner.kind === "collection") return `Collection ${owner.title}`;
-  return owner.nickname ? `${owner.nickname} (${owner.path})` : owner.path;
-}
-
 /**
- * Writes a draft's overview from its changes as its review lists them, or nothing once the draft
- * ended, for a catch-up draft, or while it changes nothing. The model already retried a failure:
- * it's recorded, unless the overview was requested again since, and the job doesn't fail.
+ * Writes a draft's overview from its changes, field by field (`overviewInput`), or nothing once
+ * the draft ended, for a catch-up draft, or while it changes nothing. The model already retried a
+ * failure: it's recorded, unless the overview was requested again since, and the job doesn't fail.
  */
 export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
   db: Database,
@@ -135,20 +125,13 @@ export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
   );
   if (!row || isCatchUpDraft(row)) return;
   const startedAt = Date.now();
-  const { changes } = yield* computePreview(camoxContext(db), draftOf(row));
+  const ctx = camoxContext(db);
+  const scope = draftOf(row);
+  const { changes, defaultLocale } = yield* computePreview(ctx, scope);
   if (changes.length === 0) return;
+  const input = yield* overviewInput(ctx, scope, row.name, changes, defaultLocale);
   const model = yield* AiModel;
-  const written = yield* Effect.result(
-    model.draftOverview({
-      draftName: row.name,
-      changes: changes.map((change) => ({
-        place: placeOf(change),
-        label: change.label,
-        change: change.change,
-        locale: change.locale,
-      })),
-    }),
-  );
+  const written = yield* Effect.result(model.draftOverview(input));
   if (written._tag === "Failure") {
     yield* Effect.logError(`[overview] ${jobName(job)} failed`, written.failure.cause);
     return yield* failOverview(db, row.projectId, row.id, startedAt);
