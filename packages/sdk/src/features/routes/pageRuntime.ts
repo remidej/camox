@@ -1,10 +1,10 @@
-import type { Router } from "@camox/api-contract";
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
   NO_DEVELOPMENT_DRAFT_ERROR,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
+import type { Router } from "@camox/api-contract/router";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";

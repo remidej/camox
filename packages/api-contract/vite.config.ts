@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     entry: [
       "src/index.ts",
+      "src/router.ts",
       "src/ids.ts",
       "src/query-keys.ts",
       "src/drafts.ts",
@@ -19,7 +20,7 @@ export default defineConfig({
     clean: true,
     minify: false,
     outExtensions: () => ({ js: ".js" }),
-    // Router reaches into unpublished workspace code (the api app, and
+    // The router entry reaches into unpublished workspace code (the api app, and
     // @camox/ai-tools through tsconfig paths), which gets inlined into the
     // bundled types. Third-party types stay as imports.
     tsconfig: "tsconfig.dts.json",

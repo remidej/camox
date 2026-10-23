@@ -1,4 +1,4 @@
-import type { Router } from "./index.ts";
+import type { Router } from "./router.ts";
 
 /** Request header naming the draft a request reads and writes (ADR 0011). Absent means Live. */
 export const DRAFT_HEADER = "x-camox-draft";
