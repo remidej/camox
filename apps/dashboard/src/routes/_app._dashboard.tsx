@@ -306,9 +306,10 @@ function ProjectPicker() {
 
       <CreateProjectDialog
         organizationId={activeProject.organizationId}
-        orgSlug={orgSlug}
         open={createOpen}
         onOpenChange={setCreateOpen}
+        // The new project's card, in the project list, follows its setup.
+        onCreated={() => void navigate({ to: "/$orgSlug", params: { orgSlug } })}
       />
     </>
   );

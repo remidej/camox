@@ -4,6 +4,7 @@ import { CircleCheckIcon, CircleIcon, CircleXIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { Project } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const STEP_LABELS: Record<ProjectSetupStep, string> = {
   copyTemplate: "Copying the Template",
@@ -23,6 +24,15 @@ const STEP_ICONS: Record<StepState, ReactNode> = {
 /** The address `<slug>.camox.site` serves a project's site at. */
 export function siteUrl(project: Pick<Project, "slug">) {
   return `https://${project.slug}.camox.site`;
+}
+
+/** What a member is told when their project's setup failed. */
+export function ProjectSetupFailure({ className }: { className?: string }) {
+  return (
+    <p className={cn("text-destructive text-sm", className)}>
+      Something went wrong setting up your site. We've been told and will fix it.
+    </p>
+  );
 }
 
 /**
@@ -58,11 +68,7 @@ export function ProjectSetup({ project }: { project: Project }) {
           </li>
         ))}
       </ol>
-      {failed && (
-        <p className="text-destructive text-sm">
-          Something went wrong setting up your site. We've been told and will fix it.
-        </p>
-      )}
+      {failed && <ProjectSetupFailure />}
     </div>
   );
 }

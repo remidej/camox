@@ -5,16 +5,6 @@ import {
   posthogRegionSchema,
 } from "@camox/api-contract/analytics";
 import { Alert, AlertDescription } from "@camox/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
 import { FaviconDropZone, validateFaviconFile } from "@camox/ui/favicon-drop-zone";
 import { Input } from "@camox/ui/input";
@@ -45,6 +35,7 @@ import {
 } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { DeleteProjectDialog } from "@/components/DeleteProjectDialog";
 import { ProjectSetup, siteUrl } from "@/components/ProjectSetup";
 import {
   api,
@@ -713,70 +704,22 @@ function ProjectCredentialsSection({
 }
 
 function DeleteProjectSection({ project }: { project: Project }) {
-  const [confirmValue, setConfirmValue] = useState("");
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { orgSlug } = Route.useParams();
 
-  const deleteProject = useMutation({
-    mutationFn: () => api.projects.delete({ id: project.id }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries(projectQueries.list(project.organizationId));
-      toast.success("Project deleted");
-      void navigate({ to: "/$orgSlug", params: { orgSlug } });
-    },
-    onError: (error) => {
-      console.error("Failed to delete project:", error);
-      toast.error("Could not delete project");
-    },
-  });
-
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(value) => {
-        setOpen(value);
-        if (!value) setConfirmValue("");
-      }}
-    >
-      <AlertDialogTrigger render={<Button variant="destructive" />}>
+    <>
+      <Button variant="destructive" onClick={() => setOpen(true)}>
         Delete project
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete project</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will permanently delete the project <strong>{project.name}</strong> and all of its
-            data including drafts, pages, blocks, and files. This action cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="confirm-slug">
-            Type <span className="font-mono font-semibold">{project.slug}</span> to confirm
-          </Label>
-          <Input
-            id="confirm-slug"
-            value={confirmValue}
-            onChange={(e) => setConfirmValue(e.target.value)}
-            placeholder={project.slug}
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel variant="outline" size="default">
-            Cancel
-          </AlertDialogCancel>
-          <Button
-            variant="destructive"
-            disabled={confirmValue !== project.slug || deleteProject.isPending}
-            onClick={() => deleteProject.mutate()}
-          >
-            {deleteProject.isPending && <Spinner />}
-            Delete project
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      </Button>
+      <DeleteProjectDialog
+        project={project}
+        open={open}
+        onOpenChange={setOpen}
+        onDeleted={() => void navigate({ to: "/$orgSlug", params: { orgSlug } })}
+      />
+    </>
   );
 }
 

@@ -13,7 +13,6 @@ import { Label } from "@camox/ui/label";
 import { Spinner } from "@camox/ui/spinner";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import slugify from "slugify";
 
@@ -57,19 +56,22 @@ function useSlugProblem(slug: string) {
   };
 }
 
-/** The dialog a member creates a project in: its name and slug, which is its address. */
+/**
+ * The dialog a member creates a project in: its name and slug, which is its address. Once the
+ * project is created, the dialog closes and the organization's project list refreshes, where the
+ * new project's card follows its setup.
+ */
 export function CreateProjectDialog({
   organizationId,
-  orgSlug,
   open,
   onOpenChange,
+  onCreated,
 }: {
   organizationId: string;
-  orgSlug: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCreated?: () => void;
 }) {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -78,7 +80,7 @@ export function CreateProjectDialog({
     onSubmit: async ({ value }) => {
       setSubmitError(null);
       try {
-        const project = await api.projects.create({
+        await api.projects.create({
           name: value.name.trim(),
           slug: value.slug,
           organizationId,
@@ -86,10 +88,7 @@ export function CreateProjectDialog({
         await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
         onOpenChange(false);
         form.reset();
-        await navigate({
-          to: "/$orgSlug/$projectSlug/overview",
-          params: { orgSlug, projectSlug: project.slug },
-        });
+        onCreated?.();
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : "Could not create the project.");
       }

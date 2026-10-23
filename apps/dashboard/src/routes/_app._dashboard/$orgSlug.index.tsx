@@ -13,8 +13,6 @@ export const Route = createFileRoute("/_app/_dashboard/$orgSlug/")({
 });
 
 function OrgIndex() {
-  const { orgSlug } = Route.useParams();
-
   const { organization } = Route.useRouteContext();
   const { data: projects } = useSuspenseQuery(projectQueries.list(organization.id));
   // An organization without projects has nothing else to do first, so the form opens by itself.
@@ -50,7 +48,6 @@ function OrgIndex() {
       )}
       <CreateProjectDialog
         organizationId={organization.id}
-        orgSlug={orgSlug}
         open={createOpen}
         onOpenChange={setCreateOpen}
       />

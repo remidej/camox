@@ -1,8 +1,16 @@
-import { GlobeIcon } from "lucide-react";
+import { Button } from "@camox/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@camox/ui/dropdown-menu";
+import { CircleXIcon, EllipsisIcon, GlobeIcon, Trash2Icon } from "lucide-react";
 import { type MouseEvent, useState } from "react";
 
+import { DeleteProjectDialog } from "@/components/DeleteProjectDialog";
 import { ProjectFavicon } from "@/components/ProjectFavicon";
-import { siteUrl } from "@/components/ProjectSetup";
+import { ProjectSetup, ProjectSetupFailure, siteUrl } from "@/components/ProjectSetup";
 import type { ListedProject } from "@/lib/api";
 import { useOpenWebsite } from "@/lib/open-website";
 import { cn } from "@/lib/utils";
@@ -16,7 +24,8 @@ function isPlainClick(event: MouseEvent) {
  * A project in the dashboard's project list: its Live homepage's OG image, its favicon and name,
  * and its URL, laid out like the studio's social preview. A Live project's card links to its
  * website: a plain click opens it in a new tab with the studio signed in, and modified clicks and
- * "copy link" use the website URL.
+ * "copy link" use the website URL. Until then, the card shows the project's setup instead of the
+ * image, and isn't a link. Its "more" menu works either way.
  */
 export function ProjectCard({ project }: { project: ListedProject }) {
   const { open } = useOpenWebsite();
@@ -36,7 +45,7 @@ export function ProjectCard({ project }: { project: ListedProject }) {
         live && "hover:bg-accent/75 has-focus-visible:ring-ring/50 has-focus-visible:ring-3",
       )}
     >
-      <ProjectImage project={project} />
+      {live ? <ProjectImage project={project} /> : <ProjectSetupState project={project} />}
       <div className="space-y-1.5 border-t px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <ProjectFavicon project={project} size={20} className="shrink-0" />
@@ -57,12 +66,64 @@ export function ProjectCard({ project }: { project: ListedProject }) {
               project.name
             )}
           </h2>
+          <ProjectMenu project={project} />
         </div>
         <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
           <GlobeIcon className="size-3.5 shrink-0" />
           <span className="truncate">{url.replace(/^https:\/\//, "")}</span>
         </p>
       </div>
+    </div>
+  );
+}
+
+/** The card's "more" button, and the menu it opens. */
+function ProjectMenu({ project }: { project: ListedProject }) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            // `relative` lifts it above the link stretched over the card.
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="relative -my-1 -mr-2 shrink-0"
+              aria-label={`More actions for ${project.name}`}
+            />
+          }
+        >
+          <EllipsisIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
+            <Trash2Icon />
+            Delete project…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DeleteProjectDialog project={project} open={deleteOpen} onOpenChange={setDeleteOpen} />
+    </>
+  );
+}
+
+/** A project that isn't Live yet, in place of its image: its setup steps, or why it failed. */
+function ProjectSetupState({ project }: { project: ListedProject }) {
+  return (
+    <div
+      className="bg-muted flex items-center justify-center overflow-hidden p-4"
+      style={{ aspectRatio: "1200 / 630" }}
+    >
+      {project.status === "setupFailed" ? (
+        <div className="flex max-w-xs flex-col items-center gap-2 text-center">
+          <CircleXIcon className="text-destructive size-6" />
+          <ProjectSetupFailure />
+        </div>
+      ) : (
+        <ProjectSetup project={project} />
+      )}
     </div>
   );
 }
