@@ -39,3 +39,25 @@ Camox merges `main` into every open draft with code as soon as `main` moves, wak
 - If the turn fails, the blocker stays and the agent says in the thread, in preview terms, what it couldn't reconcile. Camox tries once for each move of `main`. After that, a member asks in the thread or discards the draft.
 - Publishes with code run one at a time per project. The release Workflow merges the current `main` before building. A merge there that conflicts or no longer type checks aborts the publish back to the draft with the blocker, and Camox's turn starts.
 - Undoing a turn reverts that turn's own changes on top of the branch's head, never resetting the branch, so a draft never loses Live's code. Merges can't be undone, and an undo that clashes with later turns is refused.
+
+## Amendment: publishing releases the last revision's build
+
+Publishing a draft with code no longer builds it. Every revision is already built in full, as a dry-run release, and stored in R2 as one archive ([Building a revision in a Container](https://github.com/remidej/camox/issues/550)). The publish deploys the build of the revision its confirmation showed, so Live serves the same bytes members previewed. A publish also never runs agent-written code next to the Deploy Token, which `camox release`'s definitions sync would do ([Publishing a draft's last revision build](https://github.com/remidej/camox/issues/551)).
+
+### Considered Options
+
+- **Rebuild in the release Workflow**, as this ADR first said. It's simpler, but Live would run a second build that nobody previewed, with a new build ID and maybe a newer sandbox image.
+- **Serve Live under a per-build URL prefix too**, so a revision's build needs no change to deploy. Every publish would change every asset URL, and visitors would download unchanged JS and CSS again.
+- **A separate origin per revision, built at the root.** The renderer frame portals into the studio's frames, which need the same origin, and members would need a session on every revision's host.
+- **Fall back to building in the release** when `main` moved and the draft hasn't merged it yet. That would make two build paths, and Live could run code that was never a revision.
+
+### Consequences
+
+- A build doesn't bake in its URL prefix. Client URLs are relative. Server-rendered URLs, the SDK's own included, take a prefix at runtime: `/_camox/r/<rev>/` from the Dynamic Worker, `/` on Live. A prototype confirms this covers every URL in a build before it's built on; a per-build prefix on Live is the fallback.
+- A build is safe to ship when its revision's Git tree is the tree the publish puts on `main`, which means it already includes the current `main`. The lockfile, `vite.config.ts` and `wrangler.jsonc` are in the tree. The sandbox image doesn't count, and the revision's build ID carries over to Live, still new for each release (ADR 0022).
+- The confirmation pins the revision it showed. A later agent turn aborts the publish back to the confirmation, as changed conflicts do (ADR 0009). Camox's merges of `main` are the exception: if the draft hasn't merged the current `main`, the publish waits for its merge revision, built in the draft's sandbox, and ships that. A merge that conflicts or no longer type checks is the blocker above. A head whose build is missing is built again the same way. The publish never builds.
+- The publish Workflow skips the source checkout, `pnpm install` and `camox release`. The publish batch syncs the draft's definitions, already synced from the pinned revision. A small sandbox with wrangler in its image uploads a Worker version and its assets from the archive, then promotes it.
+- The order: upload without serving, re-check conflicts, promote, run the batch, record the tree Live serves, push the squashed commit to `main`, then delete the draft's builds and branch. `main` moves only once the batch has committed. That replaces "`main` moves only once the build succeeds".
+- A push to `main` whose tree Live already serves starts no release, so the publish's own push doesn't release the same code again.
+- The full build of each revision stays when per-file compiling speeds up previews, moved off the preview's path. Publishing waits for the head's build, and "code that doesn't build" comes from it.
+- Upgrades still build twice, a dry run and then their release. Reusing the dry run is left for later.

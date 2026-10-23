@@ -39,7 +39,7 @@ A choice that applies to a whole project, the same for Live and every draft, and
 _Avoid_: Site setting, config
 
 **Release**:
-What a change to a project's code starts: building the website, syncing its definitions to Live (adding any content they declare that Live lacks), then serving the new code. A failed release leaves the previous code served.
+What a change to a project's code starts: syncing a build's definitions to Live (adding any content they declare that Live lacks), then serving that build. Publishing a draft releases the build of its last revision, the one its preview showed; any other change, such as an Upgrade, is built for its release. A failed release leaves the previous code served.
 _Avoid_: Build, deploy, ship
 
 **Upgrade**:
@@ -245,7 +245,7 @@ A member's personal draft in a project whose code is on their machine rather tha
 _Avoid_: Development environment, code draft, local draft
 
 **Revision**:
-One state of a draft's code, left by one agent turn or by one merge of Live's code, that the draft's preview shows. A contributors' term: editors only ever see the draft.
+One state of a draft's code, left by one agent turn or by one merge of Live's code, built once and shown by the draft's preview. Publishing serves the last revision's build on Live. A contributors' term: editors only ever see the draft.
 _Avoid_: Version, build, snapshot
 
 **Publish**:
