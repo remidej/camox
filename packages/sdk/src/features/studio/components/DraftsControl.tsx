@@ -62,9 +62,10 @@ function useDrafts() {
  * Picks what the studio is viewing, Live or a draft (#203). Live is read-only; the first edit
  * starts a draft. The localhost studio works only in the development draft, so it shows that
  * draft alone, with nothing to switch to (ADR 0006). The command palette offers the same actions,
- * and the picker hosts the draft's review and discard confirmation they open.
+ * and the picker hosts the draft's review and discard confirmation they open. A `disabled` picker
+ * still names what the studio is viewing.
  */
-export function DraftPicker() {
+export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   const { draftScope, draftId, developmentMode, projectId, list, current } = useDrafts();
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
@@ -116,7 +117,7 @@ export function DraftPicker() {
   return (
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger render={<Button type="button" variant="ghost" />}>
+        <DropdownMenuTrigger disabled={disabled} render={<Button type="button" variant="ghost" />}>
           {/* Green on Live, blue in a draft. */}
           <span
             aria-hidden

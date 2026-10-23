@@ -5,6 +5,7 @@ import { CompleteBlockEditingRuntimeProvider } from "../../core/editing/Complete
 import { CamoxContent } from "../content/CamoxContent";
 import { AuthenticatedCamoxProvider } from "../provider/AuthenticatedCamoxProvider";
 import type { PageRenderInput } from "../runtime/runtime";
+import { CamoxSettings } from "../settings/CamoxSettings";
 import { CamoxStudio } from "../studio/CamoxStudio";
 import { CamoxPreview } from "./CamoxPreview";
 import { EditablePageContent } from "./EditablePageContent";
@@ -25,6 +26,8 @@ export function EditablePageExperience({
           <CamoxStudio>
             {input.routeKind === "studio-content" ? (
               <CamoxContent />
+            ) : input.routeKind === "studio-settings" ? (
+              <CamoxSettings />
             ) : (
               <div className="text-muted-foreground p-6 text-sm">Studio page not found</div>
             )}

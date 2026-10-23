@@ -156,6 +156,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     "/camox/content/collections/articles/new",
     "/camox/content/collections/articles/a6479288-341f-4008-b118-dea6d8dd9158/edit",
     "/camox/settings",
+    "/camox/unknown",
   ]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {
@@ -181,7 +182,11 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     if (path.startsWith("/camox/"))
       assert.equal(
         input.routeKind,
-        path === "/camox/settings" ? "studio-nested" : "studio-content",
+        path === "/camox/settings"
+          ? "studio-settings"
+          : path === "/camox/unknown"
+            ? "studio-nested"
+            : "studio-content",
       );
     if (!path.startsWith("/camox/")) {
       assert.match(input.previewDocument!, /href="\/site.css"/);

@@ -198,7 +198,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       // Navbar and command actions share the same ungated navigation.
       assert.deepEqual(
         getNavbarLinks().map((link) => link.title),
-        ["Website", "Content"],
+        ["Website", "Content", "Settings"],
       );
       assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
     }

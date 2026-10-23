@@ -9,19 +9,19 @@ import {
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
 import { Skeleton } from "@camox/ui/skeleton";
-import { AtSign, ChevronDown, ImageIcon, Info, Settings, Users } from "lucide-react";
+import { ChevronDown, Info, Settings, Users } from "lucide-react";
 import * as React from "react";
 
-import { Link } from "@/features/navigation/navigation";
+import { Link, type LinkProps } from "@/features/navigation/navigation";
 import { buildFaviconUrl } from "@/features/routes/pageRuntime";
 import { getApiUrl } from "@/lib/api-client";
 import { AuthContext } from "@/lib/auth";
 import { type Project } from "@/lib/queries";
+import { useLocalizedPath } from "@/lib/view-locale";
 
 import { version } from "../../../../package.json";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
-import { FaviconDialog } from "./FaviconDialog";
-import { SocialProfilesDialog } from "./SocialProfilesDialog";
+import { STUDIO_SETTINGS_PATH } from "../routes";
 
 export const Favicon = ({ project, size = 16 }: { project: Project; size?: number }) => (
   <img
@@ -35,8 +35,7 @@ export const Favicon = ({ project, size = 16 }: { project: Project; size?: numbe
 export const ProjectMenu = () => {
   const authCtx = React.useContext(AuthContext);
   const { data: project } = useReadQuery(reads.project({ projectUuid: authCtx!.projectUuid }));
-  const [isFaviconDialogOpen, setIsFaviconDialogOpen] = React.useState(false);
-  const [isSocialProfilesDialogOpen, setIsSocialProfilesDialogOpen] = React.useState(false);
+  const localized = useLocalizedPath();
 
   if (!project) {
     return (
@@ -48,22 +47,44 @@ export const ProjectMenu = () => {
   }
 
   return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger render={<Button variant="ghost" />}>
-          <div className="flex items-center gap-2">
-            <Favicon project={project} size={16} />
-            <span className="select-none">{project.name}</span>
-          </div>
-          <ChevronDown className="shrink-0 opacity-50" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-72" align="start" side="bottom">
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" />}>
+        <div className="flex items-center gap-2">
+          <Favicon project={project} size={16} />
+          <span className="select-none">{project.name}</span>
+        </div>
+        <ChevronDown className="shrink-0 opacity-50" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-72" align="start" side="bottom">
+        <DropdownMenuItem render={<Link to={localized(STUDIO_SETTINGS_PATH) as LinkProps["to"]} />}>
+          <Settings />
+          Settings
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
+            {project.organizationSlug}
+          </DropdownMenuLabel>
+          <DropdownMenuItem
+            render={
+              <a
+                href={
+                  authCtx ? `${authCtx.authenticationUrl}/${project.organizationSlug}/members` : "#"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            }
+          >
+            <Users />
+            Team members
+          </DropdownMenuItem>
           <DropdownMenuItem
             render={
               <a
                 href={
                   authCtx
-                    ? `${authCtx.authenticationUrl}/${project.organizationSlug}/${project.slug}/overview`
+                    ? `${authCtx.authenticationUrl}/${project.organizationSlug}/settings`
                     : "#"
                 }
                 target="_blank"
@@ -71,73 +92,17 @@ export const ProjectMenu = () => {
               />
             }
           >
-            <Settings />
-            Project settings
+            <Settings className="h-4 w-4" />
+            Team settings
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setIsFaviconDialogOpen(true)}>
-            <ImageIcon />
-            Set favicon…
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setIsSocialProfilesDialogOpen(true)}>
-            <AtSign />
-            Social profiles…
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
-              {project.organizationSlug}
-            </DropdownMenuLabel>
-            <DropdownMenuItem
-              render={
-                <a
-                  href={
-                    authCtx
-                      ? `${authCtx.authenticationUrl}/${project.organizationSlug}/members`
-                      : "#"
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                />
-              }
-            >
-              <Users />
-              Team members
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              render={
-                <a
-                  href={
-                    authCtx
-                      ? `${authCtx.authenticationUrl}/${project.organizationSlug}/settings`
-                      : "#"
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                />
-              }
-            >
-              <Settings className="h-4 w-4" />
-              Team settings
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem render={<Link to="https://camox.ai" target="_blank" />}>
-            <Info className="h-4 w-4" />
-            Powered by Camox
-            <span className="text-muted-foreground ml-auto">v{version}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <FaviconDialog
-        project={project}
-        open={isFaviconDialogOpen}
-        onOpenChange={setIsFaviconDialogOpen}
-      />
-      <SocialProfilesDialog
-        project={project}
-        open={isSocialProfilesDialogOpen}
-        onOpenChange={setIsSocialProfilesDialogOpen}
-      />
-    </>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link to="https://camox.ai" target="_blank" />}>
+          <Info className="h-4 w-4" />
+          Powered by Camox
+          <span className="text-muted-foreground ml-auto">v{version}</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };

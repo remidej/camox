@@ -59,9 +59,16 @@ import { studioStore } from "../studioStore";
  * and removing them. Switching keeps the page shown when the other language has it, and goes to
  * that language's home otherwise; the URL names the language by its prefix. Adding and removing
  * languages are content writes, so on Live they start a draft. While Camox translates the draft
- * into its languages, the picker shows a spinner, and nothing else does.
+ * into its languages, the picker shows a spinner, and nothing else does. A `disabled` picker still
+ * names the language viewed.
  */
-export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
+export function LocalePicker({
+  recordPage,
+  disabled = false,
+}: {
+  recordPage?: ShownRecordPage;
+  disabled?: boolean;
+}) {
   const projectUuid = useProjectUuid();
   const view = useViewLocale();
   const dialog = useSelector(studioStore, (state) => state.context.localeDialog);
@@ -92,7 +99,7 @@ export function LocalePicker({ recordPage }: { recordPage?: ShownRecordPage }) {
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button type="button" variant="ghost" />}>
+        <DropdownMenuTrigger disabled={disabled} render={<Button type="button" variant="ghost" />}>
           {translatingLocales.length > 0 ? (
             <TranslatingSpinner tags={translatingLocales} />
           ) : (
