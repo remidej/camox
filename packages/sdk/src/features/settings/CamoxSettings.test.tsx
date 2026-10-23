@@ -50,6 +50,7 @@ const project = {
   name: "Site",
   organizationSlug: "team",
   socialProfiles: [],
+  analytics: { ga4: null, posthog: null },
   updatedAt: 1,
 };
 const en = { tag: "en", isDefault: true };
@@ -60,16 +61,26 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-function mockApi(t: test.TestContext) {
+/**
+ * Serves the studio's reads, with `overrides` on the project, and returns the analytics changes the
+ * studio asks to save.
+ */
+function mockApi(t: test.TestContext, overrides: Partial<typeof project> = {}) {
+  const analyticsSaves: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request | URL) => {
     if (request instanceof URL) return Response.json({});
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
-    if (path === "projects/getByUuid") return json(project);
+    if (path === "projects/updateAnalytics") {
+      analyticsSaves.push(((await request.json()) as { json: unknown }).json);
+      return json({});
+    }
+    if (path === "projects/getByUuid") return json({ ...project, ...overrides });
     if (path === "locales/list") return json([en]);
     if (path === "pages/listBySlug") return json({ pages: [] });
     if (path === "drafts/list") return json({ live: null, drafts: [] });
     return json({});
   });
+  return { analyticsSaves };
 }
 
 async function settle() {
@@ -199,4 +210,88 @@ void test("the draft and language pickers work outside the Settings Section", as
       await new Promise((resolve) => setTimeout(resolve, 40));
     });
   }
+});
+
+/** The Settings Section's Analytics part. */
+const analyticsPart = () =>
+  window.document.querySelector('section[aria-labelledby="camox-settings-analytics"]');
+const analyticsButton = (name: RegExp) =>
+  [...(analyticsPart()?.querySelectorAll("button") ?? [])].find((button) =>
+    name.test(button.textContent ?? ""),
+  );
+
+void test("with no provider set, the Analytics part offers to add Google Analytics 4 and PostHog", async (t) => {
+  mockApi(t);
+  await render(t, "/camox/settings");
+
+  assert.ok(analyticsButton(/^Add Google Analytics 4$/), "no button to add Google Analytics 4");
+  assert.ok(analyticsButton(/^Add PostHog$/), "no button to add PostHog");
+});
+
+async function type(input: HTMLInputElement | null, value: string) {
+  assert.ok(input, "expected an input to type in");
+  await React.act(async () => {
+    // React tracks the value it last rendered, so set the new one through the native setter.
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(
+      input,
+      value,
+    );
+    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+const inputById = (id: string) =>
+  window.document.getElementById(id) as unknown as HTMLInputElement | null;
+const measurementIdInput = () => inputById("camox-ga4-measurement-id");
+
+void test("a GA4 measurement ID is saved in upper case", async (t) => {
+  const { analyticsSaves } = mockApi(t);
+  await render(t, "/camox/settings");
+
+  await click(analyticsButton(/^Add Google Analytics 4$/));
+  await type(measurementIdInput(), " g-a1b2c3 ");
+  await click(analyticsButton(/^Save$/));
+
+  assert.deepEqual(analyticsSaves, [{ id: project.id, ga4: { measurementId: "G-A1B2C3" } }]);
+});
+
+void test("a GA4 measurement ID that isn't one is refused before saving", async (t) => {
+  const { analyticsSaves } = mockApi(t);
+  await render(t, "/camox/settings");
+
+  await click(analyticsButton(/^Add Google Analytics 4$/));
+  await type(measurementIdInput(), "UA-12345");
+  await click(analyticsButton(/^Save$/));
+
+  assert.deepEqual(analyticsSaves, []);
+  assert.equal(measurementIdInput()?.getAttribute("aria-invalid"), "true");
+});
+
+void test("a provider being added can be cancelled without saving", async (t) => {
+  const { analyticsSaves } = mockApi(t);
+  await render(t, "/camox/settings");
+
+  await click(analyticsButton(/^Add PostHog$/));
+  assert.equal(analyticsButton(/^Add PostHog$/), undefined, "PostHog is still offered to add");
+  await click(analyticsButton(/^Cancel$/));
+
+  assert.ok(analyticsButton(/^Add PostHog$/), "PostHog isn't offered to add again");
+  assert.deepEqual(analyticsSaves, []);
+});
+
+void test("the saved providers show in the Analytics part, each removable", async (t) => {
+  const { analyticsSaves } = mockApi(t, {
+    analytics: {
+      ga4: { measurementId: "G-SAVED1" },
+      posthog: { projectApiKey: "phc_saved", region: "eu" },
+    } as never,
+  });
+  await render(t, "/camox/settings");
+
+  assert.equal(measurementIdInput()?.value, "G-SAVED1");
+  assert.equal(inputById("camox-posthog-project-api-key")?.value, "phc_saved");
+  assert.match(analyticsPart()?.textContent ?? "", /EU Cloud/);
+
+  await click(analyticsButton(/^Remove PostHog$/));
+  assert.deepEqual(analyticsSaves, [{ id: project.id, posthog: null }]);
 });
