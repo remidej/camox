@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -396,6 +396,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
                 },
               },
             },
+            // Public renders are cached per build: a release never serves the last one's pages.
+            __CAMOX_BUILD_ID__: JSON.stringify(randomUUID()),
           },
         },
         resolve: {

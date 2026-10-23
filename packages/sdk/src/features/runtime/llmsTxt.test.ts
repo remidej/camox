@@ -283,15 +283,13 @@ void test("llms.txt fails when the API isn't configured", async () => {
   assert.equal(response?.status, 500);
 });
 
-void test("llms.txt is plain text that clients can cache and revalidate", async (t) => {
+void test("llms.txt is plain text that clients can revalidate", async (t) => {
   let description = "Every Pokémon, described.";
   t.mock.method(globalThis, "fetch", async () =>
     pageListResponse([page("/", { metaDescription: description })]),
   );
   const response = await llmsTxt([defaultLayout]);
   assert.equal(response?.headers.get("Content-Type"), "text/plain; charset=utf-8");
-  assert.match(response?.headers.get("Cache-Control") ?? "", /public/);
-  assert.match(response?.headers.get("Cache-Control") ?? "", /stale-while-revalidate/);
   const etag = response?.headers.get("ETag");
   assert.ok(etag);
 

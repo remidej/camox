@@ -201,7 +201,10 @@ export default stylesheetUrl;
 }
 
 function generateVirtualCamoxServer(runtimeBasePath?: string): string {
-  return `import { handleCamoxRequest as handleRuntimeRequest } from "camox/_internal/runtime";
+  return `import {
+  handleCamoxRequest as handleRuntimeRequest,
+  isPublicRequest as isPublicRuntimeRequest,
+} from "camox/_internal/runtime";
 import { blockModulePaths, camoxApp } from "virtual:camox/app";
 import blockChunks from "virtual:camox/block-chunks";
 import { camoxDocument } from "virtual:camox/document";
@@ -216,23 +219,35 @@ import devHtml from "virtual:camox/dev-html";
 export { devHtml };
 export const runtimeBasePath = ${JSON.stringify(normalizeRuntimeBasePath(runtimeBasePath))};
 
+const options = {
+  apiUrl: __CAMOX_API_URL__,
+  authenticationUrl: __CAMOX_AUTHENTICATION_URL__,
+  blockPreloads: { modulePaths: blockModulePaths, chunks: blockChunks },
+  pageClientEntryUrl,
+  studioClientEntryUrl,
+  developmentDraft: __CAMOX_DEVELOPMENT_DRAFT__,
+  getCamoxApp: async () => camoxApp,
+  getDocument: async () => camoxDocument,
+  projectUuid: __CAMOX_PROJECT_ID__,
+  renderPage,
+  renderStudio,
+  runtimeBasePath: ${JSON.stringify(runtimeBasePath)},
+  stylesheetUrl: appStylesheetUrl,
+  studioStylesheetUrl,
+};
+
+export const publicCacheSource = {
+  apiUrl: __CAMOX_API_URL__,
+  projectUuid: __CAMOX_PROJECT_ID__,
+  build: __CAMOX_BUILD_ID__,
+};
+
 export async function handleCamoxRequest(request) {
-  return handleRuntimeRequest(request, {
-    apiUrl: __CAMOX_API_URL__,
-    authenticationUrl: __CAMOX_AUTHENTICATION_URL__,
-    blockPreloads: { modulePaths: blockModulePaths, chunks: blockChunks },
-    pageClientEntryUrl,
-    studioClientEntryUrl,
-    developmentDraft: __CAMOX_DEVELOPMENT_DRAFT__,
-    getCamoxApp: async () => camoxApp,
-    getDocument: async () => camoxDocument,
-    projectUuid: __CAMOX_PROJECT_ID__,
-    renderPage,
-    renderStudio,
-    runtimeBasePath: ${JSON.stringify(runtimeBasePath)},
-    stylesheetUrl: appStylesheetUrl,
-    studioStylesheetUrl,
-  });
+  return handleRuntimeRequest(request, options);
+}
+
+export function isPublicRequest(request) {
+  return isPublicRuntimeRequest(request, options);
 }
 `;
 }

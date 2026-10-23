@@ -85,8 +85,9 @@ void test("Camox names the project by its Project ID in the Worker's runtime opt
     (code, [name, value]) => code.replaceAll(name, value),
     server,
   );
-  const options = /handleRuntimeRequest\(request, \{([\s\S]*?)\}\);/.exec(compiled)?.[1];
+  const options = /const options = \{([\s\S]*?)\n\};/.exec(compiled)?.[1];
   assert.ok(options);
+  assert.match(compiled, /handleRuntimeRequest\(request, options\)/);
   assert.match(options, new RegExp(`projectUuid: "${PROJECT_ID}"`));
   assert.doesNotMatch(options, /projectSlug/);
 });

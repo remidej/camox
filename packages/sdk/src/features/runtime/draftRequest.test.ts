@@ -306,6 +306,17 @@ void test("a page rendered from a draft is never publicly cacheable", async (t) 
   }
 });
 
+void test("a visitor's Live page and its navigation data may be shared, a member's never", async (t) => {
+  mockApi(t);
+  for (const path of PATHS) {
+    const visitor = await request(path, {});
+    assert.equal(visitor!.status, 200, path);
+    assert.doesNotMatch(visitor!.headers.get("Cache-Control") ?? "", /private|no-store/, path);
+    const member = await request(path, { cookie: MEMBER_SESSION });
+    assert.equal(member!.headers.get("Cache-Control"), "private, no-store", path);
+  }
+});
+
 void test("in dev mode, a member reads their development draft whatever draft the URL names", async (t) => {
   const requests = mockApi(t);
   for (const path of PATHS) {
