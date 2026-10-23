@@ -103,7 +103,9 @@ export async function syncDefinitionsToApi(options: {
     logger.info("[camox] Created your development draft", { timestamp: true });
   }
 
-  logger.info(`[camox] Synced ${counted(result.blocks.count, "block definition")}`, {
+  const definitionCount =
+    result.blocks.count + result.collections.count + (result.layouts?.count ?? 0);
+  logger.info(`[camox] Synced ${counted(definitionCount, "Camox definition")}`, {
     timestamp: true,
   });
 
@@ -115,9 +117,6 @@ export async function syncDefinitionsToApi(options: {
     );
   }
 
-  logger.info(`[camox] Synced ${result.collections.count} collection definitions`, {
-    timestamp: true,
-  });
   for (const id of result.collections.retired) {
     logger.warn(`[camox] Removed collection "${id}"; its records are kept and hidden`, {
       timestamp: true,
@@ -126,9 +125,6 @@ export async function syncDefinitionsToApi(options: {
 
   const layoutSyncResults = result.layouts;
   if (layoutSyncResults) {
-    logger.info(`[camox] Synced ${counted(layoutSyncResults.count, "layout")} to Camox API`, {
-      timestamp: true,
-    });
     for (const layout of layoutSyncResults.layouts) {
       const { layoutId, createdBlockTypes, removedBlockTypes, skippedOrphanTypes } = layout;
       if (layout.wasExisting && createdBlockTypes.length > 0) {
@@ -312,7 +308,7 @@ export async function syncDefinitions(
     await sync({ initial: true });
     synced = true;
   } catch (error) {
-    logger.error(`[camox] Failed to sync block definitions: ${String(error)}`, {
+    logger.error(`[camox] Failed to sync Camox definitions: ${String(error)}`, {
       timestamp: true,
     });
   }
@@ -325,7 +321,7 @@ export async function syncDefinitions(
     timer = setTimeout(() => {
       running = running.then(() =>
         sync().catch((error: unknown) => {
-          logger.error(`[camox] Failed to sync block definitions: ${String(error)}`, {
+          logger.error(`[camox] Failed to sync Camox definitions: ${String(error)}`, {
             timestamp: true,
           });
         }),
