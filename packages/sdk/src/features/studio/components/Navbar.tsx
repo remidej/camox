@@ -1,7 +1,7 @@
 import { buttonVariants } from "@camox/ui/button";
 import type { HotkeyChord } from "@tanstack/react-hotkeys";
 import { useSelector } from "@xstate/store-react";
-import { Database, Globe, Settings } from "lucide-react";
+import { Database, Globe } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
 
@@ -56,25 +56,6 @@ const links: NavbarLink[] = [
     ),
     icon: "FileText",
     aliases: ["Content", "Pages", "CMS"],
-  },
-  {
-    to: STUDIO_SETTINGS_PATH as LinkProps["to"],
-    title: "Settings",
-    children: (
-      <>
-        <Settings />
-        Settings
-      </>
-    ),
-    icon: "Settings",
-    aliases: [
-      "Settings",
-      "Project settings",
-      "Project name",
-      "Favicon",
-      "Social profiles",
-      "Analytics",
-    ],
   },
 ];
 
@@ -182,6 +163,24 @@ function useNavbarActions() {
       icon: link.icon,
       aliases: link.aliases,
     })) satisfies Action[];
+    // Settings has no navbar link, only its project menu item, but it can still be reached here.
+    actions.push({
+      id: `navigate-to-${STUDIO_SETTINGS_PATH}`,
+      label: "Go to Settings",
+      groupLabel: "Navigation",
+      checkIfAvailable: () => true,
+      execute: () => void navigate({ to: localized(STUDIO_SETTINGS_PATH) }),
+      shortcut: `${actions.length + 1}` as HotkeyChord,
+      icon: "Settings",
+      aliases: [
+        "Settings",
+        "Project settings",
+        "Project name",
+        "Favicon",
+        "Social profiles",
+        "Analytics",
+      ],
+    });
 
     actionsStore.send({ type: "registerManyActions", actions });
 

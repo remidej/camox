@@ -4,7 +4,6 @@ import {
   posthogProjectApiKeySchema,
   posthogRegionSchema,
 } from "@camox/api-contract/analytics";
-import { Alert, AlertDescription } from "@camox/ui/alert";
 import { Button } from "@camox/ui/button";
 import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
@@ -12,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@camox/ui/separator";
 import { Spinner } from "@camox/ui/spinner";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Info, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import type { Project } from "@/lib/queries";
@@ -329,10 +328,7 @@ export function AnalyticsSettings({ project }: { project: Project }) {
   );
 
   return (
-    <SettingsPart
-      title="Analytics"
-      description="Count your website's visitors with the analytics tools you already use."
-    >
+    <SettingsPart title="Analytics" description="Count your website's unauthenticated visitors.">
       <div className="flex flex-col gap-4">
         {shown.map((provider, index) => {
           const saved = analytics[provider] ?? undefined;
@@ -360,13 +356,6 @@ export function AnalyticsSettings({ project }: { project: Project }) {
         ) : (
           addable.length > 0 && <div className="flex">{addButtons}</div>
         )}
-        <Alert>
-          <Info />
-          <AlertDescription>
-            Your team's visits aren't counted. To check it works, open the website in a private
-            window.
-          </AlertDescription>
-        </Alert>
       </div>
     </SettingsPart>
   );

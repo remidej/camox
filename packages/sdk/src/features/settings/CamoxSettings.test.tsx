@@ -171,17 +171,17 @@ async function render(t: test.TestContext, pathname: string) {
   });
 }
 
-void test("the navbar lists Website, Content and Settings, Settings current in the Settings Section", async (t) => {
+void test("the navbar lists only Website and Content, neither current in the Settings Section", async (t) => {
   mockApi(t);
   await render(t, "/camox/settings");
 
   assert.deepEqual(
     navbarLinks().map((link) => link.textContent),
-    ["Website", "Content", "Settings"],
+    ["Website", "Content"],
   );
   assert.deepEqual(
     navbarLinks().map((link) => link.getAttribute("aria-current")),
-    [null, null, "page"],
+    [null, null],
   );
 });
 
