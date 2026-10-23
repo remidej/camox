@@ -1,6 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -21,6 +22,7 @@ import { pages } from "../../schema";
 import { runGenerationJob } from "../generated-values/generation";
 import { openCatchUpDraft } from "./catch-up";
 import { runOverviewJob } from "./overview";
+import { drafts } from "./schema";
 
 // The Draft Overview: a headline and bullets AI writes about a draft's changes, stored on the
 // draft, shown at the top of its review, and never published.
@@ -153,6 +155,7 @@ describe("a draft's overview", () => {
       status: "ready",
       headline: "Retitles the homepage hero",
       bullets: ["Home: hero retitled"],
+      stale: false,
     });
     const asked = modelCalls().filter((call) => call.method === "draftOverview");
     expect(asked).toEqual([
@@ -164,6 +167,76 @@ describe("a draft's overview", () => {
         },
       },
     ]);
+  });
+});
+
+describe("the overview stays current", () => {
+  async function readyOverview() {
+    const f = await fixture();
+    const block = await f.createBlock("Live");
+    const draft = generateUuidv7();
+    await f.editTitle(block.id, "Mine", startingDraft(draft));
+    await f.runOverview(draft, { headline: "Retitles the hero", bullets: ["Home: hero retitled"] });
+    return { ...f, block, draft };
+  }
+
+  it("is stale after a further change, still carrying the previous headline and bullets", async () => {
+    const { block, draft, editTitle, preview } = await readyOverview();
+
+    await editTitle(block.id, "Mine again", inDraft(draft));
+
+    expect((await preview(draft)).overview).toEqual({
+      status: "ready",
+      headline: "Retitles the hero",
+      bullets: ["Home: hero retitled"],
+      stale: true,
+    });
+  });
+
+  it("is requested right away when a stale preview is read, once", async () => {
+    const { block, draft, editTitle, preview, overviewJobs } = await readyOverview();
+    await editTitle(block.id, "Mine again", inDraft(draft));
+    expect(overviewJobs(draft).at(-1)!.delayMs).toBeGreaterThan(0);
+
+    await preview(draft);
+
+    expect(overviewJobs(draft).at(-1)).toMatchObject({ delayMs: 0 });
+    const requested = overviewJobs(draft).length;
+    await preview(draft);
+    expect(overviewJobs(draft)).toHaveLength(requested);
+  });
+
+  it("is requested right away when the preview of a draft whose overview was never requested is read", async () => {
+    const { db, createBlock, editTitle, preview, overviewJobs } = await fixture();
+    const block = await createBlock("Live");
+    const draft = generateUuidv7();
+    await editTitle(block.id, "Mine", startingDraft(draft));
+    // As for a draft changed before overviews existed.
+    await db
+      .update(drafts)
+      .set({ overviewRequestedAt: null, overviewDueAt: null })
+      .where(eq(drafts.id, draft));
+    const requested = overviewJobs(draft).length;
+
+    expect((await preview(draft)).overview).toEqual({ status: "pending" });
+
+    expect(overviewJobs(draft)).toHaveLength(requested + 1);
+    expect(overviewJobs(draft).at(-1)).toMatchObject({ delayMs: 0 });
+  });
+
+  it("is ready and current again once the new job ran", async () => {
+    const { block, draft, editTitle, preview, runOverview } = await readyOverview();
+    await editTitle(block.id, "Mine again", inDraft(draft));
+    await preview(draft);
+
+    await runOverview(draft, { headline: "Retitles the hero twice", bullets: ["Home: hero"] });
+
+    expect((await preview(draft)).overview).toEqual({
+      status: "ready",
+      headline: "Retitles the hero twice",
+      bullets: ["Home: hero"],
+      stale: false,
+    });
   });
 });
 

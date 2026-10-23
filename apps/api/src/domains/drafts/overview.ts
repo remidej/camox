@@ -35,19 +35,55 @@ export type Overview =
   | { status: "none" }
   /** Requested, with nothing written yet. */
   | { status: "pending" }
-  | { status: "ready"; headline: string; bullets: string[] }
+  /**
+   * Written. A `stale` one describes an older version of the draft's changes: it's still shown
+   * while a new one is written.
+   */
+  | { status: "ready"; headline: string; bullets: string[]; stale: boolean }
   /** The model gave up on the last attempt. */
   | { status: "failed" };
 
-/** The overview of a draft that changes something (`changed`), as its row stores it. */
-export function overviewOf(row: DraftRow, changed: boolean): Overview {
-  if (!changed || isCatchUpDraft(row)) return { status: "none" };
+/** What identifies one of a draft's changes, for their fingerprint. */
+export type FingerprintedChange = {
+  entity: string;
+  id: string;
+  locale: string | null;
+  change: string;
+  /** When the draft's row was last written. */
+  updatedAt: number;
+};
+
+/**
+ * A fingerprint of a draft's changes: it differs once any of them is added, dropped, or written
+ * again. The overview records the one of the changes it describes.
+ */
+export const fingerprintOf = Effect.fn("drafts.overviewFingerprint")(function* (
+  changes: FingerprintedChange[],
+) {
+  const lines = changes
+    .map(({ entity, id, locale, change, updatedAt }) =>
+      JSON.stringify([entity, id, locale, change, updatedAt]),
+    )
+    .sort();
+  const digest = yield* Effect.promise(() =>
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(lines.join("\n"))),
+  );
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+});
+
+/**
+ * A draft's overview as its row stores it, given the fingerprint of the draft's changes (null
+ * while it changes nothing).
+ */
+export function overviewOf(row: DraftRow, fingerprint: string | null): Overview {
+  if (fingerprint === null || isCatchUpDraft(row)) return { status: "none" };
   if (row.overviewFailed) return { status: "failed" };
   if (row.overviewHeadline !== null) {
     return {
       status: "ready",
       headline: row.overviewHeadline,
       bullets: row.overviewBullets ?? [],
+      stale: row.overviewFingerprint !== fingerprint,
     };
   }
   return { status: "pending" };
@@ -74,10 +110,15 @@ export const requestOverview = Effect.fn("drafts.requestOverview")(function* (
   );
   if (!row || isCatchUpDraft(row)) return;
   const requestedAt = Date.now();
+  const delayMs = options.immediately ? 0 : DEBOUNCE_MS;
   yield* Effect.promise(() =>
     db
       .update(drafts)
-      .set({ overviewRequestedAt: requestedAt, overviewFailed: false })
+      .set({
+        overviewRequestedAt: requestedAt,
+        overviewDueAt: requestedAt + delayMs,
+        overviewFailed: false,
+      })
       .where(eq(drafts.id, draftId)),
   );
   yield* record(db, { kind: "overview", projectId: row.projectId, draftId });
@@ -87,7 +128,7 @@ export const requestOverview = Effect.fn("drafts.requestOverview")(function* (
   const background = yield* Background;
   yield* background.run(
     scheduler
-      .schedule(job, options.immediately ? 0 : DEBOUNCE_MS)
+      .schedule(job, delayMs)
       .pipe(
         Effect.catchTag("ScheduleError", (error) =>
           Effect.logError(`[overview] ${jobName(job)} could not be scheduled`, error.cause).pipe(
@@ -135,7 +176,7 @@ export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
   );
   if (!row || isCatchUpDraft(row)) return;
   const startedAt = Date.now();
-  const { changes } = yield* computePreview(camoxContext(db), draftOf(row));
+  const { changes, fingerprint } = yield* computePreview(camoxContext(db), draftOf(row));
   if (changes.length === 0) return;
   const model = yield* AiModel;
   const written = yield* Effect.result(
@@ -161,6 +202,7 @@ export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
         overviewHeadline: headline,
         overviewBullets: bullets,
         overviewGeneratedAt: Date.now(),
+        overviewFingerprint: fingerprint,
         overviewFailed: false,
       })
       .where(eq(drafts.id, row.id)),
@@ -180,12 +222,40 @@ export function clearStatements(db: Database, draftId: string): overlay.BatchIte
         overviewHeadline: null,
         overviewBullets: null,
         overviewRequestedAt: null,
+        overviewDueAt: null,
         overviewGeneratedAt: null,
+        overviewFingerprint: null,
         overviewFailed: false,
       })
       .where(eq(drafts.id, draftId)),
   ];
 }
+
+/**
+ * Requests a draft's overview right away when its review reads it outdated: stale, or pending
+ * without ever having been requested, as for a draft written before overviews existed. A pending
+ * one that was requested waits for its debounce. Nothing is requested while a request is already
+ * due, so reading the review again doesn't request it again.
+ */
+export const requestIfOutdated = Effect.fn("drafts.requestOverviewIfOutdated")(function* (
+  db: Database,
+  draftId: string,
+  overview: Overview,
+) {
+  const stale = overview.status === "ready" && overview.stale;
+  if (!stale && overview.status !== "pending") return;
+  const row = yield* Effect.promise(() =>
+    db
+      .select({ requestedAt: drafts.overviewRequestedAt, dueAt: drafts.overviewDueAt })
+      .from(drafts)
+      .where(eq(drafts.id, draftId))
+      .get(),
+  );
+  if (!row) return;
+  if (!stale && row.requestedAt !== null) return;
+  if (row.dueAt !== null && row.dueAt <= Date.now()) return;
+  yield* requestOverview(db, draftId, { immediately: true });
+});
 
 export const retryOverviewInput = z.object({ projectId: z.number() });
 
