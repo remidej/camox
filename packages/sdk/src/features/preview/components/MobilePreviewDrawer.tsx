@@ -2,11 +2,12 @@ import { useSelector } from "@xstate/store-react";
 import { ArrowLeft, FileText, Info, Layers, Search, Settings } from "lucide-react";
 import * as React from "react";
 
-import { useAuthContext } from "@/lib/auth";
+import { useNavigate } from "@/features/navigation/navigation";
 import { cn } from "@/lib/utils";
+import { useLocalizedPath } from "@/lib/view-locale";
 
-import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { UserButton } from "../../studio/components/UserButton";
+import { STUDIO_SETTINGS_PATH } from "../../studio/routes";
 import { previewStore, selectionBlockId, selectionForPage } from "../previewStore";
 import { PageInfo, PageMarkdownContent, PageSeoContent } from "./PageInfo";
 import { PageNavigatorHeader, type PreviewedPage } from "./PageNavigatorHeader";
@@ -37,8 +38,8 @@ export function MobilePreviewDrawer({
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
   const [screen, setScreen] = React.useState<DrawerScreen>("root");
-  const authCtx = useAuthContext();
-  const { data: project } = useReadQuery(reads.project({ projectUuid: authCtx.projectUuid }));
+  const navigate = useNavigate();
+  const localized = useLocalizedPath();
   const dragStartRef = React.useRef({ y: 0, height: COLLAPSED_HEIGHT });
   const dragDistanceRef = React.useRef(0);
   const rootContentRef = React.useRef<HTMLDivElement>(null);
@@ -236,15 +237,7 @@ export function MobilePreviewDrawer({
                   <DrawerTile
                     title="Project settings"
                     icon={Settings}
-                    onClick={() => {
-                      if (!project) return;
-                      window.open(
-                        `${authCtx.authenticationUrl}/${project.organizationSlug}/${project.slug}/overview`,
-                        "_blank",
-                        "noopener,noreferrer",
-                      );
-                    }}
-                    disabled={!project}
+                    onClick={() => void navigate({ to: localized(STUDIO_SETTINGS_PATH) })}
                   />
                 </div>
               </div>
