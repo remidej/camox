@@ -26,7 +26,6 @@ import {
   sharedContents,
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
-import type { Field } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { sharedPlacementId } from "../blocks/shared-content";
 import {
@@ -48,7 +47,12 @@ import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import { catchUpPending, isCatchUpDraft } from "./catch-up";
-import { checkContentProblems, CONTENT_PROBLEM_CODES, type ContentFinding } from "./content-checks";
+import {
+  checkContentProblems,
+  CONTENT_PROBLEM_CODES,
+  type ContentFinding,
+  type ProblemPlace,
+} from "./content-checks";
 import { type FieldDiff, fieldDiffsOf } from "./field-values";
 import * as overlay from "./overlay";
 import {
@@ -122,13 +126,10 @@ export const PROBLEM_CODES = [
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject &
-  InLocale & {
+  InLocale &
+  ProblemPlace & {
     code: (typeof PROBLEM_CODES)[number];
     field: string;
-    /** The kind of the content field the problem is in, or null outside one. */
-    fieldKind: Field["kind"] | null;
-    /** The block the problem's content sits in: the block itself, or an item's block. */
-    blockId: string | null;
     message: string;
   };
 
@@ -337,8 +338,8 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     locale,
     code,
     field,
-    fieldKind: fieldKind ?? null,
-    blockId: blockId ?? null,
+    fieldKind,
+    blockId,
     message,
   });
 

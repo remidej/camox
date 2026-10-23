@@ -238,10 +238,6 @@ const problemSchema = z.strictObject({
   ...subjectFields,
   code: z.enum(PROBLEM_CODES),
   field: z.string(),
-  /** The kind of the content field the problem is in, or null outside one. */
-  fieldKind: z.string().nullable(),
-  /** The block the problem's content sits in: the block itself, or an item's block. */
-  blockId: z.string().nullable(),
   message: z.string(),
 });
 

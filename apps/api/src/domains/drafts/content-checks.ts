@@ -66,18 +66,25 @@ export type ContentProblemCode = (typeof CONTENT_PROBLEM_CODES)[number];
 /** An entity holding content, as previews name it. */
 type ContentEntity = Exclude<overlay.EntityKind, "file">;
 
+/** Where in content a problem is, for the studio to show it there. */
+export type ProblemPlace = {
+  /** The kind of the content field the problem is in, or null outside one. */
+  fieldKind: Field["kind"] | null;
+  /** The block the problem's content sits in: the block itself, an item's block, or null. */
+  blockId: string | null;
+};
+
+/** Outside any block's content field, as a page's path or a locale. */
+export const NO_PLACE: ProblemPlace = { fieldKind: null, blockId: null };
+
 /** A problem found in an entity's field, in the locale of the localization it's found in. */
-export type ContentFinding = {
+export type ContentFinding = ProblemPlace & {
   entity: ContentEntity;
   id: string;
   /** The tag of the localization's locale, or null for an entity stored once, like a locale. */
   locale: string | null;
   code: ContentProblemCode;
   field: string;
-  /** The kind of the content field the problem is in, when it's in one. */
-  fieldKind?: Field["kind"];
-  /** The block the problem's content sits in: the block itself, or an item's block. */
-  blockId?: string;
   message: string;
 };
 
@@ -111,6 +118,7 @@ function checkDuplicatePaths(scope: Scope, rows: (typeof pages.$inferSelect)[], 
         id: page.id,
         code: "duplicatePath",
         field: "path",
+        ...NO_PLACE,
         message: `Another page already uses ${page.fullPath}`,
       });
     }
@@ -139,6 +147,7 @@ const checkMetaTitles = Effect.fn("drafts.checkMetaTitles")(function* (
     id: page.id,
     code,
     field: "metaTitle",
+    ...NO_PLACE,
     message,
   });
   for (const page of drafted) {
@@ -206,6 +215,7 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
             id: record.id,
             code: "duplicateRecordPageValue",
             field: layout.field,
+            ...NO_PLACE,
             message: `Another record's page is also found by "${valueOf(record)}"`,
           });
         }
@@ -356,14 +366,8 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
 });
 
 /** Where in a holder's content a problem is: its field's kind, and the block holding it. */
-export function placeOf(
-  holder: Holder,
-  field: Field | undefined,
-): Pick<ContentFinding, "fieldKind" | "blockId"> {
-  return {
-    ...(field && { fieldKind: field.kind }),
-    ...(holder.blockId !== null && { blockId: holder.blockId }),
-  };
+export function problemPlaceIn(holder: Holder, field: Field | undefined): ProblemPlace {
+  return { fieldKind: field?.kind ?? null, blockId: holder.blockId };
 }
 
 /** What content checks point at: records and pages. Publishing checks files on its own. */
@@ -407,7 +411,7 @@ function checkDanglingPointers(
         id: holder.id,
         code: missing[0].to === "page" ? "danglingPageLink" : "danglingReference",
         field: name,
-        ...placeOf(holder, field),
+        ...problemPlaceIn(holder, field),
         message:
           !holder.changed && deletedByDraft
             ? `"${title}" points at ${what} this draft deletes: edit it in this draft`
@@ -437,7 +441,7 @@ function checkEmptyRequiredReferences(holders: Holder[], found: Findings) {
         id: holder.id,
         code: "emptyRequiredReference",
         field: field.name,
-        ...placeOf(holder, field),
+        ...problemPlaceIn(holder, field),
         message: `"${field.title}" is required but empty`,
       });
     }
@@ -462,7 +466,7 @@ function checkWrongKinds(holders: Holder[], found: Findings) {
         id: holder.id,
         code: "wrongKindValue",
         field,
-        ...placeOf(holder, definition),
+        ...problemPlaceIn(holder, definition),
         message: `"${title}" holds a value its definition no longer accepts, which reads as its default`,
       });
     }
@@ -501,6 +505,7 @@ function checkLocalePrefixes(
       id: locale.id,
       code: "localePrefixTaken",
       field: "tag",
+      ...NO_PLACE,
       message: `The "${locale.tag}" locale's prefix is a page path in the default locale: ${prefix}`,
     });
   }
@@ -519,6 +524,7 @@ function checkDuplicateLocales(scope: Scope, tags: LocaleRow[], found: Findings)
       id: locale.id,
       code: "duplicateLocale",
       field: "tag",
+      ...NO_PLACE,
       message: `Another draft published the "${locale.tag}" locale: remove it from this draft to keep Live's`,
     });
   }

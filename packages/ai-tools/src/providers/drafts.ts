@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import {
   discardDraft,
-  previewPublish as previewWithActions,
+  previewPublish as studioPreview,
+  type Problem,
   publishDraft,
   type PublishPreview,
 } from "../../../../apps/api/src/domains/drafts/publish";
@@ -29,21 +30,27 @@ const publishToolInput = z.object({
 });
 const discardInput = z.object({});
 
+/** A blocker or warning as agents see it: without where the studio shows it in the Canvas. */
+const withoutCanvasPlace = ({ fieldKind: _fieldKind, blockId: _blockId, ...problem }: Problem) =>
+  problem;
+
 /**
  * The preview as agents see it: without which conflicts the studio offers to use Live's version
- * of, which agents can't do, nor the fields the studio's conflict cards show, nor the studio's
- * Draft Overview.
+ * of, which agents can't do, nor the fields the studio's conflict cards show, nor where the
+ * studio shows a problem, nor the studio's Draft Overview.
  */
 const withoutStudioActions = ({ overview: _overview, ...preview }: PublishPreview) => ({
   ...preview,
+  blockers: preview.blockers.map(withoutCanvasPlace),
+  warnings: preview.warnings.map(withoutCanvasPlace),
   conflicts: preview.conflicts.map(
     ({ revertible: _revertible, fields: _fields, moreFields: _moreFields, ...conflict }) =>
       conflict,
   ),
 });
 
-const previewPublish = (...args: Parameters<typeof previewWithActions>) =>
-  previewWithActions(...args).pipe(Effect.map(withoutStudioActions));
+const previewPublish = (...args: Parameters<typeof studioPreview>) =>
+  studioPreview(...args).pipe(Effect.map(withoutStudioActions));
 
 const publishResultSchema = z.union([
   z.strictObject({ published: z.literal(true), ended: endedDraftSchema.nullable() }),
@@ -74,6 +81,7 @@ const PREVIEW_SHAPE =
   "which the others are translated from. `token` records the conflicts shown.";
 
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
+
 export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   defineTool({
     name: "previewPublish",
@@ -114,12 +122,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const { token, publishAnyway } = publishToolInput.parse(input);
       const notPublished = (reason: NotPublishedReason, message: string) =>
         previewPublish(ctx, { projectId: ctx.projectId }).pipe(
-          Effect.map((preview) => ({
-            published: false as const,
-            reason,
-            message,
-            preview,
-          })),
+          Effect.map((preview) => ({ published: false as const, reason, message, preview })),
         );
       return runService(
         publishDraft(ctx, { projectId: ctx.projectId, token, publishAnyway }).pipe(
