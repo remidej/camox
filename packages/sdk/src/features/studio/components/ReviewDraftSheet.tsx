@@ -63,7 +63,7 @@ function problemPlace(problem: Problem): string | null {
  * Where a conflict or lost change sits: its page, layout or collection, and its locale when the
  * draft's change is in another than the default.
  */
-function placeOf(subject: Conflict | Lost, defaultLocale: string | null): string {
+function placeInLocale(subject: Conflict | Lost, defaultLocale: string | null): string {
   const place = ownerName(subject.owner, subject.entity);
   if (!subject.locale || subject.locale === defaultLocale) return place;
   return `${place} · ${localeLabel(subject.locale)}`;
@@ -378,7 +378,7 @@ function Cards({
           icon={Replace}
           title={conflictTitle(conflict)}
         >
-          <p>{placeOf(conflict, defaultLocale)}</p>
+          <p>{placeInLocale(conflict, defaultLocale)}</p>
           <p>
             {conflictDetail(
               conflict,
@@ -403,7 +403,7 @@ function Cards({
               : `Loses the change to the ${change.label}`
           }
         >
-          <p>{placeOf(change, defaultLocale)}</p>
+          <p>{placeInLocale(change, defaultLocale)}</p>
           <p>{LOST_REASONS[change.reason]}</p>
         </Card>
       ))}

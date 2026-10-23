@@ -27,7 +27,7 @@ export const MAX_INPUT_LENGTH = 20_000;
 export const CREATED_VALUES = 3;
 
 /** Where a change sits, as the model reads it: its page's name and path, or what else holds it. */
-function placeOf(change: Change): string {
+function placeName(change: Change): string {
   const { owner, entity } = change;
   if (entity === "locale") return "Languages";
   if (!owner) return entity === "file" ? "Files" : "Elsewhere";
@@ -83,7 +83,7 @@ const describeChanges = Effect.fn("drafts.describeOverviewChanges")(function* (
   const described: OverviewChange[] = [];
   const pages = new Map<OverviewChange, PathRename>();
   for (const change of changes) {
-    const base = { place: placeOf(change), label: change.label };
+    const base = { place: placeName(change), label: change.label };
     if (change.change === "deleted" || !isEntity(change)) {
       described.push({ ...base, change: change.change });
       continue;
@@ -140,7 +140,7 @@ function localeEditsOf(changes: readonly Change[]): OverviewLocaleEdits[] {
       byLocale.set(locale, edits);
     }
     edits.edits += 1;
-    const place = placeOf(change);
+    const place = placeName(change);
     if (!edits.places.includes(place)) edits.places.push(place);
   }
   return [...byLocale.values()];
