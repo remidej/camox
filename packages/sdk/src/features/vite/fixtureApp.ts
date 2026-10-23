@@ -7,6 +7,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import { createBuilder, preview } from "vite-plus";
 
 import { ASSET_PREFIX_GLOBAL } from "../runtime/assetPrefix";
+import { HOSTED_BUILD_ENV } from "./hostedChecks";
 import { camox } from "./vite";
 
 const sdkRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -41,11 +42,14 @@ export interface FixtureBuild {
 export async function buildFixtureApp({
   apiUrl,
   files = {},
+  hosted = false,
 }: {
   /** The Camox API the build talks to. */
   apiUrl: string;
   /** Files to add or replace, by path from the app's root. */
   files?: Record<string, string>;
+  /** Build as Camox's sandboxes build a hosted project: with its build checks on. */
+  hosted?: boolean;
 }): Promise<FixtureBuild> {
   const temp = await mkdtemp(join(tmpdir(), "camox-fixture-"));
   const root = join(temp, "app");
@@ -57,7 +61,8 @@ export async function buildFixtureApp({
       await writeFile(join(root, path), contents);
     }
     await linkDependencies(root);
-    await withEnv({ CAMOX_INTERNAL_RELEASE: "dry-run" }, async () => {
+    const env = { CAMOX_INTERNAL_RELEASE: "dry-run", [HOSTED_BUILD_ENV]: hosted ? "1" : undefined };
+    await withEnv(env, async () => {
       const builder = await createBuilder({
         configFile: false,
         root,
@@ -144,15 +149,22 @@ async function linkDependencies(root: string) {
   }
 }
 
-async function withEnv<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
-  const previous = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
-  Object.assign(process.env, env);
-  try {
-    return await run();
-  } finally {
-    for (const [name, value] of Object.entries(previous)) {
+/** Runs `run` with `env` set, where `undefined` unsets a variable. */
+async function withEnv<T>(
+  env: Record<string, string | undefined>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const set = (vars: Record<string, string | undefined>) => {
+    for (const [name, value] of Object.entries(vars)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
+  };
+  const previous = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
+  set(env);
+  try {
+    return await run();
+  } finally {
+    set(previous);
   }
 }

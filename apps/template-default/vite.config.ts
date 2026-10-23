@@ -5,6 +5,11 @@ import { camox } from "camox/vite";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  // Lint is for code quality only: it never fails a build. No type-aware rules, which need a type
+  // check of their own.
+  lint: {
+    plugins: ["typescript", "unicorn", "oxc", "react"],
+  },
   resolve: { tsconfigPaths: true },
   server: {
     port: 7400,
