@@ -2,16 +2,16 @@ import { Button } from "@camox/ui/button";
 import { FaviconDropZone, validateFaviconFile } from "@camox/ui/favicon-drop-zone";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
-import { useMutation } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { buildDefaultFaviconUrl, buildFaviconUrl } from "@/features/routes/pageRuntime";
 import { getApiUrl } from "@/lib/api-client";
-import { type Project, projectMutations } from "@/lib/queries";
+import type { Project } from "@/lib/queries";
 
 import { reads, useStudioCache } from "../../lib/studio-reads";
 import { SettingsPart } from "./SettingsPart";
+import { useProjectMutation } from "./useProjectMutation";
 
 type PendingChange = { type: "upload"; file: File } | { type: "remove" } | null;
 
@@ -51,18 +51,22 @@ export function FaviconSettings({ project }: { project: Project }) {
     return () => URL.revokeObjectURL(pendingUrl);
   }, [pendingUrl]);
 
-  const onSuccess = async () => {
-    await studioCache.invalidate(reads.project({ projectUuid: project.uuid }));
+  const onSuccess = () => {
     const updated = studioCache.get(reads.project({ projectUuid: project.uuid }));
     refreshDocumentFavicon(buildFaviconUrl(getApiUrl(), updated ?? project));
-    toast.success(pending?.type === "remove" ? "Favicon removed" : "Favicon updated");
     setPending(null);
   };
-  const onError = (error: Error) => {
-    toast.error(error.message || "Could not save the favicon");
-  };
-  const upload = useMutation({ ...projectMutations.uploadFavicon(), onSuccess, onError });
-  const remove = useMutation({ ...projectMutations.deleteFavicon(), onSuccess, onError });
+  const failure = "Could not save the favicon";
+  const upload = useProjectMutation(project, "uploadFavicon", {
+    success: "Favicon updated",
+    failure,
+    onSuccess,
+  });
+  const remove = useProjectMutation(project, "deleteFavicon", {
+    success: "Favicon removed",
+    failure,
+    onSuccess,
+  });
   const isSaving = upload.isPending || remove.isPending;
 
   const choose = (file: File) => {

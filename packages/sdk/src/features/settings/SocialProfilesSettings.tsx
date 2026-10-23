@@ -2,15 +2,13 @@ import { socialProfileUrlSchema } from "@camox/api-contract/projects";
 import { Button } from "@camox/ui/button";
 import { Input } from "@camox/ui/input";
 import { Spinner } from "@camox/ui/spinner";
-import { toast } from "@camox/ui/toaster";
-import { useMutation } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { type Project, projectMutations } from "@/lib/queries";
+import type { Project } from "@/lib/queries";
 
-import { reads, useStudioCache } from "../../lib/studio-reads";
 import { SettingsPart } from "./SettingsPart";
+import { useProjectMutation } from "./useProjectMutation";
 
 /** A profile being edited, keyed so its input keeps focus as rows move. */
 type Row = { key: number; url: string };
@@ -19,23 +17,18 @@ let nextRowKey = 0;
 const row = (url: string): Row => ({ key: nextRowKey++, url });
 
 export function SocialProfilesSettings({ project }: { project: Project }) {
-  const studioCache = useStudioCache();
   const [rows, setRows] = React.useState<Row[]>(() => project.socialProfiles.map(row));
   const [showErrors, setShowErrors] = React.useState(false);
 
   // Empty rows are dropped rather than refused, so adding one by mistake never blocks saving.
   const filled = rows.map((entry) => ({ ...entry, url: entry.url.trim() })).filter((e) => e.url);
 
-  const save = useMutation({
-    ...projectMutations.updateSocialProfiles(),
-    onSuccess: async () => {
-      await studioCache.invalidate(reads.project({ projectUuid: project.uuid }));
+  const save = useProjectMutation(project, "updateSocialProfiles", {
+    success: "Social profiles updated",
+    failure: "Could not save the social profiles",
+    onSuccess: () => {
       setRows(filled);
       setShowErrors(false);
-      toast.success("Social profiles updated");
-    },
-    onError: (error) => {
-      toast.error(error.message || "Could not save the social profiles");
     },
   });
 

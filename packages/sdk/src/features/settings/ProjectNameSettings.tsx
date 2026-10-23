@@ -2,29 +2,20 @@ import { Button } from "@camox/ui/button";
 import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
 import { Spinner } from "@camox/ui/spinner";
-import { toast } from "@camox/ui/toaster";
-import { useMutation } from "@tanstack/react-query";
 import * as React from "react";
 
-import { type Project, projectMutations } from "@/lib/queries";
+import type { Project } from "@/lib/queries";
 
-import { reads, useStudioCache } from "../../lib/studio-reads";
 import { SettingsPart } from "./SettingsPart";
+import { useProjectMutation } from "./useProjectMutation";
 
 export function ProjectNameSettings({ project }: { project: Project }) {
-  const studioCache = useStudioCache();
   const [name, setName] = React.useState(project.name);
   const [error, setError] = React.useState<string | null>(null);
 
-  const save = useMutation({
-    ...projectMutations.update(),
-    onSuccess: async () => {
-      await studioCache.invalidate(reads.project({ projectUuid: project.uuid }));
-      toast.success("Project name updated");
-    },
-    onError: (error) => {
-      toast.error(error.message || "Could not update the project name");
-    },
+  const save = useProjectMutation(project, "update", {
+    success: "Project name updated",
+    failure: "Could not update the project name",
   });
 
   const trimmedName = name.trim();

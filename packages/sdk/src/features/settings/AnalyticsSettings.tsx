@@ -11,16 +11,14 @@ import { Label } from "@camox/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
 import { Separator } from "@camox/ui/separator";
 import { Spinner } from "@camox/ui/spinner";
-import { toast } from "@camox/ui/toaster";
 import { useForm, useStore } from "@tanstack/react-form";
-import { useMutation } from "@tanstack/react-query";
 import { Info, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { type Project, projectMutations } from "@/lib/queries";
+import type { Project } from "@/lib/queries";
 
-import { reads, useStudioCache } from "../../lib/studio-reads";
 import { SettingsPart } from "./SettingsPart";
+import { useProjectMutation } from "./useProjectMutation";
 
 type Analytics = Project["analytics"];
 type Provider = keyof Analytics;
@@ -40,17 +38,11 @@ function useSaveProvider<P extends Provider>(
   name: string,
   { project, onClose }: Pick<ProviderFormProps<P>, "project" | "onClose">,
 ) {
-  const studioCache = useStudioCache();
-  const mutation = useMutation({
-    ...projectMutations.updateAnalytics(),
-    onSuccess: async (_, input) => {
-      await studioCache.invalidate(reads.project({ projectUuid: project.uuid }));
-      const removed = input[provider] === null;
-      if (removed) onClose();
-      toast.success(removed ? `${name} removed` : `${name} saved`);
-    },
-    onError: (error) => {
-      toast.error(error.message || `Could not save ${name}`);
+  const mutation = useProjectMutation(project, "updateAnalytics", {
+    success: (input) => (input[provider] === null ? `${name} removed` : `${name} saved`),
+    failure: `Could not save ${name}`,
+    onSuccess: (input) => {
+      if (input[provider] === null) onClose();
     },
   });
   const input = (settings: Analytics[P]) => ({ id: project.id, [provider]: settings });
