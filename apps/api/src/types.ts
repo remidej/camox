@@ -10,7 +10,7 @@ export type Bindings = {
   GOOGLE_CLIENT_SECRET: string;
   DASHBOARD_URL: string;
   EMAIL: SendEmail;
-  /** Where alerts go, such as a failed release's. A Google Workspace alias delivers it. */
+  /** Where alerts go, such as a failed release's. Cloudflare Email Routing forwards it. */
   ALERT_EMAIL_TO: string;
   OPEN_ROUTER_API_KEY: string;
   /** Workers AI, which the agent's web tools search and convert pages to Markdown with. */
