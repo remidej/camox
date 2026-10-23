@@ -428,6 +428,18 @@ void test("says an empty draft has no changes, with no overview", async (t) => {
   }
 });
 
+void test("shows no overview for a catch-up draft's changes, which get none", async (t) => {
+  mockApi(t, () => json({ ...emptyPreview, overview: { status: "none" } }));
+  const close = await openReview();
+  try {
+    assert.doesNotMatch(dialogText(), /Summarizing/);
+    assert.equal(window.document.querySelector('[role="dialog"] [data-overview]'), null);
+    assert.equal(window.document.querySelector('[role="dialog"] [data-slot="skeleton"]'), null);
+  } finally {
+    await close();
+  }
+});
+
 void test("says the draft is translated only on a multilingual website", async (t) => {
   mockApi(t, () => json(emptyPreview));
   const close = await openReview();

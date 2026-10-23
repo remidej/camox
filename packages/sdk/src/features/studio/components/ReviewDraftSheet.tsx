@@ -473,7 +473,8 @@ function StatusLines({
  * The draft's overview: the bullets AI wrote about its changes, in full, under the headline the
  * header shows, saying it's updating while they describe an older version of the draft. While
  * it's first written, skeleton lines; once it failed, a Retry and a plain count of the changes,
- * so the draft can still be reviewed.
+ * so the draft can still be reviewed. Nothing for a draft that gets no overview, as a catch-up
+ * draft.
  */
 function DraftOverview({ projectId, preview }: { projectId: number; preview: PublishPreview }) {
   const { overview, changes } = preview;
@@ -530,6 +531,7 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
       </div>
     );
   }
+  if (overview.status === "none") return null;
   return (
     <div data-overview className="flex flex-col gap-2">
       <Skeleton className="h-4 w-11/12" />
