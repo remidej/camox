@@ -163,6 +163,7 @@ export default defineConfig({
           setupFiles: [
             "./test/apply-migrations.ts",
             "./test/record-project-rooms.ts",
+            "./test/record-edge-cache-purges.ts",
             "./test/record-generation.ts",
           ],
         },

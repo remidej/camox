@@ -57,6 +57,12 @@
         "name": "ProjectRoom",
         "class_name": "ProjectRoom",
       },
+      // Batches purges of the edge cache, which the account's purge rate limit caps
+      // (src/durable-objects/edge-cache-purger.ts).
+      {
+        "name": "EDGE_CACHE_PURGER",
+        "class_name": "EdgeCachePurger",
+      },
       {
         "name": "THREAD",
         "class_name": "Thread",
@@ -135,7 +141,16 @@
       "tag": "v3",
       "new_sqlite_classes": ["Thread"],
     },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["EdgeCachePurger"],
+    },
   ],
+  // Cloudflare caches the public reads the `EdgeCache` entrypoint answers, in front of the Worker
+  // (src/edge-cache.ts). The default entrypoint, which answers everything else, caches nothing.
+  "exports": {
+    "EdgeCache": { "type": "worker", "cache": { "enabled": true } },
+  },
   "observability": {
     "logs": {
       "enabled": true,

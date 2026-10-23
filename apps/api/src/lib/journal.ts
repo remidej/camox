@@ -8,7 +8,7 @@ import type { EntityKind } from "../domains/drafts/overlay";
 // changed by recording it here; nothing else decides what realtime messages a write sends. The
 // overlay records each content entity it writes, so content writes record nothing themselves.
 // `runService` provides the journal and, once the work succeeded, turns it into messages for the
-// project rooms (`invalidation.ts`). Work that failed sends nothing.
+// project rooms and purges of changed Live (`invalidation.ts`). Work that failed sends nothing.
 
 /** One thing a unit of work changed, said in domain terms rather than in query keys. */
 export type Change =

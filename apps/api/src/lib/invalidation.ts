@@ -13,11 +13,13 @@ import {
 import type { Change } from "./journal";
 
 type ContentChange = Extract<Change, { kind: "content" }>;
+import { edgeCachePurges, edgeCacheTags } from "./edge-cache-purges";
 import { projectRooms } from "./project-rooms";
 
 // Turns a journal into the project rooms' messages (ADR 0011): which reads each change reaches,
 // in the scope it was made in. This is the one place that knows which query keys a change
 // refreshes. A change to an entity kind without a rule refreshes everything its scope reads.
+// It also tells which websites' cached renders a change ends (ADR 0022).
 
 type Row = Record<string, unknown>;
 
@@ -270,8 +272,30 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
 });
 
 /**
- * Sends each project's room the messages for what a unit of work changed. Reading where the
- * changes show can't fail it: a change whose entity can't be read refreshes more broadly.
+ * Whether a change shows on the website visitors see: anything written on Live, by a publish or
+ * a release, and the project's settings, which apply without publishing.
+ */
+function changesLive(change: Change): boolean {
+  switch (change.kind) {
+    case "content":
+    case "localizedWrite":
+    case "generated":
+    case "definitions":
+      return change.draftId === null;
+    case "project":
+      return true;
+    case "translations":
+    case "overview":
+    case "drafts":
+    case "ended":
+      return false;
+  }
+}
+
+/**
+ * Sends each project's room the messages for what a unit of work changed, and purges the Live
+ * cache key of each project whose Live it changed, so its website renders again. Reading where
+ * the changes show can't fail it: a change whose entity can't be read refreshes more broadly.
  */
 export const announce = Effect.fn("invalidation.announce")(
   function* (db: Database, changes: readonly Change[]) {
@@ -280,6 +304,11 @@ export const announce = Effect.fn("invalidation.announce")(
     for (const change of changes) {
       byProject.set(change.projectId, [...(byProject.get(change.projectId) ?? []), change]);
     }
+    edgeCachePurges.purge(
+      [...byProject]
+        .filter(([, projectChanges]) => projectChanges.some(changesLive))
+        .map(([projectId]) => edgeCacheTags.live(projectId)),
+    );
     for (const [projectId, projectChanges] of byProject) {
       for (const message of yield* messagesFor(rowOf, projectChanges)) {
         projectRooms.send(projectId, message);

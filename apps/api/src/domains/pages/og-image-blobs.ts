@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { edgeCachePurges, edgeCacheTags } from "../../lib/edge-cache-purges";
 import type { ServiceContext } from "../_shared/service-context";
 import { pages } from "./schema";
 
@@ -37,10 +38,13 @@ export const deleteUnreferencedOgImageBlobs = Effect.fn("pages.deleteUnreference
         .where(inArray(pages.customOgImageBlobId, candidates)),
     );
     const kept = new Set(named.map((row) => row.blobId));
+    const deleted = candidates.filter((blobId) => !kept.has(blobId));
     yield* Effect.forEach(
-      candidates.filter((blobId) => !kept.has(blobId)),
+      deleted,
       (blobId) => Effect.promise(() => ctx.env.FILES_BUCKET.delete(blobId)),
       { concurrency: "unbounded", discard: true },
     );
+    // The edge would otherwise keep serving them.
+    edgeCachePurges.purge(deleted.map(edgeCacheTags.file));
   },
 );
