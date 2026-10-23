@@ -22,7 +22,8 @@ import type { DraftOverviewRequest } from "../../lib/ai-model";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { runOverviewJob } from "./overview";
-import { MAX_INPUT_LENGTH } from "./overview-input";
+import { MAX_INPUT_LENGTH, overviewInput } from "./overview-input";
+import { camoxContext, type Change } from "./publish";
 
 // What the model reads to write a draft's overview (#532): the draft's changes, field by field,
 // in the default locale, so its bullets can say "Pro goes from $29 to $20".
@@ -246,5 +247,56 @@ describe("the overview's input", () => {
         ],
       },
     ]);
+  });
+});
+
+describe("the overview's input size", () => {
+  /** A draft's changes, as its preview lists them, each on its own page with a long name. */
+  async function changesOnManyPages(locale: string, change: Change["change"]) {
+    const { db, projectId, member } = await fixture();
+    const { id } = await call(router.drafts.create, { projectId, name: "Big" }, member());
+    const nickname = "Page ".repeat(60);
+    // Even counted by place, the places alone take more than the input may.
+    const count = Math.ceil(MAX_INPUT_LENGTH / nickname.length) + 1;
+    const changes: Change[] = Array.from({ length: count }, (_, i) => ({
+      entity: "page",
+      id: generateUuidv7(),
+      label: "Page",
+      owner: { kind: "page", id: `${i}`, path: `/${i}`, nickname },
+      locale,
+      change,
+    }));
+    const input = (defaultLocale: string) =>
+      runService(
+        overviewInput(
+          camoxContext(db),
+          { id, kind: "regular", projectId },
+          "Big",
+          changes,
+          defaultLocale,
+        ),
+      );
+    return { count, input };
+  }
+
+  it("caps the places a draft's changes are counted in, counting the others together", async () => {
+    const { count, input } = await changesOnManyPages("en", "deleted");
+
+    const request = await input("en");
+
+    expect(JSON.stringify(request).length).toBeLessThanOrEqual(MAX_INPUT_LENGTH);
+    expect("places" in request && request.places.at(-1)?.place).toMatch(/other places/);
+    const deleted = "places" in request ? request.places.map((place) => place.deleted) : [];
+    expect(deleted.reduce((sum, n) => sum + n, 0)).toBe(count);
+  });
+
+  it("caps the places a locale's hand edits are in", async () => {
+    const { count, input } = await changesOnManyPages("de", "changed");
+
+    const request = await input("en");
+
+    expect(JSON.stringify(request).length).toBeLessThanOrEqual(MAX_INPUT_LENGTH);
+    expect(request.localeEdits).toMatchObject([{ locale: "de", edits: count }]);
+    expect(request.localeEdits[0]!.places.at(-1)).toMatch(/other places/);
   });
 });

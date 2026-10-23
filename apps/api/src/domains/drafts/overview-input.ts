@@ -141,12 +141,63 @@ function localeEditsOf(changes: readonly Change[]): OverviewLocaleEdits[] {
   return [...byLocale.values()];
 }
 
+const fits = (request: DraftOverviewRequest) => JSON.stringify(request).length <= MAX_INPUT_LENGTH;
+
+/** The first `kept` places, then the others counted together, as one place. */
+function keepPlaces(places: OverviewPlace[], kept: number): OverviewPlace[] {
+  if (places.length <= kept + 1) return places;
+  const others = places.slice(kept);
+  const rest: OverviewPlace = {
+    place: `${others.length} other places`,
+    created: 0,
+    changed: 0,
+    deleted: 0,
+    moved: 0,
+  };
+  for (const place of others) {
+    for (const change of ["created", "changed", "deleted", "moved"] as const) {
+      rest[change] += place[change];
+    }
+  }
+  return [...places.slice(0, kept), rest];
+}
+
+/** Each locale's edits in their first `kept` places, saying how many others there are. */
+function keepLocalePlaces(localeEdits: OverviewLocaleEdits[], kept: number) {
+  return localeEdits.map((edits) =>
+    edits.places.length <= kept + 1
+      ? edits
+      : {
+          ...edits,
+          places: [...edits.places.slice(0, kept), `${edits.places.length - kept} other places`],
+        },
+  );
+}
+
+/**
+ * The request keeping the most places per list (`requestKeeping(kept)`, up to `most`) that fits
+ * the size cap, or null when it doesn't fit even keeping none.
+ */
+function fitted(requestKeeping: (kept: number) => DraftOverviewRequest, most: number) {
+  if (fits(requestKeeping(most))) return requestKeeping(most);
+  if (!fits(requestKeeping(0))) return null;
+  let fitting = 0;
+  let tooMany = most;
+  while (tooMany - fitting > 1) {
+    const kept = Math.floor((fitting + tooMany) / 2);
+    if (fits(requestKeeping(kept))) fitting = kept;
+    else tooMany = kept;
+  }
+  return requestKeeping(fitting);
+}
+
 /**
  * What the model reads to write a draft's overview, from the changes its preview lists (which
  * leave out the localizations Camox wrote): the default locale's changes field by field, before
  * and after; created entities by their values, deleted ones by their label; a block that only
- * moved as moved; a path rename once. Hand edits in other locales are counted per locale. Past
- * `MAX_INPUT_LENGTH`, the changes are grouped by place, with counts.
+ * moved as moved; a path rename once. Hand edits in other locales are counted per locale. The
+ * whole input is capped at `MAX_INPUT_LENGTH`: past it, the changes are grouped by place, with
+ * counts, and lists of places keep their first ones, counting the others.
  */
 export const overviewInput = Effect.fn("drafts.overviewInput")(function* (
   ctx: ServiceContext,
@@ -159,7 +210,21 @@ export const overviewInput = Effect.fn("drafts.overviewInput")(function* (
     change.locale === null || defaultLocale === null || change.locale === defaultLocale;
   const described = yield* describeChanges(ctx, scope, changes.filter(inDefault));
   const localeEdits = localeEditsOf(changes.filter((change) => !inDefault(change)));
-  const listed: DraftOverviewRequest = { draftName, changes: described, localeEdits };
-  if (JSON.stringify(listed).length <= MAX_INPUT_LENGTH) return listed;
-  return { draftName, places: groupedByPlace(described), localeEdits } as DraftOverviewRequest;
+  const localePlaces = Math.max(0, ...localeEdits.map((edits) => edits.places.length));
+  const listed = fitted(
+    (kept) => ({
+      draftName,
+      changes: described,
+      localeEdits: keepLocalePlaces(localeEdits, kept),
+    }),
+    localePlaces,
+  );
+  if (listed) return listed;
+  const places = groupedByPlace(described);
+  const grouped = (kept: number): DraftOverviewRequest => ({
+    draftName,
+    places: keepPlaces(places, kept),
+    localeEdits: keepLocalePlaces(localeEdits, kept),
+  });
+  return fitted(grouped, Math.max(places.length, localePlaces)) ?? grouped(0);
 });

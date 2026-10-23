@@ -236,6 +236,7 @@ function draftOverviewPrompt(request: DraftOverviewRequest) {
       - A page with "pagesUnder" changed its path, and so did that many pages under it: mention it once
       - "localeEdits" are edits made by hand in other languages: summarize them per language
       - When the changes come as "places", there are too many to list: describe each place from its counts
+      - A place such as "12 other places" stands for that many places together, too many to list
     </constraints>
 
     <draft>
