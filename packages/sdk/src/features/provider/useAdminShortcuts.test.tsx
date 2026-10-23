@@ -72,6 +72,10 @@ function press(
   init: { key: string; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
 ) {
   const event = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+  // happy-dom reports AltGraph whenever Alt is held, which browsers don't: off macOS, Hotkeys
+  // would then read Alt+ArrowUp as an AltGr character and match nothing.
+  const getModifierState = event.getModifierState.bind(event);
+  event.getModifierState = (key: string) => key !== "AltGraph" && getModifierState(key);
   target.dispatchEvent(event as unknown as Event);
   return event;
 }
