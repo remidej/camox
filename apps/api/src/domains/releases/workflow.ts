@@ -42,6 +42,14 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
     if (push.ref !== MAIN || !projectIdSchema.safeParse(push.repo).success) return;
     const db = createDb(this.env.DB);
 
+    // The agent reads the code `main` now has. A copy that couldn't refresh doesn't hold up the
+    // release: it stays on the commit it has until the next push.
+    await step
+      .do("refresh the copy of main the agent reads", () =>
+        this.env.PROJECT_CODE.getByName(push.repo).refresh(push.sha),
+      )
+      .catch((error: unknown) => console.error("The agent's copy of main didn't refresh", error));
+
     const started = await step.do("record the release", async () => {
       const project = await db
         .select({ id: projects.id, name: projects.name, status: projects.status })

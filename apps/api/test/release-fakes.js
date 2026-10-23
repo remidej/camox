@@ -16,6 +16,7 @@ import {
   readGitFile,
   readGitLink,
   serveGit,
+  takePushEvents,
 } from "./fake-git-server";
 
 /** @type {Map<string, Map<string, Record<string, string>>>} repo name → commit → path → content */
@@ -377,6 +378,15 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async readLink(repo, ref, path) {
     return readGitLink(repo, ref, path);
+  }
+
+  /**
+   * The events of a Git repo's pushes to `main` since the last call, oldest first, as Cloudflare
+   * Artifacts sends them.
+   * @param {string} repo
+   */
+  async takePushEvents(repo) {
+    return takePushEvents(repo);
   }
 
   /** @param {string} repo The commits on a Git repo's `main`, newest first. */
