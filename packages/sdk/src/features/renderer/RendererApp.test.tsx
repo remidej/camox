@@ -76,6 +76,7 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
     await import("../preview/previewSelection");
   const { EditableSurfaceContext } = await import("../../core/hooks/useIsEditable");
   const { useNavigate } = await import("../navigation/navigation");
+  const { useApplyContentEdit } = await import("../../core/editing/contentEdits");
   const { previewStore } = await import("../preview/previewStore");
   const { fakeStudio, settle } = await import("./protocol.fixtures");
   const { connectToStudio } = await import("./studioConnection");
@@ -88,6 +89,13 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
     const editable = React.use(EditableSurfaceContext);
     const select = usePreviewSelection();
     const navigate = useNavigate();
+    const applyEdit = useApplyContentEdit();
+    const [saved, setSaved] = React.useState("");
+    const edit = () =>
+      applyEdit({ type: "blockContent", blockId: "hero", content: { title: "Hello" } }).then(
+        () => setSaved("saved"),
+        (error: Error) => setSaved(error.message),
+      );
     if ((globalThis as { failingPage?: string }).failingPage === frame.window?.location.href)
       throw new Error("The block crashed");
     return (
@@ -96,7 +104,9 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
         data-owner={owner?.kind === "page" ? owner.pageId : ""}
         data-editable={String(editable)}
         data-own-window={String(frame.window === frame.window?.document.defaultView)}
+        data-saved={saved}
       >
+        <button data-edit onClick={() => void edit()} />
         <button data-select onClick={() => select({ type: "block", blockId: "hero" })} />
         <button data-navigate onClick={() => void navigate({ to: "/pricing" })} />
       </div>
@@ -242,4 +252,25 @@ void test("selecting and navigating in a frame's page goes to the studio", async
   assert.deepEqual(studio.all("navigate"), [
     { type: "navigate", frameId: "preview", to: "/pricing" },
   ]);
+});
+
+void test("an edit made in a frame's page is the studio's to write, and the page hears how it went", async (t) => {
+  const { studio, show, visibleFrame, act } = await setup(t);
+  const fetched = t.mock.method(globalThis, "fetch", async () => Response.json({ json: null }));
+  show("/");
+  const preview = visibleFrame("http://localhost/");
+  await act(() =>
+    studio.send({ type: "frame", frameId: "preview", slot: preview.slot, target: target() }),
+  );
+  const probe = () => preview.slot.querySelector("[data-probe]")!;
+  await act(() => (probe().querySelector("[data-edit]") as HTMLElement).click());
+  const [sent] = studio.all("edit");
+  assert.deepEqual(sent?.edit, {
+    type: "blockContent",
+    blockId: "hero",
+    content: { title: "Hello" },
+  });
+  assert.equal(fetched.mock.callCount(), 0, "the renderer never writes content itself");
+  await act(() => studio.send({ type: "edited", editId: sent!.editId, error: "Not a member" }));
+  assert.equal(probe().getAttribute("data-saved"), "Not a member");
 });

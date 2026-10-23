@@ -4,7 +4,9 @@ import {
   type InvalidationMessage,
   type QueryKey,
 } from "@camox/api-contract/query-keys";
+import type { QueryClient } from "@tanstack/react-query";
 
+import { createContentEditor } from "../../core/editing/contentEdits";
 import type { DraftScope } from "../../lib/draft-scope";
 import type { StudioCache, StudioCacheChange } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
@@ -81,11 +83,20 @@ type ShownFrame = { slot: HTMLElement; target: RendererFrameTarget; hears: Frame
 /**
  * The host of the studio whose cache is `studioCache`, viewing the draft `draftScope` names, which
  * the renderer shows too. Without them, the renderer hears nothing of the studio's cache.
+ * The edits the renderer makes in place are written with the studio's own mutations, through
+ * `queryClient`; without it, every one fails.
  */
 export function createRendererHost({
   studioCache,
   draftScope,
-}: { studioCache?: StudioCache; draftScope?: DraftScope } = {}): RendererHost {
+  queryClient,
+}: {
+  studioCache?: StudioCache;
+  draftScope?: DraftScope;
+  queryClient?: QueryClient;
+} = {}): RendererHost {
+  const applyEdit =
+    queryClient && studioCache ? createContentEditor({ queryClient, studioCache }) : undefined;
   const frames = new Map<string, ShownFrame>();
   let renderer: Inbox<StudioMessage> | null = null;
   /** Sends to the renderer once it said hello, in the protocol it speaks. */
@@ -164,6 +175,21 @@ export function createRendererHost({
         return frames.get(message.frameId)?.hears.navigate?.(message.to);
       case "reveal":
         return frames.get(message.frameId)?.hears.reveal?.(message.element, message.immediate);
+      case "edit": {
+        const { editId, edit } = message;
+        // The answer goes to the renderer that sent the edit: one connected since never hears it.
+        const sender = renderer;
+        const answer = (error?: string) => {
+          if (renderer === sender) post({ type: "edited", editId, ...(error && { error }) });
+        };
+        if (!applyEdit) return answer("The studio can't save changes made here.");
+        void applyEdit(edit).then(
+          () => answer(),
+          (cause: unknown) =>
+            answer(cause instanceof Error ? cause.message : "Couldn't save the change."),
+        );
+        return;
+      }
     }
   };
 

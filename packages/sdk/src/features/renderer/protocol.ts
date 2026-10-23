@@ -1,5 +1,6 @@
 import type { InvalidationMessage, QueryKey } from "@camox/api-contract/query-keys";
 
+import type { ContentEdit } from "../../core/editing/contentEdits";
 import type { ViewLocale } from "../../lib/view-locale-context";
 import type { EditingOwner } from "../preview/previewStore";
 
@@ -34,6 +35,11 @@ import type { EditingOwner } from "../preview/previewStore";
  *   those it holds, its own way.
  * Keys match across documents because both build them from the same reads catalog; the SDK
  * version check (#570) is what guarantees it.
+ *
+ * Editing in place: the renderer's block components never write content. Each edit they make
+ * crosses as an `edit`, which the studio writes once, with its own draft-scoped mutations (a
+ * write on Live starts a draft, which the renderer then enters), and answers `edited`. What the
+ * write changes in the studio's cache reaches the renderer as `write` and `outdated`.
  */
 
 /** Bumped when the messages change shape. A renderer of another protocol doesn't connect. */
@@ -111,7 +117,9 @@ export type StudioMessage =
   /** The studio wrote a read, optimistically or not. Without `value`, the read is forgotten. */
   | { type: "write"; queryKey: QueryKey; value?: unknown }
   /** The studio marked reads outdated, as its writes settle. */
-  | { type: "outdated"; queryKeys: QueryKey[] };
+  | { type: "outdated"; queryKeys: QueryKey[] }
+  /** The edit the renderer sent under `editId` was written, or with `error`, couldn't be. */
+  | { type: "edited"; editId: number; error?: string };
 
 /** What the renderer tells the studio. */
 export type RendererMessage =
@@ -124,7 +132,9 @@ export type RendererMessage =
   /** The page navigated. The studio follows it, unless the frame never navigates. */
   | { type: "navigate"; frameId: string; to: string }
   /** A block wants into view. `element` is a same-origin handle inside the frame's slot. */
-  | { type: "reveal"; frameId: string; element: Element; immediate: boolean };
+  | { type: "reveal"; frameId: string; element: Element; immediate: boolean }
+  /** An edit made in place, for the studio to write. The studio answers `edited`. */
+  | { type: "edit"; editId: number; edit: ContentEdit };
 
 /**
  * An inbox that handles each message later, in order, apart from the call that delivered it: the

@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import type { ApplyContentEdit } from "../../core/editing/contentEdits";
 import type { DraftScope } from "../../lib/draft-scope";
 import type { StudioCache } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
@@ -52,7 +53,9 @@ export interface StudioConnection {
   /** Calls `listener` whenever the frames change. */
   subscribe: (listener: () => void) => () => void;
   /** Tells the studio about one of its frames. */
-  send(message: Exclude<RendererMessage, { type: "hello" | "storeEvent" }>): void;
+  send(message: Exclude<RendererMessage, { type: "hello" | "storeEvent" | "edit" }>): void;
+  /** Has the studio write an edit made here. Settles as the studio answers. */
+  edit: ApplyContentEdit;
   close(): void;
 }
 
@@ -76,6 +79,9 @@ export function connectToStudio(
     frames = next;
     for (const listener of listeners) listener();
   };
+  /** The edits sent to the studio that it hasn't answered yet. */
+  const editsInFlight = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+  let lastEditId = 0;
   /** Whether the renderer holds the read under `queryKey`. */
   const holds = (queryKey: readonly unknown[]) =>
     !!queryClient.getQueryCache().find({ queryKey, exact: true });
@@ -119,6 +125,14 @@ export function connectToStudio(
         for (const queryKey of message.queryKeys)
           if (holds(queryKey)) void queryClient.invalidateQueries({ queryKey, exact: true });
         return;
+      case "edited": {
+        const edit = editsInFlight.get(message.editId);
+        if (!edit) return;
+        editsInFlight.delete(message.editId);
+        if (message.error === undefined) edit.resolve();
+        else edit.reject(new Error(message.error));
+        return;
+      }
     }
   };
 
@@ -144,6 +158,12 @@ export function connectToStudio(
       return () => listeners.delete(listener);
     },
     send: (message) => studio(message),
+    edit: (edit) =>
+      new Promise((resolve, reject) => {
+        const editId = ++lastEditId;
+        editsInFlight.set(editId, { resolve, reject });
+        studio({ type: "edit", editId, edit });
+      }),
     close() {
       for (const inspection of inspections) inspection.unsubscribe();
       listeners.clear();

@@ -3,6 +3,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 
 import type { CamoxApp } from "../../core/createApp";
+import { ContentEditsContext } from "../../core/editing/contentEdits";
 import { ArtifactsRunContext, ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../core/hooks/useIsEditable";
 import { reads, useRead } from "../../lib/studio-reads";
@@ -37,18 +38,23 @@ export function RendererApp({
     connection.frames,
     connection.frames,
   );
-  return frames.map((frame) =>
-    createPortal(
-      <RendererFrameContent
-        frame={frame}
-        connection={connection}
-        camoxApp={camoxApp}
-        projectUuid={projectUuid}
-        runtimeBasePath={runtimeBasePath}
-      />,
-      frame.slot,
-      frame.frameId,
-    ),
+  // The studio writes every edit the pages make: they never write content themselves.
+  return (
+    <ContentEditsContext value={connection.edit}>
+      {frames.map((frame) =>
+        createPortal(
+          <RendererFrameContent
+            frame={frame}
+            connection={connection}
+            camoxApp={camoxApp}
+            projectUuid={projectUuid}
+            runtimeBasePath={runtimeBasePath}
+          />,
+          frame.slot,
+          frame.frameId,
+        ),
+      )}
+    </ContentEditsContext>
   );
 }
 

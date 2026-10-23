@@ -6,14 +6,11 @@ import {
   type TSchema,
   type Static,
 } from "@sinclair/typebox";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectUuid } from "@/lib/auth";
-import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
-import { blockMutations, repeatableItemMutations, collectionMutations } from "@/lib/queries";
 
 import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { useFrame } from "../../features/preview/components/Frame";
@@ -98,7 +95,7 @@ import {
 } from "../lib/reference";
 import type { BlockStructuredData } from "../structuredData";
 import type { LayoutItemProps } from "./BlockEditingRuntime";
-import { referenceWritesFor } from "./referenceWrites";
+import { useApplyContentEdit } from "./contentEdits";
 import { useLatestRecord } from "./useLatestRecord";
 
 export type { ContentFieldBuilder, SettingBuilder } from "../lib/contentType.ts";
@@ -109,7 +106,9 @@ export type {
   TextLinkStyleData,
 } from "../lib/lexicalReact";
 import { useLinkPages } from "../../lib/link-pages";
-import { reads, useStudioCache } from "../../lib/studio-reads";
+
+/** Inline field writes report no failure: the field keeps what was typed. */
+const ignore = () => {};
 
 /** The pages links lead to in the locale viewed, for the studio's editors, who read the project. */
 function useEditorLinkPages() {
@@ -996,8 +995,7 @@ export function createEditableBlock<
       setIsHovered(isHoveredFromSidebar);
     }
 
-    const updateBlockContent = useMutation(blockMutations.updateContent());
-    const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
+    const applyEdit = useApplyContentEdit();
 
     const handleChange = React.useCallback(
       (newValue: string) => {
@@ -1005,22 +1003,16 @@ export function createEditableBlock<
           reference.update(String(name), newValue);
           return;
         }
+        const content = { [name]: newValue };
         if (repeaterContext) {
           const { itemId } = repeaterContext;
-          if (itemId != null) {
-            updateRepeatableContent.mutate({
-              id: itemId,
-              content: { [name]: newValue },
-            });
-          }
+          if (itemId != null)
+            void applyEdit({ type: "itemContent", itemId, content }).catch(ignore);
         } else {
-          updateBlockContent.mutate({
-            id: blockId,
-            content: { [name]: newValue },
-          });
+          void applyEdit({ type: "blockContent", blockId, content }).catch(ignore);
         }
       },
-      [blockId, name, reference, repeaterContext, updateBlockContent, updateRepeatableContent],
+      [blockId, name, reference, repeaterContext, applyEdit],
     );
 
     const selectField = () => {
@@ -1388,8 +1380,7 @@ export function createEditableBlock<
       ? (repeaterContext.itemContent[name] as LinkValue)
       : (content[name] as LinkValue);
     const fieldValue = normalizeLinkValue(rawFieldValue as unknown as Record<string, unknown>);
-    const updateBlockContent = useMutation(blockMutations.updateContent());
-    const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
+    const applyEdit = useApplyContentEdit();
     const pages = useEditorLinkPages();
     const currentPathname = useLocation({ select: (l) => l.pathname });
     const resolvedHref = resolveLinkHref(fieldValue, pages, currentPathname);
@@ -1434,17 +1425,13 @@ export function createEditableBlock<
     }
 
     const saveLinkValue = (newLinkValue: Record<string, unknown>) => {
-      if (repeaterContext?.itemId != null) {
-        updateRepeatableContent.mutate({
-          id: repeaterContext.itemId,
-          content: { [name]: newLinkValue },
-        });
-      } else {
-        updateBlockContent.mutate({
-          id: blockId,
-          content: { [name]: newLinkValue },
-        });
-      }
+      const content = { [name]: newLinkValue };
+      const itemId = repeaterContext?.itemId;
+      void applyEdit(
+        itemId != null
+          ? { type: "itemContent", itemId, content }
+          : { type: "blockContent", blockId, content },
+      ).catch(ignore);
     };
 
     const handleInput = (e: React.FormEvent<HTMLElement>) => {
@@ -2488,11 +2475,9 @@ export function createEditableBlock<
     fieldName: string,
     record: ReferenceRecord | null,
   ) => {
-    const studioCache = useStudioCache();
     const selectTarget = usePreviewSelection();
     const projectUuid = useProjectUuid();
-    const queryClient = useQueryClient();
-    const mutation = useMutation(collectionMutations.edit());
+    const applyEdit = useApplyContentEdit();
     const [error, setError] = React.useState<string | null>(null);
     const [pointerHovered, setPointerHovered] = React.useState(false);
     const editable = useIsEditable(block.mode);
@@ -2520,20 +2505,11 @@ export function createEditableBlock<
     const update = (field: string, value: string) => {
       if (!record || !editable) return;
       setError(null);
-      void referenceWritesFor(queryClient)
-        .save(record, field, value, async (input) => {
-          const saved = await mutation.mutateAsync({ ...input, projectUuid });
-          studioCache.set(
-            reads.record({ projectUuid, collectionId: record.collectionId, id: record.id }),
-            saved,
-          );
-          // Shared source changes must refresh every placement, not only this block.
-          void invalidateCollectionRecordViews(studioCache, projectUuid, record.collectionId);
-          return saved;
-        })
-        .catch((cause: unknown) => {
+      void applyEdit({ type: "recordField", projectUuid, record, field, value }).catch(
+        (cause: unknown) => {
           setError(cause instanceof Error ? cause.message : "Could not save item");
-        });
+        },
+      );
     };
     return {
       editable,
