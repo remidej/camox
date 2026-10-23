@@ -21,6 +21,15 @@ declare module "virtual:camox/server" {
   export const runtimeBasePath: string;
   /** What Vite injects into HTML in dev; `null` in builds. */
   export const devHtml: { head: string; body: string } | null;
+  /** The website's Definition Set, as `definitions.sync` receives it. */
+  export function readDefinitionSet(): Promise<unknown>;
+}
+
+/** The part of the Workers runtime's module the Worker uses. */
+declare module "cloudflare:workers" {
+  export abstract class WorkerEntrypoint {
+    constructor(ctx: unknown, env: unknown);
+  }
 }
 
 declare module "virtual:camox/page-client-url" {
