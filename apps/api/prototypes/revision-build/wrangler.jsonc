@@ -1,0 +1,39 @@
+// PROTOTYPE, throwaway (issue #550). Deployed for measuring, then deleted with its bucket.
+{
+  "name": "prototype-550-revision-build",
+  "main": "worker.ts",
+  "compatibility_date": "2026-03-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "containers": [
+    // The release sandbox's own image (cloudflare/sandbox:0.12.1 with pnpm 11.1.3).
+    {
+      "class_name": "Sandbox2",
+      "image": "registry.cloudflare.com/22c0a64149eec1bfb1c98056d81fb4bc/camox-release-sandbox-cisandbox@sha256:0d018b93e51dcdb4241b68135ad4508bef3f466b7f961c5bd6276c13e580724e",
+      "instance_type": "standard-2",
+      "max_instances": 12,
+    },
+    {
+      "class_name": "Sandbox4",
+      "image": "registry.cloudflare.com/22c0a64149eec1bfb1c98056d81fb4bc/camox-release-sandbox-cisandbox@sha256:0d018b93e51dcdb4241b68135ad4508bef3f466b7f961c5bd6276c13e580724e",
+      "instance_type": "standard-4",
+      "max_instances": 12,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "S2", "class_name": "Sandbox2" },
+      { "name": "S4", "class_name": "Sandbox4" },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Sandbox2", "Sandbox4"] }],
+  "r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "prototype-550-builds" }],
+  // Dummy keys: only so the SDK takes its presigned-URL path, which /blob stands in for.
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "22c0a64149eec1bfb1c98056d81fb4bc",
+    "R2_ACCESS_KEY_ID": "dummy",
+    "R2_SECRET_ACCESS_KEY": "dummy",
+    "BACKUP_BUCKET_NAME": "prototype-550-builds",
+  },
+  "observability": { "logs": { "enabled": true } },
+}
