@@ -77,6 +77,7 @@ import {
 } from "./alternates";
 import { type AnalyticsProviders, configuredProviders, renderAnalyticsScripts } from "./analytics";
 import { omitArtifactSources } from "./artifactSources";
+import { assetPrefix } from "./assetPrefix";
 import { type Crumb, readBreadcrumb } from "./breadcrumbs";
 import { type ListedPage, type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
 import { formatLlmsTxt } from "./llmsTxt";
@@ -745,7 +746,7 @@ function renderBlockPreloads(options: RuntimeOptions, dehydratedState: unknown):
     const modulePath = preloads.modulePaths[type];
     if (!modulePath) continue;
     if (!preloads.chunks) urls.add(modulePath);
-    for (const chunk of preloads.chunks?.[modulePath] ?? []) urls.add(`/${chunk}`);
+    for (const chunk of preloads.chunks?.[modulePath] ?? []) urls.add(`${assetPrefix()}${chunk}`);
   }
   return [...urls].map((url) => `<link rel="modulepreload" href="${escapeXml(url)}">`).join("");
 }
