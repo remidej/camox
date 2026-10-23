@@ -8,6 +8,7 @@ import { useProjectUuid } from "@/lib/auth";
 import type { Project } from "@/lib/queries";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
+import { AnalyticsSettings } from "./AnalyticsSettings";
 import { FaviconSettings } from "./FaviconSettings";
 import { ProjectNameSettings } from "./ProjectNameSettings";
 import { SocialProfilesSettings } from "./SocialProfilesSettings";
@@ -17,6 +18,7 @@ const parts: Array<{ id: string; Part: React.ComponentType<{ project: Project }>
   { id: "name", Part: ProjectNameSettings },
   { id: "favicon", Part: FaviconSettings },
   { id: "social-profiles", Part: SocialProfilesSettings },
+  { id: "analytics", Part: AnalyticsSettings },
 ];
 
 /**
