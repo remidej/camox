@@ -28,6 +28,8 @@ import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
 import { RenameDraftDialog } from "./RenameDraftDialog";
 import { DiscardDraftDialog, ReviewDraftSheet, useLeaveDraft } from "./ReviewDraftSheet";
+// PROTOTYPE — remove with the prototype files.
+import { ReviewDraftSheetPrototype } from "./ReviewDraftSheet.prototype";
 
 const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
@@ -180,6 +182,8 @@ export function DraftPicker() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* PROTOTYPE — review sheet variants, shown when `?variant=` is set. */}
+      <ReviewDraftSheetPrototype />
       {projectId && (
         <RenameDraftDialog
           projectId={projectId}
