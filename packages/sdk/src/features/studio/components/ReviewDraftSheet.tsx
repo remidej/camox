@@ -129,8 +129,8 @@ const LOST_REASONS: Record<Lost["reason"], string> = {
 };
 
 /**
- * A card for something to know before publishing, with no section heading: blockers in red,
- * conflicts and lost changes in amber.
+ * A card for something to know before publishing: blockers in red, conflicts and lost changes in
+ * amber.
  */
 function Card({
   tone,
