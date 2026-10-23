@@ -61,21 +61,26 @@ const defaultLocaleSources = Effect.fn("content.defaultLocaleSources")(function*
     };
   }
   const scope = inDefaultLocale(at.draft);
-  const blockRows = yield* selectInChunks(
-    db,
-    scope,
-    blocks,
-    shownBlocks.map((block) => block.id),
-    (chunk) => and(eq(blocks.projectId, at.projectId), inArray(blocks.id, chunk)),
+  const [blockRows, itemRows] = yield* Effect.all(
+    [
+      selectInChunks(
+        db,
+        scope,
+        blocks,
+        shownBlocks.map((block) => block.id),
+        (chunk) => and(eq(blocks.projectId, at.projectId), inArray(blocks.id, chunk)),
+      ),
+      selectInChunks(
+        db,
+        scope,
+        repeatableItems,
+        shownItems.map((item) => item.id),
+        (chunk) => inArray(repeatableItems.id, chunk),
+      ),
+    ],
+    { concurrency: "unbounded" },
   );
   const shown = yield* sharedContentShown(db, scope, blockRows, []);
-  const itemRows = yield* selectInChunks(
-    db,
-    scope,
-    repeatableItems,
-    shownItems.map((item) => item.id),
-    (chunk) => inArray(repeatableItems.id, chunk),
-  );
   return {
     blocks: new Map<string, TitleSource>(shown.blocks.map((block) => [block.id, block])),
     items: new Map<string, TitleSource>(itemRows.map((item) => [item.id, item])),

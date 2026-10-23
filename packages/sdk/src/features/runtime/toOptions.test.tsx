@@ -8,7 +8,7 @@ import * as React from "react";
 import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout } from "../../core/createLayout";
-import { localesResponse, pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse, pageMarkdownResponse } from "./api.fixtures";
 import { renderPageWithApp } from "./pageServer";
 import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
@@ -79,8 +79,20 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         },
       });
     }
-    if (procedure === "blocks/getPageMarkdown")
-      return Response.json({ json: { markdown: "# Page", blocks: [] } });
+    if (procedure === "pages/getMarkdown")
+      return pageMarkdownResponse(request, {
+        tags: ["en", "de"],
+        pageAt: ({ locale: { tag }, path }) => {
+          const page = PAGES[tag];
+          if (!page || page.fullPath !== path) return null;
+          return {
+            page: { id: PRICING, ...page, locale: tag },
+            layout: { layoutId: "regular" },
+            projectName: project.name,
+            markdown: "# Page",
+          };
+        },
+      });
     if (procedure === "layouts/get") {
       const { json: input } = (await request.json()) as { json: { layoutId: string } };
       return Response.json({

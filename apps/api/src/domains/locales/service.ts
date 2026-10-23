@@ -6,7 +6,7 @@ import type { Database } from "../../db";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
-import { accessTo } from "../drafts/access";
+import { accessTo, accessWithLocales } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { draftOf, inLocale, type Draft, type ReadScope } from "../drafts/scope";
 import { files } from "../files/schema";
@@ -74,20 +74,20 @@ const canonicalTag = (tag: string) =>
       }),
   });
 
+/** Locales in the order people see them: the default locale first, then by when they were added. */
+const inLocaleOrder = (rows: LocaleRow[]) =>
+  rows.sort(
+    (a, b) =>
+      Number(b.isDefault) - Number(a.isDefault) ||
+      a.createdAt - b.createdAt ||
+      (a.tag < b.tag ? -1 : 1),
+  );
+
 /** The locales a scope reads in a project: the default locale first, then by when they were added. */
 const localesIn = (db: Database, scope: ReadScope, projectId: number) =>
   overlay
     .select(db, scope, locales, eq(locales.projectId, projectId))
-    .pipe(
-      Effect.map((rows) =>
-        rows.sort(
-          (a, b) =>
-            Number(b.isDefault) - Number(a.isDefault) ||
-            a.createdAt - b.createdAt ||
-            (a.tag < b.tag ? -1 : 1),
-        ),
-      ),
-    );
+    .pipe(Effect.map(inLocaleOrder));
 
 /** The locale with a tag among `rows`, whatever its case. */
 const withTag = (rows: LocaleRow[], tag: string) =>
@@ -116,10 +116,12 @@ export const listLocales = Effect.fn("locales.list")(function* (
   rawInput: z.input<typeof listLocalesInput>,
 ) {
   const input = yield* decodeInput(listLocalesInput, rawInput);
-  const { scope, project } = yield* Effect.scoped(
-    projectAccess(ctx, "projectId" in input ? input.projectId : projectRefOf(input), "public"),
+  const project = "projectId" in input ? { project: input.projectId } : projectRefOf(input);
+  // Read along with the project, in one round trip.
+  const { locales: read } = yield* Effect.scoped(
+    accessWithLocales({ ...ctx, locale: undefined }, project, "public"),
   );
-  return (yield* localesIn(ctx.db, scope, project.id)).map(view);
+  return inLocaleOrder(read).map(view);
 });
 
 // --- Writes ---

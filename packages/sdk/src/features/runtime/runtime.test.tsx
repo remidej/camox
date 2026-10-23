@@ -5,7 +5,12 @@ import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
 import { artifactFrameProps } from "../../core/lib/artifact";
-import { localesResponse, markdownBody, pageListResponse } from "./api.fixtures";
+import {
+  localesResponse,
+  markdownBody,
+  pageListResponse,
+  pageMarkdownResponse,
+} from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
@@ -423,53 +428,47 @@ void test("the Canvas route opens the page app with nothing selected", async (t)
   });
 });
 
-void test("public Markdown responses read the page without a session", async (t) => {
+void test("a curated page's Markdown is one read of the API, without a session", async (t) => {
   const requested: Array<{ path: string; input: unknown; session: string | null }> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
-    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
-    const path = new URL(request.url).pathname;
     requested.push({
-      path,
-      input: ((await request.json()) as { json: unknown }).json,
+      path: new URL(request.url).pathname,
+      input: ((await request.clone().json()) as { json: unknown }).json,
       session: request.headers.get("Better-Auth-Cookie"),
     });
-    if (path.endsWith("/pages/getByPath")) return Response.json({ json: { page: { id: "7" } } });
-    return Response.json({ json: { markdown: "# About", blocks: [] } });
+    return pageMarkdownResponse(request, {
+      tags: ["en", "fr"],
+      pageAt: ({ path }) =>
+        path === "/about" ? { page: { id: "7", fullPath: "/about" }, markdown: "# About" } : null,
+    });
   });
   const response = await handleCamoxRequest(
-    new Request("https://site.test/about", {
+    new Request("https://site.test/fr/about", {
       headers: { Accept: "text/markdown", Cookie: "better-auth.session_token=valid" },
     }),
     { apiUrl: "https://api.test", projectUuid: "test" },
   );
   assert.equal(markdownBody(await response!.text()), "# About");
+  // The API finds the path's locale itself: nothing reads the locales first.
   assert.deepEqual(requested, [
     {
-      path: "/rpc/pages/getByPath",
-      input: { path: "/about", projectUuid: "test" },
+      path: "/rpc/pages/getMarkdown",
+      input: { path: "/fr/about", projectUuid: "test" },
       session: null,
     },
-    { path: "/rpc/blocks/getPageMarkdown", input: { pageId: "7" }, session: null },
   ]);
 });
 
 void test("a page's .md URL serves its Markdown whatever the request accepts", async (t) => {
   const requestedPaths: unknown[] = [];
-  t.mock.method(globalThis, "fetch", async (request: Request) => {
-    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
-    const path = new URL(request.url).pathname;
-    if (path.endsWith("/pages/getByPath")) {
-      const { json } = (await request.json()) as { json: { path: string } };
-      requestedPaths.push(json.path);
-      if (json.path === "/missing")
-        return Response.json(
-          { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
-          { status: 404 },
-        );
-      return Response.json({ json: { page: { id: "7" } } });
-    }
-    return Response.json({ json: { markdown: "# Page", blocks: [] } });
-  });
+  t.mock.method(globalThis, "fetch", async (request: Request) =>
+    pageMarkdownResponse(request, {
+      pageAt: ({ path }) => {
+        requestedPaths.push(path);
+        return path === "/missing" ? null : { page: { id: "7" }, markdown: "# Page" };
+      },
+    }),
+  );
   const request = (path: string) =>
     handleCamoxRequest(new Request(`https://site.test${path}`, { headers: { Accept: "*/*" } }), {
       apiUrl: "https://api.test",
@@ -486,25 +485,22 @@ void test("a page's .md URL serves its Markdown whatever the request accepts", a
 });
 
 void test("a curated page's Markdown opens with its head's title and description, and its URL", async (t) => {
-  t.mock.method(globalThis, "fetch", async (request: Request) => {
-    const path = new URL(request.url).pathname;
-    if (path.endsWith("/locales/list")) return localesResponse();
-    if (path.endsWith("/pages/getByPath"))
-      return Response.json({
-        json: {
-          page: {
-            id: "7",
-            fullPath: "/blog/post",
-            pathSegment: "post",
-            metaTitle: 'Say "hi"\nto Camox',
-            metaDescription: "A post",
-          },
-          layout: { layoutId: "post" },
-          projectName: "Real project",
+  t.mock.method(globalThis, "fetch", async (request: Request) =>
+    pageMarkdownResponse(request, {
+      pageAt: () => ({
+        page: {
+          id: "7",
+          fullPath: "/blog/post",
+          pathSegment: "post",
+          metaTitle: 'Say "hi"\nto Camox',
+          metaDescription: "A post",
         },
-      });
-    return Response.json({ json: { markdown: "# Post", blocks: [] } });
-  });
+        layout: { layoutId: "post" },
+        projectName: "Real project",
+        markdown: "# Post",
+      }),
+    }),
+  );
   const postLayout = {
     _internal: {
       id: "post",

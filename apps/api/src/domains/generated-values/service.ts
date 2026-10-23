@@ -4,6 +4,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
+import { readInChunks } from "../content/chunks";
 import * as overlay from "../drafts/overlay";
 import { drafts } from "../drafts/schema";
 import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
@@ -75,7 +76,7 @@ export const readValues = Effect.fn("generatedValues.read")(function* <T extends
 
 /**
  * The values of entities of several kinds as a scope reads them, by kind then entity id, in one
- * query per chunk of ids. Missing ids have no value.
+ * query per chunk of ids, read at once. Missing ids have no value.
  */
 export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T extends GeneratedType>(
   db: Database,
@@ -92,42 +93,44 @@ export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T ext
   const draft = draftIn(scope);
   const locale = sql`${generatedValues.locale} = ${valueLocale(type, scope?.locale, generatedValues.projectId)}`;
   const asked = new Set(wanted.map(({ entity, id }) => keyOf(entity, id)));
-  for (let start = 0; start < wanted.length; start += CHUNK) {
-    const chunk = wanted.slice(start, start + CHUNK);
-    const rows = yield* Effect.promise(() =>
-      db
-        .select()
-        .from(generatedValues)
-        .where(
-          and(
-            inArray(generatedValues.entity, [...new Set(chunk.map(({ entity }) => entity))]),
-            eq(generatedValues.type, type),
-            inArray(generatedValues.entityId, [...new Set(chunk.map(({ id }) => id))]),
-            draft
-              ? or(isNull(generatedValues.draftId), eq(generatedValues.draftId, draft.id))
-              : isNull(generatedValues.draftId),
-            locale,
+  const rows = yield* readInChunks(
+    wanted,
+    (chunk) =>
+      Effect.promise(() =>
+        db
+          .select()
+          .from(generatedValues)
+          .where(
+            and(
+              inArray(generatedValues.entity, [...new Set(chunk.map(({ entity }) => entity))]),
+              eq(generatedValues.type, type),
+              inArray(generatedValues.entityId, [...new Set(chunk.map(({ id }) => id))]),
+              draft
+                ? or(isNull(generatedValues.draftId), eq(generatedValues.draftId, draft.id))
+                : isNull(generatedValues.draftId),
+              locale,
+            ),
           ),
-        ),
-    );
-    const relevant = rows.filter((row) => asked.has(keyOf(row.entity, row.entityId)));
-    const live = new Map(
-      relevant.filter((r) => r.draftId === null).map((r) => [keyOf(r.entity, r.entityId), r]),
-    );
-    const own = new Map(
-      relevant.filter((r) => r.draftId !== null).map((r) => [keyOf(r.entity, r.entityId), r]),
-    );
-    for (const row of relevant) {
-      const key = keyOf(row.entity, row.entityId);
-      const draftRow = own.get(key);
-      const liveRow = live.get(key);
-      // A draft that hasn't generated its own value yet still shows Live's meanwhile.
-      const value = (draftRow?.value ?? liveRow?.value ?? null) as GeneratedValues[T] | null;
-      const pending = (draftRow ?? liveRow)?.requestedAt != null;
-      const byId = shown.get(row.entity) ?? new Map<string, ShownValue<T>>();
-      byId.set(row.entityId, { value, pending });
-      shown.set(row.entity, byId);
-    }
+      ),
+    CHUNK,
+  );
+  const relevant = rows.filter((row) => asked.has(keyOf(row.entity, row.entityId)));
+  const live = new Map(
+    relevant.filter((r) => r.draftId === null).map((r) => [keyOf(r.entity, r.entityId), r]),
+  );
+  const own = new Map(
+    relevant.filter((r) => r.draftId !== null).map((r) => [keyOf(r.entity, r.entityId), r]),
+  );
+  for (const row of relevant) {
+    const key = keyOf(row.entity, row.entityId);
+    const draftRow = own.get(key);
+    const liveRow = live.get(key);
+    // A draft that hasn't generated its own value yet still shows Live's meanwhile.
+    const value = (draftRow?.value ?? liveRow?.value ?? null) as GeneratedValues[T] | null;
+    const pending = (draftRow ?? liveRow)?.requestedAt != null;
+    const byId = shown.get(row.entity) ?? new Map<string, ShownValue<T>>();
+    byId.set(row.entityId, { value, pending });
+    shown.set(row.entity, byId);
   }
   return shown;
 });

@@ -1,5 +1,6 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { and, eq } from "drizzle-orm";
+import { parseLocalePath } from "@camox/api-contract/locales";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -7,13 +8,14 @@ import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "..
 import { blocks, layouts, pages, projects, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
+import { pageMarkdownOf } from "../blocks/page-markdown";
 import { type BlockBundle, type BundleStructuredData, contentReader } from "../content/reader";
-import { accessTo } from "../drafts/access";
+import { accessTo, accessWithLocales } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
-import { draftIn, type Draft, type ReadScope } from "../drafts/scope";
+import { draftIn, inLocale, type Draft, type ReadScope } from "../drafts/scope";
 import { generateNow, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
-import { blocksOfLayout, layoutNamed } from "../layouts/identity";
+import { blocksOfLayout } from "../layouts/identity";
 import {
   assertCuratedLayout,
   assertUnreservedPagePaths,
@@ -47,6 +49,8 @@ function deriveDefaultPageNickname(pathSegment: string) {
 
 export const getPageByPathInput = namingProject(z.object({ path: z.string() }));
 export const getPageStructureInput = namingProject(z.object({ path: z.string() }));
+/** A page by its URL path: under its locale's prefix (`/fr/prix`), or none in the default locale. */
+export const getPageMarkdownAtInput = namingProject(z.object({ path: z.string() }));
 export const listPagesInput = z.object({ projectId: z.number() });
 /** A project's pages, named by Project ID despite the procedure's name. */
 export const listPagesBySlugInput = namingProject(z.object({}));
@@ -124,18 +128,40 @@ const shownPage = Effect.fn("pages.shownPage")(function* <P extends typeof pages
   ]))[0]!;
 });
 
-/** The page at a path in the project, with its project and layout. */
+/**
+ * The page at a path in the project, with its project and layout. The layout is read along with
+ * the page, by the page the path names.
+ */
 const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
   ctx: ServiceContext,
   project: typeof projects.$inferSelect,
   fullPath: string,
   scope: ReadScope,
 ) {
-  const [page] = yield* overlay.select(
-    ctx.db,
-    scope,
-    pages,
-    and(eq(pages.fullPath, fullPath), eq(pages.projectId, project.id)),
+  const atPath = and(eq(pages.fullPath, fullPath), eq(pages.projectId, project.id));
+  const [[page], candidates] = yield* Effect.all(
+    [
+      overlay.select(ctx.db, scope, pages, atPath),
+      Effect.promise(() =>
+        ctx.db
+          .select()
+          .from(layouts)
+          .where(
+            and(
+              eq(layouts.projectId, project.id),
+              inArray(
+                layouts.layoutId,
+                ctx.db
+                  .select({ layoutId: pages.layoutId })
+                  .from(pages)
+                  .where(and(overlay.visibleIn(pages, scope), atPath)),
+              ),
+              definitionsIn(layouts, scope),
+            ),
+          ),
+      ),
+    ],
+    { concurrency: "unbounded" },
   );
   if (!page) return yield* new NotFoundError();
   const draft = draftIn(scope);
@@ -146,14 +172,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     firstPublishedAt: live?.firstPublishedAt ?? null,
     publishedAt: live?.publishedAt ?? null,
   };
-  const layout =
-    (yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(layouts)
-        .where(and(layoutNamed(page.projectId, page.layoutId), definitionsIn(layouts, scope)))
-        .get(),
-    )) ?? null;
+  const layout = candidates.find((candidate) => candidate.layoutId === page.layoutId) ?? null;
   // A page whose layout was removed or is no longer curated isn't served (ADR 0007).
   if (!servesPages(layout)) return yield* new NotFoundError();
   return { project, page: { ...page, ...published }, layout };
@@ -210,11 +229,13 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   const { scope } = access;
   const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
   const reader = contentReader(ctx, { projectId: project.id, draft: scope });
-  const [page] = yield* reader.shown.pages([stored]);
-  const content = yield* reader.blocks([
-    { pageId: page!.id },
-    ...(layout ? [{ layoutId: layout.layoutId }] : []),
-  ]);
+  const [[page], content] = yield* Effect.all(
+    [
+      reader.shown.pages([stored]),
+      reader.blocks([{ pageId: stored.id }, ...(layout ? [{ layoutId: layout.layoutId }] : [])]),
+    ],
+    { concurrency: "unbounded" },
+  );
   const structuredData = yield* reader.structuredData(content);
   return composePageView({ page: page!, project, layout, content, structuredData });
 }, Effect.scoped);
@@ -227,14 +248,16 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   const access = yield* accessTo(ctx, projectRefOf(named), "public");
   const { scope } = access;
   const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
-  const page = yield* shownPage(ctx, scope, stored);
-
-  const pageBlockOrder = sortByPosition(
-    yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, page.id)),
+  const [page, pageBlocks, layoutBlocks] = yield* Effect.all(
+    [
+      shownPage(ctx, scope, stored),
+      overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, stored.id)),
+      layout ? overlay.select(ctx.db, scope, blocks, blocksOfLayout(layout)) : Effect.succeed([]),
+    ],
+    { concurrency: "unbounded" },
   );
-  const layoutBlockOrder = layout
-    ? sortByPosition(yield* overlay.select(ctx.db, scope, blocks, blocksOfLayout(layout)))
-    : [];
+  const pageBlockOrder = sortByPosition(pageBlocks);
+  const layoutBlockOrder = sortByPosition(layoutBlocks);
 
   return {
     page: { ...page, blockIds: pageBlockOrder.map((b) => b.id) },
@@ -245,16 +268,22 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
 }, Effect.scoped);
 
 /**
- * Pages with what keeps them from being served or published: no layout, a singleton serving
- * their URL, or another page with the same path in the scope (ADR 0009).
+ * The pages of a project as a scope reads them, with the SEO in effect and what keeps them from
+ * being served or published: no layout, a singleton serving their URL, or another page with the
+ * same path in the scope (ADR 0009). The layouts are read along with the pages.
  */
-const withPageProblems = Effect.fn("pages.withPageProblems")(function* (
+const pagesWithProblems = Effect.fn("pages.pagesWithProblems")(function* (
   ctx: ServiceContext,
   projectId: number,
   scope: ReadScope,
-  rows: PageView[],
 ) {
-  const problems = yield* pageServingProblems(ctx, projectId, scope);
+  const [stored, problems] = yield* Effect.all(
+    [pagesIn(ctx, scope, projectId), pageServingProblems(ctx, projectId, scope)],
+    { concurrency: "unbounded" },
+  );
+  const rows = yield* contentReader(ctx, { projectId, draft: scope }).shown.pages(
+    stored.filter((page) => page.projectId === projectId),
+  );
   const duplicates = duplicatePathIds(rows);
   return rows.map((page) => ({
     ...page,
@@ -269,15 +298,7 @@ export const listPages = Effect.fn("pages.listPages")(function* (
 ) {
   const { projectId } = yield* decodeInput(listPagesInput, rawInput);
   const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
-  const rows = (yield* pagesIn(ctx, scope, projectId)).filter(
-    (page) => page.projectId === projectId,
-  );
-  return yield* withPageProblems(
-    ctx,
-    projectId,
-    scope,
-    yield* contentReader(ctx, { projectId, draft: scope }).shown.pages(rows),
-  );
+  return yield* pagesWithProblems(ctx, projectId, scope);
 }, Effect.scoped);
 
 /** A project's pages, with the project's name, which websites show alongside them. */
@@ -287,16 +308,58 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
 ) {
   const named = yield* decodeInput(listPagesBySlugInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
-  const rows = (yield* pagesIn(ctx, scope, project.id)).filter(
-    (page) => page.projectId === project.id,
-  );
-  const pages = yield* withPageProblems(
-    ctx,
-    project.id,
-    scope,
-    yield* contentReader(ctx, { projectId: project.id, draft: scope }).shown.pages(rows),
-  );
+  const pages = yield* pagesWithProblems(ctx, project.id, scope);
   return { projectName: project.name, pages };
+}, Effect.scoped);
+
+/**
+ * The Markdown Representation of the page at a URL path, with what its front matter is built
+ * from, in one read: the path's prefix names the page's locale (ADR 0015), so the locales are
+ * read with the project. `page` is null when no page the scope serves is at the path; the locale
+ * and the path in it still say where a singleton or derived layout would answer.
+ */
+export const getPageMarkdownAt = Effect.fn("pages.getPageMarkdownAt")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getPageMarkdownAtInput>,
+) {
+  const { path: requested, ...named } = yield* decodeInput(getPageMarkdownAtInput, rawInput);
+  // The path names the locale: the request's own locale doesn't matter.
+  const access = yield* accessWithLocales(
+    { ...ctx, locale: undefined },
+    projectRefOf(named),
+    "public",
+  );
+  const { project } = access;
+  const located = parseLocalePath(
+    requested,
+    access.locales.map(({ tag, isDefault }) => ({ tag, isDefault })),
+  );
+  const scope = located.locale.isDefault
+    ? access.scope
+    : inLocale(access.scope, located.locale.tag);
+  const notServed = {
+    ...located,
+    page: null,
+    layout: null,
+    projectName: project.name,
+    markdown: "",
+  };
+  const found = yield* findPageByPath(ctx, project, located.path, scope).pipe(
+    Effect.catchTag("NotFoundError", () => Effect.succeed(null)),
+  );
+  if (!found) return notServed;
+  const reader = contentReader(ctx, { projectId: project.id, draft: scope });
+  const [[page], { markdown }] = yield* Effect.all(
+    [reader.shown.pages([found.page]), pageMarkdownOf(reader, found.page)],
+    { concurrency: "unbounded" },
+  );
+  return {
+    ...located,
+    page: page!,
+    layout: { layoutId: found.page.layoutId },
+    projectName: project.name,
+    markdown,
+  };
 }, Effect.scoped);
 
 export const getPage = Effect.fn("pages.getPage")(function* (

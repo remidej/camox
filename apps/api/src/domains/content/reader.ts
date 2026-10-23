@@ -64,7 +64,9 @@ type PageRow = typeof pages.$inferSelect;
  * checks no access itself. It reads each kind of definition at most once, the first time a view
  * needs it, and never caches content, so a view asked for after a write sees the write. A view
  * costs the same queries whatever the number of blocks, items, records or files it covers: one
- * per kind of row per 90 ids, plus one per distinct query-backed reference list. Nothing fails:
+ * per kind of row per 90 ids, plus one per distinct query-backed reference list. Queries that
+ * don't depend on one another run at once, sharing a round trip to D1: a view waits on its
+ * blocks, then on each hop of references, then on files, whatever it covers. Nothing fails:
  * what the scope doesn't show is left out, or reads as empty.
  *
  * `shown` views are the cheap tier, for write responses and lists: no references or files.

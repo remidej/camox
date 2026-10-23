@@ -1,4 +1,5 @@
 import { and, eq, inArray, or, type SQL } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
@@ -13,7 +14,13 @@ import {
   markdownOf,
   propertiesOf,
 } from "../_shared/fields";
-import { withSharedContent } from "../blocks/shared-content";
+import {
+  loadSharedContent,
+  type SharedContentShown,
+  sharedContentShown,
+  showSharedContent,
+  withSummaries,
+} from "../blocks/shared-content";
 import type { ContentScope } from "../collections/identity";
 import * as overlay from "../drafts/overlay";
 import type { FileView } from "../files/generated-metadata";
@@ -45,10 +52,16 @@ export type BlockSource = readonly (
   | { block: BlockRow }
 )[];
 
-/** The stored blocks of a source as the scope reads them, by position, with their items. */
+/**
+ * The stored blocks of a source as the scope reads them, by position, with their items and the
+ * shared content of its synced placements, and the definitions they're read by: all in one round
+ * trip. Placed blocks' items and shared content are read by the blocks the source places, as a
+ * subquery, rather than after them.
+ */
 const loadSource = Effect.fn("content.loadSource")(function* (
   db: Database,
   at: ContentScope,
+  definitions: Definitions,
   source: BlockSource,
 ) {
   const owners = source.flatMap((entry): SQL[] => {
@@ -59,24 +72,58 @@ const loadSource = Effect.fn("content.loadSource")(function* (
     return [];
   });
   const held = source.flatMap((entry) => ("block" in entry ? [entry.block] : []));
-  const placed = owners.length
-    ? yield* overlay.select(
+  const placedWhere = owners.length
+    ? and(eq(blocks.projectId, at.projectId), or(...owners))
+    : undefined;
+  /** A column of the blocks the source places, as the scope reads them. */
+  const placedColumn = (column: AnySQLiteColumn) =>
+    db
+      .select({ value: column })
+      .from(blocks)
+      .where(and(overlay.visibleIn(blocks, at.draft), placedWhere));
+  /** Whether a column names a block the source holds or places, by `blockColumn`. */
+  const ofSource =
+    (heldValues: readonly string[], blockColumn: AnySQLiteColumn) => (column: AnySQLiteColumn) =>
+      or(
+        heldValues.length > 0 ? inArray(column, [...heldValues]) : undefined,
+        placedWhere ? inArray(column, placedColumn(blockColumn)) : undefined,
+      )!;
+  const heldTypes = [...new Set(held.map((block) => block.type))];
+  const projectIds = [...new Set([at.projectId, ...held.map((block) => block.projectId)])];
+  const none = Effect.succeed([]);
+  const [placed, heldItems, placedItems, shared] = yield* Effect.all(
+    [
+      placedWhere ? overlay.select(db, at.draft, blocks, placedWhere) : none,
+      selectInChunks(
         db,
         at.draft,
-        blocks,
-        and(eq(blocks.projectId, at.projectId), or(...owners)),
-      )
-    : [];
-  const byId = new Map([...held, ...placed].map((block) => [block.id, block]));
-  const sorted = overlay.sortByPosition([...byId.values()]);
-  const items = yield* selectInChunks(
-    db,
-    at.draft,
-    repeatableItems,
-    sorted.map((block) => block.id),
-    (chunk) => inArray(repeatableItems.blockId, chunk),
+        repeatableItems,
+        held.map((block) => block.id),
+        (chunk) => inArray(repeatableItems.blockId, chunk),
+      ),
+      placedWhere
+        ? overlay.select(
+            db,
+            at.draft,
+            repeatableItems,
+            inArray(repeatableItems.blockId, placedColumn(blocks.id)),
+          )
+        : none,
+      held.length > 0 || placedWhere
+        ? loadSharedContent(db, at.draft, projectIds, ofSource(heldTypes, blocks.type))
+        : Effect.succeed({ shared: [], items: [] }),
+      definitions.blocks(),
+      definitions.collections(),
+    ],
+    { concurrency: "unbounded" },
   );
-  return { blocks: sorted, items };
+  const byId = new Map([...held, ...placed].map((block) => [block.id, block]));
+  const items = new Map([...heldItems, ...placedItems].map((item) => [item.id, item]));
+  return {
+    blocks: overlay.sortByPosition([...byId.values()]),
+    items: [...items.values()],
+    shared,
+  };
 });
 
 /**
@@ -89,25 +136,49 @@ export type ShownBlock = Conformed<BlockRow> & { summary: string; title: string 
 export type ShownItem = Conformed<ItemRow> & { blockId: string; summary: string; title: string };
 
 /**
- * Blocks and items as the scope's readers see them: synced placements show their shared
- * content and items, each carries its summary, and everything is conformed to the block
- * definitions in effect (ADR 0007). Items come in position order.
+ * Blocks and items as the scope shows them, synced placements showing their shared content and
+ * items, conformed to the block definitions in effect (ADR 0007).
  */
-const show = Effect.fn("content.show")(function* (
+const conformedSource = Effect.fn("content.conformedSource")(function* (
+  definitions: Definitions,
+  shown: SharedContentShown<BlockRow>,
+) {
+  const blockDefinitions = yield* definitions.blocks();
+  return conformBlocks(blockDefinitions, shown.blocks, shown.items);
+});
+
+type ConformedSource = Effect.Success<ReturnType<typeof conformedSource>>;
+
+/**
+ * Conformed blocks and items as the scope's readers see them, each with its summary and title,
+ * read at once. Items come in position order.
+ */
+const named = Effect.fn("content.named")(function* (
   db: Database,
   at: ContentScope,
   definitions: Definitions,
-  blockRows: readonly BlockRow[],
-  itemRows: readonly ItemRow[],
+  shown: SharedContentShown<BlockRow>,
+  conformed: ConformedSource,
 ): Effect.fn.Return<{ blocks: ShownBlock[]; items: ShownItem[] }> {
-  const shown = yield* withSharedContent(db, at.draft, blockRows, itemRows);
   const blockDefinitions = yield* definitions.blocks();
-  const conformed = conformBlocks(blockDefinitions, shown.blocks, shown.items);
-  const titles = yield* titlesOf(db, at, blockDefinitions, conformed, conformed);
+  const [summarized, titles] = yield* Effect.all(
+    [withSummaries(db, at.draft, shown), titlesOf(db, at, blockDefinitions, conformed, conformed)],
+    { concurrency: "unbounded" },
+  );
+  const blockSummaries = new Map(summarized.blocks.map((block) => [block.id, block.summary]));
+  const itemSummaries = new Map(summarized.items.map((item) => [item.id, item.summary]));
   return {
-    blocks: conformed.blocks.map((block) => ({ ...block, title: titles.block(block.id) })),
+    blocks: conformed.blocks.map(({ sharedContentId: _shared, ...block }) => ({
+      ...block,
+      summary: blockSummaries.get(block.id) ?? "",
+      title: titles.block(block.id),
+    })),
     items: overlay.sortByPosition(
-      conformed.items.map((item) => ({ ...item, title: titles.item(item.id) })),
+      conformed.items.map((item) => ({
+        ...item,
+        summary: itemSummaries.get(item.id) ?? "",
+        title: titles.item(item.id),
+      })),
     ),
   };
 });
@@ -120,7 +191,9 @@ export const shownBlocks = Effect.fn("content.shownBlocks")(function* (
   rows: readonly BlockRow[],
 ) {
   if (rows.length === 0) return [];
-  return (yield* show(db, at, definitions, rows, [])).blocks;
+  const shown = yield* sharedContentShown(db, at.draft, rows, []);
+  const conformed = yield* conformedSource(definitions, shown);
+  return (yield* named(db, at, definitions, shown, conformed)).blocks;
 });
 
 /** Each item's content schema, from its block's definition and its repeater path. */
@@ -141,34 +214,40 @@ function itemContentSchemas(
 }
 
 /**
- * The records shown blocks and items reference, two hops deep, and every file they place: one query
- * per hop, one per query-backed list, and one for the files.
+ * The records conformed blocks and items reference, two hops deep, and every file they place:
+ * one query per hop, one per query-backed list, and one for the files.
  */
 const referencesAndFiles = Effect.fn("content.referencesAndFiles")(function* (
   db: Database,
   at: ContentScope,
   definitions: Definitions,
-  shown: { blocks: readonly ShownBlock[]; items: readonly ShownItem[] },
+  conformed: ConformedSource,
 ) {
   const blockDefinitions = yield* definitions.blocks();
-  const schemas = itemContentSchemas(blockDefinitions, shown.blocks, shown.items);
+  const schemas = itemContentSchemas(blockDefinitions, conformed.blocks, conformed.items);
   const holders: Holder[] = [
-    ...shown.blocks.map((block) => ({
+    ...conformed.blocks.map((block) => ({
       schema: blockDefinitions.get(block.type)?.contentSchema,
       content: block.content,
     })),
-    ...shown.items.map((item) => ({ schema: schemas.get(item.id), content: item.content })),
+    ...conformed.items.map((item) => ({ schema: schemas.get(item.id), content: item.content })),
   ];
   const resolved = yield* resolveReferences(db, at, definitions, holders, 2);
   const fileIds = new Set<string>();
-  for (const value of [...shown.blocks, ...shown.items]) collectFileIds(value.content, fileIds);
+  for (const value of [...conformed.blocks, ...conformed.items]) {
+    collectFileIds(value.content, fileIds);
+  }
   recordFileIds(resolved.records, fileIds);
   const files = fileIds.size ? yield* loadFiles(db, at, fileIds) : new Map<string, FileView>();
   attachFiles(resolved.records, files);
   const references = resolved.references;
+  const itemReferences = references.slice(conformed.blocks.length);
   return {
-    blockReferences: references.slice(0, shown.blocks.length),
-    itemReferences: references.slice(shown.blocks.length),
+    blockReferences: references.slice(0, conformed.blocks.length),
+    /** By item id: shared items read the same under every placement. */
+    itemReferences: new Map(
+      conformed.items.map((item, index) => [item.id, itemReferences[index]!]),
+    ),
     files,
   };
 });
@@ -181,28 +260,38 @@ export type BlockBundle = {
   files: FileView[];
 };
 
-/** Blocks with their items, the records they reference and the files they place. */
+/**
+ * Blocks with their items, the records they reference and the files they place. Summaries and
+ * titles are read alongside the references.
+ */
 export const blockBundle = Effect.fn("content.blockBundle")(function* (
   db: Database,
   at: ContentScope,
   definitions: Definitions,
   source: BlockSource,
 ): Effect.fn.Return<BlockBundle> {
-  const stored = yield* loadSource(db, at, source);
-  const shown = yield* show(db, at, definitions, stored.blocks, stored.items);
-  const resolved = yield* referencesAndFiles(db, at, definitions, shown);
-  const itemReferences = new Map(
-    shown.items.map((item, index) => [item.id, resolved.itemReferences[index]!]),
+  const stored = yield* loadSource(db, at, definitions, source);
+  const shown = showSharedContent(stored.blocks, stored.items, stored.shared);
+  const conformed = yield* conformedSource(definitions, shown);
+  const [view, resolved] = yield* Effect.all(
+    [
+      named(db, at, definitions, shown, conformed),
+      referencesAndFiles(db, at, definitions, conformed),
+    ],
+    { concurrency: "unbounded" },
   );
-  const itemsByBlock = Map.groupBy(shown.items, (item) => item.blockId);
-  const marked = shown.blocks.map((block, index) => {
+  const itemsByBlock = Map.groupBy(view.items, (item) => item.blockId);
+  const marked = view.blocks.map((block, index) => {
     const { block: markedBlock, items } = injectRepeatableItemMarkers<ShownBlock, ShownItem>(
       block,
       itemsByBlock.get(block.id) ?? [],
     );
     return {
       block: { ...markedBlock, references: resolved.blockReferences[index]! },
-      items: items.map((item) => ({ ...item, references: itemReferences.get(item.id)! })),
+      items: items.map((item) => ({
+        ...item,
+        references: resolved.itemReferences.get(item.id)!,
+      })),
     };
   });
   return {
@@ -226,7 +315,8 @@ export type BlockMarkdown = {
 
 /**
  * The Markdown Representation of each block, by position, with its items nested in its
- * content, the records it references and its files. Blocks whose definition is gone render nothing.
+ * content, the records it references and its files. Blocks whose definition is gone render
+ * nothing. Markdown names nothing, so it reads no summaries or titles.
  */
 export const blockMarkdown = Effect.fn("content.blockMarkdown")(function* (
   db: Database,
@@ -234,20 +324,25 @@ export const blockMarkdown = Effect.fn("content.blockMarkdown")(function* (
   definitions: Definitions,
   source: BlockSource,
 ) {
-  const stored = yield* loadSource(db, at, source);
-  const shown = yield* show(db, at, definitions, stored.blocks, stored.items);
-  const resolved = yield* referencesAndFiles(db, at, definitions, shown);
+  const stored = yield* loadSource(db, at, definitions, source);
+  const conformed = yield* conformedSource(
+    definitions,
+    showSharedContent(stored.blocks, stored.items, stored.shared),
+  );
+  const resolved = yield* referencesAndFiles(db, at, definitions, conformed);
   const blockDefinitions = yield* definitions.blocks();
-  const items = shown.items.map((item, index) => ({
-    ...item,
-    references: resolved.itemReferences[index],
-  }));
+  const items = overlay.sortByPosition(
+    conformed.items.map((item) => ({
+      ...item,
+      references: resolved.itemReferences.get(item.id),
+    })),
+  );
   nestChildItems(items);
   const topItemsByBlock = Map.groupBy(
     items.filter((item) => item.parentItemId === null),
     (item) => item.blockId,
   );
-  return shown.blocks.flatMap((block, index): BlockMarkdown[] => {
+  return conformed.blocks.flatMap((block, index): BlockMarkdown[] => {
     const definition = blockDefinitions.get(block.type);
     if (!definition) return [];
     const { content } = block;

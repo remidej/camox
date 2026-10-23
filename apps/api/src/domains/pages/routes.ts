@@ -14,6 +14,10 @@ const getStructure = pub
   .input(service.getPageStructureInput)
   .handler(({ context, input }) => runService(service.getPageStructure(context, input)));
 
+const getMarkdown = pub
+  .input(service.getPageMarkdownAtInput)
+  .handler(({ context, input }) => runService(service.getPageMarkdownAt(context, input)));
+
 const list = pub
   .input(service.listPagesInput)
   .handler(({ context, input }) => runService(service.listPages(context, input)));
@@ -55,6 +59,7 @@ const generateSeo = authed
 export const pageProcedures = {
   getByPath,
   getStructure,
+  getMarkdown,
   list,
   listBySlug,
   get,

@@ -15,13 +15,13 @@ export type Definitions = {
   collections: () => Effect.Effect<ReadonlyMap<string, CollectionDefinition>>;
 };
 
-/** Runs `load` once, the first time its result is needed, and keeps the result. */
-function once<A>(load: () => Effect.Effect<A>): () => Effect.Effect<A> {
-  let loaded: { value: A } | undefined;
-  return () =>
-    loaded
-      ? Effect.succeed(loaded.value)
-      : Effect.tap(load(), (value) => Effect.sync(() => void (loaded = { value })));
+/**
+ * Runs `load` once, the first time its result is needed, and keeps the result. Reads asking for
+ * it while it loads wait for the same load.
+ */
+function once<A>(load: () => Promise<A>): () => Effect.Effect<A> {
+  let loading: Promise<A> | undefined;
+  return () => Effect.promise(() => (loading ??= load()));
 }
 
 /**
@@ -31,37 +31,29 @@ function once<A>(load: () => Effect.Effect<A>): () => Effect.Effect<A> {
  */
 export function definitionsOf(db: Database, at: ContentScope): Definitions {
   return {
-    blocks: once(() =>
-      Effect.map(
-        Effect.promise(() =>
-          db
-            .select()
-            .from(blockDefinitions)
-            .where(
-              and(
-                eq(blockDefinitions.projectId, at.projectId),
-                definitionsIn(blockDefinitions, at.draft),
-              ),
-            ),
-        ),
-        (rows) => new Map(rows.map((row) => [row.blockId, row])),
-      ),
-    ),
-    collections: once(() =>
-      Effect.map(
-        Effect.promise(() =>
-          db
-            .select()
-            .from(collectionDefinitions)
-            .where(
-              and(
-                eq(collectionDefinitions.projectId, at.projectId),
-                definitionsIn(collectionDefinitions, at.draft),
-              ),
-            ),
-        ),
-        (rows) => new Map(rows.map((row) => [row.collectionId, row])),
-      ),
-    ),
+    blocks: once(async () => {
+      const rows = await db
+        .select()
+        .from(blockDefinitions)
+        .where(
+          and(
+            eq(blockDefinitions.projectId, at.projectId),
+            definitionsIn(blockDefinitions, at.draft),
+          ),
+        );
+      return new Map(rows.map((row) => [row.blockId, row]));
+    }),
+    collections: once(async () => {
+      const rows = await db
+        .select()
+        .from(collectionDefinitions)
+        .where(
+          and(
+            eq(collectionDefinitions.projectId, at.projectId),
+            definitionsIn(collectionDefinitions, at.draft),
+          ),
+        );
+      return new Map(rows.map((row) => [row.collectionId, row]));
+    }),
   };
 }

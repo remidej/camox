@@ -281,19 +281,54 @@ const memberScope = Effect.fn("access.memberScope")(function* (
   return scope;
 });
 
+type LocaleRow = typeof locales.$inferSelect;
+
 /**
- * The scope reading the locale a request names (ADR 0015): the draft, or Live, when it has the
- * locale, matched by tag whatever its case. Without a named locale, the scope reads the default
- * locale.
+ * The locale rows a request can read in the project `project` selects: Live's, and the named
+ * draft's (any of the caller's development drafts), tombstones included. Read along with the
+ * project, before the draft is checked: `localesSeenBy` keeps those the checked scope reads.
+ */
+const localeCandidates = (ctx: AccessContext, project: SQL) =>
+  Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(locales)
+      .where(
+        and(
+          storedForRequest(locales, ctx),
+          inArray(
+            locales.projectId,
+            ctx.db.select({ id: projects.id }).from(projects).where(project),
+          ),
+        ),
+      ),
+  );
+
+/**
+ * The locales a scope reads among a request's candidates, as the overlay reads them: a draft's
+ * own rows over Live's, minus the locales it removed.
+ */
+function localesSeenBy(rows: readonly LocaleRow[], scope: DraftScope): LocaleRow[] {
+  const draft = draftIn(scope);
+  if (!draft) return rows.filter((row) => row.draftId === null);
+  const own = rows.filter((row) => row.draftId === draft.id);
+  const copied = new Set(own.map((row) => row.id));
+  return [...rows.filter((row) => row.draftId === null && !copied.has(row.id)), ...own].filter(
+    (row) => !row.deleted,
+  );
+}
+
+/**
+ * The scope reading the locale a request names (ADR 0015) among the locales the scope reads:
+ * the draft, or Live, when it has the locale, matched by tag whatever its case. Without a named
+ * locale, the scope reads the default locale.
  */
 const inRequestedLocale = Effect.fn("access.inRequestedLocale")(function* (
-  db: Database,
-  projectId: number,
   scope: DraftScope,
+  tags: readonly LocaleRow[],
   requested: string | undefined,
 ): Effect.fn.Return<ReadScope, ServiceError> {
   if (requested === undefined) return scope;
-  const tags = yield* overlay.select(db, scope, locales, eq(locales.projectId, projectId));
   const locale = tags.find((row) => row.tag.toLowerCase() === requested.toLowerCase());
   if (!locale) {
     return yield* new NotFoundError({
@@ -335,14 +370,20 @@ const entityIn = Effect.fn("access.entityIn")(function* (
 });
 
 /**
- * A request's access to the content `ref` names, in `mode`. Run the service using it under
- * `Effect.scoped`: a draft this request started is dropped again if the service fails.
+ * A request's access to the content `ref` names, in `mode`, and the locales its scope reads when
+ * asked for, or when the request names a locale: read along with the project, in the same round
+ * trip.
  */
-export const accessTo = <R extends ContentRef, M extends AccessMode>(
+const access = <R extends ContentRef, M extends AccessMode>(
   ctx: AccessContext,
   ref: R,
   mode: M,
-): Effect.Effect<ContentAccess<R, M>, ServiceError, Journal | Scope.Scope> =>
+  withLocales: boolean,
+): Effect.Effect<
+  ContentAccess<R, M> & { locales: LocaleRow[] },
+  ServiceError,
+  Journal | Scope.Scope
+> =>
   Effect.gen(function* () {
     const { user } = ctx;
     // Live is public; naming a draft, or reading as a member, needs one.
@@ -358,7 +399,11 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
       if (!located) return yield* new NotFoundError();
       where = eq(projects.id, located.projectId);
     }
-    const authorized = yield* authorize(ctx, where);
+    const readsLocales = withLocales || ctx.locale !== undefined;
+    const [authorized, localeRows] = yield* Effect.all(
+      [authorize(ctx, where), readsLocales ? localeCandidates(ctx, where) : Effect.succeed([])],
+      { concurrency: "unbounded" },
+    );
     if (!authorized) return yield* new NotFoundError();
     if (ctx.projectId !== undefined && authorized.project.id !== ctx.projectId) {
       return yield* new NotFoundError();
@@ -369,12 +414,36 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
     const drafted = needsMember
       ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
       : null;
-    const scope = yield* inRequestedLocale(ctx.db, project.id, drafted, ctx.locale);
+    const seen = localesSeenBy(localeRows, drafted);
+    const scope = yield* inRequestedLocale(drafted, seen, ctx.locale);
 
     // Content in the scope's locale, or in Live's default locale (ADR 0015).
     const locale = scope?.locale ?? authorized.defaultLocale;
     const entity = yield* entityIn(ctx.db, ref, located, project, scope, locale);
     if (!entity) return yield* new NotFoundError();
     if (mode === "write" && !draftIn(scope)) return yield* new LiveReadOnlyError();
-    return { user, project, scope, entity } as ContentAccess<R, M>;
+    return { user, project, scope, entity, locales: seen } as ContentAccess<R, M> & {
+      locales: LocaleRow[];
+    };
   });
+
+/**
+ * A request's access to the content `ref` names, in `mode`. Run the service using it under
+ * `Effect.scoped`: a draft this request started is dropped again if the service fails.
+ */
+export const accessTo = <R extends ContentRef, M extends AccessMode>(
+  ctx: AccessContext,
+  ref: R,
+  mode: M,
+): Effect.Effect<ContentAccess<R, M>, ServiceError, Journal | Scope.Scope> =>
+  Effect.map(access(ctx, ref, mode, false), ({ locales: _locales, ...granted }) => granted);
+
+/**
+ * `accessTo`, with the locales the access's draft scope reads, in no particular order, read in
+ * the same round trip as the project: for reads that list them, or find a locale by a path.
+ */
+export const accessWithLocales = <R extends ContentRef, M extends AccessMode>(
+  ctx: AccessContext,
+  ref: R,
+  mode: M,
+) => access(ctx, ref, mode, true);

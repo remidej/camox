@@ -154,8 +154,8 @@ type Plan =
  * collection, a missing record, or one outside the collection the field names resolves to
  * nothing.
  *
- * Each hop loads its records in one query per chunk of ids, plus one query per distinct
- * query-backed list. Record assets stay `{ _fileId }` until `attachFiles` resolves them: their
+ * Each hop loads its records in one query per chunk of ids, after one query per distinct
+ * query-backed list, which run at once. Record assets stay `{ _fileId }` until `attachFiles` resolves them: their
  * files load with every other file the read places.
  */
 export const resolveReferences = Effect.fn("content.resolveReferences")(function* (
@@ -188,14 +188,22 @@ export const resolveReferences = Effect.fn("content.resolveReferences")(function
         }
       }
 
-      // Query-backed lists resolve from their query, once per distinct query.
-      const queried = new Map<string, string[]>();
+      // Query-backed lists resolve from their query, once per distinct query, all at once.
+      const queries = new Map<string, ReferenceListField>();
       for (const plan of plans.flat()) {
-        if (!("query" in plan) || queried.has(plan.query)) continue;
-        const field = plan.field;
-        const ids = yield* queryRecordIds(db, at, field.collectionId, field.query!);
-        queried.set(plan.query, ids);
+        if ("query" in plan && !queries.has(plan.query)) queries.set(plan.query, plan.field);
       }
+      const queried = new Map(
+        yield* Effect.forEach(
+          queries,
+          ([query, field]) =>
+            Effect.map(
+              queryRecordIds(db, at, field.collectionId, field.query!),
+              (ids) => [query, ids] as const,
+            ),
+          { concurrency: "unbounded" },
+        ),
+      );
       const idsOf = (plan: Plan) =>
         "ids" in plan ? plan.ids : "query" in plan ? queried.get(plan.query)! : [];
 
