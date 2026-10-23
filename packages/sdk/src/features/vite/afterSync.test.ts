@@ -222,7 +222,7 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
   await waitFor(() => !!afterSync(), logs);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.projectUuid, CHECKOUT_PROJECT_ID);
-  assert.ok(logs.some((line) => line.includes("Synced 0 collection definitions")));
+  assert.ok(logs.some((line) => line.includes("Synced 1 Camox definition")));
   assert.deepEqual(
     checkout.requests.map(({ path, headers }) => ({
       path,
@@ -242,7 +242,7 @@ void test("the dev server syncs the app's blocks without writing an app file", a
   const checkout = await devCheckout(t);
   const { logs } = await startDevServer(checkout, () => {});
 
-  await waitFor(() => logs.some((line) => line.includes("Synced 1 block definition")), logs);
+  await waitFor(() => logs.some((line) => line.includes("Synced 1 Camox definition")), logs);
   assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
   assert.ok(!existsSync(join(checkout.root, "src/camox/app.ts")));
 });
@@ -251,7 +251,7 @@ void test("the dev server says when its first sync created the development draft
   const checkout = await devCheckout(t, { draftCreated: true });
   const { logs } = await startDevServer(checkout, () => {});
 
-  await waitFor(() => logs.some((line) => line.includes("Synced 0 collection definitions")), logs);
+  await waitFor(() => logs.some((line) => line.includes("Synced 1 Camox definition")), logs);
   assert.ok(logs.some((line) => line.includes("Created your development draft")));
   assert.ok(logs.some((line) => line.includes("Running Camox app (your development draft)")));
 });
@@ -443,7 +443,7 @@ void test("seeded content stays in the development draft when publishing it is b
 
 /** How many whole-set syncs reached the API's block definitions, judging by the dev logs. */
 function syncCount(logs: string[]) {
-  return logs.filter((line) => /Synced \d+ block definition/.test(line)).length;
+  return logs.filter((line) => /Synced \d+ Camox definition/.test(line)).length;
 }
 
 /** Long enough for the dev server to notice a file change and finish any sync it causes. */
@@ -525,6 +525,7 @@ void test("the dev server logs what one sync changed, as the API reports it", as
 
   await waitFor(() => syncCount(logs) === 1, logs);
   for (const expected of [
+    "Synced 2 Camox definitions",
     'Removed 1 block definition no longer in code: "quote"',
     'Removed collection "authors"; its records are kept and hidden',
     'Added 1 block to existing layout "default": "navbar"',
