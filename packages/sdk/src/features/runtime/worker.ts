@@ -3,11 +3,13 @@
  * `camox/worker`. Static files never reach it: Workers Static Assets serves them first in
  * production, and Vite does in dev.
  */
+import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   devHtml,
   handleCamoxRequest,
   isPublicRequest,
   publicCacheSource,
+  readDefinitionSet,
   runtimeBasePath,
 } from "virtual:camox/server";
 
@@ -47,6 +49,17 @@ function respond(request: Request, context?: WorkerContext): Promise<Response | 
     },
     () => handleCamoxRequest(request),
   );
+}
+
+/**
+ * The website's Definition Set, for the Worker that loads a revision, which calls it by the name
+ * `DEFINITION_SET_ENTRYPOINT` holds. A named `WorkerEntrypoint` takes RPC calls only: no HTTP
+ * request reaches it.
+ */
+export class CamoxDefinitionSet extends WorkerEntrypoint {
+  read(): Promise<unknown> {
+    return readDefinitionSet();
+  }
 }
 
 export default {

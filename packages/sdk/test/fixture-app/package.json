@@ -1,5 +1,14 @@
 {
   "name": "camox-fixture-app",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "camox": "*",
+    "react": "*",
+    "react-dom": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "*",
+    "vite-plus": "*"
+  }
 }
