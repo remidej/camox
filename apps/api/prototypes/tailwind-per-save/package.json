@@ -1,0 +1,13 @@
+{
+  "name": "prototype-tailwind-per-save",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "@tailwindcss/oxide": "4.3.3",
+    "tailwindcss": "4.3.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}

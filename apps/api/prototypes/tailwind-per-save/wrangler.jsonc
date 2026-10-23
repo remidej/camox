@@ -1,0 +1,9 @@
+{
+  "name": "prototype-tailwind-per-save",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "durable_objects": { "bindings": [{ "name": "DRAFT", "class_name": "Draft" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Draft"] }],
+  "observability": { "enabled": true },
+}
