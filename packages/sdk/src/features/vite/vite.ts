@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
@@ -28,6 +28,9 @@ const RESOLVED_VIRTUAL_PAGE_CLIENT_URL = "\0virtual:camox/page-client-url";
 const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0virtual:camox/studio-client-url";
 const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0virtual:camox/block-chunks";
+// PROTOTYPE #552: the URL prefix a server build's assets live under, set before the bundle runs.
+const SERVER_ASSET_BASE = '(globalThis.__CAMOX_ASSET_BASE__ ?? "/")';
+const serverAssetUrl = (file: string) => `${SERVER_ASSET_BASE} + ${JSON.stringify(file)}`;
 import { transformArtifactRuntime } from "./artifactRuntimeMinification";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
@@ -314,7 +317,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
           const hash = createHash("sha256").update(css).digest("hex").slice(0, 8);
           const fileName = `assets/camox-studio-${hash}.css`;
           this.emitFile({ type: "asset", fileName, source: css });
-          return `export default ${JSON.stringify(`/${fileName}`)};`;
+          // PROTOTYPE #552: every client chunk sits in `_chunks/`, next to `assets/`.
+          if (this.environment.config.consumer === "client")
+            return `export default new URL(/* @vite-ignore */ ${JSON.stringify(`../${fileName}`)}, import.meta.url).href;`;
+          return `export default ${serverAssetUrl(fileName)};`;
         }
         // Dev: serve the file directly via Vite's /@fs/ prefix
         const cssUrl = `/@fs/${cssPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
@@ -326,10 +332,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
         return `export default ${JSON.stringify(css)};`;
       }
       if (id === RESOLVED_VIRTUAL_PAGE_CLIENT_URL && isBuild) {
-        return 'export default "/_chunks/camox-page-client.mjs";';
+        return `export default ${serverAssetUrl("_chunks/camox-page-client.mjs")};`;
       }
       if (id === RESOLVED_VIRTUAL_STUDIO_CLIENT_URL && isBuild) {
-        return 'export default "/_chunks/camox-studio-client.mjs";';
+        return `export default ${serverAssetUrl("_chunks/camox-studio-client.mjs")};`;
       }
       // The client builds first, so the server build can read where each block ended up.
       if (id === RESOLVED_VIRTUAL_BLOCK_CHUNKS && isBuild) {
@@ -379,6 +385,25 @@ export function camox(options: CamoxPluginOptions): Plugin {
         }
       }
       return {
+        // PROTOTYPE #552: one build under any URL prefix.
+        ...(isBuild
+          ? {
+              base: "./",
+              experimental: {
+                renderBuiltUrl(
+                  filename: string,
+                  { ssr, hostType }: { ssr: boolean; hostType: string },
+                ) {
+                  // CSS can't run code, and its URLs resolve against the stylesheet. Vite names a
+                  // `?url` stylesheet by its source here (`styles.css`), not where it lands, so
+                  // `relative` is wrong for it: every stylesheet lands in `assets/`.
+                  if (hostType === "css") return posix.relative("assets", filename);
+                  if (!ssr) return { relative: true };
+                  return { runtime: serverAssetUrl(filename) };
+                },
+              },
+            }
+          : {}),
         build: {
           emitAssets: true,
         },

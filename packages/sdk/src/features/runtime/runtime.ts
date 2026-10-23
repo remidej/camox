@@ -745,7 +745,9 @@ function renderBlockPreloads(options: RuntimeOptions, dehydratedState: unknown):
     const modulePath = preloads.modulePaths[type];
     if (!modulePath) continue;
     if (!preloads.chunks) urls.add(modulePath);
-    for (const chunk of preloads.chunks?.[modulePath] ?? []) urls.add(`/${chunk}`);
+    // PROTOTYPE #552: the build's URL prefix, known only at runtime.
+    const base = (globalThis as { __CAMOX_ASSET_BASE__?: string }).__CAMOX_ASSET_BASE__ ?? "/";
+    for (const chunk of preloads.chunks?.[modulePath] ?? []) urls.add(`${base}${chunk}`);
   }
   return [...urls].map((url) => `<link rel="modulepreload" href="${escapeXml(url)}">`).join("");
 }
