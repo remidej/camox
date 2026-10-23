@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.49.0](https://github.com/remidej/camox/compare/camox-v0.48.0...camox-v0.49.0) (2026-10-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* the SDK and CLI default to api.camox.ai and app.camox.ai.
+* **api:** definition sets with label, or reference fields with labelField, are rejected. SDKs older than 0.48.0 can't sync collections.
+
+### Features
+
+* **api:** stop accepting label in collection definitions ([#513](https://github.com/remidej/camox/issues/513)) ([b568638](https://github.com/remidej/camox/commit/b568638e6b2998d0c8984143c9c4169060d52318)), closes [#508](https://github.com/remidej/camox/issues/508)
+* draft overview and problem cards in the review sheet ([#534](https://github.com/remidej/camox/issues/534)) ([65f8126](https://github.com/remidej/camox/commit/65f8126a21505f0c39bc0fa4af68435f6b097fe1))
+* move Camox from camox.dev to camox.ai ([#524](https://github.com/remidej/camox/issues/524)) ([8f276b1](https://github.com/remidej/camox/commit/8f276b1cd35ae48a95c9e35808ebf1c10f46d19d))
+
+
+### Bug Fixes
+
+* **sdk:** log one line per definitions sync ([#523](https://github.com/remidej/camox/issues/523)) ([7ddf748](https://github.com/remidej/camox/commit/7ddf74814e1b629a5898c0d447900ebff3ecdee1))
+
+
+### Refactoring
+
+* **sdk:** handle shortcuts with TanStack Hotkeys ([#535](https://github.com/remidej/camox/issues/535)) ([f8788e9](https://github.com/remidej/camox/commit/f8788e9008b510d4d20fa31000492a3d5eb666e7))
+
+
+### Documentation
+
+* **api:** alerts@camox.ai is forwarded by Email Routing ([#525](https://github.com/remidej/camox/issues/525)) ([5a87002](https://github.com/remidej/camox/commit/5a87002471e839a8dcbaca12213888b5930cf479))
+* record that drafts carry code ([edaabb7](https://github.com/remidej/camox/commit/edaabb7ac11b9a197fc55199d8db7afae0d8d2d7))
+* record what code the agent may change ([cd2a433](https://github.com/remidej/camox/commit/cd2a4334ef548820f08a221073b2cc0a7632f099))
+
 ## [0.48.0](https://github.com/remidej/camox/compare/camox-v0.47.0...camox-v0.48.0) (2026-10-22)
 
 

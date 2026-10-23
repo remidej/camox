@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.49.0](https://github.com/remidej/camox/compare/camox-v0.48.0...@camox/cli-v0.49.0) (2026-10-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* the SDK and CLI default to api.camox.ai and app.camox.ai.
+
+### Features
+
+* move Camox from camox.dev to camox.ai ([#524](https://github.com/remidej/camox/issues/524)) ([8f276b1](https://github.com/remidej/camox/commit/8f276b1cd35ae48a95c9e35808ebf1c10f46d19d))
+
 ## [0.48.0](https://github.com/remidej/camox/compare/camox-v0.47.0...@camox/cli-v0.48.0) (2026-10-22)
 
 

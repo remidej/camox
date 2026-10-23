@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.49.0](https://github.com/remidej/camox/compare/camox-v0.48.0...camox-sdk-v0.49.0) (2026-10-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* the SDK and CLI default to api.camox.ai and app.camox.ai.
+
+### Features
+
+* draft overview and problem cards in the review sheet ([#534](https://github.com/remidej/camox/issues/534)) ([65f8126](https://github.com/remidej/camox/commit/65f8126a21505f0c39bc0fa4af68435f6b097fe1))
+* move Camox from camox.dev to camox.ai ([#524](https://github.com/remidej/camox/issues/524)) ([8f276b1](https://github.com/remidej/camox/commit/8f276b1cd35ae48a95c9e35808ebf1c10f46d19d))
+
+
+### Bug Fixes
+
+* **sdk:** log one line per definitions sync ([#523](https://github.com/remidej/camox/issues/523)) ([7ddf748](https://github.com/remidej/camox/commit/7ddf74814e1b629a5898c0d447900ebff3ecdee1))
+
+
+### Refactoring
+
+* **sdk:** handle shortcuts with TanStack Hotkeys ([#535](https://github.com/remidej/camox/issues/535)) ([f8788e9](https://github.com/remidej/camox/commit/f8788e9008b510d4d20fa31000492a3d5eb666e7))
+
 ## [0.48.0](https://github.com/remidej/camox/compare/camox-v0.47.0...camox-sdk-v0.48.0) (2026-10-22)
 
 

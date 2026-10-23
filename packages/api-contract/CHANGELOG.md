@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.0](https://github.com/remidej/camox/compare/camox-v0.48.0...@camox/api-contract-v0.49.0) (2026-10-23)
+
+
+### Miscellaneous
+
+* **@camox/api-contract:** Synchronize camox versions
+
 ## [0.48.0](https://github.com/remidej/camox/compare/camox-v0.47.0...@camox/api-contract-v0.48.0) (2026-10-22)
 
 
