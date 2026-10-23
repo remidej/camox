@@ -8,9 +8,9 @@ import { createAuth, getCookieDomain } from "./routes";
 
 describe("getCookieDomain", () => {
   it.each([
-    ["https://api.camox.dev", ".camox.dev"],
-    ["https://app.camox.dev", ".camox.dev"],
-    ["https://camox.dev", ".camox.dev"],
+    ["https://api.camox.ai", ".camox.ai"],
+    ["https://app.camox.ai", ".camox.ai"],
+    ["https://camox.ai", ".camox.ai"],
     ["http://localhost:3274", undefined],
     ["http://camox-worktree-one.localhost:8787", undefined],
     ["http://camox-worktree-two.localhost:8788", undefined],
@@ -38,7 +38,7 @@ describe("organization invitations", () => {
       db,
       {
         BETTER_AUTH_SECRET: "test-secret",
-        DASHBOARD_URL: "https://app.camox.dev",
+        DASHBOARD_URL: "https://app.camox.ai",
         EMAIL: { send },
         GITHUB_CLIENT_ID: "test-client-id",
         GITHUB_CLIENT_SECRET: "test-client-secret",
@@ -68,7 +68,7 @@ describe("organization invitations", () => {
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         to: `invitee-${suffix}@example.com`,
-        html: expect.stringContaining("https://app.camox.dev/accept-invitation?invitationId="),
+        html: expect.stringContaining("https://app.camox.ai/accept-invitation?invitationId="),
       }),
     );
   });

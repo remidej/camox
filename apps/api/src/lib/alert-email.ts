@@ -1,7 +1,7 @@
 import type { Bindings } from "../types";
 import { escapeHtml, sendEmail } from "./email";
 
-const ALERT_EMAIL_SENDER = { name: "Camox", email: "alerts@camox.dev" };
+const ALERT_EMAIL_SENDER = { name: "Camox", email: "alerts@camox.ai" };
 
 /**
  * What Camox emails to its alerts address when something it runs on its own gives up for good,
@@ -77,7 +77,7 @@ function renderContentHtml(alert: Alert): string {
             <tr><td style="padding-bottom:24px"><table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;line-height:20px">${details}</table></td></tr>`;
 }
 
-/** Emails an alert from `alerts@camox.dev` to the alerts address, `ALERT_EMAIL_TO`. */
+/** Emails an alert from `alerts@camox.ai` to the alerts address, `ALERT_EMAIL_TO`. */
 export async function sendAlert(env: Bindings, alert: Alert): Promise<void> {
   await sendEmail(env, {
     from: ALERT_EMAIL_SENDER,

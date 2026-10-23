@@ -7,15 +7,15 @@ describe("resolveCallbackURL", () => {
     expect(
       resolveCallbackURL(
         "/studio-authorize?callback=http%3A%2F%2Flocalhost%3A3000",
-        "https://app.camox.dev",
+        "https://app.camox.ai",
         "http://localhost:3274",
       ),
     ).toBe("http://localhost:3274/studio-authorize?callback=http%3A%2F%2Flocalhost%3A3000");
   });
 
   it("falls back to the configured dashboard URL when the request has no origin", () => {
-    expect(resolveCallbackURL("/profile", "https://app.camox.dev")).toBe(
-      "https://app.camox.dev/profile",
+    expect(resolveCallbackURL("/profile", "https://app.camox.ai")).toBe(
+      "https://app.camox.ai/profile",
     );
   });
 
@@ -23,7 +23,7 @@ describe("resolveCallbackURL", () => {
     expect(
       resolveCallbackURL(
         "http://localhost:3274/studio-authorize",
-        "https://app.camox.dev",
+        "https://app.camox.ai",
         "https://example.com",
       ),
     ).toBe("http://localhost:3274/studio-authorize");

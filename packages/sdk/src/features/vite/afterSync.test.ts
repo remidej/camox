@@ -63,7 +63,7 @@ async function devCheckout(
   await writeFile(
     join(root, ".camox/auth.json"),
     JSON.stringify({
-      [AUTHENTICATION_URL]: { token: "dev-session", name: "Dev", email: "dev@camox.dev" },
+      [AUTHENTICATION_URL]: { token: "dev-session", name: "Dev", email: "dev@camox.ai" },
     }),
   );
   await mkdir(join(root, "src/blocks"), { recursive: true });

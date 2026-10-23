@@ -31,7 +31,7 @@ export function upgradeEndedEvent(projectId: string) {
   return `project-upgrade-ended-${projectId}`;
 }
 
-const AUTHOR = { name: "Camox", email: "upgrades@camox.dev" };
+const AUTHOR = { name: "Camox", email: "upgrades@camox.ai" };
 
 /** Matches the `camox` package and Camox's scoped ones, such as `@camox/ui`. */
 const CAMOX_PACKAGE = /^(camox|@camox\/[a-z0-9-]+)$/;

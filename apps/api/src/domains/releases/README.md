@@ -27,7 +27,7 @@ Until a project is `live`, its releases carry its setup on (`../project-creation
 
 ## When a release fails
 
-A step that gives up after its retries fails the release. The Workflow records the row as `failed` with that step, then emails an alert to the alerts address: from `alerts@camox.dev` to the API's `ALERT_EMAIL_TO` var. The alert is its own step, so a replay of the instance doesn't send it again, though a step can rarely run twice. The alert (`alert.ts`, on the generic alert email in `src/lib/alert-email.ts`, in the layout of `src/lib/email.ts` that auth emails share) names the project, its Project ID, the commit and the failed step, and links to the Workflow instance in the Cloudflare dashboard. A row that can't be recorded or an alert that can't be sent is logged: it neither stops the other nor hides the release's own error. A project deleted during its release stops it before it deploys, and its failures alert nobody (`../project-deletion/README.md`).
+A step that gives up after its retries fails the release. The Workflow records the row as `failed` with that step, then emails an alert to the alerts address: from `alerts@camox.ai` to the API's `ALERT_EMAIL_TO` var. The alert is its own step, so a replay of the instance doesn't send it again, though a step can rarely run twice. The alert (`alert.ts`, on the generic alert email in `src/lib/alert-email.ts`, in the layout of `src/lib/email.ts` that auth emails share) names the project, its Project ID, the commit and the failed step, and links to the Workflow instance in the Cloudflare dashboard. A row that can't be recorded or an alert that can't be sent is logged: it neither stops the other nor hides the release's own error. A project deleted during its release stops it before it deploys, and its failures alert nobody (`../project-deletion/README.md`).
 
 Nothing else changes: the previous Worker keeps serving, and neither the dashboard nor the studio shows the failure. A re-run that fails again sends another alert. A project serves the `camox` version of its last succeeded release, so the projects serving an SDK older than a version are a query on `releases` (ADR 0019).
 
@@ -84,6 +84,6 @@ Do this before the first deploy that includes the release Workflow, as the API's
 
 4. **CI's token** deploys the sandbox Worker's Container and the API's event subscription, so it needs Containers and event subscription permissions on top of what it has. The `deploy` job's dry run builds the image with Docker before anything changes.
 
-5. **An Email Routing rule** on `camox.dev` (dashboard: _Email › Email Routing › Routing rules_) that forwards `alerts@camox.dev`, the API's `ALERT_EMAIL_TO`, to the inbox where alerts are read. The `EMAIL` binding sends from `alerts@camox.dev`, which `allowed_sender_addresses` in `wrangler.jsonc` lists.
+5. **An `alerts@camox.ai` address** in the `camox.ai` Google Workspace, an alias or group that delivers to the inbox where alerts are read. It is the API's `ALERT_EMAIL_TO`. The `EMAIL` binding sends from `alerts@camox.ai`, which `allowed_sender_addresses` in `wrangler.jsonc` lists.
 
 The `projects` Artifacts namespace and the `production` dispatch namespace already exist (`packages/cli/scripts/README.md`, `apps/dispatch/README.md`). `wrangler deploy` creates the `cf.artifacts.repo.pushed` subscription from `triggers.events`.

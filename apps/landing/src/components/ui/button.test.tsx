@@ -15,8 +15,8 @@ function onPage(children: ReactNode) {
 
 describe("Button", () => {
   it("is a link to another site when given an absolute href", () => {
-    const html = onPage(<Button href="https://app.camox.dev">Dashboard</Button>);
-    expect(html).toMatch(/^<a[^>]*href="https:\/\/app\.camox\.dev"[^>]*>Dashboard<\/a>$/);
+    const html = onPage(<Button href="https://app.camox.ai">Dashboard</Button>);
+    expect(html).toMatch(/^<a[^>]*href="https:\/\/app\.camox\.ai"[^>]*>Dashboard<\/a>$/);
   });
 
   it("is a link when given a link field's props", () => {

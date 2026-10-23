@@ -47,7 +47,7 @@ export function getCookieDomain(siteUrl: string): string | undefined {
     const siteHost = new URL(siteUrl).hostname;
     // Worktrees share cookies across ports, never across checkout hostnames.
     if (isLoopbackHostname(siteHost)) return undefined;
-    if (siteHost === "camox.dev" || siteHost.endsWith(".camox.dev")) return ".camox.dev";
+    if (siteHost === "camox.ai" || siteHost.endsWith(".camox.ai")) return ".camox.ai";
     return `.${siteHost}`;
   } catch {
     return undefined;

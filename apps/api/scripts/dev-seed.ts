@@ -134,7 +134,7 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
   });
 
   const signUpResponse = await auth.api.signUpEmail({
-    body: { name: "Dev User", email: "dev@camox.dev", password: "camox-dev-123" },
+    body: { name: "Dev User", email: "dev@camox.ai", password: "camox-dev-123" },
   });
 
   const userId = signUpResponse.user.id;
@@ -199,7 +199,7 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
   );
 
   const login = await auth.api.signInEmail({
-    body: { email: "dev@camox.dev", password: "camox-dev-123" },
+    body: { email: "dev@camox.ai", password: "camox-dev-123" },
   });
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
   const authFile = path.join(repoRoot, ".camox/auth.json");
@@ -237,7 +237,7 @@ async function main() {
   const { projectIds } = await seed(db);
 
   console.info("Seeded successfully!");
-  console.info("Credentials: dev@camox.dev / camox-dev-123");
+  console.info("Credentials: dev@camox.ai / camox-dev-123");
   console.info("Project IDs:", projectIds.join(", "));
   console.info(
     "Site content will be initialized and published to Live on first 'pnpm dev' via Vite plugin sync.",

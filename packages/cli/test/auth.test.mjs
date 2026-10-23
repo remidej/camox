@@ -15,7 +15,7 @@ void test("checkout credentials override by URL without leaking global identitie
   const cwd = process.cwd();
   const home = process.env.HOME;
   const localUrl = "http://localhost:3274";
-  const productionUrl = "https://app.camox.dev";
+  const productionUrl = "https://app.camox.ai";
   const token = (name) => ({ name, email: `${name}@example.com`, token: name });
   const save = (file, contents) => {
     fs.mkdirSync(path.dirname(file), { recursive: true });

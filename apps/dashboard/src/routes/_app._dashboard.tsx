@@ -331,9 +331,9 @@ function DashboardNavbar() {
             size="sm"
             className="text-muted-foreground"
             nativeButton={false}
-            render={<a href="https://camox.dev" />}
+            render={<a href="https://camox.ai" />}
           >
-            camox.dev
+            camox.ai
           </Button>
           <UserButton variant="outline" size="icon" />
         </div>

@@ -86,7 +86,7 @@ describe("a cleanup that gives up", () => {
 
     const emails = await emailsAbout(projectId);
     expect(emails).toEqual([
-      expect.objectContaining({ to: "alerts@camox.dev", subject: expect.stringContaining("Acme") }),
+      expect.objectContaining({ to: "alerts@camox.ai", subject: expect.stringContaining("Acme") }),
     ]);
     const [email] = emails;
     expect(email!.text).toContain(`Project ID: ${projectId}\n`);

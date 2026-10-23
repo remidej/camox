@@ -39,7 +39,7 @@ import { generateIconTypes } from "./iconGeneration";
 import { generateLayoutFiles, watchLayoutFiles } from "./layoutGeneration";
 import { buildClientThenWorker } from "./workerBuild";
 
-const PRODUCTION_API_URL = "https://api.camox.dev";
+const PRODUCTION_API_URL = "https://api.camox.ai";
 import { VIRTUAL_CAMOX_APP, syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
 import { publishSeededContent } from "./publishSeededContent";
 import { cleanupGeneratedRouteFiles } from "./routeGeneration";
@@ -51,7 +51,7 @@ import {
 } from "./runtimeDev";
 
 /** Authentication URL to use for Camox authentication (production Camox Dashboard) */
-const DEFAULT_AUTHENTICATION_URL = "https://app.camox.dev";
+const DEFAULT_AUTHENTICATION_URL = "https://app.camox.ai";
 
 /** What Vite injects into HTML in dev, which the Worker can't ask Vite for itself. */
 async function getDevHtml(server: ViteDevServer): Promise<{ head: string; body: string }> {
@@ -120,7 +120,7 @@ export interface CamoxPluginOptions {
   _internal?: {
     /** URL of the Camox API backend, used for data fetching */
     apiUrl?: string;
-    /** URL of the Camox authentication backend (default: https://app.camox.dev) */
+    /** URL of the Camox authentication backend (default: https://app.camox.ai) */
     authenticationUrl?: string;
     /** Show Tanstack query devtools (default: false) */
     enableTanstackDevtools?: boolean;

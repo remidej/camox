@@ -1,7 +1,7 @@
 import { escapeHtml, sendEmail } from "../../lib/email";
 import type { Bindings } from "../../types";
 
-const AUTH_EMAIL_ADDRESS = "auth@camox.dev";
+const AUTH_EMAIL_ADDRESS = "auth@camox.ai";
 const AUTH_EMAIL_SENDER = { name: "Camox", email: AUTH_EMAIL_ADDRESS };
 
 type AuthEmail = {

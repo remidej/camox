@@ -48,7 +48,7 @@ const bearer = (sessionToken?: string): Record<string, string> =>
 function authorizeStudio(callback: string, sessionToken?: string) {
   return request("/cross-domain/studio-authorize", {
     body: { callback },
-    headers: { origin: "https://app.camox.dev", ...bearer(sessionToken) },
+    headers: { origin: "https://app.camox.ai", ...bearer(sessionToken) },
   });
 }
 
@@ -56,7 +56,7 @@ function authorizeStudio(callback: string, sessionToken?: string) {
 function authorizeLocal(callback: string, sessionToken?: string) {
   return request("/cross-domain/local-authorize", {
     body: { callback },
-    headers: { origin: "https://app.camox.dev", ...bearer(sessionToken) },
+    headers: { origin: "https://app.camox.ai", ...bearer(sessionToken) },
   });
 }
 
@@ -88,7 +88,7 @@ async function exchanged(authorization: Response) {
 
 async function signedInUser(sessionToken: string) {
   const response = await request("/get-session", {
-    headers: { ...bearer(sessionToken), origin: "https://app.camox.dev" },
+    headers: { ...bearer(sessionToken), origin: "https://app.camox.ai" },
   });
   const body = (await response.json()) as { user: { id: string } } | null;
   return body?.user.id ?? null;

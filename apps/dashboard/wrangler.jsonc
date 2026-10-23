@@ -4,7 +4,7 @@
   "compatibility_date": "2026-04-11",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
-  "routes": [{ "pattern": "app.camox.dev", "custom_domain": true }],
+  "routes": [{ "pattern": "app.camox.ai", "custom_domain": true }],
   "observability": {
     "logs": {
       "enabled": true,

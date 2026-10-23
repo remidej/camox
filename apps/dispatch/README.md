@@ -38,7 +38,7 @@ UUID=$(uuidgen | tr 'A-Z' 'a-z')
 
 # Build the Template against production while signed in to it (`camox login`).
 pnpm nx run-many -t build --projects=tag:type:pkg
-VITE_API_URL=https://api.camox.dev VITE_DASHBOARD_URL=https://app.camox.dev \
+VITE_API_URL=https://api.camox.ai VITE_DASHBOARD_URL=https://app.camox.ai \
   pnpm --filter @camox/template-default build
 pnpm --filter @camox/template-default exec wrangler deploy --dispatch-namespace production --name "$UUID"
 

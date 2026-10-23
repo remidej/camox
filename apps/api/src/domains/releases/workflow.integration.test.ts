@@ -82,7 +82,7 @@ function pushEvent(repo: string, ref: string, commit: string) {
       before: "0".repeat(39) + "1",
       after: commit,
       commits: [
-        { id: commit, message: "Change the hero", author: { name: "Rémi", email: "r@camox.dev" } },
+        { id: commit, message: "Change the hero", author: { name: "Rémi", email: "r@camox.ai" } },
       ],
     },
   };
@@ -208,8 +208,8 @@ describe("a push to a project's main branch", () => {
     const emails = await emailsAbout(failing.uuid);
     expect(emails).toEqual([
       expect.objectContaining({
-        from: { name: "Camox", email: "alerts@camox.dev" },
-        to: "alerts@camox.dev",
+        from: { name: "Camox", email: "alerts@camox.ai" },
+        to: "alerts@camox.ai",
         subject: expect.stringContaining("Acme & Co"),
       }),
     ]);

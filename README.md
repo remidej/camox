@@ -14,12 +14,12 @@ Agents and human editors work on the same site, with shared drafts and publishin
 
 Camox takes an active role in maintaining your website. It watches content as it changes and works in the background to improve it, without waiting for you or your agent to ask.
 
-- [Website](https://camox.dev)
+- [Website](https://camox.ai)
 - [GitHub](https://github.com/remidej/camox)
 
 ## Quick start
 
-Create a project from the dashboard at [app.camox.dev](https://app.camox.dev). Camox sets up its website from the Template and hosts it at `<slug>.camox.site`.
+Create a project from the dashboard at [app.camox.ai](https://app.camox.ai). Camox sets up its website from the Template and hosts it at `<slug>.camox.site`.
 
 ## How it works
 
