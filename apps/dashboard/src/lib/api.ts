@@ -14,12 +14,10 @@ const link = new RPCLink({
 
 export const api = createORPCClient<RouterClient<Router>>(link);
 
-export type Project = InferClientOutputs<RouterClient<Router>>["projects"]["list"][number];
+/** A project as the project list returns it, with its Live homepage's OG image. */
+export type ListedProject = InferClientOutputs<RouterClient<Router>>["projects"]["list"][number];
 
-/** A project's analytics providers, a Project Setting. Each is null when it isn't set up. */
-export type ProjectAnalytics = InferClientOutputs<
-  RouterClient<Router>
->["projects"]["getBySlug"]["analytics"];
+export type Project = Omit<ListedProject, "homepageOgImageUrl">;
 
 // --- Favicon helpers ---
 //
@@ -30,37 +28,6 @@ export type ProjectAnalytics = InferClientOutputs<
 
 const FAVICON_API_BASE = `${import.meta.env.VITE_API_URL!}/favicons`;
 
-/** The default favicon a project's site shows until one is uploaded. */
-export const DEFAULT_FAVICON_URL = `${FAVICON_API_BASE}/default`;
-
 export function getFaviconUrl(project: { id: number; updatedAt: number }) {
   return `${FAVICON_API_BASE}/${project.id}?v=${project.updatedAt}`;
-}
-
-export async function uploadFavicon(projectId: number, file: File): Promise<{ updatedAt: number }> {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("projectId", String(projectId));
-
-  const res = await fetch(`${FAVICON_API_BASE}/upload`, {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-  });
-  if (!res.ok) {
-    const message = await res.text().catch(() => "Failed to upload favicon");
-    throw new Error(message || `Upload failed with status ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function deleteFavicon(projectId: number): Promise<void> {
-  const res = await fetch(`${FAVICON_API_BASE}/${projectId}`, {
-    method: "DELETE",
-    credentials: "include",
-  });
-  if (!res.ok) {
-    const message = await res.text().catch(() => "Failed to delete favicon");
-    throw new Error(message || `Delete failed with status ${res.status}`);
-  }
 }

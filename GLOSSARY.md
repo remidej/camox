@@ -27,7 +27,7 @@ A project's permanent identifier, given when it is created and never changed. A 
 _Avoid_: UUID, project key
 
 **Project Slug**:
-A project's address: its `camox.site` subdomain and its place in dashboard URLs. Unique across Camox, and unlike the Project ID, it can change.
+A project's address: its `camox.site` subdomain. Unique across Camox, and unlike the Project ID, it can change.
 _Avoid_: Handle, project name
 
 **Template**:

@@ -33,9 +33,8 @@ import { CheckIcon, ChevronRight, ChevronsUpDownIcon, Loader2, PlusIcon } from "
 import { Suspense, useState } from "react";
 import slugify from "slugify";
 
-import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { authClient } from "@/lib/auth-client";
-import { organizationQueries, projectQueries } from "@/lib/queries";
+import { organizationQueries } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/_dashboard")({
   beforeLoad: ({ context, location }) => {
@@ -236,84 +235,6 @@ function CreateOrganizationDialog({
   );
 }
 
-function ProjectPicker() {
-  const navigate = useNavigate();
-  const { orgSlug, projectSlug } = useParams({ strict: false });
-  const [createOpen, setCreateOpen] = useState(false);
-
-  const { data: organizations } = useQuery(organizationQueries.list());
-  const activeOrg = organizations?.find((org) => org.slug === orgSlug);
-
-  const { data: projects } = useQuery({
-    ...projectQueries.list(activeOrg?.id ?? ""),
-    enabled: !!activeOrg,
-  });
-
-  if (!orgSlug || !projectSlug) return null;
-
-  const activeProject = projects?.find((p) => p.slug === projectSlug);
-
-  if (!activeProject) return null;
-
-  return (
-    <>
-      <ChevronRight className="text-muted-foreground/50 h-4 w-4" />
-      <div className="flex">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="max-w-64 truncate"
-          nativeButton={false}
-          render={
-            <Link
-              to="/$orgSlug/$projectSlug"
-              params={{ orgSlug, projectSlug: activeProject.slug }}
-            />
-          }
-        >
-          {activeProject.name}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="px-2" />}>
-            <ChevronsUpDownIcon className="text-muted-foreground h-3.5 w-3.5" />
-          </DropdownMenuTrigger>
-
-          <DropdownMenuContent align="start" className="w-56">
-            {projects?.map((project) => (
-              <DropdownMenuItem
-                key={project.id}
-                className="flex items-center justify-between"
-                onClick={() =>
-                  navigate({
-                    to: "/$orgSlug/$projectSlug",
-                    params: { orgSlug, projectSlug: project.slug },
-                    replace: true,
-                  })
-                }
-              >
-                {project.name}
-                {project.slug === projectSlug && <CheckIcon className="h-4 w-4 shrink-0" />}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setCreateOpen(true)}>
-              <PlusIcon />
-              Create project
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <CreateProjectDialog
-        organizationId={activeProject.organizationId}
-        orgSlug={orgSlug}
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-      />
-    </>
-  );
-}
-
 function DashboardNavbar() {
   const { orgSlug } = useParams({ strict: false }) as { orgSlug?: string };
 
@@ -324,7 +245,6 @@ function DashboardNavbar() {
           <img src="/camox-mark.svg" alt="Camox logo" className="h-8 py-1" />
         </Link>
         <OrganizationPicker />
-        <ProjectPicker />
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant="ghost"

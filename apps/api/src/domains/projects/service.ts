@@ -1,12 +1,13 @@
 import { projectIdSchema } from "@camox/api-contract/ids";
 import {
   projectSlugSchema,
+  projectWebsiteUrl,
   RESERVED_PROJECT_SLUGS,
   socialProfileUrlSchema,
   UNAVAILABLE_SLUG_MESSAGES,
   type UnavailableSlugReason,
 } from "@camox/api-contract/projects";
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -43,6 +44,7 @@ import { optimizedVideoKey } from "../files/video-optimization";
 import type { GenerationRequest } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
 import { repeatableItemSeedSchema } from "../layouts/service";
+import { defaultLocaleOf } from "../locales/default-locale";
 import { insertInitialLocale } from "../locales/service";
 import { sendSetupFailureAlert } from "../project-creation/alert";
 import { sendCleanupFailureAlert } from "../project-deletion/alert";
@@ -100,10 +102,39 @@ export const listProjects = Effect.fn("projects.listProjects")(function* (
   const user = yield* requireUser(ctx);
   const { organizationId } = yield* decodeInput(listProjectsInput, rawInput);
   yield* assertOrgMembership(ctx.db, user.id, organizationId);
-  return yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.organizationId, organizationId)),
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ project: projects, customOgImageUrl: liveHomepageCustomOgImageUrl })
+      .from(projects)
+      .where(eq(projects.organizationId, organizationId)),
   );
+  return rows.map(({ project, customOgImageUrl }) => ({
+    ...project,
+    homepageOgImageUrl: customOgImageUrl || generatedOgImageUrl(project.slug, "/"),
+  }));
 });
+
+/**
+ * The custom OG image of a project's Live homepage in its Default Locale, as a scalar subquery.
+ * Nothing keeps a path unique among Live's pages, so it takes the oldest such homepage rather than
+ * joining, which would list the project once per homepage.
+ */
+const liveHomepageCustomOgImageUrl = sql<
+  string | null
+>`(select ${pages.customOgImageUrl} from ${pages} where ${and(
+  eq(pages.projectId, projects.id),
+  overlay.storedIn(pages, null),
+  eq(pages.fullPath, "/"),
+  eq(pages.locale, defaultLocaleOf(projects.id)),
+)} order by ${pages.rowId} limit 1)`;
+
+/**
+ * The image `<slug>.camox.site` generates for the page at `path`, as the website's own `og:image`
+ * names it (`pageImageUrl` in packages/sdk/src/features/og/pageImage.tsx).
+ */
+function generatedOgImageUrl(slug: string, path: string) {
+  return `${projectWebsiteUrl(slug)}/og?${new URLSearchParams({ path }).toString()}`;
+}
 
 export const getFirstProject = Effect.fn("projects.getFirstProject")(function* (
   ctx: ServiceContext,

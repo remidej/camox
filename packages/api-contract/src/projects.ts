@@ -42,6 +42,9 @@ export const projectSlugSchema = /* @__PURE__ */ z
     "Use lowercase letters, digits and hyphens, without a hyphen at either end",
   );
 
+/** The address a project's website is served at: its Project Slug's `camox.site` subdomain. */
+export const projectWebsiteUrl = (slug: string) => `https://${slug}.camox.site`;
+
 /** Why a slug can't be given to a new project. */
 export type UnavailableSlugReason = "invalid" | "reserved" | "taken";
 

@@ -65,6 +65,7 @@ import {
   STUDIO_ASSETS_PATH,
   STUDIO_CANVAS_PATH,
   STUDIO_CONTENT_PATH,
+  STUDIO_SETTINGS_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
 import {
@@ -98,13 +99,17 @@ import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
 
-export type RuntimeRouteKind =
-  | RuntimeOwnedRouteKind
-  | "canvas"
-  | "page"
-  | "studio"
-  | "studio-content"
-  | "studio-nested";
+/** The studio's own routes, rather than a page or the Canvas. */
+const STUDIO_ROUTE_KINDS = [
+  "studio",
+  "studio-content",
+  "studio-settings",
+  "studio-nested",
+] as const;
+
+export type StudioRouteKind = (typeof STUDIO_ROUTE_KINDS)[number];
+
+export type RuntimeRouteKind = RuntimeOwnedRouteKind | "canvas" | "page" | StudioRouteKind;
 
 export interface RuntimeRouteMatch {
   kind: RuntimeRouteKind;
@@ -134,7 +139,7 @@ export interface PageRenderInput extends DraftRead {
   /** Authenticate before rendering, to show the Studio around the page. */
   previewHandoff?: boolean;
   previewDocument?: string;
-  routeKind?: "studio" | "studio-content" | "studio-nested";
+  routeKind?: StudioRouteKind;
   /** Whether the location is the Canvas with nothing selected, which only the Canvas shows. */
   canvasOnly?: boolean;
   project?: MemberProject;
@@ -303,6 +308,8 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
     matchCollectionContentPath(pathname)
   )
     return { kind: "studio-content", pathname };
+  if (pathname === STUDIO_SETTINGS_PATH || pathname === `${STUDIO_SETTINGS_PATH}/`)
+    return { kind: "studio-settings", pathname };
   if (pathname.startsWith("/camox/")) return { kind: "studio-nested", pathname };
 
   return { kind: "page", pathname };
@@ -2016,15 +2023,11 @@ async function createPageMarkdownResponse(
   return layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale, page) : null;
 }
 
-type StudioRouteKind = "studio" | "studio-content" | "studio-nested";
-
 /** Whether a route is one of the studio's own, rather than a page or the Canvas. */
 function isStudioRoute(
   match: RuntimeRouteMatch,
 ): match is RuntimeRouteMatch & { kind: StudioRouteKind } {
-  return (
-    match.kind === "studio" || match.kind === "studio-content" || match.kind === "studio-nested"
-  );
+  return (STUDIO_ROUTE_KINDS as readonly RuntimeRouteKind[]).includes(match.kind);
 }
 
 /**

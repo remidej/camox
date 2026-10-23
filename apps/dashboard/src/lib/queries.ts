@@ -46,14 +46,10 @@ export const projectQueries = {
     queryOptions({
       queryKey: [...projectQueries.all(), "list", organizationId] as const,
       queryFn: () => api.projects.list({ organizationId }),
-    }),
-
-  getBySlug: (slug: string) =>
-    queryOptions({
-      queryKey: [...projectQueries.all(), "getBySlug", slug] as const,
-      queryFn: () => api.projects.getBySlug({ slug }),
-      // Follows a project's setup until it's live or has failed.
+      // Follows the setup of projects that aren't live yet, until each is live or has failed.
       refetchInterval: (query) =>
-        query.state.data?.status === "settingUp" ? SETUP_POLL_INTERVAL_MS : false,
+        query.state.data?.some((project) => project.status === "settingUp")
+          ? SETUP_POLL_INTERVAL_MS
+          : false,
     }),
 };
