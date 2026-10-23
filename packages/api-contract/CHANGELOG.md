@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.50.0](https://github.com/remidej/camox/compare/camox-v0.49.0...@camox/api-contract-v0.50.0) (2026-10-23)
+
+
+### Performance Improvements
+
+* fewer sequential API calls and D1 round trips for public page reads ([#539](https://github.com/remidej/camox/issues/539)) ([48dabe2](https://github.com/remidej/camox/commit/48dabe2023c18f8962062efbb09bc1d94e192c37))
+
 ## [0.49.0](https://github.com/remidej/camox/compare/camox-v0.48.0...@camox/api-contract-v0.49.0) (2026-10-23)
 
 

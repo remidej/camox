@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.50.0](https://github.com/remidej/camox/compare/camox-v0.49.0...camox-sdk-v0.50.0) (2026-10-23)
+
+
+### Features
+
+* cache public renders, files and hashed assets at the edge ([#540](https://github.com/remidej/camox/issues/540)) ([2c648e0](https://github.com/remidej/camox/commit/2c648e0d57f8980f1e8e9c529eae930e240b1634))
+
+
+### Performance Improvements
+
+* fewer sequential API calls and D1 round trips for public page reads ([#539](https://github.com/remidej/camox/issues/539)) ([48dabe2](https://github.com/remidej/camox/commit/48dabe2023c18f8962062efbb09bc1d94e192c37))
+
 ## [0.49.0](https://github.com/remidej/camox/compare/camox-v0.48.0...camox-sdk-v0.49.0) (2026-10-23)
 
 
