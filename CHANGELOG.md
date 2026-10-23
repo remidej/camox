@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.51.0](https://github.com/remidej/camox/compare/camox-v0.50.0...camox-v0.51.0) (2026-10-23)
+
+
+### Features
+
+* move Project Settings into the studio and make dashboard cards open the website ([#549](https://github.com/remidej/camox/issues/549)) ([58d24b8](https://github.com/remidej/camox/commit/58d24b80bfa04324de4a8b309d68b5ca6cd65ae3))
+
+
+### Performance Improvements
+
+* **api-contract:** move the router types to a router entry ([#559](https://github.com/remidej/camox/issues/559)) ([a829969](https://github.com/remidej/camox/commit/a829969b3ed2d02074d53892389d74054527c276))
+
+
+### Documentation
+
+* **adr:** confirm one build serves under any URL prefix ([cecf35e](https://github.com/remidej/camox/commit/cecf35e35e2a4a39bae11895fb993bee57c0ba8a))
+* **adr:** leave a revision each time the agent builds ([e7de9a1](https://github.com/remidej/camox/commit/e7de9a108f35cafbcfa1ba9bb44ad3c201c27f7d))
+* allow outbound requests and move agent guards into the build ([6c553ef](https://github.com/remidej/camox/commit/6c553ef0802ef58263939ac1aac1bf5050e4703a))
+* decide publishing deploys the last revision's build ([ca49a87](https://github.com/remidej/camox/commit/ca49a87d4cec4cab96e3a59ffd3f2f99eb5aeddb))
+* decide the smallest preview of an agent-changed block ([98ee85c](https://github.com/remidej/camox/commit/98ee85c036a949e3f3a104da5bc4cfc01627508a))
+* decide what happens when main moves under a draft ([5dc06a0](https://github.com/remidej/camox/commit/5dc06a0cc263e82f8fabee2e69d6f4b08c6c351b))
+* **glossary:** add the Settings Section, narrow the Dashboard ([e4de7df](https://github.com/remidej/camox/commit/e4de7df23791e8c746b3dcebd98284054d97e2e8))
+
 ## [0.50.0](https://github.com/remidej/camox/compare/camox-v0.49.0...camox-v0.50.0) (2026-10-23)
 
 
