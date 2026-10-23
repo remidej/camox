@@ -373,7 +373,10 @@ void test("the pending changes button opens the draft's review", async (t) => {
   await click(pendingButton());
 
   assert.equal(sheetTitle(), "Spring campaign");
-  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Publish all/);
+  assert.match(
+    window.document.querySelector('[role="dialog"]')?.textContent ?? "",
+    /Discard draft/,
+  );
 });
 
 void test("lists Live with its last publisher and every open regular draft with its creator, age and change count", async (t) => {
@@ -581,7 +584,10 @@ void test("the palette's Review and publish opens the draft's review", async (t)
 
   assert.equal(palette(), null);
   assert.equal(sheetTitle(), "Spring campaign");
-  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Publish all/);
+  assert.match(
+    window.document.querySelector('[role="dialog"]')?.textContent ?? "",
+    /Discard draft/,
+  );
   assert.notEqual(window.document.activeElement, nameInput());
 });
 

@@ -4,9 +4,9 @@ import { z } from "zod";
 
 import {
   discardDraft,
-  previewPublish,
-  type PublishPreview,
+  previewPublish as previewWithActions,
   publishDraft,
+  type PublishPreview,
 } from "../../../../apps/api/src/domains/drafts/publish";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import { endedDraftSchema, publishPreviewSchema } from "../lib/outputs";
@@ -28,6 +28,22 @@ const publishToolInput = z.object({
     ),
 });
 const discardInput = z.object({});
+
+/**
+ * The preview as agents see it: without which conflicts the studio offers to use Live's version
+ * of, which agents can't do, nor the fields the studio's conflict cards show, nor the studio's
+ * Draft Overview.
+ */
+const withoutStudioActions = ({ overview: _overview, ...preview }: PublishPreview) => ({
+  ...preview,
+  conflicts: preview.conflicts.map(
+    ({ revertible: _revertible, fields: _fields, moreFields: _moreFields, ...conflict }) =>
+      conflict,
+  ),
+});
+
+const previewPublish = (...args: Parameters<typeof previewWithActions>) =>
+  previewWithActions(...args).pipe(Effect.map(withoutStudioActions));
 
 const publishResultSchema = z.union([
   z.strictObject({ published: z.literal(true), ended: endedDraftSchema.nullable() }),
@@ -58,10 +74,6 @@ const PREVIEW_SHAPE =
   "which the others are translated from. `token` records the conflicts shown.";
 
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
-
-/** A preview as the tools return it: the studio's Draft Overview stays out of them. */
-const listed = ({ overview: _overview, ...preview }: PublishPreview) => preview;
-
 export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   defineTool({
     name: "previewPublish",
@@ -74,8 +86,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     inputSchema: previewInput,
     outputSchema: publishPreviewSchema,
     meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
-    handler: async () =>
-      runService(previewPublish(ctx, { projectId: ctx.projectId }).pipe(Effect.map(listed))),
+    handler: async () => runService(previewPublish(ctx, { projectId: ctx.projectId })),
   }),
   defineTool({
     name: "publishDraft",
@@ -107,7 +118,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
             published: false as const,
             reason,
             message,
-            preview: listed(preview),
+            preview,
           })),
         );
       return runService(

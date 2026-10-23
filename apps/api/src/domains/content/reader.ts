@@ -13,6 +13,7 @@ import {
   blockMarkdown,
   type BlockSource,
   itemBundle,
+  itemSchemasOf,
   shownBlocks,
   shownItems,
 } from "./blocks";
@@ -87,6 +88,11 @@ export function contentReader(ctx: { db: Database }, at: ContentScope) {
       /** Pages with the SEO in effect: manual, or generated. */
       pages: <P extends PageRow>(rows: readonly P[]) => withSeo(db, at.draft, rows),
     },
+    /** A block definition as the scope reads it, or undefined when it has none. */
+    blockDefinition: (blockId: string) =>
+      Effect.map(definitions.blocks(), (blocks) => blocks.get(blockId)),
+    /** The content and settings schemas each item is read by, from its repeater path. */
+    itemSchemas: (rows: readonly ItemRow[]) => itemSchemasOf(db, at, definitions, rows),
     /** A collection's definition as the scope reads it, or undefined when it has none. */
     collection: (collectionId: string) =>
       Effect.map(definitions.collections(), (collections) => collections.get(collectionId)),

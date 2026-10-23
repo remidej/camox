@@ -66,10 +66,14 @@ const conflictedPreview = {
       id: blockId,
       label: "Hero",
       owner: home,
+      locale: "en",
       liveVersion: 3,
       publishedBy: { id: "user-2", name: "Ada" },
       publishedAt: Date.UTC(2026, 9, 13),
       release: false,
+      fields: [] as { field: string; live: string; draft: string }[],
+      moreFields: 0,
+      revertible: true,
     },
   ],
   token: "token-2",
@@ -97,6 +101,15 @@ const draft = {
 /** What the draft's summary says besides its name, as the test sets it. */
 let drafted: Partial<typeof draft> = {};
 
+const multilingual = [
+  { tag: "en", isDefault: true },
+  { tag: "de", isDefault: false },
+  { tag: "fr", isDefault: false },
+];
+
+/** The website's locales, as the test sets them: multilingual unless it says otherwise. */
+let websiteLocales = multilingual;
+
 /**
  * Answers the draft's own summary, its locales and renames; everything else goes to `respond`.
  */
@@ -104,18 +117,13 @@ function mockApi(t: test.TestContext, respond: (path: string, calls: Call[]) => 
   const calls: Call[] = [];
   let name: string | null = null;
   drafted = {};
+  websiteLocales = multilingual;
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const input = ((await request.json()) as { json: unknown }).json;
     calls.push({ path, input });
     if (path === "drafts/get") return json({ ...draft, name, ...drafted });
-    if (path === "locales/list") {
-      return json([
-        { tag: "en", isDefault: true },
-        { tag: "de", isDefault: false },
-        { tag: "fr", isDefault: false },
-      ]);
-    }
+    if (path === "locales/list") return json(websiteLocales);
     if (path === "drafts/rename") {
       name = (input as { name: string }).name.trim() || null;
       return json({ ...draft, name });
@@ -188,24 +196,44 @@ async function openReview() {
 
 const dialogText = () => window.document.querySelector('[role="dialog"]')?.textContent ?? "";
 
-/** Opens the list of the draft's changes, which starts collapsed. */
-async function expandChanges() {
-  await click(window.document.querySelector('[role="dialog"] button[aria-expanded="false"]'));
-}
+/** The card titles, in the order the review shows them. */
+const cardTitles = () =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-card-title]')].map(
+    (title) => title.textContent,
+  );
 
-void test("says nothing on Live changed when there's nothing to warn about, and lists the changes by page once expanded", async (t) => {
-  mockApi(t, () => json(emptyPreview));
+/** The status lines' text, in order. */
+const statusLines = () =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-status-line]')].map(
+    (line) => line.textContent,
+  );
+
+const publishButton = () => buttonNamed(/^Publish$/);
+
+const danglingOnLive = {
+  entity: "block",
+  id: "019a0000-0000-7000-8000-000000000020",
+  label: "Footer",
+  owner: home,
+  code: "danglingReference",
+  field: "link",
+  message: '"Link" points at a page that no longer exists',
+};
+
+void test("shows no verdict, change list or warnings about Live, and says the draft includes everything published to Live", async (t) => {
+  mockApi(t, () => json({ ...emptyPreview, warnings: [danglingOnLive] }));
   const close = await openReview();
   try {
-    assert.match(dialogText(), /Ready to publish/);
-    assert.match(dialogText(), /Nothing on Live changed since this draft did/);
+    assert.doesNotMatch(dialogText(), /Ready to publish/);
+    // The draft's changes and the problem already on Live go unmentioned.
     assert.doesNotMatch(dialogText(), /Hero/);
-
-    await expandChanges();
-
-    assert.match(dialogText(), /Home/);
-    assert.match(dialogText(), /Hero/);
-    assert.equal(buttonNamed(/Publish all/)?.disabled, false);
+    assert.doesNotMatch(dialogText(), /Footer|points at a page/);
+    assert.deepEqual(cardTitles(), []);
+    assert.equal(window.document.querySelector('[role="dialog"] [aria-expanded]'), null);
+    assert.ok(
+      statusLines().includes("Includes everything published to Live since this draft started"),
+    );
+    assert.equal(publishButton()?.disabled, false);
   } finally {
     await close();
   }
@@ -313,104 +341,67 @@ void test("says an empty draft has no changes, with no overview", async (t) => {
   }
 });
 
-void test("groups record changes by collection, after the pages", async (t) => {
-  const authors = { kind: "collection", name: "authors", title: "Authors" };
-  const record = (id: string, label: string) => ({
-    entity: "record",
-    id,
-    label,
-    owner: authors,
-    change: "changed",
-  });
-  mockApi(t, () =>
-    json({
-      ...emptyPreview,
-      changes: [
-        record("019a0000-0000-7000-8000-000000000010", "Ada"),
-        ...emptyPreview.changes,
-        record("019a0000-0000-7000-8000-000000000011", "Grace"),
-      ],
-    }),
-  );
-  const close = await openReview();
-  try {
-    await expandChanges();
-    const groups = [...window.document.querySelectorAll('[role="dialog"] h4')].map((section) => [
-      section.textContent,
-      ...[...(section.parentElement?.querySelectorAll("[data-change-label]") ?? [])].map(
-        (label) => label.textContent,
-      ),
-    ]);
-    assert.deepEqual(groups, [
-      ["Home", "Hero"],
-      ["Authors", "Ada", "Grace"],
-    ]);
-  } finally {
-    await close();
-  }
-});
-
-/** The locales, places and changes of the expanded list of changes, in order. */
-const listedChanges = () =>
-  [
-    ...window.document.querySelectorAll(
-      '[role="dialog"] [data-change-locale], [role="dialog"] h4, [role="dialog"] [data-change-label]',
-    ),
-  ].map((element) => {
-    if (element.hasAttribute("data-change-locale")) return `locale ${element.textContent}`;
-    return `${element.tagName === "H4" ? "place" : "change"} ${element.textContent}`;
-  });
-
-void test("groups changes by locale, the default locale first, once the draft changes another locale", async (t) => {
-  const block = (locale: string) => ({
-    entity: "block",
-    id: blockId,
-    label: "Hero",
-    owner: home,
-    locale,
-    change: "changed",
-  });
-  mockApi(t, () =>
-    json({
-      ...emptyPreview,
-      changes: [
-        block("de"),
-        block("en"),
-        {
-          entity: "locale",
-          id: "locale-fr",
-          label: "fr",
-          owner: null,
-          locale: null,
-          change: "created",
-        },
-      ],
-    }),
-  );
-  const close = await openReview();
-  try {
-    await expandChanges();
-    assert.deepEqual(listedChanges(), [
-      "locale English (en)",
-      "place Home",
-      "change Hero",
-      "locale German (de)",
-      "place Home",
-      "change Hero",
-      "place Languages",
-      "change French (fr)",
-    ]);
-  } finally {
-    await close();
-  }
-});
-
-void test("names no locale while every change is in the default locale", async (t) => {
+void test("says the draft is translated only on a multilingual website", async (t) => {
   mockApi(t, () => json(emptyPreview));
   const close = await openReview();
   try {
-    await expandChanges();
-    assert.deepEqual(listedChanges(), ["place Home", "change Hero"]);
+    assert.ok(statusLines().includes("Translated into German (de) and French (fr)"));
+  } finally {
+    await close();
+  }
+});
+
+void test("says nothing about translations on a website with one language", async (t) => {
+  mockApi(t, () => json(emptyPreview));
+  websiteLocales = [{ tag: "en", isDefault: true }];
+  const close = await openReview();
+  try {
+    assert.deepEqual(statusLines(), [
+      "Includes everything published to Live since this draft started",
+    ]);
+  } finally {
+    await close();
+  }
+});
+
+void test("says SEO is being written while pages' meta titles are pending, instead of a warning", async (t) => {
+  const pending = (id: string) => ({
+    entity: "page",
+    id,
+    label: id,
+    owner: null,
+    code: "metaTitlePending",
+    field: "metaTitle",
+    message: "The page's meta title is still being generated",
+  });
+  mockApi(t, () =>
+    json({ ...emptyPreview, warnings: [pending("/pricing"), pending("/about"), danglingOnLive] }),
+  );
+  const close = await openReview();
+  try {
+    assert.ok(statusLines().includes("Writing SEO for 2 pages…"));
+    assert.doesNotMatch(dialogText(), /still being generated/);
+    assert.deepEqual(cardTitles(), []);
+  } finally {
+    await close();
+  }
+});
+
+void test("says nothing about SEO when no meta title is pending", async (t) => {
+  mockApi(t, () => json(emptyPreview));
+  const close = await openReview();
+  try {
+    assert.doesNotMatch(dialogText(), /Writing SEO/);
+  } finally {
+    await close();
+  }
+});
+
+void test("leaves out the line about Live while the draft has conflicts", async (t) => {
+  mockApi(t, () => json(conflictedPreview));
+  const close = await openReview();
+  try {
+    assert.doesNotMatch(dialogText(), /Includes everything published to Live/);
   } finally {
     await close();
   }
@@ -452,7 +443,7 @@ void test("publishes once the translations finish, when asked to while they run"
   const close = await openReview();
   const publishes = () => calls.filter((call) => call.path === "drafts/publish");
   try {
-    await click(buttonNamed(/Publish all/));
+    await click(publishButton());
 
     assert.deepEqual(publishes(), []);
     assert.match(dialogText(), /Publishing once translated/);
@@ -482,7 +473,7 @@ void test("stops waiting to publish when a conflict appears as the translations 
   drafted = { translatingLocales: ["de"] };
   const close = await openReview();
   try {
-    await click(buttonNamed(/Publish all/));
+    await click(publishButton());
 
     preview = conflictedPreview;
     drafted = { translatingLocales: [] };
@@ -493,8 +484,8 @@ void test("stops waiting to publish when a conflict appears as the translations 
       [],
     );
     assert.doesNotMatch(dialogText(), /Publishing once translated/);
-    assert.match(dialogText(), /1 Live change will be overwritten/);
-    assert.equal(buttonNamed(/Publish all/)?.disabled, false);
+    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Hero"]);
+    assert.equal(publishButton()?.disabled, false);
   } finally {
     await close();
   }
@@ -515,17 +506,27 @@ void test("offers to publish once the translations finish", async (t) => {
     await refreshDraftSummary();
 
     assert.doesNotMatch(dialogText(), /Translating/);
-    assert.equal(buttonNamed(/Publish all/)?.disabled, false);
+    assert.equal(publishButton()?.disabled, false);
     assert.equal(buttonNamed(/Publish anyway/), undefined);
   } finally {
     await close();
   }
 });
 
-void test("disables Publish all while the draft has blockers", async (t) => {
+void test("shows blockers first, saying what's wrong and where, and disables Publish", async (t) => {
   mockApi(t, () =>
     json({
-      ...emptyPreview,
+      ...conflictedPreview,
+      lost: [
+        {
+          entity: "block",
+          id: "019a0000-0000-7000-8000-000000000030",
+          label: "Testimonial",
+          owner: home,
+          locale: "en",
+          reason: "parentGone",
+        },
+      ],
       blockers: [
         {
           entity: "block",
@@ -541,9 +542,13 @@ void test("disables Publish all while the draft has blockers", async (t) => {
   );
   const close = await openReview();
   try {
-    assert.match(dialogText(), /Not ready to publish/);
-    assert.match(dialogText(), /"Author" is required but empty/);
-    assert.equal(buttonNamed(/Publish all/)?.disabled, true);
+    assert.deepEqual(cardTitles(), [
+      '"Author" is required but empty',
+      "Replaces Ada's edit to the Hero",
+      "Loses the change to the Testimonial",
+    ]);
+    assert.match(dialogText(), /"Author" is required but empty\s*Quote · Home/);
+    assert.equal(publishButton()?.disabled, true);
   } finally {
     await close();
   }
@@ -570,7 +575,7 @@ void test("names a definition that differs from Live's as a blocker of its own, 
   try {
     assert.match(dialogText(), /its definition differs from Live's/);
     assert.doesNotMatch(dialogText(), /Elsewhere/);
-    assert.equal(buttonNamed(/Publish all/)?.disabled, true);
+    assert.equal(publishButton()?.disabled, true);
   } finally {
     await close();
   }
@@ -624,14 +629,14 @@ void test("shows the new conflicts when Live changed since the preview, then pub
   });
   const close = await openReview();
   try {
-    await click(buttonNamed(/Publish all/));
+    await click(publishButton());
     await settle();
 
     assert.match(dialogText(), /Ada/);
-    assert.match(dialogText(), /1 Live change will be overwritten/);
+    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Hero"]);
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
 
-    await click(buttonNamed(/Publish all/));
+    await click(publishButton());
 
     const publishes = calls.filter((call) => call.path === "drafts/publish");
     assert.deepEqual(
@@ -655,7 +660,7 @@ void test("stays in the draft when publishing finds nothing to publish", async (
   });
   const close = await openReview();
   try {
-    await click(buttonNamed(/Publish all/));
+    await click(publishButton());
 
     assert.equal(calls.filter((call) => call.path === "drafts/publish").length, 1);
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
@@ -665,17 +670,271 @@ void test("stays in the draft when publishing finds nothing to publish", async (
   }
 });
 
-void test("shows a conflict a release made as changed by a release", async (t) => {
+/** The text of the card titled `title`. */
+const cardText = (title: string) =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-card]')].find(
+    (card) => card.querySelector("[data-card-title]")?.textContent === title,
+  )?.textContent ?? "";
+
+const conflict = conflictedPreview.conflicts[0];
+
+void test("words a conflict as replacing the member's edit, saying where and when Live changed", async (t) => {
+  mockApi(t, () => json(conflictedPreview));
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Hero"]);
+    const text = cardText("Replaces Ada's edit to the Hero");
+    assert.match(text, /Home/);
+    assert.match(text, /Ada changed it on Live on Oct 13\. Publishing replaces it/);
+  } finally {
+    await close();
+  }
+});
+
+void test("words a conflict a release made without naming a person", async (t) => {
+  mockApi(t, () =>
+    json({ ...conflictedPreview, conflicts: [{ ...conflict, publishedBy: null, release: true }] }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), ["Replaces a release's change to the Hero"]);
+    assert.match(cardText("Replaces a release's change to the Hero"), /A release changed it/);
+    assert.doesNotMatch(dialogText(), /Ada's/);
+  } finally {
+    await close();
+  }
+});
+
+void test("words a conflict with no known author without a name", async (t) => {
   mockApi(t, () =>
     json({
       ...conflictedPreview,
-      conflicts: [{ ...conflictedPreview.conflicts[0], publishedBy: null, release: true }],
+      conflicts: [{ ...conflict, publishedBy: null, publishedAt: null, release: false }],
     }),
   );
   const close = await openReview();
   try {
-    assert.match(dialogText(), /Ready, with 1 thing to know/);
-    assert.match(dialogText(), /Hero.*Changed by a release/);
+    assert.deepEqual(cardTitles(), ["Replaces an edit to the Hero"]);
+    assert.match(cardText("Replaces an edit to the Hero"), /Live changed it\./);
+  } finally {
+    await close();
+  }
+});
+
+void test("says publishing brings back what Live deleted", async (t) => {
+  mockApi(t, () => json({ ...conflictedPreview, conflicts: [{ ...conflict, liveVersion: null }] }));
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), ["Brings back the Hero"]);
+    assert.match(
+      cardText("Brings back the Hero"),
+      /Ada deleted it from Live on Oct 13\. Publishing brings it back\./,
+    );
+  } finally {
+    await close();
+  }
+});
+
+/** The fields a conflict card shows, each as its title, Live's value and the draft's. */
+const conflictFields = () =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-conflict-field]')].map((field) => ({
+    field: field.querySelector("[data-field-title]")?.textContent,
+    live: field.querySelector("[data-live-value]")?.textContent,
+    liveCrossedOut: !!field.querySelector("del [data-live-value], del[data-live-value]"),
+    draft: field.querySelector("[data-draft-value]")?.textContent,
+    // Live's value comes first, then the draft's.
+    order: [...field.querySelectorAll("[data-live-value], [data-draft-value]")].map((value) =>
+      value.hasAttribute("data-live-value") ? "live" : "draft",
+    ),
+  }));
+
+void test("shows the fields a conflict overwrites, Live's value crossed out above the draft's", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        {
+          ...conflict,
+          fields: [
+            { field: "Title", live: "Welcome back", draft: "Welcome home" },
+            { field: "Author", live: "Léo", draft: "Ana" },
+          ],
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const both = { liveCrossedOut: true, order: ["live", "draft"] };
+    assert.deepEqual(conflictFields(), [
+      { field: "Title", live: "Welcome back", draft: "Welcome home", ...both },
+      { field: "Author", live: "Léo", draft: "Ana", ...both },
+    ]);
+    const text = cardText("Replaces Ada's edit to the Hero");
+    assert.match(text, /On Live now · Ada, Oct 13/);
+    assert.match(text, /This draft/);
+  } finally {
+    await close();
+  }
+});
+
+void test("counts the fields a conflict card doesn't list", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        {
+          ...conflict,
+          fields: [{ field: "Title", live: "Welcome back", draft: "Welcome home" }],
+          moreFields: 2,
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(cardText("Replaces Ada's edit to the Hero"), /2 more fields/);
+  } finally {
+    await close();
+  }
+});
+
+void test("labels Live's values without a name when a release or no known author made them", async (t) => {
+  const fields = [{ field: "Title", live: "Welcome back", draft: "Welcome home" }];
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflict, fields, publishedBy: null, release: true }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const text = cardText("Replaces a release's change to the Hero");
+    assert.match(text, /On Live now · A release, Oct 13/);
+    assert.doesNotMatch(text, /Ada/);
+  } finally {
+    await close();
+  }
+});
+
+void test("says publishing deletes anyway what the draft deletes and Live changed", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      changes: [{ ...emptyPreview.changes[0], change: "deleted" }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(
+      cardText("Replaces Ada's edit to the Hero"),
+      /This draft deletes it, so publishing deletes it anyway\./,
+    );
+  } finally {
+    await close();
+  }
+});
+
+void test("uses Ada's version instead from her conflict's card, then shows the refreshed review", async (t) => {
+  let preview: unknown = conflictedPreview;
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") return json(preview);
+    if (path === "drafts/revertToLive") {
+      preview = { ...emptyPreview, changes: [], token: "token-3" };
+      return json({});
+    }
+    return json({});
+  });
+  const close = await openReview();
+  try {
+    await click(buttonNamed(/^Use Ada's version instead$/));
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/revertToLive").map((call) => call.input),
+      [{ projectId: 1, entity: "block", id: blockId }],
+    );
+    assert.deepEqual(cardTitles(), []);
+    assert.ok(
+      statusLines().includes("Includes everything published to Live since this draft started"),
+    );
+  } finally {
+    await close();
+  }
+});
+
+void test("offers a release's or Live's version when no person made it", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        { ...conflict, publishedBy: null, release: true },
+        {
+          ...conflict,
+          id: "019a0000-0000-7000-8000-000000000040",
+          publishedBy: null,
+          publishedAt: null,
+          release: false,
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.ok(buttonNamed(/^Use a release's version instead$/));
+    assert.ok(buttonNamed(/^Use Live's version instead$/));
+  } finally {
+    await close();
+  }
+});
+
+void test("doesn't offer Live's version where the preview says it isn't offered", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflict, entity: "page", label: "Page", revertible: false }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Page"]);
+    assert.equal(buttonNamed(/version instead/), undefined);
+  } finally {
+    await close();
+  }
+});
+
+void test("explains in plain words why each lost change can't be published", async (t) => {
+  const lost = (id: string, label: string, reason: string) => ({
+    entity: "block",
+    id,
+    label,
+    owner: home,
+    locale: "en",
+    reason,
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      lost: [
+        lost("019a0000-0000-7000-8000-000000000031", "Testimonial", "parentGone"),
+        lost(
+          "019a0000-0000-7000-8000-000000000032",
+          "Added to Pricing after it was deleted",
+          "writtenAfterDeletion",
+        ),
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(
+      cardText("Loses the change to the Testimonial"),
+      /gone from Live and from this draft/,
+    );
+    assert.match(
+      cardText("Added to Pricing after it was deleted"),
+      /This draft deletes what it was added to/,
+    );
   } finally {
     await close();
   }
