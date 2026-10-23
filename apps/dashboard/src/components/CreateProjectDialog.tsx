@@ -65,12 +65,10 @@ export function CreateProjectDialog({
   organizationId,
   open,
   onOpenChange,
-  onCreated,
 }: {
   organizationId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -88,7 +86,6 @@ export function CreateProjectDialog({
         await queryClient.invalidateQueries({ queryKey: projectQueries.all() });
         onOpenChange(false);
         form.reset();
-        onCreated?.();
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : "Could not create the project.");
       }

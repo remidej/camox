@@ -1,6 +1,7 @@
 import { projectIdSchema } from "@camox/api-contract/ids";
 import {
   projectSlugSchema,
+  projectWebsiteUrl,
   RESERVED_PROJECT_SLUGS,
   socialProfileUrlSchema,
   UNAVAILABLE_SLUG_MESSAGES,
@@ -132,7 +133,7 @@ const liveHomepageCustomOgImageUrl = sql<
  * names it (`pageImageUrl` in packages/sdk/src/features/og/pageImage.tsx).
  */
 function generatedOgImageUrl(slug: string, path: string) {
-  return `https://${slug}.camox.site/og?${new URLSearchParams({ path }).toString()}`;
+  return `${projectWebsiteUrl(slug)}/og?${new URLSearchParams({ path }).toString()}`;
 }
 
 export const getFirstProject = Effect.fn("projects.getFirstProject")(function* (

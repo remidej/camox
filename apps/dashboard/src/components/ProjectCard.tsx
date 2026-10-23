@@ -1,3 +1,4 @@
+import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import { Button } from "@camox/ui/button";
 import {
   DropdownMenu,
@@ -10,10 +11,13 @@ import { type MouseEvent, useState } from "react";
 
 import { DeleteProjectDialog } from "@/components/DeleteProjectDialog";
 import { ProjectFavicon } from "@/components/ProjectFavicon";
-import { ProjectSetup, ProjectSetupFailure, siteUrl } from "@/components/ProjectSetup";
+import { ProjectSetup, ProjectSetupFailure } from "@/components/ProjectSetup";
 import type { ListedProject } from "@/lib/api";
 import { useOpenWebsite } from "@/lib/open-website";
 import { cn } from "@/lib/utils";
+
+/** An OG image's 1200×630 proportions, which the card's image and setup both take. */
+const OG_IMAGE_ASPECT_RATIO = { aspectRatio: "1200 / 630" };
 
 /** A plain left click, which opens the website signed in rather than following the link. */
 function isPlainClick(event: MouseEvent) {
@@ -29,7 +33,7 @@ function isPlainClick(event: MouseEvent) {
  */
 export function ProjectCard({ project }: { project: ListedProject }) {
   const { open } = useOpenWebsite();
-  const url = siteUrl(project);
+  const url = projectWebsiteUrl(project.slug);
   const live = project.status === "live";
 
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -114,7 +118,7 @@ function ProjectSetupState({ project }: { project: ListedProject }) {
   return (
     <div
       className="bg-muted flex items-center justify-center overflow-hidden p-4"
-      style={{ aspectRatio: "1200 / 630" }}
+      style={OG_IMAGE_ASPECT_RATIO}
     >
       {project.status === "setupFailed" ? (
         <div className="flex max-w-xs flex-col items-center gap-2 text-center">
@@ -138,10 +142,7 @@ function ProjectImage({ project }: { project: ListedProject }) {
   const [erroredSrc, setErroredSrc] = useState<string | null>(null);
 
   return (
-    <div
-      className="bg-muted flex items-center justify-center"
-      style={{ aspectRatio: "1200 / 630" }}
-    >
+    <div className="bg-muted flex items-center justify-center" style={OG_IMAGE_ASPECT_RATIO}>
       {erroredSrc === src ? (
         <ProjectFavicon project={project} size={48} />
       ) : (

@@ -20,18 +20,16 @@ import { projectQueries } from "@/lib/queries";
 
 /**
  * Asks the member to type the project's slug before deleting it. Once it's deleted, the
- * organization's project list refreshes and `onDeleted` runs.
+ * organization's project list refreshes.
  */
 export function DeleteProjectDialog({
   project,
   open,
   onOpenChange,
-  onDeleted,
 }: {
   project: Project;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDeleted?: () => void;
 }) {
   const [confirmValue, setConfirmValue] = useState("");
   const queryClient = useQueryClient();
@@ -43,7 +41,6 @@ export function DeleteProjectDialog({
       toast.success("Project deleted");
       onOpenChange(false);
       setConfirmValue("");
-      onDeleted?.();
     },
     onError: (error) => {
       console.error("Failed to delete project:", error);

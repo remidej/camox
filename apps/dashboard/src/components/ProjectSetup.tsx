@@ -21,11 +21,6 @@ const STEP_ICONS: Record<StepState, ReactNode> = {
   pending: <CircleIcon className="text-muted-foreground size-4" />,
 };
 
-/** The address `<slug>.camox.site` serves a project's site at. */
-export function siteUrl(project: Pick<Project, "slug">) {
-  return `https://${project.slug}.camox.site`;
-}
-
 /** What a member is told when their project's setup failed. */
 export function ProjectSetupFailure({ className }: { className?: string }) {
   return (
