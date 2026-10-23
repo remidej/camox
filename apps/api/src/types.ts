@@ -17,6 +17,8 @@ export type Bindings = {
   AI: Ai;
   AI_JOB_SCHEDULER: DurableObjectNamespace;
   ProjectRoom: DurableObjectNamespace;
+  /** Batches the edge cache's purges, which the account's purge rate limit caps. */
+  EDGE_CACHE_PURGER: import("./lib/edge-cache-purges").EdgeCachePurgerNamespace;
   THREAD: DurableObjectNamespace<import("./durable-objects/thread").Thread>;
   /** The sandbox Worker's Durable Object running code mode scripts, one per thread (ADR 0018). */
   CODEMODE_SANDBOX: DurableObjectNamespace<

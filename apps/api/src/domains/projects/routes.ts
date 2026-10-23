@@ -4,6 +4,7 @@ import { Hono } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
 import type { Database } from "../../db";
+import { edgeCachePurges, edgeCacheTags } from "../../lib/edge-cache-purges";
 import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
@@ -117,12 +118,25 @@ function authorizeFavicon(db: Database, projectId: number, userId: string) {
 
 export const faviconHonoRoutes = new Hono<AppEnv>();
 
-function defaultFaviconResponse() {
+/**
+ * The edge keeps a favicon until it changes, which purges it (src/edge-cache.ts), so only
+ * browsers ask again hourly. A project's default stands in for its favicon until one is uploaded,
+ * so it carries the project's tag too.
+ */
+function faviconEdgeHeaders(projectId?: number): Record<string, string> {
+  return {
+    "Cloudflare-CDN-Cache-Control": "public, max-age=31536000",
+    ...(projectId !== undefined && { "Cache-Tag": edgeCacheTags.favicon(projectId) }),
+  };
+}
+
+function defaultFaviconResponse(projectId?: number) {
   return new Response(DEFAULT_FAVICON_SVG, {
     headers: {
       "Content-Type": "image/svg+xml",
       "Cache-Control": "public, max-age=3600",
       "Content-Disposition": "inline",
+      ...faviconEdgeHeaders(projectId),
     },
   });
 }
@@ -136,7 +150,7 @@ faviconHonoRoutes.get("/:projectId", async (c) => {
   }
 
   const object = await c.env.FILES_BUCKET.get(faviconKey(projectId));
-  if (!object && c.req.query("default") === "camox") return defaultFaviconResponse();
+  if (!object && c.req.query("default") === "camox") return defaultFaviconResponse(projectId);
   if (!object) return c.notFound();
 
   const ifNoneMatch = c.req.header("If-None-Match");
@@ -156,6 +170,7 @@ faviconHonoRoutes.get("/:projectId", async (c) => {
       "Cache-Control": "public, max-age=3600",
       ETag: object.httpEtag,
       "Content-Disposition": "inline",
+      ...faviconEdgeHeaders(projectId),
     },
   });
 });
@@ -186,6 +201,7 @@ faviconHonoRoutes.post("/upload", async (c) => {
 
   const updatedAt = Date.now();
   await c.var.db.update(projects).set({ updatedAt }).where(eq(projects.id, projectId));
+  edgeCachePurges.purge([edgeCacheTags.favicon(projectId)]);
   await runService(record(c.var.db, { kind: "project", projectId }));
 
   return c.json({ updatedAt }, 200);
@@ -204,6 +220,7 @@ faviconHonoRoutes.delete("/:projectId", async (c) => {
 
   await c.env.FILES_BUCKET.delete(faviconKey(projectId));
   await c.var.db.update(projects).set({ updatedAt: Date.now() }).where(eq(projects.id, projectId));
+  edgeCachePurges.purge([edgeCacheTags.favicon(projectId)]);
   await runService(record(c.var.db, { kind: "project", projectId }));
 
   return new Response(null, { status: 204 });

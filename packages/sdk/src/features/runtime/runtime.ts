@@ -241,6 +241,28 @@ function isPrivateRender(request: Request, options: RuntimeOptions): boolean {
   );
 }
 
+/** The routes whose response is the same for every visitor, unless the request is private. */
+const PUBLIC_ROUTE_KINDS: ReadonlySet<RuntimeRouteKind> = new Set([
+  "page",
+  "data",
+  "og",
+  "logo",
+  "sitemap",
+  "llms-txt",
+]);
+
+/**
+ * Whether a request reads what every visitor sees, so a shared cache may answer it: a GET or
+ * HEAD of a page or a public output, with no session, no draft named and no preview handoff. A
+ * response that comes out private all the same, such as the Studio's, still says so.
+ */
+export function isPublicRequest(request: Request, options: RuntimeOptions = {}): boolean {
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
+  if (isPrivateRender(request, options) || isPreviewHandoff(request, options)) return false;
+  const pathname = getRuntimePathname(request.url, options.runtimeBasePath);
+  return pathname !== null && PUBLIC_ROUTE_KINDS.has(matchRuntimeRoute(pathname).kind);
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -409,8 +431,6 @@ function createLlmsTxtResponse(request: Request, options: RuntimeOptions): Promi
       }),
       {
         "Content-Type": "text/plain; charset=utf-8",
-        // Short, so a publish shows up within minutes; revalidating is cheap with the ETag.
-        "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
       },
     ),
   );
@@ -1467,7 +1487,7 @@ async function createDerivedResponse(
     if (dataOnly)
       return Response.json(input, {
         headers: {
-          "Cache-Control": "private, no-store",
+          ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
           Vary: "Cookie",
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
@@ -1697,9 +1717,9 @@ async function createPageDataResponse({
     });
     const headers = new Headers({
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "private, no-store",
       Vary: "Cookie",
     });
+    if (isPrivateRender(request, options)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }

@@ -2,6 +2,7 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
+import { edgeCacheTags } from "../../lib/edge-cache-purges";
 import { isRasterImage } from "../../lib/image-transform";
 import { runService } from "../../lib/run-service";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
@@ -71,6 +72,10 @@ export const fileProcedures = {
 
 export const fileHonoRoutes = new Hono<AppEnv>();
 
+// A stored file's key never names other bytes: replacing a file's content stores it under a new
+// key. So the edge keeps a file for good, and purges it only once its blob is deleted
+// (`deleteUnreferencedBlobs`). In production the edge answers Range and HEAD requests from the
+// full file it stored, so they only reach this route where the edge caches nothing, as in dev.
 fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
   const key = c.req.path.replace(/^\/files\/serve\//, "");
   if (!key) return c.json({ error: "Missing file key" }, 400);
@@ -81,6 +86,7 @@ fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
   const headers = new Headers({
     "Content-Type": metadata.httpMetadata?.contentType ?? "application/octet-stream",
     "Cache-Control": "public, max-age=31536000, immutable",
+    "Cache-Tag": edgeCacheTags.file(key),
     "Content-Disposition": "inline",
     "Accept-Ranges": "bytes",
   });

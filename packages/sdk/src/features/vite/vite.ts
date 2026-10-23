@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,12 @@ import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
 import { generateLayoutFiles, watchLayoutFiles } from "./layoutGeneration";
+import {
+  publicFilesInHashedDirs,
+  readOwnHeaders,
+  staticAssetHeaders,
+  unhashedEntries,
+} from "./staticAssetHeaders";
 import { buildClientThenWorker } from "./workerBuild";
 
 const PRODUCTION_API_URL = "https://api.camox.ai";
@@ -342,6 +348,17 @@ export function camox(options: CamoxPluginOptions): Plugin {
     generateBundle(_outputOptions, bundle) {
       if (this.environment.name !== "client") return;
       blockChunks = collectBlockChunks(bundle, resolvedConfig.root);
+      if (!isBuild) return;
+      // Vite copied the public directory already, its `_headers` included: this one replaces it.
+      const { publicDir } = resolvedConfig;
+      this.emitFile({
+        type: "asset",
+        fileName: "_headers",
+        source: staticAssetHeaders({
+          ownHeaders: readOwnHeaders(publicDir),
+          unhashedFiles: [...unhashedEntries(bundle), ...publicFilesInHashedDirs(publicDir)],
+        }),
+      });
     },
     async config(_config, env) {
       const iconIds = await generateIconTypes(
@@ -379,6 +396,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),
           __CAMOX_PROJECT_ID__: JSON.stringify(projectUuid),
+          // Public renders are cached per build: a release never serves the last one's pages.
+          __CAMOX_BUILD_ID__: JSON.stringify(randomUUID()),
         },
         environments: {
           client: {

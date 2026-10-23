@@ -13,6 +13,10 @@ declare module "virtual:camox-overlay-css" {
 
 declare module "virtual:camox/server" {
   export function handleCamoxRequest(request: Request): Promise<Response | null>;
+  /** Whether a request reads what every visitor sees, so the edge may answer it. */
+  export function isPublicRequest(request: Request): boolean;
+  /** Where the Live cache key is read from, and the build public renders are kept under. */
+  export const publicCacheSource: { apiUrl: string; projectUuid: string; build: string };
   /** Where the runtime is mounted, without a trailing slash; empty at the root. */
   export const runtimeBasePath: string;
   /** What Vite injects into HTML in dev; `null` in builds. */
@@ -33,6 +37,8 @@ declare const __CAMOX_AUTHENTICATION_URL__: string;
 declare const __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: boolean;
 /** Dev mode, which works only in the developer's development draft: anything but a release. */
 declare const __CAMOX_DEVELOPMENT_DRAFT__: boolean;
+/** This build of the website, which public renders are cached under. */
+declare const __CAMOX_BUILD_ID__: string;
 
 // Temporal API types (Stage 3, available in modern browsers)
 declare namespace Temporal {

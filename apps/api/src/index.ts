@@ -11,6 +11,7 @@ import { authRoutes, createAuth } from "./domains/auth/routes";
 import { fileHonoRoutes } from "./domains/files/routes";
 import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
+import { liveCacheKeyRoutes } from "./domains/projects/live-cache-key";
 import { faviconHonoRoutes } from "./domains/projects/routes";
 import { threadHonoRoutes } from "./domains/threads/routes";
 import { getRelayedSessionHeaders } from "./lib/relayed-session";
@@ -126,6 +127,7 @@ app.use("*", async (c, next) => {
 app.route("/api/auth", authRoutes);
 app.route("/files", fileHonoRoutes);
 app.route("/favicons", faviconHonoRoutes);
+app.route("/live-cache-keys", liveCacheKeyRoutes);
 app.route("/pages", pageHonoRoutes);
 app.route("/threads", threadHonoRoutes);
 

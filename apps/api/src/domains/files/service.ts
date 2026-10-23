@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type { Database } from "../../db";
 import { AiModel } from "../../lib/ai-model";
+import { edgeCachePurges, edgeCacheTags } from "../../lib/edge-cache-purges";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { isRasterImage } from "../../lib/image-transform";
 import type { Journal } from "../../lib/journal";
@@ -162,10 +163,17 @@ export const deleteUnreferencedBlobs = Effect.fn("files.deleteUnreferencedBlobs"
       .where(inArray(files.blobId, candidates)),
   );
   const kept = new Set(named.map((row) => row.blobId));
-  yield* Effect.forEach(
-    candidates.filter((blobId) => !kept.has(blobId)),
-    (blobId) => deleteFileBlob(ctx, blobId),
-    { concurrency: "unbounded", discard: true },
+  const deleted = candidates.filter((blobId) => !kept.has(blobId));
+  yield* Effect.forEach(deleted, (blobId) => deleteFileBlob(ctx, blobId), {
+    concurrency: "unbounded",
+    discard: true,
+  });
+  // The edge would otherwise keep serving them.
+  edgeCachePurges.purge(
+    deleted.flatMap((blobId) => [
+      edgeCacheTags.file(blobId),
+      edgeCacheTags.file(optimizedVideoKey(blobId)),
+    ]),
   );
 });
 
