@@ -18,6 +18,7 @@ import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import type { EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { RendererSlot, useRendererHost } from "../renderer/RendererFrames";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
 import { canvasPageHref, measureCanvasDocument } from "./canvasFrameDocument";
@@ -113,6 +114,9 @@ function PageFrame({
   const claim = useEditingFrameClaim(iframe, owner);
   // Until the page's content commits, the frame shows its loading state.
   const [committed, setCommitted] = React.useState(false);
+  // Through the renderer frame, the renderer renders the page and says once it did.
+  const renderer = useRendererHost();
+  const [rendered, setRendered] = React.useState(false);
   useFrameSettled(committed ? iframe : null, mount, onSettled);
   const activateOwner = (source: CanvasFrameActivation) => {
     if (!owner) return;
@@ -147,6 +151,45 @@ function PageFrame({
                 />
               )}
               {mount &&
+                renderer &&
+                createPortal(
+                  // The renderer renders the page, and rests it itself, so the slot stays.
+                  <ArtifactsRunContext value={selected}>
+                    <EditableSurfaceContext value={selected}>
+                      <div
+                        style={{ display: "contents" }}
+                        onPointerDownCapture={activate}
+                        onFocusCapture={activate}
+                        onClickCapture={activate}
+                        onClick={preventLinkNavigation}
+                      >
+                        <RendererSlot
+                          pathname={input.pathname}
+                          derivedLayoutId={input.derived?.layoutId}
+                          resting={mode === "resting"}
+                          onRendered={() => setRendered(true)}
+                        />
+                        <PreviewFrameEffects />
+                        <Overlays
+                          frame={iframe}
+                          owner={owner}
+                          canAddBlocks={owner?.kind === "page"}
+                        />
+                        {rendered && (
+                          <PageContentCommitted
+                            selected={selected}
+                            frame={iframeRef}
+                            viewportHeight={viewportHeight}
+                            onCommitted={() => setCommitted(true)}
+                          />
+                        )}
+                      </div>
+                    </EditableSurfaceContext>
+                  </ArtifactsRunContext>,
+                  mount,
+                )}
+              {mount &&
+                !renderer &&
                 createPortal(
                   <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
                     <React.Suspense fallback={<div role="status">Loading page…</div>}>

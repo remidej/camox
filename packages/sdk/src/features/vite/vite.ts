@@ -28,6 +28,8 @@ const VIRTUAL_PAGE_CLIENT = "virtual:camox/page-client";
 const RESOLVED_VIRTUAL_PAGE_CLIENT_URL = "\0virtual:camox/page-client-url";
 const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0virtual:camox/studio-client-url";
+const VIRTUAL_RENDERER_CLIENT = "virtual:camox/renderer-client";
+const RESOLVED_VIRTUAL_RENDERER_CLIENT_URL = "\0virtual:camox/renderer-client-url";
 const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0virtual:camox/block-chunks";
 /** A built file's URL in the server bundle: under the asset prefix, read when the bundle loads. */
 const serverAssetUrl = (file: string) =>
@@ -351,6 +353,9 @@ export function camox(options: CamoxPluginOptions): Plugin {
       if (id === RESOLVED_VIRTUAL_STUDIO_CLIENT_URL && isBuild) {
         return `export default ${serverAssetUrl("_chunks/camox-studio-client.mjs")};`;
       }
+      if (id === RESOLVED_VIRTUAL_RENDERER_CLIENT_URL && isBuild) {
+        return `export default ${serverAssetUrl("_chunks/camox-renderer-client.mjs")};`;
+      }
       // The client builds first, so the server build can read where each block ended up.
       if (id === RESOLVED_VIRTUAL_BLOCK_CHUNKS && isBuild) {
         return `export default ${JSON.stringify(blockChunks)};`;
@@ -449,6 +454,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
                 input: {
                   "camox-page-client": VIRTUAL_PAGE_CLIENT,
                   "camox-studio-client": VIRTUAL_STUDIO_CLIENT,
+                  "camox-renderer-client": VIRTUAL_RENDERER_CLIENT,
                 },
                 output: {
                   assetFileNames: "assets/[name]-[hash][extname]",

@@ -1,0 +1,172 @@
+import type { QueryClient } from "@tanstack/react-query";
+
+import type { ApplyContentEdit } from "../../core/editing/contentEdits";
+import type { DraftScope } from "../../lib/draft-scope";
+import type { StudioCache } from "../../lib/studio-reads";
+import { canvasStore } from "../canvas/canvasStore";
+import { previewStore } from "../preview/previewStore";
+import { referencePickerFocus } from "../preview/referencePickerFocus";
+import {
+  deferredInbox,
+  RENDERER_PROTOCOL,
+  type ForwardedStore,
+  type Inbox,
+  type MirroredStore,
+  type RendererFrameTarget,
+  type RendererMessage,
+  type StoreEvent,
+  type StudioHandle,
+  type StudioMessage,
+} from "./protocol";
+
+/** One frame the studio gave the renderer to fill. */
+export interface RendererFrame {
+  frameId: string;
+  slot: HTMLElement;
+  target: RendererFrameTarget;
+}
+
+/** A store of this document that mirrors or forwards to the studio's. */
+type DocumentStore = {
+  send: (event: never) => void;
+  inspect: (observer: (event: { type: string; event?: StoreEvent }) => void) => {
+    unsubscribe: () => void;
+  };
+};
+
+const mirrors: Record<MirroredStore, DocumentStore> = {
+  preview: previewStore as unknown as DocumentStore,
+  canvas: canvasStore as unknown as DocumentStore,
+};
+
+const forwards: Record<ForwardedStore, DocumentStore> = {
+  preview: previewStore as unknown as DocumentStore,
+  referencePickerFocus: referencePickerFocus as unknown as DocumentStore,
+};
+
+/** The renderer's side of its connection to the studio (see `protocol.ts`). */
+export interface StudioConnection {
+  /** Whether the studio welcomed the renderer. */
+  connected: () => boolean;
+  /** The frames the studio gives the renderer to fill, in the order it gave them. */
+  frames: () => RendererFrame[];
+  /** Calls `listener` whenever the frames change. */
+  subscribe: (listener: () => void) => () => void;
+  /** Tells the studio about one of its frames. */
+  send(message: Exclude<RendererMessage, { type: "hello" | "storeEvent" | "edit" }>): void;
+  /** Has the studio write an edit made here. Settles as the studio answers. */
+  edit: ApplyContentEdit;
+  close(): void;
+}
+
+/**
+ * Connects the renderer document to the studio through its handle. This document's stores then
+ * mirror the studio's, its own events are forwarded to the studio, which owns their truth, and
+ * its cache follows the studio's (see `protocol.ts`).
+ */
+export function connectToStudio(
+  handle: StudioHandle,
+  {
+    queryClient,
+    studioCache,
+    draftScope,
+  }: { queryClient: QueryClient; studioCache: StudioCache; draftScope: DraftScope },
+): StudioConnection {
+  let welcomed = false;
+  let frames: RendererFrame[] = [];
+  const listeners = new Set<() => void>();
+  const setFrames = (next: RendererFrame[]) => {
+    frames = next;
+    for (const listener of listeners) listener();
+  };
+  /** The edits sent to the studio that it hasn't answered yet. */
+  const editsInFlight = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+  let lastEditId = 0;
+  /** Whether the renderer holds the read under `queryKey`. */
+  const holds = (queryKey: readonly unknown[]) =>
+    !!queryClient.getQueryCache().find({ queryKey, exact: true });
+
+  const receive = (message: StudioMessage) => {
+    if (message.type === "welcome") {
+      welcomed = message.protocol === RENDERER_PROTOCOL;
+      return;
+    }
+    if (!welcomed) return;
+    switch (message.type) {
+      case "frame": {
+        const frame = { frameId: message.frameId, slot: message.slot, target: message.target };
+        const index = frames.findIndex(({ frameId }) => frameId === message.frameId);
+        setFrames(
+          index < 0
+            ? [...frames, frame]
+            : frames.map((shown, at) => (at === index ? frame : shown)),
+        );
+        return;
+      }
+      case "frameEnd":
+        setFrames(frames.filter(({ frameId }) => frameId !== message.frameId));
+        return;
+      case "store":
+        mirrors[message.store]?.send({ type: "mirror", context: message.context } as never);
+        return;
+      case "draftStarted":
+        draftScope.enterStarted(message.draftId);
+        return;
+      case "invalidate":
+        void studioCache.receive(message.message, message.projectId);
+        return;
+      case "write":
+        if (!holds(message.queryKey)) return;
+        if ("value" in message && message.value !== undefined)
+          queryClient.setQueryData(message.queryKey, message.value);
+        else queryClient.removeQueries({ queryKey: message.queryKey, exact: true });
+        return;
+      case "outdated":
+        for (const queryKey of message.queryKeys)
+          if (holds(queryKey)) void queryClient.invalidateQueries({ queryKey, exact: true });
+        return;
+      case "edited": {
+        const edit = editsInFlight.get(message.editId);
+        if (!edit) return;
+        editsInFlight.delete(message.editId);
+        if (message.error === undefined) edit.resolve();
+        else edit.reject(new Error(message.error));
+        return;
+      }
+    }
+  };
+
+  const studio: Inbox<RendererMessage> = handle.connect(deferredInbox(receive));
+  studio({ type: "hello", protocol: RENDERER_PROTOCOL });
+
+  // This document's events go to the studio, which applies them and sends its state back.
+  // Applying them here first shows them at once: the studio's state, the same, then replaces it.
+  const inspections = (Object.keys(forwards) as ForwardedStore[]).map((store) =>
+    forwards[store].inspect((inspection) => {
+      const event = inspection.event;
+      if (inspection.type !== "@xstate.transition" || !event) return;
+      if (event.type === "mirror" || event.type.startsWith("@xstate.")) return;
+      studio({ type: "storeEvent", store, event: { ...event } });
+    }),
+  );
+
+  return {
+    connected: () => welcomed,
+    frames: () => frames,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    send: (message) => studio(message),
+    edit: (edit) =>
+      new Promise((resolve, reject) => {
+        const editId = ++lastEditId;
+        editsInFlight.set(editId, { resolve, reject });
+        studio({ type: "edit", editId, edit });
+      }),
+    close() {
+      for (const inspection of inspections) inspection.unsubscribe();
+      listeners.clear();
+    },
+  };
+}

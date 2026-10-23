@@ -22,6 +22,7 @@ export default defineConfig({
       "features/runtime/pageServer": "src/features/runtime/pageServer.tsx",
       "features/runtime/pageClient": "src/features/runtime/pageClient.tsx",
       "features/runtime/studioClient": "src/features/runtime/studioClient.tsx",
+      "features/runtime/rendererClient": "src/features/runtime/rendererClient.tsx",
       "features/runtime/studioServer": "src/features/runtime/studioServer.tsx",
       "features/runtime/worker": "src/features/runtime/worker.ts",
       // An explicit entry: tsdown can't traverse the dynamic
