@@ -11,6 +11,7 @@ export default defineConfig({
       "src/analytics.ts",
       "src/threads.ts",
       "src/projects.ts",
+      "src/locales.ts",
     ],
     format: "esm",
     platform: "neutral",
