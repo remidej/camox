@@ -1,0 +1,8 @@
+@font-face {
+  font-family: "Fixture";
+  src: url("./fonts/fixture.woff2") format("woff2");
+}
+
+body {
+  font-family: "Fixture", sans-serif;
+}

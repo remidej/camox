@@ -20,6 +20,11 @@ export const releases = sqliteTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     /** The commit pushed to `main`. */
     commit: text().notNull(),
+    /**
+     * The commit's Git tree. A succeeded release's is the tree Live serves until the next one,
+     * so a push of that tree again releases nothing. Older releases didn't record it.
+     */
+    tree: text(),
     /** The `camox` version the commit's `pnpm-lock.yaml` installs, if it has one. */
     camoxVersion: text("camox_version"),
     status: text().$type<ReleaseStatus>().notNull(),

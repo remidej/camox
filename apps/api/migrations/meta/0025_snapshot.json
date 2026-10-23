@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "52098f1d-fb34-481b-907f-86f2925bb53c",
+  "id": "1dad59fa-1013-4f0b-98e3-c1dc66289930",
   "prevId": "53facd03-5659-426a-b0ea-5fae08a75fc3",
   "tables": {
     "account": {
@@ -712,13 +712,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "description": {
@@ -3234,6 +3227,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "tree": {
+          "name": "tree",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "camox_version": {

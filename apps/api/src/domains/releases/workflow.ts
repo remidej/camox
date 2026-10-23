@@ -4,7 +4,7 @@ import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 
 import { createDb, type Database } from "../../db";
 import type { Bindings } from "../../types";
@@ -50,7 +50,10 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         .get();
       // A deleted project's repo, which its cleanup hasn't removed yet.
       if (!project) return null;
-      const camoxVersion = await this.camoxVersion(push.repo, push.sha);
+      const { tree, camoxVersion } = await this.readCommit(push.repo, push.sha);
+      // Live already serves this tree, such as when a publish with code pushes the tree it put
+      // on Live: there's nothing to release. Restarting an instance still re-runs its release.
+      if ((await servedTree(db, project.id, event.instanceId)) === tree) return null;
       const running = {
         status: "running" as const,
         failedStep: null,
@@ -62,12 +65,13 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         .values({
           projectId: project.id,
           commit: push.sha,
+          tree,
           camoxVersion,
           workflowInstanceId: event.instanceId,
           ...running,
         })
         // A restarted instance keeps its ID: re-running a release starts its row over.
-        .onConflictDoUpdate({ target: releases.workflowInstanceId, set: running });
+        .onConflictDoUpdate({ target: releases.workflowInstanceId, set: { tree, ...running } });
       // Until a release succeeds, the project's setup follows its releases, including a re-run
       // of a first release that failed.
       const settingUp = project.status !== "live";
@@ -164,10 +168,16 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
     });
   }
 
-  private async camoxVersion(repoName: string, commit: string) {
+  /** The commit's tree, and the `camox` version its `pnpm-lock.yaml` installs. */
+  private async readCommit(repoName: string, commit: string) {
     using repo = await this.env.ARTIFACTS.get(repoName);
+    const read = await repo.readCommit(commit);
+    if (!read) throw new Error(`The pushed commit ${commit} isn't in ${repoName}.`);
     const lockfile = await repo.readFile({ ref: commit, path: "pnpm-lock.yaml" });
-    return lockfile ? camoxVersionInLockfile(await lockfile.text()) : null;
+    return {
+      tree: read.treeHash,
+      camoxVersion: lockfile ? camoxVersionInLockfile(await lockfile.text()) : null,
+    };
   }
 }
 
@@ -183,6 +193,26 @@ async function deployToken(db: Database, projectId: number) {
     .get();
   if (!project) throw new Error("The project was deleted during its release.");
   return project.deployToken;
+}
+
+/**
+ * The tree Live serves: its last succeeded release's, other than `instanceId`'s. Null when no
+ * release recorded one.
+ */
+async function servedTree(db: Database, projectId: number, instanceId: string) {
+  const served = await db
+    .select({ tree: releases.tree })
+    .from(releases)
+    .where(
+      and(
+        eq(releases.projectId, projectId),
+        eq(releases.status, "succeeded"),
+        ne(releases.workflowInstanceId, instanceId),
+      ),
+    )
+    .orderBy(desc(releases.endedAt), desc(releases.id))
+    .get();
+  return served?.tree ?? null;
 }
 
 /** Whether the project, by its row id, hasn't been deleted. */

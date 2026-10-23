@@ -6,13 +6,18 @@ Cloudflare Artifacts sends `cf.artifacts.repo.pushed` for every push to a repo i
 
 - a push to any branch other than `main`;
 - a repo whose name isn't a Project ID, such as `template-default`, which every SDK publish refreshes;
-- a Project ID no project has, such as a deleted project's repo.
+- a Project ID no project has, such as a deleted project's repo;
+- a push of the tree Live already serves.
+
+## The tree Live serves
+
+Each release records the Git tree of the commit it serves. Live serves the tree of the project's last succeeded release, so a push whose commit has that tree completes without installing, building or deploying, and records no release. A publish with code puts its tree on Live itself, then pushes it to `main` (ADR 0020): that push releases nothing. Restarting a release's instance still re-runs it.
 
 ## Steps
 
 The Workflow runs on `@cloudflare/ci`. Each step after the first runs in its own Container sandbox, on the workspace the previous one left. Workflows retry a failed step, so each one is idempotent.
 
-1. **Record the release.** It maps the repo to its project, reads the `camox` version from the commit's `pnpm-lock.yaml` through the Artifacts binding, and writes the release's row as `running`.
+1. **Record the release.** It maps the repo to its project, reads the commit's tree and the `camox` version from its `pnpm-lock.yaml` through the Artifacts binding, stops if Live already serves that tree, and writes the release's row as `running`.
 2. **`install`:** `pnpm install --frozen-lockfile`. Its workspace is cached on `pnpm-lock.yaml`, per project.
 3. **`release`:** `pnpm exec camox release`, which builds the website and syncs its Definition Set to Live, as for any release. Syncing the same set again changes nothing.
 4. **`deploy`:** `pnpm exec wrangler deploy --dispatch-namespace production --name <Project ID>`. The name comes from the repo, so a project's code can only replace its own Worker.
