@@ -69,7 +69,7 @@ describe("the agent reading the website through code mode", () => {
     });
   });
 
-  it("offers the model code mode and the web tools, its scripts reaching the content tools", async () => {
+  it("offers the model code mode, the web and code tools, its scripts reaching the content tools", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
     let offered: string[] = [];
@@ -80,9 +80,17 @@ describe("the agent reading the website through code mode", () => {
 
     const view = await ask(await openThread(website), "What can you read?");
 
-    expect(offered.toSorted()).toEqual(["codemode", "web_fetch", "web_search"]);
+    expect(offered.toSorted()).toEqual([
+      "codemode",
+      "find",
+      "grep",
+      "ls",
+      "read",
+      "web_fetch",
+      "web_search",
+    ]);
     const scriptTools = lastAnswer(view)?.split(", ");
-    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage"]));
+    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage", "read", "grep"]));
     expect(scriptTools).not.toEqual(expect.arrayContaining(["web_fetch"]));
     expect(scriptTools).not.toEqual(expect.arrayContaining(["web_search"]));
   });

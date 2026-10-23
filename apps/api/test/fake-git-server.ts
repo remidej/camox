@@ -1,8 +1,9 @@
 // A Git server for the fake Cloudflare Artifacts namespace (release-fakes.js): bare repos held in
 // memory, served over Git's smart HTTP protocol the way Cloudflare Artifacts serves a repo's
 // `remote`, so that isomorphic-git clones from them and pushes to them as it does in production.
-// Only what isomorphic-git asks for is served: a full clone (no `haves`, no shallow), and a push
-// with `report-status` over `side-band-64k`.
+// Only what isomorphic-git asks for is served: a full or depth-limited clone (no `haves`), and a
+// push with `report-status` over `side-band-64k`. Every push to `main` is recorded as the event
+// Cloudflare Artifacts sends for it, for the tests to deliver (test/pushes.ts).
 import git from "isomorphic-git";
 
 import { MemoryFs } from "../src/lib/memory-fs";
@@ -23,6 +24,8 @@ const AUTHOR = {
 };
 
 const repos = new Map<string, MemoryFs>();
+/** The `cf.artifacts.repo.pushed` events of each repo's pushes to `main`, not delivered yet. */
+const pushEvents = new Map<string, PushEvent[]>();
 /** Repos whose next push lands but answers with an error, as if the response were lost. */
 const lostPushResponses = new Set<string>();
 
@@ -32,10 +35,46 @@ export function hasGitRepo(name: string) {
   return repos.has(name);
 }
 
+/** The event Cloudflare Artifacts sends for a push, which starts the release Workflow. */
+export type PushEvent = {
+  type: "cf.artifacts.repo.pushed";
+  source: { type: "artifacts.repo"; namespace: "projects"; repoName: string };
+  payload: {
+    ref: string;
+    before: string;
+    after: string;
+    commits: { id: string; message: string; author: { name: string; email: string } }[];
+  };
+};
+
+function recordPush(name: string, before: string, after: string, message: string) {
+  const event: PushEvent = {
+    type: "cf.artifacts.repo.pushed",
+    source: { type: "artifacts.repo", namespace: "projects", repoName: name },
+    payload: {
+      ref: MAIN,
+      before,
+      after,
+      commits: [{ id: after, message, author: { name: AUTHOR.name, email: AUTHOR.email } }],
+    },
+  };
+  pushEvents.set(name, [...(pushEvents.get(name) ?? []), event]);
+}
+
+/** The push events of `name` since the last call, oldest first. */
+export function takePushEvents(name: string) {
+  const events = pushEvents.get(name) ?? [];
+  pushEvents.delete(name);
+  return events;
+}
+
 /** A file's content, or a symlink to `symlink`. */
 export type FakeFile = string | { symlink: string };
 
-/** Commits `files` as the whole tree of `main` in `name`, creating the repo if needed. */
+/**
+ * Commits `files` as the whole tree of `main` in `name`, creating the repo if needed, as a push
+ * from outside Camox would: the push is recorded as its event.
+ */
 export async function commitFiles(name: string, files: Record<string, FakeFile>, message: string) {
   let fs = repos.get(name);
   if (!fs) {
@@ -56,6 +95,7 @@ export async function commitFiles(name: string, files: Record<string, FakeFile>,
     },
   });
   await git.writeRef({ ...bare(fs), ref: MAIN, value: commit, force: true });
+  recordPush(name, parent ?? ZERO, commit, message);
   return commit;
 }
 
@@ -206,7 +246,7 @@ async function advertise(fs: MemoryFs, service: string) {
   const capabilities =
     service === "git-receive-pack"
       ? "report-status side-band-64k agent=camox-fake"
-      : `side-band-64k ofs-delta symref=HEAD:${MAIN} agent=camox-fake`;
+      : `side-band-64k ofs-delta shallow symref=HEAD:${MAIN} agent=camox-fake`;
   const refs = head
     ? [
         pktLine(`${head} ${service === "git-upload-pack" ? "HEAD" : MAIN}\0${capabilities}\n`),
@@ -216,8 +256,8 @@ async function advertise(fs: MemoryFs, service: string) {
   return concat([pktLine(`# service=${service}\n`), FLUSH, ...refs, FLUSH]);
 }
 
-/** Every object reachable from `commits`. */
-async function reachable(fs: MemoryFs, commits: string[]) {
+/** Every object reachable from `commits`, through at most `depth` commits of history when given. */
+async function reachable(fs: MemoryFs, commits: string[], depth = Number.POSITIVE_INFINITY) {
   const seen = new Set<string>();
   const visitTree = async (oid: string) => {
     if (seen.has(oid)) return;
@@ -228,30 +268,43 @@ async function reachable(fs: MemoryFs, commits: string[]) {
       else seen.add(entry.oid);
     }
   };
-  const queue = [...commits];
+  /** The commits whose parents the depth leaves out: what the client records as shallow. */
+  const shallow: string[] = [];
+  const queue = commits.map((oid) => ({ oid, level: 1 }));
   while (queue.length > 0) {
-    const oid = queue.pop()!;
+    const { oid, level } = queue.pop()!;
     if (seen.has(oid)) continue;
     seen.add(oid);
     const { commit } = await git.readCommit({ ...bare(fs), oid });
     await visitTree(commit.tree);
-    queue.push(...commit.parent);
+    if (level >= depth) {
+      if (commit.parent.length > 0) shallow.push(oid);
+      continue;
+    }
+    queue.push(...commit.parent.map((parent) => ({ oid: parent, level: level + 1 })));
   }
-  return [...seen];
+  return { oids: [...seen], shallow };
 }
 
 async function uploadPack(fs: MemoryFs, body: Uint8Array) {
   const { lines } = readPktLines(body);
   const wants = lines.filter((l) => l.startsWith("want ")).map((l) => l.slice(5, 45));
-  const { packfile } = await git.packObjects({
-    ...bare(fs),
-    oids: await reachable(fs, wants),
-    write: false,
-  });
-  return concat([pktLine("NAK\n"), ...sideBand(packfile!), FLUSH]);
+  const deepen = lines.find((l) => l.startsWith("deepen "));
+  const { oids, shallow } = await reachable(
+    fs,
+    wants,
+    deepen ? Number(deepen.slice(7)) : undefined,
+  );
+  const { packfile } = await git.packObjects({ ...bare(fs), oids, write: false });
+  return concat([
+    ...shallow.map((oid) => pktLine(`shallow ${oid}\n`)),
+    pktLine("NAK\n"),
+    ...sideBand(packfile!),
+    FLUSH,
+  ]);
 }
 
-async function receivePack(fs: MemoryFs, body: Uint8Array) {
+async function receivePack(name: string, fs: MemoryFs, body: Uint8Array) {
   const { lines, rest } = readPktLines(body);
   const [command] = lines;
   const [oldOid, newOid, ref] = command!.split("\0")[0]!.trim().split(" ");
@@ -267,6 +320,10 @@ async function receivePack(fs: MemoryFs, body: Uint8Array) {
       await git.indexPack({ ...bare(fs), filepath: path });
     }
     await git.writeRef({ ...bare(fs), ref: ref!, value: newOid!, force: true });
+    if (ref === MAIN) {
+      const { commit } = await git.readCommit({ ...bare(fs), oid: newOid! });
+      recordPush(name, oldOid!, newOid!, commit.message.trimEnd());
+    }
   }
   const report = concat([pktLine("unpack ok\n"), pktLine(status), FLUSH]);
   return concat([...sideBand(report), FLUSH]);
@@ -298,7 +355,7 @@ export async function serveGit(request: Request): Promise<Response> {
       headers: { "content-type": "application/x-git-upload-pack-result" },
     });
   }
-  const response = await receivePack(fs, body);
+  const response = await receivePack(name!, fs, body);
   if (lostPushResponses.delete(name!)) return new Response("Bad gateway", { status: 502 });
   return new Response(response, {
     headers: { "content-type": "application/x-git-receive-pack-result" },

@@ -17,6 +17,8 @@ Each release records the Git tree of the commit it serves. Live serves the tree 
 
 The Workflow runs on `@cloudflare/ci`. Each step after the first runs in its own Container sandbox, on the workspace the previous one left. Workflows retry a failed step, so each one is idempotent.
 
+Before releasing, the Workflow refreshes the project's read-only copy of `main`, which the agent reads the website's code from (`src/durable-objects/project-code.ts`). A copy that can't refresh is logged and doesn't hold up the release: it keeps its commit until the next push.
+
 1. **Record the release.** It maps the repo to its project, reads the commit's tree and the `camox` version from its `pnpm-lock.yaml` through the Artifacts binding, stops if Live already serves that tree, and writes the release's row as `running`.
 2. **`install`:** `pnpm install --frozen-lockfile`. Its workspace is cached on `pnpm-lock.yaml`, per project.
 3. **`release`:** `pnpm exec camox release`, which builds the website and syncs its Definition Set to Live, as for any release. Syncing the same set again changes nothing.
