@@ -6,7 +6,13 @@ import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markd
 import { blocks, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers, nestChildItems } from "../_shared/block-markers";
 import { type Conformed, conformBlocks } from "../_shared/conform-content";
-import { collectFileIds, itemSchemas, markdownOf, propertiesOf } from "../_shared/fields";
+import {
+  collectFileIds,
+  type ItemSchemas,
+  itemSchemas,
+  markdownOf,
+  propertiesOf,
+} from "../_shared/fields";
 import { withSharedContent } from "../blocks/shared-content";
 import type { ContentScope } from "../collections/identity";
 import * as overlay from "../drafts/overlay";
@@ -301,6 +307,32 @@ const loadTrees = Effect.fn("content.loadTrees")(function* (
   });
   const items = trees.map((item) => ({ ...item, blockId: keyOf(rootOfItem(item)) }));
   return { standIns, items, keyOf };
+});
+
+/**
+ * The schemas each of these items is read by, from its block's definition (or its synced
+ * definition's) and its repeater path. An item under a removed repeater or definition has none.
+ */
+export const itemSchemasOf = Effect.fn("content.itemSchemasOf")(function* (
+  db: Database,
+  at: ContentScope,
+  definitions: Definitions,
+  rows: readonly ItemRow[],
+) {
+  const found = new Map<string, ItemSchemas>();
+  if (rows.length === 0) return found;
+  const trees = yield* loadTrees(db, at, rows.map(rootOfItem));
+  const items = new Map(trees.items.map((item) => [item.id, item]));
+  for (const row of rows) items.set(row.id, { ...row, blockId: trees.keyOf(rootOfItem(row)) });
+  const byRoot = Map.groupBy(items.values(), (item) => item.blockId);
+  const blockDefinitions = yield* definitions.blocks();
+  for (const standIn of trees.standIns) {
+    const root = blockDefinitions.get(standIn.type)?.contentSchema;
+    for (const [id, schemas] of itemSchemas(root, byRoot.get(standIn.id) ?? [])) {
+      found.set(id, schemas);
+    }
+  }
+  return found;
 });
 
 /**

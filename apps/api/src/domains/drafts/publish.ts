@@ -47,6 +47,7 @@ import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import { catchUpPending, isCatchUpDraft } from "./catch-up";
 import { checkContentProblems, CONTENT_PROBLEM_CODES, type ContentFinding } from "./content-checks";
+import { type FieldDiff, fieldDiffsOf } from "./field-values";
 import * as overlay from "./overlay";
 import { peopleNamed } from "./people";
 import { drafts } from "./schema";
@@ -78,7 +79,18 @@ export type Conflict = Subject &
     publishedAt: number | null;
     /** Whether a release made Live's version, which no member published (ADR 0006). */
     release: boolean;
+    /**
+     * What publishing overwrites: the first default-locale fields where Live's version and the
+     * draft's copy differ, as short plain text. None when either side deleted the entity, or for
+     * a conflict in another locale.
+     */
+    fields: FieldDiff[];
+    /** How many more fields differ than `fields` lists. */
+    moreFields: number;
   };
+
+/** How many differing fields a conflict lists. */
+const CONFLICT_FIELDS = 3;
 
 /** Why publishing drops a change. */
 export const LOSS_REASONS = ["parentGone", "writtenAfterDeletion"] as const;
@@ -296,14 +308,24 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     storedConflicts.flatMap((conflict) => conflict.publishedBy ?? []),
   );
 
-  const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
-    ...describe(conflict.entity, conflict.id),
-    locale: conflict.locale,
-    liveVersion: conflict.liveVersion,
-    publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
-    publishedAt: conflict.publishedAt,
-    release: conflict.publishedAt !== null && conflict.publishedBy === null,
-  }));
+  const defaultLocale = (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null;
+  const inDefault = (conflict: overlay.StoredConflict) =>
+    conflict.locale === null || conflict.locale === defaultLocale;
+  const fieldDiffs = yield* fieldDiffsOf(ctx, scope, storedConflicts.filter(inDefault));
+
+  const conflicts: Conflict[] = storedConflicts.map((conflict) => {
+    const fields = inDefault(conflict) ? fieldDiffs(conflict.entity, conflict.id) : [];
+    return {
+      ...describe(conflict.entity, conflict.id),
+      locale: conflict.locale,
+      liveVersion: conflict.liveVersion,
+      publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
+      publishedAt: conflict.publishedAt,
+      release: conflict.publishedAt !== null && conflict.publishedBy === null,
+      fields: fields.slice(0, CONFLICT_FIELDS),
+      moreFields: Math.max(0, fields.length - CONFLICT_FIELDS),
+    };
+  });
   const lost: LostChange[] = losses.map((loss) => {
     if (loss.reason === "parentGone") {
       return { ...describe(loss.entity, loss.id), locale: loss.locale, reason: loss.reason };
@@ -334,7 +356,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     warnings,
     changes,
     translating: translating.get(scope.id) ?? [],
-    defaultLocale: (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null,
+    defaultLocale,
     token: encodeToken(storedConflicts),
   } satisfies PublishPreview;
 });

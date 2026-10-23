@@ -198,6 +198,54 @@ function conflictDetail(conflict: Conflict, draftDeletes: boolean): string {
     : `${changed} Publishing replaces it with this draft's version.`;
 }
 
+/** Who made Live's version of a conflict and when, labelling Live's values: "On Live now · Ada, Oct 13". */
+function liveValuesLabel(conflict: Conflict): string {
+  const made = [
+    whoChanged(conflict),
+    conflict.publishedAt ? dateFormat.format(conflict.publishedAt) : null,
+  ].filter((part) => part !== null);
+  return made.length > 0 ? `On Live now · ${made.join(", ")}` : "On Live now";
+}
+
+/**
+ * The fields a conflict overwrites: Live's value crossed out, above the draft's, and how many
+ * more fields differ.
+ */
+function ConflictFields({ conflict }: { conflict: Conflict }) {
+  if (conflict.fields.length === 0) return null;
+  const liveLabel = liveValuesLabel(conflict);
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      {conflict.fields.map(({ field, live, draft }) => (
+        <div
+          key={field}
+          className="bg-background flex flex-col gap-1 rounded-md border p-2"
+          data-conflict-field
+        >
+          <p className="text-foreground text-xs font-medium" data-field-title>
+            {field}
+          </p>
+          <div className="flex flex-col">
+            <span className="text-xs">{liveLabel}</span>
+            <del className="break-words" data-live-value>
+              {live}
+            </del>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs">This draft</span>
+            <span className="text-foreground break-words" data-draft-value>
+              {draft}
+            </span>
+          </div>
+        </div>
+      ))}
+      {conflict.moreFields > 0 && (
+        <p className="text-xs">And {plural(conflict.moreFields, "more field")}</p>
+      )}
+    </div>
+  );
+}
+
 /** Blockers first, then conflicts, then lost changes: one card each, with no section heading. */
 function Cards({ preview }: { preview: PublishPreview }) {
   const { blockers, conflicts, lost, changes, defaultLocale } = preview;
@@ -224,6 +272,7 @@ function Cards({ preview }: { preview: PublishPreview }) {
               deleted.has(JSON.stringify([conflict.entity, conflict.id, conflict.locale])),
             )}
           </p>
+          <ConflictFields conflict={conflict} />
         </Card>
       ))}
       {lost.map((change) => (

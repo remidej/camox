@@ -68,6 +68,8 @@ const conflictedPreview = {
       publishedBy: { id: "user-2", name: "Ada" },
       publishedAt: Date.UTC(2026, 9, 13),
       release: false,
+      fields: [] as { field: string; live: string; draft: string }[],
+      moreFields: 0,
     },
   ],
   token: "token-2",
@@ -622,6 +624,88 @@ void test("says publishing brings back what Live deleted", async (t) => {
       cardText("Brings back the Hero"),
       /Ada deleted it from Live on Oct 13\. Publishing brings it back\./,
     );
+  } finally {
+    await close();
+  }
+});
+
+/** The fields a conflict card shows, each as its title, Live's value and the draft's. */
+const conflictFields = () =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-conflict-field]')].map((field) => ({
+    field: field.querySelector("[data-field-title]")?.textContent,
+    live: field.querySelector("[data-live-value]")?.textContent,
+    liveCrossedOut: !!field.querySelector("del [data-live-value], del[data-live-value]"),
+    draft: field.querySelector("[data-draft-value]")?.textContent,
+    // Live's value comes first, then the draft's.
+    order: [...field.querySelectorAll("[data-live-value], [data-draft-value]")].map((value) =>
+      value.hasAttribute("data-live-value") ? "live" : "draft",
+    ),
+  }));
+
+void test("shows the fields a conflict overwrites, Live's value crossed out above the draft's", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        {
+          ...conflict,
+          fields: [
+            { field: "Title", live: "Welcome back", draft: "Welcome home" },
+            { field: "Author", live: "Léo", draft: "Ana" },
+          ],
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const both = { liveCrossedOut: true, order: ["live", "draft"] };
+    assert.deepEqual(conflictFields(), [
+      { field: "Title", live: "Welcome back", draft: "Welcome home", ...both },
+      { field: "Author", live: "Léo", draft: "Ana", ...both },
+    ]);
+    const text = cardText("Replaces Ada's edit to the Hero");
+    assert.match(text, /On Live now · Ada, Oct 13/);
+    assert.match(text, /This draft/);
+  } finally {
+    await close();
+  }
+});
+
+void test("counts the fields a conflict card doesn't list", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        {
+          ...conflict,
+          fields: [{ field: "Title", live: "Welcome back", draft: "Welcome home" }],
+          moreFields: 2,
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(cardText("Replaces Ada's edit to the Hero"), /2 more fields/);
+  } finally {
+    await close();
+  }
+});
+
+void test("labels Live's values without a name when a release or no known author made them", async (t) => {
+  const fields = [{ field: "Title", live: "Welcome back", draft: "Welcome home" }];
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflict, fields, publishedBy: null, release: true }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const text = cardText("Replaces a release's change to the Hero");
+    assert.match(text, /On Live now · A release, Oct 13/);
+    assert.doesNotMatch(text, /Ada/);
   } finally {
     await close();
   }
