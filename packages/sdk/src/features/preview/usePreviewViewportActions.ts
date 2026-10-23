@@ -14,7 +14,7 @@ export function usePreviewViewportActions() {
         groupLabel: "Website",
         checkIfAvailable: () => true,
         execute: () => previewStore.send({ type: "cycleViewportMode" }),
-        shortcut: { key: "m" },
+        shortcut: "M",
       },
       {
         id: "set-viewport-full",

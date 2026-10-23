@@ -174,7 +174,7 @@ export function useCommandPaletteActions() {
         execute: () => {
           studioStore.send({ type: "toggleCommandPalette" });
         },
-        shortcut: { key: "k", withMeta: true },
+        shortcut: "Mod+K",
       },
     });
 

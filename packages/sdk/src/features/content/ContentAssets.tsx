@@ -1,16 +1,16 @@
 import { Button } from "@camox/ui/button";
 import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { PanelContent } from "@camox/ui/panel";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation } from "@tanstack/react-query";
 import { ImageIcon, UploadIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { AssetLightbox } from "@/features/preview/components/AssetLightbox";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useMarqueeSelection } from "@/hooks/use-marquee-selection";
 import { useProjectUuid } from "@/lib/auth";
 import { fileMutations } from "@/lib/queries";
-import { checkIfInputFocused } from "@/lib/utils";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
 import { AssetCard } from "./components/AssetCard";
@@ -37,17 +37,13 @@ export const ContentAssets = () => {
     useCallback((ids: Set<string>) => setSelectedIds(ids), []),
   );
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // Let the lightbox handle its own Escape close.
-      if (lightboxFileId !== null) return;
-      if (checkIfInputFocused()) return;
-      setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [lightboxFileId]);
+  useHotkey("Escape", () => setSelectedIds((prev) => (prev.size === 0 ? prev : new Set())), {
+    // Let the lightbox handle its own Escape close.
+    enabled: lightboxFileId === null,
+    ignoreInputs: true,
+    preventDefault: false,
+    stopPropagation: false,
+  });
 
   return (
     <>

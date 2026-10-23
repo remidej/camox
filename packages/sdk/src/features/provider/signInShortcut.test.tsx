@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { detectPlatform } from "@tanstack/react-hotkeys";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
@@ -54,7 +55,8 @@ function pressToggleCanvas(target: EventTarget = document.body) {
   target.dispatchEvent(
     new window.KeyboardEvent("keydown", {
       key: "Enter",
-      metaKey: true,
+      // Mod is Command where happy-dom reports macOS, Control elsewhere.
+      ...(detectPlatform() === "mac" ? { metaKey: true } : { ctrlKey: true }),
       bubbles: true,
     }) as unknown as Event,
   );

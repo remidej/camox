@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { detectPlatform } from "@tanstack/react-hotkeys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
@@ -179,10 +180,13 @@ const paletteItems = () =>
 const paletteLabels = () => paletteItems().map((item) => item.textContent);
 const paletteItem = (label: string) => paletteItems().find((item) => item.textContent === label);
 
+// Mod is Command where happy-dom reports macOS, Control elsewhere.
+const MOD_KEY = detectPlatform() === "mac" ? { metaKey: true } : { ctrlKey: true };
+
 async function togglePalette() {
   await React.act(async () => {
     window.document.dispatchEvent(
-      new window.KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+      new window.KeyboardEvent("keydown", { key: "k", ...MOD_KEY, bubbles: true }),
     );
     await new Promise((resolve) => setTimeout(resolve, 40));
   });

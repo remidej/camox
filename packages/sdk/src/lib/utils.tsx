@@ -1,4 +1,5 @@
 import { Kbd } from "@camox/ui/kbd";
+import { formatForDisplay, type HotkeyChord } from "@tanstack/react-hotkeys";
 
 import { PlatformLabel } from "../components/PlatformLabel";
 import type { Action } from "../features/provider/actionsStore";
@@ -14,47 +15,22 @@ export function checkIfInputFocused(document: Document = window.document) {
 }
 
 /**
- * Formats an action shortcut into a keyboard shortcut display component.
- * Automatically detects the platform and uses the appropriate modifier keys.
- *
- * @param shortcut - The shortcut configuration from an Action
- * @returns React element displaying the keyboard shortcut
+ * Formats a shortcut as a keyboard shortcut display component, labelled for the user's platform.
  *
  * @example
  * ```tsx
- * formatShortcut({ key: "e", withMeta: true }) // Returns <KbdGroup><Kbd>⌘</Kbd><Kbd>E</Kbd></KbdGroup>
- * formatShortcut({ key: "l" })                 // Returns <Kbd>L</Kbd>
+ * formatShortcut("Mod+E") // ⌘ E on Mac, Ctrl E elsewhere
+ * formatShortcut("L")     // L
  * ```
  */
-export function formatShortcut(shortcut: Action["shortcut"]) {
+export function formatShortcut(shortcut: HotkeyChord | undefined) {
   if (!shortcut) return null;
-
-  return <Shortcut shortcut={shortcut} />;
-}
-
-function Shortcut({ shortcut }: { shortcut: NonNullable<Action["shortcut"]> }) {
-  const formattedKey = (() => {
-    if (shortcut.key === "Enter") return "↵";
-    if (shortcut.key === "Escape") return "Esc";
-    if (shortcut.key === "Backspace") return "⌫";
-    if (shortcut.key === "ArrowUp") return "↑";
-    if (shortcut.key === "ArrowDown") return "↓";
-    if (shortcut.key === "ArrowLeft") return "←";
-    if (shortcut.key === "ArrowRight") return "→";
-    return shortcut.key.toUpperCase();
-  })();
-
-  const label = (mac: boolean) => {
-    const modifiers: string[] = [];
-    if (shortcut.withMeta) modifiers.push(mac ? "⌘" : "Ctrl");
-    if (shortcut.withAlt) modifiers.push(mac ? "⌥" : "Alt");
-    if (shortcut.withShift) modifiers.push(mac ? "⇧" : "Shift");
-    return `${modifiers.join()} ${formattedKey}`.trim();
-  };
+  const label = (platform: "mac" | "windows") =>
+    formatForDisplay(shortcut, { platform, separatorToken: " " });
 
   return (
     <Kbd>
-      <PlatformLabel mac={label(true)} other={label(false)} />
+      <PlatformLabel mac={label("mac")} other={label("windows")} />
     </Kbd>
   );
 }

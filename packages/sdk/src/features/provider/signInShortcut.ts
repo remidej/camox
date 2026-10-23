@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useHotkey } from "@tanstack/react-hotkeys";
 
 import { useSignInRedirect } from "../../lib/auth";
 import { TOGGLE_CANVAS_SHORTCUT } from "../preview/previewConstants";
@@ -12,15 +12,6 @@ function showCanvasCallbackHref() {
   return url.href;
 }
 
-function isTyping() {
-  const element = document.activeElement;
-  return (
-    element instanceof HTMLInputElement ||
-    element instanceof HTMLTextAreaElement ||
-    (element instanceof HTMLElement && element.isContentEditable)
-  );
-}
-
 /**
  * While signed out, the shortcut that shows the Canvas signs in instead, then shows the Canvas
  * on the page it was pressed on. Fields keep it, since sites often submit forms with it.
@@ -28,17 +19,16 @@ function isTyping() {
 export function useSignInShortcut(enabled: boolean) {
   const signIn = useSignInRedirect(showCanvasCallbackHref);
 
-  React.useEffect(() => {
-    if (!enabled) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== TOGGLE_CANVAS_SHORTCUT.key || !(event.metaKey || event.ctrlKey)) return;
-      if (event.altKey || event.shiftKey || event.defaultPrevented || isTyping()) return;
+  useHotkey(
+    TOGGLE_CANVAS_SHORTCUT,
+    (event) => {
+      // The site handled it.
+      if (event.defaultPrevented) return;
       event.preventDefault();
       signIn();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [enabled, signIn]);
+    },
+    { enabled, ignoreInputs: true, preventDefault: false, stopPropagation: false },
+  );
 }
 
 /** Whether a sign-in from the shortcut led here. Removes the mark, so it shows the Canvas once. */

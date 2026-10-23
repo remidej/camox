@@ -1,4 +1,5 @@
 import { buttonVariants } from "@camox/ui/button";
+import type { HotkeyChord } from "@tanstack/react-hotkeys";
 import { useSelector } from "@xstate/store-react";
 import { Globe, Database } from "lucide-react";
 import type * as icons from "lucide-react";
@@ -148,7 +149,7 @@ function useNavbarActions() {
         const last = studioStore.getSnapshot().context.websiteLocation;
         void navigate({ to: navbarHref(link, last, locale.tag, localized) });
       },
-      shortcut: { key: String(index + 1) },
+      shortcut: `${index + 1}` as HotkeyChord,
       icon: link.icon,
       aliases: link.aliases,
     })) satisfies Action[];

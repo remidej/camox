@@ -153,7 +153,7 @@ void test("PreviewShell lazily adds Canvas by mode and keeps the single preview'
     const cycle = actionsStore
       .getSnapshot()
       .context.actions.find((action) => action.id === "cycle-viewport-mode");
-    assert.equal(cycle?.shortcut?.key, "m", "viewport commands survive both Canvas modes");
+    assert.equal(cycle?.shortcut, "M", "viewport commands survive both Canvas modes");
   };
   const reset = () => {
     store.send({ type: "hideCanvas" });
