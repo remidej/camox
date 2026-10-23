@@ -17,7 +17,8 @@ import type { Bindings } from "../../types";
 const fakes = (env as unknown as { RELEASE_FAKES: ReleaseFakes }).RELEASE_FAKES;
 
 type ReleaseFakes = {
-  push(repo: string, commit: string, files: Record<string, string>): Promise<void>;
+  /** Pushes `files` as `commit` to the repo's `main`, and returns the commit's tree. */
+  push(repo: string, commit: string, files: Record<string, string>): Promise<string>;
   failCommand(repo: string, pattern: string, times: number): Promise<void>;
   hold(repo: string, pattern: string): Promise<void>;
   letGo(repo: string): Promise<void>;
@@ -88,6 +89,8 @@ function pushEvent(repo: string, ref: string, commit: string) {
   };
 }
 
+type Fixture = Awaited<ReturnType<typeof createProjectFixture>>;
+
 type Modifier = Parameters<Parameters<WorkflowInstanceIntrospector["modify"]>[0]>[0];
 
 /**
@@ -117,7 +120,7 @@ describe("a push to a project's main branch", () => {
       `release-workflow-${crypto.randomUUID()}`,
     );
     const commit = commitSha();
-    await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+    const tree = await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 
     const before = Date.now();
     const { instanceId } = await receivePush(pushEvent(released.uuid, "refs/heads/main", commit));
@@ -126,6 +129,7 @@ describe("a push to a project's main branch", () => {
     expect(rows).toEqual([
       expect.objectContaining({
         commit,
+        tree,
         camoxVersion: "0.9.1",
         status: "succeeded",
         failedStep: null,
@@ -341,6 +345,91 @@ describe("a push to a project's main branch", () => {
       }),
     ]);
     expect(rows[0]!.startedAt).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("a push of the tree Live serves", () => {
+  // A publish with code puts its tree on Live itself, then pushes that tree to `main`. The push
+  // mustn't release the same code again.
+  const files = { "pnpm-lock.yaml": lockfile("0.9.1"), "src/blocks/hero.tsx": "export {}" };
+
+  /** Pushes `files` as a new commit to the project's `main` and runs its release Workflow. */
+  async function pushAndRelease(repo: string, pushed: Record<string, string>) {
+    const commit = commitSha();
+    await fakes.push(repo, commit, pushed);
+    await receivePush(pushEvent(repo, "refs/heads/main", commit));
+    return commit;
+  }
+
+  it("completes without installing, building or deploying, and records no release", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const served = await pushAndRelease(project.uuid, files);
+    const ranBefore = (await fakes.commandsRun(project.uuid)).length;
+
+    // A new commit with the same tree, as a publish's squashed commit has.
+    await pushAndRelease(project.uuid, files);
+
+    expect(await fakes.commandsRun(project.uuid)).toHaveLength(ranBefore);
+    const rows = await db.select().from(releases).where(eq(releases.projectId, project.id));
+    expect(rows).toEqual([expect.objectContaining({ commit: served, status: "succeeded" })]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  /** The commits the project's succeeded releases served, oldest first. */
+  async function succeeded(db: Fixture["db"], projectId: number) {
+    const rows = await db.select().from(releases).where(eq(releases.projectId, projectId));
+    return rows.filter(({ status }) => status === "succeeded").map(({ commit }) => commit);
+  }
+
+  it("releases a push whose tree differs", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const served = await pushAndRelease(project.uuid, files);
+
+    const changed = await pushAndRelease(project.uuid, { ...files, "src/blocks/cta.tsx": "" });
+
+    expect(await succeeded(db, project.id)).toEqual([served, changed]);
+  });
+
+  it("releases a push of a tree Live served before, but no longer does", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const first = await pushAndRelease(project.uuid, files);
+    const second = await pushAndRelease(project.uuid, { ...files, "src/blocks/cta.tsx": "" });
+
+    const reverted = await pushAndRelease(project.uuid, files);
+
+    expect(await succeeded(db, project.id)).toEqual([first, second, reverted]);
+  });
+
+  it("releases a push of a tree whose release failed", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, files);
+    // Fails every attempt of that release, then passes.
+    await fakes.failCommand(project.uuid, "wrangler deploy", 3);
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+
+    const again = await pushAndRelease(project.uuid, files);
+
+    expect(await succeeded(db, project.id)).toEqual([again]);
+  });
+
+  it("still re-runs a restarted release of the tree Live serves", async () => {
+    const { project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, files);
+    const instanceId = crypto.randomUUID();
+    await using instance = await introspectWorkflowInstance(env.RELEASE_WORKFLOW, instanceId);
+    const run = await env.RELEASE_WORKFLOW.create({
+      id: instanceId,
+      params: pushEvent(project.uuid, "refs/heads/main", commit),
+    });
+    await instance.waitForStatus("complete");
+    const ranBefore = (await fakes.commandsRun(project.uuid)).length;
+
+    await run.restart();
+    await instance.waitForStatus("complete");
+
+    expect(await fakes.commandsRun(project.uuid)).toHaveLength(ranBefore * 2);
   });
 });
 

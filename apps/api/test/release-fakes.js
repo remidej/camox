@@ -13,6 +13,7 @@ import {
   gitLog,
   hasGitRepo,
   losePushResponse,
+  readGitCommit,
   readGitFile,
   readGitLink,
   serveGit,
@@ -180,14 +181,31 @@ class FakeRepo extends RpcTarget {
     return commits.slice(0, limit).map(({ oid, message }) => ({ hash: oid, message }));
   }
 
-  // No Git objects: @cloudflare/ci then skips its cache, which these tests don't cover.
-  async readCommit() {
-    return null;
+  /**
+   * A commit with its tree: a pushed commit's tree names its files, so pushing the same files
+   * again gives the same tree, as Git does.
+   * @param {string} hash
+   */
+  async readCommit(hash) {
+    const files = repos.get(this.name)?.get(hash);
+    if (files) return { hash, treeHash: await treeOf(files), parents: [] };
+    return readGitCommit(this.name, hash);
   }
 
+  // No trees: @cloudflare/ci then skips its cache, which these tests don't cover.
   async readTree() {
     return null;
   }
+}
+
+/**
+ * A pushed commit's tree: a hash of its files, the same for the same files.
+ * @param {Record<string, string>} files
+ */
+async function treeOf(files) {
+  const listing = JSON.stringify(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : 1)));
+  const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(listing));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** The Cloudflare Artifacts namespace binding. */
@@ -295,7 +313,7 @@ export class FakeEmail extends WorkerEntrypoint {
 /** What the tests use to arrange a push and read what the sandbox ran. */
 export class ReleaseFakes extends WorkerEntrypoint {
   /**
-   * Pushes a commit to the repo's `main`, creating the repo if needed.
+   * Pushes a commit to the repo's `main`, creating the repo if needed, and returns its tree.
    * @param {string} repo
    * @param {string} commit
    * @param {Record<string, string>} files
@@ -305,6 +323,7 @@ export class ReleaseFakes extends WorkerEntrypoint {
     commits.set(commit, files);
     repos.set(repo, commits);
     mains.set(repo, commit);
+    return treeOf(files);
   }
 
   /**
