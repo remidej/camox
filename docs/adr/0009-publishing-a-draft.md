@@ -30,3 +30,7 @@ Publishing applies a whole draft to Live in one D1 `batch()`, with a fixed numbe
 - Deleting a parent also deletes Live descendants published after the deletion was drafted; they are listed as lost.
 - A publish whose outcome is unknown, such as after a lost connection, can be retried: a draft that is gone, or a development draft that is empty, means it was already published or discarded. Publishing an empty draft does nothing.
 - Other open drafts are untouched: their untouched content shows the new Live, and what they share with the published draft becomes a conflict when they publish. Editors inside the published draft are switched to Live.
+
+## Amendment: the studio's review
+
+The studio's review no longer shows everything the confirmation lists. It shows blockers, conflicts and lost changes, one card each, then quiet status lines for what's fine or still running: the draft includes everything published to Live, its translations, and the page SEO being written. It leaves out warnings about problems already on Live, which are about Live rather than the draft, and the list of the draft's changes, which a draft overview is to cover instead (#526). `camox publish` keeps printing the full list, warnings and changes included (ADR 0010), and the preview keeps returning them.

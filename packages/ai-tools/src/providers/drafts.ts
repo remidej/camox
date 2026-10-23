@@ -4,8 +4,10 @@ import { z } from "zod";
 
 import {
   discardDraft,
-  previewPublish,
+  previewPublish as studioPreview,
+  type Problem,
   publishDraft,
+  type PublishPreview,
 } from "../../../../apps/api/src/domains/drafts/publish";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import { endedDraftSchema, publishPreviewSchema } from "../lib/outputs";
@@ -27,6 +29,28 @@ const publishToolInput = z.object({
     ),
 });
 const discardInput = z.object({});
+
+/** A blocker or warning as agents see it: without where the studio shows it in the Canvas. */
+const withoutCanvasPlace = ({ fieldKind: _fieldKind, blockId: _blockId, ...problem }: Problem) =>
+  problem;
+
+/**
+ * The preview as agents see it: without which conflicts the studio offers to use Live's version
+ * of, which agents can't do, nor the fields the studio's conflict cards show, nor where the
+ * studio shows a problem, nor the studio's Draft Overview.
+ */
+const withoutStudioActions = ({ overview: _overview, ...preview }: PublishPreview) => ({
+  ...preview,
+  blockers: preview.blockers.map(withoutCanvasPlace),
+  warnings: preview.warnings.map(withoutCanvasPlace),
+  conflicts: preview.conflicts.map(
+    ({ revertible: _revertible, fields: _fields, moreFields: _moreFields, ...conflict }) =>
+      conflict,
+  ),
+});
+
+const previewPublish = (...args: Parameters<typeof studioPreview>) =>
+  studioPreview(...args).pipe(Effect.map(withoutStudioActions));
 
 const publishResultSchema = z.union([
   z.strictObject({ published: z.literal(true), ended: endedDraftSchema.nullable() }),

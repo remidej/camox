@@ -385,7 +385,7 @@ export function storedInLiveOrDraft(table: ContentTable, draftId: string): SQL {
 }
 
 /** Whether a draft stores any row, copy or tombstone, in any content table. */
-export function storesAnything(scope: Draft): SQL {
+export function storesAnything(scope: Pick<Draft, "id">): SQL {
   const stored = [...registrations.keys()].map(
     (table) => sql`exists (select 1 from ${table} where ${table.draftId} = ${scope.id})`,
   );

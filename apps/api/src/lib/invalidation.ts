@@ -239,6 +239,10 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         add(change.draftId, queryKeys.drafts.all);
         add(null, queryKeys.drafts.list);
         break;
+      case "overview":
+        // Its draft's publish preview carries it.
+        add(change.draftId, queryKeys.drafts.all);
+        break;
       case "localizedWrite":
         // Its content change says where it shows.
         break;

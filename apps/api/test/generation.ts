@@ -1,6 +1,12 @@
 import { Context, Effect } from "effect";
 
-import { type AiJob, AiJobQueue, ScheduleError } from "../src/lib/ai-job-queue";
+import {
+  type AiJob,
+  AiJobQueue,
+  isOverviewJob,
+  type OverviewJob,
+  ScheduleError,
+} from "../src/lib/ai-job-queue";
 import { AiModel } from "../src/lib/ai-model";
 import { Background, inline } from "../src/lib/background";
 import { AiCallError } from "../src/lib/retry-ai-call";
@@ -49,6 +55,7 @@ const scriptedModel = AiModel.of({
   imageMetadata: (request) => answer("imageMetadata", request),
   translate: (request) => answer("translate", request),
   merge: (request) => answer("merge", request),
+  draftOverview: (request) => answer("draftOverview", request),
 });
 
 /**
@@ -72,9 +79,12 @@ export const forgetModel = () => {
   calls.length = 0;
 };
 
-export type ScheduledJob = AiJob & { delayMs: number };
+/** A job on an entity: a generated value or a translation. */
+export type ScheduledJob = Exclude<AiJob, OverviewJob> & { delayMs: number };
 
 const jobs: ScheduledJob[] = [];
+// Every write in a draft requests its overview: kept apart, so entity jobs read alone.
+const overviewJobs: (OverviewJob & { delayMs: number })[] = [];
 let failures = 0;
 
 const recordingScheduler = AiJobQueue.of({
@@ -84,10 +94,15 @@ const recordingScheduler = AiJobQueue.of({
         failures--;
         return Effect.fail(new ScheduleError({ cause: "Scheduling failed in a test" }));
       }
-      jobs.push({ ...job, delayMs });
+      if (isOverviewJob(job)) overviewJobs.push({ ...job, delayMs });
+      else jobs.push({ ...job, delayMs });
       return Effect.void;
     }),
 });
+
+/** The overview jobs scheduled for a draft, in order. */
+export const scheduledOverviews = (draftId: string) =>
+  overviewJobs.filter((job) => job.draftId === draftId);
 
 /** The jobs scheduled for these entities, in order. */
 export const scheduledFor = (...entityIds: string[]): ScheduledJob[] =>
@@ -105,6 +120,7 @@ export const forgetScheduled = (...entityIds: string[]) => {
 /** Forgets every scheduled job, between tests. */
 export const forgetAllScheduled = () => {
   jobs.length = 0;
+  overviewJobs.length = 0;
   failures = 0;
 };
 

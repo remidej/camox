@@ -1,6 +1,7 @@
 import { runService } from "../../lib/run-service";
 import { authed } from "../../orpc";
 import * as list from "./list";
+import * as overviewJob from "./overview-job";
 import * as publish from "./publish";
 
 // Every procedure but `list` and `create` acts on the draft the request names through
@@ -30,9 +31,17 @@ const publishDraft = authed
   .input(publish.publishInput)
   .handler(({ context, input }) => runService(publish.publishDraft(context, input)));
 
+const retryOverview = authed
+  .input(overviewJob.retryOverviewInput)
+  .handler(({ context, input }) => runService(overviewJob.retryOverview(context, input)));
+
 const discard = authed
   .input(publish.discardInput)
   .handler(({ context, input }) => runService(publish.discardDraft(context, input)));
+
+const revertToLive = authed
+  .input(publish.revertToLiveInput)
+  .handler(({ context, input }) => runService(publish.revertToLive(context, input)));
 
 export const draftProcedures = {
   list: listDrafts,
@@ -40,6 +49,8 @@ export const draftProcedures = {
   get,
   rename,
   previewPublish,
+  retryOverview,
   publish: publishDraft,
   discard,
+  revertToLive,
 };

@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { files } from "../../schema";
 import { accepts, fieldsOf, isAsset, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
-import type { Holder } from "../drafts/content-checks";
+import { type Holder, NO_PLACE, problemPlaceIn, type ProblemPlace } from "../drafts/content-checks";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { withFileMetadata } from "./generated-metadata";
@@ -32,7 +32,7 @@ export type Finding = {
   code: FileProblemCode;
   field: string;
   message: string;
-};
+} & ProblemPlace;
 
 /**
  * Blockers and warnings about files: empty required image and file fields, references to files that are gone,
@@ -82,6 +82,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
       locale: null,
       code: "missingFileBytes",
       field: "file",
+      ...NO_PLACE,
       message: `The stored bytes of "${file.filename}" are missing: upload it again`,
     });
   }
@@ -92,7 +93,13 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
     for (const field of fieldsOf(holder.schema)) {
       if (!isAsset(field)) continue;
       const { title } = field;
-      const at = { entity: holder.entity, id: holder.id, locale: holder.locale, field: field.name };
+      const at = {
+        entity: holder.entity,
+        id: holder.id,
+        locale: holder.locale,
+        field: field.name,
+        ...problemPlaceIn(holder, field),
+      };
       const fileIds = pointersOf(field, content[field.name]).map((pointer) => pointer.id);
 
       // Lists can't be required: an empty list is always valid.

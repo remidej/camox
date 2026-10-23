@@ -22,6 +22,20 @@ export const drafts = sqliteTable(
     // Live thread whose write created the draft; a thread starts with its first message. It lives
     // in its own Durable Object, addressed by this id.
     threadId: text("thread_id"),
+    // The Draft Overview AI writes about the draft's changes (`overview.ts`). It describes the
+    // draft rather than its content, so it's never a change, a conflict or published, and goes
+    // with the draft; emptying a development draft clears it.
+    overviewHeadline: text("overview_headline"),
+    overviewBullets: text("overview_bullets", { mode: "json" }).$type<string[]>(),
+    overviewRequestedAt: int("overview_requested_at"),
+    // When the last request's job is due to run: after the debounce, or right away.
+    overviewDueAt: int("overview_due_at"),
+    overviewGeneratedAt: int("overview_generated_at"),
+    // A fingerprint of the changes the headline and bullets describe: once the draft's differ,
+    // the overview is stale.
+    overviewFingerprint: text("overview_fingerprint"),
+    // Whether the last attempt failed, the model having given up.
+    overviewFailed: int("overview_failed", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [
     index("drafts_project_idx").on(table.projectId),

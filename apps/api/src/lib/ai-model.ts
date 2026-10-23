@@ -88,8 +88,56 @@ export type MergeRequest = {
 /** The merged texts of a request, by key. A missing key keeps the localization's text. */
 export type Merges = Record<string, string>;
 
+/** One change a draft makes in the default locale, field by field. */
+export type OverviewChange = {
+  /** Where it sits: a page's name and path, a layout, a collection, the files or the languages. */
+  place: string;
+  /** What it is to people: a block's summary or title, a record's title, a file's filename. */
+  label: string;
+  /** `moved`: only its position changed. */
+  change: "created" | "changed" | "deleted" | "moved";
+  /** For a changed entity, the fields that differ: Live's value, then the draft's. */
+  fields?: { field: string; before: string; after: string }[];
+  /** For a created entity, its main values: its first few fields holding one. */
+  values?: { field: string; value: string }[];
+  /** For a page whose path changed, how many pages under it moved along with it. */
+  pagesUnder?: number;
+};
+
+/** A draft's changes in one place, counted by kind, once its changes are too many to list. */
+export type OverviewPlace = {
+  place: string;
+  created: number;
+  changed: number;
+  deleted: number;
+  moved: number;
+};
+
+/** The edits a draft makes by hand in a locale other than the default one. */
+export type OverviewLocaleEdits = {
+  /** The locale's BCP 47 tag. */
+  locale: string;
+  edits: number;
+  places: string[];
+};
+
+export type DraftOverviewRequest = {
+  /** The draft's name, or null while it has none. */
+  draftName: string | null;
+  /** Hand edits in other locales; what Camox translated is left out. */
+  localeEdits: readonly OverviewLocaleEdits[];
+} & (
+  | { changes: readonly OverviewChange[] }
+  /** Past the size cap, the changes are grouped by place instead. */
+  | { places: readonly OverviewPlace[] }
+);
+
+/** A Draft Overview: a one-sentence headline and bullets covering every change. */
+export type DraftOverview = { headline: string; bullets: string[] };
+
 /**
- * The model that writes generated values (ADR 0012) and translations (ADR 0015). Each call is
+ * The model that writes generated values (ADR 0012), translations (ADR 0015) and Draft
+ * Overviews. Each call is
  * bounded: it times out, retries transient failures, and fails with `AiCallError` once it gives
  * up. Requests and jobs get the OpenRouter adapter (`open-router-model.ts`); tests get a scripted
  * one.
@@ -106,5 +154,9 @@ export class AiModel extends Context.Service<
     readonly translate: (request: TranslationRequest) => Effect.Effect<Translations, AiCallError>;
     /** Merges texts of a localization changed by hand with their changed source, keeping both. */
     readonly merge: (request: MergeRequest) => Effect.Effect<Merges, AiCallError>;
+    /** Describes a draft's changes to the members reviewing it. */
+    readonly draftOverview: (
+      request: DraftOverviewRequest,
+    ) => Effect.Effect<DraftOverview, AiCallError>;
   }
 >()("camox/AiModel") {}

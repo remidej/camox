@@ -1,6 +1,7 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
 import { env, waitUntil } from "cloudflare:workers";
 import { and, eq, inArray } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -46,8 +47,21 @@ import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
 import { catchUpPending, isCatchUpDraft } from "./catch-up";
-import { checkContentProblems, CONTENT_PROBLEM_CODES, type ContentFinding } from "./content-checks";
+import {
+  checkContentProblems,
+  CONTENT_PROBLEM_CODES,
+  type ContentFinding,
+  type ProblemPlace,
+} from "./content-checks";
+import { type FieldDiff, fieldDiffsOf } from "./field-values";
 import * as overlay from "./overlay";
+import {
+  clearStatements as clearOverviewStatements,
+  fingerprintOf,
+  type Overview,
+  overviewOf,
+  requestIfOutdated,
+} from "./overview";
 import { peopleNamed } from "./people";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
@@ -72,13 +86,31 @@ export type Change = Subject & InLocale & { change: "created" | "changed" | "del
 
 export type Conflict = Subject &
   InLocale & {
+    /** A conflict is always on an entity a draft holds, never on a definition. */
+    entity: overlay.EntityKind;
     /** Live's version now, or null when Live deleted the entity. */
     liveVersion: number | null;
     publishedBy: { id: string; name: string } | null;
     publishedAt: number | null;
     /** Whether a release made Live's version, which no member published (ADR 0006). */
     release: boolean;
+    /**
+     * What publishing overwrites: the first default-locale fields where Live's version and the
+     * draft's copy differ, as short plain text. None when either side deleted the entity, or for
+     * a conflict in another locale.
+     */
+    fields: FieldDiff[];
+    /** How many more fields differ than `fields` lists. */
+    moreFields: number;
+    /**
+     * Whether the draft can drop its copy to use Live's version instead (`revertToLive`): not
+     * for a page or a locale, whose copies spread to other content.
+     */
+    revertible: boolean;
   };
+
+/** How many differing fields a conflict lists. */
+const CONFLICT_FIELDS = 3;
 
 /** Why publishing drops a change. */
 export const LOSS_REASONS = ["parentGone", "writtenAfterDeletion"] as const;
@@ -94,7 +126,8 @@ export const PROBLEM_CODES = [
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject &
-  InLocale & {
+  InLocale &
+  ProblemPlace & {
     code: (typeof PROBLEM_CODES)[number];
     field: string;
     message: string;
@@ -115,6 +148,8 @@ export type PublishPreview = {
   defaultLocale: string | null;
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
   token: string;
+  /** The draft's overview: AI's headline and bullets about its changes. */
+  overview: Overview;
 };
 
 export const previewPublishInput = z.object({ projectId: z.number() });
@@ -128,6 +163,24 @@ export const publishInput = z.object({
   publishAnyway: z.boolean().optional(),
 });
 export const discardInput = z.object({ projectId: z.number() });
+export const revertToLiveInput = z.object({
+  projectId: z.number(),
+  entity: z.enum(overlay.ENTITY_KINDS),
+  id: z.string(),
+});
+
+/**
+ * The kinds of entity a draft can drop its copy of to use Live's version instead. A page's copy
+ * spreads to other content, as a path rename copies every page beneath it, and so does a
+ * locale's, so they're never reverted alone.
+ */
+const REVERTIBLE_KINDS: ReadonlySet<overlay.EntityKind> = new Set([
+  "block",
+  "repeatableItem",
+  "sharedContent",
+  "record",
+  "file",
+]);
 
 const tokenSchema = z.array(
   z.tuple([z.enum(overlay.ENTITY_KINDS), z.string(), z.number().nullable(), z.string().nullable()]),
@@ -197,6 +250,8 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
       locale: null,
       code: "definitionsDiffer",
       field: "",
+      fieldKind: null,
+      blockId: null,
       message,
     });
     for (const [definition, hash] of local) {
@@ -225,7 +280,7 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
 
 // --- Preview ---
 
-const computePreview = Effect.fn("drafts.computePreview")(function* (
+export const computePreview = Effect.fn("drafts.computePreview")(function* (
   ctx: ServiceContext,
   scope: Scope,
 ) {
@@ -275,12 +330,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     locale,
     code,
     field,
+    fieldKind,
+    blockId,
     message,
   }: ContentFinding | Finding): Problem => ({
     ...describe(entity, id),
     locale,
     code,
     field,
+    fieldKind,
+    blockId,
     message,
   });
 
@@ -296,14 +355,26 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     storedConflicts.flatMap((conflict) => conflict.publishedBy ?? []),
   );
 
-  const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
-    ...describe(conflict.entity, conflict.id),
-    locale: conflict.locale,
-    liveVersion: conflict.liveVersion,
-    publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
-    publishedAt: conflict.publishedAt,
-    release: conflict.publishedAt !== null && conflict.publishedBy === null,
-  }));
+  const defaultLocale = (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null;
+  const inDefault = (conflict: overlay.StoredConflict) =>
+    conflict.locale === null || conflict.locale === defaultLocale;
+  const fieldDiffs = yield* fieldDiffsOf(ctx, scope, storedConflicts.filter(inDefault));
+
+  const conflicts: Conflict[] = storedConflicts.map((conflict) => {
+    const fields = inDefault(conflict) ? fieldDiffs(conflict.entity, conflict.id) : [];
+    return {
+      ...describe(conflict.entity, conflict.id),
+      entity: conflict.entity,
+      locale: conflict.locale,
+      liveVersion: conflict.liveVersion,
+      publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
+      publishedAt: conflict.publishedAt,
+      release: conflict.publishedAt !== null && conflict.publishedBy === null,
+      fields: fields.slice(0, CONFLICT_FIELDS),
+      moreFields: Math.max(0, fields.length - CONFLICT_FIELDS),
+      revertible: REVERTIBLE_KINDS.has(conflict.entity),
+    };
+  });
   const lost: LostChange[] = losses.map((loss) => {
     if (loss.reason === "parentGone") {
       return { ...describe(loss.entity, loss.id), locale: loss.locale, reason: loss.reason };
@@ -325,7 +396,23 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     change,
   }));
 
+  const fingerprint =
+    stored.length > 0
+      ? yield* fingerprintOf(
+          stored.map(({ entity, row, change }) => ({
+            entity,
+            id: row.id,
+            locale: overlay.localeOfRow(row),
+            change,
+            updatedAt: row.updatedAt,
+          })),
+        )
+      : null;
+
   const translating = yield* translations.translatingLocales(ctx.db, [scope.id]);
+  const row = yield* Effect.promise(() =>
+    ctx.db.select().from(drafts).where(eq(drafts.id, scope.id)).get(),
+  );
 
   return {
     blockers,
@@ -334,9 +421,12 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     warnings,
     changes,
     translating: translating.get(scope.id) ?? [],
-    defaultLocale: (yield* defaultLocaleTag(ctx.db, scope.projectId)) ?? null,
+    defaultLocale,
     token: encodeToken(storedConflicts),
-  } satisfies PublishPreview;
+    overview: row ? overviewOf(row, fingerprint) : ({ status: "none" } as const),
+    /** The fingerprint of the draft's changes, which its overview records: not in the preview. */
+    fingerprint,
+  } satisfies PublishPreview & { fingerprint: string | null };
 });
 
 // --- Generated values after publishing (ADR 0012) ---
@@ -465,7 +555,7 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
  * The draft a request names, which publishing and discarding need. They act on every locale,
  * whichever one the request names.
  */
-const requireDraft = Effect.fn("drafts.requireDraft")(function* (
+export const requireDraft = Effect.fn("drafts.requireDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
@@ -486,7 +576,49 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
 ) {
   const { projectId } = yield* decodeInput(previewPublishInput, rawInput);
   const scope = yield* requireDraft(ctx, projectId);
-  return yield* computePreview(ctx, scope);
+  const { fingerprint: _, ...preview } = yield* computePreview(ctx, scope);
+  // Someone is reviewing the draft: an outdated overview is written now, not after the debounce.
+  yield* requestIfOutdated(ctx.db, scope.id, preview.overview);
+  return preview;
+});
+
+/**
+ * Uses Live's version of an entity the draft conflicts on, instead of the draft's: drops the
+ * draft's copy in every locale it holds one, so the draft reads Live's again and the conflict is
+ * gone. Localizations translated from the dropped copy go with it. Only for an entity in the
+ * draft's current conflicts, and of a kind that can be reverted alone.
+ */
+export const revertToLive = Effect.fn("drafts.revertToLive")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof revertToLiveInput>,
+) {
+  const { projectId, entity, id } = yield* decodeInput(revertToLiveInput, rawInput);
+  if (!REVERTIBLE_KINDS.has(entity)) {
+    return yield* new InvalidInputError({
+      message: `A ${entity}'s copy spreads to other content: it can't use Live's version alone`,
+    });
+  }
+  const scope = yield* requireDraft(ctx, projectId);
+  const conflicts = yield* overlay.conflictsOf(ctx.db, scope);
+  if (!conflicts.some((conflict) => conflict.entity === entity && conflict.id === id)) {
+    return yield* new InvalidInputError({
+      message: `This draft has no conflict on ${entity} ${id}`,
+    });
+  }
+  const table = overlay.contentTableOf(entity);
+  const copies = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(table as SQLiteTable)
+      .where(and(overlay.storedIn(table, scope), eq(table.id, id))),
+  );
+  for (const copy of copies) {
+    const locale = overlay.localeOfRow(copy);
+    yield* overlay.revert(ctx.db, locale ? inLocale(scope, locale) : scope, table, id);
+  }
+  // The reverts are content writes: once this succeeds, `runService` requests a new overview of
+  // the draft, as after any other change to it (`requestOverviewsOfWrites`).
+  return {};
 });
 
 /**
@@ -545,6 +677,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
       after: [
         ...(options.translated ? [translations.noPendingTranslationsGuard(scope.id)] : []),
         ...generatedValueStatements.publishStatements(ctx.db, scope),
+        ...clearOverviewStatements(ctx.db, scope.id),
         ...filePublishStatements(scope.projectId),
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
@@ -615,7 +748,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
 });
 
 /** Camox's own context, outside any request: it acts with no session. */
-const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
+export const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
   db,
   user: null,
   env,
@@ -684,6 +817,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
       now: Date.now(),
       alongside: [
         ...generatedValueStatements.discardStatements(ctx.db, scope.id),
+        ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
         ...thread.statements,
       ],

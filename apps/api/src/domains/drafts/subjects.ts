@@ -12,9 +12,11 @@ import {
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
+import { readInChunks } from "../content/chunks";
 import { contentReader } from "../content/reader";
 import type { GeneratedEntity } from "../generated-values/schema";
 import { readValues } from "../generated-values/service";
+import { defaultLocaleTag } from "../locales/default-locale";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 
@@ -53,24 +55,35 @@ export type Subject = {
 
 export type Mention = { entity: SubjectKind; id: string };
 
-/** The rows of `ids` the draft holds, or Live's where it holds none. */
+/**
+ * The rows of `ids` the draft holds, or Live's where it holds none, in the default locale where
+ * there's one: a page is named by its default-locale path.
+ */
 const rowsSeenBy = <T extends overlay.ContentTable>(
   ctx: ServiceContext,
   scope: Scope,
   table: T,
   ids: string[],
+  defaultTag: string | undefined,
 ) =>
   Effect.gen(function* () {
-    if (ids.length === 0) return new Map<string, T["$inferSelect"]>();
-    const rows = (yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(table as SQLiteTable)
-        .where(and(inArray(table.id, ids), overlay.storedInLiveOrDraft(table, scope.id))),
-    )) as T["$inferSelect"][];
+    const rows = yield* readInChunks(ids, (chunk) =>
+      Effect.promise(
+        () =>
+          ctx.db
+            .select()
+            .from(table as SQLiteTable)
+            .where(
+              and(inArray(table.id, chunk), overlay.storedInLiveOrDraft(table, scope.id)),
+            ) as Promise<T["$inferSelect"][]>,
+      ),
+    );
+    const rank = (row: T["$inferSelect"]) =>
+      (overlay.localeOfRow(row) === (defaultTag ?? null) ? 2 : 0) + (row.draftId !== null ? 1 : 0);
     const byId = new Map<string, T["$inferSelect"]>();
     for (const row of rows) {
-      if (!byId.has(row.id) || row.draftId !== null) byId.set(row.id, row);
+      const seen = byId.get(row.id);
+      if (!seen || rank(row) > rank(seen)) byId.set(row.id, row);
     }
     return byId;
   });
@@ -88,18 +101,19 @@ const contentDescriber = Effect.fn("drafts.contentDescriber")(function* (
   const idsOf = (entity: overlay.EntityKind) => [
     ...new Set(mentions.filter((m) => m.entity === entity).map((m) => m.id)),
   ];
-  const items = yield* rowsSeenBy(ctx, scope, repeatableItems, idsOf("repeatableItem"));
+  const defaultTag = yield* defaultLocaleTag(ctx.db, scope.projectId);
+  const items = yield* rowsSeenBy(ctx, scope, repeatableItems, idsOf("repeatableItem"), defaultTag);
   const blockIds = [
     ...idsOf("block"),
     ...[...items.values()].flatMap((item) => (item.blockId ? [item.blockId] : [])),
   ];
-  const blockRows = yield* rowsSeenBy(ctx, scope, blocks, [...new Set(blockIds)]);
+  const blockRows = yield* rowsSeenBy(ctx, scope, blocks, [...new Set(blockIds)], defaultTag);
   const pageIds = [
     ...idsOf("page"),
     ...[...blockRows.values()].flatMap((row) => (row.pageId ? [row.pageId] : [])),
   ];
-  const pageRows = yield* rowsSeenBy(ctx, scope, pages, [...new Set(pageIds)]);
-  const shared = yield* rowsSeenBy(ctx, scope, sharedContents, idsOf("sharedContent"));
+  const pageRows = yield* rowsSeenBy(ctx, scope, pages, [...new Set(pageIds)], defaultTag);
+  const shared = yield* rowsSeenBy(ctx, scope, sharedContents, idsOf("sharedContent"), defaultTag);
   // Summaries are generated values the draft reads (ADR 0012).
   const summary = (entity: GeneratedEntity, ids: Iterable<string>) =>
     Effect.map(

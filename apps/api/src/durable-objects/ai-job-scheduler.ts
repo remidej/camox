@@ -14,6 +14,7 @@ const JobEntity = Schema.Literals(["block", "repeatableItem", "page", "file"]);
 const TranslatedEntity = Schema.Literals(TRANSLATED_ENTITIES);
 
 const StoredJob = Schema.Union([
+  Schema.Struct({ id: Schema.String, kind: Schema.Literal("overview"), draftId: Schema.String }),
   Schema.Struct({
     // Tells a re-scheduled job from the one an in-flight alarm is running.
     id: Schema.String,

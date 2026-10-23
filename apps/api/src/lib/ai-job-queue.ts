@@ -46,11 +46,20 @@ export type TranslationJob = {
   source?: "defaults" | "live";
 };
 
+/**
+ * A job writing a draft's Draft Overview from its changes, keyed by draft: a newer request
+ * replaces a pending one.
+ */
+export type OverviewJob = { kind: "overview"; draftId: string };
+
 /** A job the AI job scheduler runs. */
-export type AiJob = GenerationJob | TranslationJob;
+export type AiJob = GenerationJob | TranslationJob | OverviewJob;
 
 export const isTranslationJob = (job: AiJob): job is TranslationJob =>
   "kind" in job && job.kind === "translation";
+
+export const isOverviewJob = (job: AiJob): job is OverviewJob =>
+  "kind" in job && job.kind === "overview";
 
 export class ScheduleError extends Data.TaggedError("ScheduleError")<{ readonly cause: unknown }> {}
 
@@ -77,6 +86,7 @@ const NAME_PARTS = {
 
 /** Names a job: its Durable Object, and its logs. The default locale's jobs keep their names. */
 export const jobName = (job: AiJob) => {
+  if (isOverviewJob(job)) return `overview:${job.draftId}`;
   if (isTranslationJob(job)) {
     const name = `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
     return job.source === undefined ? name : `${name}:${job.source}`;
