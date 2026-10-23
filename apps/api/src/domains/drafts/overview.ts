@@ -218,7 +218,9 @@ export function clearStatements(db: Database, draftId: string): overlay.BatchIte
  * Requests a draft's overview right away when its review reads it outdated: stale, or pending
  * without ever having been requested, as for a draft written before overviews existed. A pending
  * one that was requested waits for its debounce. Nothing is requested while a request is already
- * due, so reading the review again doesn't request it again.
+ * due and its job hasn't written yet, so reading the review again doesn't request it again. A
+ * stale one written since its last request is requested again: its draft changed through a write
+ * that requests nothing, such as a translation merging into a hand-edited localization.
  */
 export const requestIfOutdated = Effect.fn("drafts.requestOverviewIfOutdated")(function* (
   db: Database,
@@ -229,14 +231,21 @@ export const requestIfOutdated = Effect.fn("drafts.requestOverviewIfOutdated")(f
   if (!stale && overview.status !== "pending") return;
   const row = yield* Effect.promise(() =>
     db
-      .select({ requestedAt: drafts.overviewRequestedAt, dueAt: drafts.overviewDueAt })
+      .select({
+        requestedAt: drafts.overviewRequestedAt,
+        dueAt: drafts.overviewDueAt,
+        generatedAt: drafts.overviewGeneratedAt,
+      })
       .from(drafts)
       .where(eq(drafts.id, draftId))
       .get(),
   );
   if (!row) return;
   if (!stale && row.requestedAt !== null) return;
-  if (row.dueAt !== null && row.dueAt <= Date.now()) return;
+  const writtenSinceRequested =
+    row.generatedAt !== null && row.requestedAt !== null && row.generatedAt >= row.requestedAt;
+  const awaitingDueJob = row.dueAt !== null && row.dueAt <= Date.now() && !writtenSinceRequested;
+  if (awaitingDueJob) return;
   yield* requestOverview(db, draftId, { immediately: true });
 });
 

@@ -1,7 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -18,7 +18,7 @@ import { Journal } from "../../lib/journal";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { pages } from "../../schema";
+import { blocks, pages } from "../../schema";
 import { runGenerationJob } from "../generated-values/generation";
 import { openCatchUpDraft } from "./catch-up";
 import { runOverviewJob } from "./overview";
@@ -230,6 +230,28 @@ describe("the overview stays current", () => {
 
     expect(overviewJobs(draft)).toHaveLength(requested + 1);
     expect(overviewJobs(draft).at(-1)).toMatchObject({ delayMs: 0 });
+  });
+
+  it("is requested again when read stale after its due job ran, once", async () => {
+    const { db, block, draft, editTitle, preview, runOverview, overviewJobs } =
+      await readyOverview();
+    await editTitle(block.id, "Mine again", inDraft(draft));
+    await preview(draft);
+    await runOverview(draft, { headline: "Retitles the hero twice", bullets: ["Home: hero"] });
+    // A write that requests no overview, as a translation job merging into the draft's
+    // hand-edited localizations does.
+    await db
+      .update(blocks)
+      .set({ updatedAt: Date.now() + 1 })
+      .where(and(eq(blocks.id, block.id), eq(blocks.draftId, draft)));
+    const requested = overviewJobs(draft).length;
+
+    expect((await preview(draft)).overview).toMatchObject({ status: "ready", stale: true });
+
+    expect(overviewJobs(draft)).toHaveLength(requested + 1);
+    expect(overviewJobs(draft).at(-1)).toMatchObject({ delayMs: 0 });
+    await preview(draft);
+    expect(overviewJobs(draft)).toHaveLength(requested + 1);
   });
 
   it("is ready and current again once the new job ran", async () => {
