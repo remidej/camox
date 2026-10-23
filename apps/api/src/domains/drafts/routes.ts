@@ -34,6 +34,10 @@ const discard = authed
   .input(publish.discardInput)
   .handler(({ context, input }) => runService(publish.discardDraft(context, input)));
 
+const revertToLive = authed
+  .input(publish.revertToLiveInput)
+  .handler(({ context, input }) => runService(publish.revertToLive(context, input)));
+
 export const draftProcedures = {
   list: listDrafts,
   create,
@@ -42,4 +46,5 @@ export const draftProcedures = {
   previewPublish,
   publish: publishDraft,
   discard,
+  revertToLive,
 };

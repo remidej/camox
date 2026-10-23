@@ -72,6 +72,9 @@ const conflictedPreview = {
       publishedBy: { id: "user-2", name: "Ada" },
       publishedAt: Date.UTC(2026, 9, 13),
       release: false,
+      fields: [] as { field: string; live: string; draft: string }[],
+      moreFields: 0,
+      revertible: true,
     },
   ],
   token: "token-2",
@@ -896,6 +899,88 @@ void test("says publishing brings back what Live deleted", async (t) => {
   }
 });
 
+/** The fields a conflict card shows, each as its title, Live's value and the draft's. */
+const conflictFields = () =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-conflict-field]')].map((field) => ({
+    field: field.querySelector("[data-field-title]")?.textContent,
+    live: field.querySelector("[data-live-value]")?.textContent,
+    liveCrossedOut: !!field.querySelector("del [data-live-value], del[data-live-value]"),
+    draft: field.querySelector("[data-draft-value]")?.textContent,
+    // Live's value comes first, then the draft's.
+    order: [...field.querySelectorAll("[data-live-value], [data-draft-value]")].map((value) =>
+      value.hasAttribute("data-live-value") ? "live" : "draft",
+    ),
+  }));
+
+void test("shows the fields a conflict overwrites, Live's value crossed out above the draft's", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        {
+          ...conflict,
+          fields: [
+            { field: "Title", live: "Welcome back", draft: "Welcome home" },
+            { field: "Author", live: "Léo", draft: "Ana" },
+          ],
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const both = { liveCrossedOut: true, order: ["live", "draft"] };
+    assert.deepEqual(conflictFields(), [
+      { field: "Title", live: "Welcome back", draft: "Welcome home", ...both },
+      { field: "Author", live: "Léo", draft: "Ana", ...both },
+    ]);
+    const text = cardText("Replaces Ada's edit to the Hero");
+    assert.match(text, /On Live now · Ada, Oct 13/);
+    assert.match(text, /This draft/);
+  } finally {
+    await close();
+  }
+});
+
+void test("counts the fields a conflict card doesn't list", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        {
+          ...conflict,
+          fields: [{ field: "Title", live: "Welcome back", draft: "Welcome home" }],
+          moreFields: 2,
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(cardText("Replaces Ada's edit to the Hero"), /2 more fields/);
+  } finally {
+    await close();
+  }
+});
+
+void test("labels Live's values without a name when a release or no known author made them", async (t) => {
+  const fields = [{ field: "Title", live: "Welcome back", draft: "Welcome home" }];
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflict, fields, publishedBy: null, release: true }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const text = cardText("Replaces a release's change to the Hero");
+    assert.match(text, /On Live now · A release, Oct 13/);
+    assert.doesNotMatch(text, /Ada/);
+  } finally {
+    await close();
+  }
+});
+
 void test("says publishing deletes anyway what the draft deletes and Live changed", async (t) => {
   mockApi(t, () =>
     json({
@@ -909,6 +994,74 @@ void test("says publishing deletes anyway what the draft deletes and Live change
       cardText("Replaces Ada's edit to the Hero"),
       /This draft deletes it, so publishing deletes it anyway\./,
     );
+  } finally {
+    await close();
+  }
+});
+
+void test("uses Ada's version instead from her conflict's card, then shows the refreshed review", async (t) => {
+  let preview: unknown = conflictedPreview;
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") return json(preview);
+    if (path === "drafts/revertToLive") {
+      preview = { ...emptyPreview, changes: [], token: "token-3" };
+      return json({});
+    }
+    return json({});
+  });
+  const close = await openReview();
+  try {
+    await click(buttonNamed(/^Use Ada's version instead$/));
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/revertToLive").map((call) => call.input),
+      [{ projectId: 1, entity: "block", id: blockId }],
+    );
+    assert.deepEqual(cardTitles(), []);
+    assert.ok(
+      statusLines().includes("Includes everything published to Live since this draft started"),
+    );
+  } finally {
+    await close();
+  }
+});
+
+void test("offers a release's or Live's version when no person made it", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        { ...conflict, publishedBy: null, release: true },
+        {
+          ...conflict,
+          id: "019a0000-0000-7000-8000-000000000040",
+          publishedBy: null,
+          publishedAt: null,
+          release: false,
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.ok(buttonNamed(/^Use a release's version instead$/));
+    assert.ok(buttonNamed(/^Use Live's version instead$/));
+  } finally {
+    await close();
+  }
+});
+
+void test("doesn't offer Live's version where the preview says it isn't offered", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflict, entity: "page", label: "Page", revertible: false }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Page"]);
+    assert.equal(buttonNamed(/version instead/), undefined);
   } finally {
     await close();
   }
