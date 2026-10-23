@@ -21,10 +21,21 @@ import { LocalePicker } from "./LocalePicker";
 import { ProjectMenu } from "./ProjectMenu";
 import { UserButton } from "./UserButton";
 
-const links = [
+interface NavbarLink {
+  to: LinkProps["to"];
+  title: string;
+  children: React.ReactNode;
+  icon: keyof typeof icons;
+  aliases: string[];
+  /** The Website Section's link, which goes back where the website was last. */
+  isWebsite?: boolean;
+}
+
+const links: NavbarLink[] = [
   {
     to: "/",
     title: "Website",
+    isWebsite: true,
     children: (
       <>
         <Globe />
@@ -56,19 +67,18 @@ const links = [
       </>
     ),
     icon: "Settings",
-    aliases: ["Settings", "Project settings", "Favicon", "Social profiles"],
+    aliases: [
+      "Settings",
+      "Project settings",
+      "Project name",
+      "Favicon",
+      "Social profiles",
+      "Analytics",
+    ],
   },
-] satisfies Array<{
-  to: LinkProps["to"];
-  title: string;
-  children: React.ReactNode;
-  icon: keyof typeof icons;
-  aliases: string[];
-}>;
+];
 
 export const getNavbarLinks = () => links;
-
-type NavbarLink = (typeof links)[number];
 
 /**
  * Where a navbar link goes. The Website goes back where it was last, Canvas included. In another
@@ -80,7 +90,7 @@ function navbarHref(
   locale: string,
   localized: (path: string) => string,
 ): string {
-  if (link !== links[0] || !last) return localized(link.to);
+  if (!link.isWebsite || !last) return localized(link.to);
   if (last.locale === locale) return `${localized(last.path)}${last.search}${last.hash}`;
   if (last.path.startsWith(`${STUDIO_BASE_PATH}/`)) return localized(last.path);
   return localized(link.to);
@@ -92,8 +102,7 @@ const isInSection = (sectionPath: string, pathname: string) =>
 
 export const isContentNavbarPath = (pathname: string) => isInSection(STUDIO_CONTENT_PATH, pathname);
 
-export const isSettingsNavbarPath = (pathname: string) =>
-  isInSection(STUDIO_SETTINGS_PATH, pathname);
+const isSettingsNavbarPath = (pathname: string) => isInSection(STUDIO_SETTINGS_PATH, pathname);
 
 const Navbar = ({
   isWebsite = false,
@@ -120,11 +129,10 @@ const Navbar = ({
           <LocalePicker recordPage={recordPage} disabled={isSettings} />
         </div>
         <ul className="flex items-center gap-1">
-          {getNavbarLinks().map((link, index) => {
-            const isActive =
-              index === 0
-                ? isWebsite || !!pages?.some((page) => page.fullPath === pathname)
-                : isInSection(link.to, pathname);
+          {getNavbarLinks().map((link) => {
+            const isActive = link.isWebsite
+              ? isWebsite || !!pages?.some((page) => page.fullPath === pathname)
+              : isInSection(link.to, pathname);
             return (
               <li key={link.to}>
                 <Link
