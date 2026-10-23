@@ -296,7 +296,7 @@ void test("read-only panel centers responsive viewports and preserves shell sele
     groupLabel: "Website" as const,
     checkIfAvailable: () => true,
     execute: () => {},
-    shortcut: { key: "Escape" },
+    shortcut: "Escape" as const,
   };
   actionsStore.send({ type: "registerManyActions", actions: [clearSelection] });
   try {

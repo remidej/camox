@@ -11,7 +11,7 @@ import {
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
-import { formatShortcut } from "@/lib/utils";
+import { formatShortcut } from "@/lib/shortcuts";
 
 import { studioStore } from "../../studio/studioStore";
 import { actionsStore, type ActionGroupLabel } from "../actionsStore";
@@ -174,7 +174,7 @@ export function useCommandPaletteActions() {
         execute: () => {
           studioStore.send({ type: "toggleCommandPalette" });
         },
-        shortcut: { key: "k", withMeta: true },
+        shortcut: "Mod+K",
       },
     });
 

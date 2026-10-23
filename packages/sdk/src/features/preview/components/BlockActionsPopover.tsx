@@ -26,7 +26,7 @@ import * as React from "react";
 
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
 import { blockMutations, repeatableItemMutations } from "@/lib/queries";
-import { formatShortcut } from "@/lib/utils";
+import { formatShortcut } from "@/lib/shortcuts";
 
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
@@ -213,7 +213,7 @@ const BlockActionsPopover = ({
                           <span className="w-4" />
                           Add block below
                         </div>
-                        <CommandShortcut>{formatShortcut({ key: "o" })}</CommandShortcut>
+                        <CommandShortcut>{formatShortcut("O")}</CommandShortcut>
                       </CommandItem>
                       <CommandItem
                         className="justify-between"
@@ -226,9 +226,7 @@ const BlockActionsPopover = ({
                           <span className="w-4" />
                           Add block above
                         </div>
-                        <CommandShortcut>
-                          {formatShortcut({ key: "o", withShift: true })}
-                        </CommandShortcut>
+                        <CommandShortcut>{formatShortcut("Shift+O")}</CommandShortcut>
                       </CommandItem>
                     </CommandGroup>
                     <CommandSeparator />
@@ -244,9 +242,7 @@ const BlockActionsPopover = ({
                           <Copy className="h-4 w-4" />
                           Duplicate block
                         </div>
-                        <CommandShortcut>
-                          {formatShortcut({ key: "d", withMeta: true })}
-                        </CommandShortcut>
+                        <CommandShortcut>{formatShortcut("Mod+D")}</CommandShortcut>
                       </CommandItem>
                     </CommandGroup>
                     <CommandSeparator />
@@ -282,9 +278,7 @@ const BlockActionsPopover = ({
                           <Trash2 className="h-4 w-4" />
                           Delete block
                         </div>
-                        <CommandShortcut>
-                          {formatShortcut({ key: "Backspace", withMeta: true })}
-                        </CommandShortcut>
+                        <CommandShortcut>{formatShortcut("Mod+Backspace")}</CommandShortcut>
                       </CommandItem>
                     </CommandGroup>
                   </>
@@ -357,7 +351,7 @@ function useBlockActionsShortcuts() {
         id: "delete-selected",
         label: "Delete selected",
         groupLabel: "Website",
-        shortcut: { key: "Backspace", withMeta: true },
+        shortcut: "Mod+Backspace",
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.view !== "canvas") return false;
@@ -408,7 +402,7 @@ function useBlockActionsShortcuts() {
         id: "duplicate-selected",
         label: "Duplicate selected",
         groupLabel: "Website",
-        shortcut: { key: "d", withMeta: true },
+        shortcut: "Mod+D",
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.view !== "canvas") return false;
@@ -441,7 +435,7 @@ function useBlockActionsShortcuts() {
         id: "move-block-up",
         label: "Move block up",
         groupLabel: "Website",
-        shortcut: { key: "ArrowUp", withAlt: true },
+        shortcut: "Alt+ArrowUp",
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.view !== "canvas") return false;
@@ -470,7 +464,7 @@ function useBlockActionsShortcuts() {
         id: "move-block-down",
         label: "Move block down",
         groupLabel: "Website",
-        shortcut: { key: "ArrowDown", withAlt: true },
+        shortcut: "Alt+ArrowDown",
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.view !== "canvas") return false;
@@ -500,7 +494,7 @@ function useBlockActionsShortcuts() {
         id: "add-block-below",
         label: "Add block below",
         groupLabel: "Website",
-        shortcut: { key: "o" },
+        shortcut: "O",
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.view !== "canvas") return false;
@@ -522,7 +516,7 @@ function useBlockActionsShortcuts() {
         id: "add-block-above",
         label: "Add block above",
         groupLabel: "Website",
-        shortcut: { key: "o", withShift: true },
+        shortcut: "Shift+O",
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.view !== "canvas") return false;

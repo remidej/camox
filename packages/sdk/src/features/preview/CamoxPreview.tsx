@@ -490,7 +490,7 @@ export const PreviewShell = ({
         groupLabel: "Website",
         checkIfAvailable: () => true,
         execute: () => previewStore.send({ type: "clearSelection" }),
-        shortcut: { key: "Escape" },
+        shortcut: "Escape",
       },
     ] satisfies Action[];
 

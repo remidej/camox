@@ -3,7 +3,7 @@ import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 import { flushSync } from "react-dom";
 
-import { checkIfInputFocused, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import { ArtifactStudioContext } from "../../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../../core/hooks/useIsEditable";
@@ -15,7 +15,7 @@ import {
   NavigationDisabled,
   NavigationLocation,
 } from "../../navigation/navigation";
-import { actionsStore } from "../../provider/actionsStore";
+import { useActionShortcuts } from "../../provider/useAdminShortcuts";
 import { useEditingFrameClaim, useEditingOwner } from "../editingFrame";
 import {
   PREVIEW_PAGE_Z_INDEX,
@@ -83,82 +83,9 @@ export const PreviewFrameEffects = () => {
 
 const KeyDownForwarder = () => {
   const { window: iframeWindow } = useFrame();
-  const actions = useSelector(actionsStore, (state) => state.context.actions);
-
-  React.useEffect(() => {
-    // Do nothing if we're not in an iframe
-    if (!iframeWindow || !iframeWindow.parent || iframeWindow.parent === iframeWindow) {
-      return;
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const matchingAction = actions.find((action) => {
-        if (!action.shortcut) return false;
-        if (!action.checkIfAvailable()) return false;
-
-        // Don't trigger shortcuts when the user is typing in an input,
-        // unless it's Escape or a modified shortcut (meta/alt) that isn't Backspace
-        const userIsTyping = checkIfInputFocused(iframeWindow.document);
-        if (userIsTyping) {
-          if (
-            action.shortcut.key !== "Escape" &&
-            !action.shortcut.withMeta &&
-            !action.shortcut.withAlt
-          )
-            return false;
-          if (action.shortcut.key === "Backspace") return false;
-        }
-
-        const { key, withMeta, withAlt, withShift } = action.shortcut;
-        const isKeyMatching =
-          withAlt && key.length === 1 && /[a-z]/i.test(key)
-            ? e.code === `Key${key.toUpperCase()}`
-            : key.toLowerCase() === e.key.toLowerCase();
-
-        return (
-          isKeyMatching &&
-          !!withMeta === (e.metaKey || e.ctrlKey) &&
-          !!withAlt === e.altKey &&
-          !!withShift === e.shiftKey
-        );
-      });
-
-      // Only forward if there's a matching action
-      if (matchingAction) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.key === "Escape" && checkIfInputFocused(iframeWindow.document)) {
-          (iframeWindow.document.activeElement as HTMLElement).blur();
-        }
-        iframeWindow.parent.postMessage(
-          {
-            type: "executeAction",
-            actionId: matchingAction.id,
-          },
-          "*",
-        );
-      }
-    };
-
-    const handleCapturedKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") return;
-      handleKeyDown(event);
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      handleKeyDown(event);
-    };
-
-    // Consume shortcuts before preview editors can turn Enter into a line break,
-    // but leave Escape to local handlers before forwarding it.
-    iframeWindow.addEventListener("keydown", handleCapturedKeyDown, true);
-    iframeWindow.addEventListener("keydown", handleEscape);
-    return () => {
-      iframeWindow.removeEventListener("keydown", handleCapturedKeyDown, true);
-      iframeWindow.removeEventListener("keydown", handleEscape);
-    };
-  }, [iframeWindow, actions]);
-
+  // Do nothing if we're not in an iframe
+  const inIframe = !!iframeWindow?.parent && iframeWindow.parent !== iframeWindow;
+  useActionShortcuts(inIframe ? iframeWindow : null);
   return null;
 };
 

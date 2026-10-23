@@ -1,7 +1,6 @@
 import * as React from "react";
 
 import { useSignInRedirect } from "../../lib/auth";
-import { TOGGLE_CANVAS_SHORTCUT } from "../preview/previewConstants";
 
 /** Marks the URL a sign-in returns to, so the Studio opens on the Canvas there. */
 const SHOW_CANVAS_PARAM = "camox-show-canvas";
@@ -31,7 +30,8 @@ export function useSignInShortcut(enabled: boolean) {
   React.useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== TOGGLE_CANVAS_SHORTCUT.key || !(event.metaKey || event.ctrlKey)) return;
+      // TOGGLE_CANVAS_SHORTCUT, matched by hand so visitors' pages don't load TanStack Hotkeys.
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
       if (event.altKey || event.shiftKey || event.defaultPrevented || isTyping()) return;
       event.preventDefault();
       signIn();

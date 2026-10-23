@@ -5,7 +5,7 @@ import * as Tooltip from "@camox/ui/tooltip";
 import { Minimize } from "lucide-react";
 import type * as React from "react";
 
-import { formatShortcut } from "@/lib/utils";
+import { formatShortcut } from "@/lib/shortcuts";
 
 import { PAGE_NICKNAME_MAX_LENGTH } from "../../preview/components/PageNicknameField";
 import { SHOW_WHOLE_CANVAS_SHORTCUT } from "../../preview/previewConstants";

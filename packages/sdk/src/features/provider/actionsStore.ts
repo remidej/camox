@@ -1,3 +1,4 @@
+import type { HotkeyChord } from "@tanstack/react-hotkeys";
 import { createStore } from "@xstate/store-react";
 
 export type ActionGroupLabel = "Website" | "Studio" | "Navigation" | "Drafts" | "Invisible";
@@ -7,7 +8,7 @@ export interface Action {
   label: string;
   aliases?: string[];
   groupLabel: ActionGroupLabel;
-  shortcut?: { key: string; withMeta?: boolean; withAlt?: boolean; withShift?: boolean };
+  shortcut?: HotkeyChord;
   parentActionId?: string;
   hasChildren?: boolean;
   execute: () => void;
