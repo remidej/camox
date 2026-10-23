@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DRAFT_SEARCH_PARAM, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
@@ -30,6 +30,10 @@ const { ReviewDraftSheet } = await import("./ReviewDraftSheet");
 const { initApiClient } = await import("@/lib/api-client");
 const { createDraftScope } = await import("@/lib/draft-scope");
 const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
+const { AuthContext } = await import("@/lib/auth");
+const { NavigationProvider } = await import("@/features/navigation/navigation");
+const { ViewLocaleContext } = await import("@/lib/view-locale-context");
+const { previewStore } = await import("@/features/preview/previewStore");
 /** The draft scope the open review runs in. */
 let draftScope: import("@/lib/draft-scope").DraftScope;
 
@@ -104,6 +108,9 @@ const multilingual = [
 /** The website's locales, as the test sets them: multilingual unless it says otherwise. */
 let websiteLocales = multilingual;
 
+/** The home page's path in each locale, as each locale's page list has it. */
+const homePathIn: Record<string, string> = { en: "/", de: "/startseite", fr: "/accueil" };
+
 /**
  * Answers the draft's own summary, its locales and renames; everything else goes to `respond`.
  */
@@ -117,6 +124,10 @@ function mockApi(t: test.TestContext, respond: (path: string, calls: Call[]) => 
     const input = ((await request.json()) as { json: unknown }).json;
     calls.push({ path, input });
     if (path === "drafts/get") return json({ ...draft, name, ...drafted });
+    if (path === "pages/listBySlug") {
+      const locale = request.headers.get(LOCALE_HEADER) ?? "en";
+      return json({ pages: [{ ...home, fullPath: homePathIn[locale] }] });
+    }
     if (path === "locales/list") return json(websiteLocales);
     if (path === "drafts/rename") {
       name = (input as { name: string }).name.trim() || null;
@@ -149,6 +160,12 @@ const buttonNamed = (name: RegExp) =>
 /** The open review's query client. */
 let queryClient: QueryClient;
 
+/** Where the studio was asked to go while the review was open, in order. */
+let navigations: string[] = [];
+
+/** Whether the review asked to be open or closed, in order. */
+let openChanges: boolean[] = [];
+
 /** Refreshes the draft's summary, as the project room does when its translations settle. */
 async function refreshDraftSummary() {
   await React.act(async () => {
@@ -171,11 +188,40 @@ async function openReview() {
   const host = window.document.createElement("div");
   window.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
+  navigations = [];
+  openChanges = [];
+  previewStore.send({ type: "reset" });
+  const auth = {
+    authClient: {} as never,
+    authenticationUrl: "",
+    apiUrl: "http://api.test",
+    projectUuid: "project-uuid",
+  };
+  const location = {
+    href: window.location.href,
+    pathname: "/",
+    search: window.location.search,
+    hash: "",
+  };
   await React.act(async () =>
     root.render(
       <QueryClientProvider client={client}>
         <StudioScopeProvider client={client} draftScope={draftScope}>
-          <ReviewDraftSheet projectId={1} draftId={draftId} open onOpenChange={() => {}} />
+          <AuthContext.Provider value={auth}>
+            <ViewLocaleContext value={{ locale: multilingual[0], locales: multilingual }}>
+              <NavigationProvider
+                location={location}
+                navigate={(options) => void navigations.push(options.to)}
+              >
+                <ReviewDraftSheet
+                  projectId={1}
+                  draftId={draftId}
+                  open
+                  onOpenChange={(open) => void openChanges.push(open)}
+                />
+              </NavigationProvider>
+            </ViewLocaleContext>
+          </AuthContext.Provider>
         </StudioScopeProvider>
       </QueryClientProvider>,
     ),
@@ -441,6 +487,229 @@ void test("shows blockers first, saying what's wrong and where, and disables Pub
     ]);
     assert.match(dialogText(), /"Author" is required but empty\s*Quote · Home/);
     assert.equal(publishButton()?.disabled, true);
+  } finally {
+    await close();
+  }
+});
+
+/** A blocker in the home page's hero, which a test gives its code and field. */
+const blockerIn = (code: string, field: string, fieldKind: string | null, message: string) => ({
+  entity: "block",
+  id: blockId,
+  label: "Hero",
+  owner: home,
+  locale: "en",
+  code,
+  field,
+  fieldKind,
+  blockId,
+  message,
+});
+
+/** The action of the card titled `title`, if it has one. */
+const cardAction = (title: string) =>
+  [...window.document.querySelectorAll('[role="dialog"] [data-card]')]
+    .find((card) => card.querySelector("[data-card-title]")?.textContent === title)
+    ?.querySelector("button") as unknown as HTMLButtonElement | null | undefined;
+
+/** Activates the page's editing frame, as the Canvas does once it shows the page. */
+async function showPageInCanvas(pageId: string) {
+  await React.act(async () => {
+    previewStore.send({ type: "activatePage", pageId });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+void test("a blocker's action closes the review and opens its page in the Canvas with its field selected", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [
+        {
+          ...blockerIn("emptyRequiredFile", "image", "Image", '"Image" is required but empty'),
+          locale: "de",
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    await click(cardAction('"Image" is required but empty'));
+
+    assert.deepEqual(openChanges, [false]);
+    // The blocker is in the German content, so the German page shows it.
+    assert.deepEqual(navigations, [`/de/startseite${window.location.search}`]);
+    assert.equal(previewStore.getSnapshot().context.view, "canvas");
+
+    await showPageInCanvas(home.id);
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: home.id,
+      selection: { type: "block-field", blockId, fieldName: "image", fieldType: "Image" },
+    });
+  } finally {
+    await close();
+  }
+});
+
+void test("an item's blocker selects its field in its block", async (t) => {
+  const itemId = "019a0000-0000-7000-8000-000000000040";
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [
+        {
+          ...blockerIn("missingFile", "photo", "Image", '"Photo" uses a file that is gone'),
+          entity: "repeatableItem",
+          id: itemId,
+          label: "Card",
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    await click(cardAction('"Photo" uses a file that is gone'));
+    await showPageInCanvas(home.id);
+
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
+      type: "item-field",
+      blockId,
+      itemId,
+      fieldName: "photo",
+      fieldType: "Image",
+    });
+  } finally {
+    await close();
+  }
+});
+
+void test("a page's blocker opens the page with nothing selected in it", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [
+        {
+          entity: "page",
+          id: home.id,
+          label: "Page",
+          owner: home,
+          locale: "en",
+          code: "duplicatePath",
+          field: "path",
+          fieldKind: null,
+          blockId: null,
+          message: "Another page already uses /",
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    await click(cardAction("Another page already uses /"));
+    await showPageInCanvas(home.id);
+
+    assert.deepEqual(navigations, [`/${window.location.search}`]);
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: home.id,
+      selection: null,
+    });
+  } finally {
+    await close();
+  }
+});
+
+void test("names the fix a blocker's action makes where it's obvious, and shows it in the Canvas otherwise", async (t) => {
+  const page = (code: string, field: string, message: string) => ({
+    ...blockerIn(code, field, null, message),
+    entity: "page",
+    id: home.id,
+    label: "Page",
+    blockId: null,
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [
+        blockerIn("emptyRequiredFile", "image", "Image", "empty image"),
+        blockerIn("emptyRequiredFile", "datasheet", "File", "empty file"),
+        blockerIn("missingFile", "image", "Image", "gone image"),
+        blockerIn("unacceptedFileType", "datasheet", "File", "wrong file"),
+        blockerIn("emptyRequiredReference", "author", "Reference", "empty reference"),
+        blockerIn("danglingReference", "author", "Reference", "gone record"),
+        blockerIn("danglingPageLink", "link", "Link", "gone page"),
+        blockerIn("wrongKindValue", "title", "String", "wrong kind"),
+        page("duplicatePath", "path", "taken path"),
+        page("missingMetaTitle", "metaTitle", "no meta title"),
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const titles = [
+      "empty image",
+      "empty file",
+      "gone image",
+      "wrong file",
+      "empty reference",
+      "gone record",
+      "gone page",
+      "wrong kind",
+      "taken path",
+      "no meta title",
+    ];
+    assert.deepEqual(
+      Object.fromEntries(titles.map((title) => [title, cardAction(title)?.textContent])),
+      {
+        "empty image": "Choose an image",
+        "empty file": "Choose a file",
+        "gone image": "Choose another image",
+        "wrong file": "Choose another file",
+        "empty reference": "Choose a record",
+        "gone record": "Choose another record",
+        "gone page": "Fix the link",
+        "wrong kind": "Show in Canvas",
+        "taken path": "Fix the path",
+        "no meta title": "Write a meta title",
+      },
+    );
+  } finally {
+    await close();
+  }
+});
+
+void test("gives no action to a blocker with no page to show", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [
+        {
+          entity: "definition",
+          id: "block:hero",
+          label: 'Block "hero"',
+          owner: null,
+          locale: null,
+          code: "definitionsDiffer",
+          field: "",
+          fieldKind: null,
+          blockId: null,
+          message: "Differs from Live's: release your local code before publishing",
+        },
+        {
+          ...blockerIn("wrongKindValue", "title", "String", "wrong kind in the layout"),
+          owner: { kind: "layout", name: "default" },
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.equal(
+      cardAction("Differs from Live's: release your local code before publishing"),
+      null,
+    );
+    assert.equal(cardAction("wrong kind in the layout"), null);
   } finally {
     await close();
   }
