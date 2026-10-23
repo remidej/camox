@@ -27,9 +27,9 @@ import { ChevronsUpDown, Ellipsis, GripVertical, LayoutTemplate, Plus } from "lu
 import * as React from "react";
 
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
+import { useBlockDefinition, useLayoutDefinition } from "@/lib/studio-definitions";
 import { cn } from "@/lib/utils";
 
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { useEditingFrame } from "../editingFrame";
 import { entityName } from "../entityName";
@@ -231,10 +231,9 @@ export const LayoutBlockItem = ({
   layoutName,
   withActions = true,
 }: LayoutBlockItemProps) => {
-  const camoxApp = useCamoxApp();
-  const blockDef = camoxApp.getBlockById(block.type);
+  const blockDef = useBlockDefinition(block.type);
   const ctx = useBlockTreeItem(block);
-  const displayText = blockDef?._internal.title ?? block.type;
+  const displayText = blockDef?.title ?? block.type;
 
   return (
     <BlockTreeItemHeader
@@ -252,7 +251,7 @@ export const LayoutBlockItem = ({
           <TooltipContent>
             From <span className="font-semibold">{layoutName}</span> layout.
             <br />
-            {blockDef?._internal.synced
+            {blockDef?.synced
               ? "Synced: editing this block updates it across all layouts and pages"
               : "Changing the content may affect other pages"}
           </TooltipContent>
@@ -341,7 +340,7 @@ const PageTree = ({ collapsible = false }: { collapsible?: boolean }) => {
     beforeBlocks: layoutBeforeBlocks,
     afterBlocks: layoutAfterBlocks,
   } = usePageBlocks(page);
-  const camoxApp = useCamoxApp();
+  const layout = useLayoutDefinition(page?.layout?.layoutId);
 
   const updatePosition = useUpdateBlockPosition();
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -415,16 +414,10 @@ const PageTree = ({ collapsible = false }: { collapsible?: boolean }) => {
     return null;
   }
 
-  const layout = page.layout ? camoxApp.getLayoutById(page.layout.layoutId) : undefined;
-
   const list = (
     <div className="flex flex-col gap-0.5">
       {layoutBeforeBlocks.map((block) => (
-        <LayoutBlockItem
-          key={block.id}
-          block={block}
-          layoutName={layout?._internal.title ?? "Unknown"}
-        />
+        <LayoutBlockItem key={block.id} block={block} layoutName={layout?.title ?? "Unknown"} />
       ))}
       <DndContext
         sensors={sensors}
@@ -462,11 +455,7 @@ const PageTree = ({ collapsible = false }: { collapsible?: boolean }) => {
         </DragOverlay>
       </DndContext>
       {layoutAfterBlocks.map((block) => (
-        <LayoutBlockItem
-          key={block.id}
-          block={block}
-          layoutName={layout?._internal.title ?? "Unknown"}
-        />
+        <LayoutBlockItem key={block.id} block={block} layoutName={layout?.title ?? "Unknown"} />
       ))}
     </div>
   );

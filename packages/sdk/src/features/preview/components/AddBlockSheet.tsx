@@ -15,14 +15,14 @@ import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
-import type { Block } from "@/core/createBlock";
 import { useProjectUuid } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
 import { type BlockBundle, blockMutations } from "@/lib/queries";
+import { type BlockDefinition, useBlockDefinitions } from "@/lib/studio-definitions";
 import { useLocalePath } from "@/lib/view-locale";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
+import { useOptionalCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
 import { getGridNavigationIndex } from "./blockGridNavigation";
@@ -127,9 +127,9 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
   });
 
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
-  const availableBlocks = useCamoxApp()
-    .getBlocks()
-    .filter((b) => !b._internal.layoutOnly);
+  // Thumbnails and a new block's initial content still need the block's code.
+  const camoxApp = useOptionalCamoxApp();
+  const availableBlocks = useBlockDefinitions().filter((block) => !block.layoutOnly);
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
   const { data: totalCounts = {} } = useReadQuery(
@@ -142,22 +142,18 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
     .map((block) => ({
       block,
       score: search.trim()
-        ? commandFilter(block._internal.id, search.trim(), [
-            block._internal.title,
-            block._internal.description ?? "",
-          ])
+        ? commandFilter(block.id, search.trim(), [block.title, block.description])
         : 1,
     }))
     .filter(({ score }) => score > 0)
     .sort(
       (a, b) =>
-        b.score - a.score ||
-        (totalCounts[b.block._internal.id] ?? 0) - (totalCounts[a.block._internal.id] ?? 0),
+        b.score - a.score || (totalCounts[b.block.id] ?? 0) - (totalCounts[a.block.id] ?? 0),
     )
     .map(({ block }) => block);
-  const selectedValue = filteredBlocks.some((block) => block._internal.id === highlightedValue)
+  const selectedValue = filteredBlocks.some((block) => block.id === highlightedValue)
     ? highlightedValue
-    : (filteredBlocks[0]?._internal.id ?? "");
+    : (filteredBlocks[0]?.id ?? "");
 
   const pageCounts = React.useMemo(() => {
     const counts: Record<string, number> = {};
@@ -177,18 +173,23 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
     setError(null);
   }
 
-  const handleAddBlock = async (block: Block) => {
+  const handleAddBlock = async (block: BlockDefinition) => {
     if (!page || !sheet || submitting.current) return;
 
     submitting.current = true;
     setError(null);
     const owner = { kind: "page", pageId: page.page.id } as const;
     try {
-      const bundle = block._internal.getInitialBundle();
+      // Without the block's code, its default content and settings, with no repeatable items.
+      const bundle = camoxApp?.getBlockById(block.id)?._internal.getInitialBundle() ?? {
+        content: block.defaultContent,
+        settings: block.defaultSettings,
+        repeatableItems: [],
+      };
       const { id: blockId } = await createBlock.mutateAsync({
         id: generateUuidv7(),
         pageId: page.page.id,
-        type: block._internal.id,
+        type: block.id,
         content: bundle.content,
         settings: bundle.settings,
         afterPosition: sheet.afterPosition,
@@ -211,7 +212,7 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
     }
   };
 
-  const displayCount = (blockId: Block["_internal"]["id"]) => {
+  const displayCount = (blockId: string) => {
     const total = totalCounts[blockId] ?? 0;
     if (total === 0) return "Never used";
     const page = pageCounts[blockId] ?? "none";
@@ -285,11 +286,11 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
               ref={gridRef}
               className="@container p-0 [&>[cmdk-group-items]]:grid [&>[cmdk-group-items]]:grid-cols-1 [&>[cmdk-group-items]]:gap-4 @xl:[&>[cmdk-group-items]]:grid-cols-2 @3xl:[&>[cmdk-group-items]]:grid-cols-3"
             >
-              {filteredBlocks.map((block: Block) => (
+              {filteredBlocks.map((block) => (
                 <CommandItem
-                  key={block._internal.id}
-                  value={block._internal.id}
-                  keywords={[block._internal.title, block._internal.description ?? ""]}
+                  key={block.id}
+                  value={block.id}
+                  keywords={[block.title, block.description]}
                   disabled={createBlock.isPending}
                   hideCheck
                   onSelect={() => {
@@ -297,18 +298,18 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
                   }}
                   className="group bg-card data-[selected=true]:border-primary flex flex-col items-stretch gap-0 overflow-hidden rounded-lg border-2 p-0"
                 >
-                  <BlockThumbnail block={block} className="h-44" />
+                  <BlockThumbnail block={camoxApp?.getBlockById(block.id)} className="h-44" />
                   <div className="border-border flex flex-col gap-1 border-t px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 leading-5 font-medium">{block._internal.title}</span>
-                      {block._internal.synced && (
+                      <span className="min-w-0 leading-5 font-medium">{block.title}</span>
+                      {block.synced && (
                         <Badge variant="secondary" size="sm">
                           Synced
                         </Badge>
                       )}
                     </div>
                     <span className="text-muted-foreground text-xs leading-4">
-                      {displayCount(block._internal.id)}
+                      {displayCount(block.id)}
                     </span>
                   </div>
                 </CommandItem>

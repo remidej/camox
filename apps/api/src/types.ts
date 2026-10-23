@@ -20,6 +20,8 @@ export type Bindings = {
   /** Batches the edge cache's purges, which the account's purge rate limit caps. */
   EDGE_CACHE_PURGER: import("./lib/edge-cache-purges").EdgeCachePurgerNamespace;
   THREAD: DurableObjectNamespace<import("./durable-objects/thread").Thread>;
+  /** A read-only copy of each project's `main`, by Project ID, which the agent reads code from. */
+  PROJECT_CODE: DurableObjectNamespace<import("./durable-objects/project-code").ProjectCode>;
   /** The sandbox Worker's Durable Object running code mode scripts, one per thread (ADR 0018). */
   CODEMODE_SANDBOX: DurableObjectNamespace<
     import("@earendil-works/pi-codemode/cloudflare").CodemodeSandboxDurableObject

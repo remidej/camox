@@ -22,10 +22,10 @@ import { useEffect, useMemo } from "react";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectUuid } from "@/lib/auth";
 import { pageMutations } from "@/lib/queries";
+import { useLayoutDefinitions } from "@/lib/studio-definitions";
 import { useLocalizedPath } from "@/lib/view-locale";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { PageLocationFieldset } from "./PageLocationFieldset";
 import { PageNicknameField } from "./PageNicknameField";
@@ -50,16 +50,11 @@ const CreatePageModal = () => {
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
-  const { data: allLayouts } = useReadQuery(reads.layoutList({ projectId: project?.id ?? 0 }), {
-    enabled: !!project,
-  });
-  const camoxApp = useCamoxApp();
+  const allLayouts = useLayoutDefinitions();
+  // Only curated layouts' pages are authored by editors.
   const layouts = useMemo(
-    () =>
-      allLayouts?.filter(
-        (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind === "curated",
-      ),
-    [allLayouts, camoxApp],
+    () => allLayouts.filter((layout) => layout.kind === "curated"),
+    [allLayouts],
   );
   const navigate = useNavigate();
   const localized = useLocalizedPath();
@@ -113,8 +108,8 @@ const CreatePageModal = () => {
   });
 
   useEffect(() => {
-    if (layouts && layouts.length > 0 && !form.getFieldValue("layoutId")) {
-      form.setFieldValue("layoutId", layouts[0].layoutId);
+    if (layouts.length > 0 && !form.getFieldValue("layoutId")) {
+      form.setFieldValue("layoutId", layouts[0].id);
     }
   }, [layouts, form]);
 
@@ -180,19 +175,16 @@ const CreatePageModal = () => {
                   onValueChange={(value) => {
                     if (value != null) field.handleChange(value);
                   }}
-                  disabled={layouts != null && layouts.length <= 1}
-                  items={layouts?.map((t) => ({
-                    value: t.layoutId,
-                    label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
-                  }))}
+                  disabled={layouts.length <= 1}
+                  items={layouts.map((layout) => ({ value: layout.id, label: layout.title }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a layout" />
                   </SelectTrigger>
                   <SelectContent>
-                    {layouts?.map((t) => (
-                      <SelectItem key={t.layoutId} value={t.layoutId}>
-                        {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
+                    {layouts.map((layout) => (
+                      <SelectItem key={layout.id} value={layout.id}>
+                        {layout.title}
                       </SelectItem>
                     ))}
                   </SelectContent>

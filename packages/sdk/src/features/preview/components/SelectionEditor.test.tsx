@@ -192,7 +192,6 @@ async function renderSidebar(
   const { PreviewEditingOwnerContext } = await import("../previewSelection");
   const { PageRecordContext } = await import("../pageRecord");
   const { previewStore } = await import("../previewStore");
-  const { CamoxAppProvider } = await import("../../provider/components/CamoxAppContext");
   const { createApp } = await import("../../../core/createApp");
   const { createBlock } = await import("../../../core/createBlock");
   const { createCollection } = await import("../../../core/createCollection");
@@ -332,17 +331,23 @@ async function renderSidebar(
   testStudioCache(client).set(reads.records({ projectUuid: "site", collectionId: "people" }), [
     { id: ADA, title: "Ada Lovelace", description: null },
   ] as never);
-  testStudioCache(client).set(
-    reads.collection({ projectUuid: "site", collectionId: "customers" }),
-    {
-      collectionId: "customers",
-      title: "Customers",
-      description: "",
-      toTitle: "{{name}}",
-      toDescription: null,
-      contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
-    } as never,
-  );
+  // The sidebar reads definitions from the API, as the website's code synced them, and never
+  // from a code registry.
+  const synced = JSON.parse(
+    JSON.stringify(
+      await createApp({
+        blocks: [definition],
+        collections: [customers, people],
+      }).getDefinitionSet(),
+    ),
+  ) as { blocks: unknown[]; collections: { collectionId: string }[] };
+  testStudioCache(client).set(reads.blockDefinitionList({ projectId: 1 }), synced.blocks);
+  for (const collection of synced.collections) {
+    testStudioCache(client).set(
+      reads.collection({ projectUuid: "site", collectionId: collection.collectionId }),
+      collection,
+    );
+  }
 
   const writes: Write[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
@@ -395,19 +400,15 @@ async function renderSidebar(
             authClient: createCamoxAuthClient("http://localhost:8788"),
           }}
         >
-          <CamoxAppProvider
-            app={createApp({ blocks: [definition], collections: [customers, people] })}
-          >
-            <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
-              <PreviewEditingOwnerContext.Provider value={owner}>
-                <PageRecordContext value={options.recordPage?.result}>
-                  <SelectionEditor />
-                </PageRecordContext>
-              </PreviewEditingOwnerContext.Provider>
-              <SheetProbe />
-              <ContentCollectionItemSheet projectUuid="site" />
-            </CollectionItemSheetProvider>
-          </CamoxAppProvider>
+          <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
+            <PreviewEditingOwnerContext.Provider value={owner}>
+              <PageRecordContext value={options.recordPage?.result}>
+                <SelectionEditor />
+              </PageRecordContext>
+            </PreviewEditingOwnerContext.Provider>
+            <SheetProbe />
+            <ContentCollectionItemSheet projectUuid="site" />
+          </CollectionItemSheetProvider>
         </AuthContext.Provider>
       </StudioQueryClientProvider>,
     );
@@ -458,6 +459,12 @@ async function renderSidebar(
       ).block.references.logos.map((record) => `${record.title}: ${record.content.name}`),
     /** Whether a button with this accessible name is on screen (dialogs included). */
     hasButton: (name: string) => button(name) != null,
+    /** Whether the button with this accessible name can be pressed. */
+    isEnabled: (name: string) => {
+      const element = button(name);
+      assert.ok(element, `missing button: ${name}`);
+      return !element.hasAttribute("disabled");
+    },
     text: () => host.textContent ?? "",
     /** Clicks a button by accessible name and lets the selection re-render. */
     async click(name: string) {
@@ -577,6 +584,14 @@ void test("an item's Summary wins over its title in its repeater's list and the 
     options,
   );
   assert.deepEqual(item.crumbs(), ["Page", "Testimonial", "People", "Ada"]);
+});
+
+void test("an item's list actions follow its repeater's limits in the synced definition", async (t) => {
+  // People holds one item, at least one and at most five.
+  const sidebar = await renderSidebar(t, { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID });
+
+  assert.equal(sidebar.isEnabled("Add sibling"), true);
+  assert.equal(sidebar.isEnabled("Delete"), false);
 });
 
 void test("block text field edits are saved to the block", async (t) => {

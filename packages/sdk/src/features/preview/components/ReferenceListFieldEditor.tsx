@@ -25,9 +25,9 @@ import { collectionField, type ReferenceQuery } from "@/core/lib/contentType";
 import { referenceListIds } from "@/core/lib/reference";
 import { titleField } from "@/core/recordItem";
 import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
-import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
+import { useCollectionDefinition } from "@/lib/studio-definitions";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import type { OverlayMessage } from "../overlayMessages";
@@ -215,8 +215,8 @@ export function ReferenceListFieldEditor({
   allowCreate?: boolean;
 }) {
   const projectUuid = useProjectUuid();
-  const collection = useCamoxApp().getCollectionById(collectionId);
-  const collectionTitle = collection?._internal.title ?? collectionId;
+  const collection = useCollectionDefinition(collectionId);
+  const collectionTitle = collection?.title ?? collectionId;
   const sheet = useCollectionItemSheet();
   const records = useReadQuery(reads.records({ projectUuid, collectionId }), { enabled: !drill });
   const storedIds = referenceListIds(value);
@@ -378,8 +378,8 @@ export function ReferenceListFieldEditor({
                     sheet.open({
                       collectionId,
                       initialContent:
-                        collection && search.trim() && titleField(collection._internal.toTitle)
-                          ? { [titleField(collection._internal.toTitle)!]: search }
+                        collection && search.trim() && titleField(collection.toTitle)
+                          ? { [titleField(collection.toTitle)!]: search }
                           : undefined,
                       onSaved: (created) => save([...ids, created.id]),
                     }),

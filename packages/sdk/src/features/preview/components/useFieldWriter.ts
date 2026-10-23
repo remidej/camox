@@ -6,7 +6,6 @@ import { referenceWritesFor } from "@/core/editing/referenceWrites";
 import { referenceListIds, type ReferenceRecord } from "@/core/lib/reference";
 import { recordText } from "@/core/recordItem";
 import { serializeAssetField } from "@/features/content/collection-form";
-import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
@@ -133,7 +132,6 @@ function applyReferenceListOptimistically(
 export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown): FieldWriter {
   const queryClient = useQueryClient();
   const projectUuid = useProjectUuid();
-  const camoxApp = useCamoxApp();
   const updateBlockContent = useMutation(blockMutations.updateContent());
   const updateItemContent = useMutation(repeatableItemMutations.updateContent());
   const editRecord = useMutation(collectionMutations.edit());
@@ -173,14 +171,15 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       if (field?.fieldType === "ReferenceList" && target) {
         const { collectionId = "" } = field;
         const linkRecord = async (recordId: string): Promise<NormalizedCollectionRecord> => {
-          const record = await studioCache.ensure(
-            reads.record({ projectUuid, collectionId, id: recordId }),
-          );
+          const [record, collection] = await Promise.all([
+            studioCache.ensure(reads.record({ projectUuid, collectionId, id: recordId })),
+            studioCache.ensure(reads.collection({ projectUuid, collectionId })),
+          ]);
           return {
             id: record.id,
             collectionId,
             content: record.content,
-            ...recordText(camoxApp.getCollectionById(collectionId), record.content),
+            ...recordText(collection, record.content),
           };
         };
         return (async () => {
@@ -220,7 +219,6 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       queryClient,
       studioCache,
       projectUuid,
-      camoxApp,
       editRecord,
       updateBlockContent,
       updateItemContent,

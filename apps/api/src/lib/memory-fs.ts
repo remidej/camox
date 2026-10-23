@@ -99,6 +99,28 @@ export class MemoryFs {
       if (this.nodes.get(parentOf(at))?.kind !== "dir") throw fsError("ENOENT", path);
       this.nodes.set(at, { kind: "symlink", target, mtimeMs: Date.now(), ino: ++inodes });
     },
+    /** Moves a file, link or directory with everything below it, replacing a file at `to`. */
+    rename: async (from: string, to: string) => {
+      const source = normalize(from);
+      const target = normalize(to);
+      const node = this.nodes.get(source);
+      if (!node || source === "/") throw fsError("ENOENT", from);
+      if (this.nodes.get(parentOf(target))?.kind !== "dir") throw fsError("ENOENT", to);
+      if (source === target) return;
+      if (target.startsWith(`${source}/`)) throw fsError("EINVAL", to);
+      const replaced = this.nodes.get(target);
+      if (replaced?.kind === "dir") {
+        if (node.kind !== "dir") throw fsError("EISDIR", to);
+        if ((await this.promises.readdir(target)).length > 0) throw fsError("ENOTEMPTY", to);
+      } else if (replaced && node.kind === "dir") throw fsError("ENOTDIR", to);
+      const moved = [...this.nodes].filter(
+        ([path]) => path === source || path.startsWith(`${source}/`),
+      );
+      for (const [path] of moved) this.nodes.delete(path);
+      for (const [path, moving] of moved) {
+        this.nodes.set(`${target}${path.slice(source.length)}`, moving);
+      }
+    },
     chmod: async (path: string, mode: number) => {
       const node = this.nodes.get(normalize(path));
       if (!node) throw fsError("ENOENT", path);
