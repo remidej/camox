@@ -1,0 +1,11 @@
+{
+  // PROTOTYPE (#522), throwaway: loads apps/landing's server build into a Dynamic Worker.
+  "name": "camox-proto-522-loader",
+  "main": "worker.js",
+  "compatibility_date": "2026-03-28",
+  "workers_dev": true,
+  "preview_urls": false,
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "r2_buckets": [{ "binding": "BUNDLE", "bucket_name": "camox-proto-522" }],
+  "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "prototype-522" }],
+}
