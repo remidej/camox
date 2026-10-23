@@ -13,3 +13,4 @@ export * from "./domains/locales/schema";
 export * from "./domains/translations/schema";
 export * from "./domains/threads/schema";
 export * from "./domains/releases/schema";
+export * from "./domains/revisions/schema";

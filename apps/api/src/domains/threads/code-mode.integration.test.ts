@@ -81,6 +81,7 @@ describe("the agent reading the website through code mode", () => {
     const view = await ask(await openThread(website), "What can you read?");
 
     expect(offered.toSorted()).toEqual([
+      "build",
       "codemode",
       "edit",
       "find",
