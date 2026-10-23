@@ -7,7 +7,12 @@ import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout, type LayoutCollectionItemResult } from "../../core/createLayout";
 import { plainTextToLexicalState } from "../../core/lib/lexicalState";
-import { localesResponse, markdownBody, pageListResponse } from "./api.fixtures";
+import {
+  localesResponse,
+  markdownBody,
+  pageListResponse,
+  pageMarkdownResponse,
+} from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const VALID_SESSION = "camox_auth_cookie=valid";
@@ -109,6 +114,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = 
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
         { status: 404 },
       );
+    if (url.pathname.endsWith("/pages/getMarkdown")) return pageMarkdownResponse(request);
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({
         json: { before: "Navbar", after: "Footer", projectName: "Real project" },

@@ -11,7 +11,7 @@ import { createLayout, notFound, type LayoutLoaderResult } from "../../core/crea
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { useNavigate } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
-import { localesResponse, markdownBody } from "./api.fixtures";
+import { localesResponse, markdownBody, pageMarkdownResponse } from "./api.fixtures";
 import { readHydrationData } from "./hydrationData";
 import { PageNavigationProvider } from "./pageNavigation";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
@@ -322,11 +322,9 @@ function codeOwnedPagesApp() {
 }
 
 function mockCodeOwnedPagesApi(t: { mock: { method: typeof test.mock.method } }) {
-  const requested: string[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
     const url = new URL(request.url);
-    requested.push(url.pathname);
     if (url.pathname.endsWith("/getByPath")) {
       const { json } = (await request.json()) as { json: { path: string } };
       if (json.path === "/pokemon/curated") return Response.json({ json: { page: { id: 9 } } });
@@ -335,8 +333,15 @@ function mockCodeOwnedPagesApi(t: { mock: { method: typeof test.mock.method } })
         { status: 404 },
       );
     }
-    if (url.pathname.endsWith("/getPageMarkdown"))
-      return Response.json({ json: { markdown: "# Curated", blocks: [] } });
+    if (url.pathname.endsWith("/pages/getMarkdown"))
+      return pageMarkdownResponse(request, {
+        pageAt: ({ path }) => {
+          if (path === "/pokemon/curated") return { page: { id: 9 }, markdown: "# Curated" };
+          // A curated page a singleton shadows.
+          if (path === "/about") return { page: { id: 10 }, markdown: "# Shadowed" };
+          return null;
+        },
+      });
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({
         json: {
@@ -358,7 +363,6 @@ function mockCodeOwnedPagesApi(t: { mock: { method: typeof test.mock.method } })
       });
     throw new Error(`Unexpected request: ${url}`);
   });
-  return requested;
 }
 
 void test("derived pages get the curated head, built from their loader data", async (t) => {
@@ -395,7 +399,7 @@ void test("derived pages get the curated head, built from their loader data", as
 });
 
 void test("code-owned pages answer Markdown between their live layout blocks, under the head's title", async (t) => {
-  const requested = mockCodeOwnedPagesApi(t);
+  mockCodeOwnedPagesApi(t);
   const app = codeOwnedPagesApp();
   const markdown = (path: string) =>
     handleCamoxRequest(
@@ -424,7 +428,7 @@ void test("code-owned pages answer Markdown between their live layout blocks, un
     ].join("\n"),
   );
 
-  requested.length = 0;
+  // A singleton keeps precedence over the curated page at its URL.
   const singleton = await markdown("/about");
   assert.equal(
     await singleton!.text(),
@@ -437,7 +441,6 @@ void test("code-owned pages answer Markdown between their live layout blocks, un
       "<!-- Navbar -->\nNav\n\n# About undefined\n\n<!-- Footer -->\nFooter",
     ].join("\n"),
   );
-  assert.ok(!requested.some((path) => path.endsWith("/getByPath")), "Singletons skip page lookup");
 
   // A curated page at a derived URL keeps precedence, as for HTML.
   assert.equal(markdownBody(await (await markdown("/pokemon/curated"))!.text()), "# Curated");

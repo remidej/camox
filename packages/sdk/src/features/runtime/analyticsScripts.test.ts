@@ -3,7 +3,7 @@ import { test } from "node:test";
 import vm from "node:vm";
 
 import type { AnalyticsProviders } from "./analytics";
-import { localesResponse, pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse, pageMarkdownResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
@@ -56,8 +56,13 @@ function mockApi(
           repeatableItems: [],
         },
       });
-    if (url.pathname.endsWith("/getPageMarkdown"))
-      return Response.json({ json: { markdown: "# About" } });
+    if (url.pathname.endsWith("/pages/getMarkdown"))
+      return pageMarkdownResponse(request, {
+        pageAt: ({ path }) =>
+          path === "/about"
+            ? { page: { id: 1, fullPath: "/about", metaTitle: "About" }, markdown: "# About" }
+            : null,
+      });
     if (url.pathname.endsWith("/layouts/get"))
       return Response.json({
         json: {

@@ -26,6 +26,7 @@ import {
   UNNAMED_DEFAULT_LOCALE,
   parseLocalePath,
   type AlternatePath,
+  type LocalePath,
   type LocaleView,
   type RequestLocale,
 } from "../../lib/locale-path";
@@ -34,14 +35,14 @@ import {
   buildClearServerAuthCookieHeader,
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
-import { reads } from "../../lib/studio-reads";
+import { reads, type StudioCache } from "../../lib/studio-reads";
 import { DefaultPageImage, renderPageImage } from "../og/pageImage";
 import {
   buildCamoxPageHead,
   buildFaviconUrl,
   buildPageHead,
   buildPageMeta,
-  createMarkdownResponse,
+  curatedMarkdownResponse,
   declarePage,
   parseMarkdownPath,
   createServerApiClient,
@@ -51,6 +52,7 @@ import {
   prefersMarkdown,
   withFrontMatter,
   readDraftOrLive,
+  readPageMarkdown,
   readScopeLocales,
   renderedHref,
   resolveMemberProject,
@@ -801,6 +803,11 @@ interface AlternatesReading {
   authCookieHeader?: string;
   /** The draft the page was read in. Without it, Live. */
   draftId?: string;
+  /**
+   * The request's reads, which hold the locales' pages the page's own read already loaded: the
+   * head reads them from there rather than again.
+   */
+  queryClient?: QueryClient;
 }
 
 /**
@@ -815,15 +822,16 @@ async function readAlternates<Head extends PageHead | null>(
     identity,
     head,
     described,
-    ...reading
-  }: AlternatesReading & {
+    localeReads,
+  }: {
     located: RequestLocale;
     identity: PageIdentity;
     head: Head;
     described: PageDescription;
+    /** The scope's reads of each locale, which `requestLocaleReads` gives. */
+    localeReads: RequestLocaleReads;
   },
 ): Promise<{ alternates: AlternatePath[]; head: Head }> {
-  const localeReads = requestLocaleReads(options, reading);
   const [alternates, crumbs] = await Promise.all([
     findRequestAlternates(options, located, identity, localeReads),
     head ? readRequestBreadcrumb(options, located, described.title, localeReads) : [],
@@ -912,15 +920,23 @@ interface RequestLocaleReads extends LocaleReads {
 
 function requestLocaleReads(
   options: RuntimeOptions,
-  { authCookieHeader, draftId }: AlternatesReading,
+  { authCookieHeader, draftId, queryClient }: AlternatesReading,
 ): RequestLocaleReads {
   const { apiUrl, projectUuid } = options;
   const reading = { authCookieHeader: draftId ? authCookieHeader : undefined, draftId };
   const source = draftId ? "draft" : "live";
   const pagesByLocale = new Map<string, Promise<readonly ListedPage[]>>();
+  const studioCache: StudioCache | undefined =
+    apiUrl && queryClient ? createServerStudioCache(queryClient, { apiUrl }) : undefined;
   return {
     pages: (locale) => {
       if (!apiUrl || !projectUuid) return Promise.resolve([]);
+      // The page's own read loads its locale's pages, and those its links fall back to.
+      const loaded = studioCache?.get(reads.pageList({ projectUuid }), {
+        in: draftId ?? null,
+        locale,
+      });
+      if (loaded) return Promise.resolve(loaded);
       const read =
         pagesByLocale.get(locale.tag) ??
         createServerApiClient(apiUrl, { ...reading, locale })
@@ -1025,17 +1041,111 @@ async function createPreviewHandoffResponse({
   );
 }
 
+/**
+ * A curated page's read for a request, with the request's reads it fills, which its render
+ * hydrates from.
+ */
+interface CuratedPageRead {
+  queryClient: QueryClient;
+  result: Promise<Awaited<ReturnType<typeof loadCamoxPageForRequest>>>;
+}
+
+/** Starts reading the curated page at a locale-relative path, as the request reads it. */
+function readCuratedPage(
+  options: RuntimeOptions & { apiUrl: string; projectUuid: string },
+  request: Request,
+  { locale, path }: LocalePath,
+): CuratedPageRead {
+  const queryClient = new QueryClient();
+  const result = loadCamoxPageForRequest({
+    apiUrl: options.apiUrl,
+    authCookieHeader: getServerAuthCookieHeader(request.headers),
+    draftId: getRequestDraftId(request, options),
+    locale,
+    origin: new URL(request.url).origin,
+    pathname: path,
+    projectUuid: options.projectUuid,
+    queryClient,
+  });
+  return { queryClient, result };
+}
+
+/** A first path segment that could be a locale's prefix: a language tag, in lowercase. */
+const LOCALE_PREFIX_LIKE = /^\/[a-z]{2,3}(?:-[a-z0-9]{1,8})*(?:\/|$)/;
+
+/**
+ * The read of the curated page a path names in the default locale, started while the request's
+ * locales are read, or none where it couldn't be the request's page. A default-locale page sits
+ * at its own path, so its read needn't wait for the locales: once read, they only confirm the path
+ * names no other locale. A path whose first segment looks like a locale's prefix waits for them
+ * instead, rather than reading a page it likely doesn't name, and a singleton's path reads no
+ * curated page.
+ */
+async function readDefaultLocalePageEarly(
+  options: RuntimeOptions,
+  request: Request,
+  pathname: string,
+): Promise<CuratedPageRead | undefined> {
+  const { apiUrl, projectUuid } = options;
+  if (!apiUrl || !projectUuid) return undefined;
+  if (matchLocalizedRoute(pathname)?.kind !== "page" || LOCALE_PREFIX_LIKE.test(pathname)) {
+    return undefined;
+  }
+  const app = await options.getCamoxApp?.().catch(() => undefined);
+  if (app && matchDerivedLayout(app.getLayouts(), pathname)?.layout._internal.kind === "singleton")
+    return undefined;
+  const read = readCuratedPage({ ...options, apiUrl, projectUuid }, request, {
+    // Reads name the default locale by none, so its tag doesn't matter.
+    locale: UNNAMED_DEFAULT_LOCALE,
+    path: pathname,
+  });
+  // A read the request doesn't use fails unobserved.
+  read.result.catch(() => undefined);
+  return read;
+}
+
+/**
+ * The reads of each locale the head of the request's curated page makes, and those it can make
+ * while the page is read. When the request reads Live, whatever the page's read finds about its
+ * draft, the pages of the locales the page's read doesn't load start loading now. Otherwise they
+ * wait for the page's read to settle the draft.
+ */
+function curatedPageLocaleReads(
+  options: RuntimeOptions,
+  request: Request,
+  located: RequestLocale,
+  queryClient: QueryClient,
+): (draftId: string | undefined) => RequestLocaleReads {
+  const authCookieHeader = getServerAuthCookieHeader(request.headers);
+  const forDraft = (draftId: string | undefined) =>
+    requestLocaleReads(options, { authCookieHeader, draftId, queryClient });
+  const readsLive = !getRequestDraftId(request, options) || !authCookieHeader;
+  if (!readsLive) return forDraft;
+  const live = forDraft(undefined);
+  // The page's read loads its own locale's pages and the default locale's.
+  if (located.locales.length > 1) {
+    for (const locale of located.locales) {
+      if (locale.tag === located.locale.tag || locale.isDefault) continue;
+      live.pages(locale).catch(() => undefined);
+    }
+  }
+  return () => live;
+}
+
 async function createPageHtmlResponse({
   options,
   pathname,
   located,
   request,
+  pageRead,
 }: {
   options: RuntimeOptions;
   /** The full runtime path, with the locale's prefix. */
   pathname: string;
   located: RequestLocale;
   request: Request;
+  /** The page's read, when the request started it already. */
+  pageRead?: CuratedPageRead;
 }): Promise<Response> {
   if (
     !options.apiUrl ||
@@ -1043,7 +1153,7 @@ async function createPageHtmlResponse({
     !options.projectUuid ||
     !options.renderPage
   ) {
-    return createPageDataResponse({ options, pathname, located, request });
+    return createPageDataResponse({ options, pathname, located, request, pageRead });
   }
 
   const singleton = await createDerivedResponse(options, pathname, located, request, {
@@ -1051,18 +1161,16 @@ async function createPageHtmlResponse({
   });
   if (singleton) return singleton;
 
-  const queryClient = new QueryClient();
+  const { queryClient, result: reading } =
+    pageRead ??
+    readCuratedPage(
+      { ...options, apiUrl: options.apiUrl, projectUuid: options.projectUuid },
+      request,
+      located,
+    );
+  const localeReads = curatedPageLocaleReads(options, request, located, queryClient);
   try {
-    const result = await loadCamoxPageForRequest({
-      apiUrl: options.apiUrl,
-      authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: getRequestDraftId(request, options),
-      locale: located.locale,
-      origin: new URL(request.url).origin,
-      pathname: located.path,
-      projectUuid: options.projectUuid,
-      queryClient,
-    });
+    const result = await reading;
     const headers = new Headers({
       "Content-Type": "text/html; charset=utf-8",
       Vary: "Cookie",
@@ -1080,8 +1188,7 @@ async function createPageHtmlResponse({
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : {},
       described: curatedPageDescription(camoxApp, result.data.page, located.locale),
-      authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: result.draftId,
+      localeReads: localeReads(result.draftId),
     });
     const dehydratedState = dehydrate(queryClient);
     const { project } = result;
@@ -1429,8 +1536,7 @@ async function createDerivedResponse(
           },
         ),
       },
-      authCookieHeader,
-      draftId: read.draftId,
+      localeReads: requestLocaleReads(options, { authCookieHeader, draftId: read.draftId }),
     });
     // The data route only serves navigation, which never loads the scripts.
     const analytics = dataOnly
@@ -1666,12 +1772,15 @@ async function createPageDataResponse({
   pathname,
   located,
   request,
+  pageRead,
 }: {
   options: RuntimeOptions;
   /** The full runtime path, with the locale's prefix. */
   pathname: string;
   located: RequestLocale;
   request: Request;
+  /** The page's read, when the request started it already. */
+  pageRead?: CuratedPageRead;
 }): Promise<Response> {
   if (!options.apiUrl || !options.projectUuid) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
@@ -1683,18 +1792,16 @@ async function createPageDataResponse({
   });
   if (singleton) return singleton;
 
-  const queryClient = new QueryClient();
+  const { queryClient, result: reading } =
+    pageRead ??
+    readCuratedPage(
+      { ...options, apiUrl: options.apiUrl, projectUuid: options.projectUuid },
+      request,
+      located,
+    );
+  const localeReads = curatedPageLocaleReads(options, request, located, queryClient);
   try {
-    const result = await loadCamoxPageForRequest({
-      apiUrl: options.apiUrl,
-      authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: getRequestDraftId(request, options),
-      locale: located.locale,
-      origin: new URL(request.url).origin,
-      pathname: located.path,
-      projectUuid: options.projectUuid,
-      queryClient,
-    });
+    const result = await reading;
     const headers = new Headers({
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "private, no-store",
@@ -1710,8 +1817,7 @@ async function createPageDataResponse({
       identity: { kind: "curated", pageId: result.data.page.page.id },
       head: camoxApp ? buildCamoxPageHead(camoxApp, result.data, located.locale) : null,
       described: curatedPageDescription(camoxApp, result.data.page, located.locale),
-      authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: result.draftId,
+      localeReads: localeReads(result.draftId),
     });
     const dehydratedState = dehydrate(queryClient);
     const input: PageRenderInput = {
@@ -1815,19 +1921,13 @@ export async function handleCamoxRequest(
     projectUuid &&
     (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? ""))
   ) {
-    // Markdown is a public output: it reads Live, whoever asks.
-    const located = await locateRequest(request, options, markdownPathname ?? pathname, {
-      live: true,
-    });
-    if (markdownPathname || matchLocalizedRoute(located.path)?.kind === "page") {
-      const markdownResponse = await createPageMarkdownResponse(
-        { ...options, apiUrl, projectUuid },
-        located,
-        { pathname: markdownPathname ?? pathname, request },
-      );
-      if (markdownResponse) return markdownResponse;
-      if (markdownPathname) return new Response("Page not found", { status: 404 });
-    }
+    const markdownResponse = await createPageMarkdownResponse(
+      { ...options, apiUrl, projectUuid },
+      // Asking for Markdown only reaches pages; a `.md` URL always names one.
+      { pathname: markdownPathname ?? pathname, request, pagesOnly: !markdownPathname },
+    );
+    if (markdownResponse) return markdownResponse;
+    if (markdownPathname) return new Response("Page not found", { status: 404 });
   }
 
   return respondInLocale(options, request, pathname);
@@ -1844,43 +1944,56 @@ async function respondInLocale(
   pathname: string,
   { dataOnly = false }: { dataOnly?: boolean } = {},
 ): Promise<Response> {
-  const located = await locateRequest(request, options, pathname);
+  const [early, located] = await Promise.all([
+    readDefaultLocalePageEarly(options, request, pathname),
+    locateRequest(request, options, pathname),
+  ]);
   const localized = matchLocalizedRoute(located.path);
   if (!localized) return new Response("Not found", { status: 404 });
   const target = { options, pathname, located, request };
   if (localized.kind === "canvas") return createCanvasOnlyResponse({ ...target, dataOnly });
   if (isStudioRoute(localized))
     return createStudioHtmlResponse({ ...target, match: localized, dataOnly });
-  return dataOnly ? createPageDataResponse(target) : createPageHtmlResponse(target);
+  // The early read is the page's when the path names the default locale.
+  const page = { ...target, pageRead: located.locale.isDefault ? early : undefined };
+  return dataOnly ? createPageDataResponse(page) : createPageHtmlResponse(page);
 }
 
 /**
  * A page's Markdown Representation in its locale, with the same precedence as its HTML:
- * singleton, curated page, then derived layout. Null when the page has none.
+ * singleton, curated page, then derived layout. Null when the page has none. Markdown is a public
+ * output: it reads Live, whoever asks, and one read finds the path's locale and its curated page.
  */
 async function createPageMarkdownResponse(
   options: RuntimeOptions & { apiUrl: string; projectUuid: string },
-  { locale, path }: RequestLocale,
-  /** The page's full path, with its locale's prefix, and the request asking for it. */
-  { pathname, request }: { pathname: string; request: Request },
+  {
+    pathname,
+    request,
+    pagesOnly,
+  }: {
+    /** The page's full path, with its locale's prefix. */
+    pathname: string;
+    request: Request;
+    /** Answer only for a page's path, not the studio's, leaving those to the HTML. */
+    pagesOnly: boolean;
+  },
 ): Promise<Response | null> {
+  let read: Awaited<ReturnType<typeof readPageMarkdown>>;
+  try {
+    read = await readPageMarkdown({ ...options, path: pathname });
+  } catch {
+    return null;
+  }
+  const { locale, path } = read;
+  if (pagesOnly && matchLocalizedRoute(path)?.kind !== "page") return null;
   // The front matter links the page itself, not its Markdown.
   const page = { pathname, url: absoluteUrl(request, options)(pathname) };
   const app = await options.getCamoxApp?.();
   const layoutMatch = app && matchDerivedLayout(app.getLayouts(), path);
   if (layoutMatch?.layout._internal.kind === "singleton")
     return createLayoutMarkdownResponse(options, layoutMatch, locale, page);
-  return createMarkdownResponse({
-    apiUrl: options.apiUrl,
-    camoxApp: app,
-    locale,
-    pathname: path,
-    projectUuid: options.projectUuid,
-    request,
-    url: page.url,
-    onNotFound: async () =>
-      layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale, page) : null,
-  });
+  if (read.page) return curatedMarkdownResponse(app, read, page.url);
+  return layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale, page) : null;
 }
 
 type StudioRouteKind = "studio" | "studio-content" | "studio-nested";
@@ -1905,15 +2018,13 @@ function matchLocalizedRoute(path: string) {
 
 /**
  * The locale a request's path names, among the locales of the scope it reads: the URL's draft's
- * for a session naming one, else Live's. `live` reads Live's whatever the request names. Without
- * an API there are none to read: every path is the default locale's, which then says it can't
- * render.
+ * for a session naming one, else Live's. Without an API there are none to read: every path is the
+ * default locale's, which then says it can't render.
  */
 async function locateRequest(
   request: Request,
   options: RuntimeOptions,
   pathname: string,
-  { live = false }: { live?: boolean } = {},
 ): Promise<RequestLocale> {
   const { apiUrl, projectUuid } = options;
   const locales =
@@ -1921,10 +2032,8 @@ async function locateRequest(
       ? await readScopeLocales({
           apiUrl,
           projectUuid,
-          ...(!live && {
-            authCookieHeader: getServerAuthCookieHeader(request.headers),
-            draftId: getRequestDraftId(request, options),
-          }),
+          authCookieHeader: getServerAuthCookieHeader(request.headers),
+          draftId: getRequestDraftId(request, options),
         })
       : [UNNAMED_DEFAULT_LOCALE];
   return { ...parseLocalePath(pathname, locales), locales };

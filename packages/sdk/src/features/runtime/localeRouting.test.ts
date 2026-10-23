@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 
 import type { CamoxApp } from "../../core/createApp";
-import { localesResponse, pageListResponse } from "./api.fixtures";
+import { localesResponse, pageListResponse, pageMarkdownResponse } from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 // A non-default locale's paths sit under its prefix (`/de/preise`); the default locale's have
@@ -118,8 +118,19 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         },
       });
     }
-    if (procedure === "blocks/getPageMarkdown")
-      return Response.json({ json: { markdown: `# In ${locale ?? "en"}` } });
+    if (procedure === "pages/getMarkdown") {
+      const { json: input } = (await request.clone().json()) as { json: { path: string } };
+      reads.push({ procedure, path: input.path, locale, draft });
+      // Markdown reads Live, whose locales are English and German.
+      return pageMarkdownResponse(request, {
+        tags: ["en", "de"],
+        pageAt: ({ locale: { tag }, path }) => {
+          const title = PAGES[tag]?.[path];
+          if (!title) return null;
+          return { page: { fullPath: path, metaTitle: title }, markdown: `# In ${tag}` };
+        },
+      });
+    }
     if (procedure === "layouts/get") {
       reads.push({ procedure, locale, draft });
       return Response.json({
@@ -303,10 +314,8 @@ void test("a page's Markdown under a locale's prefix is that locale's", async (t
     /^url: "https:\/\/site\.test\/de\/preise"$/m,
     "the front matter links the page under its prefix",
   );
-  assert.deepEqual(
-    reads
-      .filter((read) => read.procedure === "pages/getByPath")
-      .map(({ path, locale }) => ({ path, locale })),
-    [{ path: "/preise", locale: "de" }],
-  );
+  // One read, naming the path under its prefix: the API finds the locale it names.
+  assert.deepEqual(reads, [
+    { procedure: "pages/getMarkdown", path: "/de/preise", locale: null, draft: null },
+  ]);
 });

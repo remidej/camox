@@ -10,7 +10,12 @@ import {
 } from "@camox/api-contract/drafts";
 
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
-import { localesResponse, markdownBody, pageListResponse } from "./api.fixtures";
+import {
+  localesResponse,
+  markdownBody,
+  pageListResponse,
+  pageMarkdownResponse,
+} from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
@@ -82,8 +87,13 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         },
       });
     }
-    if (url.pathname.endsWith("/getPageMarkdown"))
-      return Response.json({ json: { markdown: `# ${source}` } });
+    if (url.pathname.endsWith("/pages/getMarkdown"))
+      return pageMarkdownResponse(request, {
+        pageAt: ({ path }) =>
+          path === "/about"
+            ? { page: { id: 1, fullPath: "/about", metaTitle: source }, markdown: `# ${source}` }
+            : null,
+      });
     if (url.pathname.endsWith("/findRecordsByField")) return Response.json({ json: [] });
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });

@@ -4,7 +4,12 @@ import { test } from "node:test";
 import { createApp } from "../../core/createApp";
 import { createLayout } from "../../core/createLayout";
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
-import { localesResponse, markdownBody, pageListResponse } from "./api.fixtures";
+import {
+  localesResponse,
+  markdownBody,
+  pageListResponse,
+  pageMarkdownResponse,
+} from "./api.fixtures";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 /** The source the context's record lookup names, as the API receives it ("none" if absent). */
@@ -74,6 +79,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
         { status: 404 },
       );
+    if (url.pathname.endsWith("/pages/getMarkdown")) return pageMarkdownResponse(request);
     if (url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) {
       // Reports the source each lookup named, so layouts can show it.
       const { json: input } = (await request.json()) as { json: { source?: string } };

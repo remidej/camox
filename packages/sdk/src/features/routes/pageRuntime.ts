@@ -404,43 +404,73 @@ export async function loadCamoxPageForRequest({
   };
 }
 
+/** The Markdown Representation of the page at a URL path, and where the path leads. */
+export type PageMarkdownRead = Awaited<ReturnType<RouterClient<Router>["pages"]["getMarkdown"]>>;
+
+/**
+ * Reads the Markdown Representation of the page at a runtime path, with its locale's prefix, in
+ * one API read: the API finds the locale the prefix names, the page there, its Markdown and what
+ * its front matter is built from. Markdown is a public output, so it reads Live whoever asks.
+ */
+export function readPageMarkdown({
+  apiUrl,
+  path,
+  projectUuid,
+}: {
+  apiUrl: string;
+  /** The page's runtime path, with its locale's prefix. */
+  path: string;
+  projectUuid: string;
+}): Promise<PageMarkdownRead> {
+  return createServerApiClient(apiUrl).pages.getMarkdown({ path, projectUuid });
+}
+
+/**
+ * A curated page's Markdown Representation, opened by front matter stating its title,
+ * description and absolute `url`. Null when the path has no curated page, or the page has no
+ * Markdown.
+ */
+export function curatedMarkdownResponse(
+  camoxApp: CamoxApp | undefined,
+  read: PageMarkdownRead,
+  url: string,
+): Response | null {
+  if (!read.page || !read.markdown) return null;
+  const meta = buildPageMeta(
+    curatedPageMetaInput(camoxApp, { ...read, page: read.page }, read.locale),
+  );
+  return new Response(withFrontMatter(read.markdown, { ...meta, url }), {
+    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  });
+}
+
+/**
+ * The Markdown Representation of the curated page at the request's path, or null when there's
+ * none or it can't be read.
+ */
 export async function createMarkdownResponse({
   apiUrl,
   camoxApp,
-  locale,
-  pathname,
   projectUuid,
   request,
   url,
-  onNotFound,
 }: {
   apiUrl: string;
   /** Builds the page's title and description with its layout's callbacks. */
   camoxApp: CamoxApp | undefined;
-  /** The locale of the page. Without it, the default locale. */
-  locale?: LocaleView;
-  /** The page's path in its locale. Without it, the request's path. */
-  pathname?: string;
   projectUuid: string;
   request: Request;
   /** The page's absolute URL, which the front matter states. */
   url: string;
-  /** Answers for a path without a curated page, such as a derived layout's page. */
-  onNotFound?: () => Promise<Response | null>;
 }): Promise<Response | null> {
-  const api = createServerApiClient(apiUrl, { locale });
-  const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
-    const page = await api.pages.getByPath({ path: requestPathname, projectUuid });
-    const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
-    if (!markdown) return null;
-
-    const meta = buildPageMeta(curatedPageMetaInput(camoxApp, page, locale));
-    return new Response(withFrontMatter(markdown, { ...meta, url }), {
-      headers: { "Content-Type": "text/markdown; charset=utf-8" },
+    const read = await readPageMarkdown({
+      apiUrl,
+      path: new URL(request.url).pathname,
+      projectUuid,
     });
-  } catch (error) {
-    if (onNotFound && isNotFoundError(error)) return onNotFound();
+    return curatedMarkdownResponse(camoxApp, read, url);
+  } catch {
     return null;
   }
 }
@@ -484,7 +514,7 @@ export function declarePage(input: PageMetaInput): LayoutStructuredData | undefi
 /** A curated page's meta input. Its path keeps the prefix of the page's `locale`. */
 export function curatedPageMetaInput(
   camoxApp: CamoxApp | undefined,
-  page: PageStructure,
+  page: Parameters<typeof curatedLayoutContext>[0] & { layout: { layoutId: string } | null },
   locale: LocaleView = UNNAMED_DEFAULT_LOCALE,
 ): PageMetaInput {
   return {
