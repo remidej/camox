@@ -37,11 +37,19 @@ export async function writeFiles(fs: MemoryFs, files: CodeFile[]) {
 export async function mainCopyFs(copy: MainCopy) {
   const fs = new MemoryFs();
   await writeFiles(fs, copy.files);
+  await mountSkills(fs);
+  return fs;
+}
+
+/** Where the SDK's code references are, which no write line lets the agent change. */
+export const SKILLS_ROOT = SKILL_REFERENCES_DIR.split("/").slice(0, 2).join("/");
+
+/** Writes the SDK's code references into `fs`, under `SKILL_REFERENCES_DIR`. */
+export async function mountSkills(fs: MemoryFs) {
   await createDirs(fs, SKILL_REFERENCES_DIR);
   for (const { file, text } of SKILL_REFERENCES) {
     await fs.promises.writeFile(`${SKILL_REFERENCES_DIR}/${file}`, text);
   }
-  return fs;
 }
 
 const readOnly = (path: string) =>

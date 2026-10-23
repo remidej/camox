@@ -268,6 +268,11 @@ export async function handleCamoxRequest(request) {
 export function isPublicRequest(request) {
   return isPublicRuntimeRequest(request, options);
 }
+
+// JSON, as \`definitions.sync\` receives it: what isn't JSON never reaches the API.
+export async function readDefinitionSet() {
+  return JSON.parse(JSON.stringify(await camoxApp.getDefinitionSet()));
+}
 `;
 }
 

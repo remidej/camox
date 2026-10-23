@@ -42,6 +42,8 @@ export default defineConfig({
         "virtual:camox-studio-css",
         "virtual:camox-overlay-css",
         "virtual:camox/server",
+        // The Workers runtime provides it.
+        "cloudflare:workers",
         // Self-import in `createLayout.tsx`: the app's bundler, not this pack, must load
         // the renderer's WASM, so it stays the bare specifier.
         "camox/_internal/imageResponse",

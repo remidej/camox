@@ -7,6 +7,8 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import { createBuilder, preview } from "vite-plus";
 
 import { ASSET_PREFIX_GLOBAL } from "../runtime/assetPrefix";
+import { DEFINITION_SET_ENTRYPOINT } from "../runtime/definitionSetEntrypoint";
+import { HOSTED_BUILD_ENV } from "./hostedChecks";
 import { camox } from "./vite";
 
 const sdkRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -30,6 +32,8 @@ export interface FixtureBuild {
    * the prefix before the build's server bundle loads, as a revision's loader does.
    */
   serve(options?: { assetPrefix?: string }): Promise<ServedBuild>;
+  /** The Definition Set the built server's entrypoint returns, called as a revision's loader does. */
+  readDefinitionSet(): Promise<unknown>;
   cleanup(): Promise<void>;
 }
 
@@ -41,11 +45,14 @@ export interface FixtureBuild {
 export async function buildFixtureApp({
   apiUrl,
   files = {},
+  hosted = false,
 }: {
   /** The Camox API the build talks to. */
   apiUrl: string;
   /** Files to add or replace, by path from the app's root. */
   files?: Record<string, string>;
+  /** Build as Camox's sandboxes build a hosted project: with its build checks on. */
+  hosted?: boolean;
 }): Promise<FixtureBuild> {
   const temp = await mkdtemp(join(tmpdir(), "camox-fixture-"));
   const root = join(temp, "app");
@@ -57,7 +64,8 @@ export async function buildFixtureApp({
       await writeFile(join(root, path), contents);
     }
     await linkDependencies(root);
-    await withEnv({ CAMOX_INTERNAL_RELEASE: "dry-run" }, async () => {
+    const env = { CAMOX_INTERNAL_RELEASE: "dry-run", [HOSTED_BUILD_ENV]: hosted ? "1" : undefined };
+    await withEnv(env, async () => {
       const builder = await createBuilder({
         configFile: false,
         root,
@@ -90,36 +98,77 @@ export async function buildFixtureApp({
   return {
     root,
     clientDir: join(root, "dist/client"),
-    async serve({ assetPrefix } = {}) {
-      let main = wrangler.main;
-      if (assetPrefix !== undefined) {
-        // A module of its own: imports run before the importing module's body.
-        await writeFile(
-          join(workerDir, "set-asset-prefix.js"),
-          `globalThis.${ASSET_PREFIX_GLOBAL} = ${JSON.stringify(assetPrefix)};\n`,
-        );
-        await writeFile(
-          join(workerDir, "prefixed-entry.js"),
-          `import "./set-asset-prefix.js";\nexport { default } from ${JSON.stringify(`./${wrangler.main}`)};\n`,
-        );
-        main = "prefixed-entry.js";
-      }
-      await writeFile(wranglerPath, JSON.stringify({ ...wrangler, main }));
-      const server = await preview({
-        configFile: false,
-        root,
-        logLevel: "silent",
-        plugins: [cloudflare()],
-        preview: { host: "127.0.0.1", port: 0 },
+    serve: ({ assetPrefix } = {}) =>
+      serveBuild(root, workerDir, wranglerPath, wrangler, assetPrefix),
+    async readDefinitionSet() {
+      // The probe's own route calls the entrypoint over RPC, as the revision's loader does.
+      const build = `./${wrangler.main}`;
+      await writeFile(
+        join(workerDir, "definition-set-probe.js"),
+        `import worker from ${JSON.stringify(build)};
+export * from ${JSON.stringify(build)};
+
+export default {
+  async fetch(request, env, ctx) {
+    if (new URL(request.url).pathname !== "/__probe/definition-set") return worker.fetch(request, env, ctx);
+    return Response.json(await ctx.exports[${JSON.stringify(DEFINITION_SET_ENTRYPOINT)}].read());
+  },
+};
+`,
+      );
+      const served = await serveBuild(root, workerDir, wranglerPath, {
+        ...wrangler,
+        main: "definition-set-probe.js",
       });
-      const url = server.resolvedUrls!.local[0]!;
-      return {
-        url,
-        fetch: (path, init) => fetch(new URL(path, url), init),
-        close: () => server.close(),
-      };
+      try {
+        const response = await served.fetch("/__probe/definition-set");
+        const body = await response.text();
+        if (!response.ok) throw new Error(`Reading the Definition Set failed: ${body}`);
+        return JSON.parse(body) as unknown;
+      } finally {
+        await served.close();
+      }
     },
     cleanup,
+  };
+}
+
+/** Runs a build's Worker, from the module `wrangler.main` names, in workerd. */
+async function serveBuild(
+  root: string,
+  workerDir: string,
+  wranglerPath: string,
+  wrangler: { main: string },
+  assetPrefix?: string,
+): Promise<ServedBuild> {
+  let main = wrangler.main;
+  if (assetPrefix !== undefined) {
+    // A module of its own: imports run before the importing module's body.
+    await writeFile(
+      join(workerDir, "set-asset-prefix.js"),
+      `globalThis.${ASSET_PREFIX_GLOBAL} = ${JSON.stringify(assetPrefix)};\n`,
+    );
+    const build = JSON.stringify(`./${wrangler.main}`);
+    await writeFile(
+      join(workerDir, "prefixed-entry.js"),
+      `import "./set-asset-prefix.js";\nexport * from ${build};\nexport { default } from ${build};\n`,
+    );
+    main = "prefixed-entry.js";
+  }
+  await writeFile(wranglerPath, JSON.stringify({ ...wrangler, main }));
+  const server = await preview({
+    configFile: false,
+    root,
+    logLevel: "silent",
+    // No inspector: its fixed port would collide with a Worker served in parallel.
+    plugins: [cloudflare({ inspectorPort: false })],
+    preview: { host: "127.0.0.1", port: 0 },
+  });
+  const url = server.resolvedUrls!.local[0]!;
+  return {
+    url,
+    fetch: (path, init) => fetch(new URL(path, url), init),
+    close: () => server.close(),
   };
 }
 
@@ -144,15 +193,22 @@ async function linkDependencies(root: string) {
   }
 }
 
-async function withEnv<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
-  const previous = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
-  Object.assign(process.env, env);
-  try {
-    return await run();
-  } finally {
-    for (const [name, value] of Object.entries(previous)) {
+/** Runs `run` with `env` set, where `undefined` unsets a variable. */
+async function withEnv<T>(
+  env: Record<string, string | undefined>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const set = (vars: Record<string, string | undefined>) => {
+    for (const [name, value] of Object.entries(vars)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
+  };
+  const previous = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
+  set(env);
+  try {
+    return await run();
+  } finally {
+    set(previous);
   }
 }

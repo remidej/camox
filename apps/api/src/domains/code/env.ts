@@ -19,10 +19,10 @@ import type { MemoryFs } from "../../lib/memory-fs";
 type Context = Parameters<ExecutionEnv["readTextFile"]>[1];
 
 /**
- * Whether a write may change the absolute path it names: undefined when it may, or the error
- * refusing it, returned before anything is written.
+ * Whether a write may change the absolute path it names, which it makes a directory or a file:
+ * undefined when it may, or the error refusing it, returned before anything is written.
  */
-export type WritePolicy = (path: string) => FileError | undefined;
+export type WritePolicy = (path: string, kind: "file" | "directory") => FileError | undefined;
 
 export type CodeEnvOptions = {
   /** The directory relative paths start from. */
@@ -36,6 +36,10 @@ export type CodeEnvOptions = {
 const GIT_DIR = ".git";
 
 const decoder = () => new TextDecoder();
+
+/** The absolute path `path` names from the directory `cwd`. */
+export const resolvePath = (cwd: string, path: string) =>
+  normalize(path.startsWith("/") ? path : `${cwd}/${path}`);
 
 function normalize(path: string) {
   const parts: string[] = [];
@@ -79,8 +83,7 @@ const closed = (what: string, path: string) =>
  * `writable` first.
  */
 export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
-  const absolute = (path: string) =>
-    normalize(path.startsWith("/") ? path : `${options.cwd}/${path}`);
+  const absolute = (path: string) => resolvePath(options.cwd, path);
 
   /** Runs `operation` on the absolute path `path` names, as Pi's environments report failures. */
   const at = async <T>(
@@ -103,9 +106,10 @@ export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
     path: string,
     context: Context,
     operation: (resolved: string) => Promise<Result<T, FileError>>,
+    kind: "file" | "directory" = "file",
   ) =>
     at(path, context, async (resolved) => {
-      const refused = options.writable(resolved);
+      const refused = options.writable(resolved, kind);
       return refused ? err<T, FileError>(refused) : operation(resolved);
     });
 
@@ -147,6 +151,19 @@ export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
       .catch(() => undefined);
     await fs.promises.writeFile(path, content, mode ? { mode } : undefined);
     return ok<void, FileError>(undefined);
+  };
+
+  /** The refusal of the first of the directory `path`, or what's below it, a write may not change. */
+  const refusedBelow = async (path: string): Promise<FileError | undefined> => {
+    const refused = options.writable(path, "directory");
+    if (refused) return refused;
+    for (const name of await fs.promises.readdir(path)) {
+      const child = normalize(`${path}/${name}`);
+      const below = (await fs.promises.lstat(child)).type === "dir";
+      const found = below ? await refusedBelow(child) : options.writable(child, "file");
+      if (found) return found;
+    }
+    return undefined;
   };
 
   const removeTree = async (path: string) => {
@@ -307,15 +324,24 @@ export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
     },
 
     createDir: (path, dirOptions, context) =>
-      writing(path, context, async (resolved) => {
-        if (dirOptions?.recursive === false) await fs.promises.mkdir(resolved);
-        else await createDirs(resolved);
-        return ok(undefined);
-      }),
+      writing(
+        path,
+        context,
+        async (resolved) => {
+          if (dirOptions?.recursive === false) await fs.promises.mkdir(resolved);
+          else await createDirs(resolved);
+          return ok(undefined);
+        },
+        "directory",
+      ),
 
     remove: (path, removeOptions, context) =>
-      writing(path, context, async (resolved) => {
+      at(path, context, async (resolved) => {
         const stat = await fs.promises.lstat(resolved).catch(() => undefined);
+        // A directory goes only if it and everything in it may.
+        const refused =
+          stat?.type === "dir" ? await refusedBelow(resolved) : options.writable(resolved, "file");
+        if (refused) return err(refused);
         if (!stat) return removeOptions?.force ? ok(undefined) : err(notFound(resolved));
         if (stat.type === "dir" && !removeOptions?.recursive) {
           return err(new FileError("is_directory", `EISDIR: ${resolved}`, resolved));
@@ -338,7 +364,7 @@ export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
 }
 
 /** A text's lines as a line reader returns them: none for an empty text, no line after a last newline. */
-function splitLines(text: string) {
+export function splitLines(text: string) {
   if (text === "") return [];
   const parts = text.split("\n");
   const last = parts.pop()!;
@@ -348,7 +374,7 @@ function splitLines(text: string) {
 }
 
 /** Positional reads of `data`, the bytes of the file `opened` describes. */
-function binaryReader(data: Uint8Array, opened: FileInfo): BinaryReader {
+export function binaryReader(data: Uint8Array, opened: FileInfo): BinaryReader {
   let isClosed = false;
   const { path } = opened;
   return {

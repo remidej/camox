@@ -44,9 +44,14 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { createDb } from "../db";
+import type { ServiceContext } from "../domains/_shared/service-context";
+import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
-import { codeReading } from "../domains/code/prompt";
-import { codeReadingTools } from "../domains/code/tools";
+import { codeInstructions } from "../domains/code/prompt";
+import { remoteEnv } from "../domains/code/remote-env";
+import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
+import { writeLine } from "../domains/code/write-line";
+import { accessTo } from "../domains/drafts/access";
 import { projects } from "../domains/projects/schema";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
 import {
@@ -60,7 +65,9 @@ import {
 } from "../domains/threads/tools";
 import { webTools } from "../domains/threads/web-tools";
 import type { MemoryFs } from "../lib/memory-fs";
+import { runService } from "../lib/run-service";
 import { threadModel } from "../lib/thread-model";
+import { user } from "../schema";
 import type { Bindings } from "../types";
 
 /** The header the API sets on a connection it forwards, naming the signed-in sender. */
@@ -288,12 +295,13 @@ export class Thread extends DurableObject<Bindings> {
             render: async () => workplace(await this.#knownIdentity()),
             tag: false,
           },
-          { key: "code", render: () => codeReading, tag: false },
+          { key: "code", render: () => codeInstructions, tag: false },
         ],
         tools: [
           ...(await studioAgentTools(dispatch)),
           ...webTools(this.env),
           ...codeReadingTools(),
+          ...codeWritingTools(),
         ],
         // Once a script ends, failed or not, the studios hear what its writes touched.
         wraps: [
@@ -309,6 +317,16 @@ export class Thread extends DurableObject<Bindings> {
               }
             },
           })),
+          // A code write lands in the draft's working copy, which the first one starts.
+          ...CODE_WRITES.map(({ name, paths }) =>
+            wrapTool({ name } as ToolRegistration, (tool) => ({
+              ...tool,
+              execute: async (args, api, context) => {
+                const env = await this.#writingEnv({ api, context }, paths(args));
+                return tool.execute(args, { ...api, env }, context);
+              },
+            })),
+          ),
         ],
       });
       return Harness.open(
@@ -349,38 +367,141 @@ export class Thread extends DurableObject<Bindings> {
   #projectUuid: string | undefined;
 
   /** The copy of `main` the thread's code tools last read, by its commit. */
-  #mainCopy: { commit: string; fs: MemoryFs } | undefined;
+  #heldMainCopy: { commit: string; fs: MemoryFs } | undefined;
+
+  /** The drafts known to have code: a draft's branch, once made, lasts as long as the draft. */
+  readonly #draftsWithCode = new Set<string>();
 
   /**
-   * The environment the agent's code tools read: the project's read-only copy of `main`, loaded
-   * on a tool's first operation, and only fetched again once a push moved `main`.
+   * The environment the agent's code tools use, loaded on a tool's first operation: the draft's
+   * working copy in a draft with code, or else the project's read-only copy of `main`, only
+   * fetched again once a push moved `main`. Writing tools start the working copy first: see
+   * `#writingEnv`.
    */
   #codeEnv(): ExecutionEnv {
-    return lazyEnv(async () => mainCopyFsEnv(await this.#mainCopyFs()), {
-      id: "camox:main",
+    return lazyEnv(
+      async () => {
+        const identity = await this.#knownIdentity();
+        if (identity?.draftId && (await this.#hasCode(identity.draftId))) {
+          return this.#workingCopyEnv(identity.draftId);
+        }
+        return mainCopyFsEnv((await this.#mainCopy()).fs, "camox:main");
+      },
+      { id: "camox:code", cwd: CODE_ROOT },
+    );
+  }
+
+  /** The working copy of the draft `draftId`, which has code, over RPC. */
+  #workingCopyEnv(draftId: string) {
+    return remoteEnv((call) => this.env.DRAFT_CODE.getByName(draftId).call(call), {
+      id: `camox:draft:${draftId}`,
       cwd: CODE_ROOT,
     });
   }
 
-  async #mainCopyFs() {
-    const identity = await this.#knownIdentity();
-    if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
+  async #hasCode(draftId: string) {
+    if (this.#draftsWithCode.has(draftId)) return true;
+    const held = await this.env.DRAFT_CODE.getByName(draftId).held();
+    if (held) this.#draftsWithCode.add(draftId);
+    return held;
+  }
+
+  /**
+   * The environment a writing tool call writing `paths` gets, checking that its editor may
+   * still write, as a content write does. A write the write line lets through lands in the
+   * draft's working copy, which the first one starts from the copy of `main` the agent read: on
+   * Live, it starts the draft too, and the thread moves into it. A write the line refuses fails
+   * with the rule before anything starts, whatever wording the tool gives other failures.
+   */
+  async #writingEnv(invocation: ToolInvocation, paths: string[]) {
+    // Arguments naming no path fail in the tool, as they would anywhere.
+    if (paths.length === 0) return invocation.api.env;
+    for (const path of paths) {
+      const refused = writeLine(resolvePath(CODE_ROOT, path), "file");
+      if (refused) throw refused;
+    }
+    const draftId = await this.#codeAccess(invocation);
+    return this.#workingCopyEnv(draftId);
+  }
+
+  /** The last code write's access, which the next waits for: concurrent first writes start one. */
+  #startingCode: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Checks that the editor of the run `invocation` is part of may write in the thread's draft,
+   * or starts the draft set aside on Live, and makes the draft's working copy unless it has one.
+   * A draft this started is dropped again when its working copy can't be made. Returns the
+   * draft's ID.
+   */
+  async #codeAccess(invocation: ToolInvocation): Promise<string> {
+    const started = this.#startingCode.then(async () => {
+      const actor = await this.#actor(invocation, "write");
+      const starting = actor.draftId ? undefined : actor.draftToStart;
+      const db = createDb(this.env.DB);
+      const ctx: ServiceContext = {
+        db,
+        user: (await db.select().from(user).where(eq(user.id, actor.userId)).get()) ?? null,
+        env: this.env,
+        waitUntil: (promise) => this.ctx.waitUntil(promise),
+        client: "camox-agent",
+        telemetryDisabled: false,
+        draft: actor.draftId
+          ? { id: actor.draftId, create: false }
+          : { id: starting!.id, create: true, threadId: starting!.threadId },
+      };
+      const hasCode = (draftId: string) => this.#hasCode(draftId);
+      const startCode = async (draftId: string) => {
+        const { commit } = await this.#mainCopy();
+        await this.env.DRAFT_CODE.getByName(draftId).start({
+          repo: await this.#projectUuidOf(actor.projectId),
+          commit,
+        });
+        this.#draftsWithCode.add(draftId);
+      };
+      const draftId = await runService(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const { scope: draft } = yield* accessTo(ctx, { project: actor.projectId }, "write");
+            if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
+              yield* Effect.promise(() => startCode(draft.id));
+            }
+            return draft.id;
+          }),
+        ),
+      );
+      if (starting) {
+        await this.#wrote(invocation).catch((error: unknown) =>
+          console.error("A thread couldn't move into the draft its write started", error),
+        );
+      }
+      return draftId;
+    });
+    this.#startingCode = started.catch(() => undefined);
+    return started;
+  }
+
+  async #projectUuidOf(projectId: number) {
     this.#projectUuid ??= (
       await createDb(this.env.DB)
         .select({ uuid: projects.uuid })
         .from(projects)
-        .where(eq(projects.id, identity.projectId))
+        .where(eq(projects.id, projectId))
         .get()
     )?.uuid;
     if (!this.#projectUuid) throw new Error("The thread's project was deleted");
-    const held = this.#mainCopy;
-    const { commit, files } = await this.env.PROJECT_CODE.getByName(this.#projectUuid).snapshot(
-      held?.commit,
-    );
-    if (held && !files) return held.fs;
-    const fs = await mainCopyFs({ commit, files: files ?? [] });
-    this.#mainCopy = { commit, fs };
-    return fs;
+    return this.#projectUuid;
+  }
+
+  /** The copy of `main` the agent reads, fetched again only once a push moved `main`. */
+  async #mainCopy(): Promise<{ commit: string; fs: MemoryFs }> {
+    const identity = await this.#knownIdentity();
+    if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
+    const uuid = await this.#projectUuidOf(identity.projectId);
+    const held = this.#heldMainCopy;
+    const { commit, files } = await this.env.PROJECT_CODE.getByName(uuid).snapshot(held?.commit);
+    if (held && !files) return held;
+    this.#heldMainCopy = { commit, fs: await mainCopyFs({ commit, files: files ?? [] }) };
+    return this.#heldMainCopy;
   }
 
   /**

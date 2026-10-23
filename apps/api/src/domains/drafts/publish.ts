@@ -28,6 +28,7 @@ import {
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { sharedPlacementId } from "../blocks/shared-content";
+import { discardCode } from "../code/drafts";
 import {
   publishStatements as filePublishStatements,
   withFileMetadata,
@@ -827,6 +828,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
     yield* thread.end;
+    yield* discardCode(ctx, scope.id);
     yield* deleteUnreferencedBlobs(ctx, blobs);
     yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
     yield* recordEnded(ctx, projectId, ended);
