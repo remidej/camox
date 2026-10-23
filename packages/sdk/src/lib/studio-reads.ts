@@ -23,6 +23,7 @@ import type { LocaleView } from "./locale-path";
 import { collectFileIds } from "./normalized-data";
 import type {
   BlockBundle,
+  BlockDefinitionRow,
   CollectionDefinition,
   CollectionRecord,
   DraftList,
@@ -140,6 +141,8 @@ export type LayoutStructure = LayoutRead["layout"];
 
 const usageCountsPrefix = queryKeys.blocks.getUsageCounts;
 const collectionsPrefix = ["camox", "collections"] satisfies QueryKey;
+// Only a definition sync changes it, and it refreshes everything its scope reads.
+const blockDefinitionsPrefix = ["camox", "blockDefinitions", "list"] satisfies QueryKey;
 
 type LayoutStructureParams = { projectUuid: string; layoutId: string };
 const loadLayout = (
@@ -228,6 +231,13 @@ export const reads = {
   layoutList: entry<{ projectId: number }, Layout[]>({
     key: () => [...queryKeys.layouts.all, "list"],
     fetch: ({ api, signal }, { projectId }) => api.layouts.list({ projectId }, { signal }),
+    staleTime: Infinity,
+  }),
+
+  /** The block definitions the draft reads: its own when it has them, else Live's (ADR 0006). */
+  blockDefinitionList: entry<{ projectId: number }, BlockDefinitionRow[]>({
+    key: () => blockDefinitionsPrefix,
+    fetch: ({ api, signal }, { projectId }) => api.blockDefinitions.list({ projectId }, { signal }),
     staleTime: Infinity,
   }),
 

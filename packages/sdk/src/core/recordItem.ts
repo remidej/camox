@@ -96,11 +96,11 @@ export function recordPageValues(
  * text, as the API fills them. For records edited here, before the API names them again.
  */
 export function recordText(
-  collection: Pick<Collection, "_internal"> | undefined,
+  templates: { toTitle: string; toDescription?: string | null } | undefined,
   content: Record<string, unknown>,
 ): RecordText {
-  if (!collection) return { title: "", description: null };
-  return fillRecordText(collection._internal, (name) => fieldPlainText(content[name]));
+  if (!templates) return { title: "", description: null };
+  return fillRecordText(templates, (name) => fieldPlainText(content[name]));
 }
 
 /**

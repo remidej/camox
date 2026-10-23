@@ -5,9 +5,9 @@ import * as React from "react";
 
 import { titleField } from "@/core/recordItem";
 import { useCollectionItemSheet } from "@/features/content/CollectionItemSheetContext";
-import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
+import { useCollectionDefinition } from "@/lib/studio-definitions";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import type { OverlayMessage } from "../overlayMessages";
@@ -52,8 +52,8 @@ export function ReferenceFieldEditor({
   allowCreate?: boolean;
 }) {
   const projectUuid = useProjectUuid();
-  const collection = useCamoxApp().getCollectionById(collectionId);
-  const collectionTitle = collection?._internal.title ?? collectionId;
+  const collection = useCollectionDefinition(collectionId);
+  const collectionTitle = collection?.title ?? collectionId;
   const sheet = useCollectionItemSheet();
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -152,8 +152,8 @@ export function ReferenceFieldEditor({
                     sheet.open({
                       collectionId,
                       initialContent:
-                        collection && search.trim() && titleField(collection._internal.toTitle)
-                          ? { [titleField(collection._internal.toTitle)!]: search }
+                        collection && search.trim() && titleField(collection.toTitle)
+                          ? { [titleField(collection.toTitle)!]: search }
                           : undefined,
                       onSaved: (created) => save(created.id),
                     }),

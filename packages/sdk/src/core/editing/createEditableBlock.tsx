@@ -2858,7 +2858,11 @@ export function createEditableBlock<
     fallback,
   }: LayoutItemProps) => {
     const editingOwner = React.use(PreviewEditingOwnerContext);
-    const latest = useLatestRecord({ collectionId, collection, loaded: record });
+    const latest = useLatestRecord({
+      collectionId,
+      collection: collection?._internal,
+      loaded: record,
+    });
     if (editingOwner?.kind !== "layout" || !latest) return fallback;
     return (
       <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>
