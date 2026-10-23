@@ -197,6 +197,8 @@ export interface RuntimeOptions {
   developmentDraft?: boolean;
   pageClientEntryUrl?: string;
   studioClientEntryUrl?: string;
+  /** The renderer frame's client entry, which renders the studio's pages (ADR 0023). */
+  rendererClientEntryUrl?: string;
   getCamoxApp?: () => Promise<CamoxApp>;
   getDocument?: () => Promise<CamoxDocument>;
   projectUuid?: string;
@@ -749,6 +751,38 @@ function renderBlockPreloads(options: RuntimeOptions, dehydratedState: unknown):
     for (const chunk of preloads.chunks?.[modulePath] ?? []) urls.add(`${assetPrefix()}${chunk}`);
   }
   return [...urls].map((url) => `<link rel="modulepreload" href="${escapeXml(url)}">`).join("");
+}
+
+/** What the renderer document tells its client: where the API, sign-in and runtime are. */
+export interface RendererDocumentInput {
+  apiUrl?: string;
+  authenticationUrl?: string;
+  projectUuid?: string;
+  runtimeBasePath: string;
+}
+
+/**
+ * The renderer frame's document (ADR 0023): an empty document running the renderer's client,
+ * which renders the studio's pages into its frames, reading them itself. It holds no content, but
+ * is only ever the studio's, so no shared cache keeps it.
+ */
+function createRendererDocumentResponse(options: RuntimeOptions): Response {
+  const input = {
+    apiUrl: options.apiUrl,
+    authenticationUrl: options.authenticationUrl,
+    projectUuid: options.projectUuid,
+    runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+  } satisfies RendererDocumentInput;
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Camox renderer</title><script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body>${renderClientEntryScript(options.rendererClientEntryUrl)}</body></html>`,
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        "X-Robots-Tag": "noindex",
+      },
+    },
+  );
 }
 
 function renderClientEntryScript(src?: string): string {
@@ -1912,6 +1946,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "og") {
     return createOgResponse(request, options);
+  }
+
+  if (match.kind === "renderer") {
+    return createRendererDocumentResponse(options);
   }
 
   if (match.kind === "logo") {

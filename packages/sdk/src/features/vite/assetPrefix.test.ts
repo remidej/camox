@@ -152,6 +152,27 @@ void test("the same build renders every asset URL under a revision's prefix when
   await assertAssetsUnder(REVISION_PREFIX, { assetPrefix: REVISION_PREFIX });
 });
 
+void test("the renderer document loads the build's renderer client, with or without a prefix", async () => {
+  for (const prefix of ["/", REVISION_PREFIX]) {
+    const worker = await build.serve(prefix === "/" ? {} : { assetPrefix: prefix });
+    try {
+      const response = await worker.fetch("/_camox/renderer", { headers: MEMBER });
+      const html = await response.text();
+      assert.equal(response.status, 200, html);
+      const [script, ...others] = loadedUrls(html).script;
+      assert.equal(others.length, 0);
+      builtFile(script!, prefix);
+      assert.match(
+        script!,
+        /\/camox-renderer-client\.mjs$/,
+        `${script} isn't the renderer's client`,
+      );
+    } finally {
+      await worker.close();
+    }
+  }
+});
+
 void test("client chunks name every build file relative to themselves, wherever they're served", async () => {
   const chunksDir = join(build.clientDir, "_chunks");
   const builtFiles = new Map<string, string>();
