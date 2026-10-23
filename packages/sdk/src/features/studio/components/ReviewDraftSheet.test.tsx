@@ -68,6 +68,7 @@ const conflictedPreview = {
       publishedBy: { id: "user-2", name: "Ada" },
       publishedAt: Date.UTC(2026, 9, 13),
       release: false,
+      revertible: true,
     },
   ],
   token: "token-2",
@@ -640,6 +641,74 @@ void test("says publishing deletes anyway what the draft deletes and Live change
       cardText("Replaces Ada's edit to the Hero"),
       /This draft deletes it, so publishing deletes it anyway\./,
     );
+  } finally {
+    await close();
+  }
+});
+
+void test("uses Ada's version instead from her conflict's card, then shows the refreshed review", async (t) => {
+  let preview: unknown = conflictedPreview;
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") return json(preview);
+    if (path === "drafts/revertToLive") {
+      preview = { ...emptyPreview, changes: [], token: "token-3" };
+      return json({});
+    }
+    return json({});
+  });
+  const close = await openReview();
+  try {
+    await click(buttonNamed(/^Use Ada's version instead$/));
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/revertToLive").map((call) => call.input),
+      [{ projectId: 1, entity: "block", id: blockId }],
+    );
+    assert.deepEqual(cardTitles(), []);
+    assert.ok(
+      statusLines().includes("Includes everything published to Live since this draft started"),
+    );
+  } finally {
+    await close();
+  }
+});
+
+void test("offers a release's or Live's version when no person made it", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [
+        { ...conflict, publishedBy: null, release: true },
+        {
+          ...conflict,
+          id: "019a0000-0000-7000-8000-000000000040",
+          publishedBy: null,
+          publishedAt: null,
+          release: false,
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.ok(buttonNamed(/^Use a release's version instead$/));
+    assert.ok(buttonNamed(/^Use Live's version instead$/));
+  } finally {
+    await close();
+  }
+});
+
+void test("doesn't offer Live's version where the preview says it isn't offered", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflict, entity: "page", label: "Page", revertible: false }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Page"]);
+    assert.equal(buttonNamed(/version instead/), undefined);
   } finally {
     await close();
   }

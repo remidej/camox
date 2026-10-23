@@ -1,6 +1,7 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
 import { env, waitUntil } from "cloudflare:workers";
 import { and, eq, inArray } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -72,12 +73,19 @@ export type Change = Subject & InLocale & { change: "created" | "changed" | "del
 
 export type Conflict = Subject &
   InLocale & {
+    /** A conflict is always on an entity a draft holds, never on a definition. */
+    entity: overlay.EntityKind;
     /** Live's version now, or null when Live deleted the entity. */
     liveVersion: number | null;
     publishedBy: { id: string; name: string } | null;
     publishedAt: number | null;
     /** Whether a release made Live's version, which no member published (ADR 0006). */
     release: boolean;
+    /**
+     * Whether the draft can drop its copy to use Live's version instead (`revertToLive`): not
+     * for a page or a locale, whose copies spread to other content.
+     */
+    revertible: boolean;
   };
 
 /** Why publishing drops a change. */
@@ -128,6 +136,24 @@ export const publishInput = z.object({
   publishAnyway: z.boolean().optional(),
 });
 export const discardInput = z.object({ projectId: z.number() });
+export const revertToLiveInput = z.object({
+  projectId: z.number(),
+  entity: z.enum(overlay.ENTITY_KINDS),
+  id: z.string(),
+});
+
+/**
+ * The kinds of entity a draft can drop its copy of to use Live's version instead. A page's copy
+ * spreads to other content, as a path rename copies every page beneath it, and so does a
+ * locale's, so they're never reverted alone.
+ */
+const REVERTIBLE_KINDS: ReadonlySet<overlay.EntityKind> = new Set([
+  "block",
+  "repeatableItem",
+  "sharedContent",
+  "record",
+  "file",
+]);
 
 const tokenSchema = z.array(
   z.tuple([z.enum(overlay.ENTITY_KINDS), z.string(), z.number().nullable(), z.string().nullable()]),
@@ -298,11 +324,13 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
     ...describe(conflict.entity, conflict.id),
+    entity: conflict.entity,
     locale: conflict.locale,
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publishers.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
     release: conflict.publishedAt !== null && conflict.publishedBy === null,
+    revertible: REVERTIBLE_KINDS.has(conflict.entity),
   }));
   const lost: LostChange[] = losses.map((loss) => {
     if (loss.reason === "parentGone") {
@@ -487,6 +515,44 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
   const { projectId } = yield* decodeInput(previewPublishInput, rawInput);
   const scope = yield* requireDraft(ctx, projectId);
   return yield* computePreview(ctx, scope);
+});
+
+/**
+ * Uses Live's version of an entity the draft conflicts on, instead of the draft's: drops the
+ * draft's copy in every locale it holds one, so the draft reads Live's again and the conflict is
+ * gone. Localizations translated from the dropped copy go with it. Only for an entity in the
+ * draft's current conflicts, and of a kind that can be reverted alone.
+ */
+export const revertToLive = Effect.fn("drafts.revertToLive")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof revertToLiveInput>,
+) {
+  const { projectId, entity, id } = yield* decodeInput(revertToLiveInput, rawInput);
+  if (!REVERTIBLE_KINDS.has(entity)) {
+    return yield* new InvalidInputError({
+      message: `A ${entity}'s copy spreads to other content: it can't use Live's version alone`,
+    });
+  }
+  const scope = yield* requireDraft(ctx, projectId);
+  const conflicts = yield* overlay.conflictsOf(ctx.db, scope);
+  if (!conflicts.some((conflict) => conflict.entity === entity && conflict.id === id)) {
+    return yield* new InvalidInputError({
+      message: `This draft has no conflict on ${entity} ${id}`,
+    });
+  }
+  const table = overlay.contentTableOf(entity);
+  const copies = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(table as SQLiteTable)
+      .where(and(overlay.storedIn(table, scope), eq(table.id, id))),
+  );
+  for (const copy of copies) {
+    const locale = overlay.localeOfRow(copy);
+    yield* overlay.revert(ctx.db, locale ? inLocale(scope, locale) : scope, table, id);
+  }
+  // TODO(#528): request a new draft overview, as any other change to the draft does.
+  return {};
 });
 
 /**

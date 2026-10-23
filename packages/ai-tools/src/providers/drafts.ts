@@ -4,8 +4,9 @@ import { z } from "zod";
 
 import {
   discardDraft,
-  previewPublish,
+  previewPublish as previewWithActions,
   publishDraft,
+  type PublishPreview,
 } from "../../../../apps/api/src/domains/drafts/publish";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import { endedDraftSchema, publishPreviewSchema } from "../lib/outputs";
@@ -27,6 +28,18 @@ const publishToolInput = z.object({
     ),
 });
 const discardInput = z.object({});
+
+/**
+ * The preview as agents see it: without which conflicts the studio offers to use Live's version
+ * of, which agents can't do.
+ */
+const withoutStudioActions = (preview: PublishPreview) => ({
+  ...preview,
+  conflicts: preview.conflicts.map(({ revertible: _revertible, ...conflict }) => conflict),
+});
+
+const previewPublish = (...args: Parameters<typeof previewWithActions>) =>
+  previewWithActions(...args).pipe(Effect.map(withoutStudioActions));
 
 const publishResultSchema = z.union([
   z.strictObject({ published: z.literal(true), ended: endedDraftSchema.nullable() }),
