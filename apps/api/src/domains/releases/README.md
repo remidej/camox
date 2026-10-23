@@ -84,6 +84,6 @@ Do this before the first deploy that includes the release Workflow, as the API's
 
 4. **CI's token** deploys the sandbox Worker's Container and the API's event subscription, so it needs Containers and event subscription permissions on top of what it has. The `deploy` job's dry run builds the image with Docker before anything changes.
 
-5. **An `alerts@camox.ai` address** in the `camox.ai` Google Workspace, an alias or group that delivers to the inbox where alerts are read. It is the API's `ALERT_EMAIL_TO`. The `EMAIL` binding sends from `alerts@camox.ai`, which `allowed_sender_addresses` in `wrangler.jsonc` lists.
+5. **Email Routing** on `camox.ai` (dashboard: _Email › Email Routing_) that forwards `alerts@camox.ai`, the API's `ALERT_EMAIL_TO`, to the inbox where alerts are read. The `EMAIL` binding sends from `alerts@camox.ai`, which `allowed_sender_addresses` in `wrangler.jsonc` lists.
 
 The `projects` Artifacts namespace and the `production` dispatch namespace already exist (`packages/cli/scripts/README.md`, `apps/dispatch/README.md`). `wrangler deploy` creates the `cf.artifacts.repo.pushed` subscription from `triggers.events`.
