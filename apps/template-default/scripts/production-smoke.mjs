@@ -38,6 +38,12 @@ import { block as footer } from "@/blocks/footer";
 import { block as hero } from "@/blocks/hero";
 import { block as navbar } from "@/blocks/navbar";
 import { block as youtubeVideo } from "@/blocks/youtube-video";
+import { block as featureTabs } from "@/blocks/feature-tabs";
+import { block as gallery } from "@/blocks/gallery";
+import { block as callToAction } from "@/blocks/call-to-action";
+import { Carousel, CarouselSlide } from "@/components/ui/carousel";
+import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsItem, TabsTrigger } from "@/components/ui/tabs";
 import {
   Accordion,
   AccordionContent,
@@ -72,8 +78,22 @@ export default {
     };
     const mobileMenu = renderToStaticMarkup(createElement(MobileMenu, null,
       createElement("a", { href: "/pricing" }, "Pricing")));
+    const tabs = renderToStaticMarkup(createElement(Tabs, null,
+      ["First tab", "Second tab", "Third tab"].map((label) =>
+        createElement(TabsItem, { key: label },
+          createElement(TabsTrigger, null, label),
+          createElement(TabsContent, null, label + " panel")))));
+    const dialog = renderToStaticMarkup(createElement(Dialog, null,
+      createElement(DialogTrigger, null, "Open details"),
+      createElement(DialogContent, null,
+        createElement(DialogTitle, null, "Details"),
+        createElement("p", null, "Dialog body"),
+        createElement(DialogClose, null, "Done"))));
+    const carousel = renderToStaticMarkup(createElement(Carousel, { label: "Gallery" },
+      ["First slide", "Second slide", "Third slide"].map((text) =>
+        createElement(CarouselSlide, { key: text }, text))));
     const settings = Object.fromEntries(
-      [faq, footer, hero, navbar, youtubeVideo].map((block) => [
+      [faq, footer, hero, navbar, youtubeVideo, featureTabs, gallery, callToAction].map((block) => [
         block._internal.id,
         block._internal.settingsSchema?.properties ?? {},
       ]),
@@ -84,7 +104,7 @@ export default {
         renderToStaticMarkup(createElement(Section, { scheme }, "Content")),
       ]),
     );
-    return Response.json({ html, buttons, mobileMenu, png: Array.from(bytes.slice(0, 8)), settings, sections });
+    return Response.json({ html, buttons, mobileMenu, tabs, dialog, carousel, png: Array.from(bytes.slice(0, 8)), settings, sections });
   },
 };
 `,
@@ -169,8 +189,59 @@ export default {
       const target = result.mobileMenu.match(/<button [^>]*\\bpopovertarget="([^"]+)"/i);
       assert.equal(target?.[1], popover[2], result.mobileMenu);
 
+      // Tabs are native: one <details> per tab, sharing one name, so one opens at a time.
+      // Every panel is in the markup, opened or not.
+      const tabs = [...result.tabs.matchAll(/<details([^>]*)><summary[^>]*>([^<]*)<\\/summary>(.*?)<\\/details>/g)];
+      assert.equal(tabs.length, 3, result.tabs);
+      const tabNames = tabs.map(([, attributes]) => /\\sname="([^"]+)"/.exec(attributes)?.[1]);
+      assert.ok(tabNames[0], result.tabs);
+      assert.equal(new Set(tabNames).size, 1, result.tabs);
+      for (const [index, label] of ["First tab", "Second tab", "Third tab"].entries()) {
+        assert.equal(tabs[index][2], label, result.tabs);
+        assert.match(tabs[index][3], new RegExp(label + " panel"), result.tabs);
+      }
+
+      // The dialog is a native <dialog>, opened and closed by its buttons' invoker commands,
+      // and named by its title. Its content is in the markup while it's closed.
+      const dialog = result.dialog.match(/<dialog([^>]*)>(.*?)<\\/dialog>/);
+      assert.ok(dialog, result.dialog);
+      assert.doesNotMatch(dialog[1], /\\sopen(=|\\s|$)/, result.dialog);
+      assert.match(dialog[2], /Dialog body/);
+      const dialogId = /\\sid="([^"]+)"/.exec(dialog[1])?.[1];
+      assert.ok(dialogId, result.dialog);
+      const commands = Object.fromEntries(
+        [...result.dialog.matchAll(/<button ([^>]*)>([^<]*)<\\/button>/g)].map(([, attributes, text]) => [
+          text,
+          {
+            command: /\\scommand="([^"]+)"/.exec(attributes)?.[1],
+            for: /\\scommandfor="([^"]+)"/.exec(attributes)?.[1],
+          },
+        ]),
+      );
+      assert.deepEqual(commands["Open details"], { command: "show-modal", for: dialogId }, result.dialog);
+      assert.deepEqual(commands["Done"], { command: "close", for: dialogId }, result.dialog);
+      const labelledBy = /\\saria-labelledby="([^"]+)"/.exec(dialog[1])?.[1];
+      assert.match(dialog[2], new RegExp('id="' + labelledBy + '"[^>]*>Details<'), result.dialog);
+
+      // The carousel is a labelled scroller the keyboard can reach, with every slide in the markup.
+      const carousel = /<\\w+([^>]*\\saria-roledescription="carousel"[^>]*)>/.exec(result.carousel);
+      assert.ok(carousel, result.carousel);
+      assert.match(carousel[1], /\\saria-label="Gallery"/, result.carousel);
+      assert.match(result.carousel, /<\\w+[^>]*\\stabindex="0"/, result.carousel);
+      const slides = [...result.carousel.matchAll(/<\\w+[^>]*\\saria-roledescription="slide"[^>]*>([^<]*)</g)];
+      assert.deepEqual(slides.map(([, text]) => text), ["First slide", "Second slide", "Third slide"], result.carousel);
+
       // Editors pick the same color schemes on every Template block.
-      const defaultSchemes = { hero: "dark", navbar: "dark", footer: "dark", faq: "light", "youtube-video": "light" };
+      const defaultSchemes = {
+        hero: "dark",
+        navbar: "dark",
+        footer: "dark",
+        faq: "light",
+        "youtube-video": "light",
+        "feature-tabs": "light",
+        gallery: "light",
+        "call-to-action": "brand",
+      };
       assert.deepEqual(Object.keys(result.settings).sort(), Object.keys(defaultSchemes).sort());
       for (const [blockId, defaultScheme] of Object.entries(defaultSchemes)) {
         const settings = result.settings[blockId];

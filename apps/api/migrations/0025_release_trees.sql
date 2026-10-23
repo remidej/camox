@@ -1,0 +1,1 @@
+ALTER TABLE `releases` ADD `tree` text;

@@ -39,6 +39,10 @@ For a locale switcher, a loader fetching localized data, or the details of eithe
 
 For specialized changes to an existing block, read the specialist reference directly. Also read Block Definitions only if creating a block or changing its schema or other field rendering APIs.
 
+## Interactive blocks
+
+Use the platform. Build tabs, dialogs, carousels, menus and disclosures from native HTML and CSS (`<details name>`, `<dialog>` with `command`/`commandfor`, `popover`, scroll snap), and reach for JS only where modern HTML can't do the behaviour. Compose the project's own Components in `src/components/ui/` when it has them (Camox's Template ships accordion, tabs, dialog, carousel and mobile menu). Target Baseline Newly available, with a fallback that keeps the content reachable in browsers lacking the feature, and keep every tab, dialog and slide in the page's markup, opened or not, and reachable with the keyboard. Editors edit hidden content by turning the Canvas off, opening it, and turning the Canvas back on.
+
 ## Content and CLI
 
 For any CLI operation, first read [CLI common guidance](references/cli-common.md), then only the relevant command reference:
