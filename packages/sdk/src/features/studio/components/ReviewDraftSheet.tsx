@@ -416,7 +416,7 @@ function StatusLine({ done, children }: { done: boolean; children: React.ReactNo
   return (
     <li className="text-muted-foreground flex items-start gap-2 text-sm" data-status-line>
       {done ? (
-        <CircleCheck className="mt-0.5 size-4 shrink-0 text-green-600 dark:text-green-400" />
+        <CircleCheck className="mt-0.5 size-4 shrink-0" />
       ) : (
         <Spinner aria-hidden className="mt-0.5 size-4 shrink-0" />
       )}
