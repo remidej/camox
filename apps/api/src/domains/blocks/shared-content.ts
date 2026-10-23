@@ -1,4 +1,5 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
@@ -97,6 +98,18 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   itemRows: readonly ItemRow[],
 ) {
   const shown = yield* sharedContentShown(db, scope, blockRows, itemRows);
+  return yield* withSummaries(db, scope, shown);
+});
+
+/**
+ * Blocks and items as `sharedContentShown` shows them, each with its summary: the shared
+ * content's for a synced placement.
+ */
+export const withSummaries = Effect.fn("withSummaries")(function* <B extends BlockRow>(
+  db: Database,
+  scope: ReadScope,
+  shown: SharedContentShown<B>,
+) {
   const summaries = yield* readValuesOf(db, scope, "summary", {
     block: shown.blocks.filter((block) => !block.sharedContentId).map((block) => block.id),
     sharedContent: shown.blocks.flatMap((block) =>
@@ -115,6 +128,52 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   };
 });
 
+/** Synced definitions' shared content and its items, as a scope reads them. */
+export type LoadedSharedContent = {
+  shared: readonly SharedContentRow[];
+  items: readonly ItemRow[];
+};
+
+/**
+ * The shared content of the definitions `types` selects in projects, and its items, as a scope
+ * reads them: both at once. `types` is a condition on a column holding a definition name, such
+ * as the types of the blocks a read places, so a read can ask before it holds the blocks.
+ */
+export const loadSharedContent = Effect.fn("loadSharedContent")(function* (
+  db: Database,
+  scope: ReadScope,
+  projectIds: readonly number[],
+  types: (column: AnySQLiteColumn) => SQL,
+) {
+  const [shared, items] = yield* Effect.all(
+    [
+      overlay.select(
+        db,
+        scope,
+        sharedContents,
+        and(inArray(sharedContents.projectId, projectIds), types(sharedContents.type)),
+      ),
+      overlay.select(
+        db,
+        scope,
+        repeatableItems,
+        and(
+          inArray(repeatableItems.projectId, projectIds),
+          types(repeatableItems.sharedContentType),
+        ),
+      ),
+    ],
+    { concurrency: "unbounded" },
+  );
+  return { shared, items } satisfies LoadedSharedContent;
+});
+
+/** Blocks and items as a scope shows them, before their summaries. */
+export type SharedContentShown<B extends BlockRow> = {
+  blocks: (B & { sharedContentId: string | null })[];
+  items: (ItemRow & { blockId: string })[];
+};
+
 /** Blocks and items as a scope shows them: synced placements with their shared content and items. */
 export const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends BlockRow>(
   db: Database,
@@ -122,37 +181,38 @@ export const sharedContentShown = Effect.fn("sharedContentShown")(function* <B e
   blockRows: readonly B[],
   itemRows: readonly ItemRow[],
 ) {
+  if (blockRows.length === 0) return showSharedContent(blockRows, itemRows, NO_SHARED_CONTENT);
   const projectIds = [...new Set(blockRows.map((block) => block.projectId))];
   const types = [...new Set(blockRows.map((block) => block.type))];
+  const loaded = yield* loadSharedContent(db, scope, projectIds, (column) =>
+    inArray(column, types),
+  );
+  return showSharedContent(blockRows, itemRows, loaded);
+});
+
+const NO_SHARED_CONTENT: LoadedSharedContent = { shared: [], items: [] };
+
+/**
+ * Blocks and items as a scope shows them, from the shared content loaded for them: a synced
+ * placement shows its definition's shared content and items instead of its own.
+ */
+export function showSharedContent<B extends BlockRow>(
+  blockRows: readonly B[],
+  itemRows: readonly ItemRow[],
+  loaded: LoadedSharedContent,
+): SharedContentShown<B> {
   const ownItems = (items: readonly ItemRow[]) =>
     items.filter((item): item is ItemRow & { blockId: string } => item.blockId !== null);
-  const unshared = (rows: readonly B[]) =>
-    rows.map((block) => ({ ...block, sharedContentId: null as string | null }));
-  if (blockRows.length === 0) return { blocks: unshared(blockRows), items: ownItems(itemRows) };
-
-  const shared = yield* overlay.select(
-    db,
-    scope,
-    sharedContents,
-    and(inArray(sharedContents.projectId, projectIds), inArray(sharedContents.type, types)),
-  );
-  if (shared.length === 0) return { blocks: unshared(blockRows), items: ownItems(itemRows) };
   const keyOf = ({ projectId, type }: DefinitionKey) => `${projectId}:${type}`;
-  const sharedByKey = new Map(shared.map((row) => [keyOf(row), row]));
-  const sharedItems = yield* overlay.select(
-    db,
-    scope,
-    repeatableItems,
-    and(
-      inArray(repeatableItems.projectId, projectIds),
-      inArray(
-        repeatableItems.sharedContentType,
-        shared.map((row) => row.type),
-      ),
-    ),
-  );
+  const sharedByKey = new Map(loaded.shared.map((row) => [keyOf(row), row]));
+  if (sharedByKey.size === 0) {
+    return {
+      blocks: blockRows.map((block) => ({ ...block, sharedContentId: null })),
+      items: ownItems(itemRows),
+    };
+  }
   const itemsByKey = new Map<string, ItemRow[]>();
-  for (const item of sharedItems) {
+  for (const item of loaded.items) {
     const root = rootOfItem(item);
     if (!("sharedContent" in root)) continue;
     const itemKey = keyOf(root.sharedContent);
@@ -180,7 +240,7 @@ export const sharedContentShown = Effect.fn("sharedContentShown")(function* <B e
     }
   }
   return { blocks: projectedBlocks, items };
-});
+}
 
 /** A placement holding nothing of its own: its content lives in the shared content. */
 const clearedPlacement = { content: {}, settings: null };

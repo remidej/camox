@@ -39,6 +39,10 @@
     "./projects": {
       "types": "./src/projects.ts",
       "default": "./src/projects.ts"
+    },
+    "./locales": {
+      "types": "./src/locales.ts",
+      "default": "./src/locales.ts"
     }
   },
   "publishConfig": {
@@ -74,6 +78,10 @@
       "./projects": {
         "types": "./dist/projects.d.ts",
         "default": "./dist/projects.js"
+      },
+      "./locales": {
+        "types": "./dist/locales.d.ts",
+        "default": "./dist/locales.js"
       }
     }
   },

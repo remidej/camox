@@ -30,7 +30,7 @@ import { conformBlocks } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { blockScope, validateReferenceValues } from "../collections/references";
-import { type BlockMarkdown, contentReader, type ContentReader } from "../content/reader";
+import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { type Draft, type DraftScope, type ReadScope } from "../drafts/scope";
@@ -52,6 +52,7 @@ import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
+import { layoutSlotsMarkdown, pageMarkdownOf } from "./page-markdown";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
 import {
   adoptSharedContent,
@@ -628,46 +629,28 @@ const blockView = Effect.fn("blocks.blockView")(function* (
   return { block: bundle.blocks[0]!, repeatableItems: bundle.repeatableItems, files: bundle.files };
 });
 
-/** Joins the Markdown of a layout's before and after slots, skipping blocks without Markdown. */
-function layoutSlotsMarkdown(rendered: readonly BlockMarkdown[]) {
-  const slot = (name: "before" | "after") =>
-    rendered
-      .filter((block) => block.pageId === null && block.slot === name && block.markdown)
-      .map((block) => block.markdown)
-      .join("\n\n");
-  return { before: slot("before"), after: slot("after") };
-}
-
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
 ) {
   const { pageId } = yield* decodeInput(getPageMarkdownInput, rawInput);
   const { scope, entity: page } = yield* accessTo(ctx, { page: pageId }, "public");
-  const pageLayout = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(layouts)
-      .where(and(layoutNamed(page.projectId, page.layoutId), definitionsIn(layouts, scope)))
-      .get(),
+  // The layout decides whether the page is served; its Markdown is read meanwhile.
+  const [pageLayout, markdown] = yield* Effect.all(
+    [
+      Effect.promise(() =>
+        ctx.db
+          .select()
+          .from(layouts)
+          .where(and(layoutNamed(page.projectId, page.layoutId), definitionsIn(layouts, scope)))
+          .get(),
+      ),
+      pageMarkdownOf(contentReader(ctx, { projectId: page.projectId, draft: scope }), page),
+    ],
+    { concurrency: "unbounded" },
   );
   if (!servesPages(pageLayout)) return yield* new NotFoundError();
-
-  const rendered = yield* contentReader(ctx, { projectId: page.projectId, draft: scope }).markdown([
-    { pageId },
-    { layoutId: page.layoutId },
-  ]);
-  const { before, after } = layoutSlotsMarkdown(rendered);
-  const blockMarkdowns = rendered
-    .filter((block) => block.pageId === pageId)
-    .map((block) => ({
-      id: block.id,
-      position: block.position,
-      markdown: block.markdown ?? block.json,
-    }));
-
-  const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
-  return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };
+  return markdown;
 }, Effect.scoped);
 
 /**

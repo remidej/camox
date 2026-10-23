@@ -147,6 +147,7 @@ const FILE_WRITES: Record<keyof Router["files"], boolean> = {
 const PAGE_WRITES: Record<keyof Router["pages"], boolean> = {
   getByPath: false,
   getStructure: false,
+  getMarkdown: false,
   list: false,
   listBySlug: false,
   get: false,
