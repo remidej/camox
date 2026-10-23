@@ -94,4 +94,13 @@ describe("The project list's homepage OG image", () => {
 
     expect(await f.listedImages()).toEqual([f.generated]);
   });
+
+  it("lists the project once even when Live has two homepages in the Default Locale", async () => {
+    const f = await fixture();
+    // Nothing in the schema keeps a path unique, so the list can't rely on it.
+    await f.homepage();
+    await f.homepage();
+
+    expect(await f.listedImages()).toEqual([f.generated]);
+  });
 });

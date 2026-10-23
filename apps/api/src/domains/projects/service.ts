@@ -6,7 +6,7 @@ import {
   UNAVAILABLE_SLUG_MESSAGES,
   type UnavailableSlugReason,
 } from "@camox/api-contract/projects";
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -103,17 +103,8 @@ export const listProjects = Effect.fn("projects.listProjects")(function* (
   yield* assertOrgMembership(ctx.db, user.id, organizationId);
   const rows = yield* Effect.promise(() =>
     ctx.db
-      .select({ project: projects, customOgImageUrl: pages.customOgImageUrl })
+      .select({ project: projects, customOgImageUrl: liveHomepageCustomOgImageUrl })
       .from(projects)
-      .leftJoin(
-        pages,
-        and(
-          eq(pages.projectId, projects.id),
-          overlay.storedIn(pages, null),
-          eq(pages.fullPath, "/"),
-          eq(pages.locale, defaultLocaleOf(projects.id)),
-        ),
-      )
       .where(eq(projects.organizationId, organizationId)),
   );
   return rows.map(({ project, customOgImageUrl }) => ({
@@ -121,6 +112,20 @@ export const listProjects = Effect.fn("projects.listProjects")(function* (
     homepageOgImageUrl: customOgImageUrl || generatedOgImageUrl(project.slug, "/"),
   }));
 });
+
+/**
+ * The custom OG image of a project's Live homepage in its Default Locale, as a scalar subquery.
+ * Nothing keeps a path unique among Live's pages, so it takes the oldest such homepage rather than
+ * joining, which would list the project once per homepage.
+ */
+const liveHomepageCustomOgImageUrl = sql<
+  string | null
+>`(select ${pages.customOgImageUrl} from ${pages} where ${and(
+  eq(pages.projectId, projects.id),
+  overlay.storedIn(pages, null),
+  eq(pages.fullPath, "/"),
+  eq(pages.locale, defaultLocaleOf(projects.id)),
+)} order by ${pages.rowId} limit 1)`;
 
 /**
  * The image `<slug>.camox.site` generates for the page at `path`, as the website's own `og:image`
