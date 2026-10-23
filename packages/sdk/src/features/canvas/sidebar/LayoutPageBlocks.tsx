@@ -1,16 +1,15 @@
 import { usePageBlocks } from "@/lib/normalized-data";
 
+import { useLayoutDefinition } from "../../../lib/studio-definitions";
 import type { LayoutStructure } from "../../../lib/studio-reads";
 import { BlocksGroup, CollapsedPageTree, LayoutBlockItem } from "../../preview/components/PageTree";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 
 const EMPTY_PAGE = { blockIds: [] as string[] };
 
 /** A layout page's blocks: all its layout's, before and after where page content would be. */
 export function LayoutPageBlocks({ layout }: { layout: LayoutStructure }) {
   const { beforeBlocks, afterBlocks } = usePageBlocks({ page: EMPTY_PAGE, layout });
-  const app = useCamoxApp();
-  const layoutName = app.getLayoutById(layout.layoutId)?._internal.title ?? layout.layoutId;
+  const layoutName = useLayoutDefinition(layout.layoutId)?.title ?? layout.layoutId;
 
   return (
     <BlocksGroup>

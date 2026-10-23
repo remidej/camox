@@ -25,6 +25,8 @@ export const layouts = sqliteTable(
       .references(() => projects.id),
     // The layout's name, given by code. It identifies the layout within a project.
     layoutId: text("layout_id").notNull(),
+    // The name editors know the layout by, given by code. SDKs before it was synced send none.
+    title: text(),
     description: text(),
     kind: text({ enum: LAYOUT_KINDS }).notNull().default("curated"),
     // A derived layout's record pages: each renders a record of the collection, found by the

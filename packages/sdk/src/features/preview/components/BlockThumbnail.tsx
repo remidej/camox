@@ -145,7 +145,14 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
   );
 };
 
-export const BlockThumbnail = ({ block, className }: { block: Block; className?: string }) => {
+/** A block's thumbnail, rendered by its code: an empty frame for a block whose code isn't loaded. */
+export const BlockThumbnail = ({
+  block,
+  className,
+}: {
+  block: Block | undefined;
+  className?: string;
+}) => {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = React.useState(false);
   const [width, setWidth] = React.useState(0);
@@ -176,7 +183,7 @@ export const BlockThumbnail = ({ block, className }: { block: Block; className?:
       )}
       aria-hidden="true"
     >
-      {isVisible && width > 0 && <ThumbnailFrame block={block} width={width} />}
+      {block && isVisible && width > 0 && <ThumbnailFrame block={block} width={width} />}
     </div>
   );
 };

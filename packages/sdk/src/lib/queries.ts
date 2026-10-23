@@ -23,6 +23,7 @@ export type PageStructure = {
   recordStructuredData?: PageWithBlocks["recordStructuredData"];
 };
 export type Project = Awaited<ReturnType<ApiClient["projects"]["getByUuid"]>>;
+export type BlockDefinitionRow = Awaited<ReturnType<ApiClient["blockDefinitions"]["list"]>>[number];
 export type Layout = Awaited<ReturnType<ApiClient["layouts"]["list"]>>[number];
 export type BlockUsageCounts = Awaited<ReturnType<ApiClient["blocks"]["getUsageCounts"]>>;
 export type DraftList = Awaited<ReturnType<ApiClient["drafts"]["list"]>>;
