@@ -1,4 +1,4 @@
-import type { PublishPreview } from "@camox/api-contract";
+import type { PublishPreview } from "@camox/api-contract/router";
 import {
   CONFLICTS_CHANGED_ERROR,
   type EndedDraft,

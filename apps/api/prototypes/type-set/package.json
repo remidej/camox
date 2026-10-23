@@ -1,0 +1,6 @@
+{
+  "name": "type-set-proto",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@tsrs/wasm": "0.18.0-ts7.1.0-dev.20260929" }
+}

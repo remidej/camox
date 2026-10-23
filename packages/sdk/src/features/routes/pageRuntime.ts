@@ -1,4 +1,4 @@
-import type { Router } from "@camox/api-contract";
+import type { Router } from "@camox/api-contract/router";
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,

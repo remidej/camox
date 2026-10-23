@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     entry: [
       "src/index.ts",
+      "src/router.ts",
       "src/ids.ts",
       "src/query-keys.ts",
       "src/drafts.ts",
