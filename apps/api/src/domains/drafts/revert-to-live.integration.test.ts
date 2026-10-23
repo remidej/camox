@@ -14,7 +14,12 @@ import {
   createRpcContext,
   syncDefinitionSet,
 } from "../../../test/fixtures";
-import { answerEvery, forgetScheduled, scheduled } from "../../../test/generation";
+import {
+  answerEvery,
+  forgetScheduled,
+  scheduled,
+  scheduledOverviews,
+} from "../../../test/generation";
 import { isTranslationJob } from "../../lib/ai-job-queue";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
@@ -191,6 +196,24 @@ describe("using Live's version of a conflict", () => {
         { context: createRpcContext(f.db, f.memberUser, mine.headers) },
       ),
     ).rejects.toMatchObject({ code: CONFLICTS_CHANGED_ERROR });
+  });
+
+  it("requests a new overview of the draft, which no longer changes the block", async () => {
+    const f = await fixture();
+    const mine = await f.conflicting();
+    // Something else the draft still publishes.
+    await f.tool(
+      "createBlock",
+      { pageId: f.page.id, type: "hero", content: { title: "Other" } },
+      mine.headers,
+    );
+    const draftId = mine.id;
+    const before = scheduledOverviews(draftId).length;
+
+    await f.revertToLive(mine.headers, { entity: "block", id: f.block.id });
+
+    expect(scheduledOverviews(draftId).length).toBeGreaterThan(before);
+    expect((await f.preview(mine.headers)).overview).toEqual({ status: "pending" });
   });
 
   it("is rejected for a page, whose copy spreads to the pages beneath it", async () => {

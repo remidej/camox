@@ -580,7 +580,8 @@ export const revertToLive = Effect.fn("drafts.revertToLive")(function* (
     const locale = overlay.localeOfRow(copy);
     yield* overlay.revert(ctx.db, locale ? inLocale(scope, locale) : scope, table, id);
   }
-  // TODO(#528): request a new draft overview, as any other change to the draft does.
+  // The reverts are content writes: once this succeeds, `runService` requests a new overview of
+  // the draft, as after any other change to it (`requestOverviewsOfWrites`).
   return {};
 });
 
