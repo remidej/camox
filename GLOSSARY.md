@@ -265,7 +265,7 @@ Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes
 
 **Blocker**:
-A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path, an empty required reference, or code that doesn't build or type check.
+A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path, an empty required reference, code that doesn't build or type check, or code that doesn't merge with Live's.
 _Avoid_: Error, validation failure
 
 **Conflict**:
