@@ -61,3 +61,18 @@ Publishing a draft with code no longer builds it. Every revision is already buil
 - A push to `main` whose tree Live already serves starts no release, so the publish's own push doesn't release the same code again.
 - The full build of each revision stays when per-file compiling speeds up previews, moved off the preview's path. Publishing waits for the head's build, and "code that doesn't build" comes from it.
 - Upgrades still build twice, a dry run and then their release. Reusing the dry run is left for later.
+
+## Amendment: a revision each time the agent builds
+
+An agent turn can leave several revisions, not one. "Add a pricing section with this copy" needs the new block's definition before its content can be placed, and a draft's definitions come only from a built revision. So the agent builds when it needs to: a build that passes commits a revision, syncs its definitions to the draft and reloads the preview, and the turn carries on with the content tools. When the turn ends, whatever it changed since its last revision is built and committed ([The agent's code tools](https://github.com/remidej/camox/issues/553)).
+
+### Considered Options
+
+- **Build without committing**, syncing definitions from an uncommitted build and committing once at the end of the turn. The draft's definitions could come from a state that never became a revision, if a later edit broke the build.
+- **One revision per turn, as first decided.** Content using a new block would wait for the next turn, splitting the mixed requests this ADR exists for.
+
+### Consequences
+
+- Undoing a turn reverts all the revisions it left.
+- A merge of `main` while the agent is mid-turn waits for that turn's last commit, not its first.
+- If the end-of-turn build still fails after a few tries, the turn commits anyway and the draft gets the "code that doesn't build" Blocker. That revision isn't built, so the preview keeps showing the last revision that built.

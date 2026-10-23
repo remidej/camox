@@ -245,7 +245,7 @@ A member's personal draft in a project whose code is on their machine rather tha
 _Avoid_: Development environment, code draft, local draft
 
 **Revision**:
-One state of a draft's code, left by one agent turn or by one merge of Live's code, built once and shown by the draft's preview. Publishing serves the last revision's build on Live. A contributors' term: editors only ever see the draft.
+One state of a draft's code, left each time the agent builds its changes, at the end of an agent turn that changed code, or by a merge of Live's code. A turn can leave several. Each is built once, the draft's preview shows the last one that built, and its definitions are what the draft's content uses from then on. Publishing serves the last revision's build on Live. A contributors' term: editors only ever see the draft.
 _Avoid_: Version, build, snapshot
 
 **Publish**:
