@@ -3,7 +3,7 @@ import type { ProjectSetupStep } from "@camox/api-contract/projects";
 import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
-import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
+import type { WorkflowEvent, WorkflowStep, WorkflowStepConfig } from "cloudflare:workers";
 import { and, desc, eq, ne } from "drizzle-orm";
 
 import { createDb, type Database } from "../../db";
@@ -14,6 +14,11 @@ import { camoxVersionInLockfile } from "./lockfile";
 import { releases, type ReleaseStep } from "./schema";
 
 const MAIN = "refs/heads/main";
+
+/** A few quick retries: a copy of `main` that can't refresh mustn't hold up the release. */
+const REFRESH_RETRIES: WorkflowStepConfig = {
+  retries: { limit: 2, delay: "1 second", backoff: "constant" },
+};
 
 // `@cloudflare/ci` types every binding its examples have, but the Workflow only reads `ARTIFACTS`,
 // `SANDBOX`, `BACKUP_BUCKET`, `CLOUDFLARE_ACCOUNT_ID` and `CF_TOKEN`. `CI_WORKFLOW` (this Worker
@@ -45,7 +50,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
     // The agent reads the code `main` now has. A copy that couldn't refresh doesn't hold up the
     // release: it stays on the commit it has until the next push.
     await step
-      .do("refresh the copy of main the agent reads", () =>
+      .do("refresh the copy of main the agent reads", REFRESH_RETRIES, () =>
         this.env.PROJECT_CODE.getByName(push.repo).refresh(push.sha),
       )
       .catch((error: unknown) => console.error("The agent's copy of main didn't refresh", error));
