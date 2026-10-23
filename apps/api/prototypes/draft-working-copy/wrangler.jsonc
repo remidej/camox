@@ -1,0 +1,12 @@
+// PROTOTYPE, throwaway (issue #521).
+{
+  "name": "prototype-draft-working-copy",
+  "main": "worker.js",
+  "compatibility_date": "2026-03-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "artifacts": [{ "binding": "ARTIFACTS", "namespace": "prototype-521", "remote": true }],
+  "durable_objects": { "bindings": [{ "name": "DRAFT", "class_name": "Draft" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Draft"] }],
+  "observability": { "enabled": true },
+}
