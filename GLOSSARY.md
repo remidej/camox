@@ -286,6 +286,10 @@ _Avoid_: Preview (for the section)
 The part of the studio that lists the website's content as structured data, such as pages, collections and assets.
 _Avoid_: CMS, data view
 
+**Settings Section**:
+The part of the studio where members change Project Settings. They apply to Live and every draft as soon as they are saved, whichever draft the studio is viewing.
+_Avoid_: Preferences, admin, config
+
 **Preview**:
 The Website Section with the Canvas hidden: one page of the website, as Live or as one draft, as a visitor would see it.
 _Avoid_: Iframe, view mode
@@ -303,7 +307,7 @@ The Canvas sidebar while a page is selected: that page's name and its content to
 _Avoid_: Item sidebar, page sidebar, properties panel
 
 **Dashboard**:
-The hosted interface for managing organizations, projects, and members, outside any one website.
+The hosted interface for managing organizations and their members, and for creating, opening and deleting projects, outside any one website. A project's settings live in its studio, not here.
 _Avoid_: Admin, console
 
 **Editor**:
