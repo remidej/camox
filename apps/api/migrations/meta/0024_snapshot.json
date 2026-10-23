@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0c659b8f-cb4d-4c39-9dd4-92e2a9752813",
+  "id": "53facd03-5659-426a-b0ea-5fae08a75fc3",
   "prevId": "e3a4079c-4a9a-494a-b4c2-f68a0032f066",
   "tables": {
     "account": {
@@ -2326,9 +2326,23 @@
           "notNull": false,
           "autoincrement": false
         },
+        "overview_due_at": {
+          "name": "overview_due_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "overview_generated_at": {
           "name": "overview_generated_at",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "overview_fingerprint": {
+          "name": "overview_fingerprint",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

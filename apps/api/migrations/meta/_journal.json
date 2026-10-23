@@ -173,15 +173,8 @@
     {
       "idx": 24,
       "version": "6",
-      "when": 1792757947096,
+      "when": 1792763089939,
       "tag": "0024_draft_overviews",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "6",
-      "when": 1792761085609,
-      "tag": "0025_draft_overview_fingerprint",
       "breakpoints": true
     }
   ]
