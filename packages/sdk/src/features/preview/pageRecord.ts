@@ -7,10 +7,10 @@ import type { CollectionRecordId } from "@/core/requestContext";
 
 import { useDraftScope } from "../../lib/draft-scope";
 import { localizedPath } from "../../lib/locale-path";
+import { useCollectionDefinition } from "../../lib/studio-definitions";
 import { reads, useReadQuery } from "../../lib/studio-reads";
 import { useViewLocale } from "../../lib/view-locale-context";
 import { useLocation, useNavigate } from "../navigation/navigation";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 import type { LayoutRecordPlacer } from "./components/useRecordView";
@@ -130,8 +130,7 @@ export const PageRecordContext = React.createContext<AnyLayoutLoaderResult | und
  */
 export function usePageRecordPlacer(): LayoutRecordPlacer | null {
   const loaded = asCollectionItem(React.use(PageRecordContext));
-  const app = useCamoxApp();
-  const collection = loaded ? app.getCollectionById(loaded.collectionId) : undefined;
+  const collection = useCollectionDefinition(loaded?.collectionId);
   const collectionId = loaded?.collectionId ?? "";
   const record = useLatestRecord({
     collectionId,

@@ -36,7 +36,34 @@ registerHooks({
 
 type SeededBlock = { id: string; type: string; summary: string; title: string };
 
-async function renderPageTree(t: TestContext, seeded: SeededBlock[]) {
+/** A block definition as the API lists it, synced from the website's code. */
+const definition = (blockId: string, title: string) => ({
+  blockId,
+  title,
+  description: "Page tree fixture",
+  contentSchema: { type: "object", properties: { text: { type: "string", fieldType: "String" } } },
+  settingsSchema: null,
+  defaultContent: { text: "" },
+  defaultSettings: {},
+  layoutOnly: null,
+  synced: false,
+});
+
+/**
+ * Renders the page tree over seeded block reads and the block definitions the API lists, with
+ * no code registry. The layout places `before` and `after` around the page's blocks.
+ */
+async function renderPageTree(
+  t: TestContext,
+  seeded: SeededBlock[],
+  {
+    definitions = [],
+    layout,
+  }: {
+    definitions?: ReturnType<typeof definition>[];
+    layout?: { before: SeededBlock[]; after: SeededBlock[] };
+  } = {},
+) {
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
     window,
@@ -49,34 +76,29 @@ async function renderPageTree(t: TestContext, seeded: SeededBlock[]) {
     ResizeObserver: window.ResizeObserver,
     requestAnimationFrame: window.requestAnimationFrame.bind(window),
     cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const { createRoot } = await import("react-dom/client");
   const { PageTree } = await import("./PageTree");
   const { PreviewEditingOwnerContext } = await import("../previewSelection");
-  const { CamoxAppProvider } = await import("../../provider/components/CamoxAppContext");
-  const { createApp } = await import("../../../core/createApp");
-  const { createBlock } = await import("../../../core/createBlock");
-
-  const definitions = [...new Set(seeded.map((block) => block.type))].map((id) =>
-    createBlock({
-      id,
-      title: id,
-      description: "Page tree fixture",
-      content: (field) => ({ text: field.string({ default: "" }) }),
-      toReact: () => null,
-      toMarkdown: () => [],
-      toTitle: () => "Block",
-    }),
-  );
+  const { AuthContext, createCamoxAuthClient } = await import("@/lib/auth");
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  seeded.forEach((block, index) => {
-    testStudioCache(client).set(reads.blockBundle(block.id), {
+  const cache = testStudioCache(client);
+  cache.set(reads.project({ projectUuid: "site" }), { id: 1 });
+  cache.set(reads.blockDefinitionList({ projectId: 1 }), definitions);
+  const placed = [
+    ...(layout?.before ?? []).map((block) => ({ block, owner: { layoutId: "default" } })),
+    ...seeded.map((block) => ({ block, owner: { pageId: "page" } })),
+    ...(layout?.after ?? []).map((block) => ({ block, owner: { layoutId: "default" } })),
+  ];
+  placed.forEach(({ block, owner }, index) => {
+    cache.set(reads.blockBundle(block.id), {
       block: {
         ...block,
-        pageId: "page",
+        ...owner,
         position: `a${index}`,
         content: { text: "" },
         settings: {},
@@ -89,7 +111,13 @@ async function renderPageTree(t: TestContext, seeded: SeededBlock[]) {
   Object.assign(globalThis, {
     testPreviewedPage: {
       page: { id: "page", blockIds: seeded.map((block) => block.id) },
-      layout: null,
+      layout: layout
+        ? {
+            layoutId: "default",
+            beforeBlockIds: layout.before.map((block) => block.id),
+            afterBlockIds: layout.after.map((block) => block.id),
+          }
+        : null,
     },
   });
 
@@ -99,11 +127,18 @@ async function renderPageTree(t: TestContext, seeded: SeededBlock[]) {
   await act(async () => {
     root.render(
       <StudioQueryClientProvider client={client}>
-        <CamoxAppProvider app={createApp({ blocks: definitions as never })}>
+        <AuthContext.Provider
+          value={{
+            projectUuid: "site",
+            apiUrl: "http://localhost:8788",
+            authenticationUrl: "http://localhost:3290",
+            authClient: createCamoxAuthClient("http://localhost:8788"),
+          }}
+        >
           <PreviewEditingOwnerContext.Provider value={{ kind: "page", pageId: "page" } as never}>
             <PageTree />
           </PreviewEditingOwnerContext.Provider>
-        </CamoxAppProvider>
+        </AuthContext.Provider>
       </StudioQueryClientProvider>,
     );
   });
@@ -130,4 +165,21 @@ void test("the page tree names each block by its Summary, else its title, else i
   ]);
 
   assert.deepEqual(tree.rows(), ["Welcome banner", "Shipping questions", "plain"]);
+});
+
+void test("the page tree names its layout's blocks by their definitions' titles, which the API lists", async (t) => {
+  const tree = await renderPageTree(
+    t,
+    [{ id: "hero", type: "hero", summary: "Welcome banner", title: "" }],
+    {
+      definitions: [definition("navbar", "Navigation bar"), definition("hero", "Hero")],
+      layout: {
+        before: [{ id: "nav", type: "navbar", summary: "", title: "" }],
+        // A block whose definition the draft doesn't have is named by its type.
+        after: [{ id: "foot", type: "footer", summary: "", title: "" }],
+      },
+    },
+  );
+
+  assert.deepEqual(tree.rows(), ["Navigation bar", "Welcome banner", "footer"]);
 });

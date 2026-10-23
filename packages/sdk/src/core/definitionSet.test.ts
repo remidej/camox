@@ -87,7 +87,7 @@ void test("a layout-only block is in the Definition Set only when a layout decla
   );
 });
 
-void test("layouts carry their declared blocks and collections their schemas", async () => {
+void test("layouts carry their titles and declared blocks, and collections their schemas", async () => {
   const navbar = block("navbar", true);
   const articles = createCollection({
     id: "articles",
@@ -106,14 +106,16 @@ void test("layouts carry their declared blocks and collections their schemas", a
   const set = await app.getDefinitionSet();
 
   assert.deepEqual(
-    set.layouts.map(({ layoutId, kind, blocks }) => ({
+    set.layouts.map(({ layoutId, title, kind, blocks }) => ({
       layoutId,
+      title,
       kind,
       blocks: blocks.map(({ type, slot, content }) => ({ type, slot, content })),
     })),
     [
       {
         layoutId: "default",
+        title: "Layout",
         kind: "curated",
         blocks: [{ type: "navbar", slot: "before", content: { title: "navbar text" } }],
       },

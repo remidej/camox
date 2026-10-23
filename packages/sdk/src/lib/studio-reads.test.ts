@@ -346,10 +346,10 @@ const BROADCAST_PREFIXES = [
 /** Reads realtime doesn't need to reach: the same for every viewer, or code-owned. */
 const UNREACHED = new Set(["project", "collectionList", "collection"]);
 /**
- * Reads only the API's refresh of everything a scope reads reaches, as a change to a locale or to
- * an exclusion does.
+ * Reads only the API's refresh of everything a scope reads reaches, as a change to a locale, to
+ * an exclusion or to definitions does.
  */
-const REACHED_BROADLY = new Set(["localeList", "missingFromLocale"]);
+const REACHED_BROADLY = new Set(["localeList", "missingFromLocale", "blockDefinitionList"]);
 
 void test("realtime reaches every read: each key sits under a prefix the API broadcasts", () => {
   const params = new Proxy({}, { get: () => "x" });

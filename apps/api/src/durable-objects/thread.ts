@@ -29,6 +29,7 @@ import {
   wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
 import {
   type CapabilityStartContext,
@@ -38,10 +39,15 @@ import {
 } from "agents/lifecycle";
 import { type WebSocketMessage, WebSockets } from "agents/websockets";
 import { DurableObject } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { createDb } from "../db";
+import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
+import { codeReading } from "../domains/code/prompt";
+import { codeReadingTools } from "../domains/code/tools";
+import { projects } from "../domains/projects/schema";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
 import {
   studioAgentTools,
@@ -53,6 +59,7 @@ import {
   type ToolKind,
 } from "../domains/threads/tools";
 import { webTools } from "../domains/threads/web-tools";
+import type { MemoryFs } from "../lib/memory-fs";
 import { threadModel } from "../lib/thread-model";
 import type { Bindings } from "../types";
 
@@ -281,8 +288,13 @@ export class Thread extends DurableObject<Bindings> {
             render: async () => workplace(await this.#knownIdentity()),
             tag: false,
           },
+          { key: "code", render: () => codeReading, tag: false },
         ],
-        tools: [...(await studioAgentTools(dispatch)), ...webTools(this.env)],
+        tools: [
+          ...(await studioAgentTools(dispatch)),
+          ...webTools(this.env),
+          ...codeReadingTools(),
+        ],
         // Once a script ends, failed or not, the studios hear what its writes touched.
         wraps: [
           wrapTool(CODEMODE_TOOL, (tool) => ({
@@ -311,6 +323,7 @@ export class Thread extends DurableObject<Bindings> {
             documentRetentionMs: 0,
           },
           onReport: (report) => console.warn("Pi reported a fault in a thread", report),
+          env: () => this.#codeEnv(),
         },
         context,
       );
@@ -331,6 +344,44 @@ export class Thread extends DurableObject<Bindings> {
 
   /** Whether the thread ended with its draft, known as soon as it starts ending: see `end()`. */
   #ended = false;
+
+  /** The Project ID of the thread's project, once a code tool looked it up. */
+  #projectUuid: string | undefined;
+
+  /** The copy of `main` the thread's code tools last read, by its commit. */
+  #mainCopy: { commit: string; fs: MemoryFs } | undefined;
+
+  /**
+   * The environment the agent's code tools read: the project's read-only copy of `main`, loaded
+   * on a tool's first operation, and only fetched again once a push moved `main`.
+   */
+  #codeEnv(): ExecutionEnv {
+    return lazyEnv(async () => mainCopyFsEnv(await this.#mainCopyFs()), {
+      id: "camox:main",
+      cwd: CODE_ROOT,
+    });
+  }
+
+  async #mainCopyFs() {
+    const identity = await this.#knownIdentity();
+    if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
+    this.#projectUuid ??= (
+      await createDb(this.env.DB)
+        .select({ uuid: projects.uuid })
+        .from(projects)
+        .where(eq(projects.id, identity.projectId))
+        .get()
+    )?.uuid;
+    if (!this.#projectUuid) throw new Error("The thread's project was deleted");
+    const held = this.#mainCopy;
+    const { commit, files } = await this.env.PROJECT_CODE.getByName(this.#projectUuid).snapshot(
+      held?.commit,
+    );
+    if (held && !files) return held.fs;
+    const fs = await mainCopyFs({ commit, files: files ?? [] });
+    this.#mainCopy = { commit, fs };
+    return fs;
+  }
 
   /**
    * Whether the thread ended with its draft: in memory from the moment it starts ending, and in

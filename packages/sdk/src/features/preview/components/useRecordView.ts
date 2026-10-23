@@ -8,8 +8,8 @@ import {
   type NormalizedCollectionRecord,
   type NormalizedReferences,
 } from "@/lib/normalized-data";
+import { type CollectionDefinition, useCollectionDefinition } from "@/lib/studio-definitions";
 
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import {
   isBlockPlacement,
   previewStore,
@@ -31,12 +31,11 @@ export type SelectionCrumb = {
 };
 
 type RecordSelection = Extract<Selection, { type: "record" | "record-field" }>;
-type Collection = NonNullable<ReturnType<ReturnType<typeof useCamoxApp>["getCollectionById"]>>;
 
 export type RecordView = {
   selection: RecordSelection;
   record: NormalizedCollectionRecord;
-  collection: Collection;
+  collection: CollectionDefinition;
   /** Whether a reference list (rather than a single reference) places the record. */
   inList: boolean;
   /** Whether the record's own reference fields open the records they link (first hop only). */
@@ -96,8 +95,6 @@ export function useRecordView({
   selection: Selection | null;
   placer: RecordPlacer | null;
 }) {
-  const camoxApp = useCamoxApp();
-
   const recordSelection =
     selection?.type === "record" || selection?.type === "record-field" ? selection : null;
   const nested = recordSelection?.nested;
@@ -116,9 +113,7 @@ export function useRecordView({
   const outerCollectionId = layoutSelection
     ? layoutPlacer?.collectionId
     : referenceField?.collectionId;
-  const outerCollection = outerCollectionId
-    ? camoxApp.getCollectionById(outerCollectionId)
-    : undefined;
+  const outerCollection = useCollectionDefinition(outerCollectionId);
   const outerStale = blockSelection
     ? blockPlacer != null &&
       !linksRecord(referenceField, blockPlacer, blockSelection.fieldName, blockSelection.recordId)
@@ -139,11 +134,9 @@ export function useRecordView({
 
   // Second hop: the record the first one links through its own reference field.
   const nestedField = nested
-    ? contentFieldSchema(outerCollection?._internal.contentSchema, nested.fieldName)
+    ? contentFieldSchema(outerCollection?.contentSchema, nested.fieldName)
     : undefined;
-  const nestedCollection = nestedField?.collectionId
-    ? camoxApp.getCollectionById(nestedField.collectionId)
-    : undefined;
+  const nestedCollection = useCollectionDefinition(nestedField?.collectionId);
   const nestedStale =
     nested != null &&
     outerRecord != null &&
