@@ -246,8 +246,59 @@ function ConflictFields({ conflict }: { conflict: Conflict }) {
   );
 }
 
+/** Whose version of a conflict's entity Live holds, for its "Use … version instead" action. */
+function liveVersionName(conflict: Conflict): string {
+  if (conflict.release) return "a release's";
+  if (conflict.publishedBy) return `${conflict.publishedBy.name}'s`;
+  return "Live's";
+}
+
+/**
+ * Drops the draft's change to a conflict's entity, so the draft reads Live's version again, then
+ * reads the review again: the conflict is gone, and the preview has a new token.
+ */
+function UseLiveVersionButton({
+  projectId,
+  conflict,
+  onUsed,
+}: {
+  projectId: number;
+  conflict: Conflict;
+  onUsed: () => void;
+}) {
+  const revert = useMutation({
+    ...draftMutations.revertToLive(),
+    onSuccess: onUsed,
+    onError: (error) => {
+      toast.error(error.message || "Could not use Live's version");
+      onUsed();
+    },
+  });
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="mt-1"
+      disabled={revert.isPending}
+      onClick={() => revert.mutate({ projectId, entity: conflict.entity, id: conflict.id })}
+    >
+      {revert.isPending ? <Spinner /> : null}
+      Use {liveVersionName(conflict)} version instead
+    </Button>
+  );
+}
+
 /** Blockers first, then conflicts, then lost changes: one card each, with no section heading. */
-function Cards({ preview }: { preview: PublishPreview }) {
+function Cards({
+  projectId,
+  preview,
+  onChanged,
+}: {
+  projectId: number;
+  preview: PublishPreview;
+  /** Reads the review again, after an action on a card changed the draft. */
+  onChanged: () => void;
+}) {
   const { blockers, conflicts, lost, changes, defaultLocale } = preview;
   if (blockers.length + conflicts.length + lost.length === 0) return null;
   const deleted = new Set(
@@ -273,6 +324,9 @@ function Cards({ preview }: { preview: PublishPreview }) {
             )}
           </p>
           <ConflictFields conflict={conflict} />
+          {conflict.revertible && (
+            <UseLiveVersionButton projectId={projectId} conflict={conflict} onUsed={onChanged} />
+          )}
         </Card>
       ))}
       {lost.map((change) => (
@@ -556,7 +610,11 @@ export function ReviewDraftSheet({
               {data.changes.length === 0 && (
                 <p className="text-muted-foreground text-sm">This draft has no changes.</p>
               )}
-              <Cards preview={data} />
+              <Cards
+                projectId={projectId}
+                preview={data}
+                onChanged={() => void preview.refetch()}
+              />
               <StatusLines preview={data} locales={locales.data ?? []} waiting={!!waiting} />
             </div>
           ) : (
