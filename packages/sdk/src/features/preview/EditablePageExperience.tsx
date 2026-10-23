@@ -1,14 +1,21 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
 import { CompleteBlockEditingRuntimeProvider } from "../../core/editing/CompleteBlockEditingRuntime";
 import { CamoxContent } from "../content/CamoxContent";
 import { AuthenticatedCamoxProvider } from "../provider/AuthenticatedCamoxProvider";
-import type { PageRenderInput } from "../runtime/runtime";
+import type { PageRenderInput, StudioRouteKind } from "../runtime/runtime";
 import { CamoxSettings } from "../settings/CamoxSettings";
 import { CamoxStudio } from "../studio/CamoxStudio";
 import { CamoxPreview } from "./CamoxPreview";
 import { EditablePageContent } from "./EditablePageContent";
+
+/** The studio section each studio route shows. */
+const STUDIO_SECTIONS: Partial<Record<StudioRouteKind, React.ComponentType>> = {
+  "studio-content": CamoxContent,
+  "studio-settings": CamoxSettings,
+};
 
 export function EditablePageExperience({
   camoxApp: _camoxApp,
@@ -19,15 +26,14 @@ export function EditablePageExperience({
   input: PageRenderInput;
   queryClient: QueryClient;
 }) {
+  const StudioSection = input.routeKind && STUDIO_SECTIONS[input.routeKind];
   return (
     <AuthenticatedCamoxProvider>
       <CompleteBlockEditingRuntimeProvider>
         {input.routeKind ? (
           <CamoxStudio>
-            {input.routeKind === "studio-content" ? (
-              <CamoxContent />
-            ) : input.routeKind === "studio-settings" ? (
-              <CamoxSettings />
+            {StudioSection ? (
+              <StudioSection />
             ) : (
               <div className="text-muted-foreground p-6 text-sm">Studio page not found</div>
             )}

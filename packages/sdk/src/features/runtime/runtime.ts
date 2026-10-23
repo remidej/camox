@@ -99,14 +99,17 @@ import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
 
-export type RuntimeRouteKind =
-  | RuntimeOwnedRouteKind
-  | "canvas"
-  | "page"
-  | "studio"
-  | "studio-content"
-  | "studio-settings"
-  | "studio-nested";
+/** The studio's own routes, rather than a page or the Canvas. */
+const STUDIO_ROUTE_KINDS = [
+  "studio",
+  "studio-content",
+  "studio-settings",
+  "studio-nested",
+] as const;
+
+export type StudioRouteKind = (typeof STUDIO_ROUTE_KINDS)[number];
+
+export type RuntimeRouteKind = RuntimeOwnedRouteKind | "canvas" | "page" | StudioRouteKind;
 
 export interface RuntimeRouteMatch {
   kind: RuntimeRouteKind;
@@ -2020,18 +2023,11 @@ async function createPageMarkdownResponse(
   return layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch, locale, page) : null;
 }
 
-export type StudioRouteKind = "studio" | "studio-content" | "studio-settings" | "studio-nested";
-
 /** Whether a route is one of the studio's own, rather than a page or the Canvas. */
 function isStudioRoute(
   match: RuntimeRouteMatch,
 ): match is RuntimeRouteMatch & { kind: StudioRouteKind } {
-  return (
-    match.kind === "studio" ||
-    match.kind === "studio-content" ||
-    match.kind === "studio-settings" ||
-    match.kind === "studio-nested"
-  );
+  return (STUDIO_ROUTE_KINDS as readonly RuntimeRouteKind[]).includes(match.kind);
 }
 
 /**
