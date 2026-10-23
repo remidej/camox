@@ -114,7 +114,8 @@ export default {
   const run = (script, timeout) =>
     spawnSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: root,
-      env: { ...process.env, HOME: home, CAMOX_INTERNAL_RELEASE: "0" },
+      // Hosted projects start from the Template, so it builds with their checks on.
+      env: { ...process.env, HOME: home, CAMOX_INTERNAL_RELEASE: "0", CAMOX_INTERNAL_HOSTED: "1" },
       encoding: "utf8",
       timeout,
       killSignal: "SIGKILL",

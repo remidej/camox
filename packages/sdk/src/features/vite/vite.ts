@@ -39,6 +39,13 @@ import { collectBlockChunks } from "./blockChunks";
 import { type BundlerOnLog, withoutExpectedCamoxLogs } from "./bundlerLogs";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
+import {
+  HOSTED_BUILD_ENV,
+  type HostedProject,
+  forbiddenImport,
+  misnamedBlock,
+  readHostedProject,
+} from "./hostedChecks";
 import { generateIconTypes } from "./iconGeneration";
 import { generateLayoutFiles, watchLayoutFiles } from "./layoutGeneration";
 import {
@@ -292,6 +299,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
   let isRelease = false;
   /** A release's build, without syncing to Live: what the upgrade job checks a project with. */
   let isDryRun = false;
+  /** Set when the build checks a hosted project's code. */
+  let hostedProject: HostedProject | undefined;
   let resolvedConfig: ResolvedConfig;
   let localAuth: StoredAuth | null = null;
   let blockChunks: Record<string, string[]> = {};
@@ -301,6 +310,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
     name: "camox",
     enforce: "pre",
     resolveId(id, importer) {
+      if (hostedProject) {
+        const forbidden = forbiddenImport(hostedProject, id, importer);
+        if (forbidden) this.error(forbidden);
+      }
       const runtimeId = resolveRuntimeDevId(id, importer);
       if (runtimeId) return runtimeId;
       if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
@@ -350,6 +363,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
     },
     // Apps that compile the SDK from source minify the artifact runtime as its build does.
     transform(code, id) {
+      if (hostedProject) {
+        const misnamed = misnamedBlock(hostedProject, id, code);
+        if (misnamed) this.error(misnamed);
+      }
       return transformArtifactRuntime(code, id);
     },
     generateBundle(_outputOptions, bundle) {
@@ -483,6 +500,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     },
     configResolved(config) {
       resolvedConfig = config;
+      if (process.env[HOSTED_BUILD_ENV] === "1") hostedProject = readHostedProject(config.root);
       if (!config.plugins.some((plugin) => plugin.name.startsWith("vite-plugin-cloudflare"))) {
         throw new Error(
           "Camox: Camox apps run on Cloudflare Workers. Add `cloudflare()` from " +
