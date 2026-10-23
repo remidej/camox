@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import { ArtifactsRunContext, ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
@@ -39,15 +40,16 @@ export function RendererFramesProvider({
   runtimeBasePath: string;
   children: React.ReactNode;
 }) {
+  const queryClient = useQueryClient();
   const studioCache = useStudioCache();
   const draftScope = useDraftScope();
   const [host, setHost] = React.useState<RendererHost | null>(null);
   React.useEffect(() => {
-    const created = createRendererHost({ studioCache, draftScope });
+    const created = createRendererHost({ studioCache, draftScope, queryClient });
     // oxlint-disable-next-line react/set-state-in-effect -- the host subscribes to the studio, so it lives with the effect
     setHost(created);
     return () => created.close();
-  }, [studioCache, draftScope]);
+  }, [studioCache, draftScope, queryClient]);
   const documentUrl = React.useCallback(
     () => draftScope.hrefFor(runtimePath(RENDERER_DOCUMENT_PATH, runtimeBasePath)),
     [draftScope, runtimeBasePath],

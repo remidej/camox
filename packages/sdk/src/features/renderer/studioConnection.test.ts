@@ -152,3 +152,31 @@ void test("the renderer keeps the frames the studio gives it, until they end", a
   await settle();
   assert.deepEqual(connection.frames(), [{ frameId: "preview", slot, target }]);
 });
+
+void test("the renderer's edits go to the studio, and each settles as the studio answers it", async (t) => {
+  const { studio, connection } = await connect(t);
+  const title = { type: "blockContent", blockId: "hero", content: { title: "Hello" } } as const;
+  const answer = { type: "itemContent", itemId: "q1", content: { answer: "Yes" } } as const;
+  const outcomes: unknown[] = [];
+  void connection.edit(title).then(
+    () => outcomes.push("title saved"),
+    (error: Error) => outcomes.push({ title: error.message }),
+  );
+  void connection.edit(answer).then(
+    () => outcomes.push("answer saved"),
+    (error: Error) => outcomes.push({ answer: error.message }),
+  );
+  await settle();
+  const sent = studio.all("edit");
+  assert.deepEqual(
+    sent.map(({ edit }) => edit),
+    [title, answer],
+  );
+  assert.deepEqual(outcomes, [], "nothing settles before the studio answers");
+  studio.send({ type: "edited", editId: sent[1]!.editId, error: "Not a member" });
+  studio.send({ type: "edited", editId: sent[0]!.editId });
+  // An answer to no edit of this renderer's changes nothing.
+  studio.send({ type: "edited", editId: -1 });
+  await settle();
+  assert.deepEqual(outcomes, [{ answer: "Not a member" }, "title saved"]);
+});

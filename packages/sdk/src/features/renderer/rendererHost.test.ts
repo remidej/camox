@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import type { QueryKey } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 
+import { initApiClient } from "../../lib/api-client";
 import type { DraftScope } from "../../lib/draft-scope";
 import { testDraftScope, testStudioCache } from "../../lib/draft-scope.fixtures";
 import { reads, type StudioCache } from "../../lib/studio-reads";
@@ -15,9 +17,11 @@ import { connectToStudio } from "./studioConnection";
 
 const page = { kind: "page", pageId: "home" } as const;
 
+Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
+
 function setup(
   t: { after: (fn: () => void) => void },
-  studio?: { studioCache: StudioCache; draftScope: DraftScope },
+  studio?: { studioCache: StudioCache; draftScope: DraftScope; queryClient: QueryClient },
 ) {
   const host = createRendererHost(studio);
   t.after(() => {
@@ -225,4 +229,133 @@ void test("a renderer of another protocol is told nothing", async (t) => {
   previewStore.send({ type: "showCanvas" });
   await settle();
   assert.deepEqual(renderer.received, []);
+});
+
+/** The API the studio writes through, answering `answer` and recording each request it gets. */
+function fakeApi(
+  t: TestContext,
+  draftScope: DraftScope,
+  answer: (procedure: string) => Response = () => Response.json({ json: null }),
+) {
+  initApiClient("http://localhost:8788", draftScope);
+  const requests: { procedure: string; headers: Headers; input: unknown }[] = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const procedure = new URL(request.url).pathname.replace("/rpc/", "");
+    requests.push({ procedure, headers: request.headers, input: (await request.json()).json });
+    return answer(procedure);
+  });
+  return requests;
+}
+
+void test("an edit made in the renderer is written once, by the studio, which says it landed", async (t) => {
+  const studio = studioState("spring");
+  const requests = fakeApi(t, studio.draftScope);
+  const host = setup(t, studio);
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  renderer.send({
+    type: "edit",
+    editId: 1,
+    edit: { type: "blockContent", blockId: "hero", content: { title: "Hello" } },
+  });
+  renderer.send({
+    type: "edit",
+    editId: 2,
+    edit: { type: "itemContent", itemId: "q1", content: { answer: "Yes" } },
+  });
+  // A block whose definition the draft's code removed is deleted from its placeholder.
+  renderer.send({ type: "edit", editId: 3, edit: { type: "deleteBlock", blockId: "old" } });
+  await settle();
+  assert.deepEqual(
+    requests.map(({ procedure, headers, input }) => [procedure, headers.get(DRAFT_HEADER), input]),
+    [
+      ["blocks/updateContent", "spring", { id: "hero", content: { title: "Hello" } }],
+      ["repeatableItems/updateContent", "spring", { id: "q1", content: { answer: "Yes" } }],
+      ["blocks/delete", "spring", { id: "old" }],
+    ],
+  );
+  assert.deepEqual(renderer.all("edited"), [
+    { type: "edited", editId: 1 },
+    { type: "edited", editId: 2 },
+    { type: "edited", editId: 3 },
+  ]);
+});
+
+void test("an edit made in the renderer while viewing Live starts a draft, which the renderer enters", async (t) => {
+  const studio = studioState(null);
+  const requests = fakeApi(t, studio.draftScope);
+  const host = setup(t, studio);
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  renderer.send({
+    type: "edit",
+    editId: 1,
+    edit: { type: "blockContent", blockId: "hero", content: { title: "Hello" } },
+  });
+  await settle();
+  const [write] = requests;
+  assert.equal(write?.headers.get(DRAFT_CREATE_HEADER), "1");
+  const started = write?.headers.get(DRAFT_HEADER);
+  assert.ok(started);
+  assert.equal(studio.draftScope.current(), started);
+  assert.deepEqual(renderer.all("draftStarted"), [{ type: "draftStarted", draftId: started }]);
+  assert.deepEqual(renderer.all("edited"), [{ type: "edited", editId: 1 }]);
+});
+
+void test("an edit the API refuses is answered with why", async (t) => {
+  const studio = studioState("spring");
+  fakeApi(t, studio.draftScope, () =>
+    Response.json(
+      { json: { defined: false, code: "FORBIDDEN", status: 403, message: "Not a member" } },
+      { status: 403 },
+    ),
+  );
+  const host = setup(t, studio);
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  renderer.send({
+    type: "edit",
+    editId: 4,
+    edit: { type: "itemContent", itemId: "q1", content: { answer: "Yes" } },
+  });
+  await settle();
+  assert.deepEqual(renderer.all("edited"), [{ type: "edited", editId: 4, error: "Not a member" }]);
+});
+
+void test("a record field edited in the renderer is saved to the shared record, which the renderer then holds", async (t) => {
+  const studio = studioState("spring");
+  const saved = { id: "ada", content: { name: "Ada L.", role: "Engineer" } };
+  const requests = fakeApi(t, studio.draftScope, (procedure) =>
+    Response.json({ json: procedure === "collectionDefinitions/editRecord" ? saved : null }),
+  );
+  const host = setup(t, studio);
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  const record = {
+    id: "ada",
+    collectionId: "people",
+    title: "Ada",
+    description: null,
+    content: { name: "Ada", role: "Engineer" },
+  };
+  renderer.send({
+    type: "edit",
+    editId: 1,
+    edit: { type: "recordField", projectUuid: "site", record, field: "name", value: "Ada L." },
+  });
+  await settle();
+  assert.deepEqual(
+    requests
+      .filter(({ procedure }) => procedure === "collectionDefinitions/editRecord")
+      .map(({ input }) => input),
+    [{ id: "ada", collectionId: "people", content: saved.content, projectUuid: "site" }],
+  );
+  const recordKey = studio.studioCache.options(
+    reads.record({ projectUuid: "site", collectionId: "people", id: "ada" }),
+  ).queryKey;
+  const recordWrite = renderer
+    .all("write")
+    .find(({ queryKey }) => JSON.stringify(queryKey) === JSON.stringify(recordKey));
+  assert.deepEqual(recordWrite?.value, saved);
+  assert.deepEqual(renderer.all("edited"), [{ type: "edited", editId: 1 }]);
 });
