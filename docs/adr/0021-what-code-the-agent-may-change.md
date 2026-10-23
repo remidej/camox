@@ -18,3 +18,22 @@ Camox's agent changes a hosted site's code for marketing teams with no developer
 - On Live, the dispatch namespace's outbound Worker blocks the project Worker's `fetch()`, as `globalOutbound: null` does in previews.
 - Images and media are files, managed as content. An icon is inline SVG or from `lucide-react`.
 - ADR 0007 stands: the agent may rename or remove fields and definitions, and content conforms on read. But the publish confirmation now lists the definitions and fields a draft removes while Live content uses them, since no developer meant the removal. It is a warning, not a blocker.
+
+## Amendment: outbound requests, and guards in the build
+
+Agent-written code may make outbound requests, from the server and the browser. A lint rule couldn't stop them in the browser, where `fetch()` has many substitutes, and a Content-Security-Policy would cost work today for a risk that may never come. The rules that do guard the line run in the build, not in lint, since the agent can disable a lint rule with a comment in a file it writes ([Lint rules for agent-written code](https://github.com/remidej/camox/issues/555)).
+
+### Considered Options
+
+- **A Content-Security-Policy** on Live and previews, built by Camox from Embeds, Files and analytics Project Settings. It is the only way to block browser requests, and the cost buys nothing yet.
+- **Allow requests only in the browser**, keeping server `fetch()` blocked. A block that fetches in its server render would break in previews and on Live alike.
+- **Guards as oxlint rules** with custom JS plugins. They would need inline disable comments ignored and a new runner; the build already reaches the agent and becomes a Blocker.
+- **Lint errors as Blockers**, as this ADR first said. A Blocker the agent can turn off with a comment isn't a guard, and editors can't act on it.
+
+### Consequences
+
+- On Live, the dispatch namespace's outbound Worker no longer blocks the project Worker's `fetch()`. A preview's Dynamic Worker passes outbound requests through instead of `globalOutbound: null`, so previews and Live behave alike. Its gateway stays the only way to reach the Camox API.
+- The `camox` Vite plugin checks imports during the build, against an allowlist: relative and `@/` paths inside `src/`, `camox`'s public entry points, and `package.json`'s `dependencies`. Anything else fails the build, including `node:*`, `cloudflare:*`, devDependencies and private `camox` paths. The registry scan checks that a block's file name equals its id.
+- The Document has no check. The agent's instructions say to add a font as a Google Fonts link and to leave SEO links to Camox; nothing enforces either. Third-party scripts can now come from the agent, not only from integrations Camox owns.
+- Lint is for code quality only. `vp lint` runs in the revision's Container after the build, its errors go back to the agent in the same turn, and they never block publishing. Its config ships in the Template's `vite.config.ts`, without type-aware linting, since tsrs type checks.
+- The build checks and the lint step run only in hosted projects' builds, revisions and releases alike, turned on by a Camox-internal flag. `apps/landing` and self-hosters never see them. An Upgrade whose new rule breaks existing code fails like any other that doesn't build.
