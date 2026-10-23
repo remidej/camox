@@ -388,6 +388,27 @@ describe("definitions.sync", () => {
     expect(await stateOf()).toEqual(before);
   });
 
+  it("lists each layout with the title its code gives it, in Live and in a development draft", async () => {
+    const { release, syncDevelopment, member, development, project } = await fixture();
+    const titled = (title: string): TestDefinitionSet => ({
+      ...website,
+      layouts: [{ ...website.layouts![0]!, title }],
+    });
+    const titles = async (headers: Record<string, string> = {}) =>
+      (await call(router.layouts.list, { projectId: project.id }, member(headers))).map(
+        ({ layoutId, title }) => ({ layoutId, title }),
+      );
+
+    await release(titled("Marketing page"));
+    await syncDevelopment(titled("Landing page"));
+
+    expect(await titles()).toEqual([{ layoutId: "default", title: "Marketing page" }]);
+    expect(await titles(development)).toEqual([{ layoutId: "default", title: "Landing page" }]);
+
+    await release(titled("Article"));
+    expect(await titles()).toEqual([{ layoutId: "default", title: "Article" }]);
+  });
+
   it("refuses a caller with neither a session nor the deploy token before looking at the set", async () => {
     const { db, project } = await fixture();
 
