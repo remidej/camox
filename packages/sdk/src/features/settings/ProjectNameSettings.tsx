@@ -27,13 +27,15 @@ export function ProjectNameSettings({ project }: { project: Project }) {
     },
   });
 
+  const trimmedName = name.trim();
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!name.trim()) {
+    if (!trimmedName) {
       setError("Project name is required");
       return;
     }
-    save.mutate({ id: project.id, name });
+    save.mutate({ id: project.id, name: trimmedName });
   };
 
   return (
@@ -56,7 +58,7 @@ export function ProjectNameSettings({ project }: { project: Project }) {
         <Button
           type="submit"
           className="self-start"
-          disabled={name === project.name || save.isPending}
+          disabled={trimmedName === project.name || save.isPending}
         >
           {save.isPending && <Spinner />}
           Save changes

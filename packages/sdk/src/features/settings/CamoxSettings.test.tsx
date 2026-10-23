@@ -67,11 +67,16 @@ const json = (body: unknown, status = 200) =>
  */
 function mockApi(t: test.TestContext, overrides: Partial<typeof project> = {}) {
   const analyticsSaves: unknown[] = [];
+  const projectUpdates: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request | URL) => {
     if (request instanceof URL) return Response.json({});
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     if (path === "projects/updateAnalytics") {
       analyticsSaves.push(((await request.json()) as { json: unknown }).json);
+      return json({});
+    }
+    if (path === "projects/update") {
+      projectUpdates.push(((await request.json()) as { json: unknown }).json);
       return json({});
     }
     if (path === "projects/getByUuid") return json({ ...project, ...overrides });
@@ -80,7 +85,7 @@ function mockApi(t: test.TestContext, overrides: Partial<typeof project> = {}) {
     if (path === "drafts/list") return json({ live: null, drafts: [] });
     return json({});
   });
-  return { analyticsSaves };
+  return { analyticsSaves, projectUpdates };
 }
 
 async function settle() {
@@ -294,4 +299,31 @@ void test("the saved providers show in the Analytics part, each removable", asyn
 
   await click(analyticsButton(/^Remove PostHog$/));
   assert.deepEqual(analyticsSaves, [{ id: project.id, posthog: null }]);
+});
+
+const projectNameInput = () => inputById("camox-project-name");
+const projectNameSave = () =>
+  [
+    ...(window.document
+      .querySelector('section[aria-labelledby="camox-settings-project-name"]')
+      ?.querySelectorAll("button") ?? []),
+  ].find((button) => /^Save changes$/.test(button.textContent ?? ""));
+
+void test("a project name is saved without its surrounding spaces", async (t) => {
+  const { projectUpdates } = mockApi(t);
+  await render(t, "/camox/settings");
+
+  await type(projectNameInput(), "  New name  ");
+  await click(projectNameSave());
+
+  assert.deepEqual(projectUpdates, [{ id: project.id, name: "New name" }]);
+});
+
+void test("a project name that only differs by surrounding spaces can't be saved", async (t) => {
+  mockApi(t);
+  await render(t, "/camox/settings");
+
+  await type(projectNameInput(), ` ${project.name} `);
+
+  assert.equal(projectNameSave()?.disabled, true);
 });
