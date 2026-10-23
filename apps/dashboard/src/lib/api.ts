@@ -14,7 +14,10 @@ const link = new RPCLink({
 
 export const api = createORPCClient<RouterClient<Router>>(link);
 
-export type Project = InferClientOutputs<RouterClient<Router>>["projects"]["list"][number];
+/** A project as the project list returns it, with its Live homepage's OG image. */
+export type ListedProject = InferClientOutputs<RouterClient<Router>>["projects"]["list"][number];
+
+export type Project = Omit<ListedProject, "homepageOgImageUrl">;
 
 /** A project's analytics providers, a Project Setting. Each is null when it isn't set up. */
 export type ProjectAnalytics = InferClientOutputs<

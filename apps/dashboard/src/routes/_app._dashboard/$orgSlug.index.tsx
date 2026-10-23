@@ -1,11 +1,11 @@
 import { Button } from "@camox/ui/button";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { GlobeIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
 
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
-import { ProjectFavicon } from "@/components/ProjectFavicon";
+import { ProjectCard } from "@/components/ProjectCard";
 import { projectQueries } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/_dashboard/$orgSlug/")({
@@ -41,20 +41,9 @@ function OrgIndex() {
       ) : (
         <div className="mx-auto w-full max-w-4xl space-y-4">
           <div className="flex justify-end">{createButton}</div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {projects.map((project) => (
-              <Link
-                key={project.id}
-                to="/$orgSlug/$projectSlug/overview"
-                params={{ orgSlug, projectSlug: project.slug }}
-                className="bg-card hover:bg-accent/75 flex items-center gap-3 rounded-md border p-5 transition-colors"
-              >
-                <ProjectFavicon project={project} size={32} className="shrink-0" />
-                <div className="min-w-0">
-                  <h2 className="truncate font-medium">{project.name}</h2>
-                  <p className="text-muted-foreground mt-1 truncate text-sm">{project.slug}</p>
-                </div>
-              </Link>
+              <ProjectCard key={project.id} project={project} />
             ))}
           </div>
         </div>
