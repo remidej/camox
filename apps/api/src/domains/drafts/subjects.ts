@@ -12,6 +12,7 @@ import {
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
+import { readInChunks } from "../content/chunks";
 import { contentReader } from "../content/reader";
 import type { GeneratedEntity } from "../generated-values/schema";
 import { readValues } from "../generated-values/service";
@@ -54,9 +55,6 @@ export type Subject = {
 
 export type Mention = { entity: SubjectKind; id: string };
 
-// D1 binds at most 100 parameters per statement.
-const ID_CHUNK = 90;
-
 /**
  * The rows of `ids` the draft holds, or Live's where it holds none, in the default locale where
  * there's one: a page is named by its default-locale path.
@@ -69,18 +67,17 @@ const rowsSeenBy = <T extends overlay.ContentTable>(
   defaultTag: string | undefined,
 ) =>
   Effect.gen(function* () {
-    const rows: T["$inferSelect"][] = [];
-    for (let start = 0; start < ids.length; start += ID_CHUNK) {
-      const chunk = ids.slice(start, start + ID_CHUNK);
-      rows.push(
-        ...((yield* Effect.promise(() =>
+    const rows = yield* readInChunks(ids, (chunk) =>
+      Effect.promise(
+        () =>
           ctx.db
             .select()
             .from(table as SQLiteTable)
-            .where(and(inArray(table.id, chunk), overlay.storedInLiveOrDraft(table, scope.id))),
-        )) as T["$inferSelect"][]),
-      );
-    }
+            .where(
+              and(inArray(table.id, chunk), overlay.storedInLiveOrDraft(table, scope.id)),
+            ) as Promise<T["$inferSelect"][]>,
+      ),
+    );
     const rank = (row: T["$inferSelect"]) =>
       (overlay.localeOfRow(row) === (defaultTag ?? null) ? 2 : 0) + (row.draftId !== null ? 1 : 0);
     const byId = new Map<string, T["$inferSelect"]>();

@@ -15,6 +15,7 @@ import {
 } from "../../schema";
 import { type Field, fieldsOf, pointersIn } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
+import { readInChunks } from "../content/chunks";
 import { contentReader } from "../content/reader";
 import { withFileMetadata } from "../files/generated-metadata";
 import { defaultLocaleTag } from "../locales/default-locale";
@@ -153,9 +154,6 @@ const TABLES = {
 type ComparedKind = keyof typeof TABLES;
 const isCompared = (entity: string): entity is ComparedKind => Object.hasOwn(TABLES, entity);
 
-// D1 binds at most 100 parameters per statement.
-const ID_CHUNK = 90;
-
 /**
  * Live's rows and the draft's own for these ids, tombstones included, in the default locale for
  * a localized table.
@@ -170,21 +168,22 @@ const bothRows = Effect.fn("drafts.bothRows")(function* <T extends overlay.Conte
   const live = new Map<string, T["$inferSelect"]>();
   const draft = new Map<string, T["$inferSelect"]>();
   const locale = "locale" in table ? (table.locale as typeof blocks.locale) : undefined;
-  for (let start = 0; start < ids.length; start += ID_CHUNK) {
-    const rows = (yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(table as SQLiteTable)
-        .where(
-          and(
-            inArray(table.id, ids.slice(start, start + ID_CHUNK)),
-            overlay.storedInLiveOrDraft(table, scope.id),
-            locale && defaultTag !== undefined ? eq(locale, defaultTag) : undefined,
-          ),
-        ),
-    )) as T["$inferSelect"][];
-    for (const row of rows) (row.draftId === null ? live : draft).set(row.id, row);
-  }
+  const rows = yield* readInChunks(ids, (chunk) =>
+    Effect.promise(
+      () =>
+        ctx.db
+          .select()
+          .from(table as SQLiteTable)
+          .where(
+            and(
+              inArray(table.id, chunk),
+              overlay.storedInLiveOrDraft(table, scope.id),
+              locale && defaultTag !== undefined ? eq(locale, defaultTag) : undefined,
+            ),
+          ) as Promise<T["$inferSelect"][]>,
+    ),
+  );
+  for (const row of rows) (row.draftId === null ? live : draft).set(row.id, row);
   return { live, draft };
 });
 
