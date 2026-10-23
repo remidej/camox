@@ -22,6 +22,8 @@ export type Bindings = {
   THREAD: DurableObjectNamespace<import("./durable-objects/thread").Thread>;
   /** A read-only copy of each project's `main`, by Project ID, which the agent reads code from. */
   PROJECT_CODE: DurableObjectNamespace<import("./durable-objects/project-code").ProjectCode>;
+  /** Each draft with code's working copy, by the draft's ID, which the agent changes code in. */
+  DRAFT_CODE: DurableObjectNamespace<import("./durable-objects/draft-code").DraftCode>;
   /** The sandbox Worker's Durable Object running code mode scripts, one per thread (ADR 0018). */
   CODEMODE_SANDBOX: DurableObjectNamespace<
     import("@earendil-works/pi-codemode/cloudflare").CodemodeSandboxDurableObject

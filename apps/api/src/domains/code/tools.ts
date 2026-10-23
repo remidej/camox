@@ -5,7 +5,7 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { type ExecutionEnv, type FileInfo, getOrThrow } from "@earendil-works/pi-durable/env";
-import { createReadTool } from "@earendil-works/pi-durable/tools";
+import { createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 
 // The agent's tools for reading code. `read` is Pi Durable's own. `grep`, `find` and `ls` copy the
 // schemas, descriptions and output of Pi's coding agent, `@earendil-works/pi-coding-agent` 1.3.0
@@ -319,6 +319,76 @@ export const lsTool = defineTool({
     return text(withNotices(results.join("\n"), notices));
   },
 });
+
+const mvSchema = Type.Object({
+  from: Type.String({ description: "Path of the file to move (relative or absolute)" }),
+  to: Type.String({ description: "Path to move it to (relative or absolute)" }),
+});
+
+/** Camox's own: moves or renames a file, which the write line checks at both ends. */
+export const mvTool = defineTool({
+  name: "mv",
+  description:
+    "Move or rename a file. Overwrites the destination if it exists. Automatically creates the destination's parent directories.",
+  parameters: mvSchema,
+  async execute({ from, to }, api, context) {
+    const env = envOf(api);
+    const source = await resolve(env, from, context);
+    const destination = await resolve(env, to, context);
+    let moved = await env.renameFile(source, destination, context);
+    // The destination's directory doesn't exist yet: the source does, as `renameFile` checked.
+    if (!moved.ok && moved.error.code === "not_found" && (await infoOf(env, source, context))) {
+      const parent = destination.slice(0, destination.lastIndexOf("/")) || "/";
+      getOrThrow(await env.createDir(parent, { recursive: true }, context));
+      moved = await env.renameFile(source, destination, context);
+    }
+    getOrThrow(moved);
+    return text(`Moved ${from} to ${to}`);
+  },
+});
+
+const rmSchema = Type.Object({
+  path: Type.String({ description: "Path to the file to delete (relative or absolute)" }),
+});
+
+/** Camox's own: deletes a file, which the write line checks. */
+export const rmTool = defineTool({
+  name: "rm",
+  description: "Delete a file.",
+  parameters: rmSchema,
+  async execute({ path }, api, context) {
+    const env = envOf(api);
+    getOrThrow(await env.remove(await resolve(env, path, context), { recursive: false }, context));
+    return text(`Deleted ${path}`);
+  },
+});
+
+/**
+ * The agent's tools for changing code, which both the model and code mode scripts may call:
+ * Pi Durable's `write` and `edit`, unchanged, and Camox's `mv` and `rm`.
+ */
+export const codeWritingTools = (): ToolRegistration[] => [
+  createWriteTool() as unknown as ToolRegistration,
+  createEditTool() as unknown as ToolRegistration,
+  mvTool as unknown as ToolRegistration,
+  rmTool as unknown as ToolRegistration,
+];
+
+const pathsIn =
+  (...keys: string[]) =>
+  (args: unknown) =>
+    keys.flatMap((key) => {
+      const path = (args as Record<string, unknown> | null)?.[key];
+      return typeof path === "string" ? [path] : [];
+    });
+
+/** The tools changing code, with the paths a call of each writes. */
+export const CODE_WRITES: { name: string; paths: (args: unknown) => string[] }[] = [
+  { name: "write", paths: pathsIn("path") },
+  { name: "edit", paths: pathsIn("path") },
+  { name: "mv", paths: pathsIn("from", "to") },
+  { name: "rm", paths: pathsIn("path") },
+];
 
 /** The agent's tools for reading code, which both the model and code mode scripts may call. */
 export const codeReadingTools = (): ToolRegistration[] => [

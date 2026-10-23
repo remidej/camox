@@ -10,6 +10,7 @@ import {
   commitFiles,
   deleteGitRepo,
   forkGitRepo,
+  gitBranches,
   gitLog,
   hasGitRepo,
   losePushResponse,
@@ -406,6 +407,11 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async takePushEvents(repo) {
     return takePushEvents(repo);
+  }
+
+  /** @param {string} repo The branches of a Git repo, `main` first. */
+  async branches(repo) {
+    return gitBranches(repo);
   }
 
   /** @param {string} repo The commits on a Git repo's `main`, newest first. */
