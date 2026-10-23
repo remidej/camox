@@ -22,7 +22,7 @@ import type { DraftOverviewRequest } from "../../lib/ai-model";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { runOverviewJob } from "./overview";
-import { MAX_INPUT_LENGTH, overviewInput } from "./overview-input";
+import { CREATED_VALUES, MAX_INPUT_LENGTH, overviewInput } from "./overview-input";
 import { camoxContext, type Change } from "./publish";
 
 // What the model reads to write a draft's overview (#532): the draft's changes, field by field,
@@ -47,6 +47,23 @@ async function fixture() {
             price: { fieldType: "String", type: "string", title: "Price" },
           },
           toMarkdown: ["# {{name}}", "{{price}}"],
+        },
+      },
+      {
+        blockId: "feature",
+        title: "Feature",
+        description: "A product feature",
+        contentSchema: {
+          type: "object",
+          properties: {
+            title: { fieldType: "String", type: "string", title: "Title" },
+            tagline: { fieldType: "String", type: "string", title: "Tagline" },
+            body: { fieldType: "String", type: "string", title: "Body" },
+            details: { fieldType: "String", type: "string", title: "Details" },
+            note: { fieldType: "String", type: "string", title: "Note" },
+            footnote: { fieldType: "String", type: "string", title: "Footnote" },
+          },
+          toMarkdown: ["# {{title}}", "{{tagline}}", "{{body}}"],
         },
       },
     ],
@@ -112,6 +129,39 @@ describe("the overview's input", () => {
         }),
       ]),
     );
+  });
+
+  it("has a created block's main values only: its first fields holding one", async () => {
+    const { page, member, draft, overviewRequest } = await fixture();
+    const content = {
+      title: "Sync",
+      tagline: "",
+      body: "Keeps every device in step",
+      details: "Works offline",
+      note: "Beta",
+      footnote: "Since 2024",
+    };
+
+    const mine = await draft((headers) =>
+      callSeedingLive(
+        router.blocks.create,
+        { pageId: page.id, type: "feature", content },
+        member(headers),
+      ),
+    );
+
+    const request = await overviewRequest(mine.id);
+    const held = [
+      { field: "Title", value: "Sync" },
+      { field: "Body", value: "Keeps every device in step" },
+      { field: "Details", value: "Works offline" },
+      { field: "Note", value: "Beta" },
+      { field: "Footnote", value: "Since 2024" },
+    ];
+    expect(CREATED_VALUES).toBeLessThan(held.length);
+    expect(request).toMatchObject({
+      changes: [{ change: "created", values: held.slice(0, CREATED_VALUES) }],
+    });
   });
 
   it("names a deleted block by its label, and a block that only changed position as moved", async () => {

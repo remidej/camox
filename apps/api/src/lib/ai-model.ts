@@ -98,7 +98,7 @@ export type OverviewChange = {
   change: "created" | "changed" | "deleted" | "moved";
   /** For a changed entity, the fields that differ: Live's value, then the draft's. */
   fields?: { field: string; before: string; after: string }[];
-  /** For a created entity, the values of its fields that hold one. */
+  /** For a created entity, its main values: its first few fields holding one. */
   values?: { field: string; value: string }[];
   /** For a page whose path changed, how many pages under it moved along with it. */
   pagesUnder?: number;

@@ -23,6 +23,9 @@ type Scope = NonNullable<DraftScope>;
  */
 export const MAX_INPUT_LENGTH = 20_000;
 
+/** How many values describe a created entity: its main ones, enough to tell what it is. */
+export const CREATED_VALUES = 3;
+
 /** Where a change sits, as the model reads it: its page's name and path, or what else holds it. */
 function placeOf(change: Change): string {
   const { owner, entity } = change;
@@ -87,7 +90,9 @@ const describeChanges = Effect.fn("drafts.describeOverviewChanges")(function* (
     }
     const values = valuesOf(change.entity, change.id);
     if (change.change === "created") {
-      const held = (values.draft ?? []).filter(({ value }) => value !== "");
+      const held = (values.draft ?? [])
+        .filter(({ value }) => value !== "")
+        .slice(0, CREATED_VALUES);
       described.push({ ...base, change: "created", ...(held.length > 0 && { values: held }) });
       continue;
     }
@@ -194,10 +199,10 @@ function fitted(requestKeeping: (kept: number) => DraftOverviewRequest, most: nu
 /**
  * What the model reads to write a draft's overview, from the changes its preview lists (which
  * leave out the localizations Camox wrote): the default locale's changes field by field, before
- * and after; created entities by their values, deleted ones by their label; a block that only
- * moved as moved; a path rename once. Hand edits in other locales are counted per locale. The
- * whole input is capped at `MAX_INPUT_LENGTH`: past it, the changes are grouped by place, with
- * counts, and lists of places keep their first ones, counting the others.
+ * and after; created entities by their main values, deleted ones by their label; a block that
+ * only moved as moved; a path rename once. Hand edits in other locales are counted per locale.
+ * The whole input is capped at `MAX_INPUT_LENGTH`: past it, the changes are grouped by place,
+ * with counts, and lists of places keep their first ones, counting the others.
  */
 export const overviewInput = Effect.fn("drafts.overviewInput")(function* (
   ctx: ServiceContext,
