@@ -88,17 +88,20 @@ function mockApi(t: test.TestContext, overrides: Partial<typeof project> = {}) {
   return { analyticsSaves, projectUpdates };
 }
 
-async function settle() {
-  await React.act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  });
+/** Lets the studio work until `check` holds, failing with `message` if it never does. */
+async function waitFor(check: () => unknown, message: string) {
+  for (let i = 0; i < 200 && !check(); i++) {
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+  assert.ok(check(), message);
 }
 
 async function click(element: unknown) {
   assert.ok(element, "expected an element to click");
   await React.act(async () => {
     (element as unknown as { click: () => void }).click();
-    await new Promise((resolve) => setTimeout(resolve, 40));
   });
 }
 
@@ -157,7 +160,10 @@ async function render(t: test.TestContext, pathname: string) {
       </QueryClientProvider>,
     ),
   );
-  await settle();
+  await waitFor(
+    () => draftPicker() && localePicker() && (!isSettings || analyticsPart()),
+    "the studio never finished loading",
+  );
   t.after(async () => {
     await React.act(async () => root.unmount());
     host.remove();
@@ -207,13 +213,13 @@ void test("the draft and language pickers work outside the Settings Section", as
   for (const picker of [draftPicker(), localePicker()]) {
     assert.ok(picker, "expected the picker to be rendered");
     await click(picker);
-    assert.ok(isMenuOpen(), `${picker.textContent} opened no menu`);
+    await waitFor(isMenuOpen, `${picker.textContent} opened no menu`);
     await React.act(async () => {
       window.document.dispatchEvent(
         new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 40));
     });
+    await waitFor(() => !isMenuOpen(), `${picker.textContent}'s menu never closed`);
   }
 });
 
@@ -242,7 +248,6 @@ async function type(input: HTMLInputElement | null, value: string) {
       value,
     );
     input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
-    await new Promise((resolve) => setTimeout(resolve, 40));
   });
 }
 const inputById = (id: string) =>
@@ -254,8 +259,10 @@ void test("a GA4 measurement ID is saved in upper case", async (t) => {
   await render(t, "/camox/settings");
 
   await click(analyticsButton(/^Add Google Analytics 4$/));
+  await waitFor(measurementIdInput, "no measurement ID to fill in");
   await type(measurementIdInput(), " g-a1b2c3 ");
   await click(analyticsButton(/^Save$/));
+  await waitFor(() => analyticsSaves.length, "nothing was saved");
 
   assert.deepEqual(analyticsSaves, [{ id: project.id, ga4: { measurementId: "G-A1B2C3" } }]);
 });
@@ -265,11 +272,15 @@ void test("a GA4 measurement ID that isn't one is refused before saving", async 
   await render(t, "/camox/settings");
 
   await click(analyticsButton(/^Add Google Analytics 4$/));
+  await waitFor(measurementIdInput, "no measurement ID to fill in");
   await type(measurementIdInput(), "UA-12345");
   await click(analyticsButton(/^Save$/));
+  await waitFor(
+    () => measurementIdInput()?.getAttribute("aria-invalid") === "true",
+    "the measurement ID wasn't refused",
+  );
 
   assert.deepEqual(analyticsSaves, []);
-  assert.equal(measurementIdInput()?.getAttribute("aria-invalid"), "true");
 });
 
 void test("a provider being added can be cancelled without saving", async (t) => {
@@ -277,10 +288,10 @@ void test("a provider being added can be cancelled without saving", async (t) =>
   await render(t, "/camox/settings");
 
   await click(analyticsButton(/^Add PostHog$/));
-  assert.equal(analyticsButton(/^Add PostHog$/), undefined, "PostHog is still offered to add");
+  await waitFor(() => !analyticsButton(/^Add PostHog$/), "PostHog is still offered to add");
   await click(analyticsButton(/^Cancel$/));
 
-  assert.ok(analyticsButton(/^Add PostHog$/), "PostHog isn't offered to add again");
+  await waitFor(() => analyticsButton(/^Add PostHog$/), "PostHog isn't offered to add again");
   assert.deepEqual(analyticsSaves, []);
 });
 
@@ -298,6 +309,7 @@ void test("the saved providers show in the Analytics part, each removable", asyn
   assert.match(analyticsPart()?.textContent ?? "", /EU Cloud/);
 
   await click(analyticsButton(/^Remove PostHog$/));
+  await waitFor(() => analyticsSaves.length, "nothing was saved");
   assert.deepEqual(analyticsSaves, [{ id: project.id, posthog: null }]);
 });
 
@@ -315,6 +327,7 @@ void test("a project name is saved without its surrounding spaces", async (t) =>
 
   await type(projectNameInput(), "  New name  ");
   await click(projectNameSave());
+  await waitFor(() => projectUpdates.length, "nothing was saved");
 
   assert.deepEqual(projectUpdates, [{ id: project.id, name: "New name" }]);
 });
