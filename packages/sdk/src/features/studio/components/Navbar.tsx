@@ -1,7 +1,7 @@
 import { buttonVariants } from "@camox/ui/button";
 import type { HotkeyChord } from "@tanstack/react-hotkeys";
 import { useSelector } from "@xstate/store-react";
-import { Globe, Database } from "lucide-react";
+import { Database, Globe, Settings } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
 
@@ -14,7 +14,7 @@ import { useViewLocale } from "@/lib/view-locale-context";
 import type { ShownRecordPage } from "../../preview/pageRecord";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
-import { STUDIO_BASE_PATH, STUDIO_CONTENT_PATH } from "../routes";
+import { STUDIO_BASE_PATH, STUDIO_CONTENT_PATH, STUDIO_SETTINGS_PATH } from "../routes";
 import { studioStore, type WebsiteLocation } from "../studioStore";
 import { DraftPicker, PendingChanges } from "./DraftsControl";
 import { LocalePicker } from "./LocalePicker";
@@ -46,6 +46,18 @@ const links = [
     icon: "FileText",
     aliases: ["Content", "Pages", "CMS"],
   },
+  {
+    to: STUDIO_SETTINGS_PATH as LinkProps["to"],
+    title: "Settings",
+    children: (
+      <>
+        <Settings />
+        Settings
+      </>
+    ),
+    icon: "Settings",
+    aliases: ["Settings", "Project settings", "Favicon", "Social profiles"],
+  },
 ] satisfies Array<{
   to: LinkProps["to"];
   title: string;
@@ -74,8 +86,14 @@ function navbarHref(
   return localized(link.to);
 }
 
-export const isContentNavbarPath = (pathname: string) =>
-  pathname === STUDIO_CONTENT_PATH || pathname.startsWith(`${STUDIO_CONTENT_PATH}/`);
+/** Whether `pathname` is in the studio section at `sectionPath`. */
+const isInSection = (sectionPath: string, pathname: string) =>
+  pathname === sectionPath || pathname.startsWith(`${sectionPath}/`);
+
+export const isContentNavbarPath = (pathname: string) => isInSection(STUDIO_CONTENT_PATH, pathname);
+
+export const isSettingsNavbarPath = (pathname: string) =>
+  isInSection(STUDIO_SETTINGS_PATH, pathname);
 
 const Navbar = ({
   isWebsite = false,
@@ -91,28 +109,31 @@ const Navbar = ({
   const localized = useLocalizedPath();
   const { locale } = useViewLocale();
   const last = useSelector(studioStore, (state) => state.context.websiteLocation);
+  // Project Settings apply to Live and every draft in every locale: nothing to pick there.
+  const isSettings = isSettingsNavbarPath(pathname);
   return (
     <nav className="bg-background relative flex items-center justify-between gap-4 border-b-2 px-2 py-2">
       <div className="flex flex-row gap-2">
         <div className="flex items-center gap-1">
           <ProjectMenu />
-          <DraftPicker />
-          <LocalePicker recordPage={recordPage} />
+          <DraftPicker disabled={isSettings} />
+          <LocalePicker recordPage={recordPage} disabled={isSettings} />
         </div>
         <ul className="flex items-center gap-1">
           {getNavbarLinks().map((link, index) => {
-            const isWebsiteActive =
-              index === 0 && (isWebsite || pages?.some((page) => page.fullPath === pathname));
-            const isContentActive =
-              link.to === STUDIO_CONTENT_PATH && isContentNavbarPath(pathname);
+            const isActive =
+              index === 0
+                ? isWebsite || !!pages?.some((page) => page.fullPath === pathname)
+                : isInSection(link.to, pathname);
             return (
               <li key={link.to}>
                 <Link
                   to={navbarHref(link, last, locale.tag, localized) as LinkProps["to"]}
+                  aria-current={isActive ? "page" : undefined}
                   className={cn(
                     // Shaped like the pickers beside it.
                     buttonVariants({ variant: "ghost" }),
-                    isWebsiteActive || isContentActive
+                    isActive
                       ? "bg-muted text-foreground dark:bg-muted/50"
                       : // Hover only shades the background, so it never reads as active.
                         "text-muted-foreground hover:text-muted-foreground",

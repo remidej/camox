@@ -1,26 +1,17 @@
-import { Alert, AlertDescription } from "@camox/ui/alert";
 import { Button } from "@camox/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@camox/ui/dialog";
 import { FaviconDropZone, validateFaviconFile } from "@camox/ui/favicon-drop-zone";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { useMutation } from "@tanstack/react-query";
-import { Trash2, TriangleAlert } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { buildDefaultFaviconUrl, buildFaviconUrl } from "@/features/routes/pageRuntime";
 import { getApiUrl } from "@/lib/api-client";
 import { type Project, projectMutations } from "@/lib/queries";
 
-import { reads, useStudioCache } from "../../../lib/studio-reads";
+import { reads, useStudioCache } from "../../lib/studio-reads";
+import { SettingsPart } from "./SettingsPart";
 
 type PendingChange = { type: "upload"; file: File } | { type: "remove" } | null;
 
@@ -31,32 +22,14 @@ function refreshDocumentFavicon(href: string) {
   }
 }
 
-export function FaviconDialog({
-  project,
-  open,
-  onOpenChange,
-}: {
-  project: Project;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-5 sm:max-w-md">
-        <FaviconForm project={project} onSaved={() => onOpenChange(false)} />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => void }) {
+export function FaviconSettings({ project }: { project: Project }) {
   const studioCache = useStudioCache();
   const [pending, setPending] = React.useState<PendingChange>(null);
   const [hasCurrent, setHasCurrent] = React.useState(false);
   const currentUrl = buildFaviconUrl(getApiUrl(), project, { withDefault: false });
 
   // Without the default the current favicon 404s when none was uploaded, which tells us
-  // whether there is one to show and remove.
+  // whether there is one to show and remove. Re-probes after each save, which bumps the URL.
   React.useEffect(() => {
     const probe = new Image();
     probe.onload = () => setHasCurrent(true);
@@ -83,7 +56,7 @@ function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => vo
     const updated = studioCache.get(reads.project({ projectUuid: project.uuid }));
     refreshDocumentFavicon(buildFaviconUrl(getApiUrl(), updated ?? project));
     toast.success(pending?.type === "remove" ? "Favicon removed" : "Favicon updated");
-    onSaved();
+    setPending(null);
   };
   const onError = (error: Error) => {
     toast.error(error.message || "Could not save the favicon");
@@ -119,44 +92,43 @@ function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => vo
       : "Drop your favicon here, or click to browse";
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Favicon</DialogTitle>
-        <DialogDescription>The icon shown in browser tabs and bookmarks.</DialogDescription>
-      </DialogHeader>
-      <Alert variant="warning">
-        <TriangleAlert />
-        <AlertDescription>
-          Applies to the whole site, including Live and every draft.
-        </AlertDescription>
-      </Alert>
-      <FaviconDropZone
-        previewUrl={previewUrl}
-        prompt={prompt}
-        disabled={isSaving}
-        onFileSelected={choose}
-      />
-      <DialogFooter>
-        {showsFavicon && (
-          <Button
-            type="button"
-            variant="ghost"
-            className="sm:mr-auto"
-            disabled={isSaving}
-            onClick={() => setPending(hasCurrent ? { type: "remove" } : null)}
-          >
-            <Trash2 />
-            Remove favicon
+    <SettingsPart title="Favicon" description="The icon shown in browser tabs and bookmarks.">
+      <div className="flex flex-col gap-4">
+        <FaviconDropZone
+          previewUrl={previewUrl}
+          prompt={prompt}
+          disabled={isSaving}
+          onFileSelected={choose}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={save} disabled={!pending || isSaving}>
+            {isSaving && <Spinner />}
+            Save
           </Button>
-        )}
-        <DialogClose render={<Button type="button" variant="outline" disabled={isSaving} />}>
-          Cancel
-        </DialogClose>
-        <Button type="button" onClick={save} disabled={!pending || isSaving}>
-          {isSaving && <Spinner />}
-          Save
-        </Button>
-      </DialogFooter>
-    </>
+          {pending && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSaving}
+              onClick={() => setPending(null)}
+            >
+              Cancel
+            </Button>
+          )}
+          {showsFavicon && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="ml-auto"
+              disabled={isSaving}
+              onClick={() => setPending(hasCurrent ? { type: "remove" } : null)}
+            >
+              <Trash2 />
+              Remove favicon
+            </Button>
+          )}
+        </div>
+      </div>
+    </SettingsPart>
   );
 }
