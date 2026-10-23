@@ -26,7 +26,7 @@ import * as React from "react";
 
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
 import { blockMutations, repeatableItemMutations } from "@/lib/queries";
-import { formatShortcut } from "@/lib/utils";
+import { formatShortcut } from "@/lib/shortcuts";
 
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";

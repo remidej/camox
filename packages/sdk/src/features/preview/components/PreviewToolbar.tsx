@@ -7,7 +7,7 @@ import { useSelector } from "@xstate/store-react";
 import { X } from "lucide-react";
 
 import { DeviceSelector } from "@/components/DeviceSelector";
-import { formatShortcut } from "@/lib/utils";
+import { formatShortcut } from "@/lib/shortcuts";
 
 import { TOGGLE_CANVAS_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCanvasShown } from "../previewStore";
