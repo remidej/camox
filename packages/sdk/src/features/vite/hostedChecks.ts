@@ -103,13 +103,32 @@ function literalString(node: ESTree.Expression | undefined): string | undefined 
     return node.quasis[0]?.value.cooked ?? undefined;
 }
 
-function isCreateBlock(callee: ESTree.Expression): boolean {
-  if (callee.type === "Identifier") return callee.name === "createBlock";
+/**
+ * Whether `callee` calls `createBlock`: by its name, the names a module imports it as
+ * (`import { createBlock as defineBlock }`), or as a namespace's member.
+ */
+function isCreateBlock(callee: ESTree.Expression, names: Set<string>): boolean {
+  if (callee.type === "Identifier") return names.has(callee.name);
   return (
     callee.type === "MemberExpression" &&
     callee.property.type === "Identifier" &&
     callee.property.name === "createBlock"
   );
+}
+
+/** The local names a module calls `createBlock` by: its own name, and its imports' aliases. */
+function createBlockNames(program: ESTree.Program): Set<string> {
+  const names = new Set(["createBlock"]);
+  for (const statement of program.body) {
+    if (statement.type !== "ImportDeclaration") continue;
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== "ImportSpecifier") continue;
+      const imported = specifier.imported;
+      const name = imported.type === "Identifier" ? imported.name : imported.value;
+      if (name === "createBlock") names.add(specifier.local.name);
+    }
+  }
+  return names;
 }
 
 /** The `id` a block definition's object literal spells out. */
@@ -135,7 +154,7 @@ export function misnamedBlock(
   project: HostedProject,
   moduleId: string,
   code: string,
-): string | undefined {
+): { message: string; at: number } | undefined {
   const file = sourceFile(project, moduleId);
   if (!file) return;
   const path = displayPath(project, file);
@@ -145,20 +164,29 @@ export function misnamedBlock(
   // The bundler reports syntax errors itself.
   if (errors.length > 0) return;
 
-  let problem: string | undefined;
+  let problem: { message: string; at: number } | undefined;
+  const names = createBlockNames(program);
   new Visitor({
     CallExpression(call) {
-      if (problem || !isCreateBlock(call.callee)) return;
+      if (problem || !isCreateBlock(call.callee, names)) return;
       const id = literalString(definitionId(call.arguments[0]));
+      // Where the problem is: the id, or the call when it has none.
+      const at = definitionId(call.arguments[0])?.start ?? call.start;
       if (id === undefined) {
-        problem =
-          `${path} calls createBlock() without its id as a string literal, which the build ` +
-          `needs to check that the file is named after it: write \`id: "${fileName}"\`.`;
+        problem = {
+          message:
+            `${path} calls createBlock() without its id as a string literal, which the build ` +
+            `needs to check that the file is named after it: write \`id: "${fileName}"\`.`,
+          at,
+        };
       } else if (id !== fileName) {
-        problem =
-          `${path} defines the block "${id}", but its file is named "${fileName}": a block's ` +
-          `file is named after its id. Rename the file to ${id}${file.slice(file.lastIndexOf("."))} ` +
-          `or the id to "${fileName}".`;
+        problem = {
+          message:
+            `${path} defines the block "${id}", but its file is named "${fileName}": a block's ` +
+            `file is named after its id. Rename the file to ${id}${file.slice(file.lastIndexOf("."))} ` +
+            `or the id to "${fileName}".`,
+          at,
+        };
       }
     },
   }).visit(program);

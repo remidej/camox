@@ -16,6 +16,13 @@ import type { BuildError } from "./result";
 //   [plugin camox]
 //   RolldownError: src/blocks/hero.tsx imports "node:fs", which a hosted project can't import. …
 //       at error (file:///…)
+//
+// or, for an error at a place in a file, that place after the plugin, and its code frame:
+//
+//   [plugin camox] /workspace/website/src/blocks/faq.tsx:5:6
+//   RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is named …
+//   5:   id: "questions",
+//            ^
 
 /** Terminal colors, which Rolldown prints even when it isn't writing to a terminal. */
 // oxlint-disable-next-line no-control-regex
@@ -24,6 +31,8 @@ const SUMMARY = /^(?:error during build:\s*)?Build failed with \d+ errors?:\s*$/
 const TAG = /^\[([^\]\n]+)\] ?(.*)$/;
 const LOCATION = /╭─\[\s*(.+?):(\d+):(\d+)\s*\]/;
 const STACK = /^\s+at /;
+/** The place a plugin's error is at, after the plugin's tag. */
+const PLACE = /^(\S+):(\d+):(\d+)$/;
 /** A message starting with the file it's about, as Camox's own build checks' do. */
 const LEADING_FILE = /^((?:src|public)\/\S+\.\w+)\s/;
 
@@ -37,6 +46,17 @@ function fromRoot(path: string) {
 function errorOf(lines: string[]): BuildError {
   const [, tag, rest] = TAG.exec(lines[0]!)!;
   const body = lines.slice(1).filter((line) => !STACK.test(line));
+  const place = PLACE.exec(rest ?? "");
+  if (place) {
+    const message = (body.shift() ?? "").replace(/^[A-Za-z]*Error: /, "").trim() || tag!;
+    return {
+      file: fromRoot(place[1]!),
+      line: Number(place[2]),
+      column: Number(place[3]),
+      message,
+      frame: body.join("\n").trimEnd(),
+    };
+  }
   // A plugin's error has its message on the next line, after the error's name.
   const message = (rest || (body.shift() ?? "").replace(/^[A-Za-z]*Error: /, "") || tag!).trim();
   const frameStart = body.findIndex((line) => LOCATION.test(line));

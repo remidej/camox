@@ -370,7 +370,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     transform(code, id) {
       if (hostedProject) {
         const misnamed = misnamedBlock(hostedProject, id, code);
-        if (misnamed) this.error(misnamed);
+        if (misnamed) this.error(misnamed.message, misnamed.at);
       }
       return transformArtifactRuntime(code, id);
     },
