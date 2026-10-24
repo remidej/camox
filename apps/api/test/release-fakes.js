@@ -353,10 +353,16 @@ const failingBuilds = [];
 const definedBuilds = [];
 /** Sandbox calls left that fail, as a sandbox whose container crashed does. */
 let sandboxFailures = 0;
+/** @type {{ revision: string, archiveKey: string, project: string, draft: string }[]} revisions dispatch prewarmed, oldest first */
+const prewarmed = [];
+/** How many of the next prewarms fail, as an unreachable dispatch's would. */
+let prewarmFailures = 0;
 /** @type {Set<string>} the revision sandboxes destroyed */
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
 const sandboxSleepAfter = new Map();
+/** Whether revision builds are held, as builds still running. */
+let buildsHeld = false;
 
 /** The build command the revision sandbox runs, and the command that archives its output. */
 const BUILD_COMMAND = /\bvp build\b/;
@@ -446,6 +452,8 @@ export class FakeRevisionSandbox extends DurableObject {
       return result(0);
     }
     if (BUILD_COMMAND.test(command)) {
+      // Polled: a promise resolved from the request letting go wouldn't wake this one.
+      while (buildsHeld) await new Promise((resolve) => setTimeout(resolve, 10));
       const failing = failingBuilds.find(({ marker }) =>
         Object.values(this.tree).some((content) => content.includes(marker)),
       );
@@ -500,6 +508,23 @@ export class FakeDispatch extends WorkerEntrypoint {
     const archive = await this.env.REVISION_BUILDS.get(archiveKey);
     if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
     return JSON.parse(await archive.text()).definitionSet;
+  }
+
+  /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
+  async prewarm(revision) {
+    if (prewarmFailures > 0) {
+      prewarmFailures -= 1;
+      throw new Error("Network connection lost.");
+    }
+    if (!(await this.env.REVISION_BUILDS.head(revision.archiveKey))) {
+      throw new Error(`The build ${revision.archiveKey} isn't stored`);
+    }
+    // Dispatch stores the revision's client assets where its asset prefix serves them from.
+    await this.env.REVISION_BUILDS.put(
+      `${revision.project}/revisions/${revision.revision}/assets/index.css`,
+      "body {}",
+    );
+    prewarmed.push(revision);
   }
 }
 
@@ -662,6 +687,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
     failingBuilds.push({ marker, log });
   }
 
+  /** Holds every revision build from now on, as a build still running, until `releaseBuilds()`. */
+  async holdBuilds() {
+    buildsHeld = true;
+  }
+
+  /** Lets go of the builds `holdBuilds()` holds. */
+  async releaseBuilds() {
+    buildsHeld = false;
+  }
+
   /**
    * Makes every passing build of a tree with a file containing `marker` have `definitionSet` as
    * its Definition Set.
@@ -670,6 +705,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async defineBuildsOf(marker, definitionSet) {
     definedBuilds.push({ marker, definitionSet });
+  }
+
+  /** The revisions dispatch prewarmed, oldest first. */
+  async prewarmed() {
+    return prewarmed;
+  }
+
+  /** @param {number} times Makes the next `times` prewarms fail. */
+  async failPrewarms(times) {
+    prewarmFailures = times;
   }
 
   /** @param {number} times Makes the next `times` calls to any revision sandbox fail. */

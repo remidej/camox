@@ -1,14 +1,20 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
+import { type PreviewsApi, revisionFor } from "./previews";
 import {
   type GatewayProps,
+  isRevisionAssetPath,
   loadRevision,
+  prewarmRevision,
   readDefinitionSet,
   type RevisionBindings,
   type RevisionToLoad,
+  serveRevisionAsset,
 } from "./revisions";
 
 export interface Env extends RevisionBindings {
+  /** The API's `CamoxPreviews` entrypoint, which says who sees which draft's revision. */
+  API: PreviewsApi;
   PROJECT_SLUGS: KVNamespace;
   DISPATCHER: DispatchNamespace;
   /** The Camox API's origin, which only a revision's gateway lets it reach in its draft. */
@@ -20,6 +26,10 @@ const DRAFT_HEADER = "x-camox-draft";
 
 /** What `ctx.exports` makes of dispatch's own entrypoints: a stub per set of props. */
 type OwnExports = { CamoxGateway(options: { props: GatewayProps }): Fetcher };
+
+/** Makes a revision's gateway, from dispatch's own exports. */
+const gatewayOf = (ctx: ExecutionContext) => (props: GatewayProps) =>
+  (ctx.exports as unknown as OwnExports).CamoxGateway({ props });
 
 /**
  * Where a revision's outbound requests go, made per revision with its project and draft as
@@ -45,20 +55,33 @@ export class CamoxGateway extends WorkerEntrypoint<Env, GatewayProps> {
 export class CamoxRevisions extends WorkerEntrypoint<Env> {
   /** A revision's Definition Set, read from its build (JSON-shaped). */
   readDefinitionSet(revision: RevisionToLoad): Promise<unknown> {
-    const exports = this.ctx.exports as unknown as OwnExports;
-    return readDefinitionSet(
-      loadRevision(this.env, revision, (props) => exports.CamoxGateway({ props })),
-    );
+    return readDefinitionSet(loadRevision(this.env, revision, gatewayOf(this.ctx)));
+  }
+
+  /**
+   * Readies a revision before its draft's viewers are told of it: its client assets are served
+   * from then on, and it's loaded and rendered once.
+   */
+  prewarm(revision: RevisionToLoad): Promise<void> {
+    return prewarmRevision(this.env, revision, gatewayOf(this.ctx));
   }
 }
 
 const PROJECTS_DOMAIN = ".camox.site";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const slug = projectSlug(new URL(request.url).hostname);
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const slug = projectSlug(url.hostname);
     const uuid = slug && (await env.PROJECT_SLUGS.get(slug));
     if (!uuid) return statusPage(404, "Site not found", "There's no site at this address.");
+    // A draft with code's revision (ADR 0023): its client assets, to anyone, and its renderer
+    // document and runtime reads, to the members who can see the draft.
+    if (isRevisionAssetPath(url.pathname)) return serveRevisionAsset(env, uuid, url.pathname);
+    const revision = await revisionFor(env.API, uuid, request);
+    if (revision) {
+      return loadRevision(env, revision, gatewayOf(ctx)).getEntrypoint().fetch(request);
+    }
     try {
       // The user Worker is named after the project's UUID. Cloudflare may report it missing from
       // either call, so both sit in the try.

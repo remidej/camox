@@ -60,6 +60,14 @@ const emptyPreview = {
   overview: { status: "pending" } as
     | { status: "none" | "pending" | "failed" }
     | { status: "ready"; headline: string; bullets: string[]; stale: boolean },
+  code: null as { revision: string | null; includesLive: boolean; building: boolean } | null,
+};
+
+/** The code of a draft whose agent changed it, built and holding Live's. */
+const builtCode = {
+  revision: "019a0000-0000-7000-8000-000000000050",
+  includesLive: true,
+  building: false,
 };
 
 const conflictedPreview = {
@@ -928,6 +936,71 @@ void test("folds problems sharing a message into one item naming each", async (t
   }
 });
 
+/** Live content in a block on `page` using the text block, which the draft's code removes. */
+const removedOn = (page: typeof home, id: string) => ({
+  entity: "block",
+  id,
+  label: "text",
+  owner: page,
+  locale: "en",
+  code: "removedInUse",
+  field: "",
+  fieldKind: null,
+  blockId: id,
+  message: `This draft's code removes the "Text" block, which this content uses`,
+});
+
+void test("shows what the draft's code removes while Live content uses it as an amber card, leaving Publish enabled", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      warnings: [danglingOnLive, removedOn(home, "019a0000-0000-7000-8000-000000000042")],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), [
+      `This draft's code removes the "Text" block, which this content uses`,
+    ]);
+    const card = window.document.querySelector('[role="dialog"] [data-card]');
+    assert.equal(card?.getAttribute("data-card"), "warning");
+    assert.match(dialogText(), /which this content uses\s*text · Home/);
+    // A problem already on Live stays unmentioned.
+    assert.doesNotMatch(dialogText(), /points at a page/);
+    assert.equal(publishButton()?.disabled, false);
+  } finally {
+    await close();
+  }
+});
+
+void test("shows removals after the blockers, folding those sharing a message into one card", async (t) => {
+  const pageNamed = (n: number) => ({
+    ...home,
+    id: `019a0000-0000-7000-8000-00000000005${n}`,
+    path: `/page-${n}`,
+    nickname: `Page ${n}`,
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [blockerIn("missingMetaTitle", "metaTitle", null, "The page has no meta title")],
+      warnings: [1, 2, 3].map((n) =>
+        removedOn(pageNamed(n), `019a0000-0000-7000-8000-00000000006${n}`),
+      ),
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), [
+      "The page has no meta title",
+      `This draft's code removes the "Text" block, which this content uses`,
+    ]);
+    assert.match(dialogText(), /text · Page 1.*text · Page 2.*text · Page 3/);
+  } finally {
+    await close();
+  }
+});
+
 void test("shows the new conflicts when Live changed since the preview, then publishes and switches to Live", async (t) => {
   let liveChanged = false;
   const calls = mockApi(t, (path) => {
@@ -1349,6 +1422,76 @@ void test("leaves the name as it is when editing is cancelled", async (t) => {
     assert.equal(calls.filter((call) => call.path === "drafts/rename").length, 0);
     assert.equal(dialogTitle(), "Ada, Oct 13");
     assert.equal(nameInput()?.value, "");
+  } finally {
+    await close();
+  }
+});
+
+void test("a code blocker's action closes the review and opens the draft's thread", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      code: builtCode,
+      blockers: [
+        {
+          entity: "code",
+          id: draftId,
+          label: "The website's code",
+          owner: null,
+          locale: null,
+          code: "codeDoesNotBuild",
+          field: "",
+          fieldKind: null,
+          blockId: null,
+          message: "The agent's latest code changes don't build",
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.equal(publishButton()?.disabled, true);
+    const action = cardAction("The agent's latest code changes don't build");
+    assert.equal(action?.textContent, "Open the thread");
+
+    await click(action);
+
+    assert.deepEqual(openChanges, [false]);
+    // The thread is beside the Canvas.
+    assert.equal(previewStore.getSnapshot().context.view, "canvas");
+  } finally {
+    await close();
+  }
+});
+
+void test("says the latest changes are building, and disables Publish until they built", async (t) => {
+  let building = true;
+  mockApi(t, () => json({ ...emptyPreview, code: { ...builtCode, building } }));
+  const close = await openReview();
+  try {
+    assert.ok(statusLines().includes("Building the latest changes…"));
+    assert.equal(publishButton()?.disabled, true);
+
+    building = false;
+    await React.act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await settle();
+
+    assert.ok(!statusLines().includes("Building the latest changes…"));
+    assert.equal(publishButton()?.disabled, false);
+  } finally {
+    await close();
+  }
+});
+
+void test("leaves out the line about Live while the draft's code doesn't hold Live's", async (t) => {
+  mockApi(t, () => json({ ...emptyPreview, code: { ...builtCode, includesLive: false } }));
+  const close = await openReview();
+  try {
+    assert.ok(
+      !statusLines().includes("Includes everything published to Live since this draft started"),
+    );
   } finally {
     await close();
   }

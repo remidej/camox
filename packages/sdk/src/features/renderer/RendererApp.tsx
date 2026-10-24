@@ -99,17 +99,24 @@ function RendererThumbnail({
     }),
     [frameWindow],
   );
+  // A thumbnail is no page and has no router: its fields read a location of their own, and it
+  // never navigates.
   return (
-    <FrameContext.Provider value={frameContext}>
-      {/* A block whose code fails shows no thumbnail, and takes no page down with it. */}
-      <ThumbnailErrorBoundary>
-        <React.Suspense fallback={null}>
-          <ThumbnailBlock blockType={blockType} camoxApp={camoxApp} />
-        </React.Suspense>
-      </ThumbnailErrorBoundary>
-    </FrameContext.Provider>
+    <NavigationProvider location={THUMBNAIL_LOCATION} navigate={noNavigation}>
+      <FrameContext.Provider value={frameContext}>
+        {/* A block whose code fails shows no thumbnail, and takes no page down with it. */}
+        <ThumbnailErrorBoundary>
+          <React.Suspense fallback={null}>
+            <ThumbnailBlock blockType={blockType} camoxApp={camoxApp} />
+          </React.Suspense>
+        </ThumbnailErrorBoundary>
+      </FrameContext.Provider>
+    </NavigationProvider>
   );
 }
+
+const THUMBNAIL_LOCATION: LocationState = { href: "", pathname: "/", search: "", hash: "" };
+const noNavigation = () => {};
 
 class ThumbnailErrorBoundary extends React.Component<
   { children: React.ReactNode },

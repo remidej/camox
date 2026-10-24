@@ -15,6 +15,8 @@
   // API's revision sandboxes write (src/revisions.ts).
   "worker_loaders": [{ "binding": "LOADER" }],
   "r2_buckets": [{ "binding": "REVISION_BUILDS", "bucket_name": "camox-revision-builds" }],
+  // Says which members see a draft's revision, and which revision it previews (src/previews.ts).
+  "services": [{ "binding": "API", "service": "camox-api", "entrypoint": "CamoxPreviews" }],
   "vars": {
     // The only origin a revision's gateway sends in the revision's draft.
     "CAMOX_API_URL": "https://api.camox.ai",
