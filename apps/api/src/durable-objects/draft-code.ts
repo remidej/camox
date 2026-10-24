@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 
+import { hasConflictMarkers } from "../domains/code/conflict-markers";
 import { codeEnv } from "../domains/code/env";
 import { CODE_ROOT, mountSkills, SKILLS_ROOT, writeFiles } from "../domains/code/main-copy";
 import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/remote-env";
@@ -24,6 +25,14 @@ const FORKED_FROM_KEY = "forked-from";
 const MERGED_KEY = "merged-main";
 /** A merge of `main` that clashed, left for Camox's reconcile turn (`MergeClash`). */
 const CLASH_KEY = "merge-clash";
+/**
+ * The commit of `main` whose merge the files hold, uncommitted, for Camox's reconcile turn: the
+ * revision a build commits then is the merge commit.
+ */
+const MERGING_KEY = "merging-main";
+/** The local refs a merge left in the files names its sides by, in its conflict markers. */
+const OURS_REF = "refs/remotes/draft";
+const THEIRS_REF = "refs/remotes/Live";
 /** The local refs a merge of `main` fetches from, and merges: see `mergeMain`. */
 const MERGED_REF = "refs/camox/merged-main";
 const MAIN_REF = "refs/camox/main";
@@ -65,8 +74,9 @@ export type PreparedCommit = {
 
 /**
  * A merge of `main` that doesn't land as a revision as it is: it conflicts, or its tree doesn't
- * build or type check. Recorded until a merge of `main` lands, for Camox's reconcile turn, which
- * tries once for each move of `main`.
+ * build or type check. Recorded for Camox's reconcile turn, which tries once for each move of
+ * `main`, until code holding that `main` builds without errors (`settleClash`): the draft has
+ * the "doesn't merge with Live's" blocker until then.
  */
 export type MergeClash = {
   /** The commit of `main` that clashed. */
@@ -170,11 +180,58 @@ export class DraftCode extends DurableObject<Bindings> {
     return this.ctx.storage.kv.get<MergeClash>(CLASH_KEY);
   }
 
-  /** Records that the merge of `main` at `clash.main` clashed: see `MergeClash`. */
-  async recordClash(clash: MergeClash): Promise<void> {
+  /**
+   * Records that the merge of `main` at `clash.main` clashed (see `MergeClash`), for Camox's
+   * reconcile turn. A merge that didn't land is left in the files, uncommitted, conflict markers
+   * included, and the next revision is its merge commit: see `merging`.
+   */
+  recordClash(clash: MergeClash): Promise<void> {
+    return this.#serially(async () => {
+      if (this.ctx.storage.kv.get(BRANCH_KEY) === undefined) return;
+      this.ctx.storage.kv.put(CLASH_KEY, clash);
+      if (this.#mergedMain() === clash.main) return;
+      const fs = await this.#workingCopy();
+      await mergeIntoFiles(fs, {
+        ours: `refs/heads/${this.ctx.storage.kv.get<string>(BRANCH_KEY)!}`,
+        base: this.#mergedMain()!,
+        theirs: clash.main,
+      });
+      this.ctx.storage.kv.put(MERGING_KEY, clash.main);
+      this.#save(fs);
+    });
+  }
+
+  /**
+   * The commit of `main` whose merge the files hold, uncommitted, if they do: Camox's reconcile
+   * turn fixes it, and its build commits the merge commit.
+   */
+  async merging(): Promise<string | undefined> {
     await this.#queue;
-    if (this.ctx.storage.kv.get(BRANCH_KEY) === undefined) return;
-    this.ctx.storage.kv.put(CLASH_KEY, clash);
+    return this.ctx.storage.kv.get<string>(MERGING_KEY);
+  }
+
+  /**
+   * Forgets the clash, once the draft's code built without errors and holds the `main` that
+   * clashed: unless the files still hold a merge no commit landed.
+   */
+  settleClash(): Promise<void> {
+    return this.#serially(async () => {
+      const clash = this.ctx.storage.kv.get<MergeClash>(CLASH_KEY);
+      if (!clash || this.ctx.storage.kv.get(MERGING_KEY) !== undefined) return;
+      const merged = this.#mergedMain()!;
+      const holds =
+        merged === clash.main ||
+        (await git
+          .isDescendent({
+            fs: await this.#workingCopy(),
+            dir: CODE_ROOT,
+            oid: merged,
+            ancestor: clash.main,
+            depth: -1,
+          })
+          .catch(() => false));
+      if (holds) this.ctx.storage.kv.delete(CLASH_KEY);
+    });
   }
 
   /** Records that a build of the draft's code started, or ended. */
@@ -248,6 +305,24 @@ export class DraftCode extends DurableObject<Bindings> {
   }
 
   /**
+   * The files that have merge conflict markers, as a merge of `main` that conflicts leaves them:
+   * only files the branch's head doesn't hold as they are, since no commit holds markers.
+   */
+  conflicts(): Promise<string[]> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const found: string[] = [];
+      for (const [filepath, , workdir] of await git.statusMatrix({ fs, dir: CODE_ROOT })) {
+        if (workdir !== 2) continue;
+        const entry = fs.entry(`/${filepath}`);
+        if (entry?.kind !== "file") continue;
+        if (hasConflictMarkers(new TextDecoder().decode(entry.data))) found.push(filepath);
+      }
+      return found;
+    });
+  }
+
+  /**
    * Stages the working copy's every change and makes, without moving the branch, the commit it
    * would be: `message` on top of the branch's head. Returns the commit and its tree, with the
    * tree's files as a tar archive, which a build streams into its sandbox, and the lockfile.
@@ -273,11 +348,17 @@ export class DraftCode extends DurableObject<Bindings> {
           entries.push({ path: filepath, symlink: entry.target });
         }
       }
+      // Files holding a merge of `main` make its merge commit, whatever the build that commits it.
+      const merging = this.ctx.storage.kv.get<string>(MERGING_KEY);
+      const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
       const commit = await git.commit({
         ...at,
-        message,
+        message: merging ? MERGE_MESSAGE : message,
         author: COMMIT_AUTHOR,
         noUpdateBranch: true,
+        ...(merging && {
+          parent: [await git.resolveRef({ ...at, ref: `refs/heads/${branch}` }), merging],
+        }),
       });
       this.#save(fs);
       const { commit: read } = await git.readCommit({ ...at, oid: commit });
@@ -322,10 +403,11 @@ export class DraftCode extends DurableObject<Bindings> {
       const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
       await git.push({ ...at, http, url: remote, headers, ref: branch, remoteRef: branch });
       if (merge && landed === commit) {
-        // The merge was made beside the files, which nothing wrote to since: they take its tree.
+        // A merge made beside the files, which nothing wrote to since, or from them, as Camox's
+        // reconcile turn fixed it: the files take its tree either way.
         await git.checkout({ ...at, ref: branch, force: true });
         this.ctx.storage.kv.put(MERGED_KEY, made.parent[1]!);
-        this.ctx.storage.kv.delete(CLASH_KEY);
+        this.ctx.storage.kv.delete(MERGING_KEY);
       }
       this.#save(fs);
       const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
@@ -412,7 +494,8 @@ export class DraftCode extends DurableObject<Bindings> {
    * they are until then. A merge that conflicts changes nothing either.
    *
    * It waits while the files have changes no commit holds, and doesn't merge again a move of
-   * `main` that clashed.
+   * `main` that clashed. Files holding the merge of an earlier `main` that Camox's reconcile
+   * turn didn't fix (`merging`) are put back to the branch's head first, to merge this one.
    */
   mergeMain(): Promise<MergeOutcome> {
     return this.#serially(async () => {
@@ -427,6 +510,14 @@ export class DraftCode extends DurableObject<Bindings> {
       if (!main || !merged || main === merged) return { outcome: "upToDate" };
       if (this.ctx.storage.kv.get<MergeClash>(CLASH_KEY)?.main === main) {
         return { outcome: "clashed", main };
+      }
+      const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
+      if (this.ctx.storage.kv.get(MERGING_KEY) !== undefined) {
+        // The files hold the merge of an earlier `main`, which Camox's turn didn't fix: this one
+        // is merged afresh, from the branch's head.
+        await git.checkout({ ...at, ref: branch, force: true });
+        this.ctx.storage.kv.delete(MERGING_KEY);
+        this.#save(fs);
       }
       if (!(await settled(fs))) return { outcome: "unsettled" };
       // Only the commits since the one merged last: the fetch says the working copy has that one.
@@ -444,7 +535,6 @@ export class DraftCode extends DurableObject<Bindings> {
         });
       }
       await git.writeRef({ ...at, ref: MAIN_REF, value: main, force: true });
-      const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
       const signature = {
         ...COMMIT_AUTHOR,
         timestamp: Math.floor(Date.now() / 1000),
@@ -625,6 +715,59 @@ export class DraftCode extends DurableObject<Bindings> {
 
 /** The message of the commits merging `main` into a draft's branch. */
 export const MERGE_MESSAGE = "Merge Live's code";
+
+/**
+ * Writes the merge of `theirs`, a commit of `main`, into the files of the branch `ours`, without
+ * committing it (`abortOnConflict: false`): a conflict keeps both sides between markers, named
+ * `draft` and `Live`. The files must hold the branch's head, as they do after a commit. `base` is
+ * the commit of `main` the branch merged last. Both sides adding the same file differently, which
+ * isomorphic-git doesn't merge, leaves the files as they are.
+ */
+async function mergeIntoFiles(
+  fs: MemoryFs,
+  { ours, base, theirs }: { ours: string; base: string; theirs: string },
+) {
+  const at = { fs, dir: CODE_ROOT };
+  const head = await git.resolveRef({ ...at, ref: ours });
+  await git.writeRef({ ...at, ref: OURS_REF, value: head, force: true });
+  await git.writeRef({ ...at, ref: THEIRS_REF, value: theirs, force: true });
+  const signature = {
+    ...COMMIT_AUTHOR,
+    timestamp: Math.floor(Date.now() / 1000),
+    timezoneOffset: 0,
+  };
+  try {
+    const { oid } = await git.merge({
+      ...at,
+      ours: OURS_REF,
+      theirs: THEIRS_REF,
+      fastForward: false,
+      noUpdateBranch: true,
+      abortOnConflict: false,
+      message: MERGE_MESSAGE,
+      author: signature,
+      committer: signature,
+    });
+    // A merge without conflicts is made beside the files: they take its tree.
+    await git.checkout({ ...at, ref: oid!, force: true, noUpdateHead: true });
+  } catch (error) {
+    if (error instanceof git.Errors.MergeNotSupportedError) return;
+    if (!(error instanceof git.Errors.MergeConflictError)) throw error;
+    // The merge wrote every file of its tree, but left those only `main` deleted.
+    await git.walk({
+      ...at,
+      trees: [git.TREE({ ref: head }), git.TREE({ ref: base }), git.TREE({ ref: theirs })],
+      map: async (path, [mine, before, live]) => {
+        if (path === "." || !mine || (await mine.type()) !== "blob") return true;
+        if (!live && before && (await before.oid()) === (await mine.oid())) {
+          await git.remove({ ...at, filepath: path });
+          await fs.promises.unlink(`/${path}`);
+        }
+        return true;
+      },
+    });
+  }
+}
 
 /** Whether the files are what the index and the head hold: no change is uncommitted. */
 async function settled(fs: MemoryFs) {

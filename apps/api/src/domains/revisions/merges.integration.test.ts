@@ -1,15 +1,12 @@
 import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRpcContext } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
 import { commitToMain, pushToMain, startDeliveringPush } from "../../../test/pushes";
 import {
-  broken,
-  failingMarker,
   HERO,
   LOCKFILE,
   PRICING,
@@ -38,7 +35,7 @@ import { router } from "../../router";
 // When Live's code moves, through a publish or an Upgrade, Camox merges it into every open draft
 // with code (ADR 0020's amendment, spec #560 section 11), so each draft's preview shows what
 // publishing it would produce. A clean merge is silent: it becomes a merge revision, which the
-// preview reloads to.
+// preview reloads to. One that clashes is Camox's reconcile turn's: reconcile.integration.test.ts.
 
 vi.mock("../../lib/thread-model", async () => {
   const { testThreadModel } = await import("../../../test/thread-model");
@@ -164,70 +161,5 @@ describe("merging Live's code into a draft", () => {
     await fakes.releaseBuilds(draftId);
     await delivered();
     expect((await previewOf(website, draftId)).code).toMatchObject({ includesLive: true });
-  });
-
-  // Camox's reconcile turn (#582) takes these over: until then, the clash is recorded.
-  describe("that clashes", () => {
-    /** A draft whose agent changed the hero block, built at the end of its turn. */
-    async function draftChangingHero(hero: string) {
-      const website = await websiteWithCode();
-      const token = await signIn(website.db, website.memberUser.id);
-      const live = await connectLiveThread(website.project.id, token);
-      answerWithToolCall("write", { path: HERO_FILE, content: hero });
-      answerNext("I changed the hero.");
-      await ask(live, "Change the hero");
-      const [draft] = await draftsOf(website);
-      return { website, draftId: draft!.id };
-    }
-
-    it("keeps the draft's last revision when Live's change conflicts with the draft's", async () => {
-      const ours = `export const hero = "Welcome, friends";\n`;
-      const { website, draftId } = await draftChangingHero(ours);
-      const repo = website.project.uuid;
-      const reviewed = await previewOf(website, draftId);
-      const shown = revisionsSentFor(website, draftId);
-
-      const main = await pushToMain(repo, mainWith({ [HERO_FILE]: NEW_HERO }));
-
-      expect(revisionsSentFor(website, draftId)).toEqual(shown);
-      expect(await fakes.readFile(repo, draftId, HERO_FILE)).toBe(ours);
-      expect((await previewOf(website, draftId)).code).toMatchObject({
-        revision: reviewed.code!.revision,
-        includesLive: false,
-      });
-      expect(await env.DRAFT_CODE.getByName(draftId).clash()).toEqual({
-        main,
-        conflicts: [HERO_FILE],
-      });
-    });
-
-    it("keeps the draft's last revision when the merged code doesn't build", async () => {
-      const { website, token, draftId } = await draftWithPricing();
-      const repo = website.project.uuid;
-      const reviewed = await previewOf(website, draftId);
-      const builtBefore = (await fakes.revisionBuilds(draftId)).length;
-      const marker = await failingMarker(HERO_FILE);
-
-      const main = await pushToMain(repo, mainWith({ [HERO_FILE]: broken(marker) }));
-
-      // The merged tree was built, and nothing of it committed.
-      expect(await fakes.revisionBuilds(draftId)).toHaveLength(builtBefore + 1);
-      expect(await fakes.readFile(repo, draftId, HERO_FILE)).toBe(HERO);
-      expect((await previewOf(website, draftId)).code).toMatchObject({
-        revision: reviewed.code!.revision,
-        includesLive: false,
-      });
-      expect(await env.DRAFT_CODE.getByName(draftId).clash()).toMatchObject({
-        main,
-        result: { ok: false, build: [expect.objectContaining({ file: HERO_FILE })] },
-      });
-      // The agent's working copy is still the draft's, and its next turn builds it as such.
-      const thread = await connectDraftThread(website.project.id, draftId, token);
-      answerWithToolCall("write", { path: FAQ_FILE, content: FAQ });
-      answerNext("I added an FAQ.");
-      await ask(thread, "Add an FAQ");
-      const [turn] = (await fakes.revisionBuilds(draftId)).slice(-1);
-      expect(turn!.files).toMatchObject({ [HERO_FILE]: HERO, [FAQ_FILE]: FAQ });
-    });
   });
 });

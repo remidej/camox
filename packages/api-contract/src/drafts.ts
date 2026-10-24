@@ -82,12 +82,15 @@ export const REVISION_CHANGED_ERROR = "REVISION_CHANGED";
 /**
  * Why a publish with code went back to the review instead of landing: the agent left a revision
  * after the one the review showed, Live's conflicts changed, the draft got a blocker, Live's code
- * moved and the draft hasn't merged it, or the publish failed on Camox's side.
+ * moved and the draft's merge of it clashed (the "doesn't merge with Live's" blocker, which
+ * Camox's turn fixes), Live's code moved and the draft took too long to merge it, or the publish
+ * failed on Camox's side.
  */
 export const PUBLISH_ABORT_REASONS = [
   "revisionChanged",
   "conflictsChanged",
   "blocked",
+  "codeDoesNotMerge",
   "liveCodeMoved",
   "failed",
 ] as const;

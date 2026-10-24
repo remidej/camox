@@ -208,6 +208,28 @@ async function pruneBuilds(env: Bindings, draft: BuiltDraft, kept: (string | nul
   }
 }
 
+/** What a build of files that still have conflict markers returns: nothing is built or committed. */
+function markersLeft(files: string[]): BuildResult {
+  const { shown, total } = capped(
+    files.map((file) => ({
+      file,
+      line: 0,
+      column: 0,
+      message:
+        "This file still has merge conflict markers: resolve the conflict, keeping what both " +
+        "sides need, and remove the markers before building",
+      frame: "",
+    })),
+  );
+  return {
+    ok: false,
+    build: shown,
+    types: [],
+    lint: [],
+    ...(total === undefined ? {} : { truncated: { build: total } }),
+  };
+}
+
 export const MESSAGES: Record<RevisionSource, string> = {
   build: "Camox's agent built its changes",
   turn: "Camox's agent ended its turn",
@@ -227,6 +249,17 @@ export const MESSAGES: Record<RevisionSource, string> = {
 export async function buildRevision(
   env: Bindings,
   draftId: string,
+  origin: RevisionOrigin,
+): Promise<BuildResult> {
+  const result = await buildAndPreview(env, draftId, origin);
+  // Code that builds without errors and holds the `main` that clashed no longer clashes.
+  if (result.ok) await retried(() => env.DRAFT_CODE.getByName(draftId).settleClash());
+  return result;
+}
+
+async function buildAndPreview(
+  env: Bindings,
+  draftId: string,
   { leftBy, run, prepared: given }: RevisionOrigin,
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
@@ -244,6 +277,10 @@ export async function buildRevision(
     .get();
   if (!draft) throw new Error("The draft to build ended");
   const code = env.DRAFT_CODE.getByName(draftId);
+  if (!given) {
+    const conflicted = await retried(() => code.conflicts());
+    if (conflicted.length > 0) return markersLeft(conflicted);
+  }
   const prepared =
     given ?? (await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] })));
   const existing = await db

@@ -490,8 +490,10 @@ const PUBLISH_ABORTED: Record<string, string> = {
   conflictsChanged:
     "Live changed while publishing, so the publish stopped and Live is as it was. Check the new list.",
   blocked: "Something now needs fixing before publishing, so the publish stopped.",
+  codeDoesNotMerge:
+    "Live's code changed while publishing, and it doesn't merge with this draft's yet, so the publish stopped. Camox's agent is fixing it in the draft's thread: publish again once it's done.",
   liveCodeMoved:
-    "Live's code changed while publishing, so the publish stopped. Publish again once the draft holds it.",
+    "Live's code changed while publishing, and the draft took too long to take it in, so the publish stopped. Try again.",
   failed: "The publish couldn't finish on Camox's side, and Live is as it was. Try again.",
 };
 

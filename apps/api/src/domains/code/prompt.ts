@@ -22,6 +22,9 @@ can't be published. A build that fails because of Camox itself says so: never ch
 it. When you end your turn, Camox builds the changes your last build didn't cover, and sends \
 you back to fix them if they have errors. Once per turn, it also lints your changes and sends \
 you what lint found: fix what's worth fixing, but lint never stops a draft from being published.
+When merging Live's code into the draft conflicts, the files keep both versions between conflict \
+markers: call conflicts to list the files that still have them. build never commits a file with \
+markers.
 
 Camox's references for its code are in \`${SKILL_REFERENCES_DIR}/\`. Read only the ones the task \
 needs, never all of them:

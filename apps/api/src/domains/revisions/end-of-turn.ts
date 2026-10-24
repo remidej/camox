@@ -38,7 +38,13 @@ export type TurnBuild =
    * The changes built, committed, but had errors once too often: type errors, or definitions the
    * draft can't use. They stay as they are.
    */
-  | { outcome: "keptErrors"; result: BuildResult };
+  | { outcome: "keptErrors"; result: BuildResult }
+  /**
+   * The build failed once too often, but its changes can't be committed as they are: the files
+   * hold a merge of Live's code that Camox's reconcile turn didn't fix, or conflict markers.
+   * Nothing is committed: `merging` says whether the files hold a merge.
+   */
+  | { outcome: "uncommitted"; result: BuildResult; merging: boolean };
 
 /** The working copy's tree as it is now, and the revision the draft holds for it, if any. */
 async function revisionOfTree(env: Bindings, draftId: string) {
@@ -151,6 +157,11 @@ export async function buildAtEndOfTurn(
     return lint ? lintTurn(env, draftId, prepared, result) : { outcome: "built", result };
   if (failedInARow + 1 < END_OF_TURN_BUILD_FAILURES) return { outcome: "failed", result };
   if (result.revision) return { outcome: "keptErrors", result };
+  const code = env.DRAFT_CODE.getByName(draftId);
+  const merging = (await retried(() => code.merging())) !== undefined;
+  if (merging || (await retried(() => code.conflicts())).length > 0) {
+    return { outcome: "uncommitted", result, merging };
+  }
   await commitUnbuilt(env, draftId, { leftBy: "turn", run });
   return { outcome: "committedUnbuilt", result };
 }
@@ -215,8 +226,18 @@ const EXPLAIN =
 
 /** What the agent is told once the end of its turn failed too often in a row. */
 export function explainFailures(
-  turn: Extract<TurnBuild, { outcome: "committedUnbuilt" | "keptErrors" }>,
+  turn: Extract<TurnBuild, { outcome: "committedUnbuilt" | "keptErrors" | "uncommitted" }>,
 ) {
+  if (turn.outcome === "uncommitted") {
+    return turn.merging
+      ? `Live's code still doesn't merge with this draft's after ${END_OF_TURN_BUILD_FAILURES} ` +
+          "tries, so Camox saved nothing: the preview keeps showing the draft's last version, " +
+          "and the draft can't be published until its code merges with Live's. " +
+          EXPLAIN
+      : `Your code changes still have conflict markers after ${END_OF_TURN_BUILD_FAILURES} ` +
+          "tries, so Camox saved nothing: the preview keeps showing the last version that " +
+          `built, and publishing the draft leaves these changes out. ${EXPLAIN}`;
+  }
   if (turn.outcome === "committedUnbuilt") {
     return (
       `Your code changes still don't build after ${END_OF_TURN_BUILD_FAILURES} tries, so ` +

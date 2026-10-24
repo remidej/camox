@@ -22,6 +22,15 @@ export const RUN_STOPPED_ENTRY = "camox.run-stopped";
  */
 export const BUILD_STATUS_ENTRY = "camox.build-status";
 
+/**
+ * The kind of the transcript entry starting Camox's own turn, which reconciles the draft's code
+ * with Live's when merging it clashed, with a `reconcileDataSchema` as data: the short message
+ * editors see. The model gets Camox's instructions instead.
+ */
+export const RECONCILE_ENTRY = "camox.reconcile";
+
+export const reconcileDataSchema = z.object({ message: z.string() });
+
 export const buildStatusSchema = z.enum(["building", "fixing"]);
 export type BuildStatus = z.infer<typeof buildStatusSchema>;
 
@@ -100,6 +109,8 @@ export type TouchedBatch = z.infer<typeof touchedBatchSchema>;
 /** A message the studio shows in a thread. */
 export type ThreadMessage =
   | { id: string; from: "editor"; sender: ThreadSender; text: string }
+  /** Camox's own message, starting a turn it began itself: why it did. */
+  | { id: string; from: "camox"; text: string }
   /** The agent's final message of a turn, in Markdown. */
   | { id: string; from: "agent"; text: string }
   /**
@@ -148,6 +159,8 @@ export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
 /** One transcript entry, as far as the studio's view is concerned. */
 type ThreadStep = { id: string } & (
   | { type: "editor"; sender: ThreadSender; text: string }
+  /** Camox starting a turn of its own, saying why. */
+  | { type: "camox"; text: string }
   | { type: "answer"; text: string }
   /** A round of tool calls, or their results: the run goes on after it. */
   | { type: "tools" }
@@ -245,6 +258,10 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
     if (entry.kind === EDITOR_MESSAGE_ENTRY) {
       return sender && { id, type: "editor", sender, text: textOf(message.content) };
     }
+    if (entry.kind === RECONCILE_ENTRY) {
+      const reconcile = reconcileDataSchema.safeParse(entry.data).data;
+      return reconcile && { id, type: "camox", text: reconcile.message };
+    }
     // Editors' messages have a kind of their own: a user message without it is Pi continuing a
     // run as the end of a turn asked.
     return { id, type: "continued" };
@@ -255,7 +272,8 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
 }
 
 /**
- * What the studio shows for a thread. A turn starts with an editor's message, and messages sent
+ * What the studio shows for a thread. A turn starts with an editor's message, or Camox's own
+ * when it began the turn itself, and messages sent
  * while it runs join it. It ends with the agent's final message; text written beside tool calls
  * is never shown. A stopped turn shows who stopped it instead, and whatever its run wrote after
  * the stop is left out. A turn that ended without either shows a failed line in its place: its
@@ -292,6 +310,11 @@ export function threadViewOf({ steps, running, ...drafts }: ThreadState): Thread
         // an editor's message after an unfinished call means that call's turn is over.
         if (unfinished) fail();
         messages.push({ id: step.id, from: "editor", sender: step.sender, text: step.text });
+        waiting = step.id;
+        break;
+      case "camox":
+        if (unfinished) fail();
+        messages.push({ id: step.id, from: "camox", text: step.text });
         waiting = step.id;
         break;
       case "stopped":

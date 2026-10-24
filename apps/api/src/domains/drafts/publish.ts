@@ -127,6 +127,7 @@ export const PROBLEM_CODES = [
   "definitionsDiffer",
   "codeDoesNotBuild",
   "codeDoesNotTypeCheck",
+  "codeDoesNotMerge",
   ...FILE_PROBLEM_CODES,
   ...CONTENT_PROBLEM_CODES,
   ...REMOVAL_PROBLEM_CODES,
@@ -298,7 +299,7 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
 /** A blocker about the draft's code, which only the agent fixes, in the draft's thread. */
 const codeBlocker = (
   draftId: string,
-  code: "codeDoesNotBuild" | "codeDoesNotTypeCheck",
+  code: "codeDoesNotBuild" | "codeDoesNotTypeCheck" | "codeDoesNotMerge",
   message: string,
 ): Problem => ({
   entity: "code",
@@ -314,14 +315,25 @@ const codeBlocker = (
 });
 
 /**
- * The preview's `code`, and the blockers the draft's code has: its head revision isn't built, or
+ * The preview's `code`, and the blockers the draft's code has: merging Live's code into it
+ * clashed and Camox's reconcile turn hasn't fixed it, or else its head revision isn't built, or
  * built but doesn't type check.
  */
 const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, scope: Scope) {
   if (scope.kind === "development") return { code: null, blockers: [] };
-  const { code, head } = yield* Effect.promise(() => codeOfDraft(ctx.env, ctx.db, scope.id));
+  const { code, head, clashed } = yield* Effect.promise(() =>
+    codeOfDraft(ctx.env, ctx.db, scope.id),
+  );
   const blockers: Problem[] = [];
-  if (head && head.buildStatus !== "built" && head.buildStatus !== "building") {
+  if (clashed) {
+    blockers.push(
+      codeBlocker(
+        scope.id,
+        "codeDoesNotMerge",
+        "The draft's code doesn't merge with Live's latest code: Camox's agent fixes it in the draft's thread, where you can ask it again",
+      ),
+    );
+  } else if (head && head.buildStatus !== "built" && head.buildStatus !== "building") {
     blockers.push(
       codeBlocker(
         scope.id,
