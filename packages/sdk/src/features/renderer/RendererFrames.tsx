@@ -13,16 +13,58 @@ import { runtimePath } from "../runtime/navigationTarget";
 import {
   RENDERER_DOCUMENT_PATH,
   STUDIO_HANDLE_KEY,
+  type RendererAnswer,
   type RendererFrameTarget,
+  type RendererQuestion,
   type StudioHandle,
 } from "./protocol";
 import { createRendererHost, type FrameListener, type RendererHost } from "./rendererHost";
 
-const RendererHostContext = React.createContext<RendererHost | null>(null);
+/** The Website Section's renderer host. `RendererFramesProvider` provides it. */
+export const RendererHostContext = React.createContext<RendererHost | null>(null);
 
 /** The Website Section's renderer host, once it exists, or null when the studio renders pages. */
 export function useRendererHost(): RendererHost | null {
   return React.use(RendererHostContext);
+}
+
+/**
+ * What the renderer frame's code answers `question`, asked again whenever another renderer
+ * connects (a draft move or a reload): undefined until it answers, without a renderer, or
+ * without a question.
+ */
+export function useRendererAnswer<Question extends RendererQuestion>(
+  question: Question | null,
+): RendererAnswer<Question> | undefined {
+  const host = useRendererHost();
+  const json = question ? JSON.stringify(question) : null;
+  // Counts the renderers connected, so each new one is asked.
+  const connections = React.useRef(0);
+  const subscribe = React.useCallback(
+    (listener: () => void) =>
+      host
+        ? host.subscribe(() => {
+            connections.current++;
+            listener();
+          })
+        : () => {},
+    [host],
+  );
+  const connection = React.useSyncExternalStore(subscribe, () => connections.current);
+  const [answer, setAnswer] = React.useState<{ asked: string; value: unknown }>();
+  React.useEffect(() => {
+    if (!host || !json) return;
+    let current = true;
+    host.ask(JSON.parse(json) as RendererQuestion).then(
+      (value) => current && setAnswer({ asked: json, value }),
+      // A question the code fails to answer has no answer: callers show what they'd show without.
+      () => current && setAnswer({ asked: json, value: undefined }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [host, json, connection]);
+  return answer && answer.asked === json ? (answer.value as RendererAnswer<Question>) : undefined;
 }
 
 /**

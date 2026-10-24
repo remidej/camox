@@ -32,10 +32,9 @@ import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 
-import type { Layout } from "../../../core/createLayout";
 import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
+import { type RoutableLayout, useRoutableLayouts } from "../../../lib/studio-definitions";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { DerivedLayoutDialog } from "./DerivedLayoutDialog";
 
@@ -48,11 +47,10 @@ const DERIVED_LAYOUT_PREFIX = "__derived_layout__:";
 
 const PagePicker = () => {
   const [open, setOpen] = React.useState(false);
-  const camoxApp = useCamoxApp();
-  const derivedLayouts = camoxApp
-    .getLayouts()
-    .filter((layout) => layout._internal.kind !== "curated");
-  const [layoutToPreview, setLayoutToPreview] = React.useState<Layout | null>(null);
+  const derivedLayouts = useRoutableLayouts().filter(
+    (layout) => layout._internal.kind !== "curated",
+  );
+  const [layoutToPreview, setLayoutToPreview] = React.useState<RoutableLayout | null>(null);
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
 
   const projectUuid = useProjectUuid();

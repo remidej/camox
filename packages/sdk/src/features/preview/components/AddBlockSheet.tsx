@@ -23,6 +23,7 @@ import { useLocalePath } from "@/lib/view-locale";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { useOptionalCamoxApp } from "../../provider/components/CamoxAppContext";
+import { useRendererHost } from "../../renderer/RendererFrames";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
 import { getGridNavigationIndex } from "./blockGridNavigation";
@@ -127,7 +128,9 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
   });
 
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
-  // Thumbnails and a new block's initial content still need the block's code.
+  // A new block's initial content needs the block's code. Through the renderer frame, it's asked
+  // of the renderer; the registry is only read without one, until #570 makes it the only way.
+  const rendererHost = useRendererHost();
   const camoxApp = useOptionalCamoxApp();
   const availableBlocks = useBlockDefinitions().filter((block) => !block.layoutOnly);
   const page = usePreviewedPage();
@@ -180,8 +183,13 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
     setError(null);
     const owner = { kind: "page", pageId: page.page.id } as const;
     try {
-      // Without the block's code, its default content and settings, with no repeatable items.
-      const bundle = camoxApp?.getBlockById(block.id)?._internal.getInitialBundle() ?? {
+      // The block's code builds its initial content: the renderer frame's, which runs the
+      // draft's code, or else this document's. Without either, the synced defaults, with no
+      // repeatable items.
+      const fromCode = rendererHost
+        ? await rendererHost.ask({ type: "initialBundle", blockType: block.id })
+        : camoxApp?.getBlockById(block.id)?._internal.getInitialBundle();
+      const bundle = fromCode ?? {
         content: block.defaultContent,
         settings: block.defaultSettings,
         repeatableItems: [],
@@ -298,7 +306,7 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
                   }}
                   className="group bg-card data-[selected=true]:border-primary flex flex-col items-stretch gap-0 overflow-hidden rounded-lg border-2 p-0"
                 >
-                  <BlockThumbnail block={camoxApp?.getBlockById(block.id)} className="h-44" />
+                  <BlockThumbnail blockType={block.id} title={block.title} className="h-44" />
                   <div className="border-border flex flex-col gap-1 border-t px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 leading-5 font-medium">{block.title}</span>

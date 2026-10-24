@@ -30,7 +30,6 @@ import { formatShortcut } from "@/lib/shortcuts";
 
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { entityName } from "../entityName";
 import {
@@ -331,7 +330,6 @@ function isLayoutBlockId(page: ReturnType<typeof usePreviewedPage>, blockId: str
 }
 
 function useBlockActionsShortcuts() {
-  const camoxApp = useCamoxApp();
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
   const selection = useSelector(previewStore, (state) =>
@@ -550,7 +548,6 @@ function useBlockActionsShortcuts() {
     selection,
     page,
     pageBlocks,
-    camoxApp,
     deleteBlock,
     duplicateBlock,
     updatePosition,

@@ -95,6 +95,26 @@ export function useLayoutDefinitions(): LayoutDefinition[] {
   return data ?? NO_LAYOUTS;
 }
 
+/**
+ * A layout definition, shaped as the route helpers (`core/derivedRoutes`, `core/pageDestinations`,
+ * the Canvas's pages) read a layout's code: they only need what the definition syncs.
+ */
+export type RoutableLayout = { _internal: LayoutDefinition };
+
+const NO_ROUTABLE_LAYOUTS: RoutableLayout[] = [];
+const toRoutableLayouts = (rows: Layout[]) =>
+  toLayoutDefinitions(rows).map((definition): RoutableLayout => ({ _internal: definition }));
+
+/** Every layout definition, as the route helpers read layouts: empty until they load. */
+export function useRoutableLayouts(): RoutableLayout[] {
+  const projectId = useProjectId();
+  const { data } = useReadQuery(reads.layoutList({ projectId: projectId ?? 0 }), {
+    enabled: projectId != null,
+    select: toRoutableLayouts,
+  });
+  return data ?? NO_ROUTABLE_LAYOUTS;
+}
+
 /** The definition of a layout, undefined while loading or when the draft has none. */
 export function useLayoutDefinition(id: string | undefined): LayoutDefinition | undefined {
   const definitions = useLayoutDefinitions();

@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
 
-import type { CamoxApp } from "../../core/createApp";
-import type { Layout } from "../../core/createLayout";
-import { CamoxAppProvider } from "../provider/components/CamoxAppContext";
+import { initApiClient } from "../../lib/api-client";
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 import { DerivedPagePathInput } from "./DerivedPagePathInput";
+
+Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
+initApiClient("http://localhost:8788", testDraftScope());
 
 void test("derived layout parameters submit encoded page paths, reject invalid paths, and reset on selection", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas" });
@@ -18,6 +26,7 @@ void test("derived layout parameters submit encoded page paths, reject invalid p
     document: dom.document,
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
+    localStorage: dom.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   };
   const previous = new Map(
@@ -26,33 +35,46 @@ void test("derived layout parameters submit encoded page paths, reject invalid p
   Object.assign(globalThis, globals);
   // Load the event system after the DOM exists so input events use browser semantics.
   const { createRoot } = await import("react-dom/client");
+  const { AuthContext, createCamoxAuthClient } = await import("../../lib/auth");
   const mount = dom.document.createElement("div");
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
   const derivedLayoutId = "teams.$team.members.$member.details";
-  const layouts = [
-    { _internal: { id: derivedLayoutId, kind: "derived" } },
-    { _internal: { id: "teams.staff.members.$member.details", kind: "derived" } },
-  ] as Layout[];
-  const app = { getLayouts: () => layouts } as CamoxApp;
+  // The layouts the draft's definitions synced: the page's, and a more specific one.
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+  const cache = testStudioCache(client);
+  cache.set(reads.project({ projectUuid: "site" }), { id: 1 } as never);
+  cache.set(reads.layoutList({ projectId: 1 }), [
+    { layoutId: derivedLayoutId, title: "Members", kind: "derived" },
+    { layoutId: "teams.staff.members.$member.details", title: "Staff", kind: "derived" },
+  ] as never);
   const changes: string[] = [];
   const render = async (pathname: string | null) => {
     await act(async () =>
       root.render(
-        <CamoxAppProvider app={app}>
-          <DerivedPagePathInput
-            page={{
-              kind: "derived",
-              key: "derived",
-              title: "Members",
-              pathname: null,
-              layoutId: derivedLayoutId,
-              pattern: "/teams/:team/members/:member/details",
+        <StudioQueryClientProvider client={client}>
+          <AuthContext.Provider
+            value={{
+              projectUuid: "site",
+              apiUrl: "http://localhost:8788",
+              authenticationUrl: "http://localhost:3290",
+              authClient: createCamoxAuthClient("http://localhost:8788"),
             }}
-            pathname={pathname}
-            onChange={(path) => changes.push(path)}
-          />
-        </CamoxAppProvider>,
+          >
+            <DerivedPagePathInput
+              page={{
+                kind: "derived",
+                key: "derived",
+                title: "Members",
+                pathname: null,
+                layoutId: derivedLayoutId,
+                pattern: "/teams/:team/members/:member/details",
+              }}
+              pathname={pathname}
+              onChange={(path) => changes.push(path)}
+            />
+          </AuthContext.Provider>
+        </StudioQueryClientProvider>,
       ),
     );
   };

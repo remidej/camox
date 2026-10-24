@@ -1,11 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import type { CamoxApp } from "../../core/createApp";
 import type { ApplyContentEdit } from "../../core/editing/contentEdits";
 import type { DraftScope } from "../../lib/draft-scope";
 import type { StudioCache } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
 import { previewStore } from "../preview/previewStore";
 import { referencePickerFocus } from "../preview/referencePickerFocus";
+import { answerFromCode } from "./definitionAnswers";
 import {
   deferredInbox,
   RENDERER_PROTOCOL,
@@ -24,6 +26,13 @@ export interface RendererFrame {
   frameId: string;
   slot: HTMLElement;
   target: RendererFrameTarget;
+}
+
+/** One block thumbnail the studio gave the renderer to fill. */
+export interface RendererThumbnail {
+  thumbnailId: string;
+  slot: HTMLElement;
+  blockType: string;
 }
 
 /** A store of this document that mirrors or forwards to the studio's. */
@@ -50,7 +59,9 @@ export interface StudioConnection {
   connected: () => boolean;
   /** The frames the studio gives the renderer to fill, in the order it gave them. */
   frames: () => RendererFrame[];
-  /** Calls `listener` whenever the frames change. */
+  /** The block thumbnails the studio gives the renderer to fill, in the order it gave them. */
+  thumbnails: () => RendererThumbnail[];
+  /** Calls `listener` whenever the frames or thumbnails change. */
   subscribe: (listener: () => void) => () => void;
   /** Tells the studio about one of its frames. */
   send(message: Exclude<RendererMessage, { type: "hello" | "storeEvent" | "edit" }>): void;
@@ -62,7 +73,8 @@ export interface StudioConnection {
 /**
  * Connects the renderer document to the studio through its handle. This document's stores then
  * mirror the studio's, its own events are forwarded to the studio, which owns their truth, and
- * its cache follows the studio's (see `protocol.ts`).
+ * its cache follows the studio's (see `protocol.ts`). The studio's questions are answered from
+ * `camoxApp`, the draft's code; without it, none can be.
  */
 export function connectToStudio(
   handle: StudioHandle,
@@ -70,14 +82,28 @@ export function connectToStudio(
     queryClient,
     studioCache,
     draftScope,
-  }: { queryClient: QueryClient; studioCache: StudioCache; draftScope: DraftScope },
+    camoxApp,
+  }: {
+    queryClient: QueryClient;
+    studioCache: StudioCache;
+    draftScope: DraftScope;
+    camoxApp?: CamoxApp;
+  },
 ): StudioConnection {
   let welcomed = false;
   let frames: RendererFrame[] = [];
   const listeners = new Set<() => void>();
+  let thumbnails: RendererThumbnail[] = [];
+  const changed = () => {
+    for (const listener of listeners) listener();
+  };
   const setFrames = (next: RendererFrame[]) => {
     frames = next;
-    for (const listener of listeners) listener();
+    changed();
+  };
+  const setThumbnails = (next: RendererThumbnail[]) => {
+    thumbnails = next;
+    changed();
   };
   /** The edits sent to the studio that it hasn't answered yet. */
   const editsInFlight = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
@@ -125,6 +151,37 @@ export function connectToStudio(
         for (const queryKey of message.queryKeys)
           if (holds(queryKey)) void queryClient.invalidateQueries({ queryKey, exact: true });
         return;
+      case "thumbnail": {
+        const { thumbnailId, slot, blockType } = message;
+        const thumbnail = { thumbnailId, slot, blockType };
+        const index = thumbnails.findIndex((shown) => shown.thumbnailId === thumbnailId);
+        setThumbnails(
+          index < 0
+            ? [...thumbnails, thumbnail]
+            : thumbnails.map((shown, at) => (at === index ? thumbnail : shown)),
+        );
+        return;
+      }
+      case "thumbnailEnd":
+        setThumbnails(thumbnails.filter(({ thumbnailId }) => thumbnailId !== message.thumbnailId));
+        return;
+      case "ask": {
+        const { askId, question } = message;
+        if (!camoxApp) {
+          studio({ type: "answer", askId, error: "The renderer has no code to answer with." });
+          return;
+        }
+        void answerFromCode(camoxApp, question).then(
+          (value) => studio({ type: "answer", askId, value }),
+          (error: unknown) =>
+            studio({
+              type: "answer",
+              askId,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+        );
+        return;
+      }
       case "edited": {
         const edit = editsInFlight.get(message.editId);
         if (!edit) return;
@@ -153,6 +210,7 @@ export function connectToStudio(
   return {
     connected: () => welcomed,
     frames: () => frames,
+    thumbnails: () => thumbnails,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

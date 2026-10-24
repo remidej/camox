@@ -18,8 +18,10 @@ import {
   type ForwardedStore,
   type Inbox,
   type MirroredStore,
+  type RendererAnswer,
   type RendererFrameTarget,
   type RendererMessage,
+  type RendererQuestion,
   type StoreEvent,
   type StudioHandle,
   type StudioMessage,
@@ -74,6 +76,23 @@ export interface RendererHost {
   ): void;
   /** Has the renderer stop rendering the frame. */
   hide(frameId: string): void;
+  /**
+   * Asks the renderer what only the draft's code knows. Settles once a renderer answers: the one
+   * connected, or else the next to connect.
+   */
+  ask<Question extends RendererQuestion>(question: Question): Promise<RendererAnswer<Question>>;
+  /**
+   * Has the renderer render a thumbnail of a `blockType` block into `slot`, an element of the
+   * thumbnail's frame, until hidden.
+   */
+  showThumbnail(thumbnailId: string, slot: HTMLElement, blockType: string): void;
+  /** Has the renderer stop rendering the thumbnail. */
+  hideThumbnail(thumbnailId: string): void;
+  /**
+   * Calls `listener` each time a renderer connects, as the answers the last one gave may change.
+   * Returns a function that stops calling it.
+   */
+  subscribe(listener: () => void): () => void;
   /** Stops following the studio. A renderer still connected hears nothing more. */
   close(): void;
 }
@@ -98,6 +117,18 @@ export function createRendererHost({
   const applyEdit =
     queryClient && studioCache ? createContentEditor({ queryClient, studioCache }) : undefined;
   const frames = new Map<string, ShownFrame>();
+  const thumbnails = new Map<string, { slot: HTMLElement; blockType: string }>();
+  /** The questions asked that no renderer answered yet. */
+  const asked = new Map<
+    number,
+    {
+      question: RendererQuestion;
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+    }
+  >();
+  let lastAskId = 0;
+  const connectionListeners = new Set<() => void>();
   let renderer: Inbox<StudioMessage> | null = null;
   /** Sends to the renderer once it said hello, in the protocol it speaks. */
   let welcomed = false;
@@ -159,6 +190,10 @@ export function createRendererHost({
         for (const store of Object.keys(mirrored) as MirroredStore[]) postStore(store);
         for (const [frameId, { slot, target }] of frames)
           post({ type: "frame", frameId, slot, target });
+        for (const [thumbnailId, { slot, blockType }] of thumbnails)
+          post({ type: "thumbnail", thumbnailId, slot, blockType });
+        for (const [askId, { question }] of asked) post({ type: "ask", askId, question });
+        for (const listener of connectionListeners) listener();
         return;
       }
       case "storeEvent": {
@@ -175,6 +210,14 @@ export function createRendererHost({
         return frames.get(message.frameId)?.hears.navigate?.(message.to);
       case "reveal":
         return frames.get(message.frameId)?.hears.reveal?.(message.element, message.immediate);
+      case "answer": {
+        const question = asked.get(message.askId);
+        if (!question) return;
+        asked.delete(message.askId);
+        if (message.error === undefined) question.resolve(message.value ?? null);
+        else question.reject(new Error(message.error));
+        return;
+      }
       case "edit": {
         const { editId, edit } = message;
         // The answer goes to the renderer that sent the edit: one connected since never hears it.
@@ -213,7 +256,27 @@ export function createRendererHost({
       if (!frames.delete(frameId)) return;
       post({ type: "frameEnd", frameId });
     },
+    ask(question) {
+      return new Promise((resolve, reject) => {
+        const askId = ++lastAskId;
+        asked.set(askId, { question, resolve: resolve as (value: unknown) => void, reject });
+        post({ type: "ask", askId, question });
+      });
+    },
+    showThumbnail(thumbnailId, slot, blockType) {
+      thumbnails.set(thumbnailId, { slot, blockType });
+      post({ type: "thumbnail", thumbnailId, slot, blockType });
+    },
+    hideThumbnail(thumbnailId) {
+      if (!thumbnails.delete(thumbnailId)) return;
+      post({ type: "thumbnailEnd", thumbnailId });
+    },
+    subscribe(listener) {
+      connectionListeners.add(listener);
+      return () => connectionListeners.delete(listener);
+    },
     close() {
+      connectionListeners.clear();
       for (const subscription of subscriptions) subscription.unsubscribe();
       stopRelaying?.();
       stopFollowing?.();

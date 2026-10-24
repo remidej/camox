@@ -1,14 +1,22 @@
+import { routeSegments } from "../../core/derivedRoutes";
 import { useProjectUuid } from "../../lib/auth";
+import { useLayoutDefinitions } from "../../lib/studio-definitions";
 import { reads, useReadQueries } from "../../lib/studio-reads";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
 
-/** Each derived layout's first discovered page, keyed by layout id. */
+/**
+ * Each derived layout's first discovered page, keyed by layout id. Only a layout with params
+ * needs one. Whether it discovers pages is its code's to say: the runtime runs it, and answers
+ * no page for a layout without routes.
+ */
 export function useDiscoveredPreviewPaths(runtimeBasePath: string) {
   const projectUuid = useProjectUuid();
-  const layouts = useCamoxApp()
-    .getLayouts()
-    .filter((layout) => layout._internal.kind === "derived" && layout._internal.routes);
-  const ids = layouts.map(({ _internal: { id } }) => id);
+  const ids = useLayoutDefinitions()
+    .filter(
+      (layout) =>
+        layout.kind === "derived" &&
+        routeSegments(layout.id).some((segment) => segment.startsWith("$")),
+    )
+    .map(({ id }) => id);
   return useReadQueries(
     ids.map((layoutId) => reads.discoveredPath({ projectUuid, runtimeBasePath, layoutId })),
     // Without a discovered page, the frame asks for a path, as it does without routes.

@@ -1,6 +1,8 @@
 import type { InvalidationMessage, QueryKey } from "@camox/api-contract/query-keys";
 
 import type { ContentEdit } from "../../core/editing/contentEdits";
+import type { RepeatableItemSeed } from "../../core/editing/createEditableBlock";
+import type { LocaleView } from "../../lib/locale-path";
 import type { ViewLocale } from "../../lib/view-locale-context";
 import type { EditingOwner } from "../preview/previewStore";
 
@@ -40,6 +42,12 @@ import type { EditingOwner } from "../preview/previewStore";
  * crosses as an `edit`, which the studio writes once, with its own draft-scoped mutations (a
  * write on Live starts a draft, which the renderer then enters), and answers `edited`. What the
  * write changes in the studio's cache reaches the renderer as `write` and `outdated`.
+ *
+ * Definition code: the studio's document runs none of the site's code. What only a definition's
+ * functions know, the studio asks the renderer, which runs the shown draft's code: an `ask` with
+ * a {@link RendererQuestion}, answered `answer`, by the renderer connected at the time. A question
+ * still unanswered when another renderer connects is asked of it. Block thumbnails are rendered
+ * by the renderer, into a slot of the thumbnail's frame (`thumbnail`), as pages are.
  */
 
 /** Bumped when the messages change shape. A renderer of another protocol doesn't connect. */
@@ -87,6 +95,45 @@ export interface RendererFrameTarget {
   canvas: { workspaceKey: string } | null;
 }
 
+/** The page a curated layout's `toTitle` titles. */
+export interface TitledPage {
+  fullPath: string;
+  nickname: string;
+  metaTitle?: string | null;
+  metaDescription?: string | null;
+  firstPublishedAt?: number | null;
+  publishedAt?: number | null;
+}
+
+/** What the studio asks of the renderer: anything only the draft's definition code knows. */
+export type RendererQuestion =
+  /** What a new block of `blockType` starts with. */
+  | { type: "initialBundle"; blockType: string }
+  /** The title the curated layout `layoutId` gives `page`, in `locale`. */
+  | {
+      type: "pageTitle";
+      layoutId: string;
+      page: TitledPage;
+      projectName: string;
+      locale: LocaleView;
+    };
+
+/** A new block's content, settings and repeatable items, as its definition builds them. */
+export interface InitialBundle {
+  content: Record<string, unknown>;
+  settings: Record<string, unknown>;
+  repeatableItems: RepeatableItemSeed[];
+}
+
+/** What the renderer answers each question with: `null` when the draft's code doesn't know it. */
+export interface RendererAnswers {
+  initialBundle: InitialBundle | null;
+  pageTitle: string | null;
+}
+
+/** The answer to `Question`. */
+export type RendererAnswer<Question extends RendererQuestion> = RendererAnswers[Question["type"]];
+
 /** The stores whose state the studio owns, and the renderer mirrors. */
 export type MirroredStore = "preview" | "canvas";
 
@@ -119,7 +166,15 @@ export type StudioMessage =
   /** The studio marked reads outdated, as its writes settle. */
   | { type: "outdated"; queryKeys: QueryKey[] }
   /** The edit the renderer sent under `editId` was written, or with `error`, couldn't be. */
-  | { type: "edited"; editId: number; error?: string };
+  | { type: "edited"; editId: number; error?: string }
+  /** A question for the draft's code. The renderer answers `answer`, with the same `askId`. */
+  | { type: "ask"; askId: number; question: RendererQuestion }
+  /**
+   * Has the renderer render a thumbnail of a `blockType` block into `slot`, a same-origin handle
+   * in the thumbnail's frame, until `thumbnailEnd`.
+   */
+  | { type: "thumbnail"; thumbnailId: string; slot: HTMLElement; blockType: string }
+  | { type: "thumbnailEnd"; thumbnailId: string };
 
 /** What the renderer tells the studio. */
 export type RendererMessage =
@@ -134,7 +189,9 @@ export type RendererMessage =
   /** A block wants into view. `element` is a same-origin handle inside the frame's slot. */
   | { type: "reveal"; frameId: string; element: Element; immediate: boolean }
   /** An edit made in place, for the studio to write. The studio answers `edited`. */
-  | { type: "edit"; editId: number; edit: ContentEdit };
+  | { type: "edit"; editId: number; edit: ContentEdit }
+  /** The answer to the studio's question `askId`, or with `error`, why there is none. */
+  | { type: "answer"; askId: number; value?: unknown; error?: string };
 
 /**
  * An inbox that handles each message later, in order, apart from the call that delivered it: the

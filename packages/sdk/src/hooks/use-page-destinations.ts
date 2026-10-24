@@ -1,20 +1,20 @@
 import { useMemo } from "react";
 
 import { getPageDestinations } from "../core/pageDestinations";
-import { useCamoxApp } from "../features/provider/components/CamoxAppContext";
 import { useProjectUuid } from "../lib/auth";
 import { linkablePages, useLinkablePages } from "../lib/link-pages";
+import { useRoutableLayouts } from "../lib/studio-definitions";
 import { reads, useReadQuery } from "../lib/studio-reads";
 
 /** The pages of the locale viewed, which the studio navigates to. */
 export function usePageDestinations() {
-  const app = useCamoxApp();
+  const layouts = useRoutableLayouts();
   const projectUuid = useProjectUuid();
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
     enabled: !!project,
   });
-  return useMemo(() => getPageDestinations(pages ?? [], app.getLayouts()), [app, pages]);
+  return useMemo(() => getPageDestinations(pages ?? [], layouts), [layouts, pages]);
 }
 
 /**
@@ -22,14 +22,14 @@ export function usePageDestinations() {
  * locale's pages it misses, which links to them lead to (see `linkablePages`).
  */
 export function useLinkDestinations() {
-  const app = useCamoxApp();
+  const layouts = useRoutableLayouts();
   const { pages, fallbackPages } = useLinkablePages(useProjectUuid(), { fetchProject: true });
   return useMemo(
     () =>
       getPageDestinations(
         linkablePages(pages ?? [], fallbackPages).map(({ page }) => page),
-        app.getLayouts(),
+        layouts,
       ),
-    [app, pages, fallbackPages],
+    [layouts, pages, fallbackPages],
   );
 }

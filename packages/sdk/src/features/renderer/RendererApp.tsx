@@ -11,6 +11,7 @@ import { ViewLocaleContext } from "../../lib/view-locale-context";
 import { CanvasWorkspaceContext } from "../canvas/canvasZoom";
 import { type LocationState, NavigationProvider } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
+import { BlockPeek } from "../preview/components/BlockPeek";
 import { FrameContext } from "../preview/components/Frame";
 import { EditablePageContent } from "../preview/EditablePageContent";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
@@ -38,6 +39,11 @@ export function RendererApp({
     connection.frames,
     connection.frames,
   );
+  const thumbnails = React.useSyncExternalStore(
+    connection.subscribe,
+    connection.thumbnails,
+    connection.thumbnails,
+  );
   // The studio writes every edit the pages make: they never write content themselves.
   return (
     <ContentEditsContext value={connection.edit}>
@@ -54,8 +60,49 @@ export function RendererApp({
           frame.frameId,
         ),
       )}
+      {thumbnails.map(({ thumbnailId, slot, blockType }) =>
+        createPortal(
+          <RendererThumbnail slot={slot} blockType={blockType} camoxApp={camoxApp} />,
+          slot,
+          thumbnailId,
+        ),
+      )}
     </ContentEditsContext>
   );
+}
+
+/** A block's thumbnail, rendered by the draft's code into its frame: nothing for a block it lacks. */
+function RendererThumbnail({
+  slot,
+  blockType,
+  camoxApp,
+}: {
+  slot: HTMLElement;
+  blockType: string;
+  camoxApp: CamoxApp;
+}) {
+  const frameWindow = slot.ownerDocument.defaultView;
+  const frameContext = React.useMemo(
+    () => ({
+      window: frameWindow,
+      iframeElement: (frameWindow?.frameElement as HTMLIFrameElement | null) ?? null,
+    }),
+    [frameWindow],
+  );
+  return (
+    <FrameContext.Provider value={frameContext}>
+      <React.Suspense fallback={null}>
+        <ThumbnailBlock blockType={blockType} camoxApp={camoxApp} />
+      </React.Suspense>
+    </FrameContext.Provider>
+  );
+}
+
+function ThumbnailBlock({ blockType, camoxApp }: { blockType: string; camoxApp: CamoxApp }) {
+  const block =
+    camoxApp.getBlockById(blockType) ??
+    (camoxApp.canLoadMoreBlocks() ? React.use(camoxApp.loadBlock(blockType)) : undefined);
+  return block ? <BlockPeek block={block} /> : null;
 }
 
 function locationOf(href: string): LocationState {
