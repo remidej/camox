@@ -557,6 +557,17 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /**
+   * Builds the code of the draft `draftId`, the thread's, in its build queue, as a publish of a
+   * head revision whose build is gone asks: the head's tree finds its revision, built again.
+   */
+  async buildForPublish(draftId: string): Promise<BuildResult | null> {
+    if (!(await this.#hasCode(draftId))) return null;
+    return this.#buildingSerially(draftId, () =>
+      buildRevision(this.env, draftId, { leftBy: "build" }),
+    );
+  }
+
+  /**
    * Runs `build` once the draft's builds before it are done, the draft showing it's building,
    * unless it's a merge of `main`, which a publish waits for rather than refuse.
    */

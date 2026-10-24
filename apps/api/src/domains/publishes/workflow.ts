@@ -18,7 +18,6 @@ import { drafts } from "../drafts/schema";
 import { draftOf } from "../drafts/scope";
 import { projects } from "../projects/schema";
 import { releases } from "../releases/schema";
-import { buildRevision } from "../revisions/build";
 import { revisions } from "../revisions/schema";
 import { DRAFT_MERGED_EVENT, PUBLISH_TURN_EVENT } from "./events";
 import { leavePublishPush, turnOf, wakeNextPublish } from "./queue";
@@ -278,13 +277,11 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       return { aborted: "revisionChanged" };
     }
     if (!revision.archiveKey) {
-      await code.markBuilding(true);
-      try {
-        const built = await buildRevision(this.env, params.draftId, { leftBy: "build" });
-        if (built.revision !== head) return { aborted: "revisionChanged" };
-      } finally {
-        await code.markBuilding(false);
-      }
+      // In the draft's build queue: its sandbox builds one tree at a time.
+      const built = draft.threadId
+        ? await this.env.THREAD.getByName(draft.threadId).buildForPublish(params.draftId)
+        : null;
+      if (built?.revision !== head) return { aborted: "revisionChanged" };
       revision = await revisionOf(db, head);
     }
     if (!revision?.archiveKey) return { aborted: "revisionChanged" };
@@ -354,6 +351,7 @@ async function publishingDraft(db: Database, draftId: string, instanceId: string
       name: drafts.name,
       headRevisionId: drafts.headRevisionId,
       previewedRevisionId: drafts.previewedRevisionId,
+      threadId: drafts.threadId,
       projectUuid: projects.uuid,
     })
     .from(drafts)

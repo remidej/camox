@@ -420,6 +420,8 @@ const prewarmFailures = new Map();
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
 const sandboxSleepAfter = new Map();
+/** @type {Map<string, { running: number, most: number }>} sandbox → its builds running now, and the most that ran at once */
+const buildsAtOnce = new Map();
 /** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
 const heldBuilds = new Set();
 /** @type {Set<string>} the revision sandboxes whose type checks are held, as checks still running */
@@ -560,8 +562,17 @@ export class FakeRevisionSandbox extends DurableObject {
       return result(0);
     }
     if (BUILD_COMMAND.test(command)) {
-      // Polled: a promise resolved from the request letting go wouldn't wake this one.
-      while (heldBuilds.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
+      // Builds sharing the sandbox's one workspace at once would build each other's files.
+      const at = buildsAtOnce.get(this.name) ?? { running: 0, most: 0 };
+      at.running += 1;
+      at.most = Math.max(at.most, at.running);
+      buildsAtOnce.set(this.name, at);
+      try {
+        // Polled: a promise resolved from the request letting go wouldn't wake this one.
+        while (heldBuilds.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
+      } finally {
+        at.running -= 1;
+      }
       const failing = failingBuilds.find(({ marker }) =>
         Object.values(this.tree).some((content) => content.includes(marker)),
       );
@@ -1069,6 +1080,11 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async holdBuilds(sandbox) {
     heldBuilds.add(sandbox);
+  }
+
+  /** @param {string} sandbox The most builds that ran at once in a revision sandbox. */
+  async mostBuildsAtOnce(sandbox) {
+    return buildsAtOnce.get(sandbox)?.most ?? 0;
   }
 
   /** @param {string} sandbox Lets go of the sandbox's builds `holdBuilds()` holds. */
