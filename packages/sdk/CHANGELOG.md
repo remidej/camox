@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.0](https://github.com/remidej/camox/compare/camox-v0.51.0...camox-sdk-v0.52.0) (2026-10-24)
+
+
+### Features
+
+* the agent changes a website's code in a draft ([#584](https://github.com/remidej/camox/issues/584)) ([b129ef3](https://github.com/remidej/camox/commit/b129ef321870cfc755df95bdcb0fe754d085d598))
+
 ## [0.51.0](https://github.com/remidej/camox/compare/camox-v0.50.0...camox-sdk-v0.51.0) (2026-10-23)
 
 
