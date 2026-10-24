@@ -291,9 +291,9 @@ const memberScope = Effect.fn("access.memberScope")(function* (
 
 /**
  * The scope a public read naming a publishing draft reads, with no session: Live overlaid with
- * the draft while it's in its publishing state, so a publish with code's new Worker version
- * serves the content it was previewed with from its first request. Live once the draft ended,
- * or when it isn't publishing (spec #560, section 13).
+ * the draft from its publish's promotion until its batch commits, so a publish with code's new
+ * Worker version serves the content it was previewed with from its first request. Live before
+ * the promotion, once the draft ended, or when it isn't publishing (spec #560, section 13).
  */
 const publishingScope = Effect.fn("access.publishingScope")(function* (
   ctx: AccessContext,
@@ -309,7 +309,7 @@ const publishingScope = Effect.fn("access.publishingScope")(function* (
         and(
           eq(drafts.id, draftId),
           eq(drafts.projectId, project.id),
-          isNotNull(drafts.publishingRevisionId),
+          isNotNull(drafts.publishPromotedAt),
         ),
       )
       .get(),

@@ -52,6 +52,9 @@ export const drafts = sqliteTable(
     // When the publish was asked for: a project's publishes with code run one at a time, in
     // this order.
     publishRequestedAt: int("publish_requested_at"),
+    // When the publish started promoting its Worker version: from then until the batch commits,
+    // public reads naming the draft read Live overlaid with it (`access.ts`).
+    publishPromotedAt: int("publish_promoted_at"),
     // Why the draft's last publish went back to the review (`PublishAbortReason`), until the
     // next one starts.
     publishAbortReason: text("publish_abort_reason").$type<PublishAbortReason>(),

@@ -232,6 +232,13 @@
       "when": 1792817020251,
       "tag": "0032_publish_pushes_queued",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1792818164149,
+      "tag": "0033_publish_promoted_at",
+      "breakpoints": true
     }
   ]
 }

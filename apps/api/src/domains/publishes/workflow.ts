@@ -145,6 +145,12 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       );
       // A promotion whose answer is lost may have served the version all the same.
       rollBackTo = { previous, project: ship.projectUuid };
+      await step.do("let the version read the draft", async () => {
+        await db
+          .update(drafts)
+          .set({ publishPromotedAt: Date.now() })
+          .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)));
+      });
       await step.do("promote the Worker version", INFRASTRUCTURE_RETRIES, () =>
         promoteVersion(this.env, ship.projectUuid, version),
       );
@@ -416,6 +422,7 @@ async function endPublishing(
             publishingRevisionId: null,
             publishInstanceId: null,
             publishRequestedAt: null,
+            publishPromotedAt: null,
             publishAbortReason: reason,
           })
           .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)))
