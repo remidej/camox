@@ -18,3 +18,7 @@ A website's public renders (pages, their Markdown Representation and navigation 
 - Deploying the API starts a new Workers Caching version, so every website renders each page once again.
 - When the key can't be read, the website renders uncached. A website deployed before the API answers keys just doesn't cache.
 - Visitors' browsers get `public, max-age=0, must-revalidate`, since they can't be purged.
+
+## Amendment: a named cache, never `caches.default`
+
+Websites on camox.site run as user Workers in a Workers for Platforms dispatch namespace, in untrusted mode, where `caches.default` throws on every call. Each user Worker gets its own isolated cache through `caches.open()` instead. Renders are kept in the named cache `camox-public-renders`, which works the same on a self-hosted website. The namespace stays untrusted: agent-written code runs in these Workers (ADR 0020), and in trusted mode every Worker in the namespace shares one cache, so one project's code could read or replace another's renders. The cache only ever saves a render. When it can't be opened, read or written, the website renders as if it had no cache.
