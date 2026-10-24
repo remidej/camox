@@ -6,6 +6,7 @@ import type { RepeatableItemSeed } from "../../core/editing/createEditableBlock"
 import type { LocaleView } from "../../lib/locale-path";
 import type { ViewLocale } from "../../lib/view-locale-context";
 import type { EditingOwner } from "../preview/previewStore";
+import type { StudioNotice } from "../preview/studioNotice";
 
 /**
  * The renderer frame's protocol (ADR 0023): how the studio and the renderer frame, a hidden
@@ -200,7 +201,9 @@ export type RendererMessage =
   /** An edit made in place, for the studio to write. The studio answers `edited`. */
   | { type: "edit"; editId: number; edit: ContentEdit }
   /** The answer to the studio's question `askId`, or with `error`, why there is none. */
-  | { type: "answer"; askId: number; value?: unknown; error?: string };
+  | { type: "answer"; askId: number; value?: unknown; error?: string }
+  /** Something a page tells the editor: the renderer's document shows no toasts. */
+  | { type: "notify"; notice: StudioNotice };
 
 /**
  * An inbox that handles each message later, in order, apart from the call that delivered it: the

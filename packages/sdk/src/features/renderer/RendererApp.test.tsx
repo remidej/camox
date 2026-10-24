@@ -56,6 +56,7 @@ function pageInput(pathname: string, derived?: PageRenderInput["derived"]) {
 async function setup(
   t: { after: (fn: () => Promise<void> | void) => void },
   camoxApp: CamoxApp = {} as never,
+  codeLoaded?: Promise<void>,
 ) {
   const dom = new Window({ url: "http://localhost/_camox/renderer" });
   const globals = {
@@ -82,6 +83,7 @@ async function setup(
   const { EditableSurfaceContext } = await import("../../core/hooks/useIsEditable");
   const { useNavigate } = await import("../navigation/navigation");
   const { useApplyContentEdit } = await import("../../core/editing/contentEdits");
+  const { useStudioNotice } = await import("../preview/studioNotice");
   const { previewStore } = await import("../preview/previewStore");
   const { fakeStudio, settle } = await import("./protocol.fixtures");
   const { connectToStudio } = await import("./studioConnection");
@@ -96,6 +98,7 @@ async function setup(
     const select = usePreviewSelection();
     const navigate = useNavigate();
     const applyEdit = useApplyContentEdit();
+    const notify = useStudioNotice();
     const [saved, setSaved] = React.useState("");
     const edit = () =>
       applyEdit({ type: "blockContent", blockId: "hero", content: { title: "Hello" } }).then(
@@ -113,6 +116,10 @@ async function setup(
         data-saved={saved}
       >
         <button data-edit onClick={() => void edit()} />
+        <button
+          data-notify
+          onClick={() => notify({ tone: "error", message: "Could not delete" })}
+        />
         <button data-select onClick={() => select({ type: "block", blockId: "hero" })} />
         <button data-navigate onClick={() => void navigate({ to: "/pricing" })} />
       </div>
@@ -160,6 +167,7 @@ async function setup(
           <RendererApp
             connection={connection}
             camoxApp={camoxApp}
+            codeLoaded={codeLoaded}
             projectUuid="p"
             runtimeBasePath=""
           />
@@ -252,6 +260,23 @@ void test("a page that throws fails in its own frame, and the studio hears it", 
   assert.ok(preview.slot.querySelector("[data-probe]"), "the other frame keeps rendering");
 });
 
+void test("code that fails to load fails each frame, and the studio hears why", async (t) => {
+  const failed = Promise.reject(new Error("Unexpected token in Hero.tsx"));
+  failed.catch(() => {});
+  const quiet = t.mock.method(console, "error", () => {});
+  const { studio, show, visibleFrame, act } = await setup(t, {} as never, failed);
+  show("/");
+  const preview = visibleFrame("http://localhost/");
+  await act(() =>
+    studio.send({ type: "frame", frameId: "preview", slot: preview.slot, target: target() }),
+  );
+  quiet.mock.restore();
+  assert.deepEqual(studio.all("error"), [
+    { type: "error", frameId: "preview", message: "Unexpected token in Hero.tsx" },
+  ]);
+  assert.match(preview.slot.querySelector("[role=alert]")?.textContent ?? "", /Hero\.tsx/);
+});
+
 void test("selecting and navigating in a frame's page goes to the studio", async (t) => {
   const { studio, show, visibleFrame, act } = await setup(t);
   show("/");
@@ -315,4 +340,42 @@ void test("the renderer renders each block thumbnail with the draft's code, into
 
   await act(() => studio.send({ type: "thumbnailEnd", thumbnailId: "t1" }));
   assert.equal(thumbnail.slot.childElementCount, 0);
+});
+
+void test("what a page tells the editor goes to the studio, which shows it", async (t) => {
+  const { studio, show, visibleFrame, act } = await setup(t);
+  show("/");
+  const preview = visibleFrame("http://localhost/");
+  await act(() =>
+    studio.send({ type: "frame", frameId: "preview", slot: preview.slot, target: target() }),
+  );
+  await act(() => (preview.slot.querySelector("[data-notify]") as HTMLElement).click());
+  assert.deepEqual(studio.all("notify"), [
+    { type: "notify", notice: { tone: "error", message: "Could not delete" } },
+  ]);
+});
+
+void test("a thumbnail whose code fails to load shows nothing, and the pages keep rendering", async (t) => {
+  const { createApp } = await import("../../core/createApp");
+  const camoxApp = createApp({
+    blocks: [],
+    lazyBlocks: {
+      hero: async () => {
+        throw new Error("Hero.tsx failed to load");
+      },
+    },
+  });
+  const quiet = t.mock.method(console, "error", () => {});
+  const { studio, show, visibleFrame, act } = await setup(t, camoxApp);
+  show("/");
+  const preview = visibleFrame("http://localhost/");
+  const thumbnail = visibleFrame("http://localhost/");
+  await act(() => {
+    studio.send({ type: "frame", frameId: "preview", slot: preview.slot, target: target() });
+    studio.send({ type: "thumbnail", thumbnailId: "t1", slot: thumbnail.slot, blockType: "hero" });
+  });
+  await act(() => {});
+  quiet.mock.restore();
+  assert.equal(thumbnail.slot.textContent, "");
+  assert.ok(preview.slot.querySelector("[data-probe]"), "the page keeps rendering");
 });

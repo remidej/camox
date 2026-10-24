@@ -121,6 +121,17 @@ void test("what the renderer says about a frame reaches the one who showed it", 
   ]);
 });
 
+void test("what the renderer's pages tell the editor, the studio shows", async (t) => {
+  const notices: unknown[] = [];
+  const host = createRendererHost({ notify: (notice) => notices.push(notice) });
+  t.after(() => host.close());
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  renderer.send({ type: "notify", notice: { tone: "success", message: 'Deleted "hero" block' } });
+  await settle();
+  assert.deepEqual(notices, [{ tone: "success", message: 'Deleted "hero" block' }]);
+});
+
 void test("the studio asks the renderer what only the draft's code knows, and hears its answer", async (t) => {
   const host = setup(t);
   // Asked before any renderer connected: the first one to connect is asked.

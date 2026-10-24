@@ -2,6 +2,7 @@ import {
   RENDERER_PROTOCOL,
   SDK_VERSION,
   type Inbox,
+  type RendererFrameTarget,
   type RendererMessage,
   type StudioHandle,
   type StudioMessage,
@@ -18,10 +19,17 @@ export async function settle() {
  */
 export function fakeRenderer(
   handle: StudioHandle,
-  { protocol = RENDERER_PROTOCOL, sdkVersion = SDK_VERSION } = {},
+  {
+    protocol = RENDERER_PROTOCOL,
+    sdkVersion = SDK_VERSION,
+    onMessage,
+  }: { protocol?: number; sdkVersion?: string; onMessage?: Inbox<StudioMessage> } = {},
 ) {
   const received: StudioMessage[] = [];
-  const studio = handle.connect((message) => received.push(message));
+  const studio = handle.connect((message) => {
+    received.push(message);
+    onMessage?.(message);
+  });
   studio({ type: "hello", protocol, sdkVersion });
   return {
     received,
@@ -36,6 +44,42 @@ export function fakeRenderer(
     last<T extends StudioMessage["type"]>(type: T) {
       return this.all(type).at(-1);
     },
+  };
+}
+
+/**
+ * A renderer that paints each frame's page as plain markup, the way the site's code would, once
+ * `loaded(pathname)` says the page loaded, and then says it rendered. `paint()` paints the pages
+ * loaded since. Its markup isn't the studio's React: events in it reach the studio's frame as
+ * they do from another document.
+ */
+export function pageRenderer(
+  handle: StudioHandle,
+  { loaded = () => true }: { loaded?: (pathname: string) => boolean } = {},
+) {
+  const shown = new Map<string, { slot: HTMLElement; target: RendererFrameTarget }>();
+  const paintFrame = (frameId: string) => {
+    const frame = shown.get(frameId);
+    if (!frame || !loaded(frame.target.pathname)) return;
+    if (!frame.slot.querySelector("[data-page]"))
+      frame.slot.innerHTML = `<button data-page="${frame.target.pathname}">Frame content</button>`;
+    renderer.send({ type: "rendered", frameId });
+  };
+  const renderer = fakeRenderer(handle, {
+    onMessage(message) {
+      if (message.type === "frame") {
+        shown.set(message.frameId, { slot: message.slot, target: message.target });
+        paintFrame(message.frameId);
+      }
+      if (message.type === "frameEnd") shown.delete(message.frameId);
+    },
+  });
+  return {
+    ...renderer,
+    paint: () => [...shown.keys()].forEach(paintFrame),
+    /** The frame showing `pathname`, as the studio last described it. */
+    frameOf: (pathname: string) =>
+      [...shown].find(([, { target }]) => target.pathname === pathname),
   };
 }
 

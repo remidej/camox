@@ -15,6 +15,7 @@ import { BlockPeek } from "../preview/components/BlockPeek";
 import { FrameContext } from "../preview/components/Frame";
 import { EditablePageContent } from "../preview/EditablePageContent";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
+import { StudioNoticeContext } from "../preview/studioNotice";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { RendererFrame, StudioConnection } from "./studioConnection";
 
@@ -22,15 +23,20 @@ import type { RendererFrame, StudioConnection } from "./studioConnection";
  * The renderer document's app: it renders the page of each frame the studio gives it into that
  * frame's slot, with the site's code, and tells the studio how it went. It never draws any of
  * the studio: the studio keeps its overlays, sidebars and Canvas.
+ *
+ * `codeLoaded` settles once the site's code loaded: each frame waits for it, and code that fails
+ * to load fails each frame, as a page that throws does.
  */
 export function RendererApp({
   connection,
   camoxApp,
+  codeLoaded,
   projectUuid,
   runtimeBasePath,
 }: {
   connection: StudioConnection;
   camoxApp: CamoxApp;
+  codeLoaded?: Promise<void>;
   projectUuid: string;
   runtimeBasePath: string;
 }) {
@@ -44,29 +50,33 @@ export function RendererApp({
     connection.thumbnails,
     connection.thumbnails,
   );
-  // The studio writes every edit the pages make: they never write content themselves.
+  // The studio writes every edit the pages make: they never write content themselves. It shows
+  // what they tell the editor too.
   return (
     <ContentEditsContext value={connection.edit}>
-      {frames.map((frame) =>
-        createPortal(
-          <RendererFrameContent
-            frame={frame}
-            connection={connection}
-            camoxApp={camoxApp}
-            projectUuid={projectUuid}
-            runtimeBasePath={runtimeBasePath}
-          />,
-          frame.slot,
-          frame.frameId,
-        ),
-      )}
-      {thumbnails.map(({ thumbnailId, slot, blockType }) =>
-        createPortal(
-          <RendererThumbnail slot={slot} blockType={blockType} camoxApp={camoxApp} />,
-          slot,
-          thumbnailId,
-        ),
-      )}
+      <StudioNoticeContext value={(notice) => connection.notify(notice)}>
+        {frames.map((frame) =>
+          createPortal(
+            <RendererFrameContent
+              frame={frame}
+              connection={connection}
+              camoxApp={camoxApp}
+              codeLoaded={codeLoaded}
+              projectUuid={projectUuid}
+              runtimeBasePath={runtimeBasePath}
+            />,
+            frame.slot,
+            frame.frameId,
+          ),
+        )}
+        {thumbnails.map(({ thumbnailId, slot, blockType }) =>
+          createPortal(
+            <RendererThumbnail slot={slot} blockType={blockType} camoxApp={camoxApp} />,
+            slot,
+            thumbnailId,
+          ),
+        )}
+      </StudioNoticeContext>
     </ContentEditsContext>
   );
 }
@@ -91,11 +101,30 @@ function RendererThumbnail({
   );
   return (
     <FrameContext.Provider value={frameContext}>
-      <React.Suspense fallback={null}>
-        <ThumbnailBlock blockType={blockType} camoxApp={camoxApp} />
-      </React.Suspense>
+      {/* A block whose code fails shows no thumbnail, and takes no page down with it. */}
+      <ThumbnailErrorBoundary>
+        <React.Suspense fallback={null}>
+          <ThumbnailBlock blockType={blockType} camoxApp={camoxApp} />
+        </React.Suspense>
+      </ThumbnailErrorBoundary>
     </FrameContext.Provider>
   );
+}
+
+class ThumbnailErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error("Camox: a block's thumbnail failed to render.", error);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
 function ThumbnailBlock({ blockType, camoxApp }: { blockType: string; camoxApp: CamoxApp }) {
@@ -115,12 +144,14 @@ function RendererFrameContent({
   frame: { frameId, slot, target },
   connection,
   camoxApp,
+  codeLoaded,
   projectUuid,
   runtimeBasePath,
 }: {
   frame: RendererFrame;
   connection: StudioConnection;
   camoxApp: CamoxApp;
+  codeLoaded?: Promise<void>;
   projectUuid: string;
   runtimeBasePath: string;
 }) {
@@ -172,6 +203,7 @@ function RendererFrameContent({
                       <React.Suspense fallback={<div role="status">Loading page…</div>}>
                         <FramePage
                           camoxApp={camoxApp}
+                          codeLoaded={codeLoaded}
                           projectUuid={projectUuid}
                           runtimeBasePath={runtimeBasePath}
                           pathname={target.pathname}
@@ -199,6 +231,7 @@ function RendererFrameContent({
 /** The page at `pathname`, as the runtime renders it in the renderer's draft. */
 function FramePage({
   camoxApp,
+  codeLoaded,
   projectUuid,
   runtimeBasePath,
   pathname,
@@ -206,6 +239,7 @@ function FramePage({
   onRendered,
 }: {
   camoxApp: CamoxApp;
+  codeLoaded?: Promise<void>;
   projectUuid: string;
   runtimeBasePath: string;
   pathname: string;
@@ -220,6 +254,7 @@ function FramePage({
       ...(derivedLayoutId && { derivedLayoutId }),
     }),
   );
+  if (codeLoaded) React.use(codeLoaded);
   const rendered = React.useEffectEvent(onRendered);
   React.useEffect(() => rendered(), [input]);
   return (
@@ -235,26 +270,39 @@ function FramePage({
   );
 }
 
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+const ERROR_STYLE: React.CSSProperties = {
+  padding: "24px",
+  fontFamily: "system-ui, sans-serif",
+  fontSize: "14px",
+  color: "#b91c1c",
+};
+
 /**
  * Contains an error the page throws while rendering to its own frame, which says so, and tells
  * the studio. The studio and every other frame keep working.
  */
 class FrameErrorBoundary extends React.Component<
   { children: React.ReactNode; onError: (message: string) => void },
-  { failed: boolean }
+  { error: string | null }
 > {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
+  state: { error: string | null } = { error: null };
+  static getDerivedStateFromError(error: unknown) {
+    return { error: messageOf(error) };
   }
   componentDidCatch(error: unknown) {
-    this.props.onError(error instanceof Error ? error.message : String(error));
+    this.props.onError(messageOf(error));
   }
   render() {
-    if (!this.state.failed) return this.props.children;
+    if (this.state.error === null) return this.props.children;
+    // The site's styles may be what failed: the notice brings its own.
     return (
-      <div role="alert" data-camox-renderer-error>
-        This page couldn’t render.
+      <div role="alert" data-camox-renderer-error style={ERROR_STYLE}>
+        <p style={{ margin: 0, fontWeight: 600 }}>This page couldn’t render.</p>
+        <p style={{ margin: "8px 0 0", fontFamily: "ui-monospace, monospace" }}>
+          {this.state.error}
+        </p>
       </div>
     );
   }

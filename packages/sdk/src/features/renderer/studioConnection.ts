@@ -7,6 +7,7 @@ import type { StudioCache } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
 import { previewStore } from "../preview/previewStore";
 import { referencePickerFocus } from "../preview/referencePickerFocus";
+import type { StudioNotice } from "../preview/studioNotice";
 import { answerFromCode } from "./definitionAnswers";
 import {
   deferredInbox,
@@ -66,6 +67,8 @@ export interface StudioConnection {
   subscribe: (listener: () => void) => () => void;
   /** Tells the studio about one of its frames. */
   send(message: Exclude<RendererMessage, { type: "hello" | "storeEvent" | "edit" }>): void;
+  /** Has the studio show the editor a notice. */
+  notify(notice: StudioNotice): void;
   /** Has the studio write an edit made here. Settles as the studio answers. */
   edit: ApplyContentEdit;
   close(): void;
@@ -218,6 +221,7 @@ export function connectToStudio(
       return () => listeners.delete(listener);
     },
     send: (message) => studio(message),
+    notify: (notice) => studio({ type: "notify", notice }),
     edit: (edit) =>
       new Promise((resolve, reject) => {
         const editId = ++lastEditId;

@@ -9,7 +9,6 @@ import type { PageRenderInput, StudioRouteKind } from "../runtime/runtime";
 import { CamoxSettings } from "../settings/CamoxSettings";
 import { CamoxStudio } from "../studio/CamoxStudio";
 import { CamoxPreview } from "./CamoxPreview";
-import { EditablePageContent } from "./EditablePageContent";
 
 /** The studio section each studio route shows. */
 const STUDIO_SECTIONS: Partial<Record<StudioRouteKind, React.ComponentType>> = {
@@ -43,9 +42,7 @@ export function EditablePageExperience({
             derived={input.derived}
             canvasOnly={input.canvasOnly}
             runtimeBasePath={input.runtimeBasePath}
-          >
-            <EditablePageContent />
-          </CamoxPreview>
+          />
         )}
       </CompleteBlockEditingRuntimeProvider>
     </AuthenticatedCamoxProvider>

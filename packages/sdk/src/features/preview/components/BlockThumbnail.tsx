@@ -3,10 +3,8 @@ import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
 
-import { useOptionalCamoxApp } from "../../provider/components/CamoxAppContext";
 import { useRendererHost } from "../../renderer/RendererFrames";
 import { useEditingFrame } from "../editingFrame";
-import { BlockPeek } from "./BlockPeek";
 import { FrameContext } from "./Frame";
 import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
 
@@ -135,23 +133,21 @@ const ThumbnailFrame = ({
 };
 
 /**
- * What the thumbnail shows: the block rendered by the renderer frame, which runs the draft's
- * code, into `slot`; without one, by the code this document has, if it has the block's.
+ * What the thumbnail shows: the block rendered into `slot` by the renderer frame, which runs the
+ * draft's code.
  */
 const ThumbnailContent = ({ blockType, slot }: { blockType: string; slot: HTMLElement }) => {
   const host = useRendererHost();
-  const block = useOptionalCamoxApp()?.getBlockById(blockType);
   const thumbnailId = React.useId();
   React.useLayoutEffect(() => {
     if (!host) return;
     host.showThumbnail(thumbnailId, slot, blockType);
     return () => host.hideThumbnail(thumbnailId);
   }, [host, thumbnailId, slot, blockType]);
-  if (host || !block) return null;
-  return <BlockPeek block={block} />;
+  return null;
 };
 
-/** A block's thumbnail, rendered by its code: an empty frame for a block whose code isn't loaded. */
+/** A block's thumbnail, rendered by the renderer frame with the draft's code. */
 export const BlockThumbnail = ({
   blockType,
   title,
@@ -165,10 +161,8 @@ export const BlockThumbnail = ({
   const ref = React.useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = React.useState(false);
   const [width, setWidth] = React.useState(0);
-  // The renderer frame renders any block the draft's code has; without it, only this document's.
-  const host = useRendererHost();
-  const block = useOptionalCamoxApp()?.getBlockById(blockType);
-  const renderable = !!host || !!block;
+  // The renderer frame renders any block the draft's code has.
+  const renderable = !!useRendererHost();
 
   React.useEffect(() => {
     const element = ref.current;

@@ -10,6 +10,7 @@ import { ViewLocaleContext } from "../../lib/view-locale-context";
 import { CanvasWorkspaceContext } from "../canvas/canvasZoom";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
+import { showNotice } from "../preview/studioNotice";
 import { runtimePath } from "../runtime/navigationTarget";
 import {
   RENDERER_DOCUMENT_PATH,
@@ -29,7 +30,7 @@ import {
 /** The Website Section's renderer host. `RendererFramesProvider` provides it. */
 export const RendererHostContext = React.createContext<RendererHost | null>(null);
 
-/** The Website Section's renderer host, once it exists, or null when the studio renders pages. */
+/** The Website Section's renderer host, once it exists: null before, and outside the section. */
 export function useRendererHost(): RendererHost | null {
   return React.use(RendererHostContext);
 }
@@ -94,7 +95,12 @@ export function RendererFramesProvider({
   const draftScope = useDraftScope();
   const [host, setHost] = React.useState<RendererHost | null>(null);
   React.useEffect(() => {
-    const created = createRendererHost({ studioCache, draftScope, queryClient });
+    const created = createRendererHost({
+      studioCache,
+      draftScope,
+      queryClient,
+      notify: showNotice,
+    });
     // oxlint-disable-next-line react/set-state-in-effect -- the host subscribes to the studio, so it lives with the effect
     setHost(created);
     return () => created.close();

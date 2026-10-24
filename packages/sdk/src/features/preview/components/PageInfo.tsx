@@ -42,7 +42,6 @@ import { useMutation } from "@tanstack/react-query";
 import { Globe, Info, Pencil, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
-import { curatedLayoutContext } from "@/core/layoutContext";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { useProjectUuid } from "@/lib/auth";
@@ -56,8 +55,7 @@ import { useViewLocale } from "@/lib/view-locale-context";
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { pageImageUrl } from "../../og/pageImage";
-import { useOptionalCamoxApp } from "../../provider/components/CamoxAppContext";
-import { useRendererAnswer, useRendererHost } from "../../renderer/RendererFrames";
+import { useRendererAnswer } from "../../renderer/RendererFrames";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 import { PageInfoSkeleton } from "./PageInfoSkeleton";
@@ -69,8 +67,6 @@ type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 
 const usePageMetadataData = (pageId: string) => {
   const projectUuid = useProjectUuid();
-  const camoxApp = useOptionalCamoxApp();
-  const throughRenderer = !!useRendererHost();
   const { data: page } = useReadQuery(reads.page({ id: pageId }));
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
@@ -86,7 +82,7 @@ const usePageMetadataData = (pageId: string) => {
     .map((layout) => ({ ...layout, title: layout.title ?? layout.layoutId }));
   const pageLayoutRecord = allLayouts?.find((l) => l.layoutId === page?.layoutId);
   const { locale } = useViewLocale();
-  // The layout's `toTitle` titles the page: the renderer frame runs it, or else this document.
+  // The layout's `toTitle` titles the page: the renderer frame runs it.
   const titled =
     pageLayoutRecord && page
       ? {
@@ -103,15 +99,8 @@ const usePageMetadataData = (pageId: string) => {
           locale,
         }
       : null;
-  const rendererTitle = useRendererAnswer(
-    throughRenderer && titled ? { type: "pageTitle", ...titled } : null,
-  );
-  const layoutDef = titled && !throughRenderer ? camoxApp?.getLayoutById(titled.layoutId) : null;
-  const metaTitle =
-    rendererTitle ??
-    (titled && layoutDef
-      ? layoutDef._internal.toTitle(curatedLayoutContext(titled, titled.locale))
-      : (page?.metaTitle ?? ""));
+  const rendererTitle = useRendererAnswer(titled ? { type: "pageTitle", ...titled } : null);
+  const metaTitle = rendererTitle ?? page?.metaTitle ?? "";
 
   return { page, project, pages, layouts, pageLayoutRecord, metaTitle };
 };

@@ -79,12 +79,6 @@ const LazyEditablePageExperience = React.lazy(() =>
   })),
 );
 
-/** Editing lists and adds any block, so it waits for every definition, not only the page's. */
-function AllBlocks({ camoxApp, children }: { camoxApp: CamoxApp; children: React.ReactNode }) {
-  React.use(camoxApp.loadAllBlocks());
-  return children;
-}
-
 class EditingActivationBoundary extends React.Component<
   { children: React.ReactNode; fallback: React.ReactNode },
   { failed: boolean }
@@ -140,10 +134,9 @@ function PageExperience({
   const isolatedPage = <Frame>{readOnlyPage}</Frame>;
   const fallback = input.routeKind ? <StudioLoadError /> : isolatedPage;
   if (isAuthenticated) {
+    // The studio renders no block itself: the renderer frame loads the site's code.
     const editor = hasHydrated ? (
-      <AllBlocks camoxApp={camoxApp}>
-        <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
-      </AllBlocks>
+      <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
     ) : null;
 
     return (

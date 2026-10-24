@@ -12,6 +12,7 @@ import type { StudioCache, StudioCacheChange } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
 import { previewStore } from "../preview/previewStore";
 import { referencePickerFocus } from "../preview/referencePickerFocus";
+import type { StudioNotice } from "../preview/studioNotice";
 import {
   deferredInbox,
   RENDERER_PROTOCOL,
@@ -114,16 +115,19 @@ type ShownFrame = { slot: HTMLElement; target: RendererFrameTarget; hears: Frame
  * The host of the studio whose cache is `studioCache`, viewing the draft `draftScope` names, which
  * the renderer shows too. Without them, the renderer hears nothing of the studio's cache.
  * The edits the renderer makes in place are written with the studio's own mutations, through
- * `queryClient`; without it, every one fails.
+ * `queryClient`; without it, every one fails. What the renderer's pages tell the editor goes to
+ * `notify`.
  */
 export function createRendererHost({
   studioCache,
   draftScope,
   queryClient,
+  notify,
 }: {
   studioCache?: StudioCache;
   draftScope?: DraftScope;
   queryClient?: QueryClient;
+  notify?: (notice: StudioNotice) => void;
 } = {}): RendererHost {
   const applyEdit =
     queryClient && studioCache ? createContentEditor({ queryClient, studioCache }) : undefined;
@@ -239,6 +243,8 @@ export function createRendererHost({
         else question.reject(new Error(message.error));
         return;
       }
+      case "notify":
+        return notify?.(message.notice);
       case "edit": {
         const { editId, edit } = message;
         // The answer goes to the renderer that sent the edit: one connected since never hears it.
