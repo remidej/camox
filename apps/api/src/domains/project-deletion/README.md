@@ -12,7 +12,8 @@ A member deletes a project from its page in the dashboard. Nothing is kept for r
 
 1. **Stop the setup.** A project deleted while it was being set up may still have its creation Workflow (`../project-creation/`) underway, and a retried fork would make its repo again. The instance named after the Project ID is terminated unless it has ended. A project created before the creation Workflow existed has no instance.
 2. **Delete the Worker.** Deletes the user Worker named after the Project ID from the `production` dispatch namespace through the Cloudflare API, with the API's `CF_TOKEN`. A Worker that was never deployed answers 404, which is done.
-3. **Delete the repo.** Deletes the repo named after the Project ID from the `projects` Artifacts namespace. A repo that was never forked is done.
+3. **Delete the code.** Deletes the project's copies of its code (spec #560): its copy of `main` (`ProjectCode`), each of its drafts' working copies (`DraftCode`, deleting its branch) and revision sandbox, its revision builds in `REVISION_BUILDS`, and its publish sandbox. `projects.delete` passes the drafts' IDs, as their rows went with the project's.
+4. **Delete the repo.** Deletes the repo named after the Project ID from the `projects` Artifacts namespace. A repo that was never forked is done.
 
 A step that gives up doesn't stop the next ones from cleaning up what they can. Once they've all run, a cleanup with a failed step emails one alert (`alert.ts`, on `src/lib/alert-email.ts`) to the alerts address, naming the project, its Project ID, the failed steps and what they left behind, and linking to the Workflow instance, then fails. The site is already offline, so only Rémi hears about it. Once the cause is fixed, restart the instance (named after the Project ID) from the Cloudflare dashboard.
 

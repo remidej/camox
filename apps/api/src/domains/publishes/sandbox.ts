@@ -99,3 +99,11 @@ export async function promoteVersion(
 ) {
   await wrangler(env, project, `versions deploy ${version}@100% --yes`);
 }
+
+/** Destroys the project's publish sandbox, as the project is deleted. */
+export async function destroyPublishSandbox(
+  env: Pick<Bindings, "PUBLISH_SANDBOX">,
+  project: string,
+) {
+  await sandboxOf(env, project).destroy();
+}

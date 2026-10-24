@@ -55,6 +55,12 @@ export class ProjectCode extends DurableObject<Bindings> {
     return refreshed;
   }
 
+  /** Deletes the copy, as its project is deleted. */
+  async discard(): Promise<void> {
+    await this.#refreshing;
+    await this.ctx.storage.deleteAll();
+  }
+
   /** The commit of `main` the copy holds, without making it if it never was. */
   async commit(): Promise<string | undefined> {
     await this.#refreshing;
