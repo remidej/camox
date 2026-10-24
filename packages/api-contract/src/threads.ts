@@ -15,6 +15,18 @@ export const EDITOR_MESSAGE_ENTRY = "camox.editor-message";
 /** The kind of the transcript entry recording that an editor stopped a run, with them as data. */
 export const RUN_STOPPED_ENTRY = "camox.run-stopped";
 
+/**
+ * The kind of the transcript entry recording where the build of the code a turn changed stands,
+ * as the turn ends, with a `buildStatusDataSchema` as data: it started, or it failed and the
+ * agent is fixing it. The model never sees it.
+ */
+export const BUILD_STATUS_ENTRY = "camox.build-status";
+
+export const buildStatusSchema = z.enum(["building", "fixing"]);
+export type BuildStatus = z.infer<typeof buildStatusSchema>;
+
+export const buildStatusDataSchema = z.object({ status: buildStatusSchema });
+
 /** Who sent a message in a thread. */
 export const threadSenderSchema = z.object({
   id: z.string(),
@@ -115,6 +127,11 @@ export type ThreadView = LiveThreadHandoff & {
   messages: readonly ThreadMessage[];
   /** Whether a run is going: the agent is working on a turn, and stopping would end it. */
   running: boolean;
+  /**
+   * While a run is going, where the build of the code its turn changed stands: the end of the
+   * turn is building it, or it failed and the agent is fixing it.
+   */
+  status?: BuildStatus;
 };
 
 export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
@@ -137,6 +154,13 @@ type ThreadStep = { id: string } & (
   /** A model call that ended without an answer: failed, aborted, or cut short. */
   | { type: "unfinished" }
   | { type: "stopped"; sender: ThreadSender }
+  /** Where the build of the turn's code stands, as the turn ends. */
+  | { type: "build"; status: BuildStatus }
+  /**
+   * The end of the turn sent the agent back to work, after its answer: the answer wasn't the
+   * turn's last, and what the agent was told is never shown.
+   */
+  | { type: "continued" }
 );
 
 /** Studio → thread. */
@@ -211,10 +235,19 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
   const id = String(entry.id);
   const sender = senderOf(entry.data);
   if (entry.kind === RUN_STOPPED_ENTRY && sender) return { id, type: "stopped", sender };
+  if (entry.kind === BUILD_STATUS_ENTRY) {
+    const build = buildStatusDataSchema.safeParse(entry.data).data;
+    return build && { id, type: "build", status: build.status };
+  }
   const message = entry.model?.find((candidate) => candidate.role !== "system");
   if (!message) return undefined;
-  if (entry.kind === EDITOR_MESSAGE_ENTRY && message.role === "user" && sender) {
-    return { id, type: "editor", sender, text: textOf(message.content) };
+  if (message.role === "user") {
+    if (entry.kind === EDITOR_MESSAGE_ENTRY) {
+      return sender && { id, type: "editor", sender, text: textOf(message.content) };
+    }
+    // Editors' messages have a kind of their own: a user message without it is Pi continuing a
+    // run as the end of a turn asked.
+    return { id, type: "continued" };
   }
   if (message.role === "assistant") return assistantStep(id, message);
   if (message.role === "toolResult") return { id, type: "tools" };
@@ -234,10 +267,16 @@ export function threadViewOf({ steps, running, ...drafts }: ThreadState): Thread
   // The latest editor's message of a turn still waiting for the agent's message.
   let waiting: string | undefined;
   let unfinished = false;
+  let status: BuildStatus | undefined;
+  // The turn the agent's last answer ended, and the status before it: the end of the turn may
+  // send the agent back to work after it.
+  let answered: { waiting: string | undefined; status: BuildStatus | undefined } | undefined;
   /** Ends the turn waiting for the agent's message, if any. */
   const endTurn = () => {
     waiting = undefined;
     unfinished = false;
+    status = undefined;
+    answered = undefined;
   };
   /** Ends the turn waiting for the agent's message with a failed line, if any. */
   const fail = () => {
@@ -264,7 +303,23 @@ export function threadViewOf({ steps, running, ...drafts }: ThreadState): Thread
         // A stopped turn's run may still answer before it ends.
         if (waiting === undefined && messages.at(-1)?.from === "stopped") break;
         messages.push({ id: step.id, from: "agent", text: step.text });
-        endTurn();
+        {
+          const before = { waiting, status };
+          endTurn();
+          answered = before;
+        }
+        break;
+      case "continued":
+        // The answer before wasn't the turn's last. Once the end of the turn gives up fixing,
+        // the agent explains without a status.
+        if (!answered) break;
+        if (messages.at(-1)?.from === "agent") messages.pop();
+        waiting = answered.waiting;
+        status = answered.status === "fixing" ? "fixing" : undefined;
+        answered = undefined;
+        break;
+      case "build":
+        status = step.status;
         break;
       case "tools":
         unfinished = false;
@@ -275,7 +330,7 @@ export function threadViewOf({ steps, running, ...drafts }: ThreadState): Thread
     }
   }
   if (!running) fail();
-  return { ...drafts, messages, running };
+  return { ...drafts, messages, running, ...(running && status && { status }) };
 }
 
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {

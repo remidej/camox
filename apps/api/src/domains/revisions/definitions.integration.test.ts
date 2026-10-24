@@ -106,13 +106,19 @@ async function blockTypesOf({ db, memberUser, project }: Website, draftId?: stri
   return definitions.map(({ blockId }) => blockId).sort();
 }
 
-/** Has the agent call `build`, and returns its result. */
+/**
+ * Has the agent call `build`, and returns its result. A build that fails fails the end of the
+ * turn too, which sends the agent back to work: unscripted, its turn then fails.
+ */
 async function build(thread: ThreadClient) {
+  let result = "";
   answerWithToolCall("build", {});
-  answerFrom(({ lastToolResult }) => lastToolResult);
-  return JSON.parse(lastAnswer(await ask(thread, "Build", { keepOpen: true }))!) as {
-    ok: boolean;
-  };
+  answerFrom(({ lastToolResult }) => {
+    result = lastToolResult;
+    return "Built.";
+  });
+  await ask(thread, "Build", { keepOpen: true });
+  return JSON.parse(result) as { ok: boolean };
 }
 
 describe("a revision's definitions", () => {

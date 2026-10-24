@@ -36,6 +36,7 @@ import { draftMutations, type DraftSummary } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import { reads, useReadQuery } from "../../../lib/studio-reads";
+import { previewStore } from "../../preview/previewStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { localeLabel } from "../localeOptions";
 import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
@@ -184,18 +185,21 @@ const isShownWarning = (problem: Problem) => problem.code === "removedInUse";
  * One card per problem, saying what's wrong and where. Problems sharing a message fold into one
  * card naming each: a development draft can hold dozens of definitions to release, and a removed
  * block can sit on dozens of pages, with the same message for each. A problem on a page has an
- * action that shows it in the Canvas.
+ * action that shows it in the Canvas; a blocker in the draft's code, which only the agent fixes,
+ * one that opens the draft's thread.
  */
 function ProblemCards({
   problems,
   tone,
   icon,
   onShow,
+  onOpenThread,
 }: {
   problems: Problem[];
   tone: Tone;
   icon: LucideIcon;
   onShow: (target: CanvasTarget) => void;
+  onOpenThread: () => void;
 }) {
   const byMessage = new Map<string, Problem[]>();
   for (const problem of problems) {
@@ -213,10 +217,16 @@ function ProblemCards({
             icon={icon}
             title={problem.message}
             action={
-              target && (
-                <Button variant="outline" size="sm" onClick={() => onShow(target)}>
-                  {blockerActionLabel(problem)}
+              problem.entity === "code" ? (
+                <Button variant="outline" size="sm" onClick={onOpenThread}>
+                  Open the thread
                 </Button>
+              ) : (
+                target && (
+                  <Button variant="outline" size="sm" onClick={() => onShow(target)}>
+                    {blockerActionLabel(problem)}
+                  </Button>
+                )
               )
             }
           >
@@ -375,6 +385,7 @@ function Cards({
   preview,
   onChanged,
   onShow,
+  onOpenThread,
 }: {
   projectId: number;
   preview: PublishPreview;
@@ -382,6 +393,8 @@ function Cards({
   onChanged: () => void;
   /** Shows a problem in the Canvas. */
   onShow: (target: CanvasTarget) => void;
+  /** Opens the draft's thread, for a blocker only the agent fixes. */
+  onOpenThread: () => void;
 }) {
   const { blockers, conflicts, lost, changes, defaultLocale } = preview;
   const warnings = preview.warnings.filter(isShownWarning);
@@ -393,8 +406,20 @@ function Cards({
   );
   return (
     <ul className="flex flex-col gap-2">
-      <ProblemCards problems={blockers} tone="danger" icon={OctagonX} onShow={onShow} />
-      <ProblemCards problems={warnings} tone="warning" icon={TriangleAlert} onShow={onShow} />
+      <ProblemCards
+        problems={blockers}
+        tone="danger"
+        icon={OctagonX}
+        onShow={onShow}
+        onOpenThread={onOpenThread}
+      />
+      <ProblemCards
+        problems={warnings}
+        tone="warning"
+        icon={TriangleAlert}
+        onShow={onShow}
+        onOpenThread={onOpenThread}
+      />
       {conflicts.map((conflict) => (
         <Card
           key={conflictKey(conflict)}
@@ -450,8 +475,8 @@ function StatusLine({ done, children }: { done: boolean; children: React.ReactNo
 }
 
 /**
- * What's fine or still running: the draft is up to date with Live, its translations, and the
- * page SEO being written.
+ * What's fine or still running: the draft is up to date with Live, its latest code changes
+ * building, its translations, and the page SEO being written.
  */
 function StatusLines({
   preview,
@@ -464,16 +489,17 @@ function StatusLines({
   /** Whether publishing was asked for while translating, and runs once they're done. */
   waiting: boolean;
 }) {
-  const { conflicts, translating, warnings } = preview;
+  const { conflicts, translating, warnings, code } = preview;
   const translations = locales.filter((locale) => !locale.isDefault).map((locale) => locale.tag);
   const seoPages = new Set(
     warnings.filter((warning) => warning.code === "metaTitlePending").map((warning) => warning.id),
   ).size;
   return (
     <ul className="flex flex-col gap-1.5">
-      {conflicts.length === 0 && (
+      {conflicts.length === 0 && (code?.includesLive ?? true) && (
         <StatusLine done>Includes everything published to Live since this draft started</StatusLine>
       )}
+      {code?.building && <StatusLine done={false}>Building the latest changes…</StatusLine>}
       {translating.length > 0 ? (
         <StatusLine done={false}>
           Translating into {listFormat.format(translating.map(localeLabel))}.{" "}
@@ -718,7 +744,9 @@ export function ReviewDraftSheet({
   const data = preview.data;
   const headline = data?.overview.status === "ready" ? data.overview.headline : null;
   const busy = publish.isPending;
-  const ready = !!data && data.blockers.length === 0 && !busy && !preview.isFetching;
+  // Publishing waits for the draft's latest code changes to build, so they're previewed first.
+  const ready =
+    !!data && data.blockers.length === 0 && !data.code?.building && !busy && !preview.isFetching;
   // Publishing waits for pending translations, so every locale goes live together (ADR 0017).
   const translating = data?.translating ?? [];
 
@@ -807,6 +835,11 @@ export function ReviewDraftSheet({
                 onShow={(target) => {
                   onOpenChange(false);
                   void showInCanvas(target);
+                }}
+                onOpenThread={() => {
+                  onOpenChange(false);
+                  // The draft's thread is beside the Canvas.
+                  previewStore.send({ type: "showCanvas" });
                 }}
               />
               <StatusLines preview={data} locales={locales.data ?? []} waiting={!!waiting} />
