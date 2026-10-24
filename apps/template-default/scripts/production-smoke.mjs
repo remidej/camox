@@ -55,6 +55,7 @@ import { MobileMenu } from "@/components/ui/mobile-menu";
 import { Section } from "@/components/ui/section";
 import { NavigationProvider } from "camox/navigation";
 import { ImageResponse } from "camox/_internal/imageResponse";
+import document from "@/document";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -104,7 +105,7 @@ export default {
         renderToStaticMarkup(createElement(Section, { scheme }, "Content")),
       ]),
     );
-    return Response.json({ html, buttons, mobileMenu, tabs, dialog, carousel, png: Array.from(bytes.slice(0, 8)), settings, sections });
+    return Response.json({ html, buttons, mobileMenu, tabs, dialog, carousel, png: Array.from(bytes.slice(0, 8)), settings, sections, links: document.link ?? [] });
   },
 };
 `,
@@ -155,6 +156,12 @@ export default {
       );
     }
   }
+
+  // The site's font comes from a Google Fonts link, never bundled: Cloudflare Fonts only
+  // rewrites links, to serve it from the site's own origin.
+  assert.doesNotMatch(css, /@font-face/, "The build bundled a font.");
+  const headingFont = /--font-heading:\s*"([^"]+)"/.exec(css)?.[1];
+  assert.ok(headingFont, "The built stylesheet names no heading font.");
 
   // Preview runs the built Worker in workerd, as Cloudflare does.
   const runtime = run(
@@ -261,6 +268,19 @@ export default {
       for (const [scheme, html] of Object.entries(result.sections)) {
         assert.match(html, new RegExp('^<section class="([^"]* )?' + scheme + '( [^"]*)?">Content</section>$'), scheme);
       }
+
+      // The Document links the heading font's Google Fonts stylesheet.
+      const family = ${JSON.stringify(headingFont)};
+      const stylesheets = result.links
+        .filter((link) => link.rel === "stylesheet")
+        .map((link) => new URL(link.href));
+      assert.ok(
+        stylesheets.some((href) =>
+          href.origin + href.pathname === "https://fonts.googleapis.com/css2" &&
+          href.searchParams.getAll("family").some((spec) => spec.split(":")[0] === family),
+        ),
+        JSON.stringify(result.links),
+      );
     } finally {
       await server.close();
     }

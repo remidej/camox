@@ -52,6 +52,7 @@ import { remoteEnv } from "../domains/code/remote-env";
 import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
 import { writeLine } from "../domains/code/write-line";
 import { accessTo } from "../domains/drafts/access";
+import { searchFontsTool } from "../domains/fonts/tool";
 import { projects } from "../domains/projects/schema";
 import { buildRevision } from "../domains/revisions/build";
 import type { BuildResult } from "../domains/revisions/result";
@@ -306,6 +307,7 @@ export class Thread extends DurableObject<Bindings> {
           ...codeReadingTools(),
           ...codeWritingTools(),
           buildTool((invocation) => this.#build(invocation)),
+          searchFontsTool(this.env),
         ],
         // Once a script ends, failed or not, the studios hear what its writes touched.
         wraps: [

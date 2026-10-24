@@ -114,6 +114,9 @@
   // only name the namespace, so the Workflow skips other branches and repos that aren't a
   // project's, such as `template-default`.
   "triggers": {
+    // Daily: a new snapshot of Google Fonts' families for the agent's `searchFonts`
+    // (src/domains/fonts/catalog.ts), taken with the `GOOGLE_FONTS_API_KEY` secret.
+    "crons": ["17 4 * * *"],
     "events": [
       {
         "type": "cf.artifacts.repo.pushed",

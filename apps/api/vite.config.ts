@@ -149,6 +149,7 @@ export default defineConfig({
                   GOOGLE_CLIENT_ID: "test-client-id",
                   GOOGLE_CLIENT_SECRET: "test-client-secret",
                   OPEN_ROUTER_API_KEY: "test-api-key",
+                  GOOGLE_FONTS_API_KEY: "test-google-fonts-key",
                   TEST_MIGRATIONS: migrations,
                 },
               },

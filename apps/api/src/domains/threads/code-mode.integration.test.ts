@@ -90,6 +90,7 @@ describe("the agent reading the website through code mode", () => {
       "mv",
       "read",
       "rm",
+      "searchFonts",
       "web_fetch",
       "web_search",
       "write",
