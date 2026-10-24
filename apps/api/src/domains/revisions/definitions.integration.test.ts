@@ -1,4 +1,4 @@
-import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER, PUBLISH_BLOCKED_ERROR } from "@camox/api-contract/drafts";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -8,6 +8,7 @@ import { createRpcContext } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import {
   answerFrom,
+  answerNext,
   answerWithScript,
   answerWithToolCall,
   answerWithToolCallFrom,
@@ -27,6 +28,7 @@ import {
   websiteFixture,
 } from "../../../test/threads";
 import { router } from "../../router";
+import { END_OF_TURN_BUILD_FAILURES } from "./end-of-turn";
 
 // A revision's Definition Set becomes its draft's definitions, so the agent can write a block,
 // build it and place it in the same turn. The fake revision sandbox builds a tree holding a
@@ -205,6 +207,42 @@ describe("a revision's definitions", () => {
 
     expect(await blockTypesOf(website, draft!.id)).toEqual(["pricing", "text"]);
     expect(await pagesOf(website, draft!.id)).toEqual({ "/home": [HELLO, PRICING] });
+  });
+
+  it("that can't be used, once the end of the turn gave up, block publishing the draft", async () => {
+    const { website, token } = await websiteWithCode();
+    const unusable = crypto.randomUUID();
+    await fakes.defineBuildsOf(unusable, { ...definitionSetWith(website, []), blocks: "none" });
+    const live = await connectLiveThread(website.project.id, token);
+    answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(unusable) });
+    for (let failed = 0; failed < END_OF_TURN_BUILD_FAILURES; failed++) answerNext("Done.");
+    answerNext("The pricing section can't be shown yet.");
+    await ask(live, "Add a pricing section");
+    const [draft] = await draftsOf(website);
+    const context = createRpcContext(website.db, website.memberUser, {
+      [DRAFT_HEADER]: draft!.id,
+    });
+
+    const preview = await call(
+      router.drafts.previewPublish,
+      { projectId: website.project.id },
+      { context },
+    );
+    expect(preview.code).toMatchObject({ building: false });
+    expect(preview.blockers).toEqual([
+      expect.objectContaining({ entity: "code", code: "codeDoesNotBuild" }),
+    ]);
+    await expect(
+      call(
+        router.drafts.publish,
+        {
+          projectId: website.project.id,
+          token: preview.token,
+          revision: preview.code?.revision ?? undefined,
+        },
+        { context },
+      ),
+    ).rejects.toMatchObject({ code: PUBLISH_BLOCKED_ERROR });
   });
 
   it("that can't be used send the agent back to fix them as its turn ends, after its own build", async () => {

@@ -39,6 +39,7 @@ export async function codeOfDraft(
 ): Promise<{
   code: PreviewCode | null;
   head: {
+    id: string;
     buildStatus: RevisionBuildStatus;
     typeCheckStatus: RevisionTypeCheckStatus;
     leftBy: RevisionSource;
@@ -63,6 +64,7 @@ export async function codeOfDraft(
     draft.head
       ? db
           .select({
+            id: revisions.id,
             buildStatus: revisions.buildStatus,
             typeCheckStatus: revisions.typeCheckStatus,
             leftBy: revisions.leftBy,

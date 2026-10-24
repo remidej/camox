@@ -317,8 +317,9 @@ const codeBlocker = (
 
 /**
  * The preview's `code`, and the blockers the draft's code has: merging Live's code into it
- * clashed and Camox's reconcile turn hasn't fixed it, or else its head revision isn't built, or
- * built but doesn't type check.
+ * clashed and Camox's reconcile turn hasn't fixed it, or else its head revision isn't built,
+ * built but its definitions can't be used, so the preview doesn't show it, or built but doesn't
+ * type check.
  */
 const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, scope: Scope) {
   if (scope.kind === "development") return { code: null, blockers: [] };
@@ -340,6 +341,20 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
         scope.id,
         "codeDoesNotBuild",
         "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
+      ),
+    );
+  } else if (
+    head?.buildStatus === "built" &&
+    head.leftBy !== "merge" &&
+    head.id !== code?.revision &&
+    !code?.building
+  ) {
+    // It built, but the draft can't use its definitions, so the preview doesn't show it.
+    blockers.push(
+      codeBlocker(
+        scope.id,
+        "codeDoesNotBuild",
+        "The agent's latest code changes can't be shown in the preview: ask it to fix them in the draft's thread",
       ),
     );
   } else if (head?.buildStatus === "built" && head.typeCheckStatus === "failed") {
