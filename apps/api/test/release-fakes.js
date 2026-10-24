@@ -353,6 +353,10 @@ const failingBuilds = [];
 const definedBuilds = [];
 /** Sandbox calls left that fail, as a sandbox whose container crashed does. */
 let sandboxFailures = 0;
+/** @type {{ revision: string, archiveKey: string, project: string, draft: string }[]} revisions dispatch prewarmed, oldest first */
+const prewarmed = [];
+/** How many of the next prewarms fail, as an unreachable dispatch's would. */
+let prewarmFailures = 0;
 /** @type {Set<string>} the revision sandboxes destroyed */
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
@@ -504,6 +508,23 @@ export class FakeDispatch extends WorkerEntrypoint {
     const archive = await this.env.REVISION_BUILDS.get(archiveKey);
     if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
     return JSON.parse(await archive.text()).definitionSet;
+  }
+
+  /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
+  async prewarm(revision) {
+    if (prewarmFailures > 0) {
+      prewarmFailures -= 1;
+      throw new Error("Network connection lost.");
+    }
+    if (!(await this.env.REVISION_BUILDS.head(revision.archiveKey))) {
+      throw new Error(`The build ${revision.archiveKey} isn't stored`);
+    }
+    // Dispatch stores the revision's client assets where its asset prefix serves them from.
+    await this.env.REVISION_BUILDS.put(
+      `${revision.project}/revisions/${revision.revision}/assets/index.css`,
+      "body {}",
+    );
+    prewarmed.push(revision);
   }
 }
 
@@ -684,6 +705,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async defineBuildsOf(marker, definitionSet) {
     definedBuilds.push({ marker, definitionSet });
+  }
+
+  /** The revisions dispatch prewarmed, oldest first. */
+  async prewarmed() {
+    return prewarmed;
+  }
+
+  /** @param {number} times Makes the next `times` prewarms fail. */
+  async failPrewarms(times) {
+    prewarmFailures = times;
   }
 
   /** @param {number} times Makes the next `times` calls to any revision sandbox fail. */

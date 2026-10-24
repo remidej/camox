@@ -110,11 +110,122 @@ export function loadRevision(
   toLoad: RevisionToLoad,
   gateway: (props: GatewayProps) => Fetcher,
 ): WorkerStub {
-  return env.LOADER.get(toLoad.revision, async () => {
-    const archive = await env.REVISION_BUILDS.get(toLoad.archiveKey);
-    if (!archive) throw new Error(`The build ${toLoad.archiveKey} isn't stored`);
-    const files = await untarGzip(archive.body);
-    return revisionCode(files, toLoad, gateway({ project: toLoad.project, draft: toLoad.draft }));
+  return env.LOADER.get(toLoad.revision, async () =>
+    revisionCode(
+      await buildFiles(env, toLoad),
+      toLoad,
+      gateway({ project: toLoad.project, draft: toLoad.draft }),
+    ),
+  );
+}
+
+/** The files of a revision's build, from its archive. */
+async function buildFiles(env: RevisionBindings, { archiveKey }: RevisionToLoad) {
+  const archive = await env.REVISION_BUILDS.get(archiveKey);
+  if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
+  return untarGzip(archive.body);
+}
+
+/** A build's client assets, which a revision serves under its asset prefix. */
+const CLIENT_DIR = "dist/client/";
+
+/**
+ * Where a revision's client asset at `path` (within `dist/client/`) is stored once it's
+ * prewarmed. Keyed by project, so a host only serves its own project's revisions. Mirrored in
+ * apps/api/src/domains/revisions/archive.ts, which deletes them: keep the two in sync.
+ */
+export const revisionAssetKey = (project: string, revision: string, path: string) =>
+  `${project}/revisions/${revision}/${path}`;
+
+/** Content types of the files a client build holds, by extension. */
+const CONTENT_TYPES: Record<string, string> = {
+  js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  html: "text/html; charset=utf-8",
+  json: "application/json",
+  map: "application/json",
+  txt: "text/plain; charset=utf-8",
+  xml: "application/xml",
+  svg: "image/svg+xml",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  ico: "image/x-icon",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  wasm: "application/wasm",
+  webmanifest: "application/manifest+json",
+};
+
+const contentTypeOf = (path: string) =>
+  CONTENT_TYPES[path.slice(path.lastIndexOf(".") + 1).toLowerCase()] ?? "application/octet-stream";
+
+/**
+ * Readies a revision before anyone is told of it, as the API asks once its build passed: stores
+ * its client assets where its asset prefix serves them from, then loads it and renders its
+ * renderer document once, so the first member to reload doesn't wait for either.
+ */
+export async function prewarmRevision(
+  env: RevisionBindings,
+  toLoad: RevisionToLoad,
+  gateway: (props: GatewayProps) => Fetcher,
+): Promise<void> {
+  const files = await buildFiles(env, toLoad);
+  await Promise.all(
+    [...files]
+      .filter(([path]) => path.startsWith(CLIENT_DIR))
+      .map(([path, content]) =>
+        env.REVISION_BUILDS.put(
+          revisionAssetKey(toLoad.project, toLoad.revision, path.slice(CLIENT_DIR.length)),
+          content,
+          { httpMetadata: { contentType: contentTypeOf(path) } },
+        ),
+      ),
+  );
+  const rendered = await loadRevision(env, toLoad, gateway)
+    .getEntrypoint()
+    .fetch(new Request("https://prewarm.camox.invalid" + RENDERER_DOCUMENT_PATH));
+  // Its body is drained so the render runs to its end; how it went isn't the prewarm's to judge.
+  await rendered.arrayBuffer();
+}
+
+/** The renderer document's path (`RUNTIME_ROUTE_PATHS.renderer` in `camox`). */
+const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
+
+/** The path a revision's client asset is served at: under its asset prefix. */
+const ASSET_PATH = /^\/_camox\/r\/([^/]+)\/(.+)$/;
+
+/** Whether a request's path is under some revision's asset prefix. */
+export const isRevisionAssetPath = (pathname: string) => pathname.startsWith("/_camox/r/");
+
+/**
+ * A prewarmed revision's client asset of `project`, at a path under its asset prefix, to anyone:
+ * its names are hashed, and its revision's ID unguessable. Not found otherwise.
+ */
+export async function serveRevisionAsset(
+  env: RevisionBindings,
+  project: string,
+  pathname: string,
+): Promise<Response> {
+  const match = ASSET_PATH.exec(pathname);
+  const asset =
+    match && (await env.REVISION_BUILDS.get(revisionAssetKey(project, match[1]!, match[2]!)));
+  if (!asset) {
+    return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+  }
+  return new Response(asset.body, {
+    headers: {
+      "content-type": asset.httpMetadata?.contentType ?? contentTypeOf(pathname),
+      // A revision's assets never change: they're its build's, which nothing rewrites.
+      "cache-control": "public, max-age=31536000, immutable",
+      etag: asset.httpEtag,
+    },
   });
 }
 
