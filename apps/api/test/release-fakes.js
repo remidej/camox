@@ -15,6 +15,7 @@ import {
   gitFiles,
   gitLog,
   hasGitRepo,
+  failPushes,
   losePushResponse,
   readGitCommit,
   readGitFile,
@@ -678,7 +679,10 @@ const workerVersions = new Map();
 const deployments = new Map();
 /** @type {Map<string, { command: string, env: Record<string, string> | undefined, order: number }[]>} project → publish sandbox commands */
 const publishCommands = new Map();
-/** @type {{ project: string, pattern: string, times: number }[]} publish sandbox commands that fail */
+/**
+ * @type {{ project: string, pattern: string, times: number, landing?: boolean }[]} publish sandbox
+ * commands that fail, before doing anything, or after, as when their answer is lost (`landing`)
+ */
 const failingPublishCommands = [];
 /** @type {{ project: string, pattern: string }[]} publish sandbox commands held until the test lets them go */
 let heldPublishCommands = [];
@@ -768,8 +772,18 @@ export class FakePublishSandbox extends DurableObject {
     );
     if (failure) {
       failure.times -= 1;
+      if (failure.landing) await this.run(command, result);
       return result(1, "", `✘ [ERROR] A request to the Cloudflare API failed.`);
     }
+    return this.run(command, result);
+  }
+
+  /**
+   * Does what `command` does.
+   * @param {string} command
+   * @param {(exitCode: number, stdout?: string, stderr?: string) => unknown} result
+   */
+  async run(command, result) {
     const unpack = UNPACK_COMMAND.exec(command);
     if (unpack) {
       const archive = this.files.get(unpack[1]);
@@ -945,6 +959,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
     losePushResponse(repo);
   }
 
+  /**
+   * Makes the next `times` pushes to the branch `branch` of `repo` fail without landing.
+   * @param {string} repo
+   * @param {string} branch
+   * @param {number} times
+   */
+  async failPushes(repo, branch, times) {
+    failPushes(repo, branch, times);
+  }
+
   /** @param {string} repo Whether a Git repo or a pushed repo of that name exists. */
   async hasRepo(repo) {
     return hasGitRepo(repo) || repos.has(repo);
@@ -1089,6 +1113,17 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failPublishCommand(project, pattern, times) {
     failingPublishCommands.push({ project, pattern, times });
+  }
+
+  /**
+   * Makes the next `times` commands containing `pattern` in a project's publish sandbox do what
+   * they do, then fail, as when their answer is lost.
+   * @param {string} project
+   * @param {string} pattern
+   * @param {number} times
+   */
+  async losePublishCommandAnswers(project, pattern, times) {
+    failingPublishCommands.push({ project, pattern, times, landing: true });
   }
 
   /**

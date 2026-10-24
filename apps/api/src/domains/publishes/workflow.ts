@@ -51,8 +51,17 @@ export type PublishParams = {
 const TURN_CHECK_EVERY = "1 minute";
 
 /** A few retries for what the sandbox, Artifacts or R2 fail at. */
-const INFRASTRUCTURE_RETRIES: WorkflowStepConfig = {
+export const INFRASTRUCTURE_RETRIES: WorkflowStepConfig = {
   retries: { limit: 3, delay: "5 seconds", backoff: "exponential" },
+};
+
+/**
+ * Retries for a step the publish can't give up on: once Live may serve the new version, putting
+ * the previous one back, and once the batch committed, the steps that put Live's tree on `main`.
+ * As many as Workflows allow, a minute apart: days of an outage. A tuning value.
+ */
+export const UNTIL_DONE: WorkflowStepConfig = {
+  retries: { limit: 10_000, delay: "1 minute", backoff: "constant" },
 };
 
 /**
@@ -94,6 +103,19 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         endPublishing(db, params, instanceId, reason),
       );
 
+    // The version Live served before this publish's, once Live may serve this one: until the
+    // batch commits, any failure puts it back.
+    let rollBackTo: { previous: string | null; project: string } | undefined;
+    const rollBack = async () => {
+      const to = rollBackTo;
+      rollBackTo = undefined;
+      if (!to?.previous) return;
+      const previous = to.previous;
+      await step.do("promote the previous version back", UNTIL_DONE, () =>
+        promoteVersion(this.env, to.project, previous),
+      );
+    };
+
     try {
       if (!(await this.waitForTurn(step, db, params, instanceId))) return;
 
@@ -122,6 +144,8 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       const previous = await step.do("read the version Live serves", INFRASTRUCTURE_RETRIES, () =>
         servedVersion(this.env, ship.projectUuid),
       );
+      // A promotion whose answer is lost may have served the version all the same.
+      rollBackTo = { previous, project: ship.projectUuid };
       await step.do("promote the Worker version", INFRASTRUCTURE_RETRIES, () =>
         promoteVersion(this.env, ship.projectUuid, version),
       );
@@ -131,11 +155,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         runService(publishWithCode(db, { ...params, revision: ship.revision })),
       );
       if (!batch.applied && batch.ended?.outcome !== "published") {
-        if (previous) {
-          await step.do("promote the previous version back", INFRASTRUCTURE_RETRIES, () =>
-            promoteVersion(this.env, ship.projectUuid, previous),
-          );
-        }
+        await rollBack();
         // A draft discarded while it published has no review to go back to.
         if (!batch.ended) {
           await abort(
@@ -145,13 +165,17 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         return;
       }
 
+      // Live has the draft's code and content: what's left can't be given up on, or `main`
+      // would stay behind Live, and its next push release old code over it.
+      rollBackTo = undefined;
+
       // 6. Live serves the revision's tree: the push to `main` releases nothing.
-      await step.do("record the tree Live serves", () =>
+      await step.do("record the tree Live serves", UNTIL_DONE, () =>
         recordServedTree(db, params, instanceId, ship),
       );
 
       // 7. One squashed commit on `main`.
-      await step.do("push the squashed commit to main", INFRASTRUCTURE_RETRIES, async () => {
+      await step.do("push the squashed commit to main", UNTIL_DONE, async () => {
         const commit = await this.env.DRAFT_CODE.getByName(params.draftId).publishToMain({
           commit: ship.commit,
           message: ship.draftName ? `Publish "${ship.draftName}"` : "Publish a draft",
@@ -163,7 +187,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       });
 
       // 8. The draft's branch, builds, working copy and sandbox.
-      await step.do("delete the draft's code", () =>
+      await step.do("delete the draft's code", UNTIL_DONE, () =>
         Effect.runPromise(
           discardCode(
             { env: this.env, db },
@@ -172,6 +196,9 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         ),
       );
     } catch (error) {
+      await rollBack().catch((rolled: unknown) =>
+        console.error("A failed publish didn't put Live's previous version back", rolled),
+      );
       await step
         .do("go back to the review after a failure", () =>
           endPublishing(db, params, instanceId, "failed"),

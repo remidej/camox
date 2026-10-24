@@ -17,7 +17,7 @@ A project's publishes with code run one at a time, in the order they were asked 
 7. **Push one squashed commit to `main`**: the revision's tree, with the current `main` as its parent (`DraftCode.publishToMain`).
 8. **Delete the draft's code**: its branch, R2 builds, working copy and sandbox (`discardCode`).
 
-A step that gives up puts the draft back to its review (`failed`). One after the batch leaves Live published, and `main` behind it until someone pushes again.
+A step that gives up puts the draft back to its review (`failed`). From the promotion until the batch commits, any failure, the promotion's own included, first promotes the previous version back, retried until it lands (`UNTIL_DONE`). The steps after the batch are retried until they land too: Live already has the draft's code and content, and a `main` left behind it would release old code over Live at its next push.
 
 The publish never builds, except a pruned head (step 1), and never installs or runs `camox release`: agent-written code never runs beside the Deploy Token.
 
