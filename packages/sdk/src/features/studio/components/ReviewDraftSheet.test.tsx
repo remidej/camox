@@ -936,6 +936,71 @@ void test("folds problems sharing a message into one item naming each", async (t
   }
 });
 
+/** Live content in a block on `page` using the text block, which the draft's code removes. */
+const removedOn = (page: typeof home, id: string) => ({
+  entity: "block",
+  id,
+  label: "text",
+  owner: page,
+  locale: "en",
+  code: "removedInUse",
+  field: "",
+  fieldKind: null,
+  blockId: id,
+  message: `This draft's code removes the "Text" block, which this content uses`,
+});
+
+void test("shows what the draft's code removes while Live content uses it as an amber card, leaving Publish enabled", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      warnings: [danglingOnLive, removedOn(home, "019a0000-0000-7000-8000-000000000042")],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), [
+      `This draft's code removes the "Text" block, which this content uses`,
+    ]);
+    const card = window.document.querySelector('[role="dialog"] [data-card]');
+    assert.equal(card?.getAttribute("data-card"), "warning");
+    assert.match(dialogText(), /which this content uses\s*text · Home/);
+    // A problem already on Live stays unmentioned.
+    assert.doesNotMatch(dialogText(), /points at a page/);
+    assert.equal(publishButton()?.disabled, false);
+  } finally {
+    await close();
+  }
+});
+
+void test("shows removals after the blockers, folding those sharing a message into one card", async (t) => {
+  const pageNamed = (n: number) => ({
+    ...home,
+    id: `019a0000-0000-7000-8000-00000000005${n}`,
+    path: `/page-${n}`,
+    nickname: `Page ${n}`,
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [blockerIn("missingMetaTitle", "metaTitle", null, "The page has no meta title")],
+      warnings: [1, 2, 3].map((n) =>
+        removedOn(pageNamed(n), `019a0000-0000-7000-8000-00000000006${n}`),
+      ),
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), [
+      "The page has no meta title",
+      `This draft's code removes the "Text" block, which this content uses`,
+    ]);
+    assert.match(dialogText(), /text · Page 1.*text · Page 2.*text · Page 3/);
+  } finally {
+    await close();
+  }
+});
+
 void test("shows the new conflicts when Live changed since the preview, then publishes and switches to Live", async (t) => {
   let liveChanged = false;
   const calls = mockApi(t, (path) => {
