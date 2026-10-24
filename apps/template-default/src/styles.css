@@ -11,7 +11,6 @@
  */
 
 @import "tailwindcss";
-@import "@fontsource-variable/hanken-grotesk";
 
 /*
  * `dark:` matches the element carrying `.dark` and everything inside it. Tokens already
@@ -161,12 +160,13 @@
 
 @theme {
   /*
-   * Fonts. Change these to change the brand's type pairing.
+   * Fonts. Change these to change the brand's type pairing. Each family is a Google Fonts
+   * family, whose stylesheet the Document links (src/document.ts).
    */
   /* Every heading (h1 to h4 get it from the base layer below): `font-heading`. */
-  --font-heading: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
   /* Everything else; the page's default font: `font-body`. */
-  --font-body: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
   /* Code, pre and kbd. The system stack, so visitors download no font for it. */
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",

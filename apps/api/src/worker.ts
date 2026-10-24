@@ -1,3 +1,4 @@
+import { refreshFontsSnapshot } from "./domains/fonts/catalog";
 import { isEdgeCached, withoutCredentials } from "./edge-cache";
 import app from "./index";
 import type { Bindings } from "./types";
@@ -23,5 +24,9 @@ export default {
       return EdgeCache.fetch(withoutCredentials(request));
     }
     return app.fetch(request, env, ctx);
+  },
+  // The daily cron trigger (wrangler.jsonc): a new snapshot of Google Fonts for `searchFonts`.
+  async scheduled(_controller: ScheduledController, env: Bindings): Promise<void> {
+    await refreshFontsSnapshot(env);
   },
 } satisfies ExportedHandler<Bindings>;

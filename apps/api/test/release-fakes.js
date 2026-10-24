@@ -658,6 +658,15 @@ export class ReleaseFakes extends WorkerEntrypoint {
   async failWorkerDeletions(name) {
     failingWorkerDeletions.add(name);
   }
+
+  /**
+   * Sets the families the fake Google Fonts Developer API lists, most popular first: its
+   * `webfonts` items, with `axes`, which it only returns with `capability=VF`.
+   * @param {Record<string, unknown>[]} families
+   */
+  async listGoogleFonts(families) {
+    googleFonts = families;
+  }
 }
 
 /** The host of a public website the agent reads in tests (web-tools.integration.test.ts). */
@@ -669,11 +678,39 @@ const serveWebsite = (/** @type {Request} */ request) =>
     headers: { "content-type": "text/markdown; charset=utf-8" },
   });
 
+/** The Google Fonts Developer API key the API is given in tests (vite.config.ts). */
+const GOOGLE_FONTS_API_KEY = "test-google-fonts-key";
+/** @type {Record<string, unknown>[]} the families the fake Google Fonts Developer API lists */
+let googleFonts = [];
+
+/**
+ * The Google Fonts Developer API's family list, as Google answers it: `axes` only with
+ * `capability=VF`, in the order `googleFonts` has them, which stands for popularity.
+ * @param {Request} request
+ */
+function serveGoogleFonts(request) {
+  const url = new URL(request.url);
+  if (url.pathname !== "/webfonts/v1/webfonts") return new Response("Not Found", { status: 404 });
+  if (url.searchParams.get("key") !== GOOGLE_FONTS_API_KEY) {
+    return Response.json(
+      { error: { code: 400, message: "API key not valid.", status: "INVALID_ARGUMENT" } },
+      { status: 400 },
+    );
+  }
+  const variable = url.searchParams.getAll("capability").includes("VF");
+  const items = googleFonts.map(({ axes, ...family }) => ({
+    kind: "webfonts#webfont",
+    ...family,
+    ...(variable && axes ? { axes } : {}),
+  }));
+  return Response.json({ kind: "webfonts#webfontList", items });
+}
+
 export default {
   /**
    * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, the
-   * Cloudflare API its fake, the fake public website its pages, and anything else goes out as it
-   * would without the fakes.
+   * Cloudflare API its fake, the fake public website its pages, the Google Fonts Developer API
+   * its fake, and anything else goes out as it would without the fakes.
    * @param {Request} request
    */
   fetch: (request) => {
@@ -681,6 +718,7 @@ export default {
     if (hostname === FAKE_GIT_HOST) return serveGit(request);
     if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);
     if (hostname === FAKE_WEB_HOST) return serveWebsite(request);
+    if (hostname === "www.googleapis.com") return serveGoogleFonts(request);
     return fetch(request);
   },
 };

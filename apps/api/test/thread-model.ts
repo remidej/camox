@@ -102,6 +102,21 @@ export const answerWithToolCall = (name: string, args: Parameters<typeof fauxToo
   ]);
 
 /**
+ * Scripts the model's next answer as a call of the tool `name`, outside code mode, with the
+ * arguments `args` gives from what the model sees then, such as its last tool's result.
+ */
+export const answerWithToolCallFrom = (
+  name: string,
+  args: (request: ModelRequest) => Parameters<typeof fauxToolCall>[1],
+) =>
+  faux.appendResponses([
+    (context) =>
+      fauxAssistantMessage([fauxToolCall(name, args(requestOf(context.messages)))], {
+        stopReason: "toolUse",
+      }),
+  ]);
+
+/**
  * What the model sees when it's called: the editors' messages, the tools it's offered, its last
  * tool's result, and the output of the last script it ran, without code mode's header.
  */

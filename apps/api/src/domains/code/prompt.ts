@@ -26,5 +26,9 @@ ${SKILL_REFERENCES.map(({ file, when }) => `- \`${file}\`: ${when}.`).join("\n")
 Rules of this website, which Camox hosts:
 - SEO links belong to Camox, which writes each page's meta tags, \`hreflang\` alternates and \
 sitemap from its content: never add them in code.
+- A font is a Google Fonts stylesheet in the Document's \`link\` (\`src/document.ts\`) plus its \
+family's name in the Theme's \`--font-*\` tokens (\`src/styles.css\`). Find the family and its exact \
+link with searchFonts. Never \`@import\` a font or use a font package: Camox serves Google Fonts \
+links from the website's own origin.
 - Use only the packages \`package.json\` lists in \`dependencies\`: you can't add one.
 - A block's file name is its id: the block \`pricing-table\` is \`src/blocks/pricing-table.tsx\`.`;

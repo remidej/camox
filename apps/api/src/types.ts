@@ -13,6 +13,8 @@ export type Bindings = {
   /** Where alerts go, such as a failed release's. Cloudflare Email Routing forwards it. */
   ALERT_EMAIL_TO: string;
   OPEN_ROUTER_API_KEY: string;
+  /** Camox's Google Fonts Developer API key, which the daily fonts snapshot is taken with. */
+  GOOGLE_FONTS_API_KEY: string;
   /** Workers AI, which the agent's web tools search and convert pages to Markdown with. */
   AI: Ai;
   AI_JOB_SCHEDULER: DurableObjectNamespace;
