@@ -21,7 +21,13 @@ import { releases } from "../releases/schema";
 import { revisions } from "../revisions/schema";
 import { DRAFT_MERGED_EVENT, PUBLISH_TURN_EVENT } from "./events";
 import { leavePublishPush, turnOf, wakeNextPublish } from "./queue";
-import { promoteVersion, servedVersion, uploadVersion } from "./sandbox";
+import {
+  deletePublishScript,
+  LIVE_SCRIPT_SETTLES,
+  liveScriptOf,
+  pointLiveAt,
+  uploadPublishScript,
+} from "./scripts";
 
 // Publishing a draft with code (ADR 0020, spec #560 section 13): its publish Workflow puts the
 // build of the revision members previewed on Live, then the draft's content and definitions in
@@ -49,14 +55,14 @@ export type PublishParams = {
  */
 const TURN_CHECK_EVERY = "1 minute";
 
-/** A few retries for what the sandbox, Artifacts or R2 fail at. */
+/** A few retries for what the Cloudflare API, Artifacts or R2 fail at. */
 export const INFRASTRUCTURE_RETRIES: WorkflowStepConfig = {
   retries: { limit: 3, delay: "5 seconds", backoff: "exponential" },
 };
 
 /**
- * Retries for a step the publish can't give up on: once Live may serve the new version, putting
- * the previous one back, and once the batch committed, the steps that put Live's tree on `main`.
+ * Retries for a step the publish can't give up on: once Live may serve the publish's script,
+ * pointing Live back at the previous one, and once the batch committed, the steps that put Live's tree on `main`.
  * As many as Workflows allow, a minute apart: days of an outage. A tuning value.
  */
 export const UNTIL_DONE: WorkflowStepConfig = {
@@ -102,17 +108,31 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         endPublishing(db, params, instanceId, reason),
       );
 
-    // The version Live served before this publish's, once Live may serve this one: until the
-    // batch commits, any failure puts it back.
-    let rollBackTo: { previous: string | null; project: string } | undefined;
+    // The script Live served before this publish's, once Live may serve this one: until the
+    // batch commits, any failure points Live back at it.
+    let rollBackTo: { previous: string | null } | undefined;
     const rollBack = async () => {
       const to = rollBackTo;
       rollBackTo = undefined;
-      if (!to?.previous) return;
-      const previous = to.previous;
-      await step.do("promote the previous version back", UNTIL_DONE, () =>
-        promoteVersion(this.env, to.project, previous),
+      if (!to) return;
+      await step.do("point Live back at the previous script", UNTIL_DONE, () =>
+        pointLiveAt(db, params.projectId, to.previous),
       );
+      // Requests dispatch sent to this publish's script end before it's deleted.
+      await step.sleep("let dispatch serve the previous script", LIVE_SCRIPT_SETTLES);
+    };
+    // The publish's script, once uploaded: deleted when the publish doesn't land.
+    let uploaded: string | undefined;
+    const discardScript = async () => {
+      const script = uploaded;
+      uploaded = undefined;
+      if (!script) return;
+      // Any publish script left behind is deleted by the project's next release.
+      await step
+        .do("delete the publish's script", INFRASTRUCTURE_RETRIES, () =>
+          deletePublishScript(this.env, script),
+        )
+        .catch((error: unknown) => console.error("A publish's script wasn't deleted", error));
     };
 
     try {
@@ -125,35 +145,43 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       if ("aborted" in checked) return await abort(checked.aborted);
       const { ship } = checked;
 
-      // 2. Upload without serving.
-      const version = await step.do("upload the Worker version", INFRASTRUCTURE_RETRIES, () =>
-        uploadVersion(this.env, {
+      // 2. Upload without serving: the build as a user Worker of its own, which nothing sends
+      // requests to yet.
+      uploaded = await step.do("upload the publish's script", INFRASTRUCTURE_RETRIES, () =>
+        uploadPublishScript(this.env, {
           project: ship.projectUuid,
           draft: params.draftId,
+          instanceId,
           archiveKey: ship.archiveKey,
         }),
       );
+      const script = uploaded;
 
       // 3. Re-check conflicts, and blockers, against the review.
       const recheck = await step.do("re-check the conflicts", () => this.recheck(db, params));
-      if (recheck) return await abort(recheck);
+      if (recheck) {
+        await discardScript();
+        return await abort(recheck);
+      }
 
-      // 4. Promote. From here until the batch commits, the version reads Live overlaid with the
-      // publishing draft.
-      const previous = await step.do("read the version Live serves", INFRASTRUCTURE_RETRIES, () =>
-        servedVersion(this.env, ship.projectUuid),
+      // 4. Promote: point Live at the script. From here until the batch commits, its reads see
+      // Live overlaid with the publishing draft.
+      const previous = await step.do("read the script Live serves", () =>
+        liveScriptOf(db, params.projectId),
       );
-      // A promotion whose answer is lost may have served the version all the same.
-      rollBackTo = { previous, project: ship.projectUuid };
-      await step.do("let the version read the draft", async () => {
+      // A promotion whose answer is lost may have moved the pointer all the same.
+      rollBackTo = { previous };
+      await step.do("let the script read the draft", async () => {
         await db
           .update(drafts)
           .set({ publishPromotedAt: Date.now() })
           .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)));
       });
-      await step.do("promote the Worker version", INFRASTRUCTURE_RETRIES, () =>
-        promoteVersion(this.env, ship.projectUuid, version),
+      await step.do("point Live at the publish's script", INFRASTRUCTURE_RETRIES, () =>
+        pointLiveAt(db, params.projectId, script),
       );
+      // Dispatch serves it everywhere before Live's content changes.
+      await step.sleep("let dispatch serve the publish's script", LIVE_SCRIPT_SETTLES);
 
       // 5. The publish batch, with the draft's definitions.
       const batch = await step.do("run the publish batch", () =>
@@ -161,6 +189,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       );
       if (!batch.applied && batch.ended?.outcome !== "published") {
         await rollBack();
+        await discardScript();
         // A draft discarded while it published has no review to go back to.
         if (!batch.ended) {
           await abort(
@@ -173,6 +202,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       // Live has the draft's code and content: what's left can't be given up on, or `main`
       // would stay behind Live, and its next push release old code over it.
       rollBackTo = undefined;
+      uploaded = undefined;
 
       // 6. Live serves the revision's tree: the push to `main` releases nothing.
       await step.do("record the tree Live serves", UNTIL_DONE, () =>
@@ -202,10 +232,23 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
           ),
         ),
       );
+
+      // 9. The script Live served before, which nothing rolls back to anymore: dispatch stopped
+      // serving it before the batch.
+      if (previous) {
+        await step
+          .do("delete the previous publish's script", INFRASTRUCTURE_RETRIES, () =>
+            deletePublishScript(this.env, previous),
+          )
+          .catch((error: unknown) =>
+            console.error("A previous publish's script wasn't deleted", error),
+          );
+      }
     } catch (error) {
       await rollBack().catch((rolled: unknown) =>
-        console.error("A failed publish didn't put Live's previous version back", rolled),
+        console.error("A failed publish didn't point Live back at its previous script", rolled),
       );
+      await discardScript().catch(() => undefined);
       await step
         .do("go back to the review after a failure", () =>
           endPublishing(db, params, instanceId, "failed"),

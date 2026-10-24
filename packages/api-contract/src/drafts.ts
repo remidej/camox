@@ -10,7 +10,7 @@ export const DRAFT_HEADER = "x-camox-draft";
 export const LOCALE_HEADER = "x-camox-locale";
 
 /**
- * Request header a Worker version a publish with code uploaded sends on its public reads, naming
+ * Request header the Worker a publish with code uploaded sends on its public reads, naming
  * the draft it publishes (spec #560, section 13). While that draft is in its publishing state, a
  * read naming it sees Live overlaid with the draft, with no session, so the new code serves the
  * content it was previewed with from its first request. Once the draft has ended, or if it isn't
@@ -19,8 +19,8 @@ export const LOCALE_HEADER = "x-camox-locale";
 export const PUBLISHING_DRAFT_HEADER = "x-camox-publishing-draft";
 
 /**
- * The Worker variable carrying the publishing draft's ID, which `wrangler versions upload` sets on
- * the version a publish with code uploads. The website's Worker sends it as
+ * The Worker variable carrying the publishing draft's ID, which the publish sets on the Worker it
+ * uploads (apps/api/src/domains/publishes/scripts.ts). The website's Worker sends it as
  * `PUBLISHING_DRAFT_HEADER`.
  */
 export const PUBLISHING_DRAFT_VAR = "CAMOX_PUBLISHING_DRAFT";

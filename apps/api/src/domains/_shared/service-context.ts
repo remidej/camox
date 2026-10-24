@@ -27,7 +27,7 @@ export type ServiceContext = {
    */
   draft: DraftRequest | null;
   /**
-   * The draft a publish with code's Worker version names on its public reads, through
+   * The draft a publish with code's own Worker names on its public reads, through
    * `x-camox-publishing-draft`: a request naming no draft reads Live overlaid with it while it
    * publishes, and Live otherwise (`accessTo`).
    */

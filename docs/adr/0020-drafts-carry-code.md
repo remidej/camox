@@ -76,3 +76,21 @@ An agent turn can leave several revisions, not one. "Add a pricing section with 
 - Undoing a turn reverts all the revisions it left.
 - A merge of `main` while the agent is mid-turn waits for that turn's last commit, not its first.
 - If the end-of-turn build still fails after a few tries, the turn commits anyway and the draft gets the "code that doesn't build" Blocker. That revision isn't built, so the preview keeps showing the last revision that built.
+
+## Amendment: a publish serves a Worker of its own
+
+Workers for Platforms user Workers have no versions to upload without serving. Gradual deployments aren't supported for them, every upload of a namespaced Worker serves at once, and wrangler's version commands don't take a dispatch namespace. So "upload a Worker version without serving it, then promote it" can't be done as this ADR said. Each publish uploads the revision's build as its own user Worker instead, and a project → live Worker pointer, which dispatch reads through the API, says which Worker serves the website. Promoting and rolling back write the pointer. No pointer means the Worker named after the Project ID, which releases deploy. A release clears the pointer once its deploy succeeded, and deletes the publishes' Workers.
+
+The publish Workflow uploads the Worker through the Cloudflare API itself, with Camox's Cloudflare token, without wrangler or a sandbox. That deviates from spec #560's Out of Scope ("Calling the Workers versions API directly"), as nothing else can upload a namespaced Worker without serving it. The upload is built from trusted inputs only: the build's modules and assets, its main module and compatibility date and flags once checked (the flags among the Template's), and the platform's own variable naming the publishing draft. Nothing else of the build's `wrangler.json`, which agent code wrote, is read, and nothing of the build runs next to the token.
+
+### Considered Options
+
+- **Keep the pointer in KV**, which dispatch already reads for slugs. KV can take up to a minute to show a write everywhere, so code and content wouldn't reach Live at the same moment, and a rollback would be as slow.
+- **Upload over the Project ID's Worker and roll back by uploading the previous build again.** Every upload serves at once, so Live would serve the new code before the batch re-checked its conflicts.
+
+### Consequences
+
+- Dispatch asks the API which Worker serves a website, keeping the answer for 2 seconds per isolate. A publish waits a little longer than that after moving the pointer before its batch commits. While the API can't answer, the last answer stands, then the Project ID's Worker.
+- A publish's Worker serves until the project's next real release: a publish's own push to `main` releases nothing.
+- Bindings are given in full on every upload, as a namespaced Worker can't inherit another's. Websites' Workers have none today.
+- The publish sandbox is gone.

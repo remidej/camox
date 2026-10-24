@@ -14,6 +14,7 @@ import {
   REVISION,
   revision,
 } from "../test/fakes";
+import { LIVE_SCRIPT_TTL_MS } from "./live-script";
 import { PREVIEW_ANSWER_TTL_MS } from "./previews";
 import worker, { CamoxRevisions, type Env } from "./worker";
 
@@ -21,15 +22,28 @@ const OTHER_PROJECT = "0b8e6a4f-0000-4000-8000-000000000000";
 
 type UserWorker = (request: Request) => Response | Promise<Response>;
 
-/** The bindings as Cloudflare gives them, backed by a plain slug map and the user Workers deployed so far. */
+/**
+ * The bindings as Cloudflare gives them, backed by a plain slug map, the user Workers deployed so
+ * far, and the API naming the publish's Worker that serves a project, if any (`liveScripts`).
+ */
 function fakeEnv({
   slugs = {},
   workers = {},
+  liveScripts = {},
 }: {
   slugs?: Record<string, string>;
   workers?: Record<string, UserWorker>;
+  liveScripts?: Record<string, string>;
 }) {
+  const asked: string[] = [];
   const env = {
+    API: {
+      liveScript: async ({ project }: { project: string }) => {
+        asked.push(project);
+        return liveScripts[project] ?? null;
+      },
+    },
+    liveScriptsAsked: asked,
     PROJECT_SLUGS: {
       get: async (key: string) => slugs[key] ?? null,
     },
@@ -45,6 +59,11 @@ function fakeEnv({
 }
 
 const ACME_UUID = "5f0c8f6e-2d3b-4a7e-9c1d-0b8e6a4f2c11";
+/** A publish's own Worker of Acme's, as the API names it. */
+const PUBLISHED = `${ACME_UUID}-publish-6b3e0a52-8f0d-4f0e-9a51-1c2d3e4f5a6b`;
+
+/** The projects dispatch asked the API which Worker serves. */
+const asked = (env: Env) => (env as unknown as { liveScriptsAsked: string[] }).liveScriptsAsked;
 
 describe("dispatch Worker", () => {
   it("serves a project's website from the user Worker named after its UUID", async () => {
@@ -123,6 +142,104 @@ describe("dispatch Worker", () => {
     expect(await response.text()).toContain("This site is being set up");
   });
 
+  it("serves a website from the publish's Worker the API names", async () => {
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      workers: {
+        [ACME_UUID]: () => new Response("the release's code"),
+        [PUBLISHED]: () => new Response("the publish's code"),
+      },
+      liveScripts: { [ACME_UUID]: PUBLISHED },
+    });
+
+    const response = await worker.fetch(new Request("https://acme.camox.site/"), env, context(env));
+
+    expect(await response.text()).toBe("the publish's code");
+  });
+
+  it("serves the project's Worker once the publish's Worker the API named is gone", async () => {
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      workers: {
+        [ACME_UUID]: async (request) => new Response(`the release's code: ${await request.text()}`),
+      },
+      liveScripts: { [ACME_UUID]: PUBLISHED },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://acme.camox.site/contact", { method: "POST", body: "hello" }),
+      env,
+      context(env),
+    );
+
+    expect(await response.text()).toBe("the release's code: hello");
+  });
+
+  it("asks the API once for a burst of requests, and again once its answer is older than it's kept", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => void vi.useRealTimers());
+    const liveScripts: Record<string, string> = {};
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      workers: {
+        [ACME_UUID]: () => new Response("the release's code"),
+        [PUBLISHED]: () => new Response("the publish's code"),
+      },
+      liveScripts,
+    });
+    const visit = async () =>
+      (await worker.fetch(new Request("https://acme.camox.site/"), env, context(env))).text();
+
+    expect(await Promise.all([visit(), visit(), visit()])).toEqual(
+      Array(3).fill("the release's code"),
+    );
+    // A publish points Live at its Worker.
+    liveScripts[ACME_UUID] = PUBLISHED;
+    expect(await visit()).toBe("the release's code");
+    expect(asked(env)).toHaveLength(1);
+
+    vi.advanceTimersByTime(LIVE_SCRIPT_TTL_MS + 1);
+    expect(await visit()).toBe("the publish's code");
+    expect(asked(env)).toHaveLength(2);
+  });
+
+  it("keeps serving the Worker the API last named while it can't answer", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => void vi.useRealTimers());
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      workers: {
+        [ACME_UUID]: () => new Response("the release's code"),
+        [PUBLISHED]: () => new Response("the publish's code"),
+      },
+      liveScripts: { [ACME_UUID]: PUBLISHED },
+    });
+    const visit = async () =>
+      (await worker.fetch(new Request("https://acme.camox.site/"), env, context(env))).text();
+    expect(await visit()).toBe("the publish's code");
+
+    env.API.liveScript = async () => {
+      throw new Error("Network connection lost.");
+    };
+    vi.advanceTimersByTime(LIVE_SCRIPT_TTL_MS + 1);
+
+    expect(await visit()).toBe("the publish's code");
+  });
+
+  it("serves the project's Worker when the API can't answer and never did", async () => {
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      workers: { [ACME_UUID]: () => new Response("the release's code") },
+    });
+    env.API.liveScript = async () => {
+      throw new Error("Network connection lost.");
+    };
+
+    const response = await worker.fetch(new Request("https://acme.camox.site/"), env, context(env));
+
+    expect(await response.text()).toBe("the release's code");
+  });
+
   it("lets other user Worker failures through", async () => {
     const env = fakeEnv({
       slugs: { acme: ACME_UUID },
@@ -165,6 +282,7 @@ async function previewingEnv() {
     REVISION_BUILDS: builds.bucket,
     CAMOX_API_URL: API_URL,
     API: {
+      liveScript: async () => null,
       previewedRevision: async (question: { project: string; draft: string; session: string }) => {
         asked.push(question);
         const { project, draft, session } = question;
@@ -259,6 +377,7 @@ describe("a draft with code's preview", () => {
   it("sends a member to the project Worker when the API can't answer", async () => {
     const { env, fetch } = await previewingEnv();
     (env as unknown as { API: unknown }).API = {
+      liveScript: async () => null,
       previewedRevision: async () => {
         throw new Error("Network connection lost.");
       },

@@ -19,12 +19,13 @@ The Workflow runs on `@cloudflare/ci`. Each step after the first runs in its own
 
 Before releasing, the Workflow refreshes the project's read-only copy of `main`, which the agent reads the website's code from (`src/durable-objects/project-code.ts`). A copy that can't refresh is logged and doesn't hold up the release: it keeps its commit until the next push.
 
-Once the release ended, however it ended, or found nothing to release, the Workflow merges `main` into every open draft with code, each in its thread (`Thread.mergeMain`, `../revisions/merge.ts`): right away for an idle agent, after its turn's last commit otherwise. Merging after the release means a publish waiting for its draft's merge is promoted over the release's Worker version, never under it.
+Once the release ended, however it ended, or found nothing to release, the Workflow merges `main` into every open draft with code, each in its thread (`Thread.mergeMain`, `../revisions/merge.ts`): right away for an idle agent, after its turn's last commit otherwise. Merging after the release means a publish waiting for its draft's merge is promoted over the release's Worker, never under it.
 
 1. **Record the release.** It maps the repo to its project, reads the commit's tree and the `camox` version from its `pnpm-lock.yaml` through the Artifacts binding, stops if Live already serves that tree, and writes the release's row as `running`.
 2. **`install`:** `pnpm install --frozen-lockfile`. Its workspace is cached on `pnpm-lock.yaml`, per project.
 3. **`release`:** `pnpm exec camox release`, which builds the website and syncs its Definition Set to Live, as for any release. Syncing the same set again changes nothing. It builds with the hosted build checks on (`src/lib/hosted-build.ts`), so code that breaks one fails here and Live keeps its previous release.
 4. **`deploy`:** `pnpm exec wrangler deploy --dispatch-namespace production --name <Project ID>`. The name comes from the repo, so a project's code can only replace its own Worker.
+5. **Serve the release's Worker.** A publish with code serves its own Worker until the next release (`../publishes/README.md`). Once the deploy succeeded, the release clears the project's live Worker pointer (`projects.live_script`), unless a publish moved it during the deploy, and deletes every publish's Worker by its `camox-publish-<Project ID>` tag. Dispatch serves the release's Worker for any request it still sends to a deleted one. A deletion that fails is logged, and the next release deletes them. A deploy that fails leaves the publish's Worker serving.
 
 Live gets the new definitions before the new code is deployed. If the deploy fails for good, Live briefly has definitions the served code lacks, until the release is re-run or a fix is pushed.
 
@@ -60,7 +61,7 @@ The container size is `standard-2` (1 vCPU, 6 GiB). It hasn't been measured yet:
 
 ## Tests
 
-`workflow.integration.test.ts` runs the Workflow in the Workers pool with Cloudflare Artifacts, the sandboxes and the `EMAIL` binding faked at their bindings (`test/release-fakes.js`). The fake sandbox runs nothing: it records each command with its environment, and fails the ones a test asks it to. The fake email binding records each email instead of sending it.
+`workflow.integration.test.ts` runs the Workflow in the Workers pool with Cloudflare Artifacts, the sandboxes and the `EMAIL` binding faked at their bindings, and the Cloudflare API at its fetch (`test/release-fakes.js`, `test/fake-cloudflare-api.ts`). The fake sandbox runs nothing: it records each command with its environment, and fails the ones a test asks it to. The fake email binding records each email instead of sending it.
 
 ```sh
 pnpm --filter @camox/api exec vp test --run --project integration src/domains/releases
@@ -84,7 +85,7 @@ Do this before the first deploy that includes the release Workflow, as the API's
    pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --config release-sandbox/wrangler.jsonc
    ```
 
-3. **A Cloudflare API token for deploys**, with _Account › Workers Admin_ on Camox's account, so that `wrangler deploy --dispatch-namespace production` can create user Workers and project deletion can delete them (_Workers Editor_ can do neither). Give it and the account ID to the API:
+3. **A Cloudflare API token for deploys**, with _Account › Workers Admin_ on Camox's account, so that `wrangler deploy --dispatch-namespace production` can create user Workers, publishes with code can upload theirs and project deletion can delete them (_Workers Editor_ can do neither). Give it and the account ID to the API:
 
    ```sh
    pnpm exec wrangler secret put CF_TOKEN

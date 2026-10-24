@@ -37,7 +37,7 @@ function requestedDraft(headers: Headers): DraftRequest | null {
   return draft;
 }
 
-/** The draft a publish with code's Worker version names on its reads, if it's a draft's id. */
+/** The draft a publish with code's own Worker names on its reads, if it's a draft's id. */
 function publishingDraftOf(headers: Headers): string | undefined {
   const named = headers.get(PUBLISHING_DRAFT_HEADER);
   return named && uuidv7Schema.safeParse(named).success ? named : undefined;

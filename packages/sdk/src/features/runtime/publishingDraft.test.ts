@@ -10,7 +10,7 @@ import {
 import { createServerApiClient } from "../routes/pageRuntime";
 import { rememberPublishingDraft } from "./publishingDraft";
 
-// A Worker version a publish with code uploaded names its draft on its reads of the API, so they
+// The Worker a publish with code uploaded names its draft on its reads of the API, so they
 // see Live overlaid with it while it publishes (spec #560, section 13).
 
 const PUBLISHING = "019a0000-0000-7000-8000-000000000077";

@@ -1,6 +1,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
+import { createDb } from "./db";
 import { refreshFontsSnapshot } from "./domains/fonts/catalog";
+import { liveScriptOfProject } from "./domains/publishes/scripts";
 import type { RevisionToLoad } from "./domains/revisions/dispatch";
 import { type PreviewQuestion, previewedRevision } from "./domains/revisions/previewed-revision";
 import { isEdgeCached, withoutCredentials } from "./edge-cache";
@@ -22,13 +24,22 @@ export { UpgradeWorkflow } from "./domains/upgrades/workflow";
 export { EdgeCache } from "./edge-cache";
 
 /**
- * What dispatch asks the API before it sends a request to a draft with code's revision, over its
- * `API` service binding (apps/dispatch/src/previews.ts). No public route reaches it.
+ * What dispatch asks the API before it sends a request to a draft with code's revision, or to a
+ * website's user Worker, over its `API` service binding (apps/dispatch/src/previews.ts,
+ * apps/dispatch/src/live-script.ts). No public route reaches it.
  */
 export class CamoxPreviews extends WorkerEntrypoint<Bindings> {
   /** The revision a draft previews, if the request's session can see the draft. */
   previewedRevision(question: PreviewQuestion): Promise<RevisionToLoad | null> {
     return previewedRevision(this.env, question);
+  }
+
+  /**
+   * The user Worker serving the website of the project `project` (its Project ID): a publish's
+   * script, or null for the one named after its Project ID.
+   */
+  liveScript({ project }: { project: string }): Promise<string | null> {
+    return liveScriptOfProject(createDb(this.env.DB), project);
   }
 }
 

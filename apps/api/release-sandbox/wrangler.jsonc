@@ -28,26 +28,16 @@
       "instance_type": "standard-4",
       "max_instances": 50,
     },
-    {
-      // The sandbox a publish with code uploads and promotes the project's Worker in, one per
-      // project: wrangler alone, as it never installs or builds.
-      "class_name": "PublishSandbox",
-      "image": "./publish.Dockerfile",
-      "instance_type": "basic",
-      "max_instances": 20,
-    },
   ],
   "durable_objects": {
     "bindings": [
       { "name": "SANDBOX", "class_name": "CiSandbox" },
       { "name": "REVISION_SANDBOX", "class_name": "RevisionSandbox" },
-      { "name": "PUBLISH_SANDBOX", "class_name": "PublishSandbox" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["CiSandbox"] },
     { "tag": "v2", "new_sqlite_classes": ["RevisionSandbox"] },
-    { "tag": "v3", "new_sqlite_classes": ["PublishSandbox"] },
   ],
   "r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "camox-release-cache" }],
   "vars": { "BACKUP_BUCKET_NAME": "camox-release-cache" },

@@ -11,6 +11,7 @@ import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
+import { deletePublishScripts, liveScriptOf } from "../publishes/scripts";
 import { sendReleaseFailureAlert } from "./alert";
 import { camoxVersionInLockfile } from "./lockfile";
 import { releases, type ReleaseStep } from "./schema";
@@ -29,6 +30,11 @@ const REFRESH_RETRIES: WorkflowStepConfig = {
 const MERGES: WorkflowStepConfig = {
   retries: { limit: 1, delay: "10 seconds", backoff: "constant" },
   timeout: "30 minutes",
+};
+
+/** A few retries for deleting the publishes' Workers, which the next release does otherwise. */
+const RELEASE_CLEANUP_RETRIES: WorkflowStepConfig = {
+  retries: { limit: 3, delay: "5 seconds", backoff: "exponential" },
 };
 
 // `@cloudflare/ci` types every binding its examples have, but the Workflow only reads `ARTIFACTS`,
@@ -163,11 +169,29 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
           followSetup(db, started.projectId, { status: "settingUp", setupStep: "serve" }),
         );
       }
+      // A publish's own Worker may serve the website (../publishes/scripts.ts).
+      const publishServing = await step.do("read the Worker Live serves", () =>
+        liveScriptOf(db, started.projectId),
+      );
       await run(released, "deploy", async () => ({
         // Named after the repo, so a project's code can only ever replace its own Worker.
         command: `pnpm exec wrangler deploy --dispatch-namespace production --name ${push.repo}`,
         cloudflareCredentials: { accountId: this.env.CLOUDFLARE_ACCOUNT_ID },
       }));
+      // The release's Worker serves from now on, unless a publish moved Live meanwhile.
+      const served = await step.do("serve the release's Worker", () =>
+        servePublishedOver(db, started.projectId, publishServing),
+      );
+      if (served) {
+        // Nothing serves the publishes' Workers, nor rolls back to them, anymore. Dispatch serves
+        // the release's Worker for any it still sends a request to. One left behind is deleted
+        // by the next release.
+        await step
+          .do("delete the publishes' Workers", RELEASE_CLEANUP_RETRIES, () =>
+            deletePublishScripts(this.env, push.repo),
+          )
+          .catch((error: unknown) => console.error("Publishes' Workers weren't deleted", error));
+      }
     } catch (error) {
       const failedStep = current;
       // Reached only once a step has given up for good. Neither recording the failure nor
@@ -289,6 +313,21 @@ async function servedTree(db: Database, projectId: number, instanceId: string) {
     .orderBy(desc(releases.endedAt), desc(releases.id))
     .get();
   return served?.tree ?? null;
+}
+
+/**
+ * Points Live back at the project's Worker the release deployed, from the publish's Worker that
+ * served before the deploy, `publishServing`. False when a publish moved Live meanwhile: its
+ * Worker keeps serving.
+ */
+async function servePublishedOver(db: Database, projectId: number, publishServing: string | null) {
+  if (publishServing === null) return (await liveScriptOf(db, projectId)) === null;
+  const cleared = await db
+    .update(projects)
+    .set({ liveScript: null })
+    .where(and(eq(projects.id, projectId), eq(projects.liveScript, publishServing)))
+    .returning({ id: projects.id });
+  return cleared.length > 0 || (await liveScriptOf(db, projectId)) === null;
 }
 
 /** Whether the project, by its row id, hasn't been deleted. */

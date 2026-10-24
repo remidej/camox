@@ -8,6 +8,7 @@ import { PRICING, websiteWithCode } from "../../../test/revision-builds";
 import { answerNext, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import { ask, connectLiveThread, draftsOf, signIn } from "../../../test/threads";
 import { router } from "../../router";
+import { publishScriptsTag } from "../publishes/scripts";
 
 vi.mock("../../lib/thread-model", async () => {
   const { testThreadModel } = await import("../../../test/thread-model");
@@ -20,7 +21,7 @@ afterEach(async () => {
 });
 
 // A deleted project's cleanup: once the request has removed its rows and its host, the deletion
-// Workflow deletes its Worker from the `production` dispatch namespace and its repo. Cloudflare
+// Workflow deletes its Workers from the `production` dispatch namespace and its repo. Cloudflare
 // Artifacts, the Cloudflare API and email are faked (test/release-fakes.js).
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -28,7 +29,7 @@ const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
 type Fakes = {
   commit(repo: string, files: Record<string, string>, message: string): Promise<string>;
   hasRepo(repo: string): Promise<boolean>;
-  deployWorker(name: string): Promise<void>;
+  deployWorker(name: string, tags?: string[]): Promise<void>;
   hasWorker(name: string): Promise<boolean>;
   failWorkerDeletions(name: string): Promise<void>;
   failForks(repo: string): Promise<void>;
@@ -70,6 +71,21 @@ describe("cleaning up a deleted project", () => {
     expect(await fakes.hasWorker(projectId)).toBe(false);
     expect(await fakes.hasRepo(projectId)).toBe(false);
     expect(await emailsAbout(projectId)).toEqual([]);
+  });
+
+  it("deletes the Workers its publishes with code uploaded", async () => {
+    const projectId = await deletedProject();
+    const published = `${projectId}-publish-${crypto.randomUUID()}`;
+    await fakes.deployWorker(published, [publishScriptsTag(projectId)]);
+    // Another project's publish is left alone.
+    const other = crypto.randomUUID();
+    const othersPublished = `${other}-publish-${crypto.randomUUID()}`;
+    await fakes.deployWorker(othersPublished, [publishScriptsTag(other)]);
+
+    await cleanUp(projectId);
+
+    expect(await fakes.hasWorker(published)).toBe(false);
+    expect(await fakes.hasWorker(othersPublished)).toBe(true);
   });
 
   it("stops its setup if it's still underway, so the setup can't fork its repo again", async () => {
