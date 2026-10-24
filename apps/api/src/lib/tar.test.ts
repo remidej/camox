@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { tar } from "./tar";
+import { tar, untarGzip } from "./tar";
 
 const temps: string[] = [];
 
@@ -45,5 +45,30 @@ describe("tar", () => {
     expect((await stat(join(dir, "scripts/run.sh"))).mode & 0o111).not.toBe(0);
     expect(await readFile(join(dir, "src/empty.css"), "utf8")).toBe("");
     expect(await readlink(join(dir, "src/link.ts"))).toBe("blocks/hero.tsx");
+  });
+});
+
+describe("untarGzip", () => {
+  it("reads the files of a gzipped archive the system's tar wrote, long paths included", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "camox-untar-"));
+    temps.push(dir);
+    const long = `dist/${"nested/".repeat(20)}chunk-with-a-long-name.js`;
+    await mkdir(join(dir, long, ".."), { recursive: true });
+    await mkdir(join(dir, "dist/client"), { recursive: true });
+    await writeFile(join(dir, long), "export {};\n");
+    await writeFile(join(dir, "dist/client/index.css"), "body {}\n");
+    // Without macOS bsdtar's AppleDouble files, which GNU tar never writes.
+    await promisify(execFile)("tar", ["-czf", "build.tar.gz", "dist"], {
+      cwd: dir,
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    });
+
+    const archive = await readFile(join(dir, "build.tar.gz"));
+    const files = await untarGzip(new Blob([archive]).stream());
+
+    const decoder = new TextDecoder();
+    expect(decoder.decode(files.get(long))).toBe("export {};\n");
+    expect(decoder.decode(files.get("dist/client/index.css"))).toBe("body {}\n");
+    expect([...files.keys()].sort()).toEqual(["dist/client/index.css", long].sort());
   });
 });

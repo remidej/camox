@@ -1,7 +1,8 @@
 /**
  * The regular files of a gzipped tar archive, by path. It reads ustar names with their prefix,
  * and long names from PAX `path` records (bsdtar, and the API's own `tar()`) or GNU `L` records
- * (GNU tar, which the revision sandboxes run).
+ * (GNU tar, which the revision sandboxes run). Mirrored in apps/api/src/lib/tar.ts, which reads
+ * a revision's build to publish it: keep the two in sync.
  */
 export async function untarGzip(archive: ReadableStream<Uint8Array>) {
   const tar = new Uint8Array(

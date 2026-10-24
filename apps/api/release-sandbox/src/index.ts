@@ -12,12 +12,6 @@ export { CiSandbox } from "@cloudflare/ci/worker";
  */
 export class RevisionSandbox extends Sandbox {}
 
-/**
- * The sandbox a publish with code uploads and promotes the project's Worker in, with wrangler,
- * named by the project's Project ID. Its image has wrangler and nothing to build with.
- */
-export class PublishSandbox extends Sandbox {}
-
 export default {
   fetch: () => new Response("Not found", { status: 404 }),
 };

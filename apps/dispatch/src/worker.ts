@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
+import { type LiveScriptApi, liveScriptFor } from "./live-script";
 import { type PreviewsApi, revisionFor } from "./previews";
 import {
   type GatewayProps,
@@ -14,8 +15,11 @@ import {
 } from "./revisions";
 
 export interface Env extends RevisionBindings {
-  /** The API's `CamoxPreviews` entrypoint, which says who sees which draft's revision. */
-  API: PreviewsApi;
+  /**
+   * The API's `CamoxPreviews` entrypoint, which says who sees which draft's revision, and which
+   * user Worker serves a website.
+   */
+  API: PreviewsApi & LiveScriptApi;
   PROJECT_SLUGS: KVNamespace;
   DISPATCHER: DispatchNamespace;
   /** The Camox API's origin, which only a revision's gateway lets it reach in its draft. */
@@ -89,18 +93,34 @@ export default {
         console.warn("A draft's previewed revision has no build: Live's code answers", error);
       }
     }
-    try {
-      // The user Worker is named after the project's UUID. Cloudflare may report it missing from
-      // either call, so both sit in the try.
-      return await env.DISPATCHER.get(uuid).fetch(request);
-    } catch (error) {
-      // "Worker not found" is what the dispatch namespace throws for a user Worker it doesn't have.
-      if (!(error instanceof Error && error.message.startsWith("Worker not found"))) throw error;
-      // The project exists, but its first release hasn't deployed its Worker yet.
-      return statusPage(503, "This site is being set up", "Check back in a few minutes.");
+    // A publish's own Worker, or the one named after the project's UUID, which releases deploy.
+    const script = await liveScriptFor(env.API, uuid);
+    if (script !== uuid) {
+      // A request with a body keeps it for the release's Worker, should this one be gone.
+      const published = await dispatchTo(env, script, request.body ? request.clone() : request);
+      if (published) return published;
+      // A publish's Worker deleted since the API answered: its release's Worker serves.
+      console.warn(`The publish's Worker ${script} is gone: the project's Worker answers`);
     }
+    return (
+      (await dispatchTo(env, uuid, request)) ??
+      // The project exists, but its first release hasn't deployed its Worker yet.
+      statusPage(503, "This site is being set up", "Check back in a few minutes.")
+    );
   },
 } satisfies ExportedHandler<Env>;
+
+/** The user Worker `script`'s answer to `request`, or null when there's no such Worker. */
+async function dispatchTo(env: Env, script: string, request: Request) {
+  try {
+    // Cloudflare may report it missing from either call, so both sit in the try.
+    return await env.DISPATCHER.get(script).fetch(request);
+  } catch (error) {
+    // "Worker not found" is what the dispatch namespace throws for a user Worker it doesn't have.
+    if (!(error instanceof Error && error.message.startsWith("Worker not found"))) throw error;
+    return null;
+  }
+}
 
 /**
  * What precedes camox.site in a hostname. Slugs are one label, the depth Universal SSL covers, so

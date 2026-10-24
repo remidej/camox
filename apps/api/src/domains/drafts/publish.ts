@@ -961,7 +961,7 @@ const startPublish = Effect.fn("drafts.startPublish")(function* (
 
 /**
  * The publish batch of a draft with code, which its publish Workflow runs once the revision's
- * Worker version serves Live: the draft's content, as `publishDraft` applies it, and the pinned
+ * own Worker serves Live: the draft's content, as `publishDraft` applies it, and the pinned
  * revision's definitions, replacing Live's, in one batch. It aborts when Live's conflicts are no
  * longer those `token` records, or when the draft previews another revision than `revision`.
  * Returns whether it applied, and how the draft ended, also when an earlier run ended it.

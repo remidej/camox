@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `live_script` text;

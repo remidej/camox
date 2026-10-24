@@ -1,7 +1,7 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { introspectWorkflowInstance, type WorkflowInstanceIntrospector } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -9,10 +9,12 @@ import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import { projects, releases } from "../../schema";
 import type { Bindings } from "../../types";
+import { publishScriptsTag } from "../publishes/scripts";
 
 // A push to a project's repo releases it: the release Workflow installs, runs `camox release`
 // and deploys the project's Worker, each in a sandbox, and records the release as a row.
-// Cloudflare Artifacts, the sandbox and email are faked at their bindings (test/release-fakes.js).
+// Cloudflare Artifacts, the sandbox, the Cloudflare API and email are faked at their edges
+// (test/release-fakes.js).
 
 const fakes = (env as unknown as { RELEASE_FAKES: ReleaseFakes }).RELEASE_FAKES;
 
@@ -25,7 +27,16 @@ type ReleaseFakes = {
   commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
   failEmailsAbout(pattern: string): Promise<void>;
   emailsSent(): Promise<Email[]>;
+  deployWorker(name: string, tags?: string[]): Promise<void>;
+  hasWorker(name: string): Promise<boolean>;
 };
+
+/** What dispatch asks the API about which user Worker serves a website. */
+const previews = (
+  exports as unknown as {
+    CamoxPreviews: { liveScript(question: { project: string }): Promise<string | null> };
+  }
+).CamoxPreviews;
 
 type Email = {
   from: { name: string; email: string };
@@ -542,5 +553,50 @@ describe("a push that isn't a release", () => {
     await receivePush(pushEvent(repo, "refs/heads/main", commit));
 
     expect(await fakes.commandsRun(repo)).toEqual([]);
+  });
+});
+
+describe("a release of a project a publish's Worker serves", () => {
+  /**
+   * A project whose website a publish with code's own Worker serves, beside an older publish's
+   * Worker, as the publishes leave them (../publishes/scripts.ts).
+   */
+  async function servedByAPublish() {
+    const fixture = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const { db, project } = fixture;
+    const tag = publishScriptsTag(project.uuid);
+    const older = `${project.uuid}-publish-${crypto.randomUUID()}`;
+    const serving = `${project.uuid}-publish-${crypto.randomUUID()}`;
+    await fakes.deployWorker(project.uuid);
+    await fakes.deployWorker(older, [tag]);
+    await fakes.deployWorker(serving, [tag]);
+    await db.update(projects).set({ liveScript: serving }).where(eq(projects.id, project.id));
+    return { ...fixture, older, serving };
+  }
+
+  it("serves the release's Worker once deployed, and deletes the publishes' Workers", async () => {
+    const { project, older, serving } = await servedByAPublish();
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit));
+
+    expect(await previews.liveScript({ project: project.uuid })).toBeNull();
+    expect(await fakes.hasWorker(project.uuid)).toBe(true);
+    expect(await fakes.hasWorker(older)).toBe(false);
+    expect(await fakes.hasWorker(serving)).toBe(false);
+  });
+
+  it("leaves the publish's Worker serving when the deploy fails", async () => {
+    const { project, older, serving } = await servedByAPublish();
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+    await fakes.failCommand(project.uuid, "wrangler deploy", Infinity);
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+
+    expect(await previews.liveScript({ project: project.uuid })).toBe(serving);
+    expect(await fakes.hasWorker(serving)).toBe(true);
+    expect(await fakes.hasWorker(older)).toBe(true);
   });
 });

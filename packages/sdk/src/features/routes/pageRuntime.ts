@@ -145,7 +145,7 @@ export function createServerApiClient(
   // Only a session can read a draft, so a draft is only ever named along with one.
   if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
   else {
-    // A Worker version a publish with code uploaded reads Live overlaid with its draft while it
+    // The Worker a publish with code uploaded reads Live overlaid with its draft while it
     // publishes.
     const publishing = publishingDraft();
     if (publishing) headers[PUBLISHING_DRAFT_HEADER] = publishing;

@@ -48,6 +48,12 @@ export const projects = sqliteTable(
      */
     publishPushInstanceId: text("publish_push_instance_id"),
     publishPushRequestedAt: int("publish_push_requested_at"),
+    /**
+     * The user Worker serving the project's website, when a publish with code put its own there
+     * (`../publishes/scripts.ts`). Null for the one named after its Project ID, which its releases
+     * deploy. Dispatch reads it through the API (apps/dispatch/src/live-script.ts).
+     */
+    liveScript: text("live_script"),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

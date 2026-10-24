@@ -1,6 +1,6 @@
 # Dispatch Worker
 
-Serves each project's website at `<slug>.camox.site`. The Worker reads the slug from the hostname's first label, looks up the project's UUID in the `camox-project-slugs` KV namespace, and forwards the request to the user Worker named after that UUID in the `production` Workers for Platforms dispatch namespace.
+Serves each project's website at `<slug>.camox.site`. The Worker reads the slug from the hostname's first label, looks up the project's UUID in the `camox-project-slugs` KV namespace, and forwards the request to the project's user Worker in the `production` Workers for Platforms dispatch namespace: the one named after that UUID, which its releases deploy, or the one a publish with code uploaded, until the next release (`apps/api/src/domains/publishes/README.md`). Dispatch asks the API's `CamoxPreviews` entrypoint which (`liveScript`, `src/live-script.ts`), over its `API` service binding, and keeps each project's answer for `LIVE_SCRIPT_TTL_MS` (2 seconds) in the isolate, so a publish's promotion or rollback reaches every request within that. A public request asks at most once per isolate and project in that time, a primary D1 read. While the API can't answer, the last answer stands, or the Worker named after the UUID when there was none. A publish's Worker that's gone (deleted since the answer) falls back to the one named after the UUID too.
 
 - A known slug whose user Worker isn't deployed yet gets a "This site is being set up" page (503).
 - An unknown slug, a deeper subdomain, or the bare domain gets a not-found page (404).

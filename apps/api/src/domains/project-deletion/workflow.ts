@@ -1,7 +1,8 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
+import { deleteUserWorker } from "../../lib/user-workers";
 import type { Bindings } from "../../types";
-import { destroyPublishSandbox } from "../publishes/sandbox";
+import { deletePublishScripts, publishScriptsTag } from "../publishes/scripts";
 import { deleteProjectBuilds } from "../revisions/archive";
 import { destroySandbox } from "../revisions/sandbox";
 import { sendCleanupFailureAlert } from "./alert";
@@ -14,9 +15,6 @@ export type ProjectDeletionParams = {
   /** Its drafts' IDs, which name their working copies and sandboxes: their rows are gone. */
   drafts?: string[];
 };
-
-/** The dispatch namespace every project's Worker is deployed to (../releases/README.md). */
-const DISPATCH_NAMESPACE = "production";
 
 /** The statuses of a Workflow instance that hasn't ended. */
 const UNDERWAY = new Set<InstanceStatus["status"]>([
@@ -63,7 +61,13 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
       () => this.stopSetup(projectId),
     );
     await attempt("Deleting the Worker", `Worker ${projectId}`, "delete the Worker", () =>
-      this.deleteWorker(projectId),
+      deleteUserWorker(this.env, projectId),
+    );
+    await attempt(
+      "Deleting the publishes' Workers",
+      `Workers tagged ${publishScriptsTag(projectId)}`,
+      "delete the publishes' Workers",
+      () => deletePublishScripts(this.env, projectId),
     );
     // Before the repo: a draft's working copy deletes its branch there.
     await attempt(
@@ -112,7 +116,7 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
 
   /**
    * Deletes the project's copies of its code: its copy of `main`, its drafts' working copies and
-   * revision sandboxes, its builds in R2 and its publish sandbox.
+   * revision sandboxes and its builds in R2.
    */
   private async deleteCode(projectId: string, drafts: string[]) {
     for (const draftId of drafts) {
@@ -121,18 +125,5 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
     }
     await this.env.PROJECT_CODE.getByName(projectId).discard();
     await deleteProjectBuilds(this.env, projectId);
-    await destroyPublishSandbox(this.env, projectId);
-  }
-
-  /** Deletes the project's Worker from the dispatch namespace, if it was ever deployed. */
-  private async deleteWorker(projectId: string) {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${DISPATCH_NAMESPACE}/scripts/${encodeURIComponent(projectId)}?force=true`;
-    const response = await fetch(url, {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${this.env.CF_TOKEN}` },
-    });
-    // Never deployed, or deleted by an earlier attempt.
-    if (response.ok || response.status === 404) return;
-    throw new Error(`Deleting the Worker answered ${response.status}: ${await response.text()}`);
   }
 }

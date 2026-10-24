@@ -113,13 +113,6 @@
         "class_name": "RevisionSandbox",
         "script_name": "camox-release-sandbox",
       },
-      // The small Container sandbox a publish with code uploads and promotes the project's
-      // Worker in, with wrangler, one per project (src/domains/publishes/README.md).
-      {
-        "name": "PUBLISH_SANDBOX",
-        "class_name": "PublishSandbox",
-        "script_name": "camox-release-sandbox",
-      },
     ],
   },
   // A push to a project's repo releases it (src/domains/releases/README.md). The event filter can

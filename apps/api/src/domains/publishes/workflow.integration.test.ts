@@ -9,7 +9,7 @@ import {
   introspectWorkflow,
   introspectWorkflowInstance,
 } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -39,44 +39,56 @@ import { blocks } from "../../schema";
 import { drafts } from "../drafts/schema";
 import { revisions } from "../revisions/schema";
 import { PUBLISHES_CHECKED_EVERY } from "../upgrades/project-workflow";
+import { publishScriptsTag } from "./scripts";
 import { INFRASTRUCTURE_RETRIES } from "./workflow";
 
 /** How many times a publish's step that fails on Camox's side runs before it gives up. */
 const STEP_ATTEMPTS = Number(INFRASTRUCTURE_RETRIES.retries!.limit) + 1;
 
 // Publishing a draft with code (spec #560, section 13): the publish Workflow uploads the build of
-// the revision members previewed as a new version of the project's Worker, re-checks conflicts,
-// promotes the version, runs the publish batch with the draft's definitions, records the tree
-// Live serves, pushes that tree to `main` and deletes the draft's code. Wrangler, the sandboxes
-// and Artifacts are faked at their bindings (test/release-fakes.js).
+// the revision members previewed as a user Worker of its own, re-checks conflicts, points Live at
+// it, runs the publish batch with the draft's definitions, records the tree Live serves, pushes
+// that tree to `main` and deletes the draft's code. The Cloudflare API, the sandboxes and
+// Artifacts are faked at their edges (test/release-fakes.js, test/fake-cloudflare-api.ts). What
+// serves a website is what dispatch asks the API's `CamoxPreviews` entrypoint.
 
 vi.mock("../../lib/thread-model", async () => {
   const { testThreadModel } = await import("../../../test/thread-model");
   return { threadModel: testThreadModel };
 });
 
-type WorkerVersion = { id: string; build: string; vars: Record<string, string> };
+type UserWorker = {
+  name: string;
+  metadata: Record<string, unknown> | null;
+  modules: Record<string, { type: string; text: string }>;
+  assets: Record<string, { contentType: string; text: string }>;
+  tags: string[];
+};
 
 type Fakes = {
   defineBuildsOf(marker: string, definitionSet: unknown): Promise<void>;
+  configureBuildsOf(marker: string, config: Record<string, unknown>): Promise<void>;
   revisionBuilds(
     sandbox: string,
-  ): Promise<{ files: Record<string, string>; archive: number[] | null }[]>;
-  servedVersion(project: string): Promise<WorkerVersion | null>;
-  workerVersions(project: string): Promise<WorkerVersion[]>;
-  deployments(project: string): Promise<string[]>;
-  publishCommands(project: string): Promise<{ command: string; order: number }[]>;
-  holdPublishCommand(project: string, pattern: string): Promise<void>;
+  ): Promise<{ files: Record<string, string>; archive: number[] | null; build?: string }[]>;
+  userWorker(name: string): Promise<UserWorker | null>;
+  userWorkersOf(project: string): Promise<string[]>;
+  cloudflareCalls(project: string): Promise<{ call: string; order: number }[]>;
+  failCloudflareCalls(
+    project: string,
+    pattern: string,
+    times: number,
+    landing?: boolean,
+  ): Promise<void>;
+  holdCloudflareCalls(project: string, pattern: string): Promise<void>;
+  letGoCloudflareCalls(project: string, pattern: string): Promise<void>;
   holdBuilds(sandbox: string): Promise<void>;
   releaseBuilds(sandbox: string): Promise<void>;
   mostBuildsAtOnce(sandbox: string): Promise<number>;
-  failPublishCommand(project: string, pattern: string, times: number): Promise<void>;
-  losePublishCommandAnswers(project: string, pattern: string, times: number): Promise<void>;
   failPushes(repo: string, branch: string, times: number): Promise<void>;
   holdPushes(repo: string, branch: string): Promise<void>;
   letGoPushes(repo: string, branch: string): Promise<void>;
   pushesWaiting(repo: string): Promise<number>;
-  letGoPublishCommand(project: string, pattern: string): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; order: number }[]>;
   log(repo: string): Promise<{ oid: string; message: string }[]>;
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
@@ -85,6 +97,11 @@ type Fakes = {
 };
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
+const previews = (
+  exports as unknown as {
+    CamoxPreviews: { liveScript(question: { project: string }): Promise<string | null> };
+  }
+).CamoxPreviews;
 
 afterEach(async () => {
   await abortAllDurableObjects();
@@ -174,10 +191,25 @@ async function publish(website: Website, draftId: string, preview: Preview) {
   );
 }
 
-/** Starts watching the publishes started from now on, with their retries' delays disabled. */
-async function watchPublishes() {
+type Modifier = Parameters<
+  Parameters<Awaited<ReturnType<typeof introspectWorkflow>>["modifyAll"]>[0]
+>[0];
+
+/**
+ * Starts watching the publishes started from now on, with their retries' delays disabled, and
+ * their sleeps unless `sleeps`: a publish waits for dispatch to serve the script it pointed Live
+ * at before its batch, the moment a test can change Live's content in.
+ */
+async function watchPublishes({
+  sleeps = false,
+  modify,
+}: { sleeps?: boolean; modify?: (m: Modifier) => Promise<void> } = {}) {
   const publishes = await introspectWorkflow(env.PUBLISH_WORKFLOW);
-  await publishes.modifyAll(async (m) => m.disableRetryDelays());
+  await publishes.modifyAll(async (m) => {
+    await m.disableRetryDelays();
+    if (!sleeps) await m.disableSleeps();
+    await modify?.(m);
+  });
   return publishes;
 }
 
@@ -188,11 +220,44 @@ async function publishesEnd(publishes: Publishes, status: "complete" | "errored"
   for (const instance of await publishes.get()) await instance.waitForStatus(status);
 }
 
-/** The build a draft's revision sandbox made last, as the fake archives it. */
+/** The build a draft's revision sandbox made last, which the fake names in its main module. */
 async function lastBuildOf(draftId: string) {
   const builds = await fakes.revisionBuilds(draftId);
-  const archive = builds.findLast((build) => build.archive)!.archive!;
-  return (JSON.parse(new TextDecoder().decode(new Uint8Array(archive))) as { build: string }).build;
+  return builds.findLast((build) => build.archive)!.build!;
+}
+
+/** The plain text bindings a user Worker was uploaded with. */
+const varsOf = (worker: UserWorker) =>
+  Object.fromEntries(
+    ((worker.metadata?.bindings ?? []) as { type: string; name: string; text: string }[])
+      .filter(({ type }) => type === "plain_text")
+      .map(({ name, text }) => [name, text]),
+  );
+
+/**
+ * The user Worker serving the website, as dispatch finds it: the one the API names, or the one
+ * named after the Project ID. With the build its main module names, and its variables.
+ */
+async function served({ project }: Website) {
+  const name = (await previews.liveScript({ project: project.uuid })) ?? project.uuid;
+  const worker = await fakes.userWorker(name);
+  if (!worker) return null;
+  const main = (worker.metadata?.main_module as string | undefined) ?? "index.js";
+  const build = /^\/\/ (.*)$/m.exec(worker.modules[main]?.text ?? "")?.[1];
+  return { name, build, vars: varsOf(worker) };
+}
+
+/** Whether the website is served by a publish's own user Worker. */
+async function servedByAPublish(website: Website) {
+  return (await served(website))?.name !== website.project.uuid;
+}
+
+/** Waits until the publish pointed Live at its user Worker. */
+async function promoted(website: Website) {
+  await vi.waitFor(async () => expect(await servedByAPublish(website)).toBe(true), {
+    timeout: 10_000,
+    interval: 20,
+  });
 }
 
 /** The block types the studio reads on Live. */
@@ -207,7 +272,7 @@ async function liveBlockTypes(website: Website) {
 
 /**
  * The website's pages by path, each with its blocks' Markdown, as a public read with `headers`
- * sees them, with no session: as a Worker version of the project reads them.
+ * sees them, with no session: as a Worker of the project reads them.
  */
 async function publicPagesOf({ db, project }: Website, headers: Record<string, string> = {}) {
   const context = createRpcContext(db, null, headers);
@@ -220,15 +285,24 @@ async function publicPagesOf({ db, project }: Website, headers: Record<string, s
   return shown;
 }
 
-/** Waits until a project's publish sandbox ran a command containing `pattern`. */
-async function ran(project: string, pattern: string) {
+/** A publish's upload of its user Worker, as its call to the Cloudflare API names it. */
+const UPLOAD = (project: string) => `PUT ${project}-publish-`;
+
+/** Waits until a project called the Cloudflare API with a call containing `pattern`. */
+async function called(project: string, pattern: string) {
   await vi.waitFor(
     async () => {
-      const commands = await fakes.publishCommands(project);
-      expect(commands.some(({ command }) => command.includes(pattern))).toBe(true);
+      const calls = await fakes.cloudflareCalls(project);
+      expect(calls.some(({ call }) => call.includes(pattern))).toBe(true);
     },
     { timeout: 10_000, interval: 50 },
   );
+}
+
+/** How many publish uploads the project made. */
+async function uploadsOf(project: string) {
+  return (await fakes.cloudflareCalls(project)).filter(({ call }) => call.includes(UPLOAD(project)))
+    .length;
 }
 
 /**
@@ -276,11 +350,6 @@ async function writeHello(website: Website, body: string, draftId?: string) {
     { id: await helloBlock(website), content: { body } },
     { context: memberContext(website, draftId) },
   );
-}
-
-/** The commands of a project's publish sandbox containing `pattern`. */
-async function commandsLike(project: string, pattern: string) {
-  return (await fakes.publishCommands(project)).filter(({ command }) => command.includes(pattern));
 }
 
 /** Starts an Upgrade of the project to camox 1.1.0, from the commit `main` points to. */
@@ -348,7 +417,7 @@ describe("publishing a draft with code", () => {
     expect(await publish(website, draftId, preview)).toMatchObject({ publishing: true });
     await publishesEnd(publishes);
 
-    expect(await fakes.servedVersion(repo)).toMatchObject({ build: await lastBuildOf(draftId) });
+    expect(await served(website)).toMatchObject({ build: await lastBuildOf(draftId) });
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO, PRICING] });
     expect(await liveBlockTypes(website)).toEqual(["pricing", "text"]);
     expect(await draftsOf(website)).toEqual([]);
@@ -367,26 +436,90 @@ describe("publishing a draft with code", () => {
     expect((await fakes.commandsRun(repo)).length).toBe(releaseCommandsBefore);
   });
 
-  it("lets the uploaded version read Live overlaid with the draft while it publishes", async () => {
+  it("uploads the build's modules and assets, with the platform's settings, never the build's", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
-    const repo = website.project.uuid;
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes);
+
+    const worker = (await fakes.userWorker((await served(website))!.name))!;
+    expect(Object.keys(worker.modules).sort()).toEqual(["assets/chunk.js", "index.js"]);
+    expect(worker.modules["index.js"]!.type).toBe("application/javascript+module");
+    expect(worker.metadata).toMatchObject({
+      main_module: "index.js",
+      compatibility_date: "2026-04-11",
+      compatibility_flags: ["nodejs_compat"],
+      bindings: [{ type: "plain_text", name: "CAMOX_PUBLISHING_DRAFT", text: draftId }],
+      assets: {
+        config: {
+          _headers: "/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n",
+        },
+      },
+    });
+    expect(Object.keys(worker.metadata!).sort()).toEqual([
+      "assets",
+      "bindings",
+      "compatibility_date",
+      "compatibility_flags",
+      "main_module",
+      "tags",
+    ]);
+    expect(Object.keys(worker.assets).sort()).toEqual([
+      "/assets/index.css",
+      "/favicon.svg",
+      "/robots.txt",
+    ]);
+    expect(worker.assets["/assets/index.css"]).toEqual({
+      contentType: "text/css; charset=utf-8",
+      text: `body { /* ${await lastBuildOf(draftId)} */ }\n`,
+    });
+    expect(worker.tags).toEqual([publishScriptsTag(website.project.uuid)]);
+  });
+
+  it("doesn't publish a build asking for compatibility flags Camox doesn't allow", async () => {
+    const { website, token } = await websiteWithCode();
+    const marker = crypto.randomUUID();
+    await fakes.configureBuildsOf(marker, {
+      compatibility_flags: ["nodejs_compat", "experimental"],
+    });
+    const thread = await connectLiveThread(website.project.id, token);
+    answerWithToolCall("write", { path: "src/blocks/text.tsx", content: `// ${marker}\n` });
+    answerWithToolCall("build", {});
+    answerFrom(() => "Changed it.");
+    await ask(thread, "Change the text block's code");
+    const [draft] = await draftsOf(website);
+    const before = await served(website);
+
+    await using publishes = await watchPublishes();
+    await publish(website, draft!.id, await previewOf(website, draft!.id));
+    await publishesEnd(publishes, "errored");
+
+    expect(await uploadsOf(website.project.uuid)).toBe(0);
+    expect(await served(website)).toEqual(before);
+    expect((await previewOf(website, draft!.id)).code).toMatchObject({
+      publishing: false,
+      publishAborted: "failed",
+    });
+  });
+
+  it("lets the uploaded Worker read Live overlaid with the draft while it publishes", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
     const publishing = { [PUBLISHING_DRAFT_HEADER]: draftId };
     // Not publishing yet: a read naming the draft without a session is Live's.
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO] });
 
-    await fakes.holdPublishCommand(repo, "versions deploy");
-    await using publishes = await watchPublishes();
+    // The publish waits for dispatch to serve its Worker before its batch.
+    await using publishes = await watchPublishes({ sleeps: true });
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions deploy");
+    await promoted(website);
 
-    const [uploaded] = await fakes.workerVersions(repo).then((versions) => versions.slice(-1));
-    expect(uploaded!.vars).toEqual({ CAMOX_PUBLISHING_DRAFT: draftId });
+    expect((await served(website))!.vars).toEqual({ CAMOX_PUBLISHING_DRAFT: draftId });
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO, PRICING] });
     expect(await publicPagesOf(website)).toEqual({ "/home": [HELLO] });
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO] });
 
-    await fakes.letGoPublishCommand(repo, "versions deploy");
     await publishesEnd(publishes);
     // The draft ended: reads naming it are Live's, which now holds what it published.
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO, PRICING] });
@@ -397,14 +530,14 @@ describe("publishing a draft with code", () => {
     const { draftId } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
     const publishing = { [PUBLISHING_DRAFT_HEADER]: draftId };
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
 
-    // Publishing, but no version reads the draft yet.
+    // Publishing, but nothing reads the draft yet.
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO] });
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     await publishesEnd(publishes);
   });
 
@@ -412,15 +545,15 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
 
     await expect(writeHello(website, "Hello there", draftId)).rejects.toMatchObject({
       message: expect.stringContaining("being published"),
     });
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     await publishesEnd(publishes);
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO, PRICING] });
   });
@@ -435,7 +568,7 @@ describe("publishing a draft with code", () => {
       code: REVISION_CHANGED_ERROR,
     });
     expect((await previewOf(website, draftId)).code).toMatchObject({ publishing: false });
-    expect(await fakes.publishCommands(website.project.uuid)).toEqual([]);
+    expect(await uploadsOf(website.project.uuid)).toBe(0);
   });
 
   it("goes back to the review when the agent leaves a revision while it waits", async () => {
@@ -443,22 +576,23 @@ describe("publishing a draft with code", () => {
     const { draftId: first } = await draftAddingPricing(website, token);
     const second = await draftChangingCode(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
     await publish(website, second, await previewOf(website, second));
     expect((await previewOf(website, second)).code).toMatchObject({ publishing: true });
 
     await changeCodeAgain(website, token, second);
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     await publishesEnd(publishes);
 
     expect((await previewOf(website, second)).code).toMatchObject({
       publishing: false,
       publishAborted: "revisionChanged",
     });
-    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    // Only the first uploaded.
+    expect(await uploadsOf(repo)).toBe(1);
   });
 
   it("runs a project's publishes one after the other, the second shipping its merge of the first", async () => {
@@ -467,13 +601,13 @@ describe("publishing a draft with code", () => {
     const second = await draftChangingCode(website, token);
     const changed = await fakes.readFile(website.project.uuid, second, "src/blocks/text.tsx");
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
     await publish(website, second, await previewOf(website, second));
     const mainBefore = await fakes.log(repo);
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
 
     // The first lands, moving `main`: the second waits for the draft to merge it.
     await vi.waitFor(
@@ -483,7 +617,7 @@ describe("publishing a draft with code", () => {
         interval: 50,
       },
     );
-    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    expect(await uploadsOf(repo)).toBe(1);
     await deliverPushes(repo);
     await publishesEnd(publishes);
 
@@ -493,10 +627,12 @@ describe("publishing a draft with code", () => {
       "src/blocks/pricing.tsx": file,
       "src/blocks/text.tsx": changed,
     });
-    expect(await fakes.servedVersion(repo)).toMatchObject({ build: await lastBuildOf(second) });
+    expect(await served(website)).toMatchObject({ build: await lastBuildOf(second) });
     expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
     expect(await fakes.readFile(repo, "main", "src/blocks/text.tsx")).toBe(changed);
     expect(await draftsOf(website)).toEqual([]);
+    // The first's Worker is deleted: nothing rolls back to it anymore.
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo, (await served(website))!.name]);
   });
 
   it("goes back to the draft with the blocker when the merge it waits for clashes", async () => {
@@ -505,15 +641,15 @@ describe("publishing a draft with code", () => {
     const first = await draftChangingCode(website, token);
     const second = await draftChangingCode(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
     await publish(website, second, await previewOf(website, second));
     const mainBefore = await fakes.log(repo);
     // Camox's reconcile turn starts, and is still working when the publish ends.
     holdNextAnswer("Reconciled.");
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     await vi.waitFor(
       async () => expect(await fakes.log(repo)).toHaveLength(mainBefore.length + 1),
       { timeout: 10_000, interval: 50 },
@@ -527,7 +663,7 @@ describe("publishing a draft with code", () => {
     expect(preview.blockers).toEqual([
       expect.objectContaining({ entity: "code", code: "codeDoesNotMerge" }),
     ]);
-    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    expect(await uploadsOf(repo)).toBe(1);
     expect((await draftsOf(website)).map(({ id }) => id)).toEqual([second]);
   });
 
@@ -536,45 +672,43 @@ describe("publishing a draft with code", () => {
     const { draftId } = await draftAddingPricing(website, token);
     await writeHello(website, "Hello there", draftId);
     const repo = website.project.uuid;
-    const served = await fakes.servedVersion(repo);
+    const before = await served(website);
     const reviewed = await previewOf(website, draftId);
     expect(reviewed.conflicts).toEqual([]);
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, reviewed);
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
 
     await writeHello(website, "Hi");
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     await publishesEnd(publishes);
 
-    expect(await fakes.servedVersion(repo)).toEqual(served);
-    expect(await commandsLike(repo, "versions deploy")).toEqual([]);
+    expect(await served(website)).toEqual(before);
+    // The publish's Worker, which never served, is deleted.
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo]);
     const preview = await previewOf(website, draftId);
     expect(preview.code).toMatchObject({ publishing: false, publishAborted: "conflictsChanged" });
     expect(preview.conflicts).toEqual([expect.objectContaining({ entity: "block" })]);
     expect(await pagesOf(website)).toEqual({ "/home": ["<!-- Text -->\nHi"] });
   });
 
-  it("puts the previous version back when the batch aborts after promotion, and leaves main", async () => {
+  it("points Live back at the previous Worker when the batch aborts after promotion, and leaves main", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
     await writeHello(website, "Hello there", draftId);
     const repo = website.project.uuid;
-    const served = await fakes.servedVersion(repo);
+    const before = await served(website);
     const mainBefore = await fakes.log(repo);
-    await fakes.holdPublishCommand(repo, "versions deploy");
-    await using publishes = await watchPublishes();
+    await using publishes = await watchPublishes({ sleeps: true });
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions deploy");
+    await promoted(website);
 
     await writeHello(website, "Hi");
-    await fakes.letGoPublishCommand(repo, "versions deploy");
     await publishesEnd(publishes);
 
-    const deployments = await fakes.deployments(repo);
-    expect(deployments.slice(-2)).toEqual([expect.not.stringMatching(served!.id), served!.id]);
-    expect(await fakes.servedVersion(repo)).toEqual(served);
+    expect(await served(website)).toEqual(before);
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo]);
     expect(await fakes.log(repo)).toEqual(mainBefore);
     const preview = await previewOf(website, draftId);
     expect(preview.code).toMatchObject({ publishing: false, publishAborted: "conflictsChanged" });
@@ -583,19 +717,21 @@ describe("publishing a draft with code", () => {
     expect(await liveBlockTypes(website)).toEqual(["text"]);
   });
 
-  it("puts the previous version back when the promotion fails after it took effect", async () => {
+  it("points Live back at the previous Worker when the publish fails after promotion", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    const served = await fakes.servedVersion(repo);
+    const before = await served(website);
     const mainBefore = await fakes.log(repo);
-    // Every try of the promotion serves the new version, but its answer is lost.
-    await fakes.losePublishCommandAnswers(repo, "versions deploy", STEP_ATTEMPTS);
-    await using publishes = await watchPublishes();
+    // Every try of the batch fails, as when D1 is down.
+    await using publishes = await watchPublishes({
+      modify: (m) => m.mockStepError({ name: "run the publish batch" }, new Error("D1 is down")),
+    });
     await publish(website, draftId, await previewOf(website, draftId));
     await publishesEnd(publishes, "errored");
 
-    expect(await fakes.servedVersion(repo)).toEqual(served);
+    expect(await served(website)).toEqual(before);
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo]);
     expect(await fakes.log(repo)).toEqual(mainBefore);
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO] });
     expect((await previewOf(website, draftId)).code).toMatchObject({
@@ -604,27 +740,46 @@ describe("publishing a draft with code", () => {
     });
   });
 
-  it("keeps trying to put the previous version back when the batch aborts", async () => {
+  it("keeps trying to point Live back at the previous Worker when the batch aborts", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
     await writeHello(website, "Hello there", draftId);
-    const repo = website.project.uuid;
-    const served = await fakes.servedVersion(repo);
-    await fakes.holdPublishCommand(repo, "versions deploy");
-    await using publishes = await watchPublishes();
+    const before = await served(website);
+    await using publishes = await watchPublishes({
+      sleeps: true,
+      modify: (m) =>
+        m.mockStepError(
+          { name: "point Live back at the previous script" },
+          new Error("D1 is down"),
+          STEP_ATTEMPTS,
+        ),
+    });
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions deploy");
+    await promoted(website);
 
     await writeHello(website, "Hi");
-    await fakes.failPublishCommand(repo, `versions deploy ${served!.id}`, STEP_ATTEMPTS);
-    await fakes.letGoPublishCommand(repo, "versions deploy");
     await publishesEnd(publishes);
 
-    expect(await fakes.servedVersion(repo)).toEqual(served);
+    expect(await served(website)).toEqual(before);
     expect((await previewOf(website, draftId)).code).toMatchObject({
       publishing: false,
       publishAborted: "conflictsChanged",
     });
+  });
+
+  it("publishes once when the upload's answer is lost", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    // The upload lands, but its answer is lost: the step uploads again.
+    await fakes.failCloudflareCalls(repo, UPLOAD(repo), 1, true);
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes);
+
+    expect(await uploadsOf(repo)).toBe(2);
+    expect(await served(website)).toMatchObject({ build: await lastBuildOf(draftId) });
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo, (await served(website))!.name]);
   });
 
   it("pushes to main and deletes the draft's code once it published, however often that fails", async () => {
@@ -646,19 +801,21 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const { draftId, file } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
 
     await using upgrading = await startUpgrade(repo);
     await readyToPush(repo);
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     await publishesEnd(publishes);
     await upgrading.waitForStatus("complete");
 
-    const published = Math.max(...(await fakes.publishCommands(repo)).map(({ order }) => order));
-    expect(await upgradePushOrder(repo)).toBeGreaterThan(published);
+    const [upload] = (await fakes.cloudflareCalls(repo)).filter(({ call }) =>
+      call.includes(UPLOAD(repo)),
+    );
+    expect(await upgradePushOrder(repo)).toBeGreaterThan(upload!.order);
     // The Upgrade's commit sits on the publish's: `main` has both changes.
     const [upgraded, publishedCommit] = await fakes.log(repo);
     expect(upgraded!.message).toBe("Upgrade Camox to 1.1.0");
@@ -671,15 +828,15 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const { draftId, file } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await fakes.holdPushes(repo, "main");
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
     await using upgrading = await startUpgrade(repo);
     await readyToPush(repo);
 
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     // The batch committed, and the publish's push to `main` waits: the Upgrade checks its turn
     // meanwhile.
     await vi.waitFor(async () => expect(await fakes.pushesWaiting(repo)).toBe(1), {
@@ -707,28 +864,24 @@ describe("publishing a draft with code", () => {
     const second = await draftChangingCode(website, token);
     const changed = await fakes.readFile(website.project.uuid, second, "src/blocks/text.tsx");
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await ran(repo, "versions upload");
+    await called(repo, UPLOAD(repo));
     await using upgrading = await startUpgrade(repo);
     await readyToPush(repo);
     await publish(website, second, await previewOf(website, second));
 
-    await fakes.letGoPublishCommand(repo, "versions upload");
+    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
     // The Upgrade pushes before the second publish does anything.
     await upgrading.waitForStatus("complete");
-    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    expect(await uploadsOf(repo)).toBe(1);
     expect(await camoxOnMain(repo)).toBe("^1.1.0");
 
     // The second ships its merge of the upgraded `main`, once that released.
     await deliverPushes(repo);
     await publishesEnd(publishes);
-    const [served] = (await fakes.deployments(repo)).slice(-1);
-    expect(await fakes.servedVersion(repo)).toMatchObject({
-      id: served,
-      build: await lastBuildOf(second),
-    });
+    expect(await served(website)).toMatchObject({ build: await lastBuildOf(second) });
     expect(await fakes.readFile(repo, "main", "src/blocks/text.tsx")).toBe(changed);
     expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).not.toBeNull();
     expect(await camoxOnMain(repo)).toBe("^1.1.0");
