@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.52.1](https://github.com/remidej/camox/compare/camox-v0.52.0...camox-v0.52.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **dispatch:** stop using Promise.try, missing from Node 22 ([#586](https://github.com/remidej/camox/issues/586)) ([c33e3a7](https://github.com/remidej/camox/commit/c33e3a738a0f5742bb412cf2a1ec8151584dc06c))
+* **sdk:** keep public renders in a named cache, not caches.default ([#588](https://github.com/remidej/camox/issues/588)) ([7825ff9](https://github.com/remidej/camox/commit/7825ff9099b29ec01ccd910697f33b45f4ad26fd))
+
 ## [0.52.0](https://github.com/remidej/camox/compare/camox-v0.51.0...camox-v0.52.0) (2026-10-24)
 
 
