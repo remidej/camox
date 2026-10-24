@@ -58,7 +58,7 @@ import { codeInstructions } from "../domains/code/prompt";
 import { remoteEnv } from "../domains/code/remote-env";
 import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
 import { writeLine } from "../domains/code/write-line";
-import { accessTo } from "../domains/drafts/access";
+import { writeAccessWhilePublishing } from "../domains/drafts/access";
 import { searchFontsTool } from "../domains/fonts/tool";
 import { projects } from "../domains/projects/schema";
 import { BuildInfrastructureError, buildRevision } from "../domains/revisions/build";
@@ -505,7 +505,9 @@ export class Thread extends DurableObject<Bindings> {
       const draftId = await runService(
         Effect.scoped(
           Effect.gen(function* () {
-            const { scope: draft } = yield* accessTo(ctx, { project: actor.projectId }, "write");
+            const { scope: draft } = yield* writeAccessWhilePublishing(ctx, {
+              project: actor.projectId,
+            });
             if (draft.kind === "development") return null;
             if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
               yield* Effect.promise(() => startCode(draft.id));

@@ -408,6 +408,23 @@ describe("publishing a draft with code", () => {
     await publishesEnd(publishes);
   });
 
+  it("refuses edits to the draft's content while it publishes", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions upload");
+
+    await expect(writeHello(website, "Hello there", draftId)).rejects.toMatchObject({
+      message: expect.stringContaining("being published"),
+    });
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    await publishesEnd(publishes);
+    expect(await pagesOf(website)).toEqual({ "/home": [HELLO, PRICING] });
+  });
+
   it("is refused once the agent left a revision after the review", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);

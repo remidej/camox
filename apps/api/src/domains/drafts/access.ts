@@ -3,6 +3,7 @@ import { Effect, Exit, type Scope } from "effect";
 
 import type { Database } from "../../db";
 import {
+  ConflictError,
   DraftEndedError,
   ForbiddenError,
   LiveReadOnlyError,
@@ -415,6 +416,7 @@ const access = <R extends ContentRef, M extends AccessMode>(
   ref: R,
   mode: M,
   withLocales: boolean,
+  { whilePublishing = false }: { whilePublishing?: boolean } = {},
 ): Effect.Effect<
   ContentAccess<R, M> & { locales: LocaleRow[] },
   ServiceError,
@@ -460,6 +462,14 @@ const access = <R extends ContentRef, M extends AccessMode>(
     const entity = yield* entityIn(ctx.db, ref, located, project, scope, locale);
     if (!entity) return yield* new NotFoundError();
     if (mode === "write" && !draftIn(scope)) return yield* new LiveReadOnlyError();
+    // What a publish ships was reviewed: the draft's content stays as it is until it lands or
+    // goes back to the review.
+    if (mode === "write" && !whilePublishing && authorized.draft?.publishingRevisionId) {
+      return yield* new ConflictError({
+        message:
+          "The draft is being published: its content can't change until the publish lands or goes back to the review",
+      });
+    }
     return { user, project, scope, entity, locales: seen } as ContentAccess<R, M> & {
       locales: LocaleRow[];
     };
@@ -475,6 +485,17 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
   mode: M,
 ): Effect.Effect<ContentAccess<R, M>, ServiceError, Journal | Scope.Scope> =>
   Effect.map(access(ctx, ref, mode, false), ({ locales: _locales, ...granted }) => granted);
+
+/**
+ * `accessTo` in `write` mode for what a publish lets through: opening the draft's thread, and the
+ * agent's code writes, since an agent's revision after the one the review pinned sends the
+ * publish back to the review (spec #560, section 13).
+ */
+export const writeAccessWhilePublishing = <R extends ContentRef>(ctx: AccessContext, ref: R) =>
+  Effect.map(
+    access(ctx, ref, "write", false, { whilePublishing: true }),
+    ({ locales: _locales, ...granted }) => granted,
+  );
 
 /**
  * `accessTo`, with the locales the access's draft scope reads, in no particular order, read in
