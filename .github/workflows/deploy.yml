@@ -81,7 +81,9 @@ jobs:
         run: pnpm --filter @camox/dispatch exec wrangler deploy --dry-run --minify
 
       # Serves projects' websites at <slug>.camox.site; apps/dispatch/README.md has its setup.
-      # Deployed before the API, which binds its `CamoxRevisions` entrypoint.
+      # Deployed before the API, which binds its `CamoxRevisions` entrypoint. Dispatch binds the
+      # API's `CamoxPreviews` entrypoint in turn: until the API deploys it, dispatch's member
+      # checks fail, and drafts' runtime reads reach Live's code.
       - name: Deploy dispatch Worker
         run: pnpm --filter @camox/dispatch run deploy
         env:
