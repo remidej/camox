@@ -306,8 +306,6 @@ export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
         return ok(reader);
       }),
 
-    watch: async () => err(new FileError("not_supported", "This environment watches no files")),
-
     canonicalPath: (path, context) =>
       at(path, context, async (resolved) => {
         const stat = await fs.promises.lstat(resolved);
@@ -350,18 +348,25 @@ export function codeEnv(fs: MemoryFs, options: CodeEnvOptions): ExecutionEnv {
         return ok(undefined);
       }),
 
-    createTempDir: async () =>
-      err(new FileError("not_supported", "This environment has no temporary files")),
-    createTempFile: async () =>
-      err(new FileError("not_supported", "This environment has no temporary files")),
-
-    exec: async () =>
-      err(new ExecutionError("shell_unavailable", "This environment has no shell: use the tools")),
-
-    cleanup: async () => undefined,
+    ...UNSUPPORTED,
   };
   return env;
 }
+
+/**
+ * What a code environment doesn't do, its own or one reached over RPC: watch files, make
+ * temporary ones, or run a shell. There is no \`bash\` (spec #560, section 6).
+ */
+export const UNSUPPORTED = {
+  watch: async () => err(new FileError("not_supported", "This environment watches no files")),
+  createTempDir: async () =>
+    err(new FileError("not_supported", "This environment has no temporary files")),
+  createTempFile: async () =>
+    err(new FileError("not_supported", "This environment has no temporary files")),
+  exec: async () =>
+    err(new ExecutionError("shell_unavailable", "This environment has no shell: use the tools")),
+  cleanup: async () => undefined,
+} satisfies Partial<ExecutionEnv>;
 
 /** A text's lines as a line reader returns them: none for an empty text, no line after a last newline. */
 export function splitLines(text: string) {

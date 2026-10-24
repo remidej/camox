@@ -51,7 +51,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { createDb } from "../db";
-import type { ServiceContext } from "../domains/_shared/service-context";
+import { agentServiceContext } from "../domains/_shared/service-context";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
 import { codeInstructions } from "../domains/code/prompt";
@@ -87,6 +87,7 @@ import {
 import { webTools } from "../domains/threads/web-tools";
 import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
+import { serialQueue } from "../lib/serial-queue";
 import { threadModel } from "../lib/thread-model";
 import { user } from "../schema";
 import type { Bindings } from "../types";
@@ -286,7 +287,7 @@ export class Thread extends DurableObject<Bindings> {
   readonly #registry = createRegistry();
   readonly #watches = new Map<WebSocket, AgentEventStream>();
   /** Settling where the thread stands, which every later settling waits for. */
-  #settling: Promise<unknown> = Promise.resolve();
+  readonly #settling = serialQueue();
   /** Setting aside the draft this Live thread's first write starts, shared by concurrent writes. */
   #reserving: Promise<string> | undefined;
   /**
@@ -469,7 +470,7 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /** The last code write's access, which the next waits for: concurrent first writes start one. */
-  #startingCode: Promise<unknown> = Promise.resolve();
+  readonly #startingCode = serialQueue();
 
   /**
    * Checks that the editor of the run `invocation` is part of may write in the thread's draft,
@@ -478,21 +479,18 @@ export class Thread extends DurableObject<Bindings> {
    * draft's ID.
    */
   async #codeAccess(invocation: ToolInvocation): Promise<string> {
-    const started = this.#startingCode.then(async () => {
+    return this.#startingCode.run(async () => {
       const actor = await this.#actor(invocation, "write");
       const starting = actor.draftId ? undefined : actor.draftToStart;
       const db = createDb(this.env.DB);
-      const ctx: ServiceContext = {
+      const ctx = agentServiceContext({
         db,
-        user: (await db.select().from(user).where(eq(user.id, actor.userId)).get()) ?? null,
         env: this.env,
+        user: (await db.select().from(user).where(eq(user.id, actor.userId)).get()) ?? null,
         waitUntil: (promise) => this.ctx.waitUntil(promise),
-        client: "camox-agent",
-        telemetryDisabled: false,
-        draft: actor.draftId
-          ? { id: actor.draftId, create: false }
-          : { id: starting!.id, create: true, threadId: starting!.threadId },
-      };
+        draftId: actor.draftId,
+        starting,
+      });
       const hasCode = (draftId: string) => this.#hasCode(draftId);
       const startCode = async (draftId: string) => {
         const { commit } = await this.#mainCopy();
@@ -530,28 +528,35 @@ export class Thread extends DurableObject<Bindings> {
       }
       return draftId;
     });
-    this.#startingCode = started.catch(() => undefined);
-    return started;
+  }
+
+  /**
+   * The thread's draft, when it has code: its own, or the one a Live thread's write started.
+   * Settles where the thread stands first, unless `settling` is false, as when a turn ends.
+   */
+  async #draftWithCode({ settling = true }: { settling?: boolean } = {}) {
+    const known = settling ? await this.#settle() : await this.#knownIdentity();
+    const draftId = known?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
+    return draftId && (await this.#hasCode(draftId)) ? draftId : null;
   }
 
   /** The files of the thread's draft that still have merge conflict markers. */
   async #conflicts(): Promise<string[]> {
-    const draftId =
-      (await this.#settle())?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
-    if (!draftId || !(await this.#hasCode(draftId))) return [];
+    const draftId = await this.#draftWithCode();
+    if (!draftId) return [];
     return this.env.DRAFT_CODE.getByName(draftId).conflicts();
   }
 
   /** The last build, which the next waits for: a draft's sandbox builds one tree at a time. */
-  #building: Promise<unknown> = Promise.resolve();
+  readonly #building = serialQueue();
 
   /**
    * Builds the code the agent changed in the thread's draft, for the run `invocation` is part
    * of, committing a revision when it passes.
    */
   async #build(invocation: ToolInvocation): Promise<BuildResult> {
-    const draftId = (await this.#settle())?.draftId;
-    if (!draftId || !(await this.#hasCode(draftId))) {
+    const draftId = await this.#draftWithCode();
+    if (!draftId) {
       throw new Error(
         "There's nothing to build: you haven't changed the website's code in this draft.",
       );
@@ -587,7 +592,7 @@ export class Thread extends DurableObject<Bindings> {
     { merge = false }: { merge?: boolean } = {},
   ): Promise<T> {
     const code = this.env.DRAFT_CODE.getByName(draftId);
-    const built = this.#building.then(async () => {
+    return this.#building.run(async () => {
       if (!merge) await code.markBuilding(true);
       try {
         return await build();
@@ -601,8 +606,6 @@ export class Thread extends DurableObject<Bindings> {
         }
       }
     });
-    this.#building = built.catch(() => undefined);
-    return built;
   }
 
   /** The merge of `main` going, which code writes wait for: it lands beside the files. */
@@ -615,9 +618,8 @@ export class Thread extends DurableObject<Bindings> {
    */
   async mergeMain(): Promise<MergeEnd | "afterTheTurn" | "noCode"> {
     if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return "noCode";
-    const draftId =
-      (await this.#settle())?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
-    if (!draftId || !(await this.#hasCode(draftId))) return "noCode";
+    const draftId = await this.#draftWithCode();
+    if (!draftId) return "noCode";
     if (await this.harness.session().busy()) return "afterTheTurn";
     return this.#mergeMain(draftId);
   }
@@ -670,9 +672,8 @@ export class Thread extends DurableObject<Bindings> {
   async #onYield(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
     if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
     // A Live thread whose write started a draft builds it, even before it moved into it.
-    const draftId =
-      (await this.#knownIdentity())?.draftId ?? (await this.#reservedDraft())?.draftId;
-    if (!draftId || !(await this.#hasCode(draftId))) return undefined;
+    const draftId = await this.#draftWithCode({ settling: false });
+    if (!draftId) return undefined;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
     const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
@@ -739,9 +740,8 @@ export class Thread extends DurableObject<Bindings> {
    */
   async retryBuild(): Promise<"built" | "failed" | "busy" | "noCode"> {
     if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return "noCode";
-    const draftId =
-      (await this.#settle())?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
-    if (!draftId || !(await this.#hasCode(draftId))) return "noCode";
+    const draftId = await this.#draftWithCode();
+    if (!draftId) return "noCode";
     if (await this.harness.session().busy()) return "busy";
     const code = this.env.DRAFT_CODE.getByName(draftId);
     try {
@@ -1041,9 +1041,7 @@ export class Thread extends DurableObject<Bindings> {
    * eviction cut short. Repeating it changes nothing.
    */
   #settle(): Promise<ThreadIdentity | undefined> {
-    const settled = this.#settling.then(() => this.#settleNow());
-    this.#settling = settled.catch(() => undefined);
-    return settled;
+    return this.#settling.run(() => this.#settleNow());
   }
 
   /**

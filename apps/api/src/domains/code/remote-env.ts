@@ -1,7 +1,6 @@
 import {
   type DirReader,
   err,
-  ExecutionError,
   type ExecutionEnv,
   FileError,
   type FileErrorCode,
@@ -11,7 +10,7 @@ import {
   type TextLineReader,
 } from "@earendil-works/pi-durable/env";
 
-import { binaryReader, splitLines } from "./env";
+import { binaryReader, splitLines, UNSUPPORTED } from "./env";
 
 // A code environment held in another object, reached over RPC: Durable Object RPC carries plain
 // data, so each operation goes as its name and arguments, and comes back as a plain result whose
@@ -197,14 +196,7 @@ export function remoteEnv(
       return ok(reader);
     },
 
-    watch: async () => err(new FileError("not_supported", "This environment watches no files")),
-    createTempDir: async () =>
-      err(new FileError("not_supported", "This environment has no temporary files")),
-    createTempFile: async () =>
-      err(new FileError("not_supported", "This environment has no temporary files")),
-    exec: async () =>
-      err(new ExecutionError("shell_unavailable", "This environment has no shell: use the tools")),
-    cleanup: async () => undefined,
+    ...UNSUPPORTED,
   };
   return env;
 }

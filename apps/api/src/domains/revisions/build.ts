@@ -7,6 +7,7 @@ import type { PreparedCommit } from "../../durable-objects/draft-code";
 import { projectRooms } from "../../lib/project-rooms";
 import { runService } from "../../lib/run-service";
 import type { Bindings } from "../../types";
+import { agentServiceContext } from "../_shared/service-context";
 import { syncRevisionDefinitions } from "../definitions/service";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
@@ -136,15 +137,12 @@ async function previewRevision(
   };
   const definitionSet = await retried(() => env.DISPATCH.readDefinitionSet(toLoad));
   await retried(() => env.DISPATCH.prewarm(toLoad));
-  const ctx = {
+  const ctx = agentServiceContext({
     db: createDb(env.DB),
-    user: null,
     env,
-    waitUntil: (promise: Promise<unknown>) => void promise.catch(console.error),
-    client: "camox-agent",
-    telemetryDisabled: false,
-    draft: null,
-  };
+    user: null,
+    waitUntil: (promise) => void promise.catch(console.error),
+  });
   try {
     await runService(
       syncRevisionDefinitions(ctx, {

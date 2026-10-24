@@ -9,6 +9,7 @@ import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/rem
 import { writeLine } from "../domains/code/write-line";
 import type { BuildResult } from "../domains/revisions/result";
 import { MemoryFs, type MemoryFsEntry } from "../lib/memory-fs";
+import { serialQueue } from "../lib/serial-queue";
 import { tar, type TarEntry } from "../lib/tar";
 import type { Bindings } from "../types";
 
@@ -112,7 +113,7 @@ export type MergeOutcome =
   /** The working copy has changes no revision holds yet: the merge waits for them. */
   | { outcome: "unsettled" }
   /** This move of `main` clashed already, and isn't merged again until `main` moves again. */
-  | { outcome: "clashed"; main: string }
+  | { outcome: "clashedBefore"; main: string }
   | { outcome: "conflicts"; main: string; conflicts: string[] }
   /** A merge commit of `main`, not on the branch yet, for a build to commit. */
   | { outcome: "merged"; main: string; prepared: PreparedCommit };
@@ -138,13 +139,11 @@ type NodeRow = {
 export class DraftCode extends DurableObject<Bindings> {
   /** The working copy, once loaded from storage or cloned. */
   #fs: MemoryFs | undefined;
-  /** The last operation, which the next waits for: one at a time. */
-  #queue: Promise<unknown> = Promise.resolve();
+  /** The working copy's operations, one at a time. */
+  readonly #queue = serialQueue();
 
   #serially<T>(operation: () => Promise<T>): Promise<T> {
-    const done = this.#queue.then(operation);
-    this.#queue = done.catch(() => undefined);
-    return done;
+    return this.#queue.run(operation);
   }
 
   /** The draft's ID, which names the branch. */
@@ -156,7 +155,7 @@ export class DraftCode extends DurableObject<Bindings> {
 
   /** Whether the draft has code: its branch was made, and not deleted since. */
   async held(): Promise<boolean> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.ctx.storage.kv.get(BRANCH_KEY) !== undefined;
   }
 
@@ -165,7 +164,7 @@ export class DraftCode extends DurableObject<Bindings> {
    * once it has code.
    */
   async mergedMain(): Promise<string | undefined> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.#mergedMain();
   }
 
@@ -194,7 +193,7 @@ export class DraftCode extends DurableObject<Bindings> {
 
   /** The last merge of `main` that clashed, until a merge of `main` lands. */
   async clash(): Promise<MergeClash | undefined> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.ctx.storage.kv.get<MergeClash>(CLASH_KEY);
   }
 
@@ -225,7 +224,7 @@ export class DraftCode extends DurableObject<Bindings> {
    * turn fixes it, and its build commits the merge commit.
    */
   async merging(): Promise<string | undefined> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.ctx.storage.kv.get<string>(MERGING_KEY);
   }
 
@@ -567,7 +566,7 @@ export class DraftCode extends DurableObject<Bindings> {
       const merged = this.#mergedMain();
       if (!main || !merged || main === merged) return { outcome: "upToDate" };
       if (this.ctx.storage.kv.get<MergeClash>(CLASH_KEY)?.main === main) {
-        return { outcome: "clashed", main };
+        return { outcome: "clashedBefore", main };
       }
       const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
       if (this.ctx.storage.kv.get(MERGING_KEY) !== undefined) {
