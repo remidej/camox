@@ -1,4 +1,8 @@
+import { WorkerEntrypoint } from "cloudflare:workers";
+
 import { refreshFontsSnapshot } from "./domains/fonts/catalog";
+import type { RevisionToLoad } from "./domains/revisions/dispatch";
+import { type PreviewQuestion, previewedRevision } from "./domains/revisions/previews";
 import { isEdgeCached, withoutCredentials } from "./edge-cache";
 import app from "./index";
 import type { Bindings } from "./types";
@@ -15,6 +19,17 @@ export { ProjectDeletionWorkflow } from "./domains/project-deletion/workflow";
 export { ProjectUpgradeWorkflow } from "./domains/upgrades/project-workflow";
 export { UpgradeWorkflow } from "./domains/upgrades/workflow";
 export { EdgeCache } from "./edge-cache";
+
+/**
+ * What dispatch asks the API before it sends a request to a draft with code's revision, over its
+ * `API` service binding (apps/dispatch/src/previews.ts). No public route reaches it.
+ */
+export class CamoxPreviews extends WorkerEntrypoint<Bindings> {
+  /** The revision a draft previews, if the request's session can see the draft. */
+  previewedRevision(question: PreviewQuestion): Promise<RevisionToLoad | null> {
+    return previewedRevision(this.env, question);
+  }
+}
 
 export default {
   fetch(request: Request, env: Bindings, ctx: ExecutionContext): Response | Promise<Response> {
