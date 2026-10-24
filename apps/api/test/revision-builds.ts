@@ -17,9 +17,9 @@ export type RevisionFakes = {
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
   revisionBuilds(sandbox: string): Promise<RevisionBuild[]>;
   failBuildsOf(marker: string, log: string): Promise<void>;
-  /** Holds the next revision build until `releaseBuilds()`. */
-  holdBuilds(): Promise<void>;
-  releaseBuilds(): Promise<void>;
+  /** Holds the sandbox's builds from now on, until `releaseBuilds(sandbox)`. */
+  holdBuilds(sandbox: string): Promise<void>;
+  releaseBuilds(sandbox: string): Promise<void>;
 };
 
 export const revisionFakes = (env as unknown as { RELEASE_FAKES: RevisionFakes }).RELEASE_FAKES;

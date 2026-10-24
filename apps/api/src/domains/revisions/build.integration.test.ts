@@ -37,7 +37,7 @@ type Fakes = {
   revisionBuilds(sandbox: string): Promise<RevisionBuild[]>;
   revisionCommands(sandbox: string): Promise<{ command: string }[]>;
   failBuildsOf(marker: string, log: string): Promise<void>;
-  crashSandboxes(times: number): Promise<void>;
+  crashSandboxes(marker: string, times: number): Promise<void>;
   sandboxDestroyed(sandbox: string): Promise<boolean>;
   sandboxSleepAfter(sandbox: string): Promise<string | undefined>;
 };
@@ -326,26 +326,29 @@ RolldownError: src/blocks/hero.tsx imports "node:fs", which a hosted project can
   });
 
   it("retries a sandbox that fails, without telling the agent", async () => {
-    await fakes.crashSandboxes(INFRASTRUCTURE_ATTEMPTS - 1);
+    const marker = crypto.randomUUID();
+    const pricing = `${PRICING}// ${marker}\n`;
+    await fakes.crashSandboxes(marker, INFRASTRUCTURE_ATTEMPTS - 1);
     const { website, draft, result } = await buildInFirstTurn({
-      "src/blocks/pricing.tsx": PRICING,
+      "src/blocks/pricing.tsx": pricing,
     });
 
     expect(JSON.parse(result!)).toMatchObject({ ok: true, build: [] });
     expect(await fakes.readFile(website.project.uuid, draft.id, "src/blocks/pricing.tsx")).toBe(
-      PRICING,
+      pricing,
     );
   });
 
   it("never reports a sandbox that keeps failing as a build error", async () => {
     // The agent's build fails, then the end of its turn's.
-    await fakes.crashSandboxes(2 * INFRASTRUCTURE_ATTEMPTS);
+    const marker = crypto.randomUUID();
+    await fakes.crashSandboxes(marker, 2 * INFRASTRUCTURE_ATTEMPTS);
     const {
       website,
       draft,
       result: answer,
     } = await buildInFirstTurn({
-      "src/blocks/pricing.tsx": PRICING,
+      "src/blocks/pricing.tsx": `${PRICING}// ${marker}\n`,
     });
 
     expect(answer).toContain("a problem on its side, not in your code");

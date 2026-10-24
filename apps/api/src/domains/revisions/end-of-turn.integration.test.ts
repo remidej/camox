@@ -242,14 +242,14 @@ describe("the end of a turn", () => {
 
   it("says the draft is building while its latest changes build", async () => {
     const { website, draft, thread } = await draftWithPricing();
-    await fakes.holdBuilds();
+    await fakes.holdBuilds(draft.id);
     answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
     answerNext("I added yearly plans.");
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
     await thread.until(() => thread.view().status === "building");
 
     const building = await previewOf(website, draft.id);
-    await fakes.releaseBuilds();
+    await fakes.releaseBuilds(draft.id);
     await thread.untilIdle();
     thread.close();
 
