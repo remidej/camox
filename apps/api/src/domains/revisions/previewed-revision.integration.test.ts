@@ -14,7 +14,6 @@ import {
   connectDraftThread,
   connectLiveThread,
   draftsOf,
-  lastAnswer,
   signIn,
   textDefinition,
   type ThreadClient,
@@ -24,7 +23,7 @@ import {
 import { router } from "../../router";
 import { INFRASTRUCTURE_ATTEMPTS } from "./build";
 import type { RevisionToLoad } from "./dispatch";
-import type { PreviewQuestion } from "./previews";
+import type { PreviewQuestion } from "./previewed-revision";
 
 // A draft's preview shows its latest revision (ADR 0023): once a build passes, dispatch prewarms
 // the revision, its definitions become the draft's, and the draft's viewers hear of it in the
@@ -100,24 +99,44 @@ async function websiteWithCode() {
   return { website, token };
 }
 
-/** Has the agent call `build`, and returns its result. */
+/**
+ * Has the agent call `build`, and returns its result. Its turn then ends, which builds nothing more
+ * when the build covered the tree.
+ */
 async function build(thread: ThreadClient) {
+  let result = "";
   answerWithToolCall("build", {});
-  answerFrom(({ lastToolResult }) => lastToolResult);
-  return lastAnswer(await ask(thread, "Build", { keepOpen: true }))!;
+  answerFrom(({ lastToolResult }) => {
+    result = lastToolResult;
+    return "Built.";
+  });
+  await ask(thread, "Build", { keepOpen: true });
+  return result;
 }
 
-/** Has the agent write `src/blocks/pricing.tsx` as `content` on Live, which starts a draft. */
-async function writePricing(website: Website, token: string, content: string) {
-  const live = await connectLiveThread(website.project.id, token);
+/** Has the agent write `src/blocks/pricing.tsx` as `content` and build it in one turn. */
+async function writeAndBuild(thread: ThreadClient, content: string, { keepOpen = true } = {}) {
+  let result = "";
   answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content });
-  answerFrom(() => "Wrote it.");
-  await ask(live, "Add a pricing section");
+  answerWithToolCall("build", {});
+  answerFrom(({ lastToolResult }) => {
+    result = lastToolResult;
+    return "Built.";
+  });
+  await ask(thread, "Add a pricing section", { keepOpen });
+  return result;
+}
+
+/**
+ * Has the agent write and build the pricing block as `content` on Live, which starts a draft,
+ * and connects to the draft's thread.
+ */
+async function startDraft(website: Website, token: string, content: string) {
+  const live = await connectLiveThread(website.project.id, token);
+  const result = await writeAndBuild(live, content, { keepOpen: false });
   const [draft] = await draftsOf(website);
-  return {
-    draftId: draft!.id,
-    thread: await connectDraftThread(website.project.id, draft!.id, token),
-  };
+  const thread = await connectDraftThread(website.project.id, draft!.id, token);
+  return { draftId: draft!.id, thread, result };
 }
 
 /** A draft with code whose pricing block's build passed, defining it. */
@@ -125,9 +144,14 @@ async function draftWithPricing() {
   const { website, token } = await websiteWithCode();
   const marker = crypto.randomUUID();
   await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
-  const { draftId, thread } = await writePricing(website, token, blockFile(marker));
-  const result = JSON.parse(await build(thread)) as { ok: boolean; revision?: string };
-  return { website, token, draftId, thread, result };
+  const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
+  return {
+    website,
+    token,
+    draftId,
+    thread,
+    result: JSON.parse(result) as { ok: boolean; revision?: string },
+  };
 }
 
 const revisionMessages = (website: Website) =>
@@ -187,11 +211,13 @@ describe("a draft's new revision", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
-    const { draftId, thread } = await writePricing(website, token, blockFile(marker));
-    await fakes.failPrewarms(INFRASTRUCTURE_ATTEMPTS);
+    // The agent's build fails its prewarms, then the end of its turn's build.
+    await fakes.failPrewarms(2 * INFRASTRUCTURE_ATTEMPTS);
 
-    expect(await build(thread)).toContain("a problem on its side");
+    const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
     thread.close();
+
+    expect(result).toContain("a problem on its side");
 
     expect(revisionMessages(website)).toEqual([]);
     expect(await blockTypesOf(website, draftId)).toEqual(["text"]);
@@ -208,13 +234,12 @@ describe("a draft's new revision", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
-    const { draftId, thread } = await writePricing(website, token, blockFile(marker));
     await fakes.failPrewarms(INFRASTRUCTURE_ATTEMPTS - 1);
 
-    const result = JSON.parse(await build(thread)) as { ok: boolean };
+    const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
     thread.close();
 
-    expect(result.ok).toBe(true);
+    expect(JSON.parse(result)).toMatchObject({ ok: true });
     expect(revisionMessages(website)).toHaveLength(1);
     expect(await blockTypesOf(website, draftId)).toEqual(["pricing", "text"]);
   });
@@ -223,10 +248,10 @@ describe("a draft's new revision", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, { blocks: [{ blockId: 42 }] });
-    const { thread } = await writePricing(website, token, blockFile(marker));
-
-    expect(JSON.parse(await build(thread))).toMatchObject({ ok: false });
+    const { thread, result } = await startDraft(website, token, blockFile(marker));
     thread.close();
+
+    expect(JSON.parse(result)).toMatchObject({ ok: false });
 
     expect(revisionMessages(website)).toEqual([]);
   });
@@ -246,13 +271,11 @@ describe("a draft's new revision", () => {
     for (const marker of markers) {
       await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
     }
-    const { draftId, thread } = await writePricing(website, token, blockFile(markers[0]!));
-    const revisions = [JSON.parse(await build(thread)).revision as string];
+    const first = await startDraft(website, token, blockFile(markers[0]!));
+    const { draftId, thread } = first;
+    const revisions = [JSON.parse(first.result).revision as string];
     for (const marker of markers.slice(1)) {
-      answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(marker) });
-      answerFrom(() => "Changed it.");
-      await ask(thread, "Change the pricing section", { keepOpen: true });
-      revisions.push(JSON.parse(await build(thread)).revision as string);
+      revisions.push(JSON.parse(await writeAndBuild(thread, blockFile(marker))).revision as string);
     }
     thread.close();
 
@@ -334,20 +357,6 @@ describe("the revision dispatch sends a request to", () => {
 
     const answer = await previews.previewedRevision({
       project: other.project.uuid,
-      draft: draftId,
-      session: `better-auth.session_token=${token}`,
-    });
-
-    expect(answer).toBeNull();
-  });
-
-  it("is none for a draft with code that previews no revision yet", async () => {
-    const { website, token } = await websiteWithCode();
-    const { draftId, thread } = await writePricing(website, token, blockFile("unbuilt"));
-    thread.close();
-
-    const answer = await previews.previewedRevision({
-      project: website.project.uuid,
       draft: draftId,
       session: `better-auth.session_token=${token}`,
     });

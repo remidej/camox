@@ -361,6 +361,8 @@ let prewarmFailures = 0;
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
 const sandboxSleepAfter = new Map();
+/** Whether revision builds are held, as builds still running. */
+let buildsHeld = false;
 
 /** The build command the revision sandbox runs, and the command that archives its output. */
 const BUILD_COMMAND = /\bvp build\b/;
@@ -450,6 +452,8 @@ export class FakeRevisionSandbox extends DurableObject {
       return result(0);
     }
     if (BUILD_COMMAND.test(command)) {
+      // Polled: a promise resolved from the request letting go wouldn't wake this one.
+      while (buildsHeld) await new Promise((resolve) => setTimeout(resolve, 10));
       const failing = failingBuilds.find(({ marker }) =>
         Object.values(this.tree).some((content) => content.includes(marker)),
       );
@@ -681,6 +685,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failBuildsOf(marker, log) {
     failingBuilds.push({ marker, log });
+  }
+
+  /** Holds every revision build from now on, as a build still running, until `releaseBuilds()`. */
+  async holdBuilds() {
+    buildsHeld = true;
+  }
+
+  /** Lets go of the builds `holdBuilds()` holds. */
+  async releaseBuilds() {
+    buildsHeld = false;
   }
 
   /**

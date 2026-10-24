@@ -1,5 +1,7 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
+  BUILD_STATUS_ENTRY,
+  type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
   isSender,
@@ -21,7 +23,11 @@ import {
   type AgentEventStream,
   createRegistry,
   type EntryRecord,
+  GenerationTask,
   Harness,
+  hook,
+  type GenerationHooks,
+  type HookApi,
   LiveDoc,
   ROOT_CONVERSATION_ID,
   type SnapshotEvent,
@@ -55,6 +61,12 @@ import { accessTo } from "../domains/drafts/access";
 import { searchFontsTool } from "../domains/fonts/tool";
 import { projects } from "../domains/projects/schema";
 import { buildRevision } from "../domains/revisions/build";
+import {
+  buildAtEndOfTurn,
+  explainUnbuilt,
+  fixBuild,
+  type TurnBuild,
+} from "../domains/revisions/end-of-turn";
 import type { BuildResult } from "../domains/revisions/result";
 import { buildTool } from "../domains/revisions/tool";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
@@ -123,6 +135,12 @@ type HandOff = z.infer<typeof handOffSchema>;
 /** The operation ids of the editors' messages among a run's entries. */
 const operationIdsOf = (entries: EntryRecord[]) =>
   entries.flatMap((entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? []);
+
+/**
+ * The prefix of the keys counting a run's end-of-turn builds that failed in a row, followed by
+ * the run's first input, which names it for as long as it goes.
+ */
+const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
 
 /** Code mode's tool, which runs the model's scripts: wrapped by its name. */
 const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
@@ -334,6 +352,12 @@ export class Thread extends DurableObject<Bindings> {
             })),
           ),
         ],
+        // A turn doesn't end with code changes that don't build.
+        hooks: [
+          hook(GenerationTask, {
+            onYield: (_answer, api, context) => this.#onYield(api, context),
+          }),
+        ],
       });
       return Harness.open(
         storage,
@@ -503,11 +527,77 @@ export class Thread extends DurableObject<Bindings> {
     const { api, context } = invocation;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
-    const built = this.#building.then(() =>
+    return this.#buildingSerially(draftId, () =>
       buildRevision(this.env, draftId, { leftBy: "build", run }),
     );
+  }
+
+  /** Runs `build` once the draft's builds before it are done, the draft showing it's building. */
+  #buildingSerially<T>(draftId: string, build: () => Promise<T>): Promise<T> {
+    const code = this.env.DRAFT_CODE.getByName(draftId);
+    const built = this.#building.then(async () => {
+      await code.markBuilding(true);
+      try {
+        return await build();
+      } finally {
+        await code
+          .markBuilding(false)
+          .catch((error: unknown) =>
+            console.error("A draft couldn't record that its build ended", error),
+          );
+      }
+    });
     this.#building = built.catch(() => undefined);
     return built;
+  }
+
+  /**
+   * As the agent ends a turn in the root conversation, builds the code it changed, unless its
+   * last `build` covered it. A failed build hands the agent its errors, and its turn goes on,
+   * until the end of the turn failed `END_OF_TURN_BUILD_FAILURES` times in a row: the changes are
+   * then committed anyway, and the agent explains the problem. Editors see a status line rather
+   * than these messages. A build Camox's infrastructure keeps failing lets the turn end.
+   */
+  async #onYield(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
+    if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
+    // A Live thread whose write started a draft builds it, even before it moved into it.
+    const draftId =
+      (await this.#knownIdentity())?.draftId ?? (await this.#reservedDraft())?.draftId;
+    if (!draftId || !(await this.#hasCode(draftId))) return undefined;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
+    const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    const failedInARow = (await this.ctx.storage.get<number>(failures)) ?? 0;
+    let turn: TurnBuild;
+    try {
+      turn = await this.#buildingSerially(draftId, () =>
+        buildAtEndOfTurn(this.env, draftId, {
+          run,
+          failedInARow,
+          building: () => this.#showBuildStatus("building"),
+        }),
+      );
+    } catch (error) {
+      console.error("A turn ended without building its code changes", error);
+      return undefined;
+    }
+    if (turn.outcome === "failed") {
+      await this.ctx.storage.put(failures, failedInARow + 1);
+      await this.#showBuildStatus("fixing");
+      return { continue: fixBuild(turn.result) };
+    }
+    await this.ctx.storage.delete(failures);
+    if (turn.outcome === "committedUnbuilt") return { continue: explainUnbuilt };
+    return undefined;
+  }
+
+  /** Records in the transcript where the end of the turn's build stands, for editors to see. */
+  async #showBuildStatus(status: BuildStatus) {
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    await root?.submit(
+      { type: "write", entry: { kind: BUILD_STATUS_ENTRY, data: { status } } },
+      BACKGROUND,
+    );
   }
 
   async #projectUuidOf(projectId: number) {

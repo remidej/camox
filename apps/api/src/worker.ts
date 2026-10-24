@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { refreshFontsSnapshot } from "./domains/fonts/catalog";
 import type { RevisionToLoad } from "./domains/revisions/dispatch";
-import { type PreviewQuestion, previewedRevision } from "./domains/revisions/previews";
+import { type PreviewQuestion, previewedRevision } from "./domains/revisions/previewed-revision";
 import { isEdgeCached, withoutCredentials } from "./edge-cache";
 import app from "./index";
 import type { Bindings } from "./types";

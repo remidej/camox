@@ -42,6 +42,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { rootOfItem } from "../repeatable-items/roots";
+import { codeOfDraft, type PreviewCode } from "../revisions/preview";
 import { endingThread } from "../threads/service";
 import * as translationBookkeeping from "../translations/bookkeeping";
 import { listedChanges } from "../translations/review";
@@ -121,6 +122,7 @@ export type LostChange = Subject & InLocale & { reason: (typeof LOSS_REASONS)[nu
 /** What a blocker or warning is about. */
 export const PROBLEM_CODES = [
   "definitionsDiffer",
+  "codeDoesNotBuild",
   ...FILE_PROBLEM_CODES,
   ...CONTENT_PROBLEM_CODES,
 ] as const;
@@ -151,6 +153,8 @@ export type PublishPreview = {
   token: string;
   /** The draft's overview: AI's headline and bullets about its changes. */
   overview: Overview;
+  /** Where the draft's code stands, for a draft whose code the agent changed. */
+  code: PreviewCode | null;
 };
 
 export const previewPublishInput = z.object({ projectId: z.number() });
@@ -279,6 +283,38 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
   return blockers.sort((a, b) => (a.id < b.id ? -1 : 1));
 });
 
+// --- The draft's code (spec #560, section 10) ---
+
+/** A blocker about the draft's code, which only the agent fixes, in the draft's thread. */
+const codeBlocker = (draftId: string, message: string): Problem => ({
+  entity: "code",
+  id: draftId,
+  label: "The website's code",
+  owner: null,
+  locale: null,
+  code: "codeDoesNotBuild",
+  field: "",
+  fieldKind: null,
+  blockId: null,
+  message,
+});
+
+/** The preview's `code`, and the blockers the draft's code has: its head revision isn't built. */
+const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, scope: Scope) {
+  if (scope.kind === "development") return { code: null, blockers: [] };
+  const { code, head } = yield* Effect.promise(() => codeOfDraft(ctx.env, ctx.db, scope.id));
+  const blockers =
+    head !== null && head !== "built" && head !== "building"
+      ? [
+          codeBlocker(
+            scope.id,
+            "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
+          ),
+        ]
+      : [];
+  return { code, blockers };
+});
+
 // --- Preview ---
 
 export const computePreview = Effect.fn("drafts.computePreview")(function* (
@@ -344,8 +380,10 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     message,
   });
 
+  const checkedCode = yield* checkCode(ctx, scope);
   const blockers = [
     ...(yield* checkDefinitions(ctx, scope)),
+    ...checkedCode.blockers,
     ...fileChecks.blockers.map(asProblem),
     ...checked.blockers.map(asProblem),
   ];
@@ -425,6 +463,7 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     defaultLocale,
     token: encodeToken(storedConflicts),
     overview: row ? overviewOf(row, fingerprint) : ({ status: "none" } as const),
+    code: checkedCode.code,
     /** The fingerprint of the draft's changes, which its overview records: not in the preview. */
     fingerprint,
   } satisfies PublishPreview & { fingerprint: string | null };
