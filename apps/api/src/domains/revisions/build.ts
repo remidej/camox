@@ -308,11 +308,15 @@ async function buildAndPreview(
       await db.update(revisions).set({ commit, parents }).where(eq(revisions.id, existing.id));
       await db.update(drafts).set({ headRevisionId: existing.id }).where(eq(drafts.id, draftId));
     }
-    const previewed = await previewRevision(env, draft, {
-      id: existing.id,
-      archiveKey: existing.archiveKey,
-      camoxVersion: existing.camoxVersion,
-    });
+    // A merge of `main` that doesn't type check isn't previewed (spec #560, section 11).
+    const previewed =
+      leftBy === "merge" && existing.typeCheckStatus === "failed"
+        ? passed(existing.id)
+        : await previewRevision(env, draft, {
+            id: existing.id,
+            archiveKey: existing.archiveKey,
+            camoxVersion: existing.camoxVersion,
+          });
     return withTypeErrors(previewed, existing.typeErrors);
   }
 
@@ -361,12 +365,11 @@ async function buildAndPreview(
     .onConflictDoUpdate({ target: [revisions.draftId, revisions.tree], set: built })
     .returning({ id: revisions.id });
   await db.update(drafts).set({ headRevisionId: recorded!.id }).where(eq(drafts.id, draftId));
-  // The preview shows the revision without waiting on its type check.
-  const previewed = await previewRevision(env, draft, {
-    id: recorded!.id,
-    archiveKey,
-    camoxVersion,
-  });
+  const preview = () => previewRevision(env, draft, { id: recorded!.id, archiveKey, camoxVersion });
+  // The preview shows an agent's revision without waiting on its type check. A merge of `main`
+  // waits for it: until the merged code type checks, the preview stays on the draft's last
+  // revision, on the old `main` (spec #560, section 11).
+  const previewed = leftBy === "merge" ? undefined : await preview();
 
   // A sandbox failing during the check checks again: the draft's builds run one at a time, so
   // its workspace still holds the tree.
@@ -376,5 +379,7 @@ async function buildAndPreview(
   );
   const record = typeCheckRecord(typeCheck);
   await db.update(revisions).set(record).where(eq(revisions.id, recorded!.id));
-  return withTypeErrors(previewed, record.typeErrors);
+  if (previewed) return withTypeErrors(previewed, record.typeErrors);
+  if (record.typeErrors) return withTypeErrors(passed(recorded!.id), record.typeErrors);
+  return preview();
 }

@@ -85,7 +85,8 @@ export async function codeOfDraft(
   return {
     code: {
       revision: draft.previewed,
-      includesLive: main === undefined || merged === main,
+      // A merge of `main` that clashed isn't in the draft until Camox's reconcile turn fixed it.
+      includesLive: (main === undefined || merged === main) && clash === undefined,
       building: building || checking,
       publishing: draft.publishing !== null,
       publishAborted: draft.publishAborted,

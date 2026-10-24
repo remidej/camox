@@ -206,15 +206,19 @@ describe("Camox's reconcile turn", () => {
     const fixed = holdNextToolCall("write", { path: HERO_FILE, content: LIVE_HERO });
     answerNext("Live's new welcome is in, with the draft's pricing.");
     const calls = threadModelCalls();
+    const before = (await previewOf(website, draftId)).code!.revision;
 
     // Live's hero merges cleanly into the draft, but the merged code has a type error in it.
     await pushToMain(repo, mainWith({ [HERO_FILE]: `${LIVE_HERO}// ${marker}\n` }));
 
     await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 1));
     expect(said(thread.view()).at(-1)).toEqual({ from: "camox", text: expect.any(String) });
-    expect(await blockersOf(website, draftId)).toEqual([
+    const clashed = await previewOf(website, draftId);
+    expect(clashed.blockers.map(({ entity, code }) => ({ entity, code }))).toEqual([
       { entity: "code", code: "codeDoesNotMerge" },
     ]);
+    // The preview stays on the draft's last revision, on the old `main`.
+    expect(clashed.code).toMatchObject({ revision: before, includesLive: false });
 
     fixed();
     await thread.untilIdle();
