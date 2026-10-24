@@ -30,6 +30,11 @@ const CLASH_KEY = "merge-clash";
  * revision a build commits then is the merge commit.
  */
 const MERGING_KEY = "merging-main";
+/**
+ * What the files held, uncommitted, as the merge of `MERGING_KEY` was written into them: files
+ * that changed since hold writes of the agent's too (`uncommittedDigest`).
+ */
+const MERGING_FILES_KEY = "merging-files";
 /** The local refs a merge left in the files names its sides by, in its conflict markers. */
 const OURS_REF = "refs/remotes/draft";
 const THEIRS_REF = "refs/remotes/Live";
@@ -210,6 +215,7 @@ export class DraftCode extends DurableObject<Bindings> {
         theirs: clash.main,
       });
       this.ctx.storage.kv.put(MERGING_KEY, clash.main);
+      this.ctx.storage.kv.put(MERGING_FILES_KEY, await uncommittedDigest(fs));
       this.#save(fs);
     });
   }
@@ -459,6 +465,7 @@ export class DraftCode extends DurableObject<Bindings> {
         await git.checkout({ ...at, ref: branch, force: true });
         this.ctx.storage.kv.put(MERGED_KEY, made.parent[1]!);
         this.ctx.storage.kv.delete(MERGING_KEY);
+        this.ctx.storage.kv.delete(MERGING_FILES_KEY);
       }
       this.#save(fs);
       const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
@@ -564,10 +571,15 @@ export class DraftCode extends DurableObject<Bindings> {
       }
       const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
       if (this.ctx.storage.kv.get(MERGING_KEY) !== undefined) {
-        // The files hold the merge of an earlier `main`, which Camox's turn didn't fix: this one
-        // is merged afresh, from the branch's head.
+        // Writes since the merge of an earlier `main` stay: they wait to be committed with it.
+        if ((await uncommittedDigest(fs)) !== this.ctx.storage.kv.get(MERGING_FILES_KEY)) {
+          return { outcome: "unsettled" };
+        }
+        // The files hold the merge of an earlier `main` as it was written, which Camox's turn
+        // didn't fix: this one is merged afresh, from the branch's head.
         await git.checkout({ ...at, ref: branch, force: true });
         this.ctx.storage.kv.delete(MERGING_KEY);
+        this.ctx.storage.kv.delete(MERGING_FILES_KEY);
         this.#save(fs);
       }
       if (!(await settled(fs))) return { outcome: "unsettled" };
@@ -819,6 +831,19 @@ async function mergeIntoFiles(
       },
     });
   }
+}
+
+/** A digest of the files' uncommitted changes: which files differ from the head, and how. */
+async function uncommittedDigest(fs: MemoryFs) {
+  const changed: string[] = [];
+  for (const [filepath, head, workdir, stage] of await git.statusMatrix({ fs, dir: CODE_ROOT })) {
+    if (head === 1 && workdir === 1 && stage === 1) continue;
+    const entry = fs.entry(`/${filepath}`);
+    const content = entry?.kind === "file" ? new TextDecoder().decode(entry.data) : "";
+    changed.push(JSON.stringify([filepath, workdir, content]));
+  }
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(changed.join("\n")));
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** Whether the files are what the index and the head hold: no change is uncommitted. */
