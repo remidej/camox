@@ -211,6 +211,13 @@
       "when": 1792807256926,
       "tag": "0029_revision_type_errors",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1792809668296,
+      "tag": "0030_publishes_with_code",
+      "breakpoints": true
     }
   ]
 }

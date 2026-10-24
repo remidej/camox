@@ -638,12 +638,12 @@ export class FakeDispatch extends WorkerEntrypoint {
 const workerVersions = new Map();
 /** @type {Map<string, string[]>} project → the versions that served all its traffic, in order */
 const deployments = new Map();
-/** @type {Map<string, { command: string, env: Record<string, string> | undefined }[]>} project → publish sandbox commands */
+/** @type {Map<string, { command: string, env: Record<string, string> | undefined, order: number }[]>} project → publish sandbox commands */
 const publishCommands = new Map();
-/** @type {{ pattern: string, times: number }[]} publish sandbox commands that fail */
+/** @type {{ project: string, pattern: string, times: number }[]} publish sandbox commands that fail */
 const failingPublishCommands = [];
-/** @type {Set<string>} publish sandbox commands held until the test lets them go */
-const heldPublishCommands = new Set();
+/** @type {{ project: string, pattern: string }[]} publish sandbox commands held until the test lets them go */
+let heldPublishCommands = [];
 
 /**
  * Adds a version to a project's Worker, as an upload does, and returns its ID.
@@ -705,7 +705,7 @@ export class FakePublishSandbox extends DurableObject {
    */
   async exec(command, options = {}) {
     const commands = publishCommands.get(this.name) ?? [];
-    commands.push({ command, env: options.env });
+    commands.push({ command, env: options.env, order: commandsRunCount++ });
     publishCommands.set(this.name, commands);
     const result = (exitCode, stdout = "", stderr = "") => ({
       success: exitCode === 0,
@@ -717,11 +717,16 @@ export class FakePublishSandbox extends DurableObject {
       timestamp: "",
     });
     // Polled: a promise resolved from the request letting go wouldn't wake this one.
-    while ([...heldPublishCommands].some((pattern) => command.includes(pattern))) {
+    const held = () =>
+      heldPublishCommands.some(
+        ({ project, pattern }) => project === this.name && command.includes(pattern),
+      );
+    while (held()) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     const failure = failingPublishCommands.find(
-      ({ pattern, times }) => times > 0 && command.includes(pattern),
+      ({ project, pattern, times }) =>
+        project === this.name && times > 0 && command.includes(pattern),
     );
     if (failure) {
       failure.times -= 1;
@@ -1039,25 +1044,33 @@ export class ReleaseFakes extends WorkerEntrypoint {
   }
 
   /**
-   * Makes the next `times` publish sandbox commands containing `pattern` fail.
+   * Makes the next `times` commands containing `pattern` in a project's publish sandbox fail.
+   * @param {string} project
    * @param {string} pattern
    * @param {number} times
    */
-  async failPublishCommand(pattern, times) {
-    failingPublishCommands.push({ pattern, times });
+  async failPublishCommand(project, pattern, times) {
+    failingPublishCommands.push({ project, pattern, times });
   }
 
   /**
-   * Makes publish sandbox commands containing `pattern` wait until `letGoPublishCommand`.
+   * Makes commands containing `pattern` in a project's publish sandbox wait until
+   * `letGoPublishCommand`.
+   * @param {string} project
    * @param {string} pattern
    */
-  async holdPublishCommand(pattern) {
-    heldPublishCommands.add(pattern);
+  async holdPublishCommand(project, pattern) {
+    heldPublishCommands.push({ project, pattern });
   }
 
-  /** @param {string} pattern */
-  async letGoPublishCommand(pattern) {
-    heldPublishCommands.delete(pattern);
+  /**
+   * @param {string} project
+   * @param {string} pattern
+   */
+  async letGoPublishCommand(project, pattern) {
+    heldPublishCommands = heldPublishCommands.filter(
+      (held) => held.project !== project || held.pattern !== pattern,
+    );
   }
 
   /** @param {string} name Deploys a user Worker into the `production` dispatch namespace. */

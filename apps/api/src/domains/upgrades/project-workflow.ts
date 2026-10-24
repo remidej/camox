@@ -2,9 +2,13 @@ import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
+import { and, eq, isNotNull } from "drizzle-orm";
 
+import { createDb } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
+import { drafts } from "../drafts/schema";
+import { projects } from "../projects/schema";
 
 type UpgradeEnv = Bindings & CiBindings;
 
@@ -33,6 +37,12 @@ export function upgradeEndedEvent(projectId: string) {
 }
 
 const AUTHOR = { name: "Camox", email: "upgrades@camox.ai" };
+
+/**
+ * How often an upgrade ready to push checks again whether a publish with code still runs in its
+ * project. A tuning value.
+ */
+export const PUBLISHES_CHECKED_EVERY = "3 seconds";
 
 /** Matches the `camox` package and Camox's scoped ones, such as `@camox/ui`. */
 const CAMOX_PACKAGE = /^(camox|@camox\/[a-z0-9-]+)$/;
@@ -72,6 +82,10 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
         // A new hosted check that the project's code breaks fails the Upgrade's build.
         env: { ...HOSTED_BUILD },
       }));
+      // A publish with code serves its revision's build, then pushes its tree to `main`: an
+      // upgrade pushed in between would release `main` without the draft's code over it. The
+      // upgrade waits, and its push is then refused, as `main` moved.
+      await waitForPublishes(step, this.env, params.repo);
       await run(built, "push", async () => ({
         command: pushCommand(params.sha, camoxVersion),
         env: await pushEnv(this.env, params.repo, event.timestamp),
@@ -97,6 +111,23 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
       })
       // The upgrade Workflow stops waiting after a while, and then reads this instance's status.
       .catch((sendError: unknown) => console.error("Upgrade outcome not sent", sendError));
+  }
+}
+
+/** Waits until no publish with code runs, or waits for its turn, in the project. */
+async function waitForPublishes(step: WorkflowStep, env: Bindings, projectId: string) {
+  for (let check = 1; ; check++) {
+    const publishing = await step.do(`check for publishes with code (${check})`, async () => {
+      const queued = await createDb(env.DB)
+        .select({ id: drafts.id })
+        .from(drafts)
+        .innerJoin(projects, eq(projects.id, drafts.projectId))
+        .where(and(eq(projects.uuid, projectId), isNotNull(drafts.publishInstanceId)))
+        .get();
+      return queued !== undefined;
+    });
+    if (!publishing) return;
+    await step.sleep(`wait for publishes with code (${check})`, PUBLISHES_CHECKED_EVERY);
   }
 }
 

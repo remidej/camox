@@ -106,12 +106,13 @@ export const TRANSLATIONS_PENDING_ERROR = "TRANSLATIONS_PENDING";
 /**
  * Why the publish tool published nothing of a draft with changes, and returned a fresh preview to
  * review again, by the error code of each: Live changed since the preview, the draft has blockers,
- * or translations are still running.
+ * translations are still running, or the draft's code changed since the preview.
  */
 export const NOT_PUBLISHED_CODES = {
   conflictsChanged: CONFLICTS_CHANGED_ERROR,
   blocked: PUBLISH_BLOCKED_ERROR,
   translating: TRANSLATIONS_PENDING_ERROR,
+  revisionChanged: REVISION_CHANGED_ERROR,
 } as const;
 
 export type NotPublishedReason = keyof typeof NOT_PUBLISHED_CODES;

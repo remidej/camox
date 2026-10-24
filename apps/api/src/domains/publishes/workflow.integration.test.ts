@@ -4,7 +4,11 @@ import {
   REVISION_CHANGED_ERROR,
 } from "@camox/api-contract/drafts";
 import { call } from "@orpc/server";
-import { abortAllDurableObjects, introspectWorkflow } from "cloudflare:test";
+import {
+  abortAllDurableObjects,
+  introspectWorkflow,
+  introspectWorkflowInstance,
+} from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -51,10 +55,10 @@ type Fakes = {
   servedVersion(project: string): Promise<WorkerVersion | null>;
   workerVersions(project: string): Promise<WorkerVersion[]>;
   deployments(project: string): Promise<string[]>;
-  publishCommands(project: string): Promise<{ command: string }[]>;
-  holdPublishCommand(pattern: string): Promise<void>;
-  letGoPublishCommand(pattern: string): Promise<void>;
-  commandsRun(repo: string): Promise<{ command: string }[]>;
+  publishCommands(project: string): Promise<{ command: string; order: number }[]>;
+  holdPublishCommand(project: string, pattern: string): Promise<void>;
+  letGoPublishCommand(project: string, pattern: string): Promise<void>;
+  commandsRun(repo: string): Promise<{ command: string; order: number }[]>;
   log(repo: string): Promise<{ oid: string; message: string }[]>;
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
   branches(repo: string): Promise<string[]>;
@@ -301,7 +305,7 @@ describe("publishing a draft with code", () => {
     // Not publishing yet: a read naming the draft without a session is Live's.
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO] });
 
-    await fakes.holdPublishCommand("versions deploy");
+    await fakes.holdPublishCommand(repo, "versions deploy");
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
     await ran(repo, "versions deploy");
@@ -312,7 +316,7 @@ describe("publishing a draft with code", () => {
     expect(await publicPagesOf(website)).toEqual({ "/home": [HELLO] });
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO] });
 
-    await fakes.letGoPublishCommand("versions deploy");
+    await fakes.letGoPublishCommand(repo, "versions deploy");
     await publishesEnd(publishes);
     // The draft ended: reads naming it are Live's, which now holds what it published.
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO, PRICING] });
@@ -336,7 +340,7 @@ describe("publishing a draft with code", () => {
     const { draftId: first } = await draftAddingPricing(website, token);
     const second = await draftChangingCode(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand("versions upload");
+    await fakes.holdPublishCommand(repo, "versions upload");
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
     await ran(repo, "versions upload");
@@ -344,7 +348,7 @@ describe("publishing a draft with code", () => {
     expect((await previewOf(website, second)).code).toMatchObject({ publishing: true });
 
     await changeCodeAgain(website, token, second);
-    await fakes.letGoPublishCommand("versions upload");
+    await fakes.letGoPublishCommand(repo, "versions upload");
     await publishesEnd(publishes);
 
     expect((await previewOf(website, second)).code).toMatchObject({
@@ -359,12 +363,12 @@ describe("publishing a draft with code", () => {
     const { draftId: first } = await draftAddingPricing(website, token);
     const second = await draftChangingCode(website, token);
     const repo = website.project.uuid;
-    await fakes.holdPublishCommand("versions upload");
+    await fakes.holdPublishCommand(repo, "versions upload");
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
     await ran(repo, "versions upload");
     await publish(website, second, await previewOf(website, second));
-    await fakes.letGoPublishCommand("versions upload");
+    await fakes.letGoPublishCommand(repo, "versions upload");
     await publishesEnd(publishes);
 
     expect(await fakes.servedVersion(repo)).toMatchObject({ build: await lastBuildOf(first) });
@@ -386,13 +390,13 @@ describe("publishing a draft with code", () => {
     const served = await fakes.servedVersion(repo);
     const reviewed = await previewOf(website, draftId);
     expect(reviewed.conflicts).toEqual([]);
-    await fakes.holdPublishCommand("versions upload");
+    await fakes.holdPublishCommand(repo, "versions upload");
     await using publishes = await watchPublishes();
     await publish(website, draftId, reviewed);
     await ran(repo, "versions upload");
 
     await writeHello(website, "Hi");
-    await fakes.letGoPublishCommand("versions upload");
+    await fakes.letGoPublishCommand(repo, "versions upload");
     await publishesEnd(publishes);
 
     expect(await fakes.servedVersion(repo)).toEqual(served);
@@ -410,13 +414,13 @@ describe("publishing a draft with code", () => {
     const repo = website.project.uuid;
     const served = await fakes.servedVersion(repo);
     const mainBefore = await fakes.log(repo);
-    await fakes.holdPublishCommand("versions deploy");
+    await fakes.holdPublishCommand(repo, "versions deploy");
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
     await ran(repo, "versions deploy");
 
     await writeHello(website, "Hi");
-    await fakes.letGoPublishCommand("versions deploy");
+    await fakes.letGoPublishCommand(repo, "versions deploy");
     await publishesEnd(publishes);
 
     const deployments = await fakes.deployments(repo);
@@ -428,6 +432,55 @@ describe("publishing a draft with code", () => {
     expect(preview.conflicts).toEqual([expect.objectContaining({ entity: "block" })]);
     expect(await pagesOf(website)).toEqual({ "/home": ["<!-- Text -->\nHi"] });
     expect(await liveBlockTypes(website)).toEqual(["text"]);
+  });
+
+  it("holds an Upgrade's push to main until the project's publish ended", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions upload");
+
+    const [main] = await fakes.log(repo);
+    const upgrade = crypto.randomUUID();
+    await using upgrading = await introspectWorkflowInstance(env.PROJECT_UPGRADE_WORKFLOW, upgrade);
+    await upgrading.modify(async (m) => m.disableRetryDelays());
+    await env.PROJECT_UPGRADE_WORKFLOW.create({
+      id: upgrade,
+      params: {
+        provider: "cloudflare-artifacts",
+        providerData: { namespace: "projects" },
+        event: { type: "push" },
+        owner: "projects",
+        repo,
+        sha: main!.oid,
+        remote: "cloudflare",
+        trigger: "push",
+        ref: "refs/heads/main",
+        branch: "main",
+        camoxVersion: "1.1.0",
+        upgradeInstanceId: crypto.randomUUID(),
+      } as never,
+    });
+    // The upgrade built, and is ready to push.
+    await vi.waitFor(
+      async () => {
+        const built = await fakes.commandsRun(repo);
+        expect(built.some(({ command }) => command.includes("camox release --dry-run"))).toBe(true);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    await publishesEnd(publishes);
+    await upgrading.waitForStatus("complete");
+
+    const push = (await fakes.commandsRun(repo)).find(({ command }) =>
+      command.includes("HEAD:refs/heads/main"),
+    );
+    const published = Math.max(...(await fakes.publishCommands(repo)).map(({ order }) => order));
+    expect(push!.order).toBeGreaterThan(published);
   });
 
   it("deletes the draft's branch, builds, working copy and sandbox once it lands", async () => {
