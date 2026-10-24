@@ -3,6 +3,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { type PreviewsApi, revisionFor } from "./previews";
 import {
   type GatewayProps,
+  isMissingBuild,
   isRevisionAssetPath,
   loadRevision,
   prewarmRevision,
@@ -80,7 +81,13 @@ export default {
     if (isRevisionAssetPath(url.pathname)) return serveRevisionAsset(env, uuid, url.pathname);
     const revision = await revisionFor(env.API, uuid, request);
     if (revision) {
-      return loadRevision(env, revision, gatewayOf(ctx)).getEntrypoint().fetch(request);
+      try {
+        return await loadRevision(env, revision, gatewayOf(ctx)).getEntrypoint().fetch(request);
+      } catch (error) {
+        // A revision whose build is gone shows Live's code rather than fail.
+        if (!isMissingBuild(error)) throw error;
+        console.warn("A draft's previewed revision has no build: Live's code answers", error);
+      }
     }
     try {
       // The user Worker is named after the project's UUID. Cloudflare may report it missing from
