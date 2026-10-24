@@ -20,6 +20,20 @@ export type RevisionFakes = {
   /** Holds the next revision build until `releaseBuilds()`. */
   holdBuilds(): Promise<void>;
   releaseBuilds(): Promise<void>;
+  /** Makes every type check of a tree holding `marker` report those of `errors` in what it checks. */
+  failTypeChecksOf(marker: string, errors: FakeTypeError[]): Promise<void>;
+  /** Holds every type check until `releaseTypeChecks()`. */
+  holdTypeChecks(): Promise<void>;
+  releaseTypeChecks(): Promise<void>;
+};
+
+/** A type error the fake sandbox's type check prints, as tsrs does. */
+export type FakeTypeError = {
+  file: string;
+  line: number;
+  column: number;
+  code: string;
+  message: string;
 };
 
 export const revisionFakes = (env as unknown as { RELEASE_FAKES: RevisionFakes }).RELEASE_FAKES;
@@ -79,5 +93,12 @@ export const unresolved = (
 export async function failingMarker(file = "src/blocks/pricing.tsx") {
   const marker = crypto.randomUUID();
   await revisionFakes.failBuildsOf(marker, failedBuild([unresolved(file, 1)]));
+  return marker;
+}
+
+/** Makes every type check of a tree holding the returned marker report `errors`. */
+export async function typeErrorsMarker(errors: FakeTypeError[]) {
+  const marker = crypto.randomUUID();
+  await revisionFakes.failTypeChecksOf(marker, errors);
   return marker;
 }

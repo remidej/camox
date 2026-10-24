@@ -351,6 +351,11 @@ const revisionCommands = new Map();
 const failingBuilds = [];
 /** @type {{ marker: string, definitionSet: unknown }[]} builds of a tree with a file holding `marker` have that Definition Set */
 const definedBuilds = [];
+/**
+ * @typedef {{ file: string, line: number, column: number, code: string, message: string }} FakeTypeError
+ * @type {{ marker: string, errors: FakeTypeError[] }[]} type checks of a tree with a file holding `marker` report `errors`
+ */
+const failingTypeChecks = [];
 /** Sandbox calls left that fail, as a sandbox whose container crashed does. */
 let sandboxFailures = 0;
 /** @type {Set<string>} the revision sandboxes destroyed */
@@ -359,11 +364,44 @@ const destroyedSandboxes = new Set();
 const sandboxSleepAfter = new Map();
 /** Whether revision builds are held, as builds still running. */
 let buildsHeld = false;
+/** Whether type checks are held, as checks still running. */
+let typeChecksHeld = false;
 
 /** The build command the revision sandbox runs, and the command that archives its output. */
 const BUILD_COMMAND = /\bvp build\b/;
 const ARCHIVE_COMMAND = /^tar -czf (\S+) /;
 const EXTRACT_COMMAND = /\btar -xf (\S+) /;
+/** The type check the revision sandbox runs, with the config naming the files it checks. */
+const TYPE_CHECK_COMMAND = /^tsrs -p (\S+)/;
+
+/**
+ * Whether `path`, relative to the config's directory, matches one of a tsconfig's `include`
+ * patterns: `**` + `/` is any directories, `*` any name.
+ * @param {string} path
+ * @param {string[]} include
+ */
+function included(path, include) {
+  return include.some((pattern) => {
+    const source = pattern
+      .replace(/^\.\//, "")
+      .split(/(\*\*\/|\*)/)
+      .map((part) => {
+        if (part === "**/") return "(?:.*/)?";
+        if (part === "*") return "[^/]*";
+        return part.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+      })
+      .join("");
+    return new RegExp(`^${source}$`).test(path);
+  });
+}
+
+/**
+ * A type error as tsrs prints it with `--pretty false`, as TypeScript's compiler does: the
+ * message's later lines are indented under its first.
+ * @param {FakeTypeError} error
+ */
+const printedTypeError = ({ file, line, column, code, message }) =>
+  `${file}(${line},${column}): error ${code}: ${message.split("\n").join("\n  ")}`;
 
 /**
  * A revision's sandbox as `@cloudflare/sandbox`'s `getSandbox` drives it over RPC. Its files are
@@ -421,9 +459,14 @@ export class FakeRevisionSandbox extends DurableObject {
     };
   }
 
+  /** A command run outside the sandbox's shell session, as `enableDefaultSession: false` runs them. */
+  async execWithSessionToken(command, _session, options = {}) {
+    return this.exec(command, options);
+  }
+
   /**
    * @param {string} command
-   * @param {{ env?: Record<string, string> }} options
+   * @param {{ env?: Record<string, string>, cwd?: string }} options
    */
   async exec(command, options = {}) {
     this.#crash();
@@ -458,6 +501,28 @@ export class FakeRevisionSandbox extends DurableObject {
       revisionBuilds.set(this.name, builds);
       this.built = !failing;
       return failing ? result(1, failing.log) : result(0);
+    }
+    const typeCheck = TYPE_CHECK_COMMAND.exec(command);
+    if (typeCheck) {
+      while (typeChecksHeld) await new Promise((resolve) => setTimeout(resolve, 10));
+      // It checks the files its config includes, as tsrs reads them.
+      const configPath = typeCheck[1].startsWith("/")
+        ? typeCheck[1]
+        : `${options.cwd ?? ""}/${typeCheck[1]}`;
+      const config = this.files.get(configPath);
+      if (!config) {
+        return result(1, `error TS5058: The specified path does not exist: '${typeCheck[1]}'.`);
+      }
+      const { include = [] } = JSON.parse(new TextDecoder().decode(config));
+      const checked = Object.keys(this.tree).filter((path) => included(path, include));
+      const reported = failingTypeChecks
+        .filter(({ marker }) =>
+          Object.values(this.tree).some((content) => content.includes(marker)),
+        )
+        .flatMap(({ errors }) => errors)
+        .filter(({ file }) => checked.includes(file));
+      if (reported.length === 0) return result(0);
+      return { ...result(2), stdout: `${reported.map(printedTypeError).join("\n")}\n` };
     }
     const archive = ARCHIVE_COMMAND.exec(command);
     if (archive) {
@@ -664,6 +729,26 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failBuildsOf(marker, log) {
     failingBuilds.push({ marker, log });
+  }
+
+  /**
+   * Makes every type check of a tree with a file containing `marker` report those of `errors`
+   * in the files it checks.
+   * @param {string} marker
+   * @param {FakeTypeError[]} errors
+   */
+  async failTypeChecksOf(marker, errors) {
+    failingTypeChecks.push({ marker, errors });
+  }
+
+  /** Holds every type check from now on, as a check still running, until `releaseTypeChecks()`. */
+  async holdTypeChecks() {
+    typeChecksHeld = true;
+  }
+
+  /** Lets go of the type checks `holdTypeChecks()` holds. */
+  async releaseTypeChecks() {
+    typeChecksHeld = false;
   }
 
   /** Holds every revision build from now on, as a build still running, until `releaseBuilds()`. */

@@ -17,9 +17,10 @@ first code change starts the draft.
 
 Call build to build your code changes: when the build passes, they become the draft's new \
 revision, which the preview shows. Build whenever you need your changes, and fix the errors a \
-build returns. A build that fails because of Camox itself says so: never change code for it. \
-When you end your turn, Camox builds the changes your last build didn't cover, and sends you \
-back to fix them if they don't build.
+build returns, type errors in \`types\` included: a revision with type errors is previewed, but \
+can't be published. A build that fails because of Camox itself says so: never change code for \
+it. When you end your turn, Camox builds the changes your last build didn't cover, and sends \
+you back to fix them if they have errors.
 
 Camox's references for its code are in \`${SKILL_REFERENCES_DIR}/\`. Read only the ones the task \
 needs, never all of them:

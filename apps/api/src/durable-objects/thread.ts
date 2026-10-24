@@ -63,7 +63,8 @@ import { projects } from "../domains/projects/schema";
 import { buildRevision } from "../domains/revisions/build";
 import {
   buildAtEndOfTurn,
-  explainUnbuilt,
+  END_OF_TURN_BUILD_FAILURES,
+  explainFailures,
   fixBuild,
   type TurnBuild,
 } from "../domains/revisions/end-of-turn";
@@ -553,10 +554,12 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * As the agent ends a turn in the root conversation, builds the code it changed, unless its
-   * last `build` covered it. A failed build hands the agent its errors, and its turn goes on,
-   * until the end of the turn failed `END_OF_TURN_BUILD_FAILURES` times in a row: the changes are
-   * then committed anyway, and the agent explains the problem. Editors see a status line rather
-   * than these messages. A build Camox's infrastructure keeps failing lets the turn end.
+   * last `build` covered it without errors. A build with errors, its own or its type check's,
+   * hands the agent them, and its turn goes on, until the end of the turn failed
+   * `END_OF_TURN_BUILD_FAILURES` times in a row: the changes are then committed anyway, and the
+   * agent explains the problem, which ends its turn, even if it changed code again. Editors see a
+   * status line rather than these messages. A build Camox's infrastructure keeps failing lets the
+   * turn end.
    */
   async #onYield(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
     if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
@@ -568,6 +571,11 @@ export class Thread extends DurableObject<Bindings> {
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
     const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     const failedInARow = (await this.ctx.storage.get<number>(failures)) ?? 0;
+    // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
+    if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
+      await this.ctx.storage.delete(failures);
+      return undefined;
+    }
     let turn: TurnBuild;
     try {
       turn = await this.#buildingSerially(draftId, () =>
@@ -586,8 +594,11 @@ export class Thread extends DurableObject<Bindings> {
       await this.#showBuildStatus("fixing");
       return { continue: fixBuild(turn.result) };
     }
+    if (turn.outcome === "committedUnbuilt" || turn.outcome === "keptErrors") {
+      await this.ctx.storage.put(failures, END_OF_TURN_BUILD_FAILURES);
+      return { continue: explainFailures(turn) };
+    }
     await this.ctx.storage.delete(failures);
-    if (turn.outcome === "committedUnbuilt") return { continue: explainUnbuilt };
     return undefined;
   }
 

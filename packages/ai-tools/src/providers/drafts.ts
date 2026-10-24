@@ -73,7 +73,7 @@ const PREVIEW_SHAPE =
   "`blockers` are problems to fix in the draft before it can be published, including " +
   "definitions that differ from Live's in a development draft, which only a release can ship " +
   "(code `definitionsDiffer`), and code the agent changed that doesn't build (code " +
-  "`codeDoesNotBuild`); `conflicts` is content Live changed or deleted since the draft " +
+  "`codeDoesNotBuild`) or doesn't type check (code `codeDoesNotTypeCheck`); `conflicts` is content Live changed or deleted since the draft " +
   "changed it, each with who published Live's version and when, which publishing overwrites; " +
   "`lost` lists changes publishing will drop because their parent is gone; `warnings` are the " +
   "same problems already on Live, which don't block; `changes` lists everything the draft " +
