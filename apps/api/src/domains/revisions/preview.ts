@@ -1,3 +1,4 @@
+import type { PublishAbortReason } from "@camox/api-contract/drafts";
 import { eq } from "drizzle-orm";
 
 import type { createDb } from "../../db";
@@ -15,6 +16,10 @@ export type PreviewCode = {
   includesLive: boolean;
   /** Whether the draft's latest code changes are still building. */
   building: boolean;
+  /** Whether the draft is being published: its publish Workflow runs, or waits for its turn. */
+  publishing: boolean;
+  /** Why the draft's last publish went back to the review, until the next one starts. */
+  publishAborted: PublishAbortReason | null;
 };
 
 /**
@@ -31,6 +36,8 @@ export async function codeOfDraft(
     .select({
       head: drafts.headRevisionId,
       previewed: drafts.previewedRevisionId,
+      publishing: drafts.publishingRevisionId,
+      publishAborted: drafts.publishAbortReason,
       projectUuid: projects.uuid,
     })
     .from(drafts)
@@ -55,6 +62,8 @@ export async function codeOfDraft(
       revision: draft.previewed,
       includesLive: main === undefined || forkedFrom === main,
       building,
+      publishing: draft.publishing !== null,
+      publishAborted: draft.publishAborted,
     },
     head: head?.buildStatus ?? null,
   };

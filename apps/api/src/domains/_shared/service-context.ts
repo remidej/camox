@@ -27,6 +27,12 @@ export type ServiceContext = {
    */
   draft: DraftRequest | null;
   /**
+   * The draft a publish with code's Worker version names on its public reads, through
+   * `x-camox-publishing-draft`: a request naming no draft reads Live overlaid with it while it
+   * publishes, and Live otherwise (`accessTo`).
+   */
+  publishingDraft?: string;
+  /**
    * The locale the request reads and writes content in, by its tag, through `x-camox-locale` or
    * an AI tool's `locale`. Absent means the default locale (ADR 0015). Content access checks
    * that the draft has it.

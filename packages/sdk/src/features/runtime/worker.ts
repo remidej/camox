@@ -15,6 +15,7 @@ import {
 
 import { fetchLocalhostOnLoopback } from "./loopbackFetch";
 import { readLiveCacheKey, respondThroughPublicCache } from "./publicCache";
+import { rememberPublishingDraft } from "./publishingDraft";
 import { shouldHandleRequest, withDevHtml } from "./workerRequest";
 
 // Only the dev server has dev HTML.
@@ -63,7 +64,8 @@ export class CamoxDefinitionSet extends WorkerEntrypoint {
 }
 
 export default {
-  async fetch(request: Request, _env?: unknown, context?: WorkerContext): Promise<Response> {
+  async fetch(request: Request, env?: unknown, context?: WorkerContext): Promise<Response> {
+    rememberPublishingDraft(env);
     if (!shouldHandleRequest(request, runtimeBasePath)) return notFound();
     const response = await respond(request, context);
     if (!response) return notFound();

@@ -57,6 +57,13 @@ export type Bindings = {
   BACKUP_BUCKET: R2Bucket;
   /** The release sandbox Worker's Container sandboxes revisions build in, one per draft with code. */
   REVISION_SANDBOX: DurableObjectNamespace<import("@cloudflare/sandbox").Sandbox>;
+  /**
+   * The release sandbox Worker's Container sandboxes publishes with code upload and promote the
+   * project's Worker in, with wrangler, one per project (`domains/publishes/sandbox.ts`).
+   */
+  PUBLISH_SANDBOX: DurableObjectNamespace<import("@cloudflare/sandbox").Sandbox>;
+  /** Publishes a draft with code: its revision's build, content and definitions together. */
+  PUBLISH_WORKFLOW: Workflow<import("./domains/publishes/workflow").PublishParams>;
   /** Each revision's build, one archive per revision (`revisionArchiveKey`). */
   REVISION_BUILDS: R2Bucket;
   /** The dispatch Worker, which loads revisions (`domains/revisions/dispatch.ts`). */

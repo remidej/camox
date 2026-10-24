@@ -10,6 +10,22 @@ export const DRAFT_HEADER = "x-camox-draft";
 export const LOCALE_HEADER = "x-camox-locale";
 
 /**
+ * Request header a Worker version a publish with code uploaded sends on its public reads, naming
+ * the draft it publishes (spec #560, section 13). While that draft is in its publishing state, a
+ * read naming it sees Live overlaid with the draft, with no session, so the new code serves the
+ * content it was previewed with from its first request. Once the draft has ended, or if it isn't
+ * publishing, the read is Live's. A request naming a draft with `DRAFT_HEADER` ignores it.
+ */
+export const PUBLISHING_DRAFT_HEADER = "x-camox-publishing-draft";
+
+/**
+ * The Worker variable carrying the publishing draft's ID, which `wrangler versions upload` sets on
+ * the version a publish with code uploads. The website's Worker sends it as
+ * `PUBLISHING_DRAFT_HEADER`.
+ */
+export const PUBLISHING_DRAFT_VAR = "CAMOX_PUBLISHING_DRAFT";
+
+/**
  * Request header asking the API to create the draft named by `DRAFT_HEADER` if it doesn't
  * exist yet. Its value is `"1"`.
  */
@@ -55,6 +71,28 @@ export const DRAFT_ENDED_ERROR_CODE = "DRAFT_ENDED";
  * preview, so nothing was applied and the caller reviews the new preview.
  */
 export const CONFLICTS_CHANGED_ERROR = "CONFLICTS_CHANGED";
+
+/**
+ * oRPC error code for a publish of a draft with code whose revision isn't the one the review
+ * showed: the agent left a newer one, or the draft is already publishing. The caller reviews
+ * the new preview.
+ */
+export const REVISION_CHANGED_ERROR = "REVISION_CHANGED";
+
+/**
+ * Why a publish with code went back to the review instead of landing: the agent left a revision
+ * after the one the review showed, Live's conflicts changed, the draft got a blocker, Live's code
+ * moved and the draft hasn't merged it, or the publish failed on Camox's side.
+ */
+export const PUBLISH_ABORT_REASONS = [
+  "revisionChanged",
+  "conflictsChanged",
+  "blocked",
+  "liveCodeMoved",
+  "failed",
+] as const;
+
+export type PublishAbortReason = (typeof PUBLISH_ABORT_REASONS)[number];
 
 /** oRPC error code for a publish refused because the draft still has blockers. */
 export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";

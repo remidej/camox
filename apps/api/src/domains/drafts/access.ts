@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, type SQL, sql } from "drizzle-orm";
 import { Effect, Exit, type Scope } from "effect";
 
 import type { Database } from "../../db";
@@ -86,12 +86,20 @@ export type ContentAccess<R extends ContentRef, M extends AccessMode> = {
   entity: EntityOf<R>;
 };
 
-type AccessContext = Pick<ServiceContext, "db" | "user" | "draft" | "projectId" | "locale">;
+type AccessContext = Pick<
+  ServiceContext,
+  "db" | "user" | "draft" | "projectId" | "locale" | "publishingDraft"
+>;
 
 /** One table's rows an entity id names: Live's, and the named draft's (any of the caller's development drafts). */
 function storedForRequest(table: overlay.ContentTable, ctx: AccessContext): SQL {
   const requested = ctx.draft;
-  if (!requested) return isNull(table.draftId);
+  if (!requested) {
+    // A publishing draft's rows are candidates too: the scope picks Live's unless it publishes.
+    return ctx.publishingDraft
+      ? overlay.storedInLiveOrDraft(table, ctx.publishingDraft)
+      : isNull(table.draftId);
+  }
   if (!("development" in requested)) return overlay.storedInLiveOrDraft(table, requested.id);
   const developmentDrafts = ctx.db
     .select({ id: drafts.id })
@@ -281,6 +289,34 @@ const memberScope = Effect.fn("access.memberScope")(function* (
   return scope;
 });
 
+/**
+ * The scope a public read naming a publishing draft reads, with no session: Live overlaid with
+ * the draft while it's in its publishing state, so a publish with code's new Worker version
+ * serves the content it was previewed with from its first request. Live once the draft ended,
+ * or when it isn't publishing (spec #560, section 13).
+ */
+const publishingScope = Effect.fn("access.publishingScope")(function* (
+  ctx: AccessContext,
+  project: Project,
+) {
+  if (!ctx.publishingDraft) return null;
+  const draftId = ctx.publishingDraft;
+  const row = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(drafts)
+      .where(
+        and(
+          eq(drafts.id, draftId),
+          eq(drafts.projectId, project.id),
+          isNotNull(drafts.publishingRevisionId),
+        ),
+      )
+      .get(),
+  );
+  return row ? draftOf(row) : null;
+});
+
 type LocaleRow = typeof locales.$inferSelect;
 
 /**
@@ -413,7 +449,9 @@ const access = <R extends ContentRef, M extends AccessMode>(
     if (needsMember && !authorized.member) return yield* new ForbiddenError();
     const drafted = needsMember
       ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
-      : null;
+      : mode === "public"
+        ? yield* publishingScope(ctx, project)
+        : null;
     const seen = localesSeenBy(localeRows, drafted);
     const scope = yield* inRequestedLocale(drafted, seen, ctx.locale);
 

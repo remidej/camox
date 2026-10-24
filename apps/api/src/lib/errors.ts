@@ -78,6 +78,14 @@ export class ConflictsChangedError extends Data.TaggedError("ConflictsChangedErr
   readonly message: string;
 }> {}
 
+/**
+ * A publish of a draft with code named a revision that isn't the draft's head, or the draft is
+ * publishing already: the caller reviews the new preview.
+ */
+export class RevisionChangedError extends Data.TaggedError("RevisionChangedError")<{
+  readonly message: string;
+}> {}
+
 /** The draft still has blockers, so it can't be published. */
 export class PublishBlockedError extends Data.TaggedError("PublishBlockedError")<{
   readonly message: string;
@@ -104,6 +112,7 @@ export type ServiceError =
   | NoDevelopmentDraftError
   | ConflictsChangedError
   | PublishBlockedError
+  | RevisionChangedError
   | TranslationsPendingError;
 
 // --- Helpers ---
