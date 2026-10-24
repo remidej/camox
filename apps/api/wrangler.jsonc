@@ -41,6 +41,12 @@
       "binding": "BACKUP_BUCKET",
       "bucket_name": "camox-release-cache",
     },
+    // Each revision's build, as one archive, which serves the draft's preview and a publish
+    // (src/domains/revisions).
+    {
+      "binding": "REVISION_BUILDS",
+      "bucket_name": "camox-revision-builds",
+    },
   ],
   // Workers AI, for the agent's web tools: Cloudflare's Web Search API, and converting the pages
   // it fetches to Markdown (src/domains/threads/web-tools.ts).
@@ -93,6 +99,13 @@
       {
         "name": "SANDBOX",
         "class_name": "CiSandbox",
+        "script_name": "camox-release-sandbox",
+      },
+      // The Container sandbox each draft with code builds its revisions in, named by the draft's
+      // ID, in the release sandbox Worker, which deploys their image (src/domains/revisions).
+      {
+        "name": "REVISION_SANDBOX",
+        "class_name": "RevisionSandbox",
         "script_name": "camox-release-sandbox",
       },
     ],

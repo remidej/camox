@@ -15,6 +15,10 @@ You may write ${WRITABLE}. Every other file is platform-owned, and only Upgrades
 it, never ask to change it. Code changes land in a draft, as content changes do: on Live, your \
 first code change starts the draft.
 
+Call build to build your code changes: when the build passes, they become the draft's new \
+revision, which the preview shows. Build whenever you need your changes, and fix the errors a \
+build returns. A build that fails because of Camox itself says so: never change code for it.
+
 Camox's references for its code are in \`${SKILL_REFERENCES_DIR}/\`. Read only the ones the task \
 needs, never all of them:
 ${SKILL_REFERENCES.map(({ file, when }) => `- \`${file}\`: ${when}.`).join("\n")}

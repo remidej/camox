@@ -85,7 +85,7 @@ async function sandboxWorker() {
 async function releaseFakesWorker() {
   return {
     ...(await bundledWorker(RELEASE_FAKES_CONFIG)),
-    durableObjects: { SANDBOX: "FakeSandbox" },
+    durableObjects: { SANDBOX: "FakeSandbox", REVISION_SANDBOX: "FakeRevisionSandbox" },
   };
 }
 
@@ -138,6 +138,7 @@ export default defineConfig({
                 outboundService: fakes.name,
                 durableObjects: {
                   SANDBOX: { className: "FakeSandbox", scriptName: fakes.name },
+                  REVISION_SANDBOX: { className: "FakeRevisionSandbox", scriptName: fakes.name },
                 },
                 bindings: {
                   CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
