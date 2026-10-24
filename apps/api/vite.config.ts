@@ -161,6 +161,12 @@ export default defineConfig({
           // Tests seed Live by publishing drafts, which takes a few statements per write; under a
           // full parallel run the default 5s leaves too little room.
           testTimeout: 15_000,
+          // With Vitest's file system module cache, each test file's fresh worker gets every
+          // module it imports in one WebSocket message, which `@cloudflare/vitest-plugin` fills
+          // with their code. Past about 64 MiB the runtime drops it, and the worker dies as its
+          // file starts ("Worker exited unexpectedly"): the API's modules are that large. Without
+          // the cache, each module comes in a message of its own (src/test-config.test.ts).
+          fsModuleCache: false,
           setupFiles: [
             "./test/apply-migrations.ts",
             "./test/record-project-rooms.ts",
