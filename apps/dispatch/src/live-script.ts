@@ -36,7 +36,8 @@ export async function liveScriptFor(api: LiveScriptApi, project: string): Promis
   let answer = answers.get(project);
   const last = answer;
   if (!answer || now - answer.at > LIVE_SCRIPT_TTL_MS) {
-    const asked: Answer = { at: now, script: Promise.try(() => api.liveScript({ project })) };
+    // An async wrapper (not `Promise.try`, missing from Node 22) so a synchronous throw rejects too.
+    const asked: Answer = { at: now, script: (async () => api.liveScript({ project }))() };
     asked.script.then(
       (script) => {
         asked.settled = script;
