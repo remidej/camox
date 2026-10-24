@@ -80,29 +80,52 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
   });
 }
 
-async function request(path: string) {
+async function request(path: string, { member = true } = {}) {
   const { renderPageWithApp } = await import("./pageServer");
   return handleCamoxRequest(
-    new Request(`https://site.test${path}`, { headers: { Cookie: "camox_auth_cookie=valid" } }),
+    new Request(
+      `https://site.test${path}`,
+      member ? { headers: { Cookie: "camox_auth_cookie=valid" } } : {},
+    ),
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
       projectUuid: "test",
       getCamoxApp: async () => camoxApp,
       renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
+      // In dev, a page preloads its blocks' modules.
+      blockPreloads: { modulePaths: { hero: "/src/blocks/hero.tsx" }, chunks: null },
     },
   );
 }
 
-void test("a member's page in a draft renders the draft's content on the server", async (t) => {
+const BLOCK_PRELOAD = '<link rel="modulepreload" href="/src/blocks/hero.tsx">';
+
+void test("a member's document renders no block of the site: a loading screen holds the page's place", async (t) => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   mockApi(t);
-  const draft = await request("/?camox-draft=d1");
-  assert.equal(draft!.status, 200);
-  // A member sees the page in the studio, around the page as visitors see it.
-  const data = (await draft!.text()).match(
+  const { loadRuntimeChrome } = await import("./runtimeChromeLoader");
+  await loadRuntimeChrome();
+  const response = await request("/?camox-draft=d1");
+  assert.equal(response!.status, 200);
+  const html = await response!.text();
+  // The studio chrome is there, so this is the member's document.
+  assert.match(html, /Real project/);
+  // Only the renderer frame runs the site's code, the draft's own for a draft with code.
+  assert.doesNotMatch(html, /<h1|&lt;h1/);
+  const data = html.match(
     /<script id="__CAMOX_DATA__" type="application\/json">(.*?)<\/script>/s,
   )![1];
   const { previewDocument } = JSON.parse(data) as { previewDocument: string };
-  assert.match(previewDocument, /<h1><span>Draft title<\/span><\/h1>/);
+  assert.doesNotMatch(previewDocument, /<h1/);
+  assert.match(html, /role="status"[^>]*aria-label="Loading the page"/);
+  assert.ok(!html.includes(BLOCK_PRELOAD), "nor does it load the site's blocks");
+});
+
+void test("a visitor's page renders its blocks on the server, and preloads them", async (t) => {
+  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
+  mockApi(t);
+  const html = await (await request("/", { member: false }))!.text();
+  assert.match(html, /<h1><span>Live title<\/span><\/h1>/);
+  assert.ok(html.includes(BLOCK_PRELOAD));
 });

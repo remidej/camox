@@ -196,7 +196,9 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     if (!path.startsWith("/camox/")) {
       assert.match(input.previewDocument!, /href="\/site.css"/);
       assert.match(input.previewDocument!, /class="dark"/);
-      assert.match(input.previewDocument!, /site-content/);
+      // The renderer frame renders the page into it: the studio renders none.
+      assert.doesNotMatch(input.previewDocument!, /site-content/);
+      assert.match(input.previewDocument!, /<div id="root" data-camox-preview-root><\/div>/);
       assert.doesNotMatch(input.previewDocument!, /studio.css|camox:studio:theme/);
     }
 

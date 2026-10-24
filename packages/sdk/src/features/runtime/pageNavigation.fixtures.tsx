@@ -86,6 +86,13 @@ export async function openPage(
     dehydratedState: dehydrate(new QueryClient()),
   });
   const dataRequests: string[] = [];
+  /** Each time the page's window loaded the code of the blocks it shows. */
+  const blockLoads: string[][] = [];
+  const camoxApp = createApp({ blocks: [] });
+  const loadBlocks: typeof camoxApp.loadBlocks = (types) => {
+    blockLoads.push([...types]);
+    return camoxApp.loadBlocks(types);
+  };
   t.mock.method(globalThis, "fetch", async (request: URL | RequestInfo) => {
     const requested = new URL(request instanceof Request ? request.url : request);
     const pathname = requested.searchParams.get("path")!;
@@ -165,7 +172,7 @@ export async function openPage(
         <Mode>
           <StudioScopeProvider client={queryClient}>
             <PageNavigationProvider
-              camoxApp={createApp({ blocks: [] })}
+              camoxApp={{ loadBlocks }}
               initialInput={initial}
               queryClient={queryClient}
             >
@@ -225,6 +232,7 @@ export async function openPage(
     window,
     viewport: () => viewport() as unknown as Window,
     dataRequests,
+    blockLoads,
     gtagCalls,
     posthogCalls,
     scrolls,

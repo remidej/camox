@@ -372,6 +372,80 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   }
 });
 
+for (const outcome of ["rendered", "error"] as const) {
+  void test(`a spinner in the Canvas's background covers the Preview until the renderer frame shows its page (${outcome})`, async () => {
+    const dom = await setup();
+    const { CamoxPreview } = await import("./CamoxPreview");
+    const { fakeRenderer, settle } = await import("../renderer/protocol.fixtures");
+    const { STUDIO_HANDLE_KEY } = await import("../renderer/protocol");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    testStudioCache(client).set(reads.pageStructure({ path: "/", projectUuid: "test" }), {
+      page: { id: 3 },
+    });
+    const loading = () => dom.host.querySelector('[role="status"][aria-label="Loading the page"]');
+    try {
+      await dom.render(
+        <StudioQueryClientProvider client={client}>
+          <CamoxPreview />
+        </StudioQueryClientProvider>,
+      );
+      assert.ok(loading(), "before any renderer connects");
+      assert.ok(loading()!.closest("[data-canvas-loading]")!.className.includes("bg-muted"));
+
+      const frame = dom.host.querySelector("iframe[data-camox-renderer]") as unknown as Record<
+        typeof STUDIO_HANDLE_KEY,
+        Parameters<typeof fakeRenderer>[0]
+      >;
+      const renderer = fakeRenderer(frame[STUDIO_HANDLE_KEY]);
+      await React.act(settle);
+      assert.ok(loading(), "the renderer connected, but hasn't shown the page yet");
+
+      const frameId = renderer.last("frame")!.frameId;
+      await React.act(async () => {
+        renderer.send(
+          outcome === "rendered"
+            ? { type: "rendered", frameId }
+            : { type: "error", frameId, message: "The page failed" },
+        );
+        await settle();
+      });
+      assert.equal(loading(), null, "the page, or why it failed, shows");
+    } finally {
+      await dom.close();
+      client.clear();
+    }
+  });
+}
+
+void test("a renderer of another SDK version shows that the preview updates, not a spinner", async () => {
+  const dom = await setup();
+  const { CamoxPreview } = await import("./CamoxPreview");
+  const { fakeRenderer, settle } = await import("../renderer/protocol.fixtures");
+  const { SDK_VERSION, STUDIO_HANDLE_KEY } = await import("../renderer/protocol");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  testStudioCache(client).set(reads.pageStructure({ path: "/", projectUuid: "test" }), {
+    page: { id: 3 },
+  });
+  try {
+    await dom.render(
+      <StudioQueryClientProvider client={client}>
+        <CamoxPreview />
+      </StudioQueryClientProvider>,
+    );
+    const frame = dom.host.querySelector("iframe[data-camox-renderer]") as unknown as Record<
+      typeof STUDIO_HANDLE_KEY,
+      Parameters<typeof fakeRenderer>[0]
+    >;
+    fakeRenderer(frame[STUDIO_HANDLE_KEY], { sdkVersion: `${SDK_VERSION}-other` });
+    await React.act(settle);
+    assert.equal(dom.host.querySelector('[aria-label="Loading the page"]'), null);
+    assert.ok(dom.host.querySelector("[data-camox-renderer-updating]"));
+  } finally {
+    await dom.close();
+    client.clear();
+  }
+});
+
 void test("hiding the Canvas after selecting nothing goes back to the last page", async () => {
   const dom = await setup();
   const { CamoxPreview } = await import("./CamoxPreview");

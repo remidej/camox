@@ -41,8 +41,6 @@ interface FrameProps {
   style?: React.CSSProperties;
   /** Whether to copy parent document styles into the iframe (default: true) */
   copyStyles?: boolean;
-  /** Keep the SSR document untouched while the editing preview prepares offscreen. */
-  serverOnly?: boolean;
   /** Callback when iframe is ready, receives the iframe element */
   onIframeReady?: (iframe: HTMLIFrameElement) => void;
   /** Extra attributes for the iframe element */
@@ -92,7 +90,6 @@ export const Frame = ({
   className,
   style,
   copyStyles = true,
-  serverOnly = false,
   onIframeReady,
   iframeProps,
   inCanvas = false,
@@ -178,10 +175,6 @@ export const Frame = ({
         });
       }
 
-      // The activation placeholder keeps its original DOM, but native links
-      // should still navigate the host while the editor is loading.
-      if (serverOnly) return;
-
       // Leave the SSR content in place until the portal actually commits.
       // Clearing it on load would reveal a blank frame if editing suspends.
       setServerNodes(Array.from(root.childNodes));
@@ -202,7 +195,7 @@ export const Frame = ({
     return () => {
       iframe.removeEventListener("load", handleLoad);
     };
-  }, [copyStyles, onIframeReady, srcDoc, serverOnly]);
+  }, [copyStyles, onIframeReady, srcDoc]);
 
   // A new revision's document, its Theme's stylesheets with it, restyles the frame in place:
   // the frame keeps its page and its position (spec #560, section 1).

@@ -132,26 +132,24 @@ function PageExperience({
   );
 
   const isolatedPage = <Frame>{readOnlyPage}</Frame>;
-  const fallback = input.routeKind ? <StudioLoadError /> : isolatedPage;
   if (isAuthenticated) {
-    // The studio renders no block itself: the renderer frame loads the site's code.
+    // The studio renders no block itself: the renderer frame loads the site's code. Until it
+    // shows the page, a loading screen holds the page's place.
     const editor = hasHydrated ? (
       <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
     ) : null;
 
     return (
-      <RuntimeChromeSlot input={input} fallback={input.routeKind ? loading : isolatedPage}>
-        <EditingActivationBoundary fallback={fallback}>
+      <RuntimeChromeSlot
+        input={input}
+        // Only a visitor's document, already showing the page, signs in without the chrome loaded.
+        fallback={input.routeKind ? loading : studioDocument ? null : isolatedPage}
+      >
+        <EditingActivationBoundary fallback={<StudioLoadError />}>
           {input.routeKind ? (
             <React.Suspense fallback={loading}>{editor ?? loading}</React.Suspense>
           ) : (
-            <PreviewActivation
-              fallback={
-                <EditingFallbackSlot layoutPage={!!input.derived}>
-                  <Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>
-                </EditingFallbackSlot>
-              }
-            >
+            <PreviewActivation fallback={<EditingFallbackSlot layoutPage={!!input.derived} />}>
               {editor}
             </PreviewActivation>
           )}
