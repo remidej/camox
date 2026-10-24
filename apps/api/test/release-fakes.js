@@ -351,6 +351,8 @@ const revisionCommands = new Map();
 const failingBuilds = [];
 /** @type {{ marker: string, definitionSet: unknown }[]} builds of a tree with a file holding `marker` have that Definition Set */
 const definedBuilds = [];
+/** @type {{ marker: string, diagnostics: unknown[] }[]} lints of a tree with a file holding `marker` find `diagnostics` */
+const lintedTrees = [];
 /**
  * @type {{ marker: string, times: number }[]} calls left that fail, as a crashed container's do,
  * of a sandbox building a tree with a file holding `marker`: test files share the fakes, so a
@@ -372,13 +374,15 @@ const heldBuilds = new Set();
 const BUILD_COMMAND = /\bvp build\b/;
 const ARCHIVE_COMMAND = /^tar -czf (\S+) /;
 const EXTRACT_COMMAND = /\btar -xf (\S+) /;
+const LINT_COMMAND = /\bvp lint\b/;
 
 /**
  * A revision's sandbox as `@cloudflare/sandbox`'s `getSandbox` drives it over RPC. Its files are
  * held in memory and it runs nothing: extracting a tree reads the archive it was given, a build
  * passes or fails as a test scripted for that tree, and archiving a passed build writes a fake
  * archive naming the tree, with the Definition Set a test scripted for it (an empty one when none
- * did), which `FakeDispatch` reads. Every call can be made to fail, as a crashed container's do.
+ * did), which `FakeDispatch` reads. Linting the tree prints, as `vp lint --format json` does, the
+ * diagnostics a test scripted for it. Every call can be made to fail, as a crashed container's do.
  */
 export class FakeRevisionSandbox extends DurableObject {
   /** @type {string} */
@@ -447,10 +451,10 @@ export class FakeRevisionSandbox extends DurableObject {
     const commands = revisionCommands.get(this.name) ?? [];
     commands.push({ command, env: options.env });
     revisionCommands.set(this.name, commands);
-    const result = (exitCode, stderr = "") => ({
+    const result = (exitCode, stderr = "", stdout = "") => ({
       success: exitCode === 0,
       exitCode,
-      stdout: "",
+      stdout,
       stderr,
       command,
       duration: 0,
@@ -475,6 +479,24 @@ export class FakeRevisionSandbox extends DurableObject {
       revisionBuilds.set(this.name, builds);
       this.built = !failing;
       return failing ? result(1, failing.log) : result(0);
+    }
+    if (LINT_COMMAND.test(command)) {
+      const diagnostics = lintedTrees
+        .filter(({ marker }) =>
+          Object.values(this.tree).some((content) => content.includes(marker)),
+        )
+        .flatMap(({ diagnostics }) => diagnostics);
+      // As `vp lint` prints it: the Camox plugin logs as Vite+ loads the config, then the JSON.
+      const stdout = `4:00:00 AM [vite+] Building Camox app (your development draft)
+{ "diagnostics": [${diagnostics.map((diagnostic) => JSON.stringify(diagnostic)).join(",\n")}],
+              "number_of_files": ${Object.keys(this.tree).length},
+              "number_of_rules": 127,
+              "threads_count": 4,
+              "start_time": 0.25
+            }
+`;
+      const errors = diagnostics.some(({ severity }) => severity === "error");
+      return result(errors ? 1 : 0, "", stdout);
     }
     const archive = ARCHIVE_COMMAND.exec(command);
     if (archive) {
@@ -699,6 +721,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failBuildsOf(marker, log) {
     failingBuilds.push({ marker, log });
+  }
+
+  /**
+   * Makes every lint of a tree with a file containing `marker` find `diagnostics`, as
+   * `vp lint --format json` prints them.
+   * @param {string} marker
+   * @param {unknown[]} diagnostics
+   */
+  async lintFindingsOf(marker, diagnostics) {
+    lintedTrees.push({ marker, diagnostics });
   }
 
   /**

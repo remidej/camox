@@ -53,7 +53,7 @@ export async function retried<T>(step: () => Promise<T>): Promise<T> {
 }
 
 /** What a list of errors becomes in a result: its first `ERRORS_SHOWN`, and its total if longer. */
-function capped<T>(errors: T[]) {
+export function capped<T>(errors: T[]) {
   return {
     shown: errors.slice(0, ERRORS_SHOWN),
     total: errors.length > ERRORS_SHOWN ? errors.length : undefined,
