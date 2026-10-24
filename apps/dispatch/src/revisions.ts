@@ -206,7 +206,7 @@ export async function prewarmRevision(
 }
 
 /** The renderer document's path (`RUNTIME_ROUTE_PATHS.renderer` in `camox`). */
-const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
+export const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
 
 /** The path a revision's client asset is served at: under its asset prefix. */
 const ASSET_PATH = /^\/_camox\/r\/([^/]+)\/(.+)$/;
