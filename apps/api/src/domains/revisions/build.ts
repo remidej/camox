@@ -1,16 +1,18 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 
 import { createDb } from "../../db";
+import { projectRooms } from "../../lib/project-rooms";
 import { runService } from "../../lib/run-service";
 import type { Bindings } from "../../types";
 import { syncRevisionDefinitions } from "../definitions/service";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 import { camoxVersionInLockfile } from "../releases/lockfile";
-import { revisionArchiveKey } from "./archive";
+import { deleteRevisionBuild, revisionArchiveKey } from "./archive";
 import { buildErrorsOf } from "./build-log";
+import type { RevisionToLoad } from "./dispatch";
 import { type BuildResult, ERRORS_SHOWN } from "./result";
 import { buildInSandbox, checkTypesInSandbox, type SandboxTypeCheck } from "./sandbox";
 import { revisions, type RevisionSource, type RevisionTypeErrors } from "./schema";
@@ -52,7 +54,7 @@ export async function retried<T>(step: () => Promise<T>): Promise<T> {
 }
 
 /** What a list of errors becomes in a result: its first `ERRORS_SHOWN`, and its total if longer. */
-function capped<T>(errors: T[]) {
+export function capped<T>(errors: T[]) {
   return {
     shown: errors.slice(0, ERRORS_SHOWN),
     total: errors.length > ERRORS_SHOWN ? errors.length : undefined,
@@ -95,26 +97,39 @@ export type RevisionOrigin = {
   run?: { threadId: string; runId: string };
 };
 
+/** The draft a build is of, with what announcing its revisions needs. */
+type BuiltDraft = {
+  id: string;
+  projectId: number;
+  projectUuid: string;
+  previewedRevisionId: string | null;
+};
+
+/** A built revision, with its build. */
+type BuiltRevision = { id: string; archiveKey: string; camoxVersion: string | null };
+
 /**
- * Makes a built revision's definitions its draft's, unless the draft already previews it: reads
- * the revision's Definition Set through dispatch, and syncs it into the draft, which then
- * previews the revision. A set the API refuses is the build's error: the revision stays built,
- * but the draft keeps its definitions.
+ * Makes a built revision the one its draft previews, unless the draft already previews it (ADR
+ * 0023): reads the revision's Definition Set through dispatch, has dispatch prewarm it, syncs the
+ * set into the draft, which then previews the revision, and tells the draft's viewers, whose
+ * frames load it. Only the builds of that revision and of the one previewed before it are kept.
+ * A set the API refuses is the build's error: the revision stays built, but the draft keeps its
+ * definitions and its preview.
  */
-async function syncDefinitionsOf(
+async function previewRevision(
   env: Bindings,
-  draft: { id: string; projectUuid: string; previewedRevisionId: string | null },
-  revision: { id: string; archiveKey: string },
+  draft: BuiltDraft,
+  revision: BuiltRevision,
 ): Promise<BuildResult> {
   if (draft.previewedRevisionId === revision.id) return passed(revision.id);
-  const definitionSet = await retried(() =>
-    env.DISPATCH.readDefinitionSet({
-      revision: revision.id,
-      archiveKey: revision.archiveKey,
-      project: draft.projectUuid,
-      draft: draft.id,
-    }),
-  );
+  const toLoad: RevisionToLoad = {
+    revision: revision.id,
+    archiveKey: revision.archiveKey,
+    project: draft.projectUuid,
+    draft: draft.id,
+  };
+  const definitionSet = await retried(() => env.DISPATCH.readDefinitionSet(toLoad));
+  await retried(() => env.DISPATCH.prewarm(toLoad));
   const ctx = {
     db: createDb(env.DB),
     user: null,
@@ -150,7 +165,41 @@ async function syncDefinitionsOf(
       lint: [],
     };
   }
+  projectRooms.send(draft.projectId, {
+    type: "revision",
+    draftId: draft.id,
+    revisionId: revision.id,
+    sdkVersion: revision.camoxVersion ?? "",
+  });
+  await retried(() => pruneBuilds(env, draft, [revision.id, draft.previewedRevisionId]));
   return passed(revision.id);
+}
+
+/**
+ * Deletes the builds of a draft's revisions other than `kept`, which a viewer may still be
+ * loading. A revision whose build is deleted builds again if its tree comes back.
+ */
+async function pruneBuilds(env: Bindings, draft: BuiltDraft, kept: (string | null)[]) {
+  const db = createDb(env.DB);
+  const pruned = await db
+    .select({ id: revisions.id })
+    .from(revisions)
+    .where(
+      and(
+        eq(revisions.draftId, draft.id),
+        isNotNull(revisions.archiveKey),
+        notInArray(
+          revisions.id,
+          kept.filter((id) => id !== null),
+        ),
+      ),
+    );
+  if (pruned.length === 0) return;
+  const ids = pruned.map(({ id }) => id);
+  await db.update(revisions).set({ archiveKey: null }).where(inArray(revisions.id, ids));
+  for (const id of ids) {
+    await deleteRevisionBuild(env, { project: draft.projectUuid, draft: draft.id, revision: id });
+  }
 }
 
 export const MESSAGES: Record<RevisionSource, string> = {
@@ -162,7 +211,7 @@ export const MESSAGES: Record<RevisionSource, string> = {
 /**
  * Builds the working copy of the draft `draftId`, which has code, and when the build passes,
  * commits it as the draft's new revision, pushed to its branch, with its build stored in R2, and
- * makes its definitions the draft's. A tree that already has a built revision returns it without
+ * makes it the revision the draft previews, its definitions included. A tree that already has a built revision returns it without
  * building again, so a call replayed after an eviction is safe. A failed build commits nothing and
  * returns its errors.
  *
@@ -178,6 +227,7 @@ export async function buildRevision(
   const draft = await db
     .select({
       id: drafts.id,
+      projectId: drafts.projectId,
       projectUuid: projects.uuid,
       previewedRevisionId: drafts.previewedRevisionId,
       headRevisionId: drafts.headRevisionId,
@@ -196,6 +246,7 @@ export async function buildRevision(
       archiveKey: revisions.archiveKey,
       typeCheckStatus: revisions.typeCheckStatus,
       typeErrors: revisions.typeErrors,
+      camoxVersion: revisions.camoxVersion,
     })
     .from(revisions)
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
@@ -213,11 +264,12 @@ export async function buildRevision(
       await db.update(revisions).set({ commit, parents }).where(eq(revisions.id, existing.id));
       await db.update(drafts).set({ headRevisionId: existing.id }).where(eq(drafts.id, draftId));
     }
-    const synced = await syncDefinitionsOf(env, draft, {
+    const previewed = await previewRevision(env, draft, {
       id: existing.id,
       archiveKey: existing.archiveKey,
+      camoxVersion: existing.camoxVersion,
     });
-    return withTypeErrors(synced, existing.typeErrors);
+    return withTypeErrors(previewed, existing.typeErrors);
   }
 
   const outcome = await retried(() => buildInSandbox(env, draftId, prepared));
@@ -246,6 +298,7 @@ export async function buildRevision(
     buildStatus: "built" as const,
     archiveKey,
   };
+  const camoxVersion = prepared.lockfile ? camoxVersionInLockfile(prepared.lockfile) : null;
   const [recorded] = await db
     .insert(revisions)
     .values({
@@ -256,7 +309,7 @@ export async function buildRevision(
       threadId: run?.threadId ?? null,
       runId: run?.runId ?? null,
       typeCheckStatus: "pending",
-      camoxVersion: prepared.lockfile ? camoxVersionInLockfile(prepared.lockfile) : null,
+      camoxVersion,
       createdAt: Date.now(),
       ...built,
     })
@@ -265,7 +318,11 @@ export async function buildRevision(
     .returning({ id: revisions.id });
   await db.update(drafts).set({ headRevisionId: recorded!.id }).where(eq(drafts.id, draftId));
   // The preview shows the revision without waiting on its type check.
-  const synced = await syncDefinitionsOf(env, draft, { id: recorded!.id, archiveKey });
+  const previewed = await previewRevision(env, draft, {
+    id: recorded!.id,
+    archiveKey,
+    camoxVersion,
+  });
 
   // A sandbox failing during the check checks again: the draft's builds run one at a time, so
   // its workspace still holds the tree.
@@ -275,5 +332,5 @@ export async function buildRevision(
   );
   const record = typeCheckRecord(typeCheck);
   await db.update(revisions).set(record).where(eq(revisions.id, recorded!.id));
-  return withTypeErrors(synced, record.typeErrors);
+  return withTypeErrors(previewed, record.typeErrors);
 }

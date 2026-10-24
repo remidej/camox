@@ -356,8 +356,14 @@ const definedBuilds = [];
  * @type {{ marker: string, errors: FakeTypeError[] }[]} type checks of a tree with a file holding `marker` report `errors`
  */
 const failingTypeChecks = [];
+/** @type {{ marker: string, diagnostics: unknown[] }[]} lints of a tree with a file holding `marker` find `diagnostics` */
+const lintedTrees = [];
 /** Sandbox calls left that fail, as a sandbox whose container crashed does. */
 let sandboxFailures = 0;
+/** @type {{ revision: string, archiveKey: string, project: string, draft: string }[]} revisions dispatch prewarmed, oldest first */
+const prewarmed = [];
+/** How many of the next prewarms fail, as an unreachable dispatch's would. */
+let prewarmFailures = 0;
 /** @type {Set<string>} the revision sandboxes destroyed */
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
@@ -371,6 +377,7 @@ let typeChecksHeld = false;
 const BUILD_COMMAND = /\bvp build\b/;
 const ARCHIVE_COMMAND = /^tar -czf (\S+) /;
 const EXTRACT_COMMAND = /\btar -xf (\S+) /;
+const LINT_COMMAND = /\bvp lint\b/;
 /** The type check the revision sandbox runs, with the config naming the files it checks. */
 const TYPE_CHECK_COMMAND = /^tsrs -p (\S+)/;
 
@@ -408,7 +415,8 @@ const printedTypeError = ({ file, line, column, code, message }) =>
  * held in memory and it runs nothing: extracting a tree reads the archive it was given, a build
  * passes or fails as a test scripted for that tree, and archiving a passed build writes a fake
  * archive naming the tree, with the Definition Set a test scripted for it (an empty one when none
- * did), which `FakeDispatch` reads. Every call can be made to fail, as a crashed container's do.
+ * did), which `FakeDispatch` reads. Linting the tree prints, as `vp lint --format json` does, the
+ * diagnostics a test scripted for it. Every call can be made to fail, as a crashed container's do.
  */
 export class FakeRevisionSandbox extends DurableObject {
   /** @type {string} */
@@ -473,10 +481,10 @@ export class FakeRevisionSandbox extends DurableObject {
     const commands = revisionCommands.get(this.name) ?? [];
     commands.push({ command, env: options.env });
     revisionCommands.set(this.name, commands);
-    const result = (exitCode, stderr = "") => ({
+    const result = (exitCode, stderr = "", stdout = "") => ({
       success: exitCode === 0,
       exitCode,
-      stdout: "",
+      stdout,
       stderr,
       command,
       duration: 0,
@@ -522,7 +530,25 @@ export class FakeRevisionSandbox extends DurableObject {
         .flatMap(({ errors }) => errors)
         .filter(({ file }) => checked.includes(file));
       if (reported.length === 0) return result(0);
-      return { ...result(2), stdout: `${reported.map(printedTypeError).join("\n")}\n` };
+      return result(2, "", `${reported.map(printedTypeError).join("\n")}\n`);
+    }
+    if (LINT_COMMAND.test(command)) {
+      const diagnostics = lintedTrees
+        .filter(({ marker }) =>
+          Object.values(this.tree).some((content) => content.includes(marker)),
+        )
+        .flatMap(({ diagnostics }) => diagnostics);
+      // As `vp lint` prints it: the Camox plugin logs as Vite+ loads the config, then the JSON.
+      const stdout = `4:00:00 AM [vite+] Building Camox app (your development draft)
+{ "diagnostics": [${diagnostics.map((diagnostic) => JSON.stringify(diagnostic)).join(",\n")}],
+              "number_of_files": ${Object.keys(this.tree).length},
+              "number_of_rules": 127,
+              "threads_count": 4,
+              "start_time": 0.25
+            }
+`;
+      const errors = diagnostics.some(({ severity }) => severity === "error");
+      return result(errors ? 1 : 0, "", stdout);
     }
     const archive = ARCHIVE_COMMAND.exec(command);
     if (archive) {
@@ -569,6 +595,23 @@ export class FakeDispatch extends WorkerEntrypoint {
     const archive = await this.env.REVISION_BUILDS.get(archiveKey);
     if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
     return JSON.parse(await archive.text()).definitionSet;
+  }
+
+  /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
+  async prewarm(revision) {
+    if (prewarmFailures > 0) {
+      prewarmFailures -= 1;
+      throw new Error("Network connection lost.");
+    }
+    if (!(await this.env.REVISION_BUILDS.head(revision.archiveKey))) {
+      throw new Error(`The build ${revision.archiveKey} isn't stored`);
+    }
+    // Dispatch stores the revision's client assets where its asset prefix serves them from.
+    await this.env.REVISION_BUILDS.put(
+      `${revision.project}/revisions/${revision.revision}/assets/index.css`,
+      "body {}",
+    );
+    prewarmed.push(revision);
   }
 }
 
@@ -751,6 +794,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
     typeChecksHeld = false;
   }
 
+  /**
+   * Makes every lint of a tree with a file containing `marker` find `diagnostics`, as
+   * `vp lint --format json` prints them.
+   * @param {string} marker
+   * @param {unknown[]} diagnostics
+   */
+  async lintFindingsOf(marker, diagnostics) {
+    lintedTrees.push({ marker, diagnostics });
+  }
+
   /** Holds every revision build from now on, as a build still running, until `releaseBuilds()`. */
   async holdBuilds() {
     buildsHeld = true;
@@ -769,6 +822,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async defineBuildsOf(marker, definitionSet) {
     definedBuilds.push({ marker, definitionSet });
+  }
+
+  /** The revisions dispatch prewarmed, oldest first. */
+  async prewarmed() {
+    return prewarmed;
+  }
+
+  /** @param {number} times Makes the next `times` prewarms fail. */
+  async failPrewarms(times) {
+    prewarmFailures = times;
   }
 
   /** @param {number} times Makes the next `times` calls to any revision sandbox fail. */

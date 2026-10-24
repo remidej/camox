@@ -65,6 +65,7 @@ import {
   requestIfOutdated,
 } from "./overview";
 import { peopleNamed } from "./people";
+import { checkRemovals, REMOVAL_PROBLEM_CODES, type RemovalFinding } from "./removals";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
 import { dropIfEmpty, findEndedDraft } from "./service";
@@ -126,6 +127,7 @@ export const PROBLEM_CODES = [
   "codeDoesNotTypeCheck",
   ...FILE_PROBLEM_CODES,
   ...CONTENT_PROBLEM_CODES,
+  ...REMOVAL_PROBLEM_CODES,
 ] as const;
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
@@ -344,11 +346,13 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
   const losses = yield* overlay.lostOf(ctx.db, scope);
   const checked = yield* checkContentProblems(ctx, scope);
   const fileChecks = yield* checkFileProblems(ctx, scope, checked.holders);
+  const removals = yield* checkRemovals(ctx, scope);
   const findings = [
     ...fileChecks.blockers,
     ...fileChecks.warnings,
     ...checked.blockers,
     ...checked.warnings,
+    ...removals,
   ];
 
   const changedFiles = yield* withFileMetadata(
@@ -387,7 +391,7 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     fieldKind,
     blockId,
     message,
-  }: ContentFinding | Finding): Problem => ({
+  }: ContentFinding | Finding | RemovalFinding): Problem => ({
     ...describe(entity, id),
     locale,
     code,
@@ -404,7 +408,11 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     ...fileChecks.blockers.map(asProblem),
     ...checked.blockers.map(asProblem),
   ];
-  const warnings = [...fileChecks.warnings.map(asProblem), ...checked.warnings.map(asProblem)];
+  const warnings = [
+    ...removals.map(asProblem),
+    ...fileChecks.warnings.map(asProblem),
+    ...checked.warnings.map(asProblem),
+  ];
 
   const publishers = yield* peopleNamed(
     ctx.db,

@@ -7,6 +7,7 @@ import type { WorkflowEvent, WorkflowStep, WorkflowStepConfig } from "cloudflare
 import { and, desc, eq, ne } from "drizzle-orm";
 
 import { createDb, type Database } from "../../db";
+import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { projects } from "../projects/schema";
 import { sendReleaseFailureAlert } from "./alert";
@@ -116,7 +117,11 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       }));
       const released = await run(installed, "release", async () => ({
         command: "pnpm exec camox release",
-        env: { CAMOX_DEPLOY_TOKEN: await deployToken(db, started.projectId) },
+        env: {
+          CAMOX_DEPLOY_TOKEN: await deployToken(db, started.projectId),
+          // Code that breaks a hosted check fails the build, so Live keeps its release.
+          ...HOSTED_BUILD,
+        },
       }));
       // A project deleted during its release stops it quietly, before it deploys a Worker its
       // cleanup may already have deleted. A deletion during the deploy can still race it.

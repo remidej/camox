@@ -17,6 +17,8 @@ export type RevisionFakes = {
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
   revisionBuilds(sandbox: string): Promise<RevisionBuild[]>;
   failBuildsOf(marker: string, log: string): Promise<void>;
+  lintFindingsOf(marker: string, diagnostics: LintDiagnostic[]): Promise<void>;
+  revisionCommands(sandbox: string): Promise<{ command: string }[]>;
   /** Holds the next revision build until `releaseBuilds()`. */
   holdBuilds(): Promise<void>;
   releaseBuilds(): Promise<void>;
@@ -102,3 +104,38 @@ export async function typeErrorsMarker(errors: FakeTypeError[]) {
   await revisionFakes.failTypeChecksOf(marker, errors);
   return marker;
 }
+
+/** A finding as `vp lint --format json` prints it. */
+export type LintDiagnostic = {
+  message: string;
+  code: string;
+  severity: "warning" | "error";
+  url: string;
+  help: string;
+  filename: string;
+  labels: { span: { offset: number; length: number; line: number; column: number } }[];
+};
+
+/** A `debugger` statement's finding, as `vp lint --format json` printed it for the Template. */
+export const debuggerStatement = (file: string, line: number): LintDiagnostic => ({
+  message: "`debugger` statement is not allowed",
+  code: "eslint(no-debugger)",
+  severity: "warning",
+  url: "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-debugger.html",
+  help: "Remove the debugger statement",
+  filename: file,
+  labels: [{ span: { offset: 33, length: 9, line, column: 3 } }],
+});
+
+/** Makes every lint of a tree holding the marker find `diagnostics`, returning the marker. */
+export async function lintedMarker(diagnostics: LintDiagnostic[]) {
+  const marker = crypto.randomUUID();
+  await revisionFakes.lintFindingsOf(marker, diagnostics);
+  return marker;
+}
+
+/** How many times the draft's sandbox ran `vp lint`. */
+export const lintRuns = async (draftId: string) =>
+  (await revisionFakes.revisionCommands(draftId)).filter(({ command }) =>
+    command.includes("vp lint"),
+  ).length;

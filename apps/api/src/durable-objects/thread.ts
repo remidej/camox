@@ -66,6 +66,7 @@ import {
   END_OF_TURN_BUILD_FAILURES,
   explainFailures,
   fixBuild,
+  fixLint,
   type TurnBuild,
 } from "../domains/revisions/end-of-turn";
 import type { BuildResult } from "../domains/revisions/result";
@@ -142,6 +143,10 @@ const operationIdsOf = (entries: EntryRecord[]) =>
  * the run's first input, which names it for as long as it goes.
  */
 const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
+/** The prefix of the keys recording that a run's agent was sent its lint findings, as above. */
+const TURN_LINTED_PREFIX = "camox.turn-linted:";
+/** The prefix of the keys recording that a run's agent called `build`, as above. */
+const TURN_BUILT_PREFIX = "camox.turn-built:";
 
 /** Code mode's tool, which runs the model's scripts: wrapped by its name. */
 const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
@@ -528,6 +533,8 @@ export class Thread extends DurableObject<Bindings> {
     const { api, context } = invocation;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
+    // The end of the turn lints what the agent built, even when its build covered the changes.
+    await this.ctx.storage.put(`${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`, true);
     return this.#buildingSerially(draftId, () =>
       buildRevision(this.env, draftId, { leftBy: "build", run }),
     );
@@ -557,9 +564,9 @@ export class Thread extends DurableObject<Bindings> {
    * last `build` covered it without errors. A build with errors, its own or its type check's,
    * hands the agent them, and its turn goes on, until the end of the turn failed
    * `END_OF_TURN_BUILD_FAILURES` times in a row: the changes are then committed anyway, and the
-   * agent explains the problem, which ends its turn, even if it changed code again. Editors see a
-   * status line rather than these messages. A build Camox's infrastructure keeps failing lets the
-   * turn end.
+   * agent explains the problem, which ends its turn, even if it changed code again. Code that
+   * builds is linted, and its findings sent to the agent once per turn. Editors see a status line
+   * rather than these messages. A build Camox's infrastructure keeps failing lets the turn end.
    */
   async #onYield(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
     if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
@@ -571,11 +578,16 @@ export class Thread extends DurableObject<Bindings> {
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
     const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     const failedInARow = (await this.ctx.storage.get<number>(failures)) ?? 0;
+    const linted = `${TURN_LINTED_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    const built = `${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
     if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
-      await this.ctx.storage.delete(failures);
+      await this.ctx.storage.delete([failures, linted, built]);
       return undefined;
     }
+    const lint = (await this.ctx.storage.get<boolean>(linted))
+      ? undefined
+      : { covered: (await this.ctx.storage.get<boolean>(built)) ?? false };
     let turn: TurnBuild;
     try {
       turn = await this.#buildingSerially(draftId, () =>
@@ -583,6 +595,7 @@ export class Thread extends DurableObject<Bindings> {
           run,
           failedInARow,
           building: () => this.#showBuildStatus("building"),
+          lint,
         }),
       );
     } catch (error) {
@@ -599,6 +612,11 @@ export class Thread extends DurableObject<Bindings> {
       return { continue: explainFailures(turn) };
     }
     await this.ctx.storage.delete(failures);
+    if (turn.outcome === "linted") {
+      await this.ctx.storage.put(linted, true);
+      return { continue: fixLint(turn.result) };
+    }
+    await this.ctx.storage.delete([linted, built]);
     return undefined;
   }
 

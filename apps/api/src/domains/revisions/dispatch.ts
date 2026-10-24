@@ -21,4 +21,9 @@ export type RevisionToLoad = {
 export type Dispatch = {
   /** A revision's Definition Set, as its build's entrypoint gives it: JSON, not yet checked. */
   readDefinitionSet(revision: RevisionToLoad): Promise<unknown>;
+  /**
+   * Readies a revision before its draft's viewers are told of it: dispatch serves its client
+   * assets from then on, and has loaded and rendered it once.
+   */
+  prewarm(revision: RevisionToLoad): Promise<void>;
 };
