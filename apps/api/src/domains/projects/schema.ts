@@ -41,6 +41,13 @@ export const projects = sqliteTable(
      */
     upgradePushInstanceId: text("upgrade_push_instance_id"),
     upgradePushRequestedAt: int("upgrade_push_requested_at"),
+    /**
+     * A publish with code whose batch committed, still pushing its tree to `main`: it keeps its
+     * place in the project's queue (`../publishes/queue.ts`) until that push landed, its draft's
+     * row being gone. Its publish Workflow's instance, and when its publish was asked for.
+     */
+    publishPushInstanceId: text("publish_push_instance_id"),
+    publishPushRequestedAt: int("publish_push_requested_at"),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

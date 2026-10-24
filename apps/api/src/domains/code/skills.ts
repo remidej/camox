@@ -8,6 +8,17 @@ import fieldStyling from "../../../../../packages/sdk/skills/camox/references/fi
 import layoutDefinitions from "../../../../../packages/sdk/skills/camox/references/layout-definitions.md";
 import localization from "../../../../../packages/sdk/skills/camox/references/localization.md";
 import routedLayouts from "../../../../../packages/sdk/skills/camox/references/routed-layouts.md";
+import skill from "../../../../../packages/sdk/skills/camox/SKILL.md";
+
+/**
+ * The `camox` skill's paragraph on interactive blocks (spec #560, section 15), which the agent's
+ * instructions carry: the skill itself isn't mounted.
+ */
+export const INTERACTIVE_BLOCKS = (() => {
+  const section = /^## Interactive blocks\n+([\s\S]+?)(?=\n## |$)/m.exec(skill)?.[1]?.trim();
+  if (!section) throw new Error("The camox skill has no Interactive blocks section");
+  return section;
+})();
 
 /** Where the references are mounted in the agent's environment, read-only. */
 export const SKILL_REFERENCES_DIR = "/.camox/skills/camox/references";

@@ -213,6 +213,15 @@ describe("the agent's build", () => {
 RolldownError: src/blocks/hero.tsx imports "node:fs", which a hosted project can't import. It can import files in src/, camox's public entry points and the packages package.json lists in dependencies.
     at error (file:///workspace/website/node_modules/rolldown/dist/logs.mjs:166:24)
     at PluginContextImpl.resolveId (file:///workspace/website/node_modules/camox/dist/vite.js:315:29)`,
+        // A build check's error at a place in its file, as the hosted build prints it.
+        `[plugin camox] /workspace/website/src/blocks/faq.tsx:5:6
+RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is named "faq": a block's file is named after its id. Rename the file to questions.tsx or the id to "faq".
+4: export const block = createBlock({
+5:   id: "questions",
+         ^
+6:   title: "FAQ",
+    at error (file:///workspace/website/node_modules/rolldown/dist/logs.mjs:166:24)
+    at TransformPluginContextImpl.transform (file:///workspace/website/node_modules/camox/dist/vite.js:373:28)`,
       ]),
     );
     const { website, draft, thread } = await draftWithChanges({
@@ -239,12 +248,20 @@ RolldownError: src/blocks/hero.tsx imports "node:fs", which a hosted project can
           message: expect.stringMatching(/^src\/blocks\/hero\.tsx imports "node:fs"/),
           frame: "",
         },
+        {
+          file: "src/blocks/faq.tsx",
+          line: 5,
+          column: 6,
+          message: expect.stringMatching(/^src\/blocks\/faq\.tsx defines the block "questions"/),
+          frame: expect.stringContaining(`5:   id: "questions",`),
+        },
       ],
       types: [],
       lint: [],
     });
     expect(result.build).toMatchObject([
       { frame: expect.stringContaining("Module not found.") },
+      {},
       {},
     ]);
     expect(await fakes.readFile(website.project.uuid, draft.id, "src/blocks/pricing.tsx")).toBe(

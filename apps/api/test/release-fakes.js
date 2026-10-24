@@ -15,7 +15,11 @@ import {
   gitFiles,
   gitLog,
   hasGitRepo,
+  failPushes,
+  holdPushes,
+  letGoPushes,
   losePushResponse,
+  pushesWaiting,
   readGitCommit,
   readGitFile,
   readGitLink,
@@ -406,6 +410,8 @@ const lintedTrees = [];
  * crash reaches only the build its test scripted it for
  */
 const sandboxCrashes = [];
+/** @type {{ marker: string, times: number }[]} type checks left that crash, as tsrs crashing does, of a tree with a file holding `marker` */
+const typeCheckCrashes = [];
 /** @type {{ revision: string, archiveKey: string, project: string, draft: string }[]} revisions dispatch prewarmed, oldest first */
 const prewarmed = [];
 /** @type {Map<string, number>} project → how many of its next prewarms fail, as an unreachable dispatch's would */
@@ -414,6 +420,8 @@ const prewarmFailures = new Map();
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
 const sandboxSleepAfter = new Map();
+/** @type {Map<string, { running: number, most: number }>} sandbox → its builds running now, and the most that ran at once */
+const buildsAtOnce = new Map();
 /** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
 const heldBuilds = new Set();
 /** @type {Set<string>} the revision sandboxes whose type checks are held, as checks still running */
@@ -554,8 +562,17 @@ export class FakeRevisionSandbox extends DurableObject {
       return result(0);
     }
     if (BUILD_COMMAND.test(command)) {
-      // Polled: a promise resolved from the request letting go wouldn't wake this one.
-      while (heldBuilds.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
+      // Builds sharing the sandbox's one workspace at once would build each other's files.
+      const at = buildsAtOnce.get(this.name) ?? { running: 0, most: 0 };
+      at.running += 1;
+      at.most = Math.max(at.most, at.running);
+      buildsAtOnce.set(this.name, at);
+      try {
+        // Polled: a promise resolved from the request letting go wouldn't wake this one.
+        while (heldBuilds.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
+      } finally {
+        at.running -= 1;
+      }
       const failing = failingBuilds.find(({ marker }) =>
         Object.values(this.tree).some((content) => content.includes(marker)),
       );
@@ -568,6 +585,14 @@ export class FakeRevisionSandbox extends DurableObject {
     const typeCheck = TYPE_CHECK_COMMAND.exec(command);
     if (typeCheck) {
       while (heldTypeChecks.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
+      const crash = typeCheckCrashes.find(
+        ({ marker, times }) =>
+          times > 0 && Object.values(this.tree).some((content) => content.includes(marker)),
+      );
+      if (crash) {
+        crash.times -= 1;
+        return result(139, "Segmentation fault (core dumped)");
+      }
       // It checks the files its config includes, as tsrs reads them.
       const configPath = typeCheck[1].startsWith("/")
         ? typeCheck[1]
@@ -678,7 +703,10 @@ const workerVersions = new Map();
 const deployments = new Map();
 /** @type {Map<string, { command: string, env: Record<string, string> | undefined, order: number }[]>} project → publish sandbox commands */
 const publishCommands = new Map();
-/** @type {{ project: string, pattern: string, times: number }[]} publish sandbox commands that fail */
+/**
+ * @type {{ project: string, pattern: string, times: number, landing?: boolean }[]} publish sandbox
+ * commands that fail, before doing anything, or after, as when their answer is lost (`landing`)
+ */
 const failingPublishCommands = [];
 /** @type {{ project: string, pattern: string }[]} publish sandbox commands held until the test lets them go */
 let heldPublishCommands = [];
@@ -768,8 +796,18 @@ export class FakePublishSandbox extends DurableObject {
     );
     if (failure) {
       failure.times -= 1;
+      if (failure.landing) await this.run(command, result);
       return result(1, "", `✘ [ERROR] A request to the Cloudflare API failed.`);
     }
+    return this.run(command, result);
+  }
+
+  /**
+   * Does what `command` does.
+   * @param {string} command
+   * @param {(exitCode: number, stdout?: string, stderr?: string) => unknown} result
+   */
+  async run(command, result) {
     const unpack = UNPACK_COMMAND.exec(command);
     if (unpack) {
       const archive = this.files.get(unpack[1]);
@@ -945,6 +983,38 @@ export class ReleaseFakes extends WorkerEntrypoint {
     losePushResponse(repo);
   }
 
+  /**
+   * Makes the next `times` pushes to the branch `branch` of `repo` fail without landing.
+   * @param {string} repo
+   * @param {string} branch
+   * @param {number} times
+   */
+  async failPushes(repo, branch, times) {
+    failPushes(repo, branch, times);
+  }
+
+  /**
+   * Holds every push to the branch `branch` of `repo` until `letGoPushes`.
+   * @param {string} repo
+   * @param {string} branch
+   */
+  async holdPushes(repo, branch) {
+    holdPushes(repo, branch);
+  }
+
+  /**
+   * @param {string} repo
+   * @param {string} branch
+   */
+  async letGoPushes(repo, branch) {
+    letGoPushes(repo, branch);
+  }
+
+  /** @param {string} repo How many pushes to `repo` wait on a hold now. */
+  async pushesWaiting(repo) {
+    return pushesWaiting(repo);
+  }
+
   /** @param {string} repo Whether a Git repo or a pushed repo of that name exists. */
   async hasRepo(repo) {
     return hasGitRepo(repo) || repos.has(repo);
@@ -1012,6 +1082,11 @@ export class ReleaseFakes extends WorkerEntrypoint {
     heldBuilds.add(sandbox);
   }
 
+  /** @param {string} sandbox The most builds that ran at once in a revision sandbox. */
+  async mostBuildsAtOnce(sandbox) {
+    return buildsAtOnce.get(sandbox)?.most ?? 0;
+  }
+
   /** @param {string} sandbox Lets go of the sandbox's builds `holdBuilds()` holds. */
   async releaseBuilds(sandbox) {
     heldBuilds.delete(sandbox);
@@ -1049,6 +1124,15 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async crashSandboxes(marker, times) {
     sandboxCrashes.push({ marker, times });
+  }
+
+  /**
+   * Makes the next `times` type checks of a tree with a file holding `marker` crash.
+   * @param {string} marker
+   * @param {number} times
+   */
+  async crashTypeChecks(marker, times) {
+    typeCheckCrashes.push({ marker, times });
   }
 
   /** @param {string} sandbox Whether a revision sandbox was destroyed. */
@@ -1089,6 +1173,17 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failPublishCommand(project, pattern, times) {
     failingPublishCommands.push({ project, pattern, times });
+  }
+
+  /**
+   * Makes the next `times` commands containing `pattern` in a project's publish sandbox do what
+   * they do, then fail, as when their answer is lost.
+   * @param {string} project
+   * @param {string} pattern
+   * @param {number} times
+   */
+  async losePublishCommandAnswers(project, pattern, times) {
+    failingPublishCommands.push({ project, pattern, times, landing: true });
   }
 
   /**

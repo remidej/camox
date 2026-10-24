@@ -27,6 +27,10 @@ export type RevisionFakes = {
   /** Holds the sandbox's type checks from now on, until `releaseTypeChecks(sandbox)`. */
   holdTypeChecks(sandbox: string): Promise<void>;
   releaseTypeChecks(sandbox: string): Promise<void>;
+  /** Makes the next `times` calls of a sandbox building a tree holding `marker` fail. */
+  crashSandboxes(marker: string, times: number): Promise<void>;
+  /** Makes the next `times` type checks of a tree holding `marker` crash. */
+  crashTypeChecks(marker: string, times: number): Promise<void>;
 };
 
 /** A type error the fake sandbox's type check prints, as tsrs does. */

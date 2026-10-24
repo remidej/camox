@@ -22,7 +22,9 @@ import { type BlockDefinition, useBlockDefinitions } from "@/lib/studio-definiti
 import { useLocalePath } from "@/lib/view-locale";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
+import type { RendererAnswer } from "../../renderer/protocol";
 import { useRendererHost } from "../../renderer/RendererFrames";
+import type { RendererHost } from "../../renderer/rendererHost";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
 import { getGridNavigationIndex } from "./blockGridNavigation";
@@ -182,9 +184,7 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
     try {
       // The block's code builds its initial content, in the renderer frame, which runs the
       // draft's code. Without it, the synced defaults, with no repeatable items.
-      const fromCode = rendererHost
-        ? await rendererHost.ask({ type: "initialBundle", blockType: block.id })
-        : null;
+      const fromCode = rendererHost ? await initialBundleFrom(rendererHost, block.id) : null;
       const bundle = fromCode ?? {
         content: block.defaultContent,
         settings: block.defaultSettings,
@@ -337,3 +337,37 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
 };
 
 export { AddBlockSheet };
+
+/**
+ * How long adding a block waits for the renderer frame to give the block's initial content
+ * before it uses the synced defaults. A tuning value.
+ */
+export const INITIAL_BUNDLE_WAIT_MS = 3_000;
+
+type InitialBundleAnswer = RendererAnswer<{ type: "initialBundle"; blockType: string }>;
+
+/**
+ * The initial content a `blockType` block's code builds, asked of the renderer frame. Null,
+ * for the synced defaults, when the renderer runs another SDK version, which answers nothing,
+ * or hasn't answered within `INITIAL_BUNDLE_WAIT_MS`, as when it never connects.
+ */
+function initialBundleFrom(host: RendererHost, blockType: string): Promise<InitialBundleAnswer> {
+  return new Promise((resolve, reject) => {
+    const settle = (bundle: InitialBundleAnswer) => {
+      clearTimeout(timeout);
+      stopWatching();
+      resolve(bundle);
+    };
+    const timeout = setTimeout(() => settle(null), INITIAL_BUNDLE_WAIT_MS);
+    const watch = () => {
+      if (host.status() === "updating") settle(null);
+    };
+    const stopWatching = host.subscribeStatus(watch);
+    watch();
+    host.ask({ type: "initialBundle", blockType }).then(settle, (error: unknown) => {
+      clearTimeout(timeout);
+      stopWatching();
+      reject(error);
+    });
+  });
+}

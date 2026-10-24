@@ -57,7 +57,12 @@ async function renderSheet(
     developmentMode = false,
     renderer = false,
     thumbnailsInView = false,
-  }: { developmentMode?: boolean; renderer?: boolean; thumbnailsInView?: boolean } = {},
+  }: {
+    developmentMode?: boolean;
+    /** Whether the studio renders through a renderer frame, and which renderer connects to it. */
+    renderer?: boolean | "otherVersion" | "neverConnects";
+    thumbnailsInView?: boolean;
+  } = {},
 ) {
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
@@ -95,7 +100,12 @@ async function renderSheet(
     Object.assign(globalThis, { IntersectionObserver: InView, ResizeObserver: InView });
   }
   const rendererHost = renderer ? createRendererHost() : null;
-  const rendererFrame = rendererHost ? fakeRenderer(rendererHost.handle) : null;
+  const rendererFrame =
+    rendererHost && renderer !== "neverConnects"
+      ? fakeRenderer(rendererHost.handle, {
+          ...(renderer === "otherVersion" && { sdkVersion: "0.0.0-another" }),
+        })
+      : null;
 
   const requests: { procedure: string; input: unknown }[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
@@ -276,3 +286,25 @@ void test("through the renderer frame, a new block starts with the content the r
     },
   );
 });
+
+// A renderer of another SDK version answers nothing: the sheet doesn't wait for it.
+for (const [renderer, why, waits] of [
+  ["otherVersion", "runs another SDK version", false],
+  ["neverConnects", "never connects", true],
+] as const) {
+  void test(`a new block starts with the synced defaults when the renderer ${why}`, async (t) => {
+    const sheet = await renderSheet(t, { live: [definition("pricing", "Pricing")] }, { renderer });
+    const { INITIAL_BUNDLE_WAIT_MS } = await import("./AddBlockSheet");
+    await sheet.add("Pricing");
+    if (waits) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, INITIAL_BUNDLE_WAIT_MS)));
+    }
+    for (let i = 0; i < 3; i++) await sheet.settle();
+
+    const created = sheet.requests[0]?.input as Record<string, unknown> | undefined;
+    assert.deepEqual(
+      { type: created?.type, content: created?.content, repeatableItems: created?.repeatableItems },
+      { type: "pricing", content: { title: "" }, repeatableItems: [] },
+    );
+  });
+}

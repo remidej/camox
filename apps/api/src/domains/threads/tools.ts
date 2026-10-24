@@ -20,7 +20,7 @@ import { createDb } from "../../db";
 import { toORPCError } from "../../lib/run-service";
 import { user } from "../../schema";
 import type { Bindings } from "../../types";
-import type { ServiceContext } from "../_shared/service-context";
+import { agentServiceContext } from "../_shared/service-context";
 import { dispatchTool, type ToolExecutionResponse } from "../agent/service";
 import { touchesOf } from "./touches";
 
@@ -89,19 +89,14 @@ export function threadToolDispatch(
     const starting = draftId ? undefined : draftToStart;
     const db = createDb(env.DB);
     const acting = await db.select().from(user).where(eq(user.id, userId)).get();
-    const ctx: ServiceContext = {
+    const ctx = agentServiceContext({
       db,
-      user: acting ?? null,
       env,
+      user: acting ?? null,
       waitUntil,
-      client: "camox-agent",
-      telemetryDisabled: false,
-      draft: draftId
-        ? { id: draftId, create: false }
-        : starting
-          ? { id: starting.id, create: true, threadId: starting.threadId }
-          : null,
-    };
+      draftId,
+      starting,
+    });
     const response = await Effect.runPromise(
       dispatchTool(ctx, { projectId, surface: SURFACE, name, args }).pipe(
         Effect.catch((error) =>

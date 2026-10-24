@@ -35,10 +35,9 @@ export type MergeEnd =
  */
 export async function mergeMainIntoDraft(env: Bindings, draftId: string): Promise<MergeEnd> {
   const code = env.DRAFT_CODE.getByName(draftId);
-  // The RPC stub's type of a union loses the cases apart.
-  const merge = (await retried(() => code.mergeMain() as Promise<unknown>)) as MergeOutcome;
+  const merge = await retried<MergeOutcome>(() => code.mergeMain());
   if (merge.outcome === "upToDate" || merge.outcome === "unsettled") return "upToDate";
-  if (merge.outcome === "clashed") return "clashedBefore";
+  if (merge.outcome === "clashedBefore") return "clashedBefore";
   let clash: MergeClash | undefined;
   if (merge.outcome === "conflicts") {
     clash = { main: merge.main, conflicts: merge.conflicts };

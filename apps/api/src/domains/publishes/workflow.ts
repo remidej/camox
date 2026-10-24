@@ -18,10 +18,9 @@ import { drafts } from "../drafts/schema";
 import { draftOf } from "../drafts/scope";
 import { projects } from "../projects/schema";
 import { releases } from "../releases/schema";
-import { buildRevision } from "../revisions/build";
 import { revisions } from "../revisions/schema";
 import { DRAFT_MERGED_EVENT, PUBLISH_TURN_EVENT } from "./events";
-import { turnOf, wakeNextPublish } from "./queue";
+import { leavePublishPush, turnOf, wakeNextPublish } from "./queue";
 import { promoteVersion, servedVersion, uploadVersion } from "./sandbox";
 
 // Publishing a draft with code (ADR 0020, spec #560 section 13): its publish Workflow puts the
@@ -51,8 +50,17 @@ export type PublishParams = {
 const TURN_CHECK_EVERY = "1 minute";
 
 /** A few retries for what the sandbox, Artifacts or R2 fail at. */
-const INFRASTRUCTURE_RETRIES: WorkflowStepConfig = {
+export const INFRASTRUCTURE_RETRIES: WorkflowStepConfig = {
   retries: { limit: 3, delay: "5 seconds", backoff: "exponential" },
+};
+
+/**
+ * Retries for a step the publish can't give up on: once Live may serve the new version, putting
+ * the previous one back, and once the batch committed, the steps that put Live's tree on `main`.
+ * As many as Workflows allow, a minute apart: days of an outage. A tuning value.
+ */
+export const UNTIL_DONE: WorkflowStepConfig = {
+  retries: { limit: 10_000, delay: "1 minute", backoff: "constant" },
 };
 
 /**
@@ -94,6 +102,19 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         endPublishing(db, params, instanceId, reason),
       );
 
+    // The version Live served before this publish's, once Live may serve this one: until the
+    // batch commits, any failure puts it back.
+    let rollBackTo: { previous: string | null; project: string } | undefined;
+    const rollBack = async () => {
+      const to = rollBackTo;
+      rollBackTo = undefined;
+      if (!to?.previous) return;
+      const previous = to.previous;
+      await step.do("promote the previous version back", UNTIL_DONE, () =>
+        promoteVersion(this.env, to.project, previous),
+      );
+    };
+
     try {
       if (!(await this.waitForTurn(step, db, params, instanceId))) return;
 
@@ -122,20 +143,24 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       const previous = await step.do("read the version Live serves", INFRASTRUCTURE_RETRIES, () =>
         servedVersion(this.env, ship.projectUuid),
       );
+      // A promotion whose answer is lost may have served the version all the same.
+      rollBackTo = { previous, project: ship.projectUuid };
+      await step.do("let the version read the draft", async () => {
+        await db
+          .update(drafts)
+          .set({ publishPromotedAt: Date.now() })
+          .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)));
+      });
       await step.do("promote the Worker version", INFRASTRUCTURE_RETRIES, () =>
         promoteVersion(this.env, ship.projectUuid, version),
       );
 
       // 5. The publish batch, with the draft's definitions.
       const batch = await step.do("run the publish batch", () =>
-        runService(publishWithCode(db, { ...params, revision: ship.revision })),
+        runService(publishWithCode(db, { ...params, revision: ship.revision, instanceId })),
       );
       if (!batch.applied && batch.ended?.outcome !== "published") {
-        if (previous) {
-          await step.do("promote the previous version back", INFRASTRUCTURE_RETRIES, () =>
-            promoteVersion(this.env, ship.projectUuid, previous),
-          );
-        }
+        await rollBack();
         // A draft discarded while it published has no review to go back to.
         if (!batch.ended) {
           await abort(
@@ -145,13 +170,17 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         return;
       }
 
+      // Live has the draft's code and content: what's left can't be given up on, or `main`
+      // would stay behind Live, and its next push release old code over it.
+      rollBackTo = undefined;
+
       // 6. Live serves the revision's tree: the push to `main` releases nothing.
-      await step.do("record the tree Live serves", () =>
+      await step.do("record the tree Live serves", UNTIL_DONE, () =>
         recordServedTree(db, params, instanceId, ship),
       );
 
       // 7. One squashed commit on `main`.
-      await step.do("push the squashed commit to main", INFRASTRUCTURE_RETRIES, async () => {
+      await step.do("push the squashed commit to main", UNTIL_DONE, async () => {
         const commit = await this.env.DRAFT_CODE.getByName(params.draftId).publishToMain({
           commit: ship.commit,
           message: ship.draftName ? `Publish "${ship.draftName}"` : "Publish a draft",
@@ -160,10 +189,12 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
           .update(releases)
           .set({ commit })
           .where(eq(releases.workflowInstanceId, instanceId));
+        // `main` holds the draft's code: what's next in the project's queue may move it.
+        await leavePublishPush(db, params.projectId, instanceId);
       });
 
       // 8. The draft's branch, builds, working copy and sandbox.
-      await step.do("delete the draft's code", () =>
+      await step.do("delete the draft's code", UNTIL_DONE, () =>
         Effect.runPromise(
           discardCode(
             { env: this.env, db },
@@ -172,6 +203,9 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         ),
       );
     } catch (error) {
+      await rollBack().catch((rolled: unknown) =>
+        console.error("A failed publish didn't put Live's previous version back", rolled),
+      );
       await step
         .do("go back to the review after a failure", () =>
           endPublishing(db, params, instanceId, "failed"),
@@ -244,15 +278,16 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         return { merging: true };
       }
       if (revision.typeCheckStatus === "failed") return { aborted: "codeDoesNotMerge" };
-    } else if (draft.previewedRevisionId !== head) return { aborted: "revisionChanged" };
+    } else if (draft.previewedRevisionId !== head || revision.typeCheckStatus === "pending") {
+      // Live never gets code whose type check hasn't passed.
+      return { aborted: "revisionChanged" };
+    }
     if (!revision.archiveKey) {
-      await code.markBuilding(true);
-      try {
-        const built = await buildRevision(this.env, params.draftId, { leftBy: "build" });
-        if (built.revision !== head) return { aborted: "revisionChanged" };
-      } finally {
-        await code.markBuilding(false);
-      }
+      // In the draft's build queue: its sandbox builds one tree at a time.
+      const built = draft.threadId
+        ? await this.env.THREAD.getByName(draft.threadId).buildForPublish(params.draftId)
+        : null;
+      if (built?.revision !== head) return { aborted: "revisionChanged" };
       revision = await revisionOf(db, head);
     }
     if (!revision?.archiveKey) return { aborted: "revisionChanged" };
@@ -322,6 +357,7 @@ async function publishingDraft(db: Database, draftId: string, instanceId: string
       name: drafts.name,
       headRevisionId: drafts.headRevisionId,
       previewedRevisionId: drafts.previewedRevisionId,
+      threadId: drafts.threadId,
       projectUuid: projects.uuid,
     })
     .from(drafts)
@@ -386,6 +422,7 @@ async function endPublishing(
             publishingRevisionId: null,
             publishInstanceId: null,
             publishRequestedAt: null,
+            publishPromotedAt: null,
             publishAbortReason: reason,
           })
           .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)))

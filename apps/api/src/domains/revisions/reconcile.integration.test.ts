@@ -206,15 +206,19 @@ describe("Camox's reconcile turn", () => {
     const fixed = holdNextToolCall("write", { path: HERO_FILE, content: LIVE_HERO });
     answerNext("Live's new welcome is in, with the draft's pricing.");
     const calls = threadModelCalls();
+    const before = (await previewOf(website, draftId)).code!.revision;
 
     // Live's hero merges cleanly into the draft, but the merged code has a type error in it.
     await pushToMain(repo, mainWith({ [HERO_FILE]: `${LIVE_HERO}// ${marker}\n` }));
 
     await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 1));
     expect(said(thread.view()).at(-1)).toEqual({ from: "camox", text: expect.any(String) });
-    expect(await blockersOf(website, draftId)).toEqual([
+    const clashed = await previewOf(website, draftId);
+    expect(clashed.blockers.map(({ entity, code }) => ({ entity, code }))).toEqual([
       { entity: "code", code: "codeDoesNotMerge" },
     ]);
+    // The preview stays on the draft's last revision, on the old `main`.
+    expect(clashed.code).toMatchObject({ revision: before, includesLive: false });
 
     fixed();
     await thread.untilIdle();
@@ -273,6 +277,40 @@ describe("Camox's reconcile turn that fails", () => {
     );
     await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 1));
     expect(said(thread.view()).filter(({ from }) => from === "camox")).toHaveLength(2);
+  });
+});
+
+describe("a merge of main into files holding one Camox's turn didn't fix", () => {
+  it("keeps what the agent wrote since, rather than merge over it", async () => {
+    const { website, draftId, thread } = await draftChanging(HERO_FILE, OUR_HERO);
+    const repo = website.project.uuid;
+    // Camox's reconcile turn leaves the conflict, and explains once the end of its turn gives up.
+    for (let ended = 0; ended < END_OF_TURN_BUILD_FAILURES; ended++) answerNext("Done.");
+    answerNext(EXPLAINED);
+    await pushToMain(repo, mainWith({ [HERO_FILE]: LIVE_HERO }));
+    await thread.until(() => lastAnswer(thread.view()) === EXPLAINED && !thread.view().running);
+
+    // The editor asks for pricing: the agent writes it beside the conflict it leaves.
+    answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
+    for (let ended = 0; ended < END_OF_TURN_BUILD_FAILURES; ended++) answerNext("Done.");
+    answerNext("I added pricing, but the hero still doesn't fit with Live's.");
+    await ask(thread, "Add a pricing section");
+
+    // `main` moves again.
+    await pushToMain(
+      repo,
+      mainWith({ [HERO_FILE]: LIVE_HERO, "src/blocks/faq.tsx": `export const faq = "FAQ";\n` }),
+      "Another push",
+    );
+    const threadId = await threadIdOf(website.db, draftId);
+    await env.THREAD.getByName(threadId!).mergeMain();
+    await thread.untilIdle();
+
+    const workingCopy = env.DRAFT_CODE.getByName(draftId);
+    expect(
+      await workingCopy.call({ operation: "readTextFile", args: [`/${PRICING_FILE}`] }),
+    ).toEqual({ ok: true, value: PRICING });
+    thread.close();
   });
 });
 

@@ -36,6 +36,13 @@ import {
 } from "../../../test/threads";
 import { router } from "../../router";
 import { blocks } from "../../schema";
+import { drafts } from "../drafts/schema";
+import { revisions } from "../revisions/schema";
+import { PUBLISHES_CHECKED_EVERY } from "../upgrades/project-workflow";
+import { INFRASTRUCTURE_RETRIES } from "./workflow";
+
+/** How many times a publish's step that fails on Camox's side runs before it gives up. */
+const STEP_ATTEMPTS = Number(INFRASTRUCTURE_RETRIES.retries!.limit) + 1;
 
 // Publishing a draft with code (spec #560, section 13): the publish Workflow uploads the build of
 // the revision members previewed as a new version of the project's Worker, re-checks conflicts,
@@ -60,6 +67,15 @@ type Fakes = {
   deployments(project: string): Promise<string[]>;
   publishCommands(project: string): Promise<{ command: string; order: number }[]>;
   holdPublishCommand(project: string, pattern: string): Promise<void>;
+  holdBuilds(sandbox: string): Promise<void>;
+  releaseBuilds(sandbox: string): Promise<void>;
+  mostBuildsAtOnce(sandbox: string): Promise<number>;
+  failPublishCommand(project: string, pattern: string, times: number): Promise<void>;
+  losePublishCommandAnswers(project: string, pattern: string, times: number): Promise<void>;
+  failPushes(repo: string, branch: string, times: number): Promise<void>;
+  holdPushes(repo: string, branch: string): Promise<void>;
+  letGoPushes(repo: string, branch: string): Promise<void>;
+  pushesWaiting(repo: string): Promise<number>;
   letGoPublishCommand(project: string, pattern: string): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; order: number }[]>;
   log(repo: string): Promise<{ oid: string; message: string }[]>;
@@ -376,6 +392,39 @@ describe("publishing a draft with code", () => {
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO, PRICING] });
   });
 
+  it("keeps reads naming the draft on Live's until the promotion", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    const publishing = { [PUBLISHING_DRAFT_HEADER]: draftId };
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions upload");
+
+    // Publishing, but no version reads the draft yet.
+    expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO] });
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    await publishesEnd(publishes);
+  });
+
+  it("refuses edits to the draft's content while it publishes", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions upload");
+
+    await expect(writeHello(website, "Hello there", draftId)).rejects.toMatchObject({
+      message: expect.stringContaining("being published"),
+    });
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    await publishesEnd(publishes);
+    expect(await pagesOf(website)).toEqual({ "/home": [HELLO, PRICING] });
+  });
+
   it("is refused once the agent left a revision after the review", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
@@ -534,6 +583,65 @@ describe("publishing a draft with code", () => {
     expect(await liveBlockTypes(website)).toEqual(["text"]);
   });
 
+  it("puts the previous version back when the promotion fails after it took effect", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    const served = await fakes.servedVersion(repo);
+    const mainBefore = await fakes.log(repo);
+    // Every try of the promotion serves the new version, but its answer is lost.
+    await fakes.losePublishCommandAnswers(repo, "versions deploy", STEP_ATTEMPTS);
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes, "errored");
+
+    expect(await fakes.servedVersion(repo)).toEqual(served);
+    expect(await fakes.log(repo)).toEqual(mainBefore);
+    expect(await pagesOf(website)).toEqual({ "/home": [HELLO] });
+    expect((await previewOf(website, draftId)).code).toMatchObject({
+      publishing: false,
+      publishAborted: "failed",
+    });
+  });
+
+  it("keeps trying to put the previous version back when the batch aborts", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    await writeHello(website, "Hello there", draftId);
+    const repo = website.project.uuid;
+    const served = await fakes.servedVersion(repo);
+    await fakes.holdPublishCommand(repo, "versions deploy");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions deploy");
+
+    await writeHello(website, "Hi");
+    await fakes.failPublishCommand(repo, `versions deploy ${served!.id}`, STEP_ATTEMPTS);
+    await fakes.letGoPublishCommand(repo, "versions deploy");
+    await publishesEnd(publishes);
+
+    expect(await fakes.servedVersion(repo)).toEqual(served);
+    expect((await previewOf(website, draftId)).code).toMatchObject({
+      publishing: false,
+      publishAborted: "conflictsChanged",
+    });
+  });
+
+  it("pushes to main and deletes the draft's code once it published, however often that fails", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId, file } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    await fakes.failPushes(repo, "main", STEP_ATTEMPTS);
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes);
+
+    expect(await pagesOf(website)).toEqual({ "/home": [HELLO, PRICING] });
+    expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
+    expect(await fakes.branches(repo)).toEqual(["main"]);
+    expect(await env.DRAFT_CODE.getByName(draftId).held()).toBe(false);
+  });
+
   it("holds an Upgrade's push to main until the project's publish pushed, keeping both", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId, file } = await draftAddingPricing(website, token);
@@ -552,6 +660,40 @@ describe("publishing a draft with code", () => {
     const published = Math.max(...(await fakes.publishCommands(repo)).map(({ order }) => order));
     expect(await upgradePushOrder(repo)).toBeGreaterThan(published);
     // The Upgrade's commit sits on the publish's: `main` has both changes.
+    const [upgraded, publishedCommit] = await fakes.log(repo);
+    expect(upgraded!.message).toBe("Upgrade Camox to 1.1.0");
+    expect(publishedCommit!.message).toMatch(/^Publish/);
+    expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
+    expect(await camoxOnMain(repo)).toBe("^1.1.0");
+  });
+
+  it("holds an Upgrade's push to main while the project's publish, batch committed, still pushes", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId, file } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdPushes(repo, "main");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions upload");
+    await using upgrading = await startUpgrade(repo);
+    await readyToPush(repo);
+
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    // The batch committed, and the publish's push to `main` waits: the Upgrade checks its turn
+    // meanwhile.
+    await vi.waitFor(async () => expect(await fakes.pushesWaiting(repo)).toBe(1), {
+      timeout: 10_000,
+      interval: 50,
+    });
+    expect(await draftsOf(website)).toEqual([]);
+    await new Promise((resolve) =>
+      setTimeout(resolve, 2 * parseFloat(PUBLISHES_CHECKED_EVERY) * 1000),
+    );
+    await fakes.letGoPushes(repo, "main");
+    await publishesEnd(publishes);
+    await upgrading.waitForStatus("complete");
+
     const [upgraded, publishedCommit] = await fakes.log(repo);
     expect(upgraded!.message).toBe("Upgrade Camox to 1.1.0");
     expect(publishedCommit!.message).toMatch(/^Publish/);
@@ -590,6 +732,48 @@ describe("publishing a draft with code", () => {
     expect(await fakes.readFile(repo, "main", "src/blocks/text.tsx")).toBe(changed);
     expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).not.toBeNull();
     expect(await camoxOnMain(repo)).toBe("^1.1.0");
+  });
+
+  it("builds a head whose build is gone again in the draft's build queue, never beside another", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    // The head's build is gone, as when its archive was lost.
+    const head = await website.db
+      .select({ id: revisions.id, archiveKey: revisions.archiveKey })
+      .from(revisions)
+      .innerJoin(drafts, eq(drafts.headRevisionId, revisions.id))
+      .where(eq(drafts.id, draftId))
+      .get();
+    await env.REVISION_BUILDS.delete(head!.archiveKey!);
+    await website.db.update(revisions).set({ archiveKey: null }).where(eq(revisions.id, head!.id));
+    await fakes.holdBuilds(draftId);
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await vi.waitFor(async () => expect(await fakes.mostBuildsAtOnce(draftId)).toBe(1), {
+      timeout: 10_000,
+      interval: 50,
+    });
+
+    // The agent builds a change while the publish's build runs.
+    const thread = await connectDraftThread(website.project.id, draftId, token);
+    answerWithToolCall("write", {
+      path: "src/blocks/text.tsx",
+      content: `export const text = "x";\n`,
+    });
+    answerWithToolCall("build", {});
+    answerFrom(() => "Changed it.");
+    const asked = ask(thread, "Change the text block's code");
+    await expect(
+      vi.waitFor(async () => expect(await fakes.mostBuildsAtOnce(draftId)).toBe(2), {
+        timeout: 2_000,
+        interval: 50,
+      }),
+    ).rejects.toThrow();
+    await fakes.releaseBuilds(draftId);
+    await asked;
+    await publishesEnd(publishes);
+
+    expect(await fakes.mostBuildsAtOnce(draftId)).toBe(1);
   });
 
   it("deletes the draft's branch, builds, working copy and sandbox once it lands", async () => {

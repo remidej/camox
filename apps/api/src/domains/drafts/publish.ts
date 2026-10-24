@@ -42,6 +42,7 @@ import { homeOf } from "../generated-values/service";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
+import { holdPublishPush } from "../publishes/queue";
 import { rootOfItem } from "../repeatable-items/roots";
 import { codeOfDraft, type PreviewCode } from "../revisions/preview";
 import { endingThread } from "../threads/service";
@@ -316,8 +317,9 @@ const codeBlocker = (
 
 /**
  * The preview's `code`, and the blockers the draft's code has: merging Live's code into it
- * clashed and Camox's reconcile turn hasn't fixed it, or else its head revision isn't built, or
- * built but doesn't type check.
+ * clashed and Camox's reconcile turn hasn't fixed it, or else its head revision isn't built,
+ * built but its definitions can't be used, so the preview doesn't show it, or built but doesn't
+ * type check.
  */
 const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, scope: Scope) {
   if (scope.kind === "development") return { code: null, blockers: [] };
@@ -339,6 +341,20 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
         scope.id,
         "codeDoesNotBuild",
         "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
+      ),
+    );
+  } else if (
+    head?.buildStatus === "built" &&
+    head.leftBy !== "merge" &&
+    head.id !== code?.revision &&
+    !code?.building
+  ) {
+    // It built, but the draft can't use its definitions, so the preview doesn't show it.
+    blockers.push(
+      codeBlocker(
+        scope.id,
+        "codeDoesNotBuild",
+        "The agent's latest code changes can't be shown in the preview: ask it to fix them in the draft's thread",
       ),
     );
   } else if (head?.buildStatus === "built" && head.typeCheckStatus === "failed") {
@@ -957,7 +973,15 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
     revision,
     token,
     publishedBy,
-  }: { draftId: string; revision: string; token: string; publishedBy: string },
+    instanceId,
+  }: {
+    draftId: string;
+    revision: string;
+    token: string;
+    publishedBy: string;
+    /** The publish Workflow's instance, which keeps its place in the project's queue. */
+    instanceId: string;
+  },
 ) {
   const row = yield* Effect.promise(() =>
     db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
@@ -980,7 +1004,16 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
     shown,
     publishedBy,
     stored,
-    after: [previewsRevisionGuard(draftId, revision), ...definitionsPublishStatements(db, scope)],
+    after: [
+      previewsRevisionGuard(draftId, revision),
+      ...definitionsPublishStatements(db, scope),
+      // The draft's row goes: the publish keeps its place in the queue until it pushed to `main`.
+      holdPublishPush(db, {
+        projectId: scope.projectId,
+        instanceId,
+        requestedAt: row.publishRequestedAt ?? Date.now(),
+      }),
+    ],
   });
   // Live's viewers read its new definitions.
   if (result.applied) {

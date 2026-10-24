@@ -244,6 +244,18 @@ describe("a draft with code's preview", () => {
     expect(await response.text()).toBe(`Live's code at ${path}`);
   });
 
+  it("sends a member to the project Worker when the revision's build isn't stored", async () => {
+    const { builds, fetch } = await previewingEnv();
+    builds.objects.delete(ARCHIVE_KEY);
+
+    const response = await fetch(`/_camox/renderer?camox-draft=${DRAFT}`, {
+      cookie: mirrored(MEMBER_SESSION),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(`Live's code at /_camox/renderer?camox-draft=${DRAFT}`);
+  });
+
   it("sends a member to the project Worker when the API can't answer", async () => {
     const { env, fetch } = await previewingEnv();
     (env as unknown as { API: unknown }).API = {

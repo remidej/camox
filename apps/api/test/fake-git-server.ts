@@ -30,6 +30,12 @@ const repos = new Map<string, MemoryFs>();
 const pushEvents = new Map<string, PushEvent[]>();
 /** Repos whose next push lands but answers with an error, as if the response were lost. */
 const lostPushResponses = new Set<string>();
+/** Pushes to a repo's branch held until the test lets them go, by repo, then ref. */
+const heldPushes = new Map<string, Set<string>>();
+/** How many pushes wait on a hold now, by repo. */
+const waitingPushes = new Map<string, number>();
+/** Pushes to a repo's branch that fail without landing, by repo, then branch: how many are left. */
+const failingPushes = new Map<string, Map<string, number>>();
 
 const bare = (fs: MemoryFs) => ({ fs, dir: "/", gitdir: "/" });
 
@@ -215,6 +221,43 @@ export async function gitLog(name: string) {
   return commits.map(({ oid, commit }) => ({ oid, message: commit.message.trimEnd() }));
 }
 
+/** Makes the next `times` pushes to the branch `branch` of the repo `name` fail without landing. */
+export function failPushes(name: string, branch: string, times: number) {
+  const branches = failingPushes.get(name) ?? new Map<string, number>();
+  branches.set(`refs/heads/${branch}`, times);
+  failingPushes.set(name, branches);
+}
+
+/** Holds every push to the branch `branch` of the repo `name` until `letGoPushes`. */
+export function holdPushes(name: string, branch: string) {
+  heldPushes.set(name, (heldPushes.get(name) ?? new Set()).add(`refs/heads/${branch}`));
+}
+
+export function letGoPushes(name: string, branch: string) {
+  heldPushes.get(name)?.delete(`refs/heads/${branch}`);
+}
+
+/** How many pushes to the repo `name` wait on a hold now. */
+export function pushesWaiting(name: string) {
+  return waitingPushes.get(name) ?? 0;
+}
+
+/** Waits while pushes to `ref` of the repo `name` are held. Polled, as nothing else wakes it. */
+async function whileHeld(name: string, ref: string) {
+  if (!heldPushes.get(name)?.has(ref)) return;
+  waitingPushes.set(name, pushesWaiting(name) + 1);
+  while (heldPushes.get(name)?.has(ref)) await new Promise((resolve) => setTimeout(resolve, 10));
+  waitingPushes.set(name, pushesWaiting(name) - 1);
+}
+
+/** Whether a push to `ref` of the repo `name` is made to fail, counting it if so. */
+function pushFails(name: string, ref: string) {
+  const left = failingPushes.get(name)?.get(ref) ?? 0;
+  if (left === 0) return false;
+  failingPushes.get(name)!.set(ref, left - 1);
+  return true;
+}
+
 export function losePushResponse(name: string) {
   lostPushResponses.add(name);
 }
@@ -385,7 +428,10 @@ async function receivePack(name: string, fs: MemoryFs, body: Uint8Array) {
   const { lines, rest } = readPktLines(body);
   const [command] = lines;
   const [oldOid, newOid, ref] = command!.split("\0")[0]!.trim().split(" ");
+  await whileHeld(name, ref!);
   const current = await git.resolveRef({ ...bare(fs), ref: ref! }).catch(() => ZERO);
+  // A push made to fail lands nothing, and answers with an error.
+  if (pushFails(name, ref!)) return null;
   let status = `ok ${ref}\n`;
   if (current !== oldOid) {
     status = `ng ${ref} fetch first\n`;
@@ -438,6 +484,7 @@ export async function serveGit(request: Request): Promise<Response> {
     });
   }
   const response = await receivePack(name!, fs, body);
+  if (!response) return new Response("Internal error", { status: 500 });
   if (lostPushResponses.delete(name!)) return new Response("Bad gateway", { status: 502 });
   return new Response(response, {
     headers: { "content-type": "application/x-git-receive-pack-result" },

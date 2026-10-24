@@ -61,3 +61,8 @@ export async function deleteDraftBuilds(env: Pick<Bindings, "REVISION_BUILDS">, 
       await deleteUnder(env, revisionAssetsPrefix({ project: draft.project, revision }));
   }
 }
+
+/** Deletes every build of a project's drafts, with their prewarmed client assets. */
+export async function deleteProjectBuilds(env: Pick<Bindings, "REVISION_BUILDS">, project: string) {
+  await deleteUnder(env, `${project}/`);
+}

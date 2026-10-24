@@ -119,10 +119,20 @@ export function loadRevision(
   );
 }
 
+/** What loading a revision whose build isn't stored fails with. */
+const MISSING_BUILD = "A revision's build isn't stored";
+
+/**
+ * Whether `error` says a revision's build isn't stored, as when it was pruned since the API
+ * answered. Matched by message: an error thrown while the loader loads crosses as a plain one.
+ */
+export const isMissingBuild = (error: unknown) =>
+  error instanceof Error && error.message.startsWith(MISSING_BUILD);
+
 /** The files of a revision's build, from its archive. */
 async function buildFiles(env: RevisionBindings, { archiveKey }: RevisionToLoad) {
   const archive = await env.REVISION_BUILDS.get(archiveKey);
-  if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
+  if (!archive) throw new Error(`${MISSING_BUILD}: ${archiveKey}`);
   return untarGzip(archive.body);
 }
 
@@ -196,7 +206,7 @@ export async function prewarmRevision(
 }
 
 /** The renderer document's path (`RUNTIME_ROUTE_PATHS.renderer` in `camox`). */
-const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
+export const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
 
 /** The path a revision's client asset is served at: under its asset prefix. */
 const ASSET_PATH = /^\/_camox\/r\/([^/]+)\/(.+)$/;

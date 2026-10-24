@@ -4,6 +4,7 @@ import http from "isomorphic-git/http/web";
 
 import type { CodeFile } from "../domains/code/main-copy";
 import { MemoryFs } from "../lib/memory-fs";
+import { serialQueue } from "../lib/serial-queue";
 import type { Bindings } from "../types";
 
 const MAIN = "main";
@@ -21,7 +22,7 @@ export type MainSnapshot = { commit: string; files?: CodeFile[] };
  */
 export class ProjectCode extends DurableObject<Bindings> {
   /** Refreshing the copy, which the next refresh waits for. */
-  #refreshing: Promise<unknown> = Promise.resolve();
+  readonly #refreshing = serialQueue();
 
   constructor(ctx: DurableObjectState, env: Bindings) {
     super(ctx, env);
@@ -46,24 +47,28 @@ export class ProjectCode extends DurableObject<Bindings> {
    * to. Returns the commit it holds. One refresh at a time.
    */
   refresh(commit?: string): Promise<string> {
-    const refreshed = this.#refreshing.then(async () => {
+    return this.#refreshing.run(async () => {
       const held = this.#commit();
       if (held && held === commit) return held;
       return this.#clone();
     });
-    this.#refreshing = refreshed.catch(() => undefined);
-    return refreshed;
+  }
+
+  /** Deletes the copy, as its project is deleted. */
+  async discard(): Promise<void> {
+    await this.#refreshing.idle();
+    await this.ctx.storage.deleteAll();
   }
 
   /** The commit of `main` the copy holds, without making it if it never was. */
   async commit(): Promise<string | undefined> {
-    await this.#refreshing;
+    await this.#refreshing.idle();
     return this.#commit();
   }
 
   /** The copy, made first if it never was; only its commit when it's `known`. */
   async snapshot(known?: string): Promise<MainSnapshot> {
-    await this.#refreshing;
+    await this.#refreshing.idle();
     const commit = this.#commit() ?? (await this.refresh());
     if (commit === known) return { commit };
     const files = this.ctx.storage.sql

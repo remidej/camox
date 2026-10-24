@@ -16,6 +16,7 @@ import {
   type ForwardedStore,
   type Inbox,
   type MirroredStore,
+  type MirrorEvent,
   type RendererFrameTarget,
   type RendererMessage,
   type StoreEvent,
@@ -45,9 +46,12 @@ type DocumentStore = {
   };
 };
 
-const mirrors: Record<MirroredStore, DocumentStore> = {
-  preview: previewStore as unknown as DocumentStore,
-  canvas: canvasStore as unknown as DocumentStore,
+/** A store of this document that takes the studio's state as it is (`mirror`). */
+type MirroringStore = { send: (event: MirrorEvent) => void };
+
+const mirrors: Record<MirroredStore, MirroringStore> = {
+  preview: previewStore as unknown as MirroringStore,
+  canvas: canvasStore as unknown as MirroringStore,
 };
 
 const forwards: Record<ForwardedStore, DocumentStore> = {
@@ -138,7 +142,7 @@ export function connectToStudio(
         setFrames(frames.filter(({ frameId }) => frameId !== message.frameId));
         return;
       case "store":
-        mirrors[message.store]?.send({ type: "mirror", context: message.context } as never);
+        mirrors[message.store]?.send({ type: "mirror", context: message.context });
         return;
       case "draftStarted":
         draftScope.enterStarted(message.draftId);

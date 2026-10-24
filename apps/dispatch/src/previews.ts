@@ -1,13 +1,11 @@
-import type { RevisionToLoad } from "./revisions";
+import { RENDERER_DOCUMENT_PATH, type RevisionToLoad } from "./revisions";
 
 // Which requests a draft with code's previewed revision answers (ADR 0023): the renderer document
 // and the runtime reads, for a member who can see the draft. The API says who that is, and which
 // revision the draft previews.
 
 /** The runtime routes a draft with code's revision answers, everything else being Live's code's. */
-const REVISION_ROUTES = new Set(["/_camox/renderer", "/_camox/data", "/_camox/routes"]);
-/** The route whose every request asks the API afresh: a reload after a new revision loads it. */
-const RENDERER_DOCUMENT = "/_camox/renderer";
+const REVISION_ROUTES = new Set([RENDERER_DOCUMENT_PATH, "/_camox/data", "/_camox/routes"]);
 
 /** The URL search param naming the draft a request shows (ADR 0011). */
 const DRAFT_SEARCH_PARAM = "camox-draft";
@@ -89,7 +87,7 @@ export async function revisionFor(
   forgetStale(answers, now);
   const key = JSON.stringify([project, draft, session]);
   let answer = answers.get(key);
-  if (!answer || url.pathname === RENDERER_DOCUMENT) {
+  if (!answer || url.pathname === RENDERER_DOCUMENT_PATH) {
     answer = { at: now, revision: api.previewedRevision({ project, draft, session }) };
     answers.set(key, answer);
     // A failed answer isn't kept: the next request asks again.

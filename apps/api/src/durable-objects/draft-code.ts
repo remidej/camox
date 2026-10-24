@@ -9,6 +9,7 @@ import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/rem
 import { writeLine } from "../domains/code/write-line";
 import type { BuildResult } from "../domains/revisions/result";
 import { MemoryFs, type MemoryFsEntry } from "../lib/memory-fs";
+import { serialQueue } from "../lib/serial-queue";
 import { tar, type TarEntry } from "../lib/tar";
 import type { Bindings } from "../types";
 
@@ -30,6 +31,11 @@ const CLASH_KEY = "merge-clash";
  * revision a build commits then is the merge commit.
  */
 const MERGING_KEY = "merging-main";
+/**
+ * What the files held, uncommitted, as the merge of `MERGING_KEY` was written into them: files
+ * that changed since hold writes of the agent's too (`uncommittedDigest`).
+ */
+const MERGING_FILES_KEY = "merging-files";
 /** The local refs a merge left in the files names its sides by, in its conflict markers. */
 const OURS_REF = "refs/remotes/draft";
 const THEIRS_REF = "refs/remotes/Live";
@@ -39,6 +45,19 @@ const MAIN_REF = "refs/camox/main";
 const TOKEN_KEY = "token";
 /** When the build of the draft's code going now started, if one is. */
 const BUILDING_SINCE_KEY = "building-since";
+/**
+ * A build of the draft's code that Camox's infrastructure kept failing, which its retry owes
+ * (`OwedBuild`): the draft shows it's building until one lands.
+ */
+const OWED_BUILD_KEY = "owed-build";
+
+/** How long Camox waits before its first retry of a build it owes, doubling after each. */
+export const OWED_BUILD_RETRY_MS = 30_000;
+/** The longest Camox waits between two retries of a build it owes. A tuning value. */
+export const OWED_BUILD_RETRY_AT_MOST_MS = 15 * 60_000;
+
+/** A build Camox owes the draft: the thread that builds it, and how many retries it had. */
+type OwedBuild = { threadId: string; retries: number };
 
 /**
  * How long a build is taken to still be going, from when it started: one an eviction cut short
@@ -94,7 +113,7 @@ export type MergeOutcome =
   /** The working copy has changes no revision holds yet: the merge waits for them. */
   | { outcome: "unsettled" }
   /** This move of `main` clashed already, and isn't merged again until `main` moves again. */
-  | { outcome: "clashed"; main: string }
+  | { outcome: "clashedBefore"; main: string }
   | { outcome: "conflicts"; main: string; conflicts: string[] }
   /** A merge commit of `main`, not on the branch yet, for a build to commit. */
   | { outcome: "merged"; main: string; prepared: PreparedCommit };
@@ -120,13 +139,11 @@ type NodeRow = {
 export class DraftCode extends DurableObject<Bindings> {
   /** The working copy, once loaded from storage or cloned. */
   #fs: MemoryFs | undefined;
-  /** The last operation, which the next waits for: one at a time. */
-  #queue: Promise<unknown> = Promise.resolve();
+  /** The working copy's operations, one at a time. */
+  readonly #queue = serialQueue();
 
   #serially<T>(operation: () => Promise<T>): Promise<T> {
-    const done = this.#queue.then(operation);
-    this.#queue = done.catch(() => undefined);
-    return done;
+    return this.#queue.run(operation);
   }
 
   /** The draft's ID, which names the branch. */
@@ -138,7 +155,7 @@ export class DraftCode extends DurableObject<Bindings> {
 
   /** Whether the draft has code: its branch was made, and not deleted since. */
   async held(): Promise<boolean> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.ctx.storage.kv.get(BRANCH_KEY) !== undefined;
   }
 
@@ -147,7 +164,7 @@ export class DraftCode extends DurableObject<Bindings> {
    * once it has code.
    */
   async mergedMain(): Promise<string | undefined> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.#mergedMain();
   }
 
@@ -176,7 +193,7 @@ export class DraftCode extends DurableObject<Bindings> {
 
   /** The last merge of `main` that clashed, until a merge of `main` lands. */
   async clash(): Promise<MergeClash | undefined> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.ctx.storage.kv.get<MergeClash>(CLASH_KEY);
   }
 
@@ -197,6 +214,7 @@ export class DraftCode extends DurableObject<Bindings> {
         theirs: clash.main,
       });
       this.ctx.storage.kv.put(MERGING_KEY, clash.main);
+      this.ctx.storage.kv.put(MERGING_FILES_KEY, await uncommittedDigest(fs));
       this.#save(fs);
     });
   }
@@ -206,7 +224,7 @@ export class DraftCode extends DurableObject<Bindings> {
    * turn fixes it, and its build commits the merge commit.
    */
   async merging(): Promise<string | undefined> {
-    await this.#queue;
+    await this.#queue.idle();
     return this.ctx.storage.kv.get<string>(MERGING_KEY);
   }
 
@@ -240,10 +258,48 @@ export class DraftCode extends DurableObject<Bindings> {
     else this.ctx.storage.kv.delete(BUILDING_SINCE_KEY);
   }
 
-  /** Whether a build of the draft's code is going: see `BUILD_GOING_FOR_AT_MOST_MS`. */
+  /**
+   * Whether a build of the draft's code is going (see `BUILD_GOING_FOR_AT_MOST_MS`), or owed:
+   * Camox's infrastructure failed the last one, and Camox retries it.
+   */
   async building(): Promise<boolean> {
+    if (this.ctx.storage.kv.get(OWED_BUILD_KEY) !== undefined) return true;
     const since = this.ctx.storage.kv.get<number>(BUILDING_SINCE_KEY);
     return since !== undefined && Date.now() - since < BUILD_GOING_FOR_AT_MOST_MS;
+  }
+
+  /**
+   * Records that the thread `threadId` couldn't build the draft's code because of Camox's own
+   * infrastructure, and has it retry later (`alarm`), each retry waiting longer.
+   */
+  async oweBuild({ threadId }: { threadId: string }): Promise<void> {
+    if (this.ctx.storage.kv.get(BRANCH_KEY) === undefined) return;
+    const owed = this.ctx.storage.kv.get<OwedBuild>(OWED_BUILD_KEY);
+    const retries = owed?.retries ?? 0;
+    this.ctx.storage.kv.put(OWED_BUILD_KEY, { threadId, retries } satisfies OwedBuild);
+    const wait = Math.min(OWED_BUILD_RETRY_MS * 2 ** retries, OWED_BUILD_RETRY_AT_MOST_MS);
+    await this.ctx.storage.setAlarm(Date.now() + wait);
+  }
+
+  /** Forgets the build Camox owed the draft, once one ended without Camox's failing. */
+  async settleOwedBuild(): Promise<void> {
+    if (this.ctx.storage.kv.get(OWED_BUILD_KEY) === undefined) return;
+    this.ctx.storage.kv.delete(OWED_BUILD_KEY);
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  /** Retries the build Camox owes the draft, in its thread's build queue, until one lands. */
+  async alarm(): Promise<void> {
+    const owed = this.ctx.storage.kv.get<OwedBuild>(OWED_BUILD_KEY);
+    if (!owed) return;
+    this.ctx.storage.kv.put(OWED_BUILD_KEY, { ...owed, retries: owed.retries + 1 });
+    try {
+      // A build that fails on Camox's side again owes the next retry itself.
+      if ((await this.env.THREAD.getByName(owed.threadId).retryBuild()) !== "busy") return;
+    } catch (error) {
+      console.error("Camox's retry of a draft's build failed", error);
+    }
+    await this.oweBuild({ threadId: owed.threadId });
   }
 
   /**
@@ -408,6 +464,7 @@ export class DraftCode extends DurableObject<Bindings> {
         await git.checkout({ ...at, ref: branch, force: true });
         this.ctx.storage.kv.put(MERGED_KEY, made.parent[1]!);
         this.ctx.storage.kv.delete(MERGING_KEY);
+        this.ctx.storage.kv.delete(MERGING_FILES_KEY);
       }
       this.#save(fs);
       const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
@@ -509,14 +566,19 @@ export class DraftCode extends DurableObject<Bindings> {
       const merged = this.#mergedMain();
       if (!main || !merged || main === merged) return { outcome: "upToDate" };
       if (this.ctx.storage.kv.get<MergeClash>(CLASH_KEY)?.main === main) {
-        return { outcome: "clashed", main };
+        return { outcome: "clashedBefore", main };
       }
       const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
       if (this.ctx.storage.kv.get(MERGING_KEY) !== undefined) {
-        // The files hold the merge of an earlier `main`, which Camox's turn didn't fix: this one
-        // is merged afresh, from the branch's head.
+        // Writes since the merge of an earlier `main` stay: they wait to be committed with it.
+        if ((await uncommittedDigest(fs)) !== this.ctx.storage.kv.get(MERGING_FILES_KEY)) {
+          return { outcome: "unsettled" };
+        }
+        // The files hold the merge of an earlier `main` as it was written, which Camox's turn
+        // didn't fix: this one is merged afresh, from the branch's head.
         await git.checkout({ ...at, ref: branch, force: true });
         this.ctx.storage.kv.delete(MERGING_KEY);
+        this.ctx.storage.kv.delete(MERGING_FILES_KEY);
         this.#save(fs);
       }
       if (!(await settled(fs))) return { outcome: "unsettled" };
@@ -589,6 +651,7 @@ export class DraftCode extends DurableObject<Bindings> {
         if (repo && branch) await this.#deleteBranch(repo, branch);
       } finally {
         this.#fs = undefined;
+        await this.ctx.storage.deleteAlarm();
         await this.ctx.storage.deleteAll();
       }
     });
@@ -767,6 +830,19 @@ async function mergeIntoFiles(
       },
     });
   }
+}
+
+/** A digest of the files' uncommitted changes: which files differ from the head, and how. */
+async function uncommittedDigest(fs: MemoryFs) {
+  const changed: string[] = [];
+  for (const [filepath, head, workdir, stage] of await git.statusMatrix({ fs, dir: CODE_ROOT })) {
+    if (head === 1 && workdir === 1 && stage === 1) continue;
+    const entry = fs.entry(`/${filepath}`);
+    const content = entry?.kind === "file" ? new TextDecoder().decode(entry.data) : "";
+    changed.push(JSON.stringify([filepath, workdir, content]));
+  }
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(changed.join("\n")));
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** Whether the files are what the index and the head hold: no change is uncommitted. */

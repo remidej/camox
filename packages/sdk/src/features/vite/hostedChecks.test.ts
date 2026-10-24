@@ -85,6 +85,8 @@ void test("a hosted build fails on a block whose file name isn't its id, naming 
   assert.match(error.message, /src\/blocks\/hero\.tsx/);
   assert.match(error.message, /"hero-banner"/);
   assert.match(error.message, /"hero"/);
+  // At the id, on the fixture's fifth line.
+  assert.match(error.message, /src\/blocks\/hero\.tsx:5:\d+/);
 });
 
 void test("a hosted build fails on a block whose id it can't read", async () => {
@@ -93,6 +95,17 @@ void test("a hosted build fails on a block whose id it can't read", async () => 
   });
   assert.match(error.message, /src\/blocks\/hero\.tsx/);
   assert.match(error.message, /string literal/);
+});
+
+void test("a hosted build fails on a misnamed block whose createBlock is imported under another name", async () => {
+  const error = await hostedBuildError({
+    "src/blocks/hero.tsx": heroImporting("", { id: '"hero-banner"' }).replace(
+      'import { createBlock } from "camox/createBlock";\n\nexport const block = createBlock({',
+      'import { createBlock as defineBlock } from "camox/createBlock";\n\nexport const block = defineBlock({',
+    ),
+  });
+  assert.match(error.message, /src\/blocks\/hero\.tsx/);
+  assert.match(error.message, /"hero-banner"/);
 });
 
 void test("without the hosted flag, the same app builds", async () => {

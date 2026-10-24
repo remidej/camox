@@ -7,6 +7,7 @@ import type { LocaleView } from "../../lib/locale-path";
 import type { ViewLocale } from "../../lib/view-locale-context";
 import type { EditingOwner } from "../preview/previewStore";
 import type { StudioNotice } from "../preview/studioNotice";
+import { RUNTIME_ROUTE_PATHS } from "../runtime/runtimeRoutes";
 
 /**
  * The renderer frame's protocol (ADR 0023): how the studio and the renderer frame, a hidden
@@ -67,7 +68,7 @@ export const SDK_VERSION: string = version;
 export const STUDIO_HANDLE_KEY = "__camoxStudio";
 
 /** The runtime route that serves the renderer document. */
-export const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
+export const RENDERER_DOCUMENT_PATH = RUNTIME_ROUTE_PATHS.renderer;
 
 /** What one side calls to deliver the other a message. */
 export type Inbox<Message> = (message: Message) => void;
@@ -146,6 +147,9 @@ export type RendererAnswer<Question extends RendererQuestion> = RendererAnswers[
 
 /** The stores whose state the studio owns, and the renderer mirrors. */
 export type MirroredStore = "preview" | "canvas";
+
+/** What the renderer's copy of a mirrored store is sent, to take the studio's state. */
+export type MirrorEvent = { type: "mirror"; context: unknown };
 
 /** The stores whose events the renderer forwards to the studio, which applies them. */
 export type ForwardedStore = "preview" | "referencePickerFocus";

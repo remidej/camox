@@ -5,12 +5,13 @@ import type { WritePolicy } from "./env";
 // The line between the website's own code, which the agent changes, and the files the platform
 // owns, which only Upgrades change. The extensions also keep binary assets out.
 
-/** The files the agent may write, as its instructions and refusals name them. */
-export const WRITABLE = "`src/**/*.{ts,tsx,css}`, except `src/camox/`";
-
 const SOURCE = "src";
 const PLATFORM_SOURCE = "src/camox";
-const CODE_FILE = /\.(ts|tsx|css)$/;
+const EXTENSIONS = ["ts", "tsx", "css"];
+const CODE_FILE = new RegExp(`\\.(${EXTENSIONS.join("|")})$`);
+
+/** The files the agent may write, as its instructions and refusals name them. */
+export const WRITABLE = `\`${SOURCE}/**/*.{${EXTENSIONS.join(",")}}\`, except \`${PLATFORM_SOURCE}/\``;
 
 const within = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`);
 

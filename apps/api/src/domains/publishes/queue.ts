@@ -7,7 +7,8 @@ import { projects } from "../projects/schema";
 import { PUBLISH_TURN_EVENT } from "./events";
 
 // A project's queue of what moves Live's code: its publishes with code, the drafts in their
-// publishing state, and an Upgrade ready to push to `main`. They run one at a time, in the order
+// publishing state and the publish whose batch committed, until it pushed to `main`, and an
+// Upgrade ready to push to `main`. They run one at a time, in the order
 // they joined, so a publish's squashed commit always sits on the `main` its revision merged, and
 // an Upgrade's on the publish's (spec #560, section 13's open edge).
 
@@ -21,7 +22,12 @@ async function queueOf(db: Database, projectId: number): Promise<Entry[]> {
       .from(drafts)
       .where(and(eq(drafts.projectId, projectId), isNotNull(drafts.publishInstanceId))),
     db
-      .select({ instanceId: projects.upgradePushInstanceId, at: projects.upgradePushRequestedAt })
+      .select({
+        instanceId: projects.upgradePushInstanceId,
+        at: projects.upgradePushRequestedAt,
+        pushing: projects.publishPushInstanceId,
+        pushingSince: projects.publishPushRequestedAt,
+      })
       .from(projects)
       .where(eq(projects.id, projectId))
       .get(),
@@ -31,6 +37,9 @@ async function queueOf(db: Database, projectId: number): Promise<Entry[]> {
     at: at ?? 0,
     kind: "publish",
   }));
+  if (project?.pushing) {
+    entries.push({ instanceId: project.pushing, at: project.pushingSince ?? 0, kind: "publish" });
+  }
   if (project?.instanceId) {
     entries.push({ instanceId: project.instanceId, at: project.at ?? 0, kind: "upgrade" });
   }
@@ -93,4 +102,30 @@ export async function leaveUpgradePush(
     .set({ upgradePushInstanceId: null, upgradePushRequestedAt: null })
     .where(and(eq(projects.id, projectId), eq(projects.upgradePushInstanceId, instanceId)));
   await wakeNextPublish(env, db, projectId);
+}
+
+/**
+ * What the publish batch of `instanceId` runs to keep its place in the project's queue once its
+ * draft's row is gone, until its push to `main` landed (`leavePublishPush`).
+ */
+export function holdPublishPush(
+  db: Database,
+  {
+    projectId,
+    instanceId,
+    requestedAt,
+  }: { projectId: number; instanceId: string; requestedAt: number },
+) {
+  return db
+    .update(projects)
+    .set({ publishPushInstanceId: instanceId, publishPushRequestedAt: requestedAt })
+    .where(eq(projects.id, projectId));
+}
+
+/** Takes the publish `instanceId`, which pushed to `main`, out of its project's queue. */
+export async function leavePublishPush(db: Database, projectId: number, instanceId: string) {
+  await db
+    .update(projects)
+    .set({ publishPushInstanceId: null, publishPushRequestedAt: null })
+    .where(and(eq(projects.id, projectId), eq(projects.publishPushInstanceId, instanceId)));
 }
