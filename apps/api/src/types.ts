@@ -59,6 +59,8 @@ export type Bindings = {
   REVISION_SANDBOX: DurableObjectNamespace<import("@cloudflare/sandbox").Sandbox>;
   /** Each revision's build, one archive per revision (`revisionArchiveKey`). */
   REVISION_BUILDS: R2Bucket;
+  /** The dispatch Worker, which loads revisions (`domains/revisions/dispatch.ts`). */
+  DISPATCH: import("./domains/revisions/dispatch").Dispatch;
   /** Camox's Cloudflare account, which serves every project's Worker. */
   CLOUDFLARE_ACCOUNT_ID: string;
   /** The Cloudflare API token that can deploy to the `production` dispatch namespace. */

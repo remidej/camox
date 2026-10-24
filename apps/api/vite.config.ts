@@ -47,16 +47,17 @@ async function bundledWorker(configPath: string) {
 }
 
 /**
- * The API's Wrangler configuration without its Cloudflare Artifacts and email bindings. Artifacts
- * has no local simulator, and Miniflare lets either win over the test's fake of the same name, so
- * the tests run from a copy that leaves them to the fakes. Its own directory per run, as test shards configure in
+ * The API's Wrangler configuration without its Cloudflare Artifacts, email and service bindings.
+ * Artifacts has no local simulator, the services (dispatch) aren't run, and Miniflare lets either
+ * win over the test's fake of the same name, so the tests run from a copy that leaves them to
+ * the fakes. Its own directory per run, as test shards configure in
  * parallel.
  */
 async function wranglerConfigForTests() {
   const { rawConfig } = experimental_readRawConfig({
     config: path.join(import.meta.dirname, "wrangler.jsonc"),
   });
-  const { artifacts: _artifacts, send_email: _email, ...config } = rawConfig;
+  const { artifacts: _artifacts, send_email: _email, services: _services, ...config } = rawConfig;
   const file = path.join(
     await mkdtemp(path.join(tmpdir(), "camox-api-wrangler-")),
     "wrangler.json",
@@ -86,6 +87,8 @@ async function releaseFakesWorker() {
   return {
     ...(await bundledWorker(RELEASE_FAKES_CONFIG)),
     durableObjects: { SANDBOX: "FakeSandbox", REVISION_SANDBOX: "FakeRevisionSandbox" },
+    // The API's bucket of revision builds, which the fake dispatch reads them from.
+    r2Buckets: { REVISION_BUILDS: "camox-revision-builds" },
   };
 }
 
@@ -132,6 +135,7 @@ export default defineConfig({
                   ARTIFACTS: { name: fakes.name, entrypoint: "FakeArtifacts" },
                   EMAIL: { name: fakes.name, entrypoint: "FakeEmail" },
                   RELEASE_FAKES: { name: fakes.name, entrypoint: "ReleaseFakes" },
+                  DISPATCH: { name: fakes.name, entrypoint: "FakeDispatch" },
                 },
                 // Outbound fetches reach the fakes, which serve the fake repos' Git remotes and
                 // pass anything else through.

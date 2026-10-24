@@ -1,8 +1,11 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 
 import { createDb } from "../../db";
+import { runService } from "../../lib/run-service";
 import type { Bindings } from "../../types";
+import { syncRevisionDefinitions } from "../definitions/service";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 import { camoxVersionInLockfile } from "../releases/lockfile";
@@ -18,7 +21,8 @@ export const INFRASTRUCTURE_ATTEMPTS = 4;
 export const INFRASTRUCTURE_RETRY_DELAY_MS = 500;
 
 /**
- * A build that couldn't run because of Camox's own infrastructure (the sandbox, Artifacts, R2),
+ * A build that couldn't run because of Camox's own infrastructure (the sandbox, Artifacts, R2,
+ * the loader),
  * after its retries: never a problem with the agent's code.
  */
 export class BuildInfrastructureError extends Error {
@@ -68,6 +72,64 @@ export type RevisionOrigin = {
   run?: { threadId: string; runId: string };
 };
 
+/**
+ * Makes a built revision's definitions its draft's, unless the draft already previews it: reads
+ * the revision's Definition Set through dispatch, and syncs it into the draft, which then
+ * previews the revision. A set the API refuses is the build's error: the revision stays built,
+ * but the draft keeps its definitions.
+ */
+async function syncDefinitionsOf(
+  env: Bindings,
+  draft: { id: string; projectUuid: string; previewedRevisionId: string | null },
+  revision: { id: string; archiveKey: string },
+): Promise<BuildResult> {
+  if (draft.previewedRevisionId === revision.id) return passed(revision.id);
+  const definitionSet = await retried(() =>
+    env.DISPATCH.readDefinitionSet({
+      revision: revision.id,
+      archiveKey: revision.archiveKey,
+      project: draft.projectUuid,
+      draft: draft.id,
+    }),
+  );
+  const ctx = {
+    db: createDb(env.DB),
+    user: null,
+    env,
+    waitUntil: (promise: Promise<unknown>) => void promise.catch(console.error),
+    client: "camox-agent",
+    telemetryDisabled: false,
+    draft: null,
+  };
+  try {
+    await runService(
+      syncRevisionDefinitions(ctx, {
+        draftId: draft.id,
+        revisionId: revision.id,
+        definitionSet,
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof ORPCError) || error.code !== "BAD_REQUEST") throw error;
+    return {
+      ok: false,
+      revision: revision.id,
+      build: [
+        {
+          file: "",
+          line: 0,
+          column: 0,
+          message: `The build passed, but its definitions can't be used: ${error.message}`,
+          frame: "",
+        },
+      ],
+      types: [],
+      lint: [],
+    };
+  }
+  return passed(revision.id);
+}
+
 const MESSAGES: Record<RevisionSource, string> = {
   build: "Camox's agent built its changes",
   turn: "Camox's agent ended its turn",
@@ -76,11 +138,12 @@ const MESSAGES: Record<RevisionSource, string> = {
 
 /**
  * Builds the working copy of the draft `draftId`, which has code, and when the build passes,
- * commits it as the draft's new revision, pushed to its branch, with its build stored in R2.
- * A tree that already has a built revision returns it without building again, so a call
- * replayed after an eviction is safe. A failed build commits nothing and returns its errors.
+ * commits it as the draft's new revision, pushed to its branch, with its build stored in R2, and
+ * makes its definitions the draft's. A tree that already has a built revision returns it without
+ * building again, so a call replayed after an eviction is safe. A failed build commits nothing and
+ * returns its errors.
  *
- * Failures of the sandbox, Artifacts or R2 are retried, and throw a `BuildInfrastructureError`
+ * Failures of the sandbox, Artifacts, R2 or the loader are retried, and throw a `BuildInfrastructureError`
  * once they've failed too often: they're never the build's errors.
  */
 export async function buildRevision(
@@ -90,7 +153,11 @@ export async function buildRevision(
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
   const draft = await db
-    .select({ projectUuid: projects.uuid })
+    .select({
+      id: drafts.id,
+      projectUuid: projects.uuid,
+      previewedRevisionId: drafts.previewedRevisionId,
+    })
     .from(drafts)
     .innerJoin(projects, eq(projects.id, drafts.projectId))
     .where(eq(drafts.id, draftId))
@@ -99,11 +166,17 @@ export async function buildRevision(
   const code = env.DRAFT_CODE.getByName(draftId);
   const prepared = await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] }));
   const existing = await db
-    .select({ id: revisions.id, buildStatus: revisions.buildStatus })
+    .select({
+      id: revisions.id,
+      buildStatus: revisions.buildStatus,
+      archiveKey: revisions.archiveKey,
+    })
     .from(revisions)
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
     .get();
-  if (existing?.buildStatus === "built") return passed(existing.id);
+  if (existing?.buildStatus === "built" && existing.archiveKey) {
+    return syncDefinitionsOf(env, draft, { id: existing.id, archiveKey: existing.archiveKey });
+  }
 
   const outcome = await retried(() => buildInSandbox(env, draftId, prepared));
   if (!outcome.ok) {
@@ -149,5 +222,5 @@ export async function buildRevision(
     .onConflictDoUpdate({ target: [revisions.draftId, revisions.tree], set: built })
     .returning({ id: revisions.id });
   await db.update(drafts).set({ headRevisionId: recorded!.id }).where(eq(drafts.id, draftId));
-  return passed(recorded!.id);
+  return syncDefinitionsOf(env, draft, { id: recorded!.id, archiveKey });
 }

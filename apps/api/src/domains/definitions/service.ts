@@ -1,8 +1,9 @@
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertSyncAccess, recordDefinitionsSynced } from "../../authorization";
-import { decodeInput } from "../../lib/errors";
+import { assertSyncAccess, recordDefinitionsSynced, type SyncTarget } from "../../authorization";
+import { decodeInput, NotFoundError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   blockDefinitionInput,
@@ -12,9 +13,12 @@ import {
 import { planCollectionDefinitions, validateCollectionDefinitions } from "../collections/service";
 import { collectionDefinitionInput } from "../collections/validation";
 import * as overlay from "../drafts/overlay";
+import { drafts } from "../drafts/schema";
+import { type Draft, draftOf } from "../drafts/scope";
 import { requestGeneration } from "../generated-values/generation";
 import { layoutDefinitionInput, planLayouts, targetLayouts } from "../layouts/service";
 import { namingProject, projectRefOf } from "../projects/ref";
+import { projects } from "../projects/schema";
 import { homepageInput, planHomepage } from "../projects/service";
 
 // --- Input Schemas ---
@@ -58,7 +62,6 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
   rawInput: z.input<typeof syncDefinitionsInput>,
 ) {
   const input = yield* decodeInput(syncDefinitionsInput, rawInput);
-  const { definitionSet: set } = input;
   // Outside the batch: a sync that fails later leaves the development draft it created, empty.
   const target = yield* assertSyncAccess(
     ctx.db,
@@ -66,6 +69,58 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
     { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
     { create: input.autoCreate },
   );
+  return yield* applyDefinitionSet(ctx, target, input.definitionSet);
+});
+
+/**
+ * Syncs a revision's Definition Set into its draft, a draft with code: Camox's own sync target,
+ * which no session or Deploy Token reaches. It follows dev mode's rules (ADR 0006): the whole set
+ * is replaced, content never blocks it, and the content it declares is added as draft rows. In the
+ * same batch, the revision becomes the draft's previewed revision, so the draft reads its own
+ * definitions from its first synced revision on.
+ */
+export const syncRevisionDefinitions = Effect.fn("definitions.syncRevisionDefinitions")(function* (
+  ctx: ServiceContext,
+  {
+    draftId,
+    revisionId,
+    definitionSet,
+  }: {
+    draftId: string;
+    revisionId: string;
+    definitionSet: unknown;
+  },
+) {
+  const set = yield* decodeInput(definitionSetInput, definitionSet);
+  const found = yield* Effect.promise(() =>
+    ctx.db
+      .select({ draft: drafts, project: projects })
+      .from(drafts)
+      .innerJoin(projects, eq(projects.id, drafts.projectId))
+      .where(eq(drafts.id, draftId))
+      .get(),
+  );
+  if (!found) return yield* new NotFoundError({ message: "The draft to sync ended" });
+  const scope: Draft = { ...draftOf(found.draft), ownDefinitions: true };
+  return yield* applyDefinitionSet(
+    ctx,
+    { project: found.project, scope, writes: scope, draftCreated: false },
+    set,
+    overlay.plannedStatements(
+      ctx.db.update(drafts).set({ previewedRevisionId: revisionId }).where(eq(drafts.id, draftId)),
+    ),
+  );
+});
+
+/**
+ * Applies a Definition Set to a sync's target, with `alongside`'s writes in the same batch.
+ */
+const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function* (
+  ctx: ServiceContext,
+  target: SyncTarget,
+  set: z.output<typeof definitionSetInput>,
+  alongside?: ReturnType<typeof overlay.plannedStatements>,
+) {
   yield* validateBlockDefinitions(set.blocks);
   const collections = yield* validateCollectionDefinitions(set.collections);
   const collectionIds = new Set(collections.map((collection) => collection.collectionId));
@@ -91,6 +146,7 @@ export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function
       )
     : null;
 
+  if (alongside) plan.add(alongside);
   yield* overlay.runPlanned(ctx.db, plan.done(undefined));
   yield* recordDefinitionsSynced(ctx.db, target);
   for (const { home, target: generated, immediately } of homepage?.generation ?? []) {
