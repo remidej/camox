@@ -95,6 +95,29 @@ describe("the agent reading the website's code", () => {
     thread.close();
   });
 
+  it("is told the hosted website's rules, interactive blocks included", async () => {
+    const website = await websiteWithCode();
+    const thread = await connectLiveThread(
+      website.project.id,
+      await signIn(website.db, website.memberUser.id),
+    );
+    let instructions = "";
+    answerFrom((request) => {
+      instructions = request.instructions;
+      return "Noted.";
+    });
+    await ask(thread, "How do I add tabs?");
+    thread.close();
+
+    // The rules the spec lists for a hosted website (spec #560, section 16).
+    expect(instructions).toContain("Google Fonts");
+    expect(instructions).toContain("SEO links belong to Camox");
+    expect(instructions).toContain("You can't add a dependency");
+    expect(instructions).toContain("A block's file name is its id");
+    expect(instructions).toContain("Use the platform.");
+    expect(instructions).toContain("Baseline Newly available");
+  });
+
   it("reads Camox's references for code, and can't write there", async () => {
     const website = await websiteWithCode();
     const thread = await connectLiveThread(
