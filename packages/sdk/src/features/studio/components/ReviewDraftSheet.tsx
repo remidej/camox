@@ -20,7 +20,15 @@ import { Skeleton } from "@camox/ui/skeleton";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { useMutation } from "@tanstack/react-query";
-import { CircleCheck, type LucideIcon, OctagonX, Replace, Trash2, Unlink } from "lucide-react";
+import {
+  CircleCheck,
+  type LucideIcon,
+  OctagonX,
+  Replace,
+  Trash2,
+  TriangleAlert,
+  Unlink,
+} from "lucide-react";
 import * as React from "react";
 
 import { useDraftScope } from "@/lib/draft-scope";
@@ -129,8 +137,8 @@ const LOST_REASONS: Record<Lost["reason"], string> = {
 };
 
 /**
- * A card for something to know before publishing: blockers in red, conflicts and lost changes in
- * amber.
+ * A card for something to know before publishing: blockers in red; removals, conflicts and lost
+ * changes in amber.
  */
 function Card({
   tone,
@@ -163,23 +171,34 @@ function Card({
   );
 }
 
-/** From how many blockers sharing a message they fold into one card, naming each subject. */
+/** From how many problems sharing a message they fold into one card, naming each subject. */
 const SHARED_MESSAGE_MIN = 3;
 
 /**
- * One card per blocker, saying what's wrong and where. Blockers sharing a message fold into one
- * card naming each: a development draft can hold dozens of definitions to release, and the
- * message is the same for each. A blocker on a page has an action that shows it in the Canvas.
+ * Warnings the review shows: what the draft's code removes while Live content uses it, which is
+ * about the draft. Other warnings are about problems already on Live, and stay out (ADR 0009).
  */
-function BlockerCards({
-  blockers,
+const isShownWarning = (problem: Problem) => problem.code === "removedInUse";
+
+/**
+ * One card per problem, saying what's wrong and where. Problems sharing a message fold into one
+ * card naming each: a development draft can hold dozens of definitions to release, and a removed
+ * block can sit on dozens of pages, with the same message for each. A problem on a page has an
+ * action that shows it in the Canvas.
+ */
+function ProblemCards({
+  problems,
+  tone,
+  icon,
   onShow,
 }: {
-  blockers: Problem[];
+  problems: Problem[];
+  tone: Tone;
+  icon: LucideIcon;
   onShow: (target: CanvasTarget) => void;
 }) {
   const byMessage = new Map<string, Problem[]>();
-  for (const problem of blockers) {
+  for (const problem of problems) {
     byMessage.set(problem.message, [...(byMessage.get(problem.message) ?? []), problem]);
   }
   return [...byMessage].flatMap(([message, shared]) => {
@@ -190,8 +209,8 @@ function BlockerCards({
         return (
           <Card
             key={`${problem.code}:${problem.id}:${problem.locale}:${problem.field}`}
-            tone="danger"
-            icon={OctagonX}
+            tone={tone}
+            icon={icon}
             title={problem.message}
             action={
               target && (
@@ -207,7 +226,7 @@ function BlockerCards({
       });
     }
     return [
-      <Card key={`shared:${message}`} tone="danger" icon={OctagonX} title={message}>
+      <Card key={`shared:${message}`} tone={tone} icon={icon} title={message}>
         <ul className="flex flex-wrap gap-1 pt-0.5">
           {shared.map((problem) => {
             const place = problemPlace(problem);
@@ -347,7 +366,10 @@ function UseLiveVersionButton({
   );
 }
 
-/** Blockers first, then conflicts, then lost changes: one card each, with no section heading. */
+/**
+ * Blockers first, then what the draft's code removes while Live content uses it, then conflicts,
+ * then lost changes: one card each, with no section heading.
+ */
 function Cards({
   projectId,
   preview,
@@ -358,11 +380,12 @@ function Cards({
   preview: PublishPreview;
   /** Reads the review again, after an action on a card changed the draft. */
   onChanged: () => void;
-  /** Shows a blocker in the Canvas. */
+  /** Shows a problem in the Canvas. */
   onShow: (target: CanvasTarget) => void;
 }) {
   const { blockers, conflicts, lost, changes, defaultLocale } = preview;
-  if (blockers.length + conflicts.length + lost.length === 0) return null;
+  const warnings = preview.warnings.filter(isShownWarning);
+  if (blockers.length + warnings.length + conflicts.length + lost.length === 0) return null;
   const deleted = new Set(
     changes
       .filter((change) => change.change === "deleted")
@@ -370,7 +393,8 @@ function Cards({
   );
   return (
     <ul className="flex flex-col gap-2">
-      <BlockerCards blockers={blockers} onShow={onShow} />
+      <ProblemCards problems={blockers} tone="danger" icon={OctagonX} onShow={onShow} />
+      <ProblemCards problems={warnings} tone="warning" icon={TriangleAlert} onShow={onShow} />
       {conflicts.map((conflict) => (
         <Card
           key={conflictKey(conflict)}
