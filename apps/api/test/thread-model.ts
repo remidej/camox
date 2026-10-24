@@ -53,6 +53,13 @@ export const holdNextAnswer = (text: string) => hold(fauxAssistantMessage([fauxT
 export const holdNextScript = (code: string) =>
   hold(fauxAssistantMessage([fauxToolCall("codemode", { code })], { stopReason: "toolUse" }));
 
+/**
+ * Scripts the model's next answer as a call of the tool `name`, outside code mode, held until the
+ * returned function is called.
+ */
+export const holdNextToolCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
+  hold(fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" }));
+
 const hold = (message: AssistantMessage) => {
   let release!: () => void;
   const released = new Promise<void>((resolve) => {

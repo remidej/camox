@@ -8,7 +8,7 @@ The upgrade lists every live project, leaving out those still setting up and tho
 
 1. **`update`:** sets every Camox package the project depends on (`camox`, `@camox/*`) to `^<version>` in its `package.json` with `npm pkg set`, then `pnpm install --no-frozen-lockfile` updates the lockfile.
 2. **`build`:** `pnpm exec camox release --dry-run`, which builds the website as a release would, for Live, without logging in or syncing its definitions. The hosted build checks are on (`src/lib/hosted-build.ts`), so a new check that the code breaks fails the Upgrade here.
-3. **`push`:** commits only `package.json` and `pnpm-lock.yaml`, as "Upgrade Camox to <version>", on top of the commit it built, and pushes it to `main`. That push releases the project (`../releases/README.md`). If `main` moved during the upgrade, the push is refused rather than overwriting it. The commit's author and dates are fixed, so a retried push makes the same commit and pushes nothing new.
+3. **`push`:** waits for its turn in the project's queue of publishes with code (`../publishes/README.md`), then commits only `package.json` and `pnpm-lock.yaml`, as "Upgrade Camox to <version>", on top of the current `main`, and pushes it. That push releases the project (`../releases/README.md`). `main` may have moved since the commit it built, through publishes with code, which only change `src/`: if its `package.json` or lockfile differ from that commit's, the push is refused rather than overwriting them. A `main` that already has the upgraded files, as after a retried push that landed, pushes nothing.
 
 Nothing else changes a project's code: no codemods, no agent fixes. A project whose update or build fails isn't pushed, so its `main` stays as it was and it keeps serving its previous release.
 

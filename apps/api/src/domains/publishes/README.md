@@ -6,9 +6,9 @@ Publishing a draft with code puts its code and content on Live at the same momen
 
 ## Steps
 
-A project's publishes with code run one at a time, in the order they were asked for: the drafts in their publishing state are the queue. Each one waits for its turn, and wakes the next with a `publish-turn` event when it ends, however it ends.
+A project's publishes with code run one at a time, in the order they were asked for, with an Upgrade ready to push to `main` (`queue.ts`): the drafts in their publishing state and the project's `upgrade_push_*` columns are the queue. Each publish waits for its turn, and wakes the next with a `publish-turn` event when it ends, however it ends. An Upgrade checks its turn every few seconds, and wakes the next publish once it pushed.
 
-1. **The pinned revision must be the draft's head**, and the one it previews. A newer one goes back to the review (`revisionChanged`). A head whose build was pruned is built again in the draft's sandbox. A draft forked from an older `main` goes back to the review (`liveCodeMoved`): this is where the publish will wait for its merge revision once drafts merge `main` (#581).
+1. **The pinned revision must be the draft's head**, and the one it previews. A newer one goes back to the review (`revisionChanged`). A head whose build was pruned is built again in the draft's sandbox. When `main` moved and the draft hasn't merged it yet, the publish waits for its merge revision (`../revisions/merge.ts`), woken by a `draft-merged` event, and ships that: the head may be merges of `main` on top of the pinned revision, never an agent's revision. It ships once the draft previews the merge and it type checks. A merge that clashes, fails its type check or takes more than `MERGE_CHECKS` checks goes back to the review (`liveCodeMoved`), until Camox's reconcile turn (#582).
 2. **Upload without serving**: the publish sandbox (below) unpacks the revision's archive from `REVISION_BUILDS` and runs `wrangler versions upload` with `--var CAMOX_PUBLISHING_DRAFT:<draft>`.
 3. **Re-check** Live's conflicts against the review's token, and blockers. Either goes back to the review, Live untouched.
 4. **Promote** with `wrangler versions deploy <version>@100%`, after reading the version Live served (`deployments status --json`). From here until the batch commits, the new version's reads name the draft with `x-camox-publishing-draft`: the API reads them as Live overlaid with the draft while it's publishing, with no session, and as Live otherwise (`../drafts/access.ts`).
@@ -23,7 +23,7 @@ The publish never builds, except a pruned head (step 1), and never installs or r
 
 ## Upgrades
 
-An Upgrade's push to `main` waits while a publish with code is queued or running in its project (`../upgrades/project-workflow.ts`). Pushed between a publish's promotion and its push to `main`, it would release `main` without the draft's code over Live. Once the publish has pushed, the Upgrade's push is refused, as `main` moved, and the project is listed as not upgraded. An Upgrade pushed before a publish starts still releases asynchronously: a publish promoted before that release deploys is overwritten by it, until merges of `main` (#581) make the publish wait for the draft to hold that `main`.
+An Upgrade's push to `main` joins the project's queue (`../upgrades/project-workflow.ts`), so it never lands between a publish's promotion and its push to `main`, which would release `main` without the draft's code over Live, and the publish's squashed commit would then undo the Upgrade. Its push lands on the current `main`: it commits only `package.json` and the lockfile, after checking they're still those of the commit it built, which publishes never change. Publishes asked for after it wait for its push, then for their draft's merge of it. Drafts merge a push only once its release ended (`../releases/workflow.ts`), so a publish shipping the merge is promoted over the Upgrade's release, never under it.
 
 ## Tests
 

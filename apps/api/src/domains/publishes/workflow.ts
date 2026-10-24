@@ -5,7 +5,7 @@ import {
   type WorkflowStep,
   type WorkflowStepConfig,
 } from "cloudflare:workers";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createDb, type Database } from "../../db";
@@ -20,12 +20,16 @@ import { projects } from "../projects/schema";
 import { releases } from "../releases/schema";
 import { buildRevision } from "../revisions/build";
 import { revisions } from "../revisions/schema";
+import { DRAFT_MERGED_EVENT, PUBLISH_TURN_EVENT } from "./events";
+import { turnOf, wakeNextPublish } from "./queue";
 import { promoteVersion, servedVersion, uploadVersion } from "./sandbox";
 
 // Publishing a draft with code (ADR 0020, spec #560 section 13): its publish Workflow puts the
 // build of the revision members previewed on Live, then the draft's content and definitions in
 // the publish batch, then the revision's tree on `main`. A project's publishes with code run one
-// at a time, in the order they were asked for: `drafts` in their publishing state are the queue.
+// at a time, in the order they were asked for, with Upgrades' pushes to `main` (`queue.ts`).
+
+export { PUBLISH_TURN_EVENT };
 
 /** What `drafts.publish` starts a publish with. */
 export type PublishParams = {
@@ -40,9 +44,6 @@ export type PublishParams = {
   publishedBy: string;
 };
 
-/** The event a publish that ended sends the next one in its project's queue. */
-export const PUBLISH_TURN_EVENT = "publish-turn";
-
 /**
  * How long a queued publish waits for the event before it checks its turn anyway, in case an
  * event was lost. A tuning value.
@@ -54,8 +55,21 @@ const INFRASTRUCTURE_RETRIES: WorkflowStepConfig = {
   retries: { limit: 3, delay: "5 seconds", backoff: "exponential" },
 };
 
+/**
+ * How long a publish waits for its draft's merge of the `main` that moved, between checks: it's
+ * woken as soon as the merge ends, so this only bounds a lost event. A tuning value.
+ */
+const MERGE_CHECK_EVERY = "1 minute";
+/**
+ * How many times a publish checks for its draft's merge before going back to the review: the
+ * merge waits for the release of `main`, which takes minutes. A tuning value.
+ */
+export const MERGE_CHECKS = 30;
+
 /** What the publish ships: the revision's build and its commit, in the project's repo. */
 type Shipped = {
+  /** The revision: the one the review pinned, or the draft's merge of `main` on top of it. */
+  revision: string;
   projectUuid: string;
   archiveKey: string;
   commit: string;
@@ -64,7 +78,11 @@ type Shipped = {
   draftName: string | null;
 };
 
-type Checked = { ship: Shipped } | { aborted: PublishAbortReason } | { gone: true };
+type Checked =
+  | { ship: Shipped }
+  | { aborted: PublishAbortReason }
+  | { gone: true }
+  | { merging: true };
 
 export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams> {
   async run(event: WorkflowEvent<PublishParams>, step: WorkflowStep) {
@@ -79,10 +97,9 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     try {
       if (!(await this.waitForTurn(step, db, params, instanceId))) return;
 
-      // 1. The revision the review pinned must still be the draft's head.
-      const checked = await step.do("check the revision is the draft's head", () =>
-        this.check(db, params, instanceId),
-      );
+      // 1. The revision the review pinned must still be the draft's head, or the draft's merges
+      // of `main` on top of it: when `main` moved, the publish waits for the merge, and ships it.
+      const checked = await this.waitForHead(step, db, params, instanceId);
       if ("gone" in checked) return;
       if ("aborted" in checked) return await abort(checked.aborted);
       const { ship } = checked;
@@ -111,7 +128,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
 
       // 5. The publish batch, with the draft's definitions.
       const batch = await step.do("run the publish batch", () =>
-        runService(publishWithCode(db, params)),
+        runService(publishWithCode(db, { ...params, revision: ship.revision })),
       );
       if (!batch.applied && batch.ended?.outcome !== "published") {
         if (previous) {
@@ -163,7 +180,9 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       throw error;
     } finally {
       await step
-        .do("wake the project's next publish", () => wakeNextPublish(this.env, db, params))
+        .do("wake the project's next publish", () =>
+          wakeNextPublish(this.env, db, params.projectId),
+        )
         .catch((woken: unknown) => console.error("The next publish wasn't woken", woken));
     }
   }
@@ -180,7 +199,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
   ) {
     for (let check = 1; ; check++) {
       const turn = await step.do(`check the project's turn (${check})`, () =>
-        turnOf(db, params, instanceId),
+        turnOf(db, params.projectId, instanceId),
       );
       if (turn !== "waiting") return turn === "turn";
       await step
@@ -193,33 +212,53 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
   }
 
   /**
-   * Step 1: the draft still previews the pinned revision, its head, with a build to upload. A
-   * head whose build was pruned is built again in the draft's sandbox, which finds its tree.
+   * Step 1: the draft still previews the pinned revision, its head, with a build to upload, and
+   * holds the current `main`. When `main` moved, the head to ship is the draft's merge of it on
+   * top of the pinned revision, once built, previewed and type checked: until then, the publish
+   * is `merging`. A head whose build was pruned is built again in the draft's sandbox, which
+   * finds its tree.
    */
   private async check(db: Database, params: PublishParams, instanceId: string): Promise<Checked> {
     const draft = await publishingDraft(db, params.draftId, instanceId);
     if (!draft) return { gone: true };
-    if (draft.headRevisionId !== params.revision || draft.previewedRevisionId !== params.revision) {
+    const head = draft.headRevisionId;
+    if (!head || !(await mergesOnto(db, params.draftId, head, params.revision))) {
       return { aborted: "revisionChanged" };
     }
-    if (!(await this.includesLiveCode(draft.projectUuid, params.draftId))) {
-      return { aborted: "liveCodeMoved" };
+    const code = this.env.DRAFT_CODE.getByName(params.draftId);
+    using repo = await this.env.ARTIFACTS.get(draft.projectUuid);
+    const [[main], merges] = await Promise.all([
+      repo.log({ ref: "main", limit: 1 }),
+      code.merges(),
+    ]);
+    let revision = await revisionOf(db, head);
+    if (!revision) return { aborted: "revisionChanged" };
+    // `main` moved, and the draft hasn't merged it yet: its merge revision is what ships.
+    if (main && (main.hash !== merges.mergedMain || merges.head !== revision.commit)) {
+      // Until Camox's reconcile turn (#582), a merge that clashed goes back to the review.
+      return merges.clash?.main === main.hash ? { aborted: "liveCodeMoved" } : { merging: true };
     }
-    let revision = await revisionOf(db, params.revision);
-    if (revision && !revision.archiveKey) {
-      const code = this.env.DRAFT_CODE.getByName(params.draftId);
+    if (head !== params.revision) {
+      // A merge revision ships once the draft previews it, and it type checks.
+      if (draft.previewedRevisionId !== head || revision.typeCheckStatus === "pending") {
+        return { merging: true };
+      }
+      if (revision.typeCheckStatus === "failed") return { aborted: "liveCodeMoved" };
+    } else if (draft.previewedRevisionId !== head) return { aborted: "revisionChanged" };
+    if (!revision.archiveKey) {
       await code.markBuilding(true);
       try {
         const built = await buildRevision(this.env, params.draftId, { leftBy: "build" });
-        if (built.revision !== params.revision) return { aborted: "revisionChanged" };
+        if (built.revision !== head) return { aborted: "revisionChanged" };
       } finally {
         await code.markBuilding(false);
       }
-      revision = await revisionOf(db, params.revision);
+      revision = await revisionOf(db, head);
     }
     if (!revision?.archiveKey) return { aborted: "revisionChanged" };
     return {
       ship: {
+        revision: head,
         projectUuid: draft.projectUuid,
         archiveKey: revision.archiveKey,
         commit: revision.commit,
@@ -231,15 +270,28 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
   }
 
   /**
-   * Whether the draft's code holds the current `main`. Until merges of `main` into drafts land
-   * (#581), a draft forked from an older `main` goes back to the review rather than undo what
-   * moved it. That's where the publish will wait for the draft's merge revision instead.
+   * Step 1, checked again while the draft merges the `main` that moved, woken as its merge ends.
+   * A merge that takes too long goes back to the review.
    */
-  private async includesLiveCode(projectUuid: string, draftId: string) {
-    using repo = await this.env.ARTIFACTS.get(projectUuid);
-    const [main] = await repo.log({ ref: "main", limit: 1 });
-    const forkedFrom = await this.env.DRAFT_CODE.getByName(draftId).forkedFrom();
-    return !main || main.hash === forkedFrom;
+  private async waitForHead(
+    step: WorkflowStep,
+    db: Database,
+    params: PublishParams,
+    instanceId: string,
+  ): Promise<Exclude<Checked, { merging: true }>> {
+    for (let check = 1; ; check++) {
+      const checked = await step.do(`check the revision is the draft's head (${check})`, () =>
+        this.check(db, params, instanceId),
+      );
+      if (!("merging" in checked)) return checked;
+      if (check >= MERGE_CHECKS) return { aborted: "liveCodeMoved" };
+      await step
+        .waitForEvent(`wait for the draft's merge of main (${check})`, {
+          type: DRAFT_MERGED_EVENT,
+          timeout: MERGE_CHECK_EVERY,
+        })
+        .catch(() => undefined);
+    }
   }
 
   /** Step 3: why the review no longer holds, if it doesn't: Live's conflicts or a blocker. */
@@ -285,34 +337,34 @@ async function revisionOf(db: Database, revisionId: string) {
       tree: revisions.tree,
       archiveKey: revisions.archiveKey,
       camoxVersion: revisions.camoxVersion,
+      typeCheckStatus: revisions.typeCheckStatus,
     })
     .from(revisions)
     .where(eq(revisions.id, revisionId))
     .get();
 }
 
-/** The project's publishes with code still to land, in the order they were asked for. */
-function queueOf(db: Database, projectId: number) {
-  return db
-    .select({ draftId: drafts.id, instanceId: drafts.publishInstanceId })
-    .from(drafts)
-    .where(and(eq(drafts.projectId, projectId), isNotNull(drafts.publishInstanceId)))
-    .orderBy(asc(drafts.publishRequestedAt), asc(drafts.id));
-}
-
-/** Whether it's this publish's turn, whether it waits for one before it, or is no longer queued. */
-async function turnOf(db: Database, params: PublishParams, instanceId: string) {
-  const queue = await queueOf(db, params.projectId);
-  if (!queue.some((queued) => queued.instanceId === instanceId)) return "gone" as const;
-  return queue[0]!.instanceId === instanceId ? ("turn" as const) : ("waiting" as const);
-}
-
-/** Wakes the project's next publish with code, now that this one ended. */
-async function wakeNextPublish(env: Bindings, db: Database, params: PublishParams) {
-  const [next] = await queueOf(db, params.projectId);
-  if (!next?.instanceId) return;
-  const instance = await env.PUBLISH_WORKFLOW.get(next.instanceId);
-  await instance.sendEvent({ type: PUBLISH_TURN_EVENT, payload: {} });
+/**
+ * Whether the draft's revision `head` is `pinned`, or merges of `main` on top of it: no agent
+ * revision came after the one the review showed.
+ */
+async function mergesOnto(db: Database, draftId: string, head: string, pinned: string) {
+  const left = await db
+    .select({
+      id: revisions.id,
+      commit: revisions.commit,
+      parents: revisions.parents,
+      leftBy: revisions.leftBy,
+    })
+    .from(revisions)
+    .where(eq(revisions.draftId, draftId));
+  const byId = new Map(left.map((revision) => [revision.id, revision]));
+  const byCommit = new Map(left.map((revision) => [revision.commit, revision]));
+  for (let at = byId.get(head); at; at = byCommit.get(at.parents[0] ?? "")) {
+    if (at.id === pinned) return true;
+    if (at.leftBy !== "merge") return false;
+  }
+  return false;
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   deleteGitRepo,
   forkGitRepo,
   gitBranches,
+  gitFiles,
   gitLog,
   hasGitRepo,
   losePushResponse,
@@ -280,6 +281,10 @@ export class FakeSandbox extends DurableObject {
       waitForExit: async () => {
         // Polls, as a promise can't be settled from the test's request.
         while (waits()) await scheduler.wait(20);
+        // An Upgrade's push to a Git repo lands on it, as its commands would make it.
+        if (exitCode === 0 && command.includes("HEAD:refs/heads/main") && hasGitRepo(repo)) {
+          return { exitCode: await upgradePush(repo, command, run) };
+        }
         return { exitCode };
       },
     };
@@ -302,6 +307,39 @@ export class FakeSandbox extends DurableObject {
   }
 
   async destroy() {}
+}
+
+/**
+ * What an Upgrade's push step does to a Git repo, as its commands would (the upgrade project
+ * Workflow's `pushCommand`): commits the `package.json` that the run's `npm pkg set` made from
+ * the commit it built on top of the current `main`, and exits 0. A `main` that already has it
+ * pushes nothing. A `main` whose platform files changed since that commit exits 1, as the step's
+ * check does. The lockfile is left as it is: the fake installs nothing.
+ * @param {string} repo
+ * @param {string} command
+ * @param {{ command: string }[]} run
+ */
+async function upgradePush(repo, command, run) {
+  const built = /fetch -q --depth=1 origin (\S+) refs\/heads\/main:/.exec(command)?.[1];
+  const [main, at] = await Promise.all([
+    gitFiles(repo, "main"),
+    built ? gitFiles(repo, built) : null,
+  ]);
+  if (!main || !at) return 1;
+  const manifest = JSON.parse(at["package.json"] ?? "{}");
+  const set = run.findLast((ran) => ran.command.includes("npm pkg set"))?.command ?? "";
+  for (const [, section, name, version] of set.matchAll(
+    /(dependencies|devDependencies)\.(\S+?)=(\S+)/g,
+  )) {
+    manifest[section] = { ...manifest[section], [name]: version };
+  }
+  const upgraded = `${JSON.stringify(manifest, null, 2)}\n`;
+  if (main["package.json"] === upgraded) return 0;
+  const platform = ["package.json", "pnpm-lock.yaml"];
+  if (platform.some((path) => main[path] !== at[path])) return 1;
+  const message = /git commit -q -m "([^"]+)"/.exec(command)?.[1] ?? "Upgrade";
+  await commitFiles(repo, { ...main, "package.json": upgraded }, message);
+  return 0;
 }
 
 /**

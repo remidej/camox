@@ -2,13 +2,11 @@ import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { and, eq, isNotNull } from "drizzle-orm";
 
-import { createDb } from "../../db";
+import { createDb, type Database } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
-import { drafts } from "../drafts/schema";
-import { projects } from "../projects/schema";
+import { leaveUpgradePush, queueUpgradePush, turnOf } from "../publishes/queue";
 
 type UpgradeEnv = Bindings & CiBindings;
 
@@ -83,13 +81,28 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
         env: { ...HOSTED_BUILD },
       }));
       // A publish with code serves its revision's build, then pushes its tree to `main`: an
-      // upgrade pushed in between would release `main` without the draft's code over it. The
-      // upgrade waits, and its push is then refused, as `main` moved.
-      await waitForPublishes(step, this.env, params.repo);
-      await run(built, "push", async () => ({
-        command: pushCommand(params.sha, camoxVersion),
-        env: await pushEnv(this.env, params.repo, event.timestamp),
-      }));
+      // upgrade pushed in between would release `main` without the draft's code over it, and the
+      // publish's squashed commit would undo the upgrade. The push waits for its turn in the
+      // project's queue of publishes with code, then lands on the `main` they pushed.
+      const db = createDb(this.env.DB);
+      const projectId = await step.do("join the project's queue of publishes with code", () =>
+        queueUpgradePush(db, params.repo, event.instanceId),
+      );
+      try {
+        if (projectId !== null) await waitForTurn(step, db, projectId, event.instanceId);
+        await run(built, "push", async () => ({
+          command: pushCommand(params.sha, camoxVersion),
+          env: await pushEnv(this.env, params.repo, event.timestamp),
+        }));
+      } finally {
+        if (projectId !== null) {
+          await step
+            .do("leave the project's queue of publishes with code", () =>
+              leaveUpgradePush(this.env, db, projectId, event.instanceId),
+            )
+            .catch((error: unknown) => console.error("An upgrade didn't leave its queue", error));
+        }
+      }
     } catch (error) {
       const failedStep = current;
       await this.tell(step, params, { upgraded: false, failedStep });
@@ -114,19 +127,21 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
   }
 }
 
-/** Waits until no publish with code runs, or waits for its turn, in the project. */
-async function waitForPublishes(step: WorkflowStep, env: Bindings, projectId: string) {
+/**
+ * Waits until the upgrade's push is first in its project's queue: every publish with code asked
+ * for before it landed or went back.
+ */
+async function waitForTurn(
+  step: WorkflowStep,
+  db: Database,
+  projectId: number,
+  instanceId: string,
+) {
   for (let check = 1; ; check++) {
-    const publishing = await step.do(`check for publishes with code (${check})`, async () => {
-      const queued = await createDb(env.DB)
-        .select({ id: drafts.id })
-        .from(drafts)
-        .innerJoin(projects, eq(projects.id, drafts.projectId))
-        .where(and(eq(projects.uuid, projectId), isNotNull(drafts.publishInstanceId)))
-        .get();
-      return queued !== undefined;
-    });
-    if (!publishing) return;
+    const turn = await step.do(`check the project's queue (${check})`, () =>
+      turnOf(db, projectId, instanceId),
+    );
+    if (turn !== "waiting") return;
     await step.sleep(`wait for publishes with code (${check})`, PUBLISHES_CHECKED_EVERY);
   }
 }
@@ -150,18 +165,23 @@ async function setVersionsCommand(env: Bindings, params: ProjectUpgradeParams) {
 }
 
 /**
- * Commits the changed `package.json` and lockfile on top of the commit the upgrade built, and
- * pushes it to `main`. The workspace has no `.git`, so the step fetches that commit first. Its
- * author and dates are fixed, so a retried push makes the same commit and pushes nothing new. A
- * `main` that moved since is refused, rather than overwritten.
+ * Commits the changed `package.json` and lockfile on top of the current `main`, and pushes it.
+ * `main` may have moved since the commit the upgrade built, by a publish with code, which only
+ * ever changes `src/`: the step checks that `package.json` and the lockfile are still that
+ * commit's, and refuses otherwise. The workspace has no `.git`, so the step fetches both commits
+ * first. A `main` that already has the upgraded files, as after a retried push that landed, is
+ * left as it is. A `main` that moves during the step is refused, rather than overwritten.
  */
 function pushCommand(sha: string, camoxVersion: string) {
+  const platform = "package.json pnpm-lock.yaml";
   return [
     "git init -q",
     'git remote add origin "$UPGRADE_GIT_REMOTE"',
-    `git fetch -q --depth=1 origin ${sha}`,
-    "git reset -q FETCH_HEAD",
-    "git add package.json pnpm-lock.yaml",
+    `git fetch -q --depth=1 origin ${sha} refs/heads/main:refs/remotes/origin/main`,
+    "git reset -q origin/main",
+    `if git diff --quiet -- ${platform}; then exit 0; fi`,
+    `git diff --quiet ${sha} origin/main -- ${platform}`,
+    `git add ${platform}`,
     `git commit -q -m "Upgrade Camox to ${camoxVersion}"`,
     "git push -q origin HEAD:refs/heads/main",
   ].join(" && ");

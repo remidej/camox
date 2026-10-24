@@ -26,6 +26,27 @@ export async function deliverPushes(repo: string) {
 }
 
 /**
+ * Starts delivering the event of the last push to a repo's `main`, without waiting for what it
+ * starts. Returns a function waiting until that's done.
+ */
+export async function startDeliveringPush(repo: string) {
+  const [event] = (await fakes.takePushEvents(repo)).slice(-1);
+  if (!event) throw new Error(`No push to deliver for ${repo}`);
+  const id = crypto.randomUUID();
+  const instance = await introspectWorkflowInstance(env.RELEASE_WORKFLOW, id);
+  await instance.modify(async (m) => m.disableRetryDelays());
+  await env.RELEASE_WORKFLOW.create({ id, params: event });
+  return async () => {
+    await instance.waitForStatus("complete");
+    await instance[Symbol.asyncDispose]();
+  };
+}
+
+/** Pushes `files` as the whole tree of a project's `main`, from outside Camox, delivering nothing. */
+export const commitToMain = (repo: string, files: Record<string, FakeFile>, message = "Push") =>
+  fakes.commit(repo, files, message);
+
+/**
  * Pushes `files` as the whole tree of a project's `main`, from outside Camox, and delivers the
  * push. Returns the commit.
  */

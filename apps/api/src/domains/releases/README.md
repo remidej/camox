@@ -19,6 +19,8 @@ The Workflow runs on `@cloudflare/ci`. Each step after the first runs in its own
 
 Before releasing, the Workflow refreshes the project's read-only copy of `main`, which the agent reads the website's code from (`src/durable-objects/project-code.ts`). A copy that can't refresh is logged and doesn't hold up the release: it keeps its commit until the next push.
 
+Once the release ended, however it ended, or found nothing to release, the Workflow merges `main` into every open draft with code, each in its thread (`Thread.mergeMain`, `../revisions/merge.ts`): right away for an idle agent, after its turn's last commit otherwise. Merging after the release means a publish waiting for its draft's merge is promoted over the release's Worker version, never under it.
+
 1. **Record the release.** It maps the repo to its project, reads the commit's tree and the `camox` version from its `pnpm-lock.yaml` through the Artifacts binding, stops if Live already serves that tree, and writes the release's row as `running`.
 2. **`install`:** `pnpm install --frozen-lockfile`. Its workspace is cached on `pnpm-lock.yaml`, per project.
 3. **`release`:** `pnpm exec camox release`, which builds the website and syncs its Definition Set to Live, as for any release. Syncing the same set again changes nothing. It builds with the hosted build checks on (`src/lib/hosted-build.ts`), so code that breaks one fails here and Live keeps its previous release.

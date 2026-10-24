@@ -69,6 +69,7 @@ import {
   fixLint,
   type TurnBuild,
 } from "../domains/revisions/end-of-turn";
+import { type MergeEnd, mergeMainIntoDraft } from "../domains/revisions/merge";
 import type { BuildResult } from "../domains/revisions/result";
 import { buildTool } from "../domains/revisions/tool";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
@@ -457,6 +458,7 @@ export class Thread extends DurableObject<Bindings> {
       if (refused) throw refused;
     }
     const draftId = await this.#codeAccess(invocation);
+    await this.#merging;
     return this.#workingCopyEnv(draftId);
   }
 
@@ -540,23 +542,58 @@ export class Thread extends DurableObject<Bindings> {
     );
   }
 
-  /** Runs `build` once the draft's builds before it are done, the draft showing it's building. */
-  #buildingSerially<T>(draftId: string, build: () => Promise<T>): Promise<T> {
+  /**
+   * Runs `build` once the draft's builds before it are done, the draft showing it's building,
+   * unless it's a merge of `main`, which a publish waits for rather than refuse.
+   */
+  #buildingSerially<T>(
+    draftId: string,
+    build: () => Promise<T>,
+    { merge = false }: { merge?: boolean } = {},
+  ): Promise<T> {
     const code = this.env.DRAFT_CODE.getByName(draftId);
     const built = this.#building.then(async () => {
-      await code.markBuilding(true);
+      if (!merge) await code.markBuilding(true);
       try {
         return await build();
       } finally {
-        await code
-          .markBuilding(false)
-          .catch((error: unknown) =>
-            console.error("A draft couldn't record that its build ended", error),
-          );
+        if (!merge) {
+          await code
+            .markBuilding(false)
+            .catch((error: unknown) =>
+              console.error("A draft couldn't record that its build ended", error),
+            );
+        }
       }
     });
     this.#building = built.catch(() => undefined);
     return built;
+  }
+
+  /** The merge of `main` going, which code writes wait for: it lands beside the files. */
+  #merging: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Merges the current `main` into the thread's draft, when it has code, as a push to `main`
+   * asks: right away when the agent is idle, or else right after its turn's last commit, before
+   * the next message (`#onYield`). Nothing of it shows in the thread.
+   */
+  async mergeMain(): Promise<MergeEnd | "afterTheTurn" | "noCode"> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return "noCode";
+    const draftId =
+      (await this.#settle())?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
+    if (!draftId || !(await this.#hasCode(draftId))) return "noCode";
+    if (await this.harness.session().busy()) return "afterTheTurn";
+    return this.#mergeMain(draftId);
+  }
+
+  /** Merges `main` into the draft `draftId` in its build queue, code writes waiting for it. */
+  #mergeMain(draftId: string): Promise<MergeEnd> {
+    const merged = this.#buildingSerially(draftId, () => mergeMainIntoDraft(this.env, draftId), {
+      merge: true,
+    });
+    this.#merging = merged.catch(() => undefined);
+    return merged;
   }
 
   /**
@@ -583,6 +620,7 @@ export class Thread extends DurableObject<Bindings> {
     // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
     if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
       await this.ctx.storage.delete([failures, linted, built]);
+      await this.#mergeAfterTheTurn(draftId);
       return undefined;
     }
     const lint = (await this.ctx.storage.get<boolean>(linted))
@@ -617,7 +655,18 @@ export class Thread extends DurableObject<Bindings> {
       return { continue: fixLint(turn.result) };
     }
     await this.ctx.storage.delete([linted, built]);
+    await this.#mergeAfterTheTurn(draftId);
     return undefined;
+  }
+
+  /**
+   * Merges the `main` that moved during the turn ending, after its last commit and before the
+   * next message. A merge that fails on Camox's side waits for the next move of `main`, or turn.
+   */
+  async #mergeAfterTheTurn(draftId: string) {
+    await this.#mergeMain(draftId).catch((error: unknown) =>
+      console.error("A draft couldn't merge Live's code after a turn", error),
+    );
   }
 
   /** Records in the transcript where the end of the turn's build stands, for editors to see. */
