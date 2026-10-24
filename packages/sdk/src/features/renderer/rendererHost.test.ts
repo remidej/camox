@@ -10,7 +10,7 @@ import type { DraftScope } from "../../lib/draft-scope";
 import { testDraftScope, testStudioCache } from "../../lib/draft-scope.fixtures";
 import { reads, type StudioCache } from "../../lib/studio-reads";
 import { previewStore, selectionForOwner } from "../preview/previewStore";
-import { RENDERER_PROTOCOL, type RendererFrameTarget } from "./protocol";
+import { RENDERER_PROTOCOL, SDK_VERSION, type RendererFrameTarget } from "./protocol";
 import { fakeRenderer, settle } from "./protocol.fixtures";
 import { createRendererHost } from "./rendererHost";
 import { connectToStudio } from "./studioConnection";
@@ -286,6 +286,25 @@ void test("a renderer of another protocol is told nothing", async (t) => {
   previewStore.send({ type: "showCanvas" });
   await settle();
   assert.deepEqual(renderer.received, []);
+});
+
+void test("a renderer of another SDK version hears only the studio's version, and the studio says it's updating", async (t) => {
+  const host = setup(t);
+  host.show("preview", {} as HTMLElement, target);
+  assert.equal(host.status(), "connecting");
+  const renderer = fakeRenderer(host.handle, { sdkVersion: `${SDK_VERSION}-other` });
+  await settle();
+  previewStore.send({ type: "showCanvas" });
+  await settle();
+  assert.deepEqual(renderer.received, [
+    { type: "welcome", protocol: RENDERER_PROTOCOL, sdkVersion: SDK_VERSION },
+  ]);
+  assert.equal(host.status(), "updating");
+
+  const matching = fakeRenderer(host.handle);
+  await settle();
+  assert.equal(host.status(), "connected");
+  assert.equal(matching.last("frame")?.frameId, "preview");
 });
 
 /** The API the studio writes through, answering `answer` and recording each request it gets. */

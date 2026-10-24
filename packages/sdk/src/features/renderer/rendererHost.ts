@@ -15,6 +15,7 @@ import { referencePickerFocus } from "../preview/referencePickerFocus";
 import {
   deferredInbox,
   RENDERER_PROTOCOL,
+  SDK_VERSION,
   type ForwardedStore,
   type Inbox,
   type MirroredStore,
@@ -93,9 +94,19 @@ export interface RendererHost {
    * Returns a function that stops calling it.
    */
   subscribe(listener: () => void): () => void;
+  /** Where the connection to the renderer document stands. */
+  status(): RendererStatus;
+  /** Calls `listener` each time the status changes. Returns a function that stops calling it. */
+  subscribeStatus(listener: () => void): () => void;
   /** Stops following the studio. A renderer still connected hears nothing more. */
   close(): void;
 }
+
+/**
+ * Where the connection stands: no renderer said hello yet, one of the studio's SDK version did,
+ * or one of another version did, so the frames wait for a revision built with the studio's.
+ */
+export type RendererStatus = "connecting" | "connected" | "updating";
 
 type ShownFrame = { slot: HTMLElement; target: RendererFrameTarget; hears: FrameListener };
 
@@ -129,6 +140,13 @@ export function createRendererHost({
   >();
   let lastAskId = 0;
   const connectionListeners = new Set<() => void>();
+  let status: RendererStatus = "connecting";
+  const statusListeners = new Set<() => void>();
+  const setStatus = (next: RendererStatus) => {
+    if (status === next) return;
+    status = next;
+    for (const listener of statusListeners) listener();
+  };
   let renderer: Inbox<StudioMessage> | null = null;
   /** Sends to the renderer once it said hello, in the protocol it speaks. */
   let welcomed = false;
@@ -185,8 +203,11 @@ export function createRendererHost({
     switch (message.type) {
       case "hello": {
         if (message.protocol !== RENDERER_PROTOCOL) return;
+        // Both sides learn the other's version. Another SDK's renderer hears nothing more.
+        renderer?.({ type: "welcome", protocol: RENDERER_PROTOCOL, sdkVersion: SDK_VERSION });
+        if (message.sdkVersion !== SDK_VERSION) return setStatus("updating");
         welcomed = true;
-        post({ type: "welcome", protocol: RENDERER_PROTOCOL });
+        setStatus("connected");
         for (const store of Object.keys(mirrored) as MirroredStore[]) postStore(store);
         for (const [frameId, { slot, target }] of frames)
           post({ type: "frame", frameId, slot, target });
@@ -275,8 +296,14 @@ export function createRendererHost({
       connectionListeners.add(listener);
       return () => connectionListeners.delete(listener);
     },
+    status: () => status,
+    subscribeStatus(listener) {
+      statusListeners.add(listener);
+      return () => statusListeners.delete(listener);
+    },
     close() {
       connectionListeners.clear();
+      statusListeners.clear();
       for (const subscription of subscriptions) subscription.unsubscribe();
       stopRelaying?.();
       stopFollowing?.();

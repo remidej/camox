@@ -1,5 +1,9 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
-import type { InvalidationMessage, ProjectRoomMessage } from "@camox/api-contract/query-keys";
+import type {
+  InvalidationMessage,
+  ProjectRoomMessage,
+  RevisionAnnouncement,
+} from "@camox/api-contract/query-keys";
 import { usePartySocket } from "partysocket/react";
 import { useRef } from "react";
 
@@ -17,7 +21,13 @@ export function useProjectRoom(
   apiUrl: string,
   projectId: number | undefined,
   studioCache: StudioCache,
-  { onDraftEnded }: { onDraftEnded?: (ended: EndedDraft) => void } = {},
+  {
+    onDraftEnded,
+    onRevision,
+  }: {
+    onDraftEnded?: (ended: EndedDraft) => void;
+    onRevision?: (revision: RevisionAnnouncement) => void;
+  } = {},
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pendingRef = useRef<InvalidationMessage[]>([]);
@@ -53,6 +63,11 @@ export function useProjectRoom(
       if (data.type === "draftEnded") {
         const { type: _type, ...ended } = data;
         onDraftEnded?.(ended);
+        return;
+      }
+      if (data.type === "revision") {
+        const { type: _type, ...revision } = data;
+        onRevision?.(revision);
         return;
       }
       if (data.type !== "invalidate") return;

@@ -11,6 +11,7 @@ import { answerFromCode } from "./definitionAnswers";
 import {
   deferredInbox,
   RENDERER_PROTOCOL,
+  SDK_VERSION,
   type ForwardedStore,
   type Inbox,
   type MirroredStore,
@@ -55,7 +56,7 @@ const forwards: Record<ForwardedStore, DocumentStore> = {
 
 /** The renderer's side of its connection to the studio (see `protocol.ts`). */
 export interface StudioConnection {
-  /** Whether the studio welcomed the renderer. */
+  /** Whether the studio welcomed the renderer, in its protocol and SDK version. */
   connected: () => boolean;
   /** The frames the studio gives the renderer to fill, in the order it gave them. */
   frames: () => RendererFrame[];
@@ -114,7 +115,8 @@ export function connectToStudio(
 
   const receive = (message: StudioMessage) => {
     if (message.type === "welcome") {
-      welcomed = message.protocol === RENDERER_PROTOCOL;
+      // Only a studio of the same SDK version speaks it: another one says it's updating.
+      welcomed = message.protocol === RENDERER_PROTOCOL && message.sdkVersion === SDK_VERSION;
       return;
     }
     if (!welcomed) return;
@@ -194,7 +196,7 @@ export function connectToStudio(
   };
 
   const studio: Inbox<RendererMessage> = handle.connect(deferredInbox(receive));
-  studio({ type: "hello", protocol: RENDERER_PROTOCOL });
+  studio({ type: "hello", protocol: RENDERER_PROTOCOL, sdkVersion: SDK_VERSION });
 
   // This document's events go to the studio, which applies them and sends its state back.
   // Applying them here first shows them at once: the studio's state, the same, then replaces it.

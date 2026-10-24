@@ -4,6 +4,7 @@ import studioCssUrl from "virtual:camox-studio-css";
 
 import { AuthContext, useAuthActions } from "../../lib/auth";
 import { useDraftScope } from "../../lib/draft-scope";
+import { createRevisions, RevisionsContext } from "../../lib/revisions";
 import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import { useProjectRoom } from "../../lib/use-project-room";
 import { usePreviewPagesActions, useShowCanvasAction } from "../preview/CamoxPreview";
@@ -31,20 +32,22 @@ export function AuthenticatedCamoxProvider({ children }: { children: React.React
     () => draftScope.onNotice((notice) => void toast(draftNoticeMessage(notice))),
     [draftScope],
   );
+  const [revisions] = React.useState(createRevisions);
   useProjectRoom(apiUrl, project?.id, studioCache, {
     onDraftEnded(ended) {
       if (ended.draftId !== draftScope.current()) return;
       draftScope.leave(ended, { notice: true });
     },
+    onRevision: (revision) => revisions.announce(revision),
   });
 
   const { resolvedTheme } = useApplyTheme();
   return (
-    <>
+    <RevisionsContext value={revisions}>
       <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       {children}
       <Toaster theme={resolvedTheme} />
       <CommandPalette />
-    </>
+    </RevisionsContext>
   );
 }

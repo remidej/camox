@@ -12,7 +12,7 @@ import { reads } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
 import { previewStore, selectionForOwner } from "../preview/previewStore";
 import { referencePickerFocus } from "../preview/referencePickerFocus";
-import { RENDERER_PROTOCOL } from "./protocol";
+import { RENDERER_PROTOCOL, SDK_VERSION } from "./protocol";
 import { fakeStudio, settle } from "./protocol.fixtures";
 import { connectToStudio } from "./studioConnection";
 
@@ -43,10 +43,38 @@ async function connect(
   return { studio, connection, ...state };
 }
 
-void test("the renderer says hello in its protocol", async (t) => {
+void test("the renderer says hello in its protocol and SDK version", async (t) => {
   const { studio, connection } = await connect(t);
-  assert.deepEqual(studio.all("hello"), [{ type: "hello", protocol: RENDERER_PROTOCOL }]);
+  assert.deepEqual(studio.all("hello"), [
+    { type: "hello", protocol: RENDERER_PROTOCOL, sdkVersion: SDK_VERSION },
+  ]);
   assert.equal(connection.connected(), true);
+});
+
+void test("a studio of another SDK version gets no frame rendered", async (t) => {
+  const studio = fakeStudio({ sdkVersion: `${SDK_VERSION}-other` });
+  const connection = connectToStudio(studio.handle, rendererState());
+  t.after(() => connection.close());
+  await settle();
+  studio.send({
+    type: "frame",
+    frameId: "preview",
+    slot: {} as HTMLElement,
+    target: {
+      pathname: "/",
+      href: "http://localhost/",
+      owner: page,
+      locale: null,
+      editable: true,
+      artifactsRun: true,
+      artifactStudio: null,
+      resting: false,
+      canvas: null,
+    },
+  });
+  await settle();
+  assert.equal(connection.connected(), false);
+  assert.deepEqual(connection.frames(), []);
 });
 
 void test("the renderer shows the studio's selection, and sends its own to the studio", async (t) => {

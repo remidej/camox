@@ -1,5 +1,6 @@
 import {
   RENDERER_PROTOCOL,
+  SDK_VERSION,
   type Inbox,
   type RendererMessage,
   type StudioHandle,
@@ -15,10 +16,13 @@ export async function settle() {
  * A renderer frame that speaks the protocol and nothing else: it connects through the studio's
  * handle, records what the studio tells it, and sends what the test says.
  */
-export function fakeRenderer(handle: StudioHandle, { protocol = RENDERER_PROTOCOL } = {}) {
+export function fakeRenderer(
+  handle: StudioHandle,
+  { protocol = RENDERER_PROTOCOL, sdkVersion = SDK_VERSION } = {},
+) {
   const received: StudioMessage[] = [];
   const studio = handle.connect((message) => received.push(message));
-  studio({ type: "hello", protocol });
+  studio({ type: "hello", protocol, sdkVersion });
   return {
     received,
     send: studio as Inbox<RendererMessage>,
@@ -39,7 +43,7 @@ export function fakeRenderer(handle: StudioHandle, { protocol = RENDERER_PROTOCO
  * A studio that speaks the protocol and nothing else, for a renderer to connect to: it records
  * what the renderer tells it, and sends what the test says once the renderer said hello.
  */
-export function fakeStudio({ protocol = RENDERER_PROTOCOL } = {}) {
+export function fakeStudio({ protocol = RENDERER_PROTOCOL, sdkVersion = SDK_VERSION } = {}) {
   const received: RendererMessage[] = [];
   let renderer: Inbox<StudioMessage> | null = null;
   const handle: StudioHandle = {
@@ -47,7 +51,7 @@ export function fakeStudio({ protocol = RENDERER_PROTOCOL } = {}) {
       renderer = inbox;
       return (message) => {
         received.push(message);
-        if (message.type === "hello") inbox({ type: "welcome", protocol });
+        if (message.type === "hello") inbox({ type: "welcome", protocol, sdkVersion });
       };
     },
   };

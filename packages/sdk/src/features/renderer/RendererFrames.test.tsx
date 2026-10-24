@@ -38,6 +38,8 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }, dra
   const { fakeRenderer, settle } = await import("./protocol.fixtures");
   const { STUDIO_HANDLE_KEY } = await import("./protocol");
   const { RendererFramesProvider, RendererSlot } = await import("./RendererFrames");
+  const { createRevisions, RevisionsContext } = await import("../../lib/revisions");
+  const revisions = createRevisions();
 
   const queryClient = new QueryClient();
   const draftScope = testDraftScope(queryClient);
@@ -53,27 +55,32 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }, dra
     React.act(async () =>
       root.render(
         <StudioQueryClientProvider client={queryClient} draftScope={draftScope}>
-          <RendererFramesProvider runtimeBasePath="">
-            <NavigationProvider
-              location={{
-                href: "http://localhost/about",
-                pathname: "/about",
-                search: "",
-                hash: "",
-              }}
-              navigate={(options) => void navigations.push(options)}
-            >
-              <PreviewEditingOwnerContext value={page}>
-                <EditableSurfaceContext value={false}>
-                  {slot &&
-                    createPortal(
-                      <RendererSlot pathname="/about" onRendered={() => rendered.push("/about")} />,
-                      visible.document.body as unknown as HTMLElement,
-                    )}
-                </EditableSurfaceContext>
-              </PreviewEditingOwnerContext>
-            </NavigationProvider>
-          </RendererFramesProvider>
+          <RevisionsContext value={revisions}>
+            <RendererFramesProvider runtimeBasePath="">
+              <NavigationProvider
+                location={{
+                  href: "http://localhost/about",
+                  pathname: "/about",
+                  search: "",
+                  hash: "",
+                }}
+                navigate={(options) => void navigations.push(options)}
+              >
+                <PreviewEditingOwnerContext value={page}>
+                  <EditableSurfaceContext value={false}>
+                    {slot &&
+                      createPortal(
+                        <RendererSlot
+                          pathname="/about"
+                          onRendered={() => rendered.push("/about")}
+                        />,
+                        visible.document.body as unknown as HTMLElement,
+                      )}
+                  </EditableSurfaceContext>
+                </PreviewEditingOwnerContext>
+              </NavigationProvider>
+            </RendererFramesProvider>
+          </RevisionsContext>
         </StudioQueryClientProvider>,
       ),
     );
@@ -97,7 +104,17 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }, dra
       await fn();
       await settle();
     });
-  return { draftScope, visible, rendererFrame, render, navigations, rendered, act, fakeRenderer };
+  return {
+    draftScope,
+    visible,
+    rendererFrame,
+    render,
+    navigations,
+    rendered,
+    act,
+    fakeRenderer,
+    revisions,
+  };
 }
 
 void test("the Website Section loads one hidden renderer frame, at the renderer document of the draft viewed", async (t) => {
@@ -149,4 +166,77 @@ void test("moving to another draft loads another renderer; a draft a first write
   await act(() => draftScope.adopt({ draftId: "autumn" }));
   assert.equal(rendererFrame()?.getAttribute("src"), "/_camox/renderer?camox-draft=autumn");
   assert.notEqual(rendererFrame(), live);
+});
+
+void test("with a renderer of another SDK version, the frames say they're updating", async (t) => {
+  const { rendererFrame, visible, act, fakeRenderer } = await setup(t, null);
+  const { SDK_VERSION } = await import("./protocol");
+  const renderer = fakeRenderer(rendererFrame()!.__camoxStudio!, {
+    sdkVersion: `${SDK_VERSION}-other`,
+  });
+  await act(() => {});
+  assert.equal(renderer.last("frame"), undefined);
+  assert.match(visible.document.body.textContent ?? "", /updating/i);
+});
+
+void test("a new revision of the shown draft loads another renderer, which keeps the Canvas position and selection", async (t) => {
+  const { rendererFrame, act, fakeRenderer, revisions } = await setup(t, "spring");
+  const { previewStore, selectionForOwner } = await import("../preview/previewStore");
+  const { canvasStore } = await import("../canvas/canvasStore");
+  t.after(() => canvasStore.send({ type: "reset" }));
+  const first = rendererFrame();
+  fakeRenderer(first!.__camoxStudio!);
+  await act(() => {
+    previewStore.send({ type: "setFocusedBlock", ...page, blockId: "hero" });
+    canvasStore.send({
+      type: "rememberView",
+      workspaceKey: "pages",
+      view: { camera: { x: 120, y: -40, scale: 0.5 }, fitted: false },
+    });
+  });
+
+  await act(() => revisions.announce({ draftId: "autumn", revisionId: "r1", sdkVersion: "1" }));
+  assert.equal(rendererFrame(), first, "another draft's revision changes nothing");
+
+  await act(() => revisions.announce({ draftId: "spring", revisionId: "r2", sdkVersion: "1" }));
+  const reloaded = rendererFrame();
+  assert.ok(reloaded);
+  assert.notEqual(reloaded, first);
+  assert.equal(reloaded.getAttribute("src"), "/_camox/renderer?camox-draft=spring");
+
+  const renderer = fakeRenderer(reloaded.__camoxStudio!);
+  await act(() => {});
+  const preview = renderer
+    .all("store")
+    .filter(({ store }) => store === "preview")
+    .at(-1);
+  const canvas = renderer
+    .all("store")
+    .filter(({ store }) => store === "canvas")
+    .at(-1);
+  assert.deepEqual(
+    selectionForOwner(preview?.context as Parameters<typeof selectionForOwner>[0], page),
+    { type: "block", blockId: "hero" },
+  );
+  assert.deepEqual(
+    (canvas!.context as ReturnType<typeof canvasStore.getSnapshot>["context"]).views.pages,
+    { camera: { x: 120, y: -40, scale: 0.5 }, fitted: false },
+  );
+  assert.ok(renderer.last("frame"), "the new renderer renders the frames shown");
+});
+
+void test("frames updating for another SDK version recover once a revision of the studio's version loads", async (t) => {
+  const { rendererFrame, visible, act, fakeRenderer, revisions } = await setup(t, "spring");
+  const { SDK_VERSION } = await import("./protocol");
+  fakeRenderer(rendererFrame()!.__camoxStudio!, { sdkVersion: `${SDK_VERSION}-other` });
+  await act(() => {});
+  assert.match(visible.document.body.textContent ?? "", /updating/i);
+
+  await act(() =>
+    revisions.announce({ draftId: "spring", revisionId: "r2", sdkVersion: SDK_VERSION }),
+  );
+  const renderer = fakeRenderer(rendererFrame()!.__camoxStudio!);
+  await act(() => {});
+  assert.doesNotMatch(visible.document.body.textContent ?? "", /updating/i);
+  assert.ok(renderer.last("frame"));
 });
