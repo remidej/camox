@@ -358,20 +358,24 @@ const definedBuilds = [];
 const failingTypeChecks = [];
 /** @type {{ marker: string, diagnostics: unknown[] }[]} lints of a tree with a file holding `marker` find `diagnostics` */
 const lintedTrees = [];
-/** Sandbox calls left that fail, as a sandbox whose container crashed does. */
-let sandboxFailures = 0;
+/**
+ * @type {{ marker: string, times: number }[]} calls left that fail, as a crashed container's do,
+ * of a sandbox building a tree with a file holding `marker`: test files share the fakes, so a
+ * crash reaches only the build its test scripted it for
+ */
+const sandboxCrashes = [];
 /** @type {{ revision: string, archiveKey: string, project: string, draft: string }[]} revisions dispatch prewarmed, oldest first */
 const prewarmed = [];
-/** How many of the next prewarms fail, as an unreachable dispatch's would. */
-let prewarmFailures = 0;
+/** @type {Map<string, number>} project → how many of its next prewarms fail, as an unreachable dispatch's would */
+const prewarmFailures = new Map();
 /** @type {Set<string>} the revision sandboxes destroyed */
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
 const sandboxSleepAfter = new Map();
-/** Whether revision builds are held, as builds still running. */
-let buildsHeld = false;
-/** Whether type checks are held, as checks still running. */
-let typeChecksHeld = false;
+/** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
+const heldBuilds = new Set();
+/** @type {Set<string>} the revision sandboxes whose type checks are held, as checks still running */
+const heldTypeChecks = new Set();
 
 /** The build command the revision sandbox runs, and the command that archives its output. */
 const BUILD_COMMAND = /\bvp build\b/;
@@ -428,9 +432,17 @@ export class FakeRevisionSandbox extends DurableObject {
   /** Whether the last build passed. */
   built = false;
 
-  #crash() {
-    if (sandboxFailures > 0) {
-      sandboxFailures -= 1;
+  /** @param {Uint8Array} [incoming] a file being written, the tree's archive among them */
+  #crash(incoming) {
+    const decoder = new TextDecoder();
+    const held = [...this.files.values(), ...(incoming ? [incoming] : [])].map((bytes) =>
+      decoder.decode(bytes),
+    );
+    const crash = sandboxCrashes.find(
+      ({ marker, times }) => times > 0 && held.some((content) => content.includes(marker)),
+    );
+    if (crash) {
+      crash.times -= 1;
       throw new Error("Container crashed while checking for ports");
     }
   }
@@ -443,8 +455,9 @@ export class FakeRevisionSandbox extends DurableObject {
   }
 
   async writeFile(path, content, options = {}) {
-    this.#crash();
-    this.files.set(path, await bytesOf(content, options.encoding));
+    const bytes = await bytesOf(content, options.encoding);
+    this.#crash(bytes);
+    this.files.set(path, bytes);
     return { success: true, path, timestamp: new Date().toISOString() };
   }
 
@@ -500,7 +513,7 @@ export class FakeRevisionSandbox extends DurableObject {
     }
     if (BUILD_COMMAND.test(command)) {
       // Polled: a promise resolved from the request letting go wouldn't wake this one.
-      while (buildsHeld) await new Promise((resolve) => setTimeout(resolve, 10));
+      while (heldBuilds.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
       const failing = failingBuilds.find(({ marker }) =>
         Object.values(this.tree).some((content) => content.includes(marker)),
       );
@@ -512,7 +525,7 @@ export class FakeRevisionSandbox extends DurableObject {
     }
     const typeCheck = TYPE_CHECK_COMMAND.exec(command);
     if (typeCheck) {
-      while (typeChecksHeld) await new Promise((resolve) => setTimeout(resolve, 10));
+      while (heldTypeChecks.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
       // It checks the files its config includes, as tsrs reads them.
       const configPath = typeCheck[1].startsWith("/")
         ? typeCheck[1]
@@ -599,8 +612,9 @@ export class FakeDispatch extends WorkerEntrypoint {
 
   /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
   async prewarm(revision) {
-    if (prewarmFailures > 0) {
-      prewarmFailures -= 1;
+    const failures = prewarmFailures.get(revision.project) ?? 0;
+    if (failures > 0) {
+      prewarmFailures.set(revision.project, failures - 1);
       throw new Error("Network connection lost.");
     }
     if (!(await this.env.REVISION_BUILDS.head(revision.archiveKey))) {
@@ -784,14 +798,18 @@ export class ReleaseFakes extends WorkerEntrypoint {
     failingTypeChecks.push({ marker, errors });
   }
 
-  /** Holds every type check from now on, as a check still running, until `releaseTypeChecks()`. */
-  async holdTypeChecks() {
-    typeChecksHeld = true;
+  /**
+   * Holds every type check of a revision sandbox from now on, as a check still running, until
+   * `releaseTypeChecks(sandbox)`.
+   * @param {string} sandbox
+   */
+  async holdTypeChecks(sandbox) {
+    heldTypeChecks.add(sandbox);
   }
 
-  /** Lets go of the type checks `holdTypeChecks()` holds. */
-  async releaseTypeChecks() {
-    typeChecksHeld = false;
+  /** @param {string} sandbox Lets go of the sandbox's type checks `holdTypeChecks()` holds. */
+  async releaseTypeChecks(sandbox) {
+    heldTypeChecks.delete(sandbox);
   }
 
   /**
@@ -804,14 +822,18 @@ export class ReleaseFakes extends WorkerEntrypoint {
     lintedTrees.push({ marker, diagnostics });
   }
 
-  /** Holds every revision build from now on, as a build still running, until `releaseBuilds()`. */
-  async holdBuilds() {
-    buildsHeld = true;
+  /**
+   * Holds every build of a revision sandbox from now on, as a build still running, until
+   * `releaseBuilds(sandbox)`.
+   * @param {string} sandbox
+   */
+  async holdBuilds(sandbox) {
+    heldBuilds.add(sandbox);
   }
 
-  /** Lets go of the builds `holdBuilds()` holds. */
-  async releaseBuilds() {
-    buildsHeld = false;
+  /** @param {string} sandbox Lets go of the sandbox's builds `holdBuilds()` holds. */
+  async releaseBuilds(sandbox) {
+    heldBuilds.delete(sandbox);
   }
 
   /**
@@ -829,14 +851,23 @@ export class ReleaseFakes extends WorkerEntrypoint {
     return prewarmed;
   }
 
-  /** @param {number} times Makes the next `times` prewarms fail. */
-  async failPrewarms(times) {
-    prewarmFailures = times;
+  /**
+   * Makes the next `times` prewarms of the project's revisions fail.
+   * @param {string} project the Project ID
+   * @param {number} times
+   */
+  async failPrewarms(project, times) {
+    prewarmFailures.set(project, times);
   }
 
-  /** @param {number} times Makes the next `times` calls to any revision sandbox fail. */
-  async crashSandboxes(times) {
-    sandboxFailures = times;
+  /**
+   * Makes the next `times` calls fail to a revision sandbox building a tree with a file holding
+   * `marker`.
+   * @param {string} marker
+   * @param {number} times
+   */
+  async crashSandboxes(marker, times) {
+    sandboxCrashes.push({ marker, times });
   }
 
   /** @param {string} sandbox Whether a revision sandbox was destroyed. */

@@ -19,14 +19,14 @@ export type RevisionFakes = {
   failBuildsOf(marker: string, log: string): Promise<void>;
   lintFindingsOf(marker: string, diagnostics: LintDiagnostic[]): Promise<void>;
   revisionCommands(sandbox: string): Promise<{ command: string }[]>;
-  /** Holds the next revision build until `releaseBuilds()`. */
-  holdBuilds(): Promise<void>;
-  releaseBuilds(): Promise<void>;
+  /** Holds the sandbox's builds from now on, until `releaseBuilds(sandbox)`. */
+  holdBuilds(sandbox: string): Promise<void>;
+  releaseBuilds(sandbox: string): Promise<void>;
   /** Makes every type check of a tree holding `marker` report those of `errors` in what it checks. */
   failTypeChecksOf(marker: string, errors: FakeTypeError[]): Promise<void>;
-  /** Holds every type check until `releaseTypeChecks()`. */
-  holdTypeChecks(): Promise<void>;
-  releaseTypeChecks(): Promise<void>;
+  /** Holds the sandbox's type checks from now on, until `releaseTypeChecks(sandbox)`. */
+  holdTypeChecks(sandbox: string): Promise<void>;
+  releaseTypeChecks(sandbox: string): Promise<void>;
 };
 
 /** A type error the fake sandbox's type check prints, as tsrs does. */

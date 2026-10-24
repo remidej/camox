@@ -38,7 +38,6 @@ vi.mock("../../lib/thread-model", async () => {
 });
 
 afterEach(async () => {
-  await fakes.releaseTypeChecks();
   await abortAllDurableObjects();
   forgetThreadModel();
 });
@@ -134,17 +133,20 @@ describe("a revision's type check", () => {
   it("doesn't hold back the preview of a revision that built", async () => {
     const { website, draft, thread } = await draftWithPricing();
     const before = (await previewOf(website, draft.id)).code!.revision;
-    await fakes.holdTypeChecks();
-    answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
-    answerNext("I added yearly plans.");
-    thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
+    await fakes.holdTypeChecks(draft.id);
+    try {
+      answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
+      answerNext("I added yearly plans.");
+      thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
 
-    // The type check is still running.
-    await vi.waitFor(
-      async () => expect((await previewOf(website, draft.id)).code!.revision).not.toBe(before),
-      { timeout: 10_000, interval: 50 },
-    );
-    await fakes.releaseTypeChecks();
+      // The type check is still running.
+      await vi.waitFor(
+        async () => expect((await previewOf(website, draft.id)).code!.revision).not.toBe(before),
+        { timeout: 10_000, interval: 50 },
+      );
+    } finally {
+      await fakes.releaseTypeChecks(draft.id);
+    }
     await thread.untilIdle();
     thread.close();
   });
