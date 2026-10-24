@@ -5,7 +5,7 @@ import type { Bindings } from "../../types";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 import type { RevisionId } from "./result";
-import { type RevisionBuildStatus, revisions } from "./schema";
+import { type RevisionBuildStatus, type RevisionTypeCheckStatus, revisions } from "./schema";
 
 /** What the publish preview says about a draft's code (spec #560, section 10). */
 export type PreviewCode = {
@@ -19,13 +19,17 @@ export type PreviewCode = {
 
 /**
  * Where the code of the draft `draftId` stands for publishing it: the preview's `code`, null for
- * a draft whose code no agent changed, and the build status of its head revision, if any.
+ * a draft whose code no agent changed, and the build and type-check status of its head revision,
+ * if any.
  */
 export async function codeOfDraft(
   env: Bindings,
   db: ReturnType<typeof createDb>,
   draftId: string,
-): Promise<{ code: PreviewCode | null; head: RevisionBuildStatus | null }> {
+): Promise<{
+  code: PreviewCode | null;
+  head: { buildStatus: RevisionBuildStatus; typeCheckStatus: RevisionTypeCheckStatus } | null;
+}> {
   const working = env.DRAFT_CODE.getByName(draftId);
   const draft = await db
     .select({
@@ -41,7 +45,10 @@ export async function codeOfDraft(
   const [head, building, forkedFrom, main] = await Promise.all([
     draft.head
       ? db
-          .select({ buildStatus: revisions.buildStatus })
+          .select({
+            buildStatus: revisions.buildStatus,
+            typeCheckStatus: revisions.typeCheckStatus,
+          })
           .from(revisions)
           .where(eq(revisions.id, draft.head))
           .get()
@@ -56,6 +63,6 @@ export async function codeOfDraft(
       includesLive: main === undefined || forkedFrom === main,
       building,
     },
-    head: head?.buildStatus ?? null,
+    head: head ?? null,
   };
 }

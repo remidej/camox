@@ -2,6 +2,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
+import type { TypeCheckError } from "./result";
 
 /** What left a revision: the agent's `build`, the end of its turn, or a merge of `main`. */
 export type RevisionSource = "build" | "turn" | "merge";
@@ -13,6 +14,9 @@ export type RevisionSource = "build" | "turn" | "merge";
 export type RevisionBuildStatus = "building" | "built" | "failed" | "notBuilt";
 
 export type RevisionTypeCheckStatus = "pending" | "passed" | "failed";
+
+/** A failed type check's errors, as a build result lists them, with their total when capped. */
+export type RevisionTypeErrors = { shown: TypeCheckError[]; total?: number };
 
 /**
  * One state of a draft's code (GLOSSARY.md): a commit on the draft's branch, left each time the
@@ -36,6 +40,8 @@ export const revisions = sqliteTable(
     runId: text("run_id"),
     buildStatus: text("build_status").notNull().$type<RevisionBuildStatus>(),
     typeCheckStatus: text("type_check_status").notNull().$type<RevisionTypeCheckStatus>(),
+    /** The errors of its type check, once it failed: the first ones shown, and their total. */
+    typeErrors: text("type_errors", { mode: "json" }).$type<RevisionTypeErrors>(),
     /** The revision's build in `REVISION_BUILDS`, once it built. */
     archiveKey: text("archive_key"),
     /** The `camox` version the revision's `pnpm-lock.yaml` installs, if it has one. */

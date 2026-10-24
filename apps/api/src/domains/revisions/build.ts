@@ -14,8 +14,9 @@ import { deleteRevisionBuild, revisionArchiveKey } from "./archive";
 import { buildErrorsOf } from "./build-log";
 import type { RevisionToLoad } from "./dispatch";
 import { type BuildResult, ERRORS_SHOWN } from "./result";
-import { buildInSandbox } from "./sandbox";
-import { revisions, type RevisionSource } from "./schema";
+import { buildInSandbox, checkTypesInSandbox, type SandboxTypeCheck } from "./sandbox";
+import { revisions, type RevisionSource, type RevisionTypeErrors } from "./schema";
+import { typeErrorsOf } from "./type-check-log";
 
 /** How many times a step that fails on Camox's side is tried, the first try included. */
 export const INFRASTRUCTURE_ATTEMPTS = 4;
@@ -58,6 +59,28 @@ export function capped<T>(errors: T[]) {
     shown: errors.slice(0, ERRORS_SHOWN),
     total: errors.length > ERRORS_SHOWN ? errors.length : undefined,
   };
+}
+
+/**
+ * `result` with its revision's type errors: a revision that built but doesn't type check isn't
+ * `ok`, though it's committed.
+ */
+function withTypeErrors(result: BuildResult, typeErrors: RevisionTypeErrors | null): BuildResult {
+  if (!typeErrors) return result;
+  return {
+    ...result,
+    ok: false,
+    types: typeErrors.shown,
+    ...(typeErrors.total === undefined
+      ? {}
+      : { truncated: { ...result.truncated, types: typeErrors.total } }),
+  };
+}
+
+/** What a type check records on its revision: its status, and its errors when it failed. */
+function typeCheckRecord(check: SandboxTypeCheck) {
+  if (check.ok) return { typeCheckStatus: "passed" as const, typeErrors: null };
+  return { typeCheckStatus: "failed" as const, typeErrors: capped(typeErrorsOf(check.output)) };
 }
 
 const passed = (revision: string): BuildResult => ({
@@ -207,6 +230,7 @@ export async function buildRevision(
       projectId: drafts.projectId,
       projectUuid: projects.uuid,
       previewedRevisionId: drafts.previewedRevisionId,
+      headRevisionId: drafts.headRevisionId,
     })
     .from(drafts)
     .innerJoin(projects, eq(projects.id, drafts.projectId))
@@ -220,17 +244,32 @@ export async function buildRevision(
       id: revisions.id,
       buildStatus: revisions.buildStatus,
       archiveKey: revisions.archiveKey,
+      typeCheckStatus: revisions.typeCheckStatus,
+      typeErrors: revisions.typeErrors,
       camoxVersion: revisions.camoxVersion,
     })
     .from(revisions)
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
     .get();
-  if (existing?.buildStatus === "built" && existing.archiveKey) {
-    return previewRevision(env, draft, {
+  // A revision whose type check never finished is built again, to check it.
+  if (
+    existing?.buildStatus === "built" &&
+    existing.archiveKey &&
+    existing.typeCheckStatus !== "pending"
+  ) {
+    // Code back to an earlier revision's tree, such as a reverted change, is that revision
+    // again, committed on top of the branch.
+    if (draft.headRevisionId !== existing.id) {
+      const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }));
+      await db.update(revisions).set({ commit, parents }).where(eq(revisions.id, existing.id));
+      await db.update(drafts).set({ headRevisionId: existing.id }).where(eq(drafts.id, draftId));
+    }
+    const previewed = await previewRevision(env, draft, {
       id: existing.id,
       archiveKey: existing.archiveKey,
       camoxVersion: existing.camoxVersion,
     });
+    return withTypeErrors(previewed, existing.typeErrors);
   }
 
   const outcome = await retried(() => buildInSandbox(env, draftId, prepared));
@@ -278,5 +317,20 @@ export async function buildRevision(
     .onConflictDoUpdate({ target: [revisions.draftId, revisions.tree], set: built })
     .returning({ id: revisions.id });
   await db.update(drafts).set({ headRevisionId: recorded!.id }).where(eq(drafts.id, draftId));
-  return previewRevision(env, draft, { id: recorded!.id, archiveKey, camoxVersion });
+  // The preview shows the revision without waiting on its type check.
+  const previewed = await previewRevision(env, draft, {
+    id: recorded!.id,
+    archiveKey,
+    camoxVersion,
+  });
+
+  // A sandbox failing during the check checks again: the draft's builds run one at a time, so
+  // its workspace still holds the tree.
+  let attempt = 0;
+  const typeCheck = await retried(() =>
+    attempt++ === 0 ? outcome.typeCheck : checkTypesInSandbox(env, draftId),
+  );
+  const record = typeCheckRecord(typeCheck);
+  await db.update(revisions).set(record).where(eq(revisions.id, recorded!.id));
+  return withTypeErrors(previewed, record.typeErrors);
 }

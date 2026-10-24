@@ -124,6 +124,7 @@ export type LostChange = Subject & InLocale & { reason: (typeof LOSS_REASONS)[nu
 export const PROBLEM_CODES = [
   "definitionsDiffer",
   "codeDoesNotBuild",
+  "codeDoesNotTypeCheck",
   ...FILE_PROBLEM_CODES,
   ...CONTENT_PROBLEM_CODES,
   ...REMOVAL_PROBLEM_CODES,
@@ -288,32 +289,48 @@ const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
 // --- The draft's code (spec #560, section 10) ---
 
 /** A blocker about the draft's code, which only the agent fixes, in the draft's thread. */
-const codeBlocker = (draftId: string, message: string): Problem => ({
+const codeBlocker = (
+  draftId: string,
+  code: "codeDoesNotBuild" | "codeDoesNotTypeCheck",
+  message: string,
+): Problem => ({
   entity: "code",
   id: draftId,
   label: "The website's code",
   owner: null,
   locale: null,
-  code: "codeDoesNotBuild",
+  code,
   field: "",
   fieldKind: null,
   blockId: null,
   message,
 });
 
-/** The preview's `code`, and the blockers the draft's code has: its head revision isn't built. */
+/**
+ * The preview's `code`, and the blockers the draft's code has: its head revision isn't built, or
+ * built but doesn't type check.
+ */
 const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, scope: Scope) {
   if (scope.kind === "development") return { code: null, blockers: [] };
   const { code, head } = yield* Effect.promise(() => codeOfDraft(ctx.env, ctx.db, scope.id));
-  const blockers =
-    head !== null && head !== "built" && head !== "building"
-      ? [
-          codeBlocker(
-            scope.id,
-            "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
-          ),
-        ]
-      : [];
+  const blockers: Problem[] = [];
+  if (head && head.buildStatus !== "built" && head.buildStatus !== "building") {
+    blockers.push(
+      codeBlocker(
+        scope.id,
+        "codeDoesNotBuild",
+        "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
+      ),
+    );
+  } else if (head?.buildStatus === "built" && head.typeCheckStatus === "failed") {
+    blockers.push(
+      codeBlocker(
+        scope.id,
+        "codeDoesNotTypeCheck",
+        "The agent's latest code changes have type errors: ask it to fix them in the draft's thread",
+      ),
+    );
+  }
   return { code, blockers };
 });
 

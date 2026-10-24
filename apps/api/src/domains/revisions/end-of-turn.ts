@@ -15,7 +15,7 @@ import {
 } from "./build";
 import type { BuildResult } from "./result";
 import { lintInSandbox } from "./sandbox";
-import { revisions } from "./schema";
+import { type RevisionBuildStatus, type RevisionTypeCheckStatus, revisions } from "./schema";
 
 /**
  * How many end-of-turn builds may fail in a row before the turn commits its changes anyway, as a
@@ -33,7 +33,12 @@ export type TurnBuild =
   /** The build failed: the agent is handed `result` to fix it. */
   | { outcome: "failed"; result: BuildResult }
   /** The build failed once too often: the changes are committed anyway, as a revision not built. */
-  | { outcome: "committedUnbuilt"; result: BuildResult };
+  | { outcome: "committedUnbuilt"; result: BuildResult }
+  /**
+   * The changes built, committed, but had errors once too often: type errors, or definitions the
+   * draft can't use. They stay as they are.
+   */
+  | { outcome: "keptErrors"; result: BuildResult };
 
 /** The working copy's tree as it is now, and the revision the draft holds for it, if any. */
 async function revisionOfTree(env: Bindings, draftId: string) {
@@ -41,11 +46,35 @@ async function revisionOfTree(env: Bindings, draftId: string) {
     env.DRAFT_CODE.getByName(draftId).prepareCommit({ message: MESSAGES.turn }),
   );
   const revision = await createDb(env.DB)
-    .select({ id: revisions.id, buildStatus: revisions.buildStatus })
+    .select({
+      id: revisions.id,
+      buildStatus: revisions.buildStatus,
+      typeCheckStatus: revisions.typeCheckStatus,
+      previewed: drafts.previewedRevisionId,
+    })
     .from(revisions)
+    .innerJoin(drafts, eq(drafts.id, revisions.draftId))
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
     .get();
   return { prepared, revision };
+}
+
+/**
+ * Whether a revision is one the turn has nothing more to do about: one that built without errors
+ * and that the draft previews, or one committed without a build once the limit was reached.
+ */
+function settled(revision: {
+  id: string;
+  buildStatus: RevisionBuildStatus;
+  typeCheckStatus: RevisionTypeCheckStatus;
+  previewed: string | null;
+}) {
+  if (revision.buildStatus === "notBuilt") return true;
+  return (
+    revision.buildStatus === "built" &&
+    revision.typeCheckStatus === "passed" &&
+    revision.previewed === revision.id
+  );
 }
 
 /**
@@ -81,9 +110,12 @@ async function lintTurn(
 /**
  * Builds what a turn changed in the code of the draft `draftId`, which has code, as the turn
  * ends: whatever changed since its last revision, nothing when the agent's last `build` already
- * covered it. A passing build leaves a revision. `failedInARow` is how many end-of-turn builds of
- * this turn failed before this one: once this one makes `END_OF_TURN_BUILD_FAILURES`, the changes
- * are committed anyway, as a revision that isn't built. `building` runs before a build starts.
+ * covered it without errors. A passing build leaves a revision, even with type errors. A build
+ * fails when it, its type check or its definitions have errors. `failedInARow` is how many
+ * end-of-turn builds of this turn failed before this one: once this one makes
+ * `END_OF_TURN_BUILD_FAILURES`, changes that didn't build are committed anyway, as a revision
+ * that isn't built, and ones that did stay with their errors. `building` runs before a build
+ * starts.
  *
  * When `lint` is set, code the turn changed that builds is linted too, after its build: findings
  * hand the agent a `linted` result. Lint never fails a build. The caller sets it once per turn,
@@ -106,7 +138,7 @@ export async function buildAtEndOfTurn(
   },
 ): Promise<TurnBuild> {
   const { prepared, revision } = await revisionOfTree(env, draftId);
-  if (revision) {
+  if (revision && settled(revision)) {
     // The agent's own build in this turn covered its changes: they're still to lint.
     if (!lint?.covered || revision.buildStatus !== "built") return { outcome: "unchanged" };
     const result = { ok: true, revision: revision.id, build: [], types: [], lint: [] };
@@ -118,6 +150,7 @@ export async function buildAtEndOfTurn(
   if (result.ok)
     return lint ? lintTurn(env, draftId, prepared, result) : { outcome: "built", result };
   if (failedInARow + 1 < END_OF_TURN_BUILD_FAILURES) return { outcome: "failed", result };
+  if (result.revision) return { outcome: "keptErrors", result };
   await commitUnbuilt(env, draftId, { leftBy: "turn", run });
   return { outcome: "committedUnbuilt", result };
 }
@@ -160,8 +193,12 @@ async function commitUnbuilt(env: Bindings, draftId: string, { leftBy, run }: Re
 
 /** What the agent is told when the end of its turn didn't build: its turn goes on. */
 export const fixBuild = (result: BuildResult) =>
-  "Your code changes don't build, so your turn isn't over: fix these errors, then end your " +
-  "turn again. Editors don't see this message.\n\n" +
+  (result.revision
+    ? "Your code changes built, but they have errors, so your turn isn't over: fix them, " +
+      "then end your turn again. "
+    : "Your code changes don't build, so your turn isn't over: fix these errors, then end " +
+      "your turn again. ") +
+  "Editors don't see this message.\n\n" +
   JSON.stringify(result);
 
 /** What the agent is told when the code its turn changed builds, but lint found problems in it. */
@@ -171,10 +208,33 @@ export const fixLint = (result: BuildResult) =>
   "lint never stops a draft from being published. Editors don't see this message.\n\n" +
   JSON.stringify(result);
 
-/** What the agent is told once the end of its turn failed to build too often in a row. */
-export const explainUnbuilt =
-  `Your code changes still don't build after ${END_OF_TURN_BUILD_FAILURES} tries, so Camox ` +
-  "saved them as they are: the preview keeps showing the last version that built, and the " +
-  "draft can't be published until its code builds. Don't change the code again in this turn. " +
-  "Tell the editor what you couldn't do, in terms of what they see in the preview rather than " +
-  "code, and that they can ask you again in this thread. Editors don't see this message.";
+const EXPLAIN =
+  "Don't change the code again in this turn. Tell the editor what you couldn't do, in terms " +
+  "of what they see in the preview rather than code, and that they can ask you again in this " +
+  "thread. Editors don't see this message.";
+
+/** What the agent is told once the end of its turn failed too often in a row. */
+export function explainFailures(
+  turn: Extract<TurnBuild, { outcome: "committedUnbuilt" | "keptErrors" }>,
+) {
+  if (turn.outcome === "committedUnbuilt") {
+    return (
+      `Your code changes still don't build after ${END_OF_TURN_BUILD_FAILURES} tries, so ` +
+      "Camox saved them as they are: the preview keeps showing the last version that built, " +
+      `and the draft can't be published until its code builds. ${EXPLAIN}`
+    );
+  }
+  // A built revision's build errors are definitions the draft can't use: it doesn't preview it.
+  if (turn.result.build.length > 0) {
+    return (
+      `Your code changes still have errors after ${END_OF_TURN_BUILD_FAILURES} tries, so ` +
+      "Camox kept them as they are: the preview keeps showing the last version that worked. " +
+      EXPLAIN
+    );
+  }
+  return (
+    `Your code changes still have type errors after ${END_OF_TURN_BUILD_FAILURES} tries. ` +
+    "They built, so the preview shows them, but the draft can't be published until its code " +
+    `type checks. ${EXPLAIN}`
+  );
+}
