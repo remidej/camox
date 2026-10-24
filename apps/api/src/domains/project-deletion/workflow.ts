@@ -1,6 +1,10 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
+import { deleteUserWorker } from "../../lib/user-workers";
 import type { Bindings } from "../../types";
+import { deletePublishScripts, publishScriptsTag } from "../publishes/scripts";
+import { deleteProjectBuilds } from "../revisions/archive";
+import { destroySandbox } from "../revisions/sandbox";
 import { sendCleanupFailureAlert } from "./alert";
 
 export type ProjectDeletionParams = {
@@ -8,10 +12,9 @@ export type ProjectDeletionParams = {
   projectId: string;
   /** The deleted project's name, for the alert: its row is gone. */
   name: string;
+  /** Its drafts' IDs, which name their working copies and sandboxes: their rows are gone. */
+  drafts?: string[];
 };
-
-/** The dispatch namespace every project's Worker is deployed to (../releases/README.md). */
-const DISPATCH_NAMESPACE = "production";
 
 /** The statuses of a Workflow instance that hasn't ended. */
 const UNDERWAY = new Set<InstanceStatus["status"]>([
@@ -24,8 +27,8 @@ const UNDERWAY = new Set<InstanceStatus["status"]>([
 
 /**
  * A deleted project's cleanup. Deleting the project removed its rows and its host, so its site is
- * already offline: this deletes what's left on Cloudflare, its Worker and its repo, both named
- * after its Project ID. Workflows retry a failed step, and each step is done once what it deletes
+ * already offline: this deletes what's left on Cloudflare, its Worker, its copies of its code and
+ * its repo, named after its Project ID and its drafts' IDs. Workflows retry a failed step, and each step is done once what it deletes
  * is gone. Nothing is kept for recovery.
  *
  * A step that gives up doesn't stop the next one from cleaning up what it can. Once they've all
@@ -33,7 +36,7 @@ const UNDERWAY = new Set<InstanceStatus["status"]>([
  */
 export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, ProjectDeletionParams> {
   async run(event: WorkflowEvent<ProjectDeletionParams>, step: WorkflowStep) {
-    const { projectId, name } = event.payload;
+    const { projectId, name, drafts = [] } = event.payload;
     const failures: { step: string; leftBehind: string; error: unknown }[] = [];
     const attempt = async (
       label: string,
@@ -58,7 +61,20 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
       () => this.stopSetup(projectId),
     );
     await attempt("Deleting the Worker", `Worker ${projectId}`, "delete the Worker", () =>
-      this.deleteWorker(projectId),
+      deleteUserWorker(this.env, projectId),
+    );
+    await attempt(
+      "Deleting the publishes' Workers",
+      `Workers tagged ${publishScriptsTag(projectId)}`,
+      "delete the publishes' Workers",
+      () => deletePublishScripts(this.env, projectId),
+    );
+    // Before the repo: a draft's working copy deletes its branch there.
+    await attempt(
+      "Deleting the code",
+      `copies of the code, builds and sandboxes of project ${projectId}`,
+      "delete the code",
+      () => this.deleteCode(projectId, drafts),
     );
     // False when there's no repo: never forked, or deleted by an earlier attempt.
     await attempt("Deleting the repo", `repo ${projectId}`, "delete the repo", () =>
@@ -98,15 +114,16 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
     if (UNDERWAY.has(status)) await setup.terminate();
   }
 
-  /** Deletes the project's Worker from the dispatch namespace, if it was ever deployed. */
-  private async deleteWorker(projectId: string) {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${DISPATCH_NAMESPACE}/scripts/${encodeURIComponent(projectId)}?force=true`;
-    const response = await fetch(url, {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${this.env.CF_TOKEN}` },
-    });
-    // Never deployed, or deleted by an earlier attempt.
-    if (response.ok || response.status === 404) return;
-    throw new Error(`Deleting the Worker answered ${response.status}: ${await response.text()}`);
+  /**
+   * Deletes the project's copies of its code: its copy of `main`, its drafts' working copies and
+   * revision sandboxes and its builds in R2.
+   */
+  private async deleteCode(projectId: string, drafts: string[]) {
+    for (const draftId of drafts) {
+      await this.env.DRAFT_CODE.getByName(draftId).discard();
+      await destroySandbox(this.env, draftId);
+    }
+    await this.env.PROJECT_CODE.getByName(projectId).discard();
+    await deleteProjectBuilds(this.env, projectId);
   }
 }

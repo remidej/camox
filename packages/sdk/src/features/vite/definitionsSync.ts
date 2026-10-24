@@ -197,7 +197,7 @@ function getNodeEnvironment(server: ViteDevServer) {
 /**
  * The app's current Definition Set, evaluated afresh in the dev server's Node `ssr` environment.
  */
-async function loadDefinitionSet(server: ViteDevServer): Promise<DefinitionSet> {
+export async function loadDefinitionSet(server: ViteDevServer): Promise<DefinitionSet> {
   const nodeEnvironment = getNodeEnvironment(server);
   // The runner caches evaluated modules, so re-importing would return the app built from the
   // modules as they were. Clear them so the app and everything it imports evaluate again, the

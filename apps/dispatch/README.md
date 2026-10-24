@@ -1,12 +1,16 @@
 # Dispatch Worker
 
-Serves each project's website at `<slug>.camox.site`. The Worker reads the slug from the hostname's first label, looks up the project's UUID in the `camox-project-slugs` KV namespace, and forwards the request to the user Worker named after that UUID in the `production` Workers for Platforms dispatch namespace.
+Serves each project's website at `<slug>.camox.site`. The Worker reads the slug from the hostname's first label, looks up the project's UUID in the `camox-project-slugs` KV namespace, and forwards the request to the project's user Worker in the `production` Workers for Platforms dispatch namespace: the one named after that UUID, which its releases deploy, or the one a publish with code uploaded, until the next release (`apps/api/src/domains/publishes/README.md`). Dispatch asks the API's `CamoxPreviews` entrypoint which (`liveScript`, `src/live-script.ts`), over its `API` service binding, and keeps each project's answer for `LIVE_SCRIPT_TTL_MS` (2 seconds) in the isolate, so a publish's promotion or rollback reaches every request within that. A public request asks at most once per isolate and project in that time, a primary D1 read. While the API can't answer, the last answer stands, or the Worker named after the UUID when there was none. A publish's Worker that's gone (deleted since the answer) falls back to the one named after the UUID too.
 
 - A known slug whose user Worker isn't deployed yet gets a "This site is being set up" page (503).
 - An unknown slug, a deeper subdomain, or the bare domain gets a not-found page (404).
 
+It also loads drafts' revisions as Dynamic Workers (`src/revisions.ts`), from their builds in the `camox-revision-builds` R2 bucket, through its Worker Loader binding. Each runs under its asset prefix `/_camox/r/<revisionId>/`, and its outbound requests go through the `CamoxGateway` entrypoint: requests to the Camox API (`CAMOX_API_URL`) are sent in the revision's draft, and every other request goes out as it was sent. The API reads a revision's Definition Set and prewarms it through the `CamoxRevisions` entrypoint, over its `DISPATCH` service binding, so dispatch deploys before the API. Prewarming stores the revision's client assets in the same bucket (`<project>/revisions/<revisionId>/…`), which dispatch serves at `/_camox/r/<revisionId>/*` on its project's host, to anyone.
+
+A draft with code's renderer document and runtime reads (`/_camox/renderer`, `/_camox/data`, `/_camox/routes`, naming the draft with `?camox-draft=`) go to the draft's previewed revision when the request's session can see the draft (`src/previews.ts`). Dispatch asks the API's `CamoxPreviews` entrypoint, over its `API` service binding, and keeps the answer for `PREVIEW_ANSWER_TTL_MS`, except for renderer documents, which always ask. Every other request, and any request the API doesn't answer, reaches the project's user Worker.
+
 ```sh
-pnpm --filter @camox/dispatch test        # routing tests, with a fake KV map and namespace
+pnpm --filter @camox/dispatch test        # routing and revision tests, with fake bindings
 pnpm --filter @camox/dispatch run deploy  # also creates the *.camox.site/* route
 ```
 

@@ -5,11 +5,26 @@ import type { DraftKind } from "@camox/api-contract/drafts";
  * writes content in `locale`, a locale's tag, or without one in the project's default locale
  * (ADR 0015). Publishing and discarding act on every locale.
  */
-export type Draft = { id: string; kind: DraftKind; projectId: number; locale?: string };
+export type Draft = {
+  id: string;
+  kind: DraftKind;
+  projectId: number;
+  locale?: string;
+  /**
+   * Set only by a revision's definition sync, which writes the draft's own definitions before
+   * the draft reads them (`definitionsDraftOf`).
+   */
+  ownDefinitions?: true;
+};
 
 /** The draft a drafts row, or anything shaped like one, is: in the default locale. */
 export function draftOf(row: Draft): Draft {
-  return { id: row.id, kind: row.kind, projectId: row.projectId };
+  return {
+    id: row.id,
+    kind: row.kind,
+    projectId: row.projectId,
+    ...(row.ownDefinitions ? { ownDefinitions: true as const } : {}),
+  };
 }
 
 /** What a read sees: a draft over Live, or Live itself (`null`), in the default locale. */

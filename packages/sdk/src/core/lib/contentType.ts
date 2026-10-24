@@ -35,10 +35,10 @@ export type ReferenceListSchema<T extends Record<string, TSchema>> = TUnsafe<str
 
 /** A collection's content field named `key`, if it has one. */
 export function collectionField(
-  collection: Collection<any> | undefined,
+  collection: { contentSchema: { properties: Record<string, TSchema> } } | undefined,
   key: string,
 ): TSchema | undefined {
-  const properties = collection?._internal.contentSchema.properties;
+  const properties = collection?.contentSchema.properties;
   return properties && Object.hasOwn(properties, key) ? properties[key] : undefined;
 }
 
@@ -966,7 +966,7 @@ export interface CollectionFieldBuilder extends Pick<
 function validateQuery(query: ReferenceQuery<any>, collection: Collection<any>) {
   const problem = referenceQueryProblem(
     query,
-    (key) => collectionField(collection, key)?.fieldType,
+    (key) => collectionField(collection._internal, key)?.fieldType,
   );
   if (problem) throw new Error(`Query on "${collection._internal.id}": ${problem}`);
   return query;

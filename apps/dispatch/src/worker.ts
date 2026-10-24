@@ -1,27 +1,126 @@
-export interface Env {
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+import { type LiveScriptApi, liveScriptFor } from "./live-script";
+import { type PreviewsApi, revisionFor } from "./previews";
+import {
+  type GatewayProps,
+  isMissingBuild,
+  isRevisionAssetPath,
+  loadRevision,
+  prewarmRevision,
+  readDefinitionSet,
+  type RevisionBindings,
+  type RevisionToLoad,
+  serveRevisionAsset,
+} from "./revisions";
+
+export interface Env extends RevisionBindings {
+  /**
+   * The API's `CamoxPreviews` entrypoint, which says who sees which draft's revision, and which
+   * user Worker serves a website.
+   */
+  API: PreviewsApi & LiveScriptApi;
   PROJECT_SLUGS: KVNamespace;
   DISPATCHER: DispatchNamespace;
+  /** The Camox API's origin, which only a revision's gateway lets it reach in its draft. */
+  CAMOX_API_URL: string;
+}
+
+/** The request header naming the draft a Camox API request reads and writes (ADR 0011). */
+const DRAFT_HEADER = "x-camox-draft";
+
+/** What `ctx.exports` makes of dispatch's own entrypoints: a stub per set of props. */
+type OwnExports = { CamoxGateway(options: { props: GatewayProps }): Fetcher };
+
+/** Makes a revision's gateway, from dispatch's own exports. */
+const gatewayOf = (ctx: ExecutionContext) => (props: GatewayProps) =>
+  (ctx.exports as unknown as OwnExports).CamoxGateway({ props });
+
+/**
+ * Where a revision's outbound requests go, made per revision with its project and draft as
+ * `props` (ADR 0021 amendment). A request to the Camox API is sent in the revision's draft,
+ * whichever draft it names, so a revision's code reads and writes nothing else. Every other
+ * request goes out as it was sent.
+ */
+export class CamoxGateway extends WorkerEntrypoint<Env, GatewayProps> {
+  override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).origin !== new URL(this.env.CAMOX_API_URL).origin) {
+      return fetch(request);
+    }
+    const scoped = new Request(request);
+    scoped.headers.set(DRAFT_HEADER, this.ctx.props.draft);
+    return fetch(scoped);
+  }
+}
+
+/**
+ * What the API asks of dispatch about revisions, through its service binding. No public route
+ * reaches it.
+ */
+export class CamoxRevisions extends WorkerEntrypoint<Env> {
+  /** A revision's Definition Set, read from its build (JSON-shaped). */
+  readDefinitionSet(revision: RevisionToLoad): Promise<unknown> {
+    return readDefinitionSet(loadRevision(this.env, revision, gatewayOf(this.ctx)));
+  }
+
+  /**
+   * Readies a revision before its draft's viewers are told of it: its client assets are served
+   * from then on, and it's loaded and rendered once.
+   */
+  prewarm(revision: RevisionToLoad): Promise<void> {
+    return prewarmRevision(this.env, revision, gatewayOf(this.ctx));
+  }
 }
 
 const PROJECTS_DOMAIN = ".camox.site";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const slug = projectSlug(new URL(request.url).hostname);
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const slug = projectSlug(url.hostname);
     const uuid = slug && (await env.PROJECT_SLUGS.get(slug));
     if (!uuid) return statusPage(404, "Site not found", "There's no site at this address.");
-    try {
-      // The user Worker is named after the project's UUID. Cloudflare may report it missing from
-      // either call, so both sit in the try.
-      return await env.DISPATCHER.get(uuid).fetch(request);
-    } catch (error) {
-      // "Worker not found" is what the dispatch namespace throws for a user Worker it doesn't have.
-      if (!(error instanceof Error && error.message.startsWith("Worker not found"))) throw error;
-      // The project exists, but its first release hasn't deployed its Worker yet.
-      return statusPage(503, "This site is being set up", "Check back in a few minutes.");
+    // A draft with code's revision (ADR 0023): its client assets, to anyone, and its renderer
+    // document and runtime reads, to the members who can see the draft.
+    if (isRevisionAssetPath(url.pathname)) return serveRevisionAsset(env, uuid, url.pathname);
+    const revision = await revisionFor(env.API, uuid, request);
+    if (revision) {
+      try {
+        return await loadRevision(env, revision, gatewayOf(ctx)).getEntrypoint().fetch(request);
+      } catch (error) {
+        // A revision whose build is gone shows Live's code rather than fail.
+        if (!isMissingBuild(error)) throw error;
+        console.warn("A draft's previewed revision has no build: Live's code answers", error);
+      }
     }
+    // A publish's own Worker, or the one named after the project's UUID, which releases deploy.
+    const script = await liveScriptFor(env.API, uuid);
+    if (script !== uuid) {
+      // A request with a body keeps it for the release's Worker, should this one be gone.
+      const published = await dispatchTo(env, script, request.body ? request.clone() : request);
+      if (published) return published;
+      // A publish's Worker deleted since the API answered: its release's Worker serves.
+      console.warn(`The publish's Worker ${script} is gone: the project's Worker answers`);
+    }
+    return (
+      (await dispatchTo(env, uuid, request)) ??
+      // The project exists, but its first release hasn't deployed its Worker yet.
+      statusPage(503, "This site is being set up", "Check back in a few minutes.")
+    );
   },
 } satisfies ExportedHandler<Env>;
+
+/** The user Worker `script`'s answer to `request`, or null when there's no such Worker. */
+async function dispatchTo(env: Env, script: string, request: Request) {
+  try {
+    // Cloudflare may report it missing from either call, so both sit in the try.
+    return await env.DISPATCHER.get(script).fetch(request);
+  } catch (error) {
+    // "Worker not found" is what the dispatch namespace throws for a user Worker it doesn't have.
+    if (!(error instanceof Error && error.message.startsWith("Worker not found"))) throw error;
+    return null;
+  }
+}
 
 /**
  * What precedes camox.site in a hostname. Slugs are one label, the depth Universal SSL covers, so

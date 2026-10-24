@@ -27,6 +27,12 @@ export type ServiceContext = {
    */
   draft: DraftRequest | null;
   /**
+   * The draft a publish with code's own Worker names on its public reads, through
+   * `x-camox-publishing-draft`: a request naming no draft reads Live overlaid with it while it
+   * publishes, and Live otherwise (`accessTo`).
+   */
+  publishingDraft?: string;
+  /**
    * The locale the request reads and writes content in, by its tag, through `x-camox-locale` or
    * an AI tool's `locale`. Absent means the default locale (ADR 0015). Content access checks
    * that the draft has it.
@@ -38,3 +44,33 @@ export type ServiceContext = {
    */
   projectId?: number;
 };
+
+/**
+ * The context Camox's agent acts in, outside any request: as `user`, an editor or no one, in the
+ * draft `draftId`, or else in `starting`, the draft its first write starts, or else on Live.
+ */
+export function agentServiceContext({
+  db,
+  env,
+  user,
+  waitUntil,
+  draftId = null,
+  starting,
+}: Pick<ServiceContext, "db" | "env" | "user" | "waitUntil"> & {
+  draftId?: string | null;
+  starting?: { id: string; threadId: string };
+}): ServiceContext {
+  return {
+    db,
+    user,
+    env,
+    waitUntil,
+    client: "camox-agent",
+    telemetryDisabled: false,
+    draft: draftId
+      ? { id: draftId, create: false }
+      : starting
+        ? { id: starting.id, create: true, threadId: starting.threadId }
+        : null,
+  };
+}

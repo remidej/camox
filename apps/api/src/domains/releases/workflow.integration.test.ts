@@ -1,7 +1,7 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { introspectWorkflowInstance, type WorkflowInstanceIntrospector } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -9,22 +9,34 @@ import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import { projects, releases } from "../../schema";
 import type { Bindings } from "../../types";
+import { publishScriptsTag } from "../publishes/scripts";
 
 // A push to a project's repo releases it: the release Workflow installs, runs `camox release`
 // and deploys the project's Worker, each in a sandbox, and records the release as a row.
-// Cloudflare Artifacts, the sandbox and email are faked at their bindings (test/release-fakes.js).
+// Cloudflare Artifacts, the sandbox, the Cloudflare API and email are faked at their edges
+// (test/release-fakes.js).
 
 const fakes = (env as unknown as { RELEASE_FAKES: ReleaseFakes }).RELEASE_FAKES;
 
 type ReleaseFakes = {
-  push(repo: string, commit: string, files: Record<string, string>): Promise<void>;
+  /** Pushes `files` as `commit` to the repo's `main`, and returns the commit's tree. */
+  push(repo: string, commit: string, files: Record<string, string>): Promise<string>;
   failCommand(repo: string, pattern: string, times: number): Promise<void>;
   hold(repo: string, pattern: string): Promise<void>;
   letGo(repo: string): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
   failEmailsAbout(pattern: string): Promise<void>;
   emailsSent(): Promise<Email[]>;
+  deployWorker(name: string, tags?: string[]): Promise<void>;
+  hasWorker(name: string): Promise<boolean>;
 };
+
+/** What dispatch asks the API about which user Worker serves a website. */
+const previews = (
+  exports as unknown as {
+    CamoxPreviews: { liveScript(question: { project: string }): Promise<string | null> };
+  }
+).CamoxPreviews;
 
 type Email = {
   from: { name: string; email: string };
@@ -43,6 +55,10 @@ async function emailsAbout(projectId: string) {
 // (vite.config.ts) and wrangler.jsonc names the Workflow.
 const WORKFLOW_INSTANCES =
   "https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/workers/workflows/camox-release/instance";
+
+// The variable that turns on the build checks only hosted projects have (`HOSTED_BUILD_ENV` in
+// packages/sdk/src/features/vite/hostedChecks.ts).
+const HOSTED_BUILD_ENV = "CAMOX_INTERNAL_HOSTED";
 
 // The Cloudflare token `wrangler deploy` gets, as the test bindings set it (vite.config.ts).
 const CLOUDFLARE_TOKEN = "test-cloudflare-token";
@@ -88,6 +104,8 @@ function pushEvent(repo: string, ref: string, commit: string) {
   };
 }
 
+type Fixture = Awaited<ReturnType<typeof createProjectFixture>>;
+
 type Modifier = Parameters<Parameters<WorkflowInstanceIntrospector["modify"]>[0]>[0];
 
 /**
@@ -117,7 +135,7 @@ describe("a push to a project's main branch", () => {
       `release-workflow-${crypto.randomUUID()}`,
     );
     const commit = commitSha();
-    await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+    const tree = await fakes.push(released.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
 
     const before = Date.now();
     const { instanceId } = await receivePush(pushEvent(released.uuid, "refs/heads/main", commit));
@@ -126,6 +144,7 @@ describe("a push to a project's main branch", () => {
     expect(rows).toEqual([
       expect.objectContaining({
         commit,
+        tree,
         camoxVersion: "0.9.1",
         status: "succeeded",
         failedStep: null,
@@ -163,6 +182,30 @@ describe("a push to a project's main branch", () => {
     expect(holding(CLOUDFLARE_TOKEN)).toEqual(["pnpm exec wrangler"]);
     const release = runs.find(({ command }) => command.includes("camox release"));
     expect(release?.env.CAMOX_DEPLOY_TOKEN).toBe(released.deployToken);
+  });
+
+  it("builds as a hosted project, so code breaking a hosted check fails the release before it deploys", async () => {
+    const { db, project: failing } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const commit = commitSha();
+    await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
+    // The hosted checks fail the build, as `camox release` does when they fail (the SDK's
+    // features/vite/hostedChecks.ts).
+    await fakes.failCommand(failing.uuid, "camox release", Infinity);
+
+    await receivePush(pushEvent(failing.uuid, "refs/heads/main", commit), "errored");
+
+    const runs = await fakes.commandsRun(failing.uuid);
+    expect(runs.map(({ command }) => command)).toContain("pnpm exec camox release");
+    // Only the build has the flag: the install and the deploy run no project code through Vite.
+    for (const { command, env } of runs) {
+      expect(env[HOSTED_BUILD_ENV] === "1").toBe(command === "pnpm exec camox release");
+    }
+    // Nothing deployed: Live keeps serving its previous release.
+    expect(runs.some(({ command }) => command.includes("wrangler deploy"))).toBe(false);
+    const rows = await db.select().from(releases).where(eq(releases.projectId, failing.id));
+    expect(rows).toEqual([expect.objectContaining({ status: "failed", failedStep: "release" })]);
   });
 
   it("records the release as failed at the step that gave up", async () => {
@@ -344,6 +387,91 @@ describe("a push to a project's main branch", () => {
   });
 });
 
+describe("a push of the tree Live serves", () => {
+  // A publish with code puts its tree on Live itself, then pushes that tree to `main`. The push
+  // mustn't release the same code again.
+  const files = { "pnpm-lock.yaml": lockfile("0.9.1"), "src/blocks/hero.tsx": "export {}" };
+
+  /** Pushes `files` as a new commit to the project's `main` and runs its release Workflow. */
+  async function pushAndRelease(repo: string, pushed: Record<string, string>) {
+    const commit = commitSha();
+    await fakes.push(repo, commit, pushed);
+    await receivePush(pushEvent(repo, "refs/heads/main", commit));
+    return commit;
+  }
+
+  it("completes without installing, building or deploying, and records no release", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const served = await pushAndRelease(project.uuid, files);
+    const ranBefore = (await fakes.commandsRun(project.uuid)).length;
+
+    // A new commit with the same tree, as a publish's squashed commit has.
+    await pushAndRelease(project.uuid, files);
+
+    expect(await fakes.commandsRun(project.uuid)).toHaveLength(ranBefore);
+    const rows = await db.select().from(releases).where(eq(releases.projectId, project.id));
+    expect(rows).toEqual([expect.objectContaining({ commit: served, status: "succeeded" })]);
+    expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  /** The commits the project's succeeded releases served, oldest first. */
+  async function succeeded(db: Fixture["db"], projectId: number) {
+    const rows = await db.select().from(releases).where(eq(releases.projectId, projectId));
+    return rows.filter(({ status }) => status === "succeeded").map(({ commit }) => commit);
+  }
+
+  it("releases a push whose tree differs", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const served = await pushAndRelease(project.uuid, files);
+
+    const changed = await pushAndRelease(project.uuid, { ...files, "src/blocks/cta.tsx": "" });
+
+    expect(await succeeded(db, project.id)).toEqual([served, changed]);
+  });
+
+  it("releases a push of a tree Live served before, but no longer does", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const first = await pushAndRelease(project.uuid, files);
+    const second = await pushAndRelease(project.uuid, { ...files, "src/blocks/cta.tsx": "" });
+
+    const reverted = await pushAndRelease(project.uuid, files);
+
+    expect(await succeeded(db, project.id)).toEqual([first, second, reverted]);
+  });
+
+  it("releases a push of a tree whose release failed", async () => {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, files);
+    // Fails every attempt of that release, then passes.
+    await fakes.failCommand(project.uuid, "wrangler deploy", 3);
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+
+    const again = await pushAndRelease(project.uuid, files);
+
+    expect(await succeeded(db, project.id)).toEqual([again]);
+  });
+
+  it("still re-runs a restarted release of the tree Live serves", async () => {
+    const { project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, files);
+    const instanceId = crypto.randomUUID();
+    await using instance = await introspectWorkflowInstance(env.RELEASE_WORKFLOW, instanceId);
+    const run = await env.RELEASE_WORKFLOW.create({
+      id: instanceId,
+      params: pushEvent(project.uuid, "refs/heads/main", commit),
+    });
+    await instance.waitForStatus("complete");
+    const ranBefore = (await fakes.commandsRun(project.uuid)).length;
+
+    await run.restart();
+    await instance.waitForStatus("complete");
+
+    expect(await fakes.commandsRun(project.uuid)).toHaveLength(ranBefore * 2);
+  });
+});
+
 describe("a release that a project's deletion overtakes", () => {
   /**
    * Starts a release, then deletes its project while `camox release` runs, as deleting it from
@@ -425,5 +553,50 @@ describe("a push that isn't a release", () => {
     await receivePush(pushEvent(repo, "refs/heads/main", commit));
 
     expect(await fakes.commandsRun(repo)).toEqual([]);
+  });
+});
+
+describe("a release of a project a publish's Worker serves", () => {
+  /**
+   * A project whose website a publish with code's own Worker serves, beside an older publish's
+   * Worker, as the publishes leave them (../publishes/scripts.ts).
+   */
+  async function servedByAPublish() {
+    const fixture = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const { db, project } = fixture;
+    const tag = publishScriptsTag(project.uuid);
+    const older = `${project.uuid}-publish-${crypto.randomUUID()}`;
+    const serving = `${project.uuid}-publish-${crypto.randomUUID()}`;
+    await fakes.deployWorker(project.uuid);
+    await fakes.deployWorker(older, [tag]);
+    await fakes.deployWorker(serving, [tag]);
+    await db.update(projects).set({ liveScript: serving }).where(eq(projects.id, project.id));
+    return { ...fixture, older, serving };
+  }
+
+  it("serves the release's Worker once deployed, and deletes the publishes' Workers", async () => {
+    const { project, older, serving } = await servedByAPublish();
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit));
+
+    expect(await previews.liveScript({ project: project.uuid })).toBeNull();
+    expect(await fakes.hasWorker(project.uuid)).toBe(true);
+    expect(await fakes.hasWorker(older)).toBe(false);
+    expect(await fakes.hasWorker(serving)).toBe(false);
+  });
+
+  it("leaves the publish's Worker serving when the deploy fails", async () => {
+    const { project, older, serving } = await servedByAPublish();
+    const commit = commitSha();
+    await fakes.push(project.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
+    await fakes.failCommand(project.uuid, "wrangler deploy", Infinity);
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+
+    expect(await previews.liveScript({ project: project.uuid })).toBe(serving);
+    expect(await fakes.hasWorker(serving)).toBe(true);
+    expect(await fakes.hasWorker(older)).toBe(true);
   });
 });

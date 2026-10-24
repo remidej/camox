@@ -79,12 +79,6 @@ const LazyEditablePageExperience = React.lazy(() =>
   })),
 );
 
-/** Editing lists and adds any block, so it waits for every definition, not only the page's. */
-function AllBlocks({ camoxApp, children }: { camoxApp: CamoxApp; children: React.ReactNode }) {
-  React.use(camoxApp.loadAllBlocks());
-  return children;
-}
-
 class EditingActivationBoundary extends React.Component<
   { children: React.ReactNode; fallback: React.ReactNode },
   { failed: boolean }
@@ -138,27 +132,24 @@ function PageExperience({
   );
 
   const isolatedPage = <Frame>{readOnlyPage}</Frame>;
-  const fallback = input.routeKind ? <StudioLoadError /> : isolatedPage;
   if (isAuthenticated) {
+    // The studio renders no block itself: the renderer frame loads the site's code. Until it
+    // shows the page, a loading screen holds the page's place.
     const editor = hasHydrated ? (
-      <AllBlocks camoxApp={camoxApp}>
-        <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
-      </AllBlocks>
+      <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
     ) : null;
 
     return (
-      <RuntimeChromeSlot input={input} fallback={input.routeKind ? loading : isolatedPage}>
-        <EditingActivationBoundary fallback={fallback}>
+      <RuntimeChromeSlot
+        input={input}
+        // Only a visitor's document, already showing the page, signs in without the chrome loaded.
+        fallback={input.routeKind ? loading : studioDocument ? null : isolatedPage}
+      >
+        <EditingActivationBoundary fallback={<StudioLoadError />}>
           {input.routeKind ? (
             <React.Suspense fallback={loading}>{editor ?? loading}</React.Suspense>
           ) : (
-            <PreviewActivation
-              fallback={
-                <EditingFallbackSlot layoutPage={!!input.derived}>
-                  <Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>
-                </EditingFallbackSlot>
-              }
-            >
+            <PreviewActivation fallback={<EditingFallbackSlot layoutPage={!!input.derived} />}>
               {editor}
             </PreviewActivation>
           )}

@@ -47,16 +47,17 @@ async function bundledWorker(configPath: string) {
 }
 
 /**
- * The API's Wrangler configuration without its Cloudflare Artifacts and email bindings. Artifacts
- * has no local simulator, and Miniflare lets either win over the test's fake of the same name, so
- * the tests run from a copy that leaves them to the fakes. Its own directory per run, as test shards configure in
+ * The API's Wrangler configuration without its Cloudflare Artifacts, email and service bindings.
+ * Artifacts has no local simulator, the services (dispatch) aren't run, and Miniflare lets either
+ * win over the test's fake of the same name, so the tests run from a copy that leaves them to
+ * the fakes. Its own directory per run, as test shards configure in
  * parallel.
  */
 async function wranglerConfigForTests() {
   const { rawConfig } = experimental_readRawConfig({
     config: path.join(import.meta.dirname, "wrangler.jsonc"),
   });
-  const { artifacts: _artifacts, send_email: _email, ...config } = rawConfig;
+  const { artifacts: _artifacts, send_email: _email, services: _services, ...config } = rawConfig;
   const file = path.join(
     await mkdtemp(path.join(tmpdir(), "camox-api-wrangler-")),
     "wrangler.json",
@@ -85,7 +86,12 @@ async function sandboxWorker() {
 async function releaseFakesWorker() {
   return {
     ...(await bundledWorker(RELEASE_FAKES_CONFIG)),
-    durableObjects: { SANDBOX: "FakeSandbox" },
+    durableObjects: {
+      SANDBOX: "FakeSandbox",
+      REVISION_SANDBOX: "FakeRevisionSandbox",
+    },
+    // The API's bucket of revision builds, which the fake dispatch reads them from.
+    r2Buckets: { REVISION_BUILDS: "camox-revision-builds" },
   };
 }
 
@@ -132,12 +138,14 @@ export default defineConfig({
                   ARTIFACTS: { name: fakes.name, entrypoint: "FakeArtifacts" },
                   EMAIL: { name: fakes.name, entrypoint: "FakeEmail" },
                   RELEASE_FAKES: { name: fakes.name, entrypoint: "ReleaseFakes" },
+                  DISPATCH: { name: fakes.name, entrypoint: "FakeDispatch" },
                 },
                 // Outbound fetches reach the fakes, which serve the fake repos' Git remotes and
                 // pass anything else through.
                 outboundService: fakes.name,
                 durableObjects: {
                   SANDBOX: { className: "FakeSandbox", scriptName: fakes.name },
+                  REVISION_SANDBOX: { className: "FakeRevisionSandbox", scriptName: fakes.name },
                 },
                 bindings: {
                   CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
@@ -148,6 +156,7 @@ export default defineConfig({
                   GOOGLE_CLIENT_ID: "test-client-id",
                   GOOGLE_CLIENT_SECRET: "test-client-secret",
                   OPEN_ROUTER_API_KEY: "test-api-key",
+                  GOOGLE_FONTS_API_KEY: "test-google-fonts-key",
                   TEST_MIGRATIONS: migrations,
                 },
               },
@@ -160,11 +169,18 @@ export default defineConfig({
           // Tests seed Live by publishing drafts, which takes a few statements per write; under a
           // full parallel run the default 5s leaves too little room.
           testTimeout: 15_000,
+          // With Vitest's file system module cache, each test file's fresh worker gets every
+          // module it imports in one WebSocket message, which `@cloudflare/vitest-plugin` fills
+          // with their code. Past about 64 MiB the runtime drops it, and the worker dies as its
+          // file starts ("Worker exited unexpectedly"): the API's modules are that large. Without
+          // the cache, each module comes in a message of its own (src/test-config.test.ts).
+          fsModuleCache: false,
           setupFiles: [
             "./test/apply-migrations.ts",
             "./test/record-project-rooms.ts",
             "./test/record-edge-cache-purges.ts",
             "./test/record-generation.ts",
+            "./test/import-worker.ts",
           ],
         },
       },

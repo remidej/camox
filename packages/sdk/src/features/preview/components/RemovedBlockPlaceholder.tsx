@@ -1,10 +1,11 @@
 import { Button } from "@camox/ui/button";
-import { toast } from "@camox/ui/toaster";
-import { useMutation } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
+import * as React from "react";
 
+import { useApplyContentEdit } from "@/core/editing/contentEdits";
 import { useIsEditable } from "@/core/hooks/useIsEditable";
-import { blockMutations } from "@/lib/queries";
+
+import { useStudioNotice } from "../studioNotice";
 
 /**
  * A block whose definition was removed from code. It renders nothing on the website; in edit
@@ -21,16 +22,21 @@ export function RemovedBlockPlaceholder({
   mode: "site" | "peek" | "layout";
 }) {
   const isEditable = useIsEditable(mode);
-  const deleteBlock = useMutation(blockMutations.delete());
+  const applyEdit = useApplyContentEdit();
+  const notify = useStudioNotice();
+  const [deleting, setDeleting] = React.useState(false);
   if (!isEditable) return null;
 
   const handleDelete = async () => {
+    setDeleting(true);
     try {
-      await deleteBlock.mutateAsync({ id: blockId });
-      toast.success(`Deleted "${type}" block`);
+      await applyEdit({ type: "deleteBlock", blockId });
+      notify({ tone: "success", message: `Deleted "${type}" block` });
     } catch (error) {
       console.error("Failed to delete block:", error);
-      toast.error("Could not delete block");
+      notify({ tone: "error", message: "Could not delete block" });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -40,12 +46,7 @@ export function RemovedBlockPlaceholder({
         The <span className="text-foreground font-mono">{type}</span> block definition was removed
         from code, so this block renders nothing.
       </p>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={deleteBlock.isPending}
-        onClick={() => void handleDelete()}
-      >
+      <Button variant="outline" size="sm" disabled={deleting} onClick={() => void handleDelete()}>
         <Trash2 />
         Delete
       </Button>

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { Window } from "happy-dom";
 import * as React from "react";
 
-void test("the Canvas, shown before the editor loads, shows the Canvas sidebar placeholder and a loading screen over the page", async () => {
+void test("before the editor loads, a spinner in the Canvas's background holds the page's place, and the Canvas shown adds its sidebar placeholder", async () => {
   const dom = new Window();
   const globals = {
     React,
@@ -24,62 +24,41 @@ void test("the Canvas, shown before the editor loads, shows the Canvas sidebar p
   const { previewStore } = await import("../previewStore");
   const root = createRoot(dom.document.body as unknown as HTMLElement);
   const sidebar = () => dom.document.querySelector("[data-canvas-sidebar-skeleton]");
-  const page = () => dom.document.querySelector("[data-read-only-page]");
   const loading = () => dom.document.querySelector("[data-canvas-loading]");
+  const status = () => dom.document.querySelector('[role="status"]');
   const render = (chrome: boolean) =>
     React.act(async () =>
       root.render(
         <EditingFallbackContext
           value={
-            chrome
-              ? ({ layoutPage, children }) => (
-                  <StudioEditingFallback layoutPage={layoutPage}>{children}</StudioEditingFallback>
-                )
-              : null
+            chrome ? ({ layoutPage }) => <StudioEditingFallback layoutPage={layoutPage} /> : null
           }
         >
-          <EditingFallbackSlot layoutPage={false}>
-            <div data-read-only-page />
-          </EditingFallbackSlot>
+          <EditingFallbackSlot layoutPage={false} />
         </EditingFallbackContext>,
       ),
     );
 
   try {
     await render(false);
-    assert.equal(
-      page()?.parentElement,
-      dom.document.body,
-      "without the Studio chrome, a visitor's page shows as it is",
-    );
+    assert.equal(dom.document.body.innerHTML, "", "without the Studio chrome, nothing shows");
 
     await render(true);
-    const original = page();
-    assert.ok(original);
-    assert.equal(
-      sidebar(),
-      null,
-      "with the Canvas hidden, the page shows without a Canvas sidebar",
-    );
-    assert.equal(loading(), null, "with the Canvas hidden, the page shows");
+    assert.equal(sidebar(), null, "with the Canvas hidden, there is no Canvas sidebar");
+    assert.ok(loading()?.className.includes("bg-muted"), "the Canvas's own background");
+    assert.equal(status()?.getAttribute("aria-label"), "Loading the page");
 
     await React.act(async () => previewStore.send({ type: "showCanvas" }));
     assert.ok(sidebar(), "showing the Canvas makes room for its sidebar right away");
     assert.ok(
-      sidebar()!.compareDocumentPosition(page()!) & dom.Node.DOCUMENT_POSITION_FOLLOWING,
-      "the Canvas sidebar sits before the page",
+      sidebar()!.compareDocumentPosition(loading()!) & dom.Node.DOCUMENT_POSITION_FOLLOWING,
+      "the Canvas sidebar sits before the loading screen",
     );
-    assert.equal(page(), original, "the page's frame is kept, so it never reloads");
-    assert.equal(
-      loading()?.parentElement,
-      page()!.parentElement,
-      "a loading screen covers the page, where the Canvas will show",
-    );
+    assert.ok(status(), "the loading screen stays, where the Canvas will show");
 
     await React.act(async () => previewStore.send({ type: "hideCanvas" }));
     assert.equal(sidebar(), null);
-    assert.equal(loading(), null);
-    assert.equal(page(), original);
+    assert.equal(status()?.getAttribute("aria-label"), "Loading the page");
   } finally {
     previewStore.send({ type: "hideCanvas" });
     await React.act(async () => root.unmount());

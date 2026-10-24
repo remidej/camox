@@ -44,6 +44,8 @@ export const repeatableItemSeedSchema = z.object({
 export const layoutDefinitionInput = z.object({
   layoutId: z.string(),
   kind: z.enum(LAYOUT_KINDS).default("curated"),
+  /** The name editors know the layout by. SDKs before it was synced send none. */
+  title: z.string().optional(),
   description: z.string(),
   /** A derived layout's record pages: the collection they render, found by `field`. */
   recordPages: z.object({ collectionId: z.string(), field: z.string() }).optional(),
@@ -153,11 +155,18 @@ type LayoutDefinition = z.infer<typeof layoutDefinitionInput>;
 const planLayoutUpdate = Effect.fn("layouts.planLayoutUpdate")(function* (
   ctx: ServiceContext,
   existing: LayoutRow,
-  def: { description: string; kind: LayoutRow["kind"]; recordPages?: RecordPages },
+  def: {
+    title?: string;
+    description: string;
+    kind: LayoutRow["kind"];
+    recordPages?: RecordPages;
+  },
   now: number,
 ) {
   const recordPages = def.recordPages ?? null;
+  const title = def.title ?? null;
   if (
+    existing.title === title &&
     existing.description === def.description &&
     existing.kind === def.kind &&
     JSON.stringify(existing.recordPages) === JSON.stringify(recordPages)
@@ -169,6 +178,7 @@ const planLayoutUpdate = Effect.fn("layouts.planLayoutUpdate")(function* (
     ctx.db
       .update(layouts)
       .set({
+        title,
         description: def.description,
         kind: def.kind,
         recordPages,
@@ -309,6 +319,7 @@ export const planLayouts = Effect.fn("layouts.plan")(function* (
             projectId,
             layoutId: def.layoutId,
             kind: def.kind,
+            title: def.title ?? null,
             description: def.description,
             recordPages: def.recordPages ?? null,
             contentUpdatedAt: now,

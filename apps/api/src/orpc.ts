@@ -1,4 +1,5 @@
-import { LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { LOCALE_HEADER, PUBLISHING_DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { os, ORPCError } from "@orpc/server";
 
 import type { Database } from "./db";
@@ -36,6 +37,12 @@ function requestedDraft(headers: Headers): DraftRequest | null {
   return draft;
 }
 
+/** The draft a publish with code's own Worker names on its reads, if it's a draft's id. */
+function publishingDraftOf(headers: Headers): string | undefined {
+  const named = headers.get(PUBLISHING_DRAFT_HEADER);
+  return named && uuidv7Schema.safeParse(named).success ? named : undefined;
+}
+
 /**
  * Public procedure — available to anyone, no auth required. Every procedure gets the draft
  * its request names as `context.draft`, and the locale as `context.locale`; services check both
@@ -59,6 +66,7 @@ export const pub = os
       context: {
         draft: requestedDraft(context.headers),
         locale: context.headers.get(LOCALE_HEADER) ?? undefined,
+        publishingDraft: publishingDraftOf(context.headers),
       },
     }),
   );

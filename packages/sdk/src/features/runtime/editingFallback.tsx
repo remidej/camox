@@ -1,25 +1,15 @@
 import * as React from "react";
 
-type RenderEditingFallback = (page: {
-  layoutPage: boolean;
-  children: React.ReactNode;
-}) => React.ReactNode;
+type RenderEditingFallback = (page: { layoutPage: boolean }) => React.ReactNode;
 
 /**
- * Renders the read-only page while the editor is still loading. The Studio
+ * Renders what holds the page's place while the editor is still loading. The Studio
  * chrome provides it, so visitors never download it.
  */
 export const EditingFallbackContext = React.createContext<RenderEditingFallback | null>(null);
 
-/** The read-only page shown until the editor activates, laid out for the Canvas when it shows. */
-export function EditingFallbackSlot({
-  layoutPage,
-  children,
-}: {
-  layoutPage: boolean;
-  children: React.ReactNode;
-}) {
+/** What shows until the editor activates, laid out for the Canvas when it shows. */
+export function EditingFallbackSlot({ layoutPage }: { layoutPage: boolean }) {
   const render = React.use(EditingFallbackContext);
-  if (!render) return children;
-  return render({ layoutPage, children });
+  return render ? render({ layoutPage }) : null;
 }

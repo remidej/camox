@@ -35,6 +35,25 @@ export const projects = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    /**
+     * An Upgrade ready to push to `main`, waiting in the project's queue of publishes with code
+     * (`../publishes/queue.ts`): its project Workflow's instance, and when it joined.
+     */
+    upgradePushInstanceId: text("upgrade_push_instance_id"),
+    upgradePushRequestedAt: int("upgrade_push_requested_at"),
+    /**
+     * A publish with code whose batch committed, still pushing its tree to `main`: it keeps its
+     * place in the project's queue (`../publishes/queue.ts`) until that push landed, its draft's
+     * row being gone. Its publish Workflow's instance, and when its publish was asked for.
+     */
+    publishPushInstanceId: text("publish_push_instance_id"),
+    publishPushRequestedAt: int("publish_push_requested_at"),
+    /**
+     * The user Worker serving the project's website, when a publish with code put its own there
+     * (`../publishes/scripts.ts`). Null for the one named after its Project ID, which its releases
+     * deploy. Dispatch reads it through the API (apps/dispatch/src/live-script.ts).
+     */
+    liveScript: text("live_script"),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

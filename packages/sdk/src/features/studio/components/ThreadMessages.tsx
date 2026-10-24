@@ -23,7 +23,8 @@ export type ContinuedInLink = {
 
 /**
  * A thread's messages, and "Working…" while a run is going or a message is still `sending`: on
- * its way to the thread, which hasn't accepted it yet. A draft's thread is shared, so it shows
+ * its way to the thread, which hasn't accepted it yet. While the end of a turn builds the
+ * agent's code, or the agent fixes a build error, it says so instead. A draft's thread is shared, so it shows
  * senders' names too (`showSenders`). A fresh Live thread links to the draft the editor's
  * previous one continued in (`continuedIn`).
  */
@@ -67,10 +68,10 @@ export function ThreadMessages({
                 className="flex flex-col gap-4"
               >
                 <ThreadMessageRow message={message} showSender={showSenders} />
-                {working && index === view.messages.length - 1 && <Working />}
+                {working && index === view.messages.length - 1 && <Working status={view.status} />}
               </MessageScrollerItem>
             ))}
-            {working && view.messages.length === 0 && <Working />}
+            {working && view.messages.length === 0 && <Working status={view.status} />}
           </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton />
@@ -83,13 +84,18 @@ export function ThreadMessages({
  * Shown in the last message, not after it: the scroller only brings a message the editor just
  * sent into view when it's appended last, and it arrives while the agent is already working.
  */
-function Working() {
+function Working({ status }: { status: ThreadView["status"] }) {
   return (
     <p role="status" className="shimmer text-muted-foreground text-sm">
-      Working…
+      {status ? STATUS_LINES[status] : "Working…"}
     </p>
   );
 }
+
+const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
+  building: "Building…",
+  fixing: "Fixing a build error…",
+};
 
 function ThreadMessageRow({
   message,
@@ -116,6 +122,19 @@ function ThreadMessageRow({
       <Message>
         <MessageContent>
           <ThreadMarkdown text={message.text} />
+        </MessageContent>
+      </Message>
+    );
+  }
+  if (message.from === "camox") {
+    // Camox started the turn itself, as when Live's code doesn't merge into the draft's.
+    return (
+      <Message>
+        <MessageContent>
+          <MessageHeader className="text-muted-foreground text-xs">Camox</MessageHeader>
+          <Bubble variant="muted" className="max-w-full">
+            <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+          </Bubble>
         </MessageContent>
       </Message>
     );

@@ -24,6 +24,9 @@ export default defineConfig({
     // @camox/ai-tools through tsconfig paths), which gets inlined into the
     // bundled types. Third-party types stay as imports.
     tsconfig: "tsconfig.dts.json",
+    // The api imports Markdown files as text (its wrangler `Text` rule); the router's
+    // types reach them.
+    loader: { ".md": "text" },
     deps: {
       neverBundle: true,
     },

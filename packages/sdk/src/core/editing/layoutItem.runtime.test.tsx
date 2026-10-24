@@ -54,8 +54,9 @@ initApiClient("http://localhost:8788", testDraftScope());
 const previewSelectionUrl = new URL("../../features/preview/previewSelection.ts", import.meta.url);
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    // The record page's record is read from the record cache through useLatestRecord.
-    const parents = ["/createEditableBlock.tsx", "/useLatestRecord.ts"];
+    // The record page's record is read from the record cache through useLatestRecord, and
+    // written through contentEdits.
+    const parents = ["/createEditableBlock.tsx", "/useLatestRecord.ts", "/contentEdits.ts"];
     if (!parents.some((parent) => context.parentURL?.endsWith(parent)))
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {

@@ -2,14 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
-import { curatedLayoutContext } from "@/core/layoutContext";
 import { CollectionItemSheetProvider } from "@/features/content/CollectionItemSheetContext";
 import { ContentCollectionItemSheet } from "@/features/content/ContentCollection";
 import { type LocationState, useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { useIsAuthenticated, useProjectUuid } from "@/lib/auth";
 import { parseLocalePath } from "@/lib/locale-path";
-import { NormalizedDataProvider, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 import { useLocalePath, useLocalizedPath } from "@/lib/view-locale";
 import { useViewLocale } from "@/lib/view-locale-context";
@@ -22,22 +20,26 @@ import {
   useRead,
   useStudioCache,
 } from "../../lib/studio-reads";
+import { CanvasLoadingScreen } from "../canvas/CanvasLoadingScreen";
 import { canvasStore } from "../canvas/canvasStore";
 import { CanvasSidebarSkeleton } from "../canvas/sidebar/CanvasSidebarSkeleton";
-import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { takeShowCanvasRequest } from "../provider/signInShortcut";
+import {
+  RendererFramesProvider,
+  RendererSlot,
+  useRendererHost,
+  useRendererStatus,
+} from "../renderer/RendererFrames";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { studioStore } from "../studio/studioStore";
 import { AddBlockSheet } from "./components/AddBlockSheet";
-import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview, prefetchCanvas } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
 import { PreviewPanel } from "./components/PreviewPanel";
-import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
+import { PAGE_LOADING_LABEL } from "./components/StudioEditingFallback";
 import {
   getPageRecord,
   PageRecordContext,
@@ -66,7 +68,7 @@ function useIsMobileStudio() {
 }
 
 /* -------------------------------------------------------------------------------------------------
- * PageContent
+ * usePreviewedPage
  * -----------------------------------------------------------------------------------------------*/
 
 /** The page the Preview shows: as the server rendered it, then following edits. */
@@ -75,129 +77,6 @@ export function usePreviewedPage() {
   const projectUuid = useProjectUuid();
   return useRead(reads.pageStructure({ path: pathname, projectUuid }));
 }
-
-/* -------------------------------------------------------------------------------------------------
- * BlockRenderer — subscribes to individual block cache for granular re-renders
- * -----------------------------------------------------------------------------------------------*/
-
-const BlockRenderer = ({
-  blockId,
-  mode,
-  showAddBlockTop,
-  showAddBlockBottom,
-}: {
-  blockId: string;
-  mode: "site" | "peek" | "layout";
-  showAddBlockTop: boolean;
-  showAddBlockBottom: boolean;
-}) => {
-  const data = useRead(reads.blockBundle(blockId));
-  const camoxApp = useCamoxApp();
-  const blockDef = camoxApp.getBlockById(data.block.type);
-
-  if (!blockDef) {
-    return <RemovedBlockPlaceholder blockId={blockId} type={data.block.type} mode={mode} />;
-  }
-
-  return (
-    <NormalizedDataProvider
-      files={data.files}
-      repeatableItems={data.repeatableItems}
-      blocks={[data.block]}
-    >
-      <blockDef._internal.Component
-        blockData={{
-          _id: data.block.id,
-          type: data.block.type,
-          content: data.block.content as Record<string, unknown>,
-          settings: data.block.settings as Record<string, unknown> | undefined,
-          position: String(data.block.position),
-        }}
-        mode={mode}
-        showAddBlockTop={showAddBlockTop}
-        showAddBlockBottom={showAddBlockBottom}
-      />
-    </NormalizedDataProvider>
-  );
-};
-
-/* -------------------------------------------------------------------------------------------------
- * PageContent
- * -----------------------------------------------------------------------------------------------*/
-
-export const PageContent = () => {
-  const pageData = usePreviewedPage();
-  const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } =
-    usePageBlocks(pageData);
-
-  const camoxApp = useCamoxApp();
-  const { locale } = useViewLocale();
-
-  // Look up layout
-  const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
-
-  // Build layout block data map by type
-  const layoutBlocksMap = React.useMemo(() => {
-    if (!pageData.layout) return null;
-    const allLayoutBlocks = [...beforeBlocks, ...afterBlocks];
-    const blocks: Record<
-      string,
-      {
-        _id: string;
-        type: string;
-        content: Record<string, unknown>;
-        settings?: Record<string, unknown>;
-        position: string;
-      }
-    > = {};
-    for (const block of allLayoutBlocks) {
-      blocks[block.type] = {
-        _id: block.id,
-        type: block.type,
-        content: block.content as Record<string, unknown>,
-        settings: block.settings as Record<string, unknown> | undefined,
-        position: String(block.position),
-      };
-    }
-    return blocks;
-  }, [pageData.layout, beforeBlocks, afterBlocks]);
-
-  const pageBlocksContent = (
-    <>
-      {pageBlocks.map((blockData, index) => (
-        <BlockErrorBoundary key={blockData.id} blockId={blockData.id} blockType={blockData.type}>
-          <BlockRenderer
-            blockId={blockData.id}
-            mode="site"
-            showAddBlockTop={
-              index === 0
-                ? (layout?._internal.blockDefinitions.some((b) => b.slot === "before") ?? false)
-                : true
-            }
-            showAddBlockBottom={true}
-          />
-        </BlockErrorBoundary>
-      ))}
-    </>
-  );
-
-  if (layout && layoutBlocksMap) {
-    const ToReact = layout._internal.toReact;
-    return (
-      <NormalizedDataProvider
-        files={layoutFiles}
-        repeatableItems={layoutItems}
-        blocks={[...beforeBlocks, ...afterBlocks]}
-      >
-        <layout._internal.Provider layoutBlocks={layoutBlocksMap}>
-          <ToReact {...curatedLayoutContext(pageData, locale)}>{pageBlocksContent}</ToReact>
-        </layout._internal.Provider>
-      </NormalizedDataProvider>
-    );
-  }
-
-  return <main className="flex min-h-screen flex-col">{pageBlocksContent}</main>;
-};
 
 /* -------------------------------------------------------------------------------------------------
  * useRefreshMemberRead
@@ -292,18 +171,19 @@ function useRememberWebsiteLocation(location: LocationState) {
   }, [location, locale.tag, locales]);
 }
 
+/**
+ * The signed-in Website Section. The studio never renders the page itself: the renderer frame,
+ * which runs the shown draft's code, renders it into the Preview's slot.
+ */
 export const CamoxPreview = ({
-  children,
   runtimeBasePath,
   derived,
   canvasOnly,
 }: {
-  children: React.ReactNode;
   runtimeBasePath?: string;
   derived?: PageRenderInput["derived"];
   canvasOnly?: PageRenderInput["canvasOnly"];
 }) => {
-  const camoxApp = useCamoxApp();
   const location = useLocation();
   useRememberWebsiteLocation(location);
   const shown = useShownPage(location, derived, !!canvasOnly);
@@ -334,6 +214,9 @@ export const CamoxPreview = ({
   });
   const pageData = data && "page" in data ? data : undefined;
   const layout = data && !("page" in data) ? data : undefined;
+  // Whether the renderer frame showed the page once, or why it couldn't.
+  const [pageShown, setPageShown] = React.useState(false);
+  const showPage = React.useCallback(() => setPageShown(true), []);
   return (
     <PageRecordContext value={derivedResult}>
       <PreviewShell
@@ -342,15 +225,16 @@ export const CamoxPreview = ({
         pageLocation={shown?.location}
         canvasOnly={canvasOnly}
         runtimeBasePath={runtimeBasePath}
+        pageShown={pageShown}
       >
-        {shownDerived && layout ? (
-          <DerivedPageContent
-            camoxApp={camoxApp}
-            derived={{ ...shownDerived, layout, result: derivedResult }}
+        {pathname !== undefined && (
+          <RendererSlot
+            pathname={pathname}
+            derivedLayoutId={shownDerived?.layoutId}
+            onRendered={showPage}
+            onFailed={showPage}
           />
-        ) : shown ? (
-          children
-        ) : null}
+        )}
       </PreviewShell>
     </PageRecordContext>
   );
@@ -417,6 +301,7 @@ export const PreviewShell = ({
   pageLocation,
   canvasOnly,
   runtimeBasePath = "",
+  pageShown = true,
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
@@ -425,6 +310,8 @@ export const PreviewShell = ({
   pageLocation?: LocationState;
   canvasOnly?: PageRenderInput["canvasOnly"];
   runtimeBasePath?: string;
+  /** Whether the Preview's page showed: until then, a loading screen covers the Preview. */
+  pageShown?: boolean;
 }) => {
   const isAuthenticated = useIsAuthenticated();
   const projectUuid = useProjectUuid();
@@ -511,7 +398,7 @@ export const PreviewShell = ({
     return <>{children}</>;
   }
 
-  return (
+  const website = (
     <CollectionItemSheetProvider onRouteTargetClose={() => {}}>
       <PreviewEditingOwnerContext value={editingOwner}>
         <div
@@ -527,7 +414,7 @@ export const PreviewShell = ({
             runtimeBasePath={runtimeBasePath}
             placeholder={<CanvasSidebarSkeleton page={!canvasOnly} layoutPage={!!derivedLayout} />}
           >
-            <div className="flex min-h-0 flex-1 flex-row items-stretch">
+            <div className="relative flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel
                 active={!isCanvasEnabled}
                 isMobileExperience={isMobileStudio}
@@ -538,6 +425,8 @@ export const PreviewShell = ({
               >
                 {children}
               </PreviewPanel>
+              {/* The Canvas prepares its own frames, behind its own loading screen. */}
+              {!pageShown && !isCanvasEnabled && <PreviewPageLoading />}
             </div>
           </CanvasPreview>
           {!isCanvasEnabled && (
@@ -552,7 +441,22 @@ export const PreviewShell = ({
       <ContentCollectionItemSheet projectUuid={projectUuid} />
     </CollectionItemSheetProvider>
   );
+  // One renderer frame for the whole Website Section: the Preview and every Canvas frame.
+  return (
+    <RendererFramesProvider runtimeBasePath={runtimeBasePath}>{website}</RendererFramesProvider>
+  );
 };
+
+/**
+ * Covers the Preview until the renderer frame shows its page, as the studio does before the
+ * editor loads: the studio never shows a page of its own. A renderer of another SDK version
+ * says, in the frame, that the preview updates.
+ */
+function PreviewPageLoading() {
+  const status = useRendererStatus(useRendererHost());
+  if (status === "updating") return null;
+  return <CanvasLoadingScreen label={PAGE_LOADING_LABEL} />;
+}
 
 /** Zooms out to the whole Canvas, from anywhere in the site or the Studio. */
 export function useShowCanvasAction() {

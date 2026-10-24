@@ -1,6 +1,7 @@
 {
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["tsdown.config.ts"],
+  // The fixture app imports `camox` as an app does, which only its temp copy resolves.
+  "exclude": ["tsdown.config.ts", "test/fixture-app"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

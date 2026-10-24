@@ -2,6 +2,7 @@ import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
   NO_DEVELOPMENT_DRAFT_ERROR,
+  PUBLISHING_DRAFT_HEADER,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
 import type { Router } from "@camox/api-contract/router";
@@ -19,6 +20,7 @@ import { linkFallbackLocale } from "../../lib/link-pages";
 import { localeHeaders, UNNAMED_DEFAULT_LOCALE, type LocaleView } from "../../lib/locale-path";
 import { createStudioCache, reads, type StudioCache } from "../../lib/studio-reads";
 import { PAGE_IMAGE_SIZE, pageImageUrl } from "../og/pageImage";
+import { publishingDraft } from "../runtime/publishingDraft";
 
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
 
@@ -142,6 +144,12 @@ export function createServerApiClient(
   const headers = localeHeaders(options?.locale);
   // Only a session can read a draft, so a draft is only ever named along with one.
   if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
+  else {
+    // The Worker a publish with code uploaded reads Live overlaid with its draft while it
+    // publishes.
+    const publishing = publishingDraft();
+    if (publishing) headers[PUBLISHING_DRAFT_HEADER] = publishing;
+  }
   return createORPCClient<RouterClient<Router>>(
     new RPCLink({
       url: `${apiUrl}/rpc`,

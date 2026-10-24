@@ -19,11 +19,26 @@
       // Each release runs one step at a time, in its own sandbox.
       "max_instances": 20,
     },
+    {
+      // The sandbox a draft with code builds its revisions in, one per draft, reused across its
+      // agent's turns: the same image, larger, as a revision builds while an editor waits.
+      "class_name": "RevisionSandbox",
+      "image": "./Dockerfile",
+      // 4 vCPU, 12 GiB of memory, 20 GB of disk.
+      "instance_type": "standard-4",
+      "max_instances": 50,
+    },
   ],
   "durable_objects": {
-    "bindings": [{ "name": "SANDBOX", "class_name": "CiSandbox" }],
+    "bindings": [
+      { "name": "SANDBOX", "class_name": "CiSandbox" },
+      { "name": "REVISION_SANDBOX", "class_name": "RevisionSandbox" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CiSandbox"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CiSandbox"] },
+    { "tag": "v2", "new_sqlite_classes": ["RevisionSandbox"] },
+  ],
   "r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "camox-release-cache" }],
   "vars": { "BACKUP_BUCKET_NAME": "camox-release-cache" },
   "observability": {

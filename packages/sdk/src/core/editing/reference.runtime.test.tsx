@@ -42,7 +42,9 @@ Object.assign(globalThis, {
 initApiClient("http://localhost:8788", testDraftScope());
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
+    // Edits are written through contentEdits.
+    const parents = ["/createEditableBlock.tsx", "/contentEdits.ts"];
+    if (!parents.some((parent) => context.parentURL?.endsWith(parent)))
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
       "@/lib/auth": "export const useProjectUuid = () => 'test'",
@@ -84,6 +86,7 @@ registerHooks({
 const { createEditableBlock } = await import("./createEditableBlock");
 const { PreviewEditingOwnerContext } = await import("../../features/preview/previewSelection");
 const { referencePickerFocus } = await import("../../features/preview/referencePickerFocus");
+const { ContentEditsContext } = await import("./contentEdits");
 
 void test("editable reference placements write one source and retain placement selection and purple identity", async () => {
   const customers = createCollection({
@@ -1612,4 +1615,74 @@ void test("records placed by a block render the records they link, one hop furth
     previewStore.send({ type: "hideCanvas" });
     await window.happyDOM.close();
   }
+});
+
+void test("in a document whose edits go elsewhere, as the renderer frame's go to the studio, fields only send them", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+    toTitle: ({ content }) => content.name,
+    toDescription: () => undefined,
+  });
+  const customer: ReferenceRecord = {
+    id: "ada",
+    collectionId: "customers",
+    title: "Ada",
+    description: null,
+    content: { name: "Ada" },
+  };
+  const block = createEditableBlock({
+    id: "quote",
+    title: "",
+    description: "",
+    content: (field) => ({
+      title: field.string({ default: "" }),
+      customer: field.reference(customers),
+    }),
+    toMarkdown: () => [],
+    toReact: () => (
+      <>
+        <block.Field name="title">{(props) => <h2 {...props} />}</block.Field>
+        <block.Reference name="customer">
+          {(placed) => <placed.Field name="name">{(props) => <p {...props} />}</placed.Field>}
+        </block.Reference>
+      </>
+    ),
+    toTitle: () => "",
+  });
+  const sent: unknown[] = [];
+  const requestsBefore = requests.length;
+  editors.length = 0;
+  renderToStaticMarkup(
+    <StudioQueryClientProvider client={new QueryClient()}>
+      <ContentEditsContext value={async (edit) => void sent.push(edit)}>
+        <NormalizedDataProvider
+          files={[]}
+          repeatableItems={[]}
+          blocks={[{ references: { customer } }]}
+        >
+          <block._internal.Component
+            mode="site"
+            blockData={{
+              _id: "9",
+              type: "quote",
+              position: "a0",
+              content: { title: "Hi", customer: "ada" },
+            }}
+          />
+        </NormalizedDataProvider>
+      </ContentEditsContext>
+    </StudioQueryClientProvider>,
+  );
+  const [title, name] = editors;
+  title!.onChange("Hello");
+  name!.onChange("Ada L.");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, [
+    { type: "blockContent", blockId: "9", content: { title: "Hello" } },
+    { type: "recordField", projectUuid: "test", record: customer, field: "name", value: "Ada L." },
+  ]);
+  assert.equal(requests.length, requestsBefore, "no record is written here");
 });

@@ -57,7 +57,7 @@ Write the source to a local file and push it with `blocks edit --id <ID> --field
 
 - **A meaningful `<title>`.** It names the frame for screen readers and is the artifact's Markdown Representation. Without one, the artifact is called "Untitled artifact", and `blocks create` and `blocks edit` return a warning.
 - **Respect `prefers-reduced-motion`** with the native media query, in CSS (`@media (prefers-reduced-motion: reduce)`) and in scripts (`matchMedia`), by stopping or simplifying motion.
-- **Fonts on the website's own domain need CORS headers.** The sandbox gives the page an opaque origin, so self-hosted fonts load only when the server sends `Access-Control-Allow-Origin: *` for them.
+- **Link fonts from Google Fonts**, with a `<link>` to the family's `css2` stylesheet in the source's own `<head>`, as the website's Document does. The sandbox gives the page an opaque origin, and Google Fonts sends the CORS headers that needs. A font file the website serves itself loads only when its server sends `Access-Control-Allow-Origin: *` for it.
 
 ## The `camox` runtime
 

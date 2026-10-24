@@ -1,8 +1,11 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
+  BUILD_STATUS_ENTRY,
+  type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
   isSender,
+  RECONCILE_ENTRY,
   RUN_STOPPED_ENTRY,
   type StartedDraft,
   startedDraftSchema,
@@ -21,7 +24,11 @@ import {
   type AgentEventStream,
   createRegistry,
   type EntryRecord,
+  GenerationTask,
   Harness,
+  hook,
+  type GenerationHooks,
+  type HookApi,
   LiveDoc,
   ROOT_CONVERSATION_ID,
   type SnapshotEvent,
@@ -29,6 +36,7 @@ import {
   wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
+import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
 import {
   type CapabilityStartContext,
@@ -38,10 +46,34 @@ import {
 } from "agents/lifecycle";
 import { type WebSocketMessage, WebSockets } from "agents/websockets";
 import { DurableObject } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { createDb } from "../db";
+import { agentServiceContext } from "../domains/_shared/service-context";
+import { resolvePath } from "../domains/code/env";
+import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
+import { codeInstructions } from "../domains/code/prompt";
+import { remoteEnv } from "../domains/code/remote-env";
+import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
+import { writeLine } from "../domains/code/write-line";
+import { writeAccessWhilePublishing } from "../domains/drafts/access";
+import { searchFontsTool } from "../domains/fonts/tool";
+import { projects } from "../domains/projects/schema";
+import { BuildInfrastructureError, buildRevision } from "../domains/revisions/build";
+import {
+  buildAtEndOfTurn,
+  END_OF_TURN_BUILD_FAILURES,
+  explainFailures,
+  fixBuild,
+  fixLint,
+  type TurnBuild,
+} from "../domains/revisions/end-of-turn";
+import { type MergeEnd, mergeMainIntoDraft } from "../domains/revisions/merge";
+import { reconcileTurn } from "../domains/revisions/reconcile";
+import type { BuildResult } from "../domains/revisions/result";
+import { buildTool, conflictsTool } from "../domains/revisions/tool";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
 import {
   studioAgentTools,
@@ -53,7 +85,11 @@ import {
   type ToolKind,
 } from "../domains/threads/tools";
 import { webTools } from "../domains/threads/web-tools";
+import type { MemoryFs } from "../lib/memory-fs";
+import { runService } from "../lib/run-service";
+import { serialQueue } from "../lib/serial-queue";
 import { threadModel } from "../lib/thread-model";
+import { user } from "../schema";
 import type { Bindings } from "../types";
 
 /** The header the API sets on a connection it forwards, naming the signed-in sender. */
@@ -105,6 +141,16 @@ type HandOff = z.infer<typeof handOffSchema>;
 /** The operation ids of the editors' messages among a run's entries. */
 const operationIdsOf = (entries: EntryRecord[]) =>
   entries.flatMap((entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? []);
+
+/**
+ * The prefix of the keys counting a run's end-of-turn builds that failed in a row, followed by
+ * the run's first input, which names it for as long as it goes.
+ */
+const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
+/** The prefix of the keys recording that a run's agent was sent its lint findings, as above. */
+const TURN_LINTED_PREFIX = "camox.turn-linted:";
+/** The prefix of the keys recording that a run's agent called `build`, as above. */
+const TURN_BUILT_PREFIX = "camox.turn-built:";
 
 /** Code mode's tool, which runs the model's scripts: wrapped by its name. */
 const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
@@ -241,7 +287,7 @@ export class Thread extends DurableObject<Bindings> {
   readonly #registry = createRegistry();
   readonly #watches = new Map<WebSocket, AgentEventStream>();
   /** Settling where the thread stands, which every later settling waits for. */
-  #settling: Promise<unknown> = Promise.resolve();
+  readonly #settling = serialQueue();
   /** Setting aside the draft this Live thread's first write starts, shared by concurrent writes. */
   #reserving: Promise<string> | undefined;
   /**
@@ -281,8 +327,17 @@ export class Thread extends DurableObject<Bindings> {
             render: async () => workplace(await this.#knownIdentity()),
             tag: false,
           },
+          { key: "code", render: () => codeInstructions, tag: false },
         ],
-        tools: [...(await studioAgentTools(dispatch)), ...webTools(this.env)],
+        tools: [
+          ...(await studioAgentTools(dispatch)),
+          ...webTools(this.env),
+          ...codeReadingTools(),
+          ...codeWritingTools(),
+          conflictsTool(() => this.#conflicts()),
+          buildTool((invocation) => this.#build(invocation)),
+          searchFontsTool(this.env),
+        ],
         // Once a script ends, failed or not, the studios hear what its writes touched.
         wraps: [
           wrapTool(CODEMODE_TOOL, (tool) => ({
@@ -297,6 +352,22 @@ export class Thread extends DurableObject<Bindings> {
               }
             },
           })),
+          // A code write lands in the draft's working copy, which the first one starts.
+          ...CODE_WRITES.map(({ name, paths }) =>
+            wrapTool({ name } as ToolRegistration, (tool) => ({
+              ...tool,
+              execute: async (args, api, context) => {
+                const env = await this.#writingEnv({ api, context }, paths(args));
+                return tool.execute(args, { ...api, env }, context);
+              },
+            })),
+          ),
+        ],
+        // A turn doesn't end with code changes that don't build.
+        hooks: [
+          hook(GenerationTask, {
+            onYield: (_answer, api, context) => this.#onYield(api, context),
+          }),
         ],
       });
       return Harness.open(
@@ -311,6 +382,7 @@ export class Thread extends DurableObject<Bindings> {
             documentRetentionMs: 0,
           },
           onReport: (report) => console.warn("Pi reported a fault in a thread", report),
+          env: () => this.#codeEnv(),
         },
         context,
       );
@@ -331,6 +403,405 @@ export class Thread extends DurableObject<Bindings> {
 
   /** Whether the thread ended with its draft, known as soon as it starts ending: see `end()`. */
   #ended = false;
+
+  /** The Project ID of the thread's project, once a code tool looked it up. */
+  #projectUuid: string | undefined;
+
+  /** The copy of `main` the thread's code tools last read, by its commit. */
+  #heldMainCopy: { commit: string; fs: MemoryFs } | undefined;
+
+  /** The drafts known to have code: a draft's branch, once made, lasts as long as the draft. */
+  readonly #draftsWithCode = new Set<string>();
+
+  /**
+   * The environment the agent's code tools use, loaded on a tool's first operation: the draft's
+   * working copy in a draft with code, or else the project's read-only copy of `main`, only
+   * fetched again once a push moved `main`. Writing tools start the working copy first: see
+   * `#writingEnv`.
+   */
+  #codeEnv(): ExecutionEnv {
+    return lazyEnv(
+      async () => {
+        const identity = await this.#knownIdentity();
+        if (identity?.draftId && (await this.#hasCode(identity.draftId))) {
+          return this.#workingCopyEnv(identity.draftId);
+        }
+        return mainCopyFsEnv((await this.#mainCopy()).fs, "camox:main");
+      },
+      { id: "camox:code", cwd: CODE_ROOT },
+    );
+  }
+
+  /** The working copy of the draft `draftId`, which has code, over RPC. */
+  #workingCopyEnv(draftId: string) {
+    return remoteEnv((call) => this.env.DRAFT_CODE.getByName(draftId).call(call), {
+      id: `camox:draft:${draftId}`,
+      cwd: CODE_ROOT,
+    });
+  }
+
+  async #hasCode(draftId: string) {
+    if (this.#draftsWithCode.has(draftId)) return true;
+    const held = await this.env.DRAFT_CODE.getByName(draftId).held();
+    if (held) this.#draftsWithCode.add(draftId);
+    return held;
+  }
+
+  /**
+   * The environment a writing tool call writing `paths` gets, checking that its editor may
+   * still write, as a content write does. A write the write line lets through lands in the
+   * draft's working copy, which the first one starts from the copy of `main` the agent read: on
+   * Live, it starts the draft too, and the thread moves into it. A write the line refuses fails
+   * with the rule before anything starts, whatever wording the tool gives other failures.
+   */
+  async #writingEnv(invocation: ToolInvocation, paths: string[]) {
+    // Arguments naming no path fail in the tool, as they would anywhere.
+    if (paths.length === 0) return invocation.api.env;
+    for (const path of paths) {
+      const refused = writeLine(resolvePath(CODE_ROOT, path), "file");
+      if (refused) throw refused;
+    }
+    // Camox's own turn reconciles a draft that has code, as no editor.
+    const draftId = (await this.#reconciling(invocation))
+      ? (await this.#settle())!.draftId!
+      : await this.#codeAccess(invocation);
+    await this.#merging;
+    return this.#workingCopyEnv(draftId);
+  }
+
+  /** The last code write's access, which the next waits for: concurrent first writes start one. */
+  readonly #startingCode = serialQueue();
+
+  /**
+   * Checks that the editor of the run `invocation` is part of may write in the thread's draft,
+   * or starts the draft set aside on Live, and makes the draft's working copy unless it has one.
+   * A draft this started is dropped again when its working copy can't be made. Returns the
+   * draft's ID.
+   */
+  async #codeAccess(invocation: ToolInvocation): Promise<string> {
+    return this.#startingCode.run(async () => {
+      const actor = await this.#actor(invocation, "write");
+      const starting = actor.draftId ? undefined : actor.draftToStart;
+      const db = createDb(this.env.DB);
+      const ctx = agentServiceContext({
+        db,
+        env: this.env,
+        user: (await db.select().from(user).where(eq(user.id, actor.userId)).get()) ?? null,
+        waitUntil: (promise) => this.ctx.waitUntil(promise),
+        draftId: actor.draftId,
+        starting,
+      });
+      const hasCode = (draftId: string) => this.#hasCode(draftId);
+      const startCode = async (draftId: string) => {
+        const { commit } = await this.#mainCopy();
+        await this.env.DRAFT_CODE.getByName(draftId).start({
+          repo: await this.#projectUuidOf(actor.projectId),
+          commit,
+        });
+        this.#draftsWithCode.add(draftId);
+      };
+      const draftId = await runService(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const { scope: draft } = yield* writeAccessWhilePublishing(ctx, {
+              project: actor.projectId,
+            });
+            if (draft.kind === "development") return null;
+            if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
+              yield* Effect.promise(() => startCode(draft.id));
+            }
+            return draft.id;
+          }),
+        ),
+      );
+      // A development draft's code is the developer's own, in their checkout.
+      if (draftId === null) {
+        throw new FileError(
+          "permission_denied",
+          "This is a development draft: its code is the developer's, on their computer, and only they change it. You can still change its content.",
+        );
+      }
+      if (starting) {
+        await this.#wrote(invocation).catch((error: unknown) =>
+          console.error("A thread couldn't move into the draft its write started", error),
+        );
+      }
+      return draftId;
+    });
+  }
+
+  /**
+   * The thread's draft, when it has code: its own, or the one a Live thread's write started.
+   * Settles where the thread stands first, unless `settling` is false, as when a turn ends.
+   */
+  async #draftWithCode({ settling = true }: { settling?: boolean } = {}) {
+    const known = settling ? await this.#settle() : await this.#knownIdentity();
+    const draftId = known?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
+    return draftId && (await this.#hasCode(draftId)) ? draftId : null;
+  }
+
+  /** The files of the thread's draft that still have merge conflict markers. */
+  async #conflicts(): Promise<string[]> {
+    const draftId = await this.#draftWithCode();
+    if (!draftId) return [];
+    return this.env.DRAFT_CODE.getByName(draftId).conflicts();
+  }
+
+  /** The last build, which the next waits for: a draft's sandbox builds one tree at a time. */
+  readonly #building = serialQueue();
+
+  /**
+   * Builds the code the agent changed in the thread's draft, for the run `invocation` is part
+   * of, committing a revision when it passes.
+   */
+  async #build(invocation: ToolInvocation): Promise<BuildResult> {
+    const draftId = await this.#draftWithCode();
+    if (!draftId) {
+      throw new Error(
+        "There's nothing to build: you haven't changed the website's code in this draft.",
+      );
+    }
+    const { api, context } = invocation;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
+    // The end of the turn lints what the agent built, even when its build covered the changes.
+    await this.ctx.storage.put(`${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`, true);
+    return this.#buildingSerially(draftId, () =>
+      buildRevision(this.env, draftId, { leftBy: "build", run }),
+    );
+  }
+
+  /**
+   * Builds the code of the draft `draftId`, the thread's, in its build queue, as a publish of a
+   * head revision whose build is gone asks: the head's tree finds its revision, built again.
+   */
+  async buildForPublish(draftId: string): Promise<BuildResult | null> {
+    if (!(await this.#hasCode(draftId))) return null;
+    return this.#buildingSerially(draftId, () =>
+      buildRevision(this.env, draftId, { leftBy: "build" }),
+    );
+  }
+
+  /**
+   * Runs `build` once the draft's builds before it are done, the draft showing it's building,
+   * unless it's a merge of `main`, which a publish waits for rather than refuse.
+   */
+  #buildingSerially<T>(
+    draftId: string,
+    build: () => Promise<T>,
+    { merge = false }: { merge?: boolean } = {},
+  ): Promise<T> {
+    const code = this.env.DRAFT_CODE.getByName(draftId);
+    return this.#building.run(async () => {
+      if (!merge) await code.markBuilding(true);
+      try {
+        return await build();
+      } finally {
+        if (!merge) {
+          await code
+            .markBuilding(false)
+            .catch((error: unknown) =>
+              console.error("A draft couldn't record that its build ended", error),
+            );
+        }
+      }
+    });
+  }
+
+  /** The merge of `main` going, which code writes wait for: it lands beside the files. */
+  #merging: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Merges the current `main` into the thread's draft, when it has code, as a push to `main`
+   * asks: right away when the agent is idle, or else right after its turn's last commit, before
+   * the next message (`#onYield`). Nothing of it shows in the thread.
+   */
+  async mergeMain(): Promise<MergeEnd | "afterTheTurn" | "noCode"> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return "noCode";
+    const draftId = await this.#draftWithCode();
+    if (!draftId) return "noCode";
+    if (await this.harness.session().busy()) return "afterTheTurn";
+    return this.#mergeMain(draftId);
+  }
+
+  /**
+   * Merges `main` into the draft `draftId` in its build queue, code writes waiting for it. A
+   * merge that clashed starts Camox's reconcile turn, once the turn going, if any, ended.
+   */
+  async #mergeMain(draftId: string): Promise<MergeEnd> {
+    const merged = this.#buildingSerially(draftId, () => mergeMainIntoDraft(this.env, draftId), {
+      merge: true,
+    });
+    this.#merging = merged.catch(() => undefined);
+    const end = await merged;
+    if (end === "clashed") await this.#startReconciling(draftId);
+    return end;
+  }
+
+  /**
+   * Starts Camox's own turn in the thread, reconciling the draft's code with Live's, which
+   * merging clashed: it opens with a short message saying why, which editors see, while the
+   * agent gets Camox's instructions. It runs after the turn going, if any.
+   */
+  async #startReconciling(draftId: string) {
+    const clash = await this.env.DRAFT_CODE.getByName(draftId).clash();
+    if (!clash) return;
+    const turn = reconcileTurn(clash);
+    await this.harness.submit(turn.instructions, {
+      whenBusy: "followUp",
+      operationId: `camox.reconcile:${clash.main}`,
+      entry: { kind: RECONCILE_ENTRY, data: { message: turn.message } },
+    });
+  }
+
+  /** Whether the run `invocation` is part of is Camox's own reconcile turn. */
+  async #reconciling(invocation: ToolInvocation) {
+    const [entry] = await this.#entriesOfRun(invocation, 1);
+    return entry?.kind === RECONCILE_ENTRY;
+  }
+
+  /**
+   * As the agent ends a turn in the root conversation, builds the code it changed, unless its
+   * last `build` covered it without errors. A build with errors, its own or its type check's,
+   * hands the agent them, and its turn goes on, until the end of the turn failed
+   * `END_OF_TURN_BUILD_FAILURES` times in a row: the changes are then committed anyway, and the
+   * agent explains the problem, which ends its turn, even if it changed code again. Code that
+   * builds is linted, and its findings sent to the agent once per turn. Editors see a status line
+   * rather than these messages. A build Camox's infrastructure keeps failing lets the turn end.
+   */
+  async #onYield(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
+    if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
+    // A Live thread whose write started a draft builds it, even before it moved into it.
+    const draftId = await this.#draftWithCode({ settling: false });
+    if (!draftId) return undefined;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
+    const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    const failedInARow = (await this.ctx.storage.get<number>(failures)) ?? 0;
+    const linted = `${TURN_LINTED_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    const built = `${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
+    if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
+      await this.ctx.storage.delete([failures, linted, built]);
+      await this.#mergeAfterTheTurn(draftId);
+      return undefined;
+    }
+    const lint = (await this.ctx.storage.get<boolean>(linted))
+      ? undefined
+      : { covered: (await this.ctx.storage.get<boolean>(built)) ?? false };
+    let turn: TurnBuild;
+    try {
+      turn = await this.#buildingSerially(draftId, () =>
+        buildAtEndOfTurn(this.env, draftId, {
+          run,
+          failedInARow,
+          building: () => this.#showBuildStatus("building"),
+          lint,
+        }),
+      );
+    } catch (error) {
+      // The draft shows it's building until Camox's retry builds what the turn changed.
+      console.error("A turn ended without building its code changes", error);
+      await this.env.DRAFT_CODE.getByName(draftId)
+        .oweBuild({ threadId: this.#threadId() })
+        .catch((owed: unknown) => console.error("A draft's build wasn't retried", owed));
+      return undefined;
+    }
+    await this.env.DRAFT_CODE.getByName(draftId).settleOwedBuild();
+    if (turn.outcome === "failed") {
+      await this.ctx.storage.put(failures, failedInARow + 1);
+      await this.#showBuildStatus("fixing");
+      return { continue: fixBuild(turn.result) };
+    }
+    if (
+      turn.outcome === "committedUnbuilt" ||
+      turn.outcome === "keptErrors" ||
+      turn.outcome === "uncommitted"
+    ) {
+      await this.ctx.storage.put(failures, END_OF_TURN_BUILD_FAILURES);
+      return { continue: explainFailures(turn) };
+    }
+    await this.ctx.storage.delete(failures);
+    if (turn.outcome === "linted") {
+      await this.ctx.storage.put(linted, true);
+      return { continue: fixLint(turn.result) };
+    }
+    await this.ctx.storage.delete([linted, built]);
+    await this.#mergeAfterTheTurn(draftId);
+    return undefined;
+  }
+
+  /**
+   * Builds the code of the thread's draft, as the end of a turn would on its last try, when
+   * Camox's infrastructure failed the last build: changes that don't build are committed as a
+   * revision that isn't built, which blocks publishing. Nothing of it shows in the thread. A
+   * failure on Camox's side again owes the next retry. `busy` while the agent's turn runs: its
+   * end builds.
+   */
+  async retryBuild(): Promise<"built" | "failed" | "busy" | "noCode"> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return "noCode";
+    const draftId = await this.#draftWithCode();
+    if (!draftId) return "noCode";
+    if (await this.harness.session().busy()) return "busy";
+    const code = this.env.DRAFT_CODE.getByName(draftId);
+    try {
+      await this.#buildingSerially(draftId, () =>
+        buildAtEndOfTurn(this.env, draftId, {
+          failedInARow: END_OF_TURN_BUILD_FAILURES - 1,
+          building: async () => {},
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof BuildInfrastructureError)) throw error;
+      await code.oweBuild({ threadId: this.#threadId() });
+      return "failed";
+    }
+    await code.settleOwedBuild();
+    return "built";
+  }
+
+  /**
+   * Merges the `main` that moved during the turn ending, after its last commit and before the
+   * next message. A merge that fails on Camox's side waits for the next move of `main`, or turn.
+   */
+  async #mergeAfterTheTurn(draftId: string) {
+    await this.#mergeMain(draftId).catch((error: unknown) =>
+      console.error("A draft couldn't merge Live's code after a turn", error),
+    );
+  }
+
+  /** Records in the transcript where the end of the turn's build stands, for editors to see. */
+  async #showBuildStatus(status: BuildStatus) {
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    await root?.submit(
+      { type: "write", entry: { kind: BUILD_STATUS_ENTRY, data: { status } } },
+      BACKGROUND,
+    );
+  }
+
+  async #projectUuidOf(projectId: number) {
+    this.#projectUuid ??= (
+      await createDb(this.env.DB)
+        .select({ uuid: projects.uuid })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .get()
+    )?.uuid;
+    if (!this.#projectUuid) throw new Error("The thread's project was deleted");
+    return this.#projectUuid;
+  }
+
+  /** The copy of `main` the agent reads, fetched again only once a push moved `main`. */
+  async #mainCopy(): Promise<{ commit: string; fs: MemoryFs }> {
+    const identity = await this.#knownIdentity();
+    if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
+    const uuid = await this.#projectUuidOf(identity.projectId);
+    const held = this.#heldMainCopy;
+    const { commit, files } = await this.env.PROJECT_CODE.getByName(uuid).snapshot(held?.commit);
+    if (held && !files) return held;
+    this.#heldMainCopy = { commit, fs: await mainCopyFs({ commit, files: files ?? [] }) };
+    return this.#heldMainCopy;
+  }
 
   /**
    * Whether the thread ended with its draft: in memory from the moment it starts ending, and in
@@ -421,6 +892,11 @@ export class Thread extends DurableObject<Bindings> {
     const identity = await this.#settle();
     if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
     const [entry] = await this.#entriesOfRun(invocation, 1);
+    if (entry?.kind === RECONCILE_ENTRY) {
+      throw new Error(
+        "This turn only reconciles the website's code with Live's: leave its content as it is.",
+      );
+    }
     if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
       throw new Error("The thread's run wasn't started by an editor's message");
     }
@@ -565,9 +1041,7 @@ export class Thread extends DurableObject<Bindings> {
    * eviction cut short. Repeating it changes nothing.
    */
   #settle(): Promise<ThreadIdentity | undefined> {
-    const settled = this.#settling.then(() => this.#settleNow());
-    this.#settling = settled.catch(() => undefined);
-    return settled;
+    return this.#settling.run(() => this.#settleNow());
   }
 
   /**

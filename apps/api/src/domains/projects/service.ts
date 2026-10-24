@@ -21,6 +21,7 @@ import {
   collectionDefinitions,
   collectionRecords,
   blocks,
+  drafts,
   files,
   generatedValues,
   layouts,
@@ -495,6 +496,10 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   );
   yield* Effect.promise(() => ctx.db.delete(locales).where(eq(locales.projectId, projectId)));
 
+  // Their rows go with the project's: the cleanup deletes the code they hold by their IDs.
+  const draftRows = yield* Effect.promise(() =>
+    ctx.db.select({ id: drafts.id }).from(drafts).where(eq(drafts.projectId, projectId)),
+  );
   const result = yield* Effect.promise(() =>
     ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
   );
@@ -507,7 +512,11 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   yield* Effect.promise(() =>
     ctx.env.PROJECT_DELETION_WORKFLOW.create({
       id: project.uuid,
-      params: { projectId: project.uuid, name: project.name },
+      params: {
+        projectId: project.uuid,
+        name: project.name,
+        drafts: draftRows.map(({ id }) => id),
+      },
     }).then(
       () => undefined,
       async (error: unknown) => {

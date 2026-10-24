@@ -170,6 +170,7 @@ export function createApp({
       const layoutDefinitions = Array.from(layoutsMap.values()).map((layout) => ({
         layoutId: layout._internal.id,
         kind: layout._internal.kind,
+        title: layout._internal.title,
         description: layout._internal.description,
         blocks: layout._internal.blockDefinitions,
         ...(layout._internal.recordPages && {

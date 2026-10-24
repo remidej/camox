@@ -13,10 +13,10 @@ import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 import { editorAssetField } from "@/features/content/collection-form";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
 import { blockMutations, repeatableItemMutations } from "@/lib/queries";
+import { type BlockDefinition, useBlockDefinition } from "@/lib/studio-definitions";
 import { cn } from "@/lib/utils";
 
 import { reads, useReadQueries, useReadQuery } from "../../../lib/studio-reads";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { useEditingFrame } from "../editingFrame";
 import { entityName } from "../entityName";
 import { selectionHoverMessage } from "../overlayMessages";
@@ -152,7 +152,6 @@ const SelectionEditor = () => {
 };
 
 const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
-  const camoxApp = useCamoxApp();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
 
@@ -199,7 +198,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
   }, [blockBundle?.files, fileIds, fileResults]);
 
   // Get block definition
-  const blockDef = block ? camoxApp.getBlockById(block.type) : null;
+  const blockDef = useBlockDefinition(block?.type) ?? null;
 
   // A placed collection record is edited only while the reference still links it. The block,
   // or the repeatable item when one places the record, owns that reference. A record page's
@@ -211,11 +210,11 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
   const placerItem = currentItemId != null ? itemsMap.get(currentItemId) : undefined;
   const blockPlacer = React.useMemo<RecordPlacer | null>(() => {
     if (!block || !blockDef) return null;
-    if (currentItemId == null) return { ...block, contentSchema: blockDef._internal.contentSchema };
+    if (currentItemId == null) return { ...block, contentSchema: blockDef.contentSchema };
     if (!placerItem) return null;
     return {
       ...placerItem,
-      contentSchema: getSchemaForItem(blockDef._internal.contentSchema, currentItemId, itemsMap),
+      contentSchema: getSchemaForItem(blockDef.contentSchema, currentItemId, itemsMap),
     };
   }, [block, blockDef, currentItemId, placerItem, itemsMap]);
   const { recordView, viewSelection, recordCrumbs } = useRecordView({
@@ -233,12 +232,12 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
       : selectionField(viewSelection);
 
   const settingsFields = React.useMemo(() => {
-    return blockDef ? getSettingsFields(blockDef._internal.settingsSchema) : [];
+    return blockDef ? getSettingsFields(blockDef.settingsSchema) : [];
   }, [blockDef]);
 
   const itemArraySchema = React.useMemo(() => {
     if (!blockDef || currentItemId == null) return null;
-    return getArraySchemaForItem(blockDef._internal.contentSchema, currentItemId, itemsMap);
+    return getArraySchemaForItem(blockDef.contentSchema, currentItemId, itemsMap);
   }, [blockDef, currentItemId, itemsMap]);
 
   const itemSettingsFields = React.useMemo(() => {
@@ -246,14 +245,14 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
   }, [itemArraySchema]);
 
   // Compute schema and data based on selection
-  const recordSchema = recordView?.collection._internal.contentSchema;
+  const recordSchema = recordView?.collection.contentSchema;
   // Only records reached through a reference list get the shared header.
   const recordInList = recordView?.inList === true;
   const currentSchema = React.useMemo(() => {
     if (recordSchema) return recordSchema;
     if (!blockDef) return null;
-    if (currentItemId == null) return blockDef._internal.contentSchema;
-    return getSchemaForItem(blockDef._internal.contentSchema, currentItemId, itemsMap);
+    if (currentItemId == null) return blockDef.contentSchema;
+    return getSchemaForItem(blockDef.contentSchema, currentItemId, itemsMap);
   }, [recordSchema, blockDef, currentItemId, itemsMap]);
 
   const currentItem = currentItemId != null ? itemsMap.get(currentItemId) : null;
@@ -398,11 +397,11 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
   /** The block and repeatable item crumbs above a selection inside a block. */
   const blockCrumbs = (
     block: NonNullable<typeof blockBundle>["block"],
-    blockDef: NonNullable<ReturnType<typeof camoxApp.getBlockById>>,
+    blockDef: BlockDefinition,
   ): SelectionCrumb[] => [
     {
       key: "block",
-      label: blockDef._internal.title,
+      label: blockDef.title,
       isCurrent: ancestorChain.length === 0 && !fieldHasOwnView && !recordView,
       onClick: () => previewStore.send({ type: "setFocusedBlock", ...owner, blockId: block.id }),
       hoverTarget: { type: "block", blockId: block.id },
@@ -411,8 +410,8 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
       {
         key: `repeater-${ancestor.id}`,
         label:
-          (getArraySchemaForItem(blockDef._internal.contentSchema, ancestor.id, itemsMap) as any)
-            ?.title ?? formatFieldName(ancestor.fieldName),
+          (getArraySchemaForItem(blockDef.contentSchema, ancestor.id, itemsMap) as any)?.title ??
+          formatFieldName(ancestor.fieldName),
         isCurrent: false,
         hoverTarget: {
           type: "block-field" as const,
@@ -618,7 +617,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
                 <SidebarSection divider="bottom" aria-label="Shared record">
                   <div data-shared-record className="space-y-1 px-2 py-3">
                     <p className="min-w-0 truncate text-sm font-medium">
-                      Shared · {recordView.collection._internal.title}
+                      Shared · {recordView.collection.title}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       Edits apply everywhere this record is used.
@@ -642,8 +641,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
                         if (field.fieldType === "Enum") {
                           const value =
                             (settingsValues[field.name] as string | undefined) ??
-                            (blockDef._internal.settingsSchema?.properties?.[field.name] as any)
-                              ?.default ??
+                            (blockDef.settingsSchema?.properties?.[field.name] as any)?.default ??
                             "";
 
                           return (
@@ -676,8 +674,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
                         if (field.fieldType === "Boolean") {
                           const checked =
                             (settingsValues[field.name] as boolean | undefined) ??
-                            (blockDef._internal.settingsSchema?.properties?.[field.name] as any)
-                              ?.default ??
+                            (blockDef.settingsSchema?.properties?.[field.name] as any)?.default ??
                             false;
 
                           return (

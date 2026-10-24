@@ -42,7 +42,6 @@ import { useMutation } from "@tanstack/react-query";
 import { Globe, Info, Pencil, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
-import { curatedLayoutContext } from "@/core/layoutContext";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { useProjectUuid } from "@/lib/auth";
@@ -56,7 +55,7 @@ import { useViewLocale } from "@/lib/view-locale-context";
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { pageImageUrl } from "../../og/pageImage";
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
+import { useRendererAnswer } from "../../renderer/RendererFrames";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 import { PageInfoSkeleton } from "./PageInfoSkeleton";
@@ -68,7 +67,6 @@ type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 
 const usePageMetadataData = (pageId: string) => {
   const projectUuid = useProjectUuid();
-  const camoxApp = useCamoxApp();
   const { data: page } = useReadQuery(reads.page({ id: pageId }));
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const { data: pages } = useReadQuery(reads.pageList({ projectUuid }), {
@@ -78,22 +76,33 @@ const usePageMetadataData = (pageId: string) => {
     enabled: !!project,
   });
 
-  const layouts = allLayouts?.filter(
-    (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind === "curated",
-  );
+  // The layouts the draft's definitions list, named by the titles they synced.
+  const layouts = allLayouts
+    ?.filter((layout) => layout.kind === "curated")
+    .map((layout) => ({ ...layout, title: layout.title ?? layout.layoutId }));
   const pageLayoutRecord = allLayouts?.find((l) => l.layoutId === page?.layoutId);
-  const layoutDef = pageLayoutRecord
-    ? camoxApp.getLayoutById(pageLayoutRecord.layoutId)
-    : undefined;
   const { locale } = useViewLocale();
-  const metaTitle =
-    layoutDef && page
-      ? layoutDef._internal.toTitle(
-          curatedLayoutContext({ page, projectName: project?.name ?? "" }, locale),
-        )
-      : (page?.metaTitle ?? "");
+  // The layout's `toTitle` titles the page: the renderer frame runs it.
+  const titled =
+    pageLayoutRecord && page
+      ? {
+          layoutId: pageLayoutRecord.layoutId,
+          page: {
+            fullPath: page.fullPath,
+            nickname: page.nickname,
+            metaTitle: page.metaTitle,
+            metaDescription: page.metaDescription,
+            firstPublishedAt: page.firstPublishedAt,
+            publishedAt: page.publishedAt,
+          },
+          projectName: project?.name ?? "",
+          locale,
+        }
+      : null;
+  const rendererTitle = useRendererAnswer(titled ? { type: "pageTitle", ...titled } : null);
+  const metaTitle = rendererTitle ?? page?.metaTitle ?? "";
 
-  return { page, project, pages, layouts, pageLayoutRecord, metaTitle, camoxApp };
+  return { page, project, pages, layouts, pageLayoutRecord, metaTitle };
 };
 
 const PAGE_SETTINGS_ITEM = "page-settings";
@@ -380,7 +389,7 @@ const PageNicknameEditor = ({ data }: { data: PageMetadataData }) => {
 };
 
 const PageLayoutSelect = ({ data }: { data: PageMetadataData }) => {
-  const { page, layouts, camoxApp } = data;
+  const { page, layouts } = data;
   const setLayout = useMutation(pageMutations.setLayout());
 
   if (!page || !layouts || layouts.length === 0) return null;
@@ -412,7 +421,7 @@ const PageLayoutSelect = ({ data }: { data: PageMetadataData }) => {
         }}
         items={layouts.map((t) => ({
           value: t.layoutId,
-          label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
+          label: t.title,
         }))}
       >
         <SelectTrigger disabled={setLayout.isPending} className="w-full">
@@ -421,7 +430,7 @@ const PageLayoutSelect = ({ data }: { data: PageMetadataData }) => {
         <SelectContent>
           {layouts.map((t) => (
             <SelectItem key={t.layoutId} value={t.layoutId}>
-              {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
+              {t.title}
             </SelectItem>
           ))}
         </SelectContent>
@@ -483,7 +492,7 @@ const PageStructureEditor = ({
   includeLayout?: boolean;
   onSaved?: () => void;
 }) => {
-  const { page, project, pages, layouts, camoxApp } = data;
+  const { page, project, pages, layouts } = data;
   const updatePage = useMutation(pageMutations.update());
   const setLayout = useMutation(pageMutations.setLayout());
   const navigate = useNavigate();
@@ -596,7 +605,7 @@ const PageStructureEditor = ({
                 }}
                 items={layouts.map((t) => ({
                   value: t.layoutId,
-                  label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
+                  label: t.title,
                 }))}
               >
                 <SelectTrigger>
@@ -605,7 +614,7 @@ const PageStructureEditor = ({
                 <SelectContent>
                   {layouts.map((t) => (
                     <SelectItem key={t.layoutId} value={t.layoutId}>
-                      {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
+                      {t.title}
                     </SelectItem>
                   ))}
                 </SelectContent>

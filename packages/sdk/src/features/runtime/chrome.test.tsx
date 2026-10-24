@@ -116,9 +116,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(showCanvasLabel, /class="camox-platform-other">Ctrl ↵/);
   assert.match(html, />Live</);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
-  assert.match(html, /<iframe[^>]+srcDoc=/i);
-  assert.match(html, /&lt;main id=&quot;site-content&quot;/);
-  assert.doesNotMatch(html, /<main id="site-content"/);
+  // The studio renders no site: only the renderer frame does, once the editor runs.
+  assert.doesNotMatch(html, /site-content/);
+  assert.match(html, /role="status"[^>]*aria-label="Loading the page"/);
   // The Preview hides the chat. It keeps its thread, so the Preview follows the editor's runs.
   assert.match(html, HIDDEN_CHAT);
 

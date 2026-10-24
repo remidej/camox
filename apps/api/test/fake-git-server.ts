@@ -1,8 +1,11 @@
 // A Git server for the fake Cloudflare Artifacts namespace (release-fakes.js): bare repos held in
 // memory, served over Git's smart HTTP protocol the way Cloudflare Artifacts serves a repo's
 // `remote`, so that isomorphic-git clones from them and pushes to them as it does in production.
-// Only what isomorphic-git asks for is served: a full clone (no `haves`, no shallow), and a push
-// with `report-status` over `side-band-64k`.
+// Only what isomorphic-git asks for is served: a full or depth-limited clone or fetch of any
+// branch or reachable commit, a fetch from a shallow clone of the history since the commits it
+// has (its `haves`, where it finds a merge base), and a push to any branch with `report-status` over
+// `side-band-64k`, creating or deleting it. Every push to `main` is recorded as the event
+// Cloudflare Artifacts sends for it, for the tests to deliver (test/pushes.ts).
 import git from "isomorphic-git";
 
 import { MemoryFs } from "../src/lib/memory-fs";
@@ -23,8 +26,16 @@ const AUTHOR = {
 };
 
 const repos = new Map<string, MemoryFs>();
+/** The `cf.artifacts.repo.pushed` events of each repo's pushes to `main`, not delivered yet. */
+const pushEvents = new Map<string, PushEvent[]>();
 /** Repos whose next push lands but answers with an error, as if the response were lost. */
 const lostPushResponses = new Set<string>();
+/** Pushes to a repo's branch held until the test lets them go, by repo, then ref. */
+const heldPushes = new Map<string, Set<string>>();
+/** How many pushes wait on a hold now, by repo. */
+const waitingPushes = new Map<string, number>();
+/** Pushes to a repo's branch that fail without landing, by repo, then branch: how many are left. */
+const failingPushes = new Map<string, Map<string, number>>();
 
 const bare = (fs: MemoryFs) => ({ fs, dir: "/", gitdir: "/" });
 
@@ -32,10 +43,46 @@ export function hasGitRepo(name: string) {
   return repos.has(name);
 }
 
+/** The event Cloudflare Artifacts sends for a push, which starts the release Workflow. */
+export type PushEvent = {
+  type: "cf.artifacts.repo.pushed";
+  source: { type: "artifacts.repo"; namespace: "projects"; repoName: string };
+  payload: {
+    ref: string;
+    before: string;
+    after: string;
+    commits: { id: string; message: string; author: { name: string; email: string } }[];
+  };
+};
+
+function recordPush(name: string, before: string, after: string, message: string) {
+  const event: PushEvent = {
+    type: "cf.artifacts.repo.pushed",
+    source: { type: "artifacts.repo", namespace: "projects", repoName: name },
+    payload: {
+      ref: MAIN,
+      before,
+      after,
+      commits: [{ id: after, message, author: { name: AUTHOR.name, email: AUTHOR.email } }],
+    },
+  };
+  pushEvents.set(name, [...(pushEvents.get(name) ?? []), event]);
+}
+
+/** The push events of `name` since the last call, oldest first. */
+export function takePushEvents(name: string) {
+  const events = pushEvents.get(name) ?? [];
+  pushEvents.delete(name);
+  return events;
+}
+
 /** A file's content, or a symlink to `symlink`. */
 export type FakeFile = string | { symlink: string };
 
-/** Commits `files` as the whole tree of `main` in `name`, creating the repo if needed. */
+/**
+ * Commits `files` as the whole tree of `main` in `name`, creating the repo if needed, as a push
+ * from outside Camox would: the push is recorded as its event.
+ */
 export async function commitFiles(name: string, files: Record<string, FakeFile>, message: string) {
   let fs = repos.get(name);
   if (!fs) {
@@ -56,6 +103,7 @@ export async function commitFiles(name: string, files: Record<string, FakeFile>,
     },
   });
   await git.writeRef({ ...bare(fs), ref: MAIN, value: commit, force: true });
+  recordPush(name, parent ?? ZERO, commit, message);
   return commit;
 }
 
@@ -109,6 +157,18 @@ export async function readGitFile(name: string, ref: string, path: string) {
   }
 }
 
+/** A commit with its tree and parents, as the Artifacts binding's `readCommit` decodes it. */
+export async function readGitCommit(name: string, hash: string) {
+  const fs = repos.get(name);
+  if (!fs) return null;
+  try {
+    const { commit } = await git.readCommit({ ...bare(fs), oid: hash });
+    return { hash, treeHash: commit.tree, parents: commit.parent };
+  } catch {
+    return null;
+  }
+}
+
 /** Where a symlink at a branch or commit points, or null when it isn't one. */
 export async function readGitLink(name: string, ref: string, path: string) {
   const fs = repos.get(name);
@@ -130,12 +190,72 @@ export async function readGitLink(name: string, ref: string, path: string) {
   }
 }
 
+/** The regular files of a branch or commit, by path, as text, or null without that commit. */
+export async function gitFiles(name: string, ref: string) {
+  const fs = repos.get(name);
+  if (!fs) return null;
+  const oid = await git.resolveRef({ ...bare(fs), ref }).catch(() => ref);
+  const files: Record<string, string> = {};
+  try {
+    await git.walk({
+      ...bare(fs),
+      trees: [git.TREE({ ref: oid })],
+      map: async (path, [entry]) => {
+        if (entry && path !== "." && (await entry.type()) === "blob") {
+          files[path] = new TextDecoder().decode((await entry.content())!);
+        }
+        return true;
+      },
+    });
+  } catch {
+    return null;
+  }
+  return files;
+}
+
 /** The commits on `main`, newest first, with their message. */
 export async function gitLog(name: string) {
   const fs = repos.get(name);
   if (!fs) return [];
   const commits = await git.log({ ...bare(fs), ref: MAIN }).catch(() => []);
   return commits.map(({ oid, commit }) => ({ oid, message: commit.message.trimEnd() }));
+}
+
+/** Makes the next `times` pushes to the branch `branch` of the repo `name` fail without landing. */
+export function failPushes(name: string, branch: string, times: number) {
+  const branches = failingPushes.get(name) ?? new Map<string, number>();
+  branches.set(`refs/heads/${branch}`, times);
+  failingPushes.set(name, branches);
+}
+
+/** Holds every push to the branch `branch` of the repo `name` until `letGoPushes`. */
+export function holdPushes(name: string, branch: string) {
+  heldPushes.set(name, (heldPushes.get(name) ?? new Set()).add(`refs/heads/${branch}`));
+}
+
+export function letGoPushes(name: string, branch: string) {
+  heldPushes.get(name)?.delete(`refs/heads/${branch}`);
+}
+
+/** How many pushes to the repo `name` wait on a hold now. */
+export function pushesWaiting(name: string) {
+  return waitingPushes.get(name) ?? 0;
+}
+
+/** Waits while pushes to `ref` of the repo `name` are held. Polled, as nothing else wakes it. */
+async function whileHeld(name: string, ref: string) {
+  if (!heldPushes.get(name)?.has(ref)) return;
+  waitingPushes.set(name, pushesWaiting(name) + 1);
+  while (heldPushes.get(name)?.has(ref)) await new Promise((resolve) => setTimeout(resolve, 10));
+  waitingPushes.set(name, pushesWaiting(name) - 1);
+}
+
+/** Whether a push to `ref` of the repo `name` is made to fail, counting it if so. */
+function pushFails(name: string, ref: string) {
+  const left = failingPushes.get(name)?.get(ref) ?? 0;
+  if (left === 0) return false;
+  failingPushes.get(name)!.set(ref, left - 1);
+  return true;
 }
 
 export function losePushResponse(name: string) {
@@ -189,24 +309,63 @@ function readPktLines(body: Uint8Array) {
   return { lines, rest: body.subarray(at) };
 }
 
-async function advertise(fs: MemoryFs, service: string) {
-  const head = await git.resolveRef({ ...bare(fs), ref: MAIN }).catch(() => null);
-  const capabilities =
-    service === "git-receive-pack"
-      ? "report-status side-band-64k agent=camox-fake"
-      : `side-band-64k ofs-delta symref=HEAD:${MAIN} agent=camox-fake`;
-  const refs = head
-    ? [
-        pktLine(`${head} ${service === "git-upload-pack" ? "HEAD" : MAIN}\0${capabilities}\n`),
-        ...(service === "git-upload-pack" ? [pktLine(`${head} ${MAIN}\n`)] : []),
-      ]
-    : [pktLine(`${ZERO} capabilities^{}\0${capabilities}\n`)];
-  return concat([pktLine(`# service=${service}\n`), FLUSH, ...refs, FLUSH]);
+/** Every branch of a repo, `main` first, with the commit it points to. */
+async function branchesOf(fs: MemoryFs) {
+  const names = await git.listBranches(bare(fs));
+  const refs = [];
+  for (const name of names.sort((a, b) => (a === "main" ? -1 : b === "main" ? 1 : 0))) {
+    const ref = `refs/heads/${name}`;
+    refs.push({ ref, oid: await git.resolveRef({ ...bare(fs), ref }) });
+  }
+  return refs;
 }
 
-/** Every object reachable from `commits`. */
-async function reachable(fs: MemoryFs, commits: string[]) {
-  const seen = new Set<string>();
+/** The branches of a Git repo, `main` first, without `refs/heads/`. */
+export async function gitBranches(name: string) {
+  const fs = repos.get(name);
+  if (!fs) return [];
+  return (await branchesOf(fs)).map(({ ref }) => ref.slice("refs/heads/".length));
+}
+
+async function advertise(fs: MemoryFs, service: string) {
+  const branches = await branchesOf(fs);
+  const head = branches.find(({ ref }) => ref === MAIN)?.oid;
+  const capabilities =
+    service === "git-receive-pack"
+      ? "report-status side-band-64k delete-refs agent=camox-fake"
+      : `side-band-64k ofs-delta shallow allow-reachable-sha1-in-want symref=HEAD:${MAIN} agent=camox-fake`;
+  const refs = [
+    ...(service === "git-upload-pack" && head ? [{ ref: "HEAD", oid: head }] : []),
+    ...branches,
+  ];
+  const lines =
+    refs.length > 0
+      ? refs.map(({ ref, oid }, at) =>
+          pktLine(`${oid} ${ref}${at === 0 ? `\0${capabilities}` : ""}\n`),
+        )
+      : [pktLine(`${ZERO} capabilities^{}\0${capabilities}\n`)];
+  return concat([pktLine(`# service=${service}\n`), FLUSH, ...lines, FLUSH]);
+}
+
+/**
+ * Every object reachable from `commits`, through at most `depth` commits of history when given,
+ * down to the commits the client has, `haves`, which it holds with their trees: the history a
+ * shallow fetch from a known commit sends.
+ */
+async function reachable(
+  fs: MemoryFs,
+  commits: string[],
+  depth = Number.POSITIVE_INFINITY,
+  haves: string[] = [],
+) {
+  const held = new Set<string>();
+  for (const have of haves) {
+    const commit = await git.readCommit({ ...bare(fs), oid: have }).catch(() => null);
+    if (!commit) continue;
+    held.add(have);
+    await collectTree(fs, commit.commit.tree, held);
+  }
+  const seen = new Set<string>(held);
   const visitTree = async (oid: string) => {
     if (seen.has(oid)) return;
     seen.add(oid);
@@ -216,45 +375,83 @@ async function reachable(fs: MemoryFs, commits: string[]) {
       else seen.add(entry.oid);
     }
   };
-  const queue = [...commits];
+  /** The commits whose parents the depth leaves out: what the client records as shallow. */
+  const shallow: string[] = [];
+  const queue = commits.map((oid) => ({ oid, level: 1 }));
   while (queue.length > 0) {
-    const oid = queue.pop()!;
+    const { oid, level } = queue.pop()!;
     if (seen.has(oid)) continue;
     seen.add(oid);
     const { commit } = await git.readCommit({ ...bare(fs), oid });
     await visitTree(commit.tree);
-    queue.push(...commit.parent);
+    if (level >= depth) {
+      if (commit.parent.length > 0) shallow.push(oid);
+      continue;
+    }
+    queue.push(...commit.parent.map((parent) => ({ oid: parent, level: level + 1 })));
   }
-  return [...seen];
+  return { oids: [...seen].filter((oid) => !held.has(oid)), shallow };
+}
+
+/** Adds the tree `oid` and everything in it to `into`. */
+async function collectTree(fs: MemoryFs, oid: string, into: Set<string>) {
+  if (into.has(oid)) return;
+  into.add(oid);
+  const { tree } = await git.readTree({ ...bare(fs), oid });
+  for (const entry of tree) {
+    if (entry.type === "tree") await collectTree(fs, entry.oid, into);
+    else into.add(entry.oid);
+  }
 }
 
 async function uploadPack(fs: MemoryFs, body: Uint8Array) {
   const { lines } = readPktLines(body);
   const wants = lines.filter((l) => l.startsWith("want ")).map((l) => l.slice(5, 45));
-  const { packfile } = await git.packObjects({
-    ...bare(fs),
-    oids: await reachable(fs, wants),
-    write: false,
-  });
-  return concat([pktLine("NAK\n"), ...sideBand(packfile!), FLUSH]);
+  const haves = lines.filter((l) => l.startsWith("have ")).map((l) => l.slice(5, 45));
+  const deepen = lines.find((l) => l.startsWith("deepen "));
+  const { oids, shallow } = await reachable(
+    fs,
+    wants,
+    deepen ? Number(deepen.slice(7)) : undefined,
+    haves,
+  );
+  const { packfile } = await git.packObjects({ ...bare(fs), oids, write: false });
+  return concat([
+    ...shallow.map((oid) => pktLine(`shallow ${oid}\n`)),
+    pktLine("NAK\n"),
+    ...sideBand(packfile!),
+    FLUSH,
+  ]);
 }
 
-async function receivePack(fs: MemoryFs, body: Uint8Array) {
+async function receivePack(name: string, fs: MemoryFs, body: Uint8Array) {
   const { lines, rest } = readPktLines(body);
   const [command] = lines;
   const [oldOid, newOid, ref] = command!.split("\0")[0]!.trim().split(" ");
+  await whileHeld(name, ref!);
   const current = await git.resolveRef({ ...bare(fs), ref: ref! }).catch(() => ZERO);
+  // A push made to fail lands nothing, and answers with an error.
+  if (pushFails(name, ref!)) return null;
   let status = `ok ${ref}\n`;
   if (current !== oldOid) {
     status = `ng ${ref} fetch first\n`;
+  } else if (newOid === ZERO) {
+    await git.deleteRef({ ...bare(fs), ref: ref! });
   } else {
-    if (rest.byteLength > 0) {
+    // A pack of no objects, as a push creating a branch at a commit the repo has sends.
+    const objects =
+      rest.byteLength >= 12 ? new DataView(rest.buffer, rest.byteOffset).getUint32(8) : 0;
+    if (objects > 0) {
       const path = `objects/pack/pack-${crypto.randomUUID()}.pack`;
       await fs.promises.mkdir("/objects/pack").catch(() => undefined);
       await fs.promises.writeFile(`/${path}`, rest);
       await git.indexPack({ ...bare(fs), filepath: path });
     }
     await git.writeRef({ ...bare(fs), ref: ref!, value: newOid!, force: true });
+    if (ref === MAIN) {
+      const { commit } = await git.readCommit({ ...bare(fs), oid: newOid! });
+      recordPush(name, oldOid!, newOid!, commit.message.trimEnd());
+    }
   }
   const report = concat([pktLine("unpack ok\n"), pktLine(status), FLUSH]);
   return concat([...sideBand(report), FLUSH]);
@@ -286,7 +483,8 @@ export async function serveGit(request: Request): Promise<Response> {
       headers: { "content-type": "application/x-git-upload-pack-result" },
     });
   }
-  const response = await receivePack(fs, body);
+  const response = await receivePack(name!, fs, body);
+  if (!response) return new Response("Internal error", { status: 500 });
   if (lostPushResponses.delete(name!)) return new Response("Bad gateway", { status: 502 });
   return new Response(response, {
     headers: { "content-type": "application/x-git-receive-pack-result" },

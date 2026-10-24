@@ -5,10 +5,8 @@ import overlayStyles from "virtual:camox-overlay-css";
 
 import { ArtifactsRunContext } from "../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../core/hooks/useIsEditable";
-import { DerivedPageContent } from "../page/DerivedPageContent";
 import { Overlays } from "../preview/components/Overlays";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
-import { EditablePageContent } from "../preview/EditablePageContent";
 import {
   useEditingFrameClaim,
   useEditingOwner,
@@ -17,7 +15,7 @@ import {
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import type { EditingOwner } from "../preview/previewStore";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { RendererSlot, useRendererHost } from "../renderer/RendererFrames";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
 import { canvasPageHref, measureCanvasDocument } from "./canvasFrameDocument";
@@ -82,8 +80,8 @@ export interface CanvasPageFrameProps {
 }
 
 /**
- * Parent owns /_camox/data loading and the per-card error boundary. Documents are
- * isolated, but their cache and editing runtime are shared with the studio.
+ * Parent owns /_camox/data loading and the per-card error boundary. The studio keeps the frame's
+ * document, overlays and editing; the renderer frame renders the page into its slot.
  */
 export function CanvasPageFrame(props: CanvasPageFrameProps) {
   return <PageFrame key={props.input.pathname} {...props} />;
@@ -100,7 +98,6 @@ function PageFrame({
   onActivate,
   onSettled,
 }: CanvasPageFrameProps) {
-  const camoxApp = useCamoxApp();
   const href = canvasPageHref(input);
   const owner = useEditingOwner({ pageId, layoutId: input.derived?.layout.layoutId });
   const { iframeRef, iframe, mount, iframeProps } = useCanvasFrame({
@@ -113,6 +110,9 @@ function PageFrame({
   const claim = useEditingFrameClaim(iframe, owner);
   // Until the page's content commits, the frame shows its loading state.
   const [committed, setCommitted] = React.useState(false);
+  // The renderer frame renders the page, and says once it did, or that it failed.
+  const renderer = useRendererHost();
+  const [rendered, setRendered] = React.useState(false);
   useFrameSettled(committed ? iframe : null, mount, onSettled);
   const activateOwner = (source: CanvasFrameActivation) => {
     if (!owner) return;
@@ -147,45 +147,43 @@ function PageFrame({
                 />
               )}
               {mount &&
+                renderer &&
                 createPortal(
-                  <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
-                    <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                      {/* Only the selected Page offers visual editing. The others render
-                          as the site does, still live, and a click only selects the Page. */}
-                      {/* Only its artifacts run, too. */}
-                      <ArtifactsRunContext value={selected}>
-                        <EditableSurfaceContext value={selected}>
-                          <div
-                            style={{ display: "contents" }}
-                            onPointerDownCapture={activate}
-                            onFocusCapture={activate}
-                            onClickCapture={activate}
-                            // Selecting/editing must not navigate the iframe away from its portal.
-                            onClick={preventLinkNavigation}
-                          >
-                            {input.derived ? (
-                              <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
-                            ) : (
-                              <EditablePageContent />
-                            )}
-                            <PreviewFrameEffects />
-                            <Overlays
-                              frame={iframe}
-                              owner={owner}
-                              canAddBlocks={owner?.kind === "page"}
-                            />
-                            {/* This commits only after onLoad and the portal's content resolves. */}
-                            <PageContentCommitted
-                              selected={selected}
-                              frame={iframeRef}
-                              viewportHeight={viewportHeight}
-                              onCommitted={() => setCommitted(true)}
-                            />
-                          </div>
-                        </EditableSurfaceContext>
-                      </ArtifactsRunContext>
-                    </React.Suspense>
-                  </React.Activity>,
+                  // The renderer renders the page, and rests it itself, so the slot stays.
+                  <ArtifactsRunContext value={selected}>
+                    <EditableSurfaceContext value={selected}>
+                      <div
+                        style={{ display: "contents" }}
+                        onPointerDownCapture={activate}
+                        onFocusCapture={activate}
+                        onClickCapture={activate}
+                        onClick={preventLinkNavigation}
+                      >
+                        <RendererSlot
+                          pathname={input.pathname}
+                          derivedLayoutId={input.derived?.layoutId}
+                          resting={mode === "resting"}
+                          onRendered={() => setRendered(true)}
+                          // The frame shows how it failed: that is what it settles on.
+                          onFailed={() => setRendered(true)}
+                        />
+                        <PreviewFrameEffects />
+                        <Overlays
+                          frame={iframe}
+                          owner={owner}
+                          canAddBlocks={owner?.kind === "page"}
+                        />
+                        {rendered && (
+                          <PageContentCommitted
+                            selected={selected}
+                            frame={iframeRef}
+                            viewportHeight={viewportHeight}
+                            onCommitted={() => setCommitted(true)}
+                          />
+                        )}
+                      </div>
+                    </EditableSurfaceContext>
+                  </ArtifactsRunContext>,
                   mount,
                 )}
             </CanvasOverlays>

@@ -1,9 +1,27 @@
-import { introspectWorkflowInstance } from "cloudflare:test";
+import { call } from "@orpc/server";
+import { abortAllDurableObjects, introspectWorkflowInstance } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { createRpcContext } from "../../../test/fixtures";
+import { PRICING, websiteWithCode } from "../../../test/revision-builds";
+import { answerNext, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import { ask, connectLiveThread, draftsOf, signIn } from "../../../test/threads";
+import { router } from "../../router";
+import { publishScriptsTag } from "../publishes/scripts";
+
+vi.mock("../../lib/thread-model", async () => {
+  const { testThreadModel } = await import("../../../test/thread-model");
+  return { threadModel: testThreadModel };
+});
+
+afterEach(async () => {
+  await abortAllDurableObjects();
+  forgetThreadModel();
+});
 
 // A deleted project's cleanup: once the request has removed its rows and its host, the deletion
-// Workflow deletes its Worker from the `production` dispatch namespace and its repo. Cloudflare
+// Workflow deletes its Workers from the `production` dispatch namespace and its repo. Cloudflare
 // Artifacts, the Cloudflare API and email are faked (test/release-fakes.js).
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -11,11 +29,12 @@ const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
 type Fakes = {
   commit(repo: string, files: Record<string, string>, message: string): Promise<string>;
   hasRepo(repo: string): Promise<boolean>;
-  deployWorker(name: string): Promise<void>;
+  deployWorker(name: string, tags?: string[]): Promise<void>;
   hasWorker(name: string): Promise<boolean>;
   failWorkerDeletions(name: string): Promise<void>;
   failForks(repo: string): Promise<void>;
   emailsSent(): Promise<{ to: string; subject: string; text: string; html: string }[]>;
+  sandboxDestroyed(sandbox: string): Promise<boolean>;
 };
 
 /** A deleted project's Project ID, whose repo and Worker are still there. */
@@ -54,6 +73,21 @@ describe("cleaning up a deleted project", () => {
     expect(await emailsAbout(projectId)).toEqual([]);
   });
 
+  it("deletes the Workers its publishes with code uploaded", async () => {
+    const projectId = await deletedProject();
+    const published = `${projectId}-publish-${crypto.randomUUID()}`;
+    await fakes.deployWorker(published, [publishScriptsTag(projectId)]);
+    // Another project's publish is left alone.
+    const other = crypto.randomUUID();
+    const othersPublished = `${other}-publish-${crypto.randomUUID()}`;
+    await fakes.deployWorker(othersPublished, [publishScriptsTag(other)]);
+
+    await cleanUp(projectId);
+
+    expect(await fakes.hasWorker(published)).toBe(false);
+    expect(await fakes.hasWorker(othersPublished)).toBe(true);
+  });
+
   it("stops its setup if it's still underway, so the setup can't fork its repo again", async () => {
     const projectId = await deletedProject();
     // Every fork fails, so the setup waits to retry, with the retry delays of production.
@@ -66,6 +100,39 @@ describe("cleaning up a deleted project", () => {
     await cleanUp(projectId);
 
     expect((await setup.status()).status).toBe("terminated");
+  });
+
+  it("deletes its code: the copy of main, its drafts' working copies, builds and sandboxes", async () => {
+    const website = await websiteWithCode();
+    const token = await signIn(website.db, website.memberUser.id);
+    const live = await connectLiveThread(website.project.id, token);
+    answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING });
+    answerNext("I added a pricing section.");
+    await ask(live, "Add a pricing section");
+    const [draft] = await draftsOf(website);
+    const projectId = website.project.uuid;
+    expect(await env.PROJECT_CODE.getByName(projectId).commit()).toBeDefined();
+    expect((await env.REVISION_BUILDS.list({ prefix: `${projectId}/` })).objects).not.toEqual([]);
+
+    await using instance = await introspectWorkflowInstance(
+      env.PROJECT_DELETION_WORKFLOW,
+      projectId,
+    );
+    await instance.modify(async (m) => {
+      await m.disableRetryDelays();
+    });
+    await call(
+      router.projects.delete,
+      { id: website.project.id },
+      { context: createRpcContext(website.db, website.memberUser) },
+    );
+    await instance.waitForStatus("complete");
+
+    expect(await env.DRAFT_CODE.getByName(draft!.id).held()).toBe(false);
+    expect(await env.PROJECT_CODE.getByName(projectId).commit()).toBeUndefined();
+    expect((await env.REVISION_BUILDS.list({ prefix: `${projectId}/` })).objects).toEqual([]);
+    expect(await fakes.sandboxDestroyed(draft!.id)).toBe(true);
+    expect(await fakes.hasRepo(projectId)).toBe(false);
   });
 
   it("succeeds when its Worker was never deployed nor its repo forked", async () => {

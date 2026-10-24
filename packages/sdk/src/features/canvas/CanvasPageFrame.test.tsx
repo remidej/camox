@@ -2,26 +2,21 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, useQueryClient } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 
 import { StudioQueryClientProvider } from "../../lib/draft-scope.fixtures";
 import type { PageRenderInput } from "../runtime/runtime";
 
-// Exercise the real frame/portal and selection context without loading the RPC
-// editors. The content probe checks which query cache and owner the frame supplies.
+// Exercise the real frame, portal and editing frame, without loading the RPC editors. A fake
+// renderer frame paints each page into the slot the frame gives it.
 registerHooks({
   resolve(specifier, context, nextResolve) {
     let source: string | undefined;
     if (specifier === "virtual:camox-overlay-css") source = "export default ''";
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
     if (context.parentURL?.endsWith("/CanvasPageFrame.tsx")) {
-      if (specifier.endsWith("/CamoxAppContext")) source = "export const useCamoxApp = () => ({})";
-      for (const name of ["EditablePageContent", "DerivedPageContent"]) {
-        if (specifier.endsWith(`/${name}`))
-          source = `export const ${name} = () => React.createElement(globalThis.CanvasContentProbe)`;
-      }
       if (specifier.endsWith("/PreviewPanel"))
         source = "export const PreviewFrameEffects = () => null";
       if (specifier.endsWith("/Overlays")) source = "export const Overlays = () => null";
@@ -32,7 +27,7 @@ registerHooks({
   },
 });
 
-void test("canvas frames share the studio cache, activate their own owner, and forward scaled wheel input", async () => {
+void test("canvas frames show the renderer's page, activate their own owner, and forward scaled wheel input", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas" });
   const frame = new Window();
   // happy-dom's WheelEvent lacks MouseEvent coordinates and modifier keys.
@@ -67,7 +62,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     requestAnimationFrame: () => 1,
     cancelAnimationFrame: () => {},
     IS_REACT_ACT_ENVIRONMENT: true,
-    CanvasContentProbe: ContentProbe,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -76,15 +70,13 @@ void test("canvas frames share the studio cache, activate their own owner, and f
   const { createRoot } = await import("react-dom/client");
   const { CanvasPageFrame } = await import("./CanvasPageFrame");
   const { editingFrameHarness } = await import("../preview/editingFrame.fixtures");
-  const { usePreviewSelection } = await import("../preview/previewSelection");
   const { previewStore } = await import("../preview/previewStore");
+  const { RendererHostContext } = await import("../renderer/RendererFrames");
+  const { createRendererHost } = await import("../renderer/rendererHost");
+  const { pageRenderer, settle } = await import("../renderer/protocol.fixtures");
   const client = new QueryClient();
-  const clients: QueryClient[] = [];
-  function ContentProbe() {
-    clients.push(useQueryClient());
-    const select = usePreviewSelection();
-    return <button onClick={() => select({ type: "block", blockId: "42" })}>Select block</button>;
-  }
+  const rendererHost = createRendererHost();
+  pageRenderer(rendererHost.handle);
   const host = dom.document.createElement("div");
   dom.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
@@ -102,13 +94,15 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     await React.act(async () => {
       root.render(
         <StudioQueryClientProvider client={client}>
-          <CanvasPageFrame
-            input={input}
-            pageId="7"
-            width={1000}
-            viewportHeight={800}
-            onActivate={(owner) => activated.push(owner)}
-          />
+          <RendererHostContext value={rendererHost}>
+            <CanvasPageFrame
+              input={input}
+              pageId="7"
+              width={1000}
+              viewportHeight={800}
+              onActivate={(owner) => activated.push(owner)}
+            />
+          </RendererHostContext>
         </StudioQueryClientProvider>,
       );
     });
@@ -120,36 +114,38 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     Object.defineProperty(iframe, "contentDocument", { value: frame.document });
     Object.defineProperty(iframe, "offsetWidth", { value: 1000 });
     iframe.getBoundingClientRect = () => new dom.DOMRect(50, 80, 500, 400);
-    await React.act(async () => iframe.dispatchEvent(new dom.Event("load")));
+    await React.act(async () => {
+      iframe.dispatchEvent(new dom.Event("load"));
+      await settle();
+    });
     assert.equal(
       (host.querySelector("[data-canvas-overlays]") as unknown as HTMLElement).style.display,
       "block",
       "the shown Canvas shows the overlay layer",
     );
+    assert.ok(frame.document.querySelector("[data-page='/about']"), "the renderer paints the page");
     await React.act(async () => {
       root.render(
         <StudioQueryClientProvider client={client}>
-          <CanvasPageFrame
-            input={{
-              ...input,
-              previewDocument:
-                "<html><head></head><body><div data-camox-preview-root>Updated server snapshot</div></body></html>",
-            }}
-            pageId="7"
-            width={1000}
-            viewportHeight={800}
-            onActivate={(owner) => activated.push(owner)}
-          />
+          <RendererHostContext value={rendererHost}>
+            <CanvasPageFrame
+              input={{
+                ...input,
+                previewDocument:
+                  "<html><head></head><body><div data-camox-preview-root>Updated server snapshot</div></body></html>",
+              }}
+              pageId="7"
+              width={1000}
+              viewportHeight={800}
+              onActivate={(owner) => activated.push(owner)}
+            />
+          </RendererHostContext>
         </StudioQueryClientProvider>,
       );
+      await settle();
     });
     assert.equal(host.querySelector("iframe"), iframe, "content updates must retain the iframe");
-    assert.ok(frame.document.querySelector("button"), "portal content remains mounted");
-    assert.ok(clients.length);
-    assert.ok(
-      clients.every((value) => value === client),
-      "edits must reach the studio cache",
-    );
+    assert.ok(frame.document.querySelector("button"), "the renderer's page remains in the slot");
     const button = frame.document.querySelector("button")!;
     await React.act(async () => {
       button.dispatchEvent(new frame.PointerEvent("pointerdown", { bubbles: true }));
@@ -159,11 +155,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
       { kind: "page", pageId: "7" },
       { kind: "page", pageId: "7" },
     ]);
-    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
-      kind: "page",
-      pageId: "7",
-      selection: { type: "block", blockId: "42" },
-    });
     assert.ok(studio.document === iframe.contentDocument, "the frame is the editing frame");
     let forwarded: unknown;
     host.addEventListener("wheel", (event) => {
@@ -187,13 +178,9 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     await studio.claimElsewhere({ kind: "page", pageId: "99" });
     await React.act(async () => button.click());
     assert.ok(studio.document === iframe.contentDocument, "the click claims the frame back");
-    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
-      kind: "page",
-      pageId: "7",
-      selection: { type: "block", blockId: "42" },
-    });
   } finally {
     await React.act(async () => root.unmount());
+    rendererHost.close();
     assert.ok(studio.document === null, "an unmounted frame releases the editing frame");
     await studio.close();
     await frame.happyDOM.close();
@@ -212,14 +199,6 @@ void test("selected ready frames own editing without a click and follow URL sele
   const dom = new Window({
     url: "http://localhost/camox/preview/about",
   });
-  let resolveContent!: () => void;
-  const contentPending = new Promise<void>((resolve) => {
-    resolveContent = resolve;
-  });
-  let resolveOtherContent!: () => void;
-  const otherContentPending = new Promise<void>((resolve) => {
-    resolveOtherContent = resolve;
-  });
   let suspended = true;
   let otherSuspended = true;
   const globals = {
@@ -234,12 +213,6 @@ void test("selected ready frames own editing without a click and follow URL sele
     requestAnimationFrame: () => 1,
     cancelAnimationFrame: () => {},
     IS_REACT_ACT_ENVIRONMENT: true,
-    CanvasContentProbe: () => {
-      const { pathname } = useLocation();
-      if (pathname === "/about" && suspended) throw contentPending;
-      if (pathname === "/contact" && otherSuspended) throw otherContentPending;
-      return <button>Frame content</button>;
-    },
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -250,8 +223,15 @@ void test("selected ready frames own editing without a click and follow URL sele
   const { previewStore } = await import("../preview/previewStore");
   const { editingFrameHarness } = await import("../preview/editingFrame.fixtures");
   const { PreviewPreparationContext } = await import("../preview/previewPreparation");
-  const { useLocation } = await import("../navigation/navigation");
+  const { RendererHostContext } = await import("../renderer/RendererFrames");
+  const { createRendererHost } = await import("../renderer/rendererHost");
+  const { pageRenderer, settle } = await import("../renderer/protocol.fixtures");
   const client = new QueryClient();
+  const rendererHost = createRendererHost();
+  // Each page loads in the renderer when the test says so.
+  const renderer = pageRenderer(rendererHost.handle, {
+    loaded: (pathname) => (pathname === "/about" ? !suspended : !otherSuspended),
+  });
   const host = dom.document.createElement("div");
   dom.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
@@ -283,30 +263,32 @@ void test("selected ready frames own editing without a click and follow URL sele
     return (
       <PreviewPreparationContext value={preparation}>
         <StudioQueryClientProvider client={client}>
-          {paths.map((path, index) => (
-            <CanvasPageFrame
-              key={path}
-              input={
-                {
-                  pathname: path,
-                  href: `http://localhost${path}`,
-                  runtimeBasePath: "",
-                  previewDocument:
-                    "<html><head></head><body><div data-camox-preview-root></div></body></html>",
-                  dehydratedState: { queries: [], mutations: [] },
-                } as unknown as PageRenderInput
-              }
-              pageId={String(index + 1)}
-              selected={pathname === path}
-              mode={path === away ? "resting" : path === paused ? "paused" : "live"}
-              width={1000}
-              viewportHeight={800}
-              onActivate={(owner, source) => {
-                activations.push({ owner, source });
-                setActive({ owner });
-              }}
-            />
-          ))}
+          <RendererHostContext value={rendererHost}>
+            {paths.map((path, index) => (
+              <CanvasPageFrame
+                key={path}
+                input={
+                  {
+                    pathname: path,
+                    href: `http://localhost${path}`,
+                    runtimeBasePath: "",
+                    previewDocument:
+                      "<html><head></head><body><div data-camox-preview-root></div></body></html>",
+                    dehydratedState: { queries: [], mutations: [] },
+                  } as unknown as PageRenderInput
+                }
+                pageId={String(index + 1)}
+                selected={pathname === path}
+                mode={path === away ? "resting" : path === paused ? "paused" : "live"}
+                width={1000}
+                viewportHeight={800}
+                onActivate={(owner, source) => {
+                  activations.push({ owner, source });
+                  setActive({ owner });
+                }}
+              />
+            ))}
+          </RendererHostContext>
         </StudioQueryClientProvider>
       </PreviewPreparationContext>
     );
@@ -314,21 +296,24 @@ void test("selected ready frames own editing without a click and follow URL sele
   const studio = await editingFrameHarness(dom.document as unknown as Document);
   previewStore.send({ type: "showCanvas" });
   try {
-    await React.act(async () => root.render(<Workspace pathname="/about" />));
+    const act = (fn: () => void | Promise<void>) =>
+      React.act(async () => {
+        await fn();
+        await settle();
+      });
+    await act(() => root.render(<Workspace pathname="/about" />));
     const iframes = [...host.querySelectorAll("iframe")];
     assert.equal(readyCount, 0, "iframe onLoad and mount readiness are not content readiness");
-    assert.match(iframes[0]!.contentDocument!.body.textContent, /Loading page/);
-    await React.act(async () => {
+    assert.equal(iframes[0]!.contentDocument!.querySelector("button"), null);
+    await act(() => {
       suspended = false;
-      resolveContent();
-      await contentPending;
+      renderer.paint();
     });
     assert.equal(readyCount, 1, "selected readiness does not wait for other frames");
-    assert.match(iframes[1]!.contentDocument!.body.textContent, /Loading page/);
-    await React.act(async () => {
+    assert.equal(iframes[1]!.contentDocument!.querySelector("button"), null);
+    await act(() => {
       otherSuspended = false;
-      resolveOtherContent();
-      await otherContentPending;
+      renderer.paint();
     });
     assert.equal(readyCount, 1, "unselected content commit must not signal readiness");
     assert.ok(iframes[0]!.contentDocument!.querySelector("button"), "selected document is ready");
@@ -359,28 +344,116 @@ void test("selected ready frames own editing without a click and follow URL sele
     assert.ok(studio.document === iframes[0]!.contentDocument);
     assert.equal(activations.length, 4);
 
-    const contentOf = (iframe: (typeof iframes)[number]) =>
-      iframe.contentDocument!.querySelector("[data-camox-preview-root]")!
-        .firstElementChild as unknown as HTMLElement;
-    await React.act(async () => root.render(<Workspace pathname="/about" away="/contact" />));
-    assert.equal(contentOf(iframes[1]!).style.display, "none", "away, a frame's content hides");
+    // The renderer rests a page itself, hidden and kept, as the frame tells it.
+    const resting = (pathname: string) => renderer.frameOf(pathname)?.[1].target.resting;
+    await act(() => root.render(<Workspace pathname="/about" away="/contact" />));
+    assert.equal(resting("/contact"), true, "away, a frame's page rests");
     assert.ok(iframes[1]!.contentDocument!.querySelector("button"), "but is kept");
-    assert.notEqual(contentOf(iframes[0]!).style.display, "none");
-    await React.act(async () => root.render(<Workspace pathname="/about" />));
-    assert.notEqual(contentOf(iframes[1]!).style.display, "none", "and shows again once near");
+    assert.equal(resting("/about"), false);
+    await act(() => root.render(<Workspace pathname="/about" />));
+    assert.equal(resting("/contact"), false, "and shows again once near");
 
     const isPaused = (iframe: (typeof iframes)[number]) =>
       iframe.contentDocument!.documentElement.hasAttribute("data-camox-paused");
     assert.equal(isPaused(iframes[1]!), false);
     await React.act(async () => root.render(<Workspace pathname="/about" paused="/contact" />));
     assert.equal(isPaused(iframes[1]!), true, "a paused frame's document is paused");
-    assert.notEqual(contentOf(iframes[1]!).style.display, "none", "but still shows its content");
+    assert.equal(resting("/contact"), false, "but still shows its page");
     assert.equal(isPaused(iframes[0]!), false);
     await React.act(async () => root.render(<Workspace pathname="/about" />));
     assert.equal(isPaused(iframes[1]!), false, "and resumes once live");
   } finally {
     await React.act(async () => root.unmount());
+    rendererHost.close();
     await studio.close();
+    client.clear();
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "hideCanvas" });
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("a selected frame whose page failed is ready, showing how it failed", async () => {
+  const dom = new Window({ url: "http://localhost/camox/preview/about" });
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    DOMParser: dom.DOMParser,
+    Element: dom.Element,
+    HTMLElement: dom.HTMLElement,
+    MutationObserver: dom.MutationObserver,
+    ResizeObserver: dom.ResizeObserver,
+    requestAnimationFrame: () => 1,
+    cancelAnimationFrame: () => {},
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const { createRoot } = await import("react-dom/client");
+  const { CanvasPageFrame } = await import("./CanvasPageFrame");
+  const { previewStore } = await import("../preview/previewStore");
+  const { PreviewPreparationContext } = await import("../preview/previewPreparation");
+  const { RendererHostContext } = await import("../renderer/RendererFrames");
+  const { createRendererHost } = await import("../renderer/rendererHost");
+  const { fakeRenderer, settle } = await import("../renderer/protocol.fixtures");
+  const client = new QueryClient();
+  const rendererHost = createRendererHost();
+  // The page throws in the renderer, which shows the failure in the frame and says so.
+  const renderer = fakeRenderer(rendererHost.handle, {
+    onMessage(message) {
+      if (message.type !== "frame") return;
+      message.slot.innerHTML = `<div role="alert">This page couldn’t render.</div>`;
+      renderer.send({ type: "error", frameId: message.frameId, message: "The block crashed" });
+    },
+  });
+  let ready = 0;
+  const preparation = { ready: () => void ready++, fail: (error: Error) => assert.fail(error) };
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  previewStore.send({ type: "showCanvas" });
+  try {
+    await React.act(async () => {
+      root.render(
+        <PreviewPreparationContext value={preparation}>
+          <StudioQueryClientProvider client={client}>
+            <RendererHostContext value={rendererHost}>
+              <CanvasPageFrame
+                input={
+                  {
+                    pathname: "/about",
+                    href: "http://localhost/about",
+                    runtimeBasePath: "",
+                    previewDocument:
+                      "<html><head></head><body><div data-camox-preview-root></div></body></html>",
+                    dehydratedState: { queries: [], mutations: [] },
+                  } as unknown as PageRenderInput
+                }
+                pageId="1"
+                selected
+                width={1000}
+                viewportHeight={800}
+                onActivate={() => {}}
+              />
+            </RendererHostContext>
+          </StudioQueryClientProvider>
+        </PreviewPreparationContext>,
+      );
+      await settle();
+    });
+    const iframe = host.querySelector("iframe")!;
+    assert.match(iframe.contentDocument!.body.textContent, /couldn’t render/);
+    assert.equal(ready, 1, "the Canvas stops waiting for the frame");
+  } finally {
+    await React.act(async () => root.unmount());
+    rendererHost.close();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
     previewStore.send({ type: "hideCanvas" });

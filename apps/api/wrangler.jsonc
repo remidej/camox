@@ -4,6 +4,8 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-03-28",
   "compatibility_flags": ["nodejs_compat"],
+  // Markdown imports as its text: the SDK's code references the agent reads (src/domains/code).
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "routes": [{ "pattern": "api.camox.ai", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.ai",
@@ -28,6 +30,11 @@
   // Project Slug → Project ID, the map the dispatch Worker serves <slug>.camox.site from
   // (apps/dispatch). The studio's sign-in reads it to tell a project's host.
   "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
+  // Dispatch loads drafts' revisions (apps/dispatch/src/revisions.ts): the API reads their
+  // Definition Sets through it. Dispatch deploys first, as it serves the entrypoint.
+  "services": [
+    { "binding": "DISPATCH", "service": "camox-dispatch", "entrypoint": "CamoxRevisions" },
+  ],
   "r2_buckets": [
     {
       "binding": "FILES_BUCKET",
@@ -38,6 +45,12 @@
     {
       "binding": "BACKUP_BUCKET",
       "bucket_name": "camox-release-cache",
+    },
+    // Each revision's build, as one archive, which serves the draft's preview and a publish
+    // (src/domains/revisions).
+    {
+      "binding": "REVISION_BUILDS",
+      "bucket_name": "camox-revision-builds",
     },
   ],
   // Workers AI, for the agent's web tools: Cloudflare's Web Search API, and converting the pages
@@ -67,6 +80,18 @@
         "name": "THREAD",
         "class_name": "Thread",
       },
+      // A read-only copy of each project's `main`, which the agent reads its code from
+      // (src/durable-objects/project-code.ts).
+      {
+        "name": "PROJECT_CODE",
+        "class_name": "ProjectCode",
+      },
+      // Each draft with code's working copy, which the agent changes code in
+      // (src/durable-objects/draft-code.ts).
+      {
+        "name": "DRAFT_CODE",
+        "class_name": "DraftCode",
+      },
       // Runs the threads' code mode scripts in its own Worker (sandbox/wrangler.jsonc), so a
       // script that computes doesn't hold up a thread (ADR 0018).
       {
@@ -81,12 +106,22 @@
         "class_name": "CiSandbox",
         "script_name": "camox-release-sandbox",
       },
+      // The Container sandbox each draft with code builds its revisions in, named by the draft's
+      // ID, in the release sandbox Worker, which deploys their image (src/domains/revisions).
+      {
+        "name": "REVISION_SANDBOX",
+        "class_name": "RevisionSandbox",
+        "script_name": "camox-release-sandbox",
+      },
     ],
   },
   // A push to a project's repo releases it (src/domains/releases/README.md). The event filter can
   // only name the namespace, so the Workflow skips other branches and repos that aren't a
   // project's, such as `template-default`.
   "triggers": {
+    // Daily: a new snapshot of Google Fonts' families for the agent's `searchFonts`
+    // (src/domains/fonts/catalog.ts), taken with the `GOOGLE_FONTS_API_KEY` secret.
+    "crons": ["17 4 * * *"],
     "events": [
       {
         "type": "cf.artifacts.repo.pushed",
@@ -120,6 +155,12 @@
       "binding": "UPGRADE_WORKFLOW",
       "class_name": "UpgradeWorkflow",
     },
+    // Publishes a draft with code (src/domains/publishes/README.md).
+    {
+      "name": "camox-publish",
+      "binding": "PUBLISH_WORKFLOW",
+      "class_name": "PublishWorkflow",
+    },
     {
       "name": "camox-project-upgrade",
       "binding": "PROJECT_UPGRADE_WORKFLOW",
@@ -144,6 +185,14 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["EdgeCachePurger"],
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["ProjectCode"],
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["DraftCode"],
     },
   ],
   // Cloudflare caches the public reads the `EdgeCache` entrypoint answers, in front of the Worker

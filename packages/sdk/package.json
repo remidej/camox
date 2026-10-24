@@ -87,6 +87,11 @@
       "types": "./dist/features/runtime/studioClient.d.ts",
       "import": "./dist/features/runtime/studioClient.js"
     },
+    "./_internal/rendererClient": {
+      "source": "./src/features/runtime/rendererClient.tsx",
+      "types": "./dist/features/runtime/rendererClient.d.ts",
+      "import": "./dist/features/runtime/rendererClient.js"
+    },
     "./_internal/studioServer": {
       "source": "./src/features/runtime/studioServer.tsx",
       "types": "./dist/features/runtime/studioServer.d.ts",
@@ -170,6 +175,10 @@
       "./_internal/studioClient": {
         "types": "./dist/features/runtime/studioClient.d.ts",
         "import": "./dist/features/runtime/studioClient.js"
+      },
+      "./_internal/rendererClient": {
+        "types": "./dist/features/runtime/rendererClient.d.ts",
+        "import": "./dist/features/runtime/rendererClient.js"
       },
       "./_internal/studioServer": {
         "types": "./dist/features/runtime/studioServer.d.ts",

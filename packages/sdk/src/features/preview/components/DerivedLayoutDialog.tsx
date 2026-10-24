@@ -19,8 +19,8 @@ import * as React from "react";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useLocalizedPath } from "@/lib/view-locale";
 
-import type { Layout } from "../../../core/createLayout";
 import { routeSegments } from "../../../core/derivedRoutes";
+import type { RoutableLayout } from "../../../lib/studio-definitions";
 
 export function DerivedLayoutDialog({
   layout,
@@ -28,7 +28,7 @@ export function DerivedLayoutDialog({
   currentParams,
   onClose,
 }: {
-  layout: Layout;
+  layout: RoutableLayout;
   projectUuid: string;
   currentParams?: Record<string, string>;
   onClose: () => void;

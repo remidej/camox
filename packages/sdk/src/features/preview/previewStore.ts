@@ -206,6 +206,8 @@ export const previewStore = createStore({
   on: {
     /** Starts over, as a new Studio session does. */
     reset: () => initialPreviewContext,
+    /** Takes the studio's state, in the renderer frame's document: only its connection sends it. */
+    mirror: (_, event: { context: PreviewContext }) => event.context,
     hideCanvas: (context) => {
       if (!selectIsCanvasShown({ context })) return context;
       return {

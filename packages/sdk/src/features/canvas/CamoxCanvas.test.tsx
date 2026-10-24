@@ -40,8 +40,11 @@ registerHooks({
       source = `export const useLocation = () => globalThis.CanvasLocation;
         export const useNavigate = () => globalThis.CanvasNavigate;
         export const NavigationProvider = (props) => globalThis.CanvasNavigationProbe(props);`;
+    // No layout pages: the draft's definitions list no layouts, and the studio has no code.
+    if (specifier.endsWith("/studio-definitions"))
+      source = "export const useRoutableLayouts = () => []";
     if (specifier.endsWith("/CamoxAppContext"))
-      source = "export const useCamoxApp = () => ({getLayouts: () => []})";
+      source = "export const useOptionalCamoxApp = () => undefined";
     if (specifier === "@xstate/store-react")
       source =
         "export const useSelector = (_, selector) => selector({context: {viewportMode: globalThis.CanvasViewportMode ?? 'full'}})";

@@ -3,7 +3,6 @@ import * as React from "react";
 import { useProjectUuid } from "@/lib/auth";
 
 import { reads, useReadQuery } from "../../lib/studio-reads";
-import type { Collection } from "../createCollection";
 import { latestContent, type ReferenceRecord } from "../lib/reference";
 import { recordText } from "../recordItem";
 import type { LoadedRecord } from "../requestContext";
@@ -18,8 +17,8 @@ export function useLatestRecord({
   loaded,
 }: {
   collectionId: string;
-  /** The record's collection, whose templates title and describe the record as edited. */
-  collection: Collection | undefined;
+  /** The record's collection's templates, which title and describe the record as edited. */
+  collection: { toTitle: string; toDescription?: string | null } | undefined;
   loaded: LoadedRecord | undefined;
 }): ReferenceRecord | undefined {
   const projectUuid = useProjectUuid();

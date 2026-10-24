@@ -13,6 +13,6 @@ Cloudflare does. It asserts that the Camox Worker answers, that React renders th
 Template's native Accordion (its `<details>` share one `name`) and Button (a link given
 a link field's `to`, a `<button>` otherwise), that Camox's OG renderer can produce a PNG, and that the built stylesheet declares
 the `--camox-*` variables the SDK reads on every color scheme. It also checks that every
-block offers the same "Color scheme" setting, that Section renders the chosen scheme, and that the Mobile menu renders its links in a `popover` element opened by a `popovertarget` button. No Camox API or real auth is
+block offers the same "Color scheme" setting, that Section renders the chosen scheme, and that the Mobile menu renders its links in a `popover` element opened by a `popovertarget` button. The interactive Components are checked the same way: Tabs render one `<details>` per tab sharing one `name`, the Dialog is a `<dialog>` its buttons open and close with `command`/`commandfor`, and the Carousel is a labelled scroller the keyboard can reach. Each keeps its hidden panels, dialog content and slides in the markup. No Camox API or real auth is
 needed: a temporary home directory supplies fake build authentication without modifying
 the developer's credentials. CI runs this test after building the SDK.

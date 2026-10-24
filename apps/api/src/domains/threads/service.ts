@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import type { ServiceContext } from "../_shared/service-context";
-import { accessTo } from "../drafts/access";
+import { writeAccessWhilePublishing } from "../drafts/access";
 import { drafts } from "../drafts/schema";
 import type { DraftRequest } from "../drafts/scope";
 import { findEndedDraft } from "../drafts/service";
@@ -98,7 +98,9 @@ export const draftThread = Effect.fn("draftThread")(function* (
   ctx: ServiceContext & { draft: DraftRequest },
   projectId: number,
 ) {
-  const { scope: draft } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "write"));
+  const { scope: draft } = yield* Effect.scoped(
+    writeAccessWhilePublishing(ctx, { project: projectId }),
+  );
   yield* Effect.promise(() =>
     ctx.db
       .update(drafts)

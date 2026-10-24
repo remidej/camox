@@ -92,5 +92,11 @@ export type InvalidationMessage = {
 /** A draft was published or discarded: its viewers go back to Live. */
 export type DraftEndedMessage = { type: "draftEnded" } & EndedDraft;
 
+/** A draft with code has a new revision, built with Camox's `sdkVersion`. */
+export type RevisionAnnouncement = { draftId: string; revisionId: string; sdkVersion: string };
+
+/** A draft's new revision: its viewers' frames load it. */
+export type RevisionMessage = { type: "revision" } & RevisionAnnouncement;
+
 /** Everything the project room broadcasts. */
-export type ProjectRoomMessage = InvalidationMessage | DraftEndedMessage;
+export type ProjectRoomMessage = InvalidationMessage | DraftEndedMessage | RevisionMessage;

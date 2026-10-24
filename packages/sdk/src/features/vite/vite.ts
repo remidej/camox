@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
@@ -15,6 +15,7 @@ import {
 } from "vite-plus";
 
 import { type ServerApiClient, createServerApiClient } from "../../lib/api-client-server";
+import { ASSET_PREFIX_GLOBAL } from "../runtime/assetPrefix";
 
 const pluginDir = dirname(fileURLToPath(import.meta.url));
 const sdkRoot = resolve(pluginDir, "../../..");
@@ -27,7 +28,12 @@ const VIRTUAL_PAGE_CLIENT = "virtual:camox/page-client";
 const RESOLVED_VIRTUAL_PAGE_CLIENT_URL = "\0virtual:camox/page-client-url";
 const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0virtual:camox/studio-client-url";
+const VIRTUAL_RENDERER_CLIENT = "virtual:camox/renderer-client";
+const RESOLVED_VIRTUAL_RENDERER_CLIENT_URL = "\0virtual:camox/renderer-client-url";
 const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0virtual:camox/block-chunks";
+/** A built file's URL in the server bundle: under the asset prefix, read when the bundle loads. */
+const serverAssetUrl = (file: string) =>
+  `(globalThis.${ASSET_PREFIX_GLOBAL} ?? "/") + ${JSON.stringify(file)}`;
 import { transformArtifactRuntime } from "./artifactRuntimeMinification";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
@@ -35,6 +41,13 @@ import { collectBlockChunks } from "./blockChunks";
 import { type BundlerOnLog, withoutExpectedCamoxLogs } from "./bundlerLogs";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
+import {
+  HOSTED_BUILD_ENV,
+  type HostedProject,
+  forbiddenImport,
+  misnamedBlock,
+  readHostedProject,
+} from "./hostedChecks";
 import { generateIconTypes } from "./iconGeneration";
 import { generateLayoutFiles, watchLayoutFiles } from "./layoutGeneration";
 import {
@@ -288,6 +301,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
   let isRelease = false;
   /** A release's build, without syncing to Live: what the upgrade job checks a project with. */
   let isDryRun = false;
+  /** Set when the build checks a hosted project's code. */
+  let hostedProject: HostedProject | undefined;
   let resolvedConfig: ResolvedConfig;
   let localAuth: StoredAuth | null = null;
   let blockChunks: Record<string, string[]> = {};
@@ -297,6 +312,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
     name: "camox",
     enforce: "pre",
     resolveId(id, importer) {
+      if (hostedProject) {
+        const forbidden = forbiddenImport(hostedProject, id, importer);
+        if (forbidden) this.error(forbidden);
+      }
       const runtimeId = resolveRuntimeDevId(id, importer);
       if (runtimeId) return runtimeId;
       if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
@@ -308,13 +327,16 @@ export function camox(options: CamoxPluginOptions): Plugin {
       if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
         const cssPath = resolve(stylesDir, "studio.css");
         if (isBuild) {
-          // A fixed public path, not an asset URL: the server build must render the
-          // same href, and inlining the CSS would ship it to every visitor's JS.
+          // A fixed file name, not an asset URL: the server build must render the same
+          // href, and inlining the CSS would ship it to every visitor's JS.
           const css = readFileSync(cssPath, "utf-8");
           const hash = createHash("sha256").update(css).digest("hex").slice(0, 8);
           const fileName = `assets/camox-studio-${hash}.css`;
           this.emitFile({ type: "asset", fileName, source: css });
-          return `export default ${JSON.stringify(`/${fileName}`)};`;
+          // The browser finds it from the chunk that asks: every client chunk is in `_chunks/`.
+          if (this.environment.config.consumer === "client")
+            return `export default new URL(/* @vite-ignore */ ${JSON.stringify(`../${fileName}`)}, import.meta.url).href;`;
+          return `export default ${serverAssetUrl(fileName)};`;
         }
         // Dev: serve the file directly via Vite's /@fs/ prefix
         const cssUrl = `/@fs/${cssPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
@@ -326,10 +348,13 @@ export function camox(options: CamoxPluginOptions): Plugin {
         return `export default ${JSON.stringify(css)};`;
       }
       if (id === RESOLVED_VIRTUAL_PAGE_CLIENT_URL && isBuild) {
-        return 'export default "/_chunks/camox-page-client.mjs";';
+        return `export default ${serverAssetUrl("_chunks/camox-page-client.mjs")};`;
       }
       if (id === RESOLVED_VIRTUAL_STUDIO_CLIENT_URL && isBuild) {
-        return 'export default "/_chunks/camox-studio-client.mjs";';
+        return `export default ${serverAssetUrl("_chunks/camox-studio-client.mjs")};`;
+      }
+      if (id === RESOLVED_VIRTUAL_RENDERER_CLIENT_URL && isBuild) {
+        return `export default ${serverAssetUrl("_chunks/camox-renderer-client.mjs")};`;
       }
       // The client builds first, so the server build can read where each block ended up.
       if (id === RESOLVED_VIRTUAL_BLOCK_CHUNKS && isBuild) {
@@ -343,6 +368,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
     },
     // Apps that compile the SDK from source minify the artifact runtime as its build does.
     transform(code, id) {
+      if (hostedProject) {
+        const misnamed = misnamedBlock(hostedProject, id, code);
+        if (misnamed) this.error(misnamed.message, misnamed.at);
+      }
       return transformArtifactRuntime(code, id);
     },
     generateBundle(_outputOptions, bundle) {
@@ -379,6 +408,24 @@ export function camox(options: CamoxPluginOptions): Plugin {
         }
       }
       return {
+        // One build serves under any URL prefix: Live's `/`, or a revision's preview.
+        ...(isBuild && {
+          base: "./",
+          experimental: {
+            renderBuiltUrl(
+              filename: string,
+              { ssr, hostType }: { ssr: boolean; hostType: string },
+            ) {
+              // CSS runs no code, so its URLs are relative to the stylesheet. Vite names a `?url`
+              // stylesheet by its source here (`styles.css`), not where it lands, but every
+              // stylesheet lands in `assets/`.
+              if (hostType === "css") return posix.relative("assets", filename);
+              // The browser resolves the client's URLs against the chunk that names them.
+              if (!ssr) return { relative: true };
+              return { runtime: serverAssetUrl(filename) };
+            },
+          },
+        }),
         build: {
           emitAssets: true,
         },
@@ -407,6 +454,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
                 input: {
                   "camox-page-client": VIRTUAL_PAGE_CLIENT,
                   "camox-studio-client": VIRTUAL_STUDIO_CLIENT,
+                  "camox-renderer-client": VIRTUAL_RENDERER_CLIENT,
                 },
                 output: {
                   assetFileNames: "assets/[name]-[hash][extname]",
@@ -458,6 +506,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     },
     configResolved(config) {
       resolvedConfig = config;
+      if (process.env[HOSTED_BUILD_ENV] === "1") hostedProject = readHostedProject(config.root);
       if (!config.plugins.some((plugin) => plugin.name.startsWith("vite-plugin-cloudflare"))) {
         throw new Error(
           "Camox: Camox apps run on Cloudflare Workers. Add `cloudflare()` from " +

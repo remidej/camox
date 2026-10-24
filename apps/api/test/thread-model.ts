@@ -53,6 +53,13 @@ export const holdNextAnswer = (text: string) => hold(fauxAssistantMessage([fauxT
 export const holdNextScript = (code: string) =>
   hold(fauxAssistantMessage([fauxToolCall("codemode", { code })], { stopReason: "toolUse" }));
 
+/**
+ * Scripts the model's next answer as a call of the tool `name`, outside code mode, held until the
+ * returned function is called.
+ */
+export const holdNextToolCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
+  hold(fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" }));
+
 const hold = (message: AssistantMessage) => {
   let release!: () => void;
   const released = new Promise<void>((resolve) => {
@@ -102,10 +109,27 @@ export const answerWithToolCall = (name: string, args: Parameters<typeof fauxToo
   ]);
 
 /**
- * What the model sees when it's called: the editors' messages, the tools it's offered, its last
- * tool's result, and the output of the last script it ran, without code mode's header.
+ * Scripts the model's next answer as a call of the tool `name`, outside code mode, with the
+ * arguments `args` gives from what the model sees then, such as its last tool's result.
+ */
+export const answerWithToolCallFrom = (
+  name: string,
+  args: (request: ModelRequest) => Parameters<typeof fauxToolCall>[1],
+) =>
+  faux.appendResponses([
+    (context) =>
+      fauxAssistantMessage([fauxToolCall(name, args(requestOf(context)))], {
+        stopReason: "toolUse",
+      }),
+  ]);
+
+/**
+ * What the model sees when it's called: its instructions, the editors' messages, the tools it's
+ * offered, its last tool's result, and the output of the last script it ran, without code mode's
+ * header.
  */
 export type ModelRequest = {
+  instructions: string;
   editorMessages: string[];
   offeredTools: string[];
   lastToolResult: string;
@@ -114,11 +138,16 @@ export type ModelRequest = {
 
 /** Scripts the model's next answer from what it sees when it's called. */
 export const answerFrom = (answer: (request: ModelRequest) => string) =>
-  faux.appendResponses([
-    (context) => fauxAssistantMessage([fauxText(answer(requestOf(context.messages)))]),
-  ]);
+  faux.appendResponses([(context) => fauxAssistantMessage([fauxText(answer(requestOf(context)))])]);
 
-const requestOf = (messages: readonly Message[]): ModelRequest => {
+const requestOf = ({
+  messages,
+  systemPrompt,
+}: {
+  messages: readonly Message[];
+  systemPrompt?: string;
+}): ModelRequest => {
+  const instructions = systemPrompt ? [systemPrompt] : [];
   const editorMessages: string[] = [];
   const offered = new Set<string>();
   let lastToolResult = "";
@@ -133,6 +162,13 @@ const requestOf = (messages: readonly Message[]): ModelRequest => {
       );
     }
     if (message.role === "system") {
+      const { content } = message;
+      instructions.push(
+        typeof content === "string" ? content : content.map((part) => part.text).join(""),
+      );
+      for (const section of Object.values(message.sections ?? {})) {
+        if (section) instructions.push(section);
+      }
       for (const tool of message.toolsAdded ?? []) offered.add(tool.name);
       for (const tool of message.toolsRemoved ?? []) offered.delete(tool.name);
     }
@@ -143,7 +179,13 @@ const requestOf = (messages: readonly Message[]): ModelRequest => {
       if (message.toolName === "codemode") scriptOutput = texts.slice(1).join("\n");
     }
   }
-  return { editorMessages, offeredTools: [...offered], lastToolResult, scriptOutput };
+  return {
+    instructions: instructions.join("\n\n"),
+    editorMessages,
+    offeredTools: [...offered],
+    lastToolResult,
+    scriptOutput,
+  };
 };
 
 /** How many times threads called the model since the test started. */

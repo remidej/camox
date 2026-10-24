@@ -1,0 +1,1 @@
+ALTER TABLE `drafts` ADD `publish_promoted_at` integer;

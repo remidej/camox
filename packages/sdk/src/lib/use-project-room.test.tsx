@@ -5,7 +5,7 @@ import type { Duplex } from "node:stream";
 import { test, type TestContext } from "node:test";
 
 import { DEVELOPMENT_DRAFT, type EndedDraft } from "@camox/api-contract/drafts";
-import type { ProjectRoomMessage } from "@camox/api-contract/query-keys";
+import type { ProjectRoomMessage, RevisionAnnouncement } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
@@ -206,6 +206,16 @@ void test("viewers hear that a draft ended, how and by whom", async (t) => {
 
   await waitFor(() => heard.length === 1, "the draft-ended message is heard");
   assert.deepEqual(heard[0], ended);
+});
+
+void test("viewers hear each new revision of a draft, with the SDK version it was built with", async (t) => {
+  const heard: RevisionAnnouncement[] = [];
+  const room = await projectRoom(t, [], { onRevision: (revision) => heard.push(revision) });
+
+  room.send({ type: "revision", draftId: "draft-a", revisionId: "rev-2", sdkVersion: "1.2.0" });
+
+  await waitFor(() => heard.length === 1, "the revision message is heard");
+  assert.deepEqual(heard[0], { draftId: "draft-a", revisionId: "rev-2", sdkVersion: "1.2.0" });
 });
 
 test.after(() => window.happyDOM.close());
