@@ -12,7 +12,6 @@ import {
   connectDraftThread,
   connectLiveThread,
   draftsOf,
-  lastAnswer,
   signIn,
   type ThreadClient,
   websiteFixture,
@@ -74,15 +73,48 @@ async function websiteWithCode() {
   return website;
 }
 
-/** Has the agent call the tool `name` with `args`, and returns what the tool answered it. */
+/**
+ * Has the agent call the tool `name` with `args`, and returns what the tool answered it. The turn
+ * ends with a build of the code it changed, which may send the agent back to work: unscripted,
+ * its turn then fails.
+ */
 async function toolResult(
   thread: ThreadClient,
   name: string,
   args: Parameters<typeof answerWithToolCall>[1],
 ) {
+  let result: string | undefined;
   answerWithToolCall(name, args);
-  answerFrom(({ lastToolResult }) => lastToolResult);
-  return lastAnswer(await ask(thread, `Call ${name}`, { keepOpen: true }));
+  answerFrom(({ lastToolResult }) => {
+    result = lastToolResult;
+    return "Done.";
+  });
+  await ask(thread, `Call ${name}`, { keepOpen: true });
+  return result;
+}
+
+/**
+ * Has the agent of a new draft write `files` and build them in one turn, so the end of the turn
+ * builds nothing more, returning what `build` answered it.
+ */
+async function buildInFirstTurn(files: Record<string, string>) {
+  const website = await websiteWithCode();
+  const live = await connectLiveThread(
+    website.project.id,
+    await signIn(website.db, website.memberUser.id),
+  );
+  for (const [path, content] of Object.entries(files)) {
+    answerWithToolCall("write", { path, content });
+  }
+  let result: string | undefined;
+  answerWithToolCall("build", {});
+  answerFrom(({ lastToolResult }) => {
+    result = lastToolResult;
+    return "Built.";
+  });
+  await ask(live, "Write and build");
+  const [draft] = await draftsOf(website);
+  return { website, draft: draft!, result };
 }
 
 /** A draft whose agent wrote `files`, with its thread open. */
@@ -294,28 +326,27 @@ RolldownError: src/blocks/hero.tsx imports "node:fs", which a hosted project can
   });
 
   it("retries a sandbox that fails, without telling the agent", async () => {
-    const { website, draft, thread } = await draftWithChanges({
+    await fakes.crashSandboxes(INFRASTRUCTURE_ATTEMPTS - 1);
+    const { website, draft, result } = await buildInFirstTurn({
       "src/blocks/pricing.tsx": PRICING,
     });
-    await fakes.crashSandboxes(INFRASTRUCTURE_ATTEMPTS - 1);
 
-    const result = await build(thread);
-    thread.close();
-
-    expect(result).toMatchObject({ ok: true, build: [] });
+    expect(JSON.parse(result!)).toMatchObject({ ok: true, build: [] });
     expect(await fakes.readFile(website.project.uuid, draft.id, "src/blocks/pricing.tsx")).toBe(
       PRICING,
     );
   });
 
   it("never reports a sandbox that keeps failing as a build error", async () => {
-    const { website, draft, thread } = await draftWithChanges({
+    // The agent's build fails, then the end of its turn's.
+    await fakes.crashSandboxes(2 * INFRASTRUCTURE_ATTEMPTS);
+    const {
+      website,
+      draft,
+      result: answer,
+    } = await buildInFirstTurn({
       "src/blocks/pricing.tsx": PRICING,
     });
-    await fakes.crashSandboxes(INFRASTRUCTURE_ATTEMPTS);
-
-    const answer = await toolResult(thread, "build", {});
-    thread.close();
 
     expect(answer).toContain("a problem on its side, not in your code");
     expect(answer).not.toContain("Container crashed");

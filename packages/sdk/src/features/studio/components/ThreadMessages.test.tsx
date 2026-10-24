@@ -139,3 +139,15 @@ void test("a message sent while the agent works is appended last, so the scrolle
   );
   assert.match(rows.at(-1)!.textContent, /Working…/);
 });
+
+void test("a thread says the agent's code is building, then that it fixes a build error, instead of working", () => {
+  const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
+  const shown = (status?: ThreadView["status"]) =>
+    renderToString(<ThreadMessages view={{ running: true, messages: [asked], status }} />);
+
+  assert.match(shown("building"), /Building…/);
+  assert.doesNotMatch(shown("building"), /Working…/);
+  assert.match(shown("fixing"), /Fixing a build error…/);
+  assert.doesNotMatch(shown("fixing"), /Working…/);
+  assert.match(shown(), /Working…/);
+});

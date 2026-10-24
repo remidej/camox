@@ -72,13 +72,17 @@ const publishResultSchema = z.union([
 const PREVIEW_SHAPE =
   "`blockers` are problems to fix in the draft before it can be published, including " +
   "definitions that differ from Live's in a development draft, which only a release can ship " +
-  "(code `definitionsDiffer`); `conflicts` is content Live changed or deleted since the draft " +
+  "(code `definitionsDiffer`), and code the agent changed that doesn't build (code " +
+  "`codeDoesNotBuild`); `conflicts` is content Live changed or deleted since the draft " +
   "changed it, each with who published Live's version and when, which publishing overwrites; " +
   "`lost` lists changes publishing will drop because their parent is gone; `warnings` are the " +
   "same problems already on Live, which don't block; `changes` lists everything the draft " +
   "creates, changes or deletes; `translating` lists the locales Camox is still translating the " +
   "draft into, which publishing waits for; `defaultLocale` is the tag of the default locale, " +
-  "which the others are translated from. `token` records the conflicts shown.";
+  "which the others are translated from. `token` records the conflicts shown. `code` is null " +
+  "unless the agent changed the draft's code: then `revision` is the last revision that built, " +
+  "which the preview shows, `includesLive` whether the code holds Live's latest, and `building` " +
+  "whether the latest changes are still building, which publishing should wait for.";
 
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
 
@@ -87,7 +91,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "previewPublish",
     description:
       "List what publishing the current draft to Live would do, without publishing. Returns " +
-      "`{ blockers, conflicts, lost, warnings, changes, translating, defaultLocale, token }`. " +
+      "`{ blockers, conflicts, lost, warnings, changes, translating, defaultLocale, token, code }`. " +
       PREVIEW_SHAPE +
       " Show this list to the user. `token` is the one publishDraft takes to publish exactly " +
       "what this preview showed.",

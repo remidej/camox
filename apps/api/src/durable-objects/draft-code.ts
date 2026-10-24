@@ -18,6 +18,14 @@ const BRANCH_KEY = "branch";
 /** The commit of `main` the branch forked from. */
 const FORKED_FROM_KEY = "forked-from";
 const TOKEN_KEY = "token";
+/** When the build of the draft's code going now started, if one is. */
+const BUILDING_SINCE_KEY = "building-since";
+
+/**
+ * How long a build is taken to still be going, from when it started: one an eviction cut short
+ * never says it ended. Longer than any build takes. A tuning value.
+ */
+export const BUILD_GOING_FOR_AT_MOST_MS = 15 * 60_000;
 
 /** How long the write tokens the working copy mints last, in seconds. */
 export const TOKEN_TTL_SECONDS = 86_400;
@@ -86,6 +94,24 @@ export class DraftCode extends DurableObject<Bindings> {
   async held(): Promise<boolean> {
     await this.#queue;
     return this.ctx.storage.kv.get(BRANCH_KEY) !== undefined;
+  }
+
+  /** The commit of `main` the draft's branch forked from, once it has code. */
+  async forkedFrom(): Promise<string | undefined> {
+    await this.#queue;
+    return this.ctx.storage.kv.get<string>(FORKED_FROM_KEY);
+  }
+
+  /** Records that a build of the draft's code started, or ended. */
+  async markBuilding(building: boolean): Promise<void> {
+    if (building) this.ctx.storage.kv.put(BUILDING_SINCE_KEY, Date.now());
+    else this.ctx.storage.kv.delete(BUILDING_SINCE_KEY);
+  }
+
+  /** Whether a build of the draft's code is going: see `BUILD_GOING_FOR_AT_MOST_MS`. */
+  async building(): Promise<boolean> {
+    const since = this.ctx.storage.kv.get<number>(BUILDING_SINCE_KEY);
+    return since !== undefined && Date.now() - since < BUILD_GOING_FOR_AT_MOST_MS;
   }
 
   /**

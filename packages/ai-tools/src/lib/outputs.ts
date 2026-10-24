@@ -227,7 +227,7 @@ const ownerSchema = z.discriminatedUnion("kind", [
 
 /** An entity a publish preview mentions, as people know it, in its locale (null: stored once). */
 const subjectFields = {
-  entity: z.enum([...ENTITY_KINDS, "definition"]),
+  entity: z.enum([...ENTITY_KINDS, "definition", "code"]),
   id: z.string(),
   label: z.string(),
   owner: ownerSchema.nullable(),
@@ -260,4 +260,11 @@ export const publishPreviewSchema = z.strictObject({
   translating: z.array(z.string()),
   defaultLocale: z.string().nullable(),
   token: z.string(),
+  code: z
+    .strictObject({
+      revision: z.string().nullable(),
+      includesLive: z.boolean(),
+      building: z.boolean(),
+    })
+    .nullable(),
 });
