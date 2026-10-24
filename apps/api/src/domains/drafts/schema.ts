@@ -39,6 +39,9 @@ export const drafts = sqliteTable(
     // A draft with code's last revision (`revisions`), the head of its branch. No foreign key, as
     // revisions reference their draft.
     headRevisionId: text("head_revision_id"),
+    // A draft with code's last revision that built and had its Definition Set synced into the
+    // draft: the draft reads its own definitions from then on (`definitionsIn`).
+    previewedRevisionId: text("previewed_revision_id"),
   },
   (table) => [
     index("drafts_project_idx").on(table.projectId),

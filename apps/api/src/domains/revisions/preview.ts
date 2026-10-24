@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { createDb } from "../../db";
 import type { Bindings } from "../../types";
@@ -9,7 +9,7 @@ import { type RevisionBuildStatus, revisions } from "./schema";
 
 /** What the publish preview says about a draft's code (spec #560, section 10). */
 export type PreviewCode = {
-  /** The revision the preview shows, the last one that built: null before any did. */
+  /** The revision the draft previews, the last one that built: null before any did. */
   revision: RevisionId | null;
   /** Whether the draft's code holds the current `main`: false until it merged it. */
   includesLive: boolean;
@@ -28,13 +28,17 @@ export async function codeOfDraft(
 ): Promise<{ code: PreviewCode | null; head: RevisionBuildStatus | null }> {
   const working = env.DRAFT_CODE.getByName(draftId);
   const draft = await db
-    .select({ head: drafts.headRevisionId, projectUuid: projects.uuid })
+    .select({
+      head: drafts.headRevisionId,
+      previewed: drafts.previewedRevisionId,
+      projectUuid: projects.uuid,
+    })
     .from(drafts)
     .innerJoin(projects, eq(projects.id, drafts.projectId))
     .where(eq(drafts.id, draftId))
     .get();
   if (!draft || !(await working.held())) return { code: null, head: null };
-  const [head, built, building, forkedFrom, main] = await Promise.all([
+  const [head, building, forkedFrom, main] = await Promise.all([
     draft.head
       ? db
           .select({ buildStatus: revisions.buildStatus })
@@ -42,19 +46,13 @@ export async function codeOfDraft(
           .where(eq(revisions.id, draft.head))
           .get()
       : undefined,
-    db
-      .select({ id: revisions.id })
-      .from(revisions)
-      .where(and(eq(revisions.draftId, draftId), eq(revisions.buildStatus, "built")))
-      .orderBy(desc(revisions.createdAt), desc(revisions.id))
-      .get(),
     working.building(),
     working.forkedFrom(),
     env.PROJECT_CODE.getByName(draft.projectUuid).commit(),
   ]);
   return {
     code: {
-      revision: built?.id ?? null,
+      revision: draft.previewed,
       includesLive: main === undefined || forkedFrom === main,
       building,
     },

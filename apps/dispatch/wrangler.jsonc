@@ -11,6 +11,14 @@
   "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }],
   // slug → project UUID; the UUID names the project's user Worker.
   "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
+  // Loads drafts' revisions as Dynamic Workers, from their builds in `REVISION_BUILDS`, which the
+  // API's revision sandboxes write (src/revisions.ts).
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "r2_buckets": [{ "binding": "REVISION_BUILDS", "bucket_name": "camox-revision-builds" }],
+  "vars": {
+    // The only origin a revision's gateway sends in the revision's draft.
+    "CAMOX_API_URL": "https://api.camox.ai",
+  },
   "observability": {
     "logs": {
       "enabled": true,
