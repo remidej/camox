@@ -57,6 +57,7 @@ async function setup(
   t: { after: (fn: () => Promise<void> | void) => void },
   camoxApp: CamoxApp = {} as never,
   codeLoaded?: Promise<void>,
+  { signedIn = false }: { signedIn?: boolean } = {},
 ) {
   const dom = new Window({ url: "http://localhost/_camox/renderer" });
   const globals = {
@@ -162,6 +163,7 @@ async function setup(
             apiUrl: "http://localhost:8788",
             authenticationUrl: "http://localhost:3290",
             authClient: createCamoxAuthClient("http://localhost:8788"),
+            initialAuthenticated: signedIn,
           }}
         >
           <RendererApp
@@ -340,6 +342,60 @@ void test("the renderer renders each block thumbnail with the draft's code, into
 
   await act(() => studio.send({ type: "thumbnailEnd", thumbnailId: "t1" }));
   assert.equal(thumbnail.slot.childElementCount, 0);
+});
+
+void test("a thumbnail renders a block's fields, though the renderer document has no router", async (t) => {
+  const { createApp } = await import("../../core/createApp");
+  const { createBlock } = await import("../../core/createBlock");
+  // Fields read the page's location, as site blocks do.
+  const hero = createBlock({
+    id: "hero",
+    title: "Hero",
+    description: "A hero",
+    content: (field) => ({ title: field.string({ default: "Welcome aboard" }) }),
+    toReact: HeroComponent,
+    toMarkdown: () => [],
+    toTitle: () => "Hero",
+  });
+  function HeroComponent() {
+    return <hero.Field name="title">{(props) => <h1 data-peek {...props} />}</hero.Field>;
+  }
+  const camoxApp = createApp({ blocks: [hero as never] });
+  const quiet = t.mock.method(console, "error", () => {});
+  const { studio, visibleFrame, act } = await setup(t, camoxApp);
+  const thumbnail = visibleFrame("http://localhost/");
+  await act(() =>
+    studio.send({ type: "thumbnail", thumbnailId: "t1", slot: thumbnail.slot, blockType: "hero" }),
+  );
+  quiet.mock.restore();
+  assert.equal(thumbnail.slot.querySelector("[data-peek]")?.textContent, "Welcome aboard");
+});
+
+void test("a thumbnail whose block throws while rendering shows nothing", async (t) => {
+  const { createApp } = await import("../../core/createApp");
+  const { createBlock } = await import("../../core/createBlock");
+  const hero = createBlock({
+    id: "hero",
+    title: "Hero",
+    description: "A hero",
+    content: (field) => ({ title: field.string({ default: "Welcome aboard" }) }),
+    toReact: () => {
+      throw new Error("The hero crashed");
+    },
+    toMarkdown: () => [],
+    toTitle: () => "Hero",
+  });
+  const camoxApp = createApp({ blocks: [hero as never] });
+  const quiet = t.mock.method(console, "error", () => {});
+  // A member, who sees a broken block's error on a page: the session is still being checked.
+  t.mock.method(globalThis, "fetch", () => new Promise(() => {}));
+  const { studio, visibleFrame, act } = await setup(t, camoxApp, undefined, { signedIn: true });
+  const thumbnail = visibleFrame("http://localhost/");
+  await act(() =>
+    studio.send({ type: "thumbnail", thumbnailId: "t1", slot: thumbnail.slot, blockType: "hero" }),
+  );
+  quiet.mock.restore();
+  assert.equal(thumbnail.slot.textContent, "", "no error strip in place of the preview");
 });
 
 void test("what a page tells the editor goes to the studio, which shows it", async (t) => {
