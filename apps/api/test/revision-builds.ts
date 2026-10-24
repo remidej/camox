@@ -17,9 +17,25 @@ export type RevisionFakes = {
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
   revisionBuilds(sandbox: string): Promise<RevisionBuild[]>;
   failBuildsOf(marker: string, log: string): Promise<void>;
-  /** Holds the next revision build until `releaseBuilds()`. */
-  holdBuilds(): Promise<void>;
-  releaseBuilds(): Promise<void>;
+  lintFindingsOf(marker: string, diagnostics: LintDiagnostic[]): Promise<void>;
+  revisionCommands(sandbox: string): Promise<{ command: string }[]>;
+  /** Holds the sandbox's builds from now on, until `releaseBuilds(sandbox)`. */
+  holdBuilds(sandbox: string): Promise<void>;
+  releaseBuilds(sandbox: string): Promise<void>;
+  /** Makes every type check of a tree holding `marker` report those of `errors` in what it checks. */
+  failTypeChecksOf(marker: string, errors: FakeTypeError[]): Promise<void>;
+  /** Holds the sandbox's type checks from now on, until `releaseTypeChecks(sandbox)`. */
+  holdTypeChecks(sandbox: string): Promise<void>;
+  releaseTypeChecks(sandbox: string): Promise<void>;
+};
+
+/** A type error the fake sandbox's type check prints, as tsrs does. */
+export type FakeTypeError = {
+  file: string;
+  line: number;
+  column: number;
+  code: string;
+  message: string;
 };
 
 export const revisionFakes = (env as unknown as { RELEASE_FAKES: RevisionFakes }).RELEASE_FAKES;
@@ -81,3 +97,45 @@ export async function failingMarker(file = "src/blocks/pricing.tsx") {
   await revisionFakes.failBuildsOf(marker, failedBuild([unresolved(file, 1)]));
   return marker;
 }
+
+/** Makes every type check of a tree holding the returned marker report `errors`. */
+export async function typeErrorsMarker(errors: FakeTypeError[]) {
+  const marker = crypto.randomUUID();
+  await revisionFakes.failTypeChecksOf(marker, errors);
+  return marker;
+}
+
+/** A finding as `vp lint --format json` prints it. */
+export type LintDiagnostic = {
+  message: string;
+  code: string;
+  severity: "warning" | "error";
+  url: string;
+  help: string;
+  filename: string;
+  labels: { span: { offset: number; length: number; line: number; column: number } }[];
+};
+
+/** A `debugger` statement's finding, as `vp lint --format json` printed it for the Template. */
+export const debuggerStatement = (file: string, line: number): LintDiagnostic => ({
+  message: "`debugger` statement is not allowed",
+  code: "eslint(no-debugger)",
+  severity: "warning",
+  url: "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-debugger.html",
+  help: "Remove the debugger statement",
+  filename: file,
+  labels: [{ span: { offset: 33, length: 9, line, column: 3 } }],
+});
+
+/** Makes every lint of a tree holding the marker find `diagnostics`, returning the marker. */
+export async function lintedMarker(diagnostics: LintDiagnostic[]) {
+  const marker = crypto.randomUUID();
+  await revisionFakes.lintFindingsOf(marker, diagnostics);
+  return marker;
+}
+
+/** How many times the draft's sandbox ran `vp lint`. */
+export const lintRuns = async (draftId: string) =>
+  (await revisionFakes.revisionCommands(draftId)).filter(({ command }) =>
+    command.includes("vp lint"),
+  ).length;

@@ -10,6 +10,7 @@ import {
   answerFrom,
   answerWithScript,
   answerWithToolCall,
+  answerWithToolCallFrom,
   forgetThreadModel,
 } from "../../../test/thread-model";
 import {
@@ -204,5 +205,30 @@ describe("a revision's definitions", () => {
 
     expect(await blockTypesOf(website, draft!.id)).toEqual(["pricing", "text"]);
     expect(await pagesOf(website, draft!.id)).toEqual({ "/home": [HELLO, PRICING] });
+  });
+
+  it("that can't be used send the agent back to fix them as its turn ends, after its own build", async () => {
+    const { website, token } = await websiteWithCode();
+    const unusable = crypto.randomUUID();
+    const fixed = crypto.randomUUID();
+    await fakes.defineBuildsOf(unusable, { ...definitionSetWith(website, []), blocks: "none" });
+    await fakes.defineBuildsOf(fixed, definitionSetWith(website, [pricingDefinition]));
+    const live = await connectLiveThread(website.project.id, token);
+    answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(unusable) });
+    answerWithToolCall("build", {});
+    answerFrom(() => "Added it.");
+    let told = "";
+    answerWithToolCallFrom("write", ({ editorMessages }) => {
+      told = editorMessages.at(-1)!;
+      return { path: "src/blocks/pricing.tsx", content: blockFile(fixed) };
+    });
+    answerFrom(() => "Added it, and fixed it.");
+
+    const view = await ask(live, "Add a pricing section");
+
+    expect(told).toContain("definitions can't be used");
+    expect(lastAnswer(view)).toBe("Added it, and fixed it.");
+    const [draft] = await draftsOf(website);
+    expect(await blockTypesOf(website, draft!.id)).toEqual(["pricing", "text"]);
   });
 });

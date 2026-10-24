@@ -38,7 +38,7 @@ vi.mock("../../lib/thread-model", async () => {
 type Fakes = {
   defineBuildsOf(marker: string, definitionSet: unknown): Promise<void>;
   prewarmed(): Promise<RevisionToLoad[]>;
-  failPrewarms(times: number): Promise<void>;
+  failPrewarms(project: string, times: number): Promise<void>;
 };
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -212,7 +212,7 @@ describe("a draft's new revision", () => {
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
     // The agent's build fails its prewarms, then the end of its turn's build.
-    await fakes.failPrewarms(2 * INFRASTRUCTURE_ATTEMPTS);
+    await fakes.failPrewarms(website.project.uuid, 2 * INFRASTRUCTURE_ATTEMPTS);
 
     const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
     thread.close();
@@ -234,7 +234,7 @@ describe("a draft's new revision", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
-    await fakes.failPrewarms(INFRASTRUCTURE_ATTEMPTS - 1);
+    await fakes.failPrewarms(website.project.uuid, INFRASTRUCTURE_ATTEMPTS - 1);
 
     const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
     thread.close();

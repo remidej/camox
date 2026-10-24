@@ -37,6 +37,10 @@ type Email = {
   html: string;
 };
 
+// The variable that turns on the build checks only hosted projects have (`HOSTED_BUILD_ENV` in
+// packages/sdk/src/features/vite/hostedChecks.ts).
+const HOSTED_BUILD_ENV = "CAMOX_INTERNAL_HOSTED";
+
 // The account the alert links to, as the test bindings set it (vite.config.ts).
 const WORKFLOWS = "https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/workers/workflows";
 
@@ -162,6 +166,23 @@ describe("upgrading every project to a new SDK", () => {
     );
     expect(others).toHaveLength(2);
     for (const { env } of others) expect(Object.values(env).join("\n")).not.toContain("write");
+  });
+
+  it("builds as a hosted project, so code that breaks a new hosted check isn't pushed", async () => {
+    const { project } = await projectOn("0.9.1");
+    // The new SDK's hosted checks fail the build, as `camox release --dry-run` does when they
+    // fail (the SDK's features/vite/hostedChecks.ts).
+    await fakes.failCommand(project.uuid, "camox release --dry-run", Infinity);
+
+    await upgradeTo(NEW_VERSION);
+
+    const runs = await fakes.commandsRun(project.uuid);
+    expect(runs.map(({ command }) => command)).toContain("pnpm exec camox release --dry-run");
+    // Only the build has the flag: the update and the push run no project code through Vite.
+    for (const { command, env } of runs) {
+      expect(env[HOSTED_BUILD_ENV] === "1").toBe(command === "pnpm exec camox release --dry-run");
+    }
+    expect(await pushesToMain(project.uuid)).toEqual([]);
   });
 
   it("updates every Camox package a project depends on, where it depends on it", async () => {

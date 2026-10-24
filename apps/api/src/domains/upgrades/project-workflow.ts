@@ -3,6 +3,7 @@ import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
+import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 
 type UpgradeEnv = Bindings & CiBindings;
@@ -68,6 +69,8 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
       }));
       const built = await run(updated, "build", async () => ({
         command: "pnpm exec camox release --dry-run",
+        // A new hosted check that the project's code breaks fails the Upgrade's build.
+        env: { ...HOSTED_BUILD },
       }));
       await run(built, "push", async () => ({
         command: pushCommand(params.sha, camoxVersion),

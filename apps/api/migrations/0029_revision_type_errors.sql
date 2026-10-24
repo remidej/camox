@@ -1,0 +1,1 @@
+ALTER TABLE `revisions` ADD `type_errors` text;

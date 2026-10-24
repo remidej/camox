@@ -12,7 +12,11 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createRpcContext } from "../../../test/fixtures";
 import {
   broken,
+  debuggerStatement,
+  failedBuild,
   failingMarker,
+  lintedMarker,
+  lintRuns,
   PRICING,
   revisionFakes as fakes,
   websiteWithCode,
@@ -23,6 +27,7 @@ import {
   answerWithToolCall,
   answerWithToolCallFrom,
   forgetThreadModel,
+  threadModelCalls,
 } from "../../../test/thread-model";
 import {
   ask,
@@ -112,6 +117,51 @@ describe("the end of a turn", () => {
     ]);
     const [draft] = await draftsOf(website);
     expect(await fakes.readFile(website.project.uuid, draft!.id, PRICING_FILE)).toBe(PRICING);
+  });
+
+  it("hands the agent a hosted check's error naming an import it can't make, and it fixes it", async () => {
+    const marker = crypto.randomUUID();
+    // As the SDK's hosted checks fail the build (packages/sdk/src/features/vite/hostedChecks.ts).
+    await fakes.failBuildsOf(
+      marker,
+      failedBuild([
+        `[plugin camox]
+RolldownError: ${PRICING_FILE} imports "lodash-es", which a hosted project can't import. It can import files in src/, camox's public entry points and the packages package.json lists in dependencies.
+    at error (file:///workspace/website/node_modules/rolldown/dist/logs.mjs:166:24)`,
+      ]),
+    );
+    const website = await websiteWithCode();
+    const live = await connectLiveThread(
+      website.project.id,
+      await signIn(website.db, website.memberUser.id),
+    );
+    let told = "";
+    answerWithToolCall("write", {
+      path: PRICING_FILE,
+      content: `import { sortBy } from "lodash-es"; // ${marker}\n${PRICING}`,
+    });
+    answerNext("I added a pricing section.");
+    answerWithToolCallFrom("write", ({ editorMessages }) => {
+      told = editorMessages.at(-1)!;
+      return { path: PRICING_FILE, content: PRICING };
+    });
+    answerNext("I added a pricing section, without lodash.");
+
+    const view = await ask(live, "Add a pricing section sorted by price");
+
+    const { build } = JSON.parse(told.slice(told.indexOf("{"))) as { build: unknown[] };
+    expect(build).toEqual([
+      expect.objectContaining({
+        file: PRICING_FILE,
+        message: expect.stringContaining(`imports "lodash-es"`),
+      }),
+    ]);
+    expect(said(view).at(-1)).toEqual({
+      from: "agent",
+      text: "I added a pricing section, without lodash.",
+    });
+    const [draft] = await draftsOf(website);
+    expect((await previewOf(website, draft!.id)).blockers).toEqual([]);
   });
 
   it("commits changes that keep failing to build once the limit is reached, and the agent explains", async () => {
@@ -242,18 +292,119 @@ describe("the end of a turn", () => {
 
   it("says the draft is building while its latest changes build", async () => {
     const { website, draft, thread } = await draftWithPricing();
-    await fakes.holdBuilds();
+    await fakes.holdBuilds(draft.id);
     answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
     answerNext("I added yearly plans.");
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
     await thread.until(() => thread.view().status === "building");
 
     const building = await previewOf(website, draft.id);
-    await fakes.releaseBuilds();
+    await fakes.releaseBuilds(draft.id);
     await thread.untilIdle();
     thread.close();
 
     expect(building.code).toMatchObject({ building: true });
     expect((await previewOf(website, draft.id)).code).toMatchObject({ building: false });
+  });
+});
+
+describe("lint at the end of a turn", () => {
+  /** A Live thread on a website with code, as its member. */
+  async function liveThreadOf() {
+    const website = await websiteWithCode();
+    const live = await connectLiveThread(
+      website.project.id,
+      await signIn(website.db, website.memberUser.id),
+    );
+    return { website, live };
+  }
+
+  /** Pricing code that builds, with a lint finding the fake sandbox reports for its marker. */
+  const linted = (marker: string) => `${PRICING}// ${marker}\n`;
+
+  it("hands the agent the turn's lint findings once, and the turn ends though it doesn't fix them", async () => {
+    const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
+    const { website, live } = await liveThreadOf();
+    let told = "";
+    answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
+    answerNext("I added a pricing section.");
+    answerFrom(({ editorMessages }) => {
+      told = editorMessages.at(-1)!;
+      return "I added a pricing section.";
+    });
+
+    const view = await ask(live, "Add a pricing section");
+
+    expect(told).toContain("eslint(no-debugger)");
+    expect(told).toContain(PRICING_FILE);
+    expect(said(view)).toEqual([
+      { from: "editor", text: "Add a pricing section" },
+      { from: "agent", text: "I added a pricing section." },
+    ]);
+    expect(threadModelCalls()).toBe(3);
+    const [draft] = await draftsOf(website);
+    expect((await previewOf(website, draft!.id)).blockers).toEqual([]);
+  });
+
+  it("doesn't lint the agent's fix again in the same turn", async () => {
+    const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
+    const { website, live } = await liveThreadOf();
+    answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
+    answerNext("I added a pricing section.");
+    // A fix that still has the finding: the end of the turn builds it, and lets the turn end.
+    answerWithToolCall("write", { path: PRICING_FILE, content: `${linted(marker)}// Fixed\n` });
+    answerNext("I added a pricing section, and tidied its code.");
+
+    const view = await ask(live, "Add a pricing section");
+
+    expect(said(view).at(-1)).toEqual({
+      from: "agent",
+      text: "I added a pricing section, and tidied its code.",
+    });
+    const [draft] = await draftsOf(website);
+    expect(await fakes.revisionBuilds(draft!.id)).toHaveLength(2);
+    expect(await lintRuns(draft!.id)).toBe(1);
+  });
+
+  it("lints a turn whose last build covered its changes", async () => {
+    const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
+    const { live } = await liveThreadOf();
+    let told = "";
+    answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
+    answerWithToolCall("build", {});
+    answerNext("I added a pricing section.");
+    answerFrom(({ editorMessages }) => {
+      told = editorMessages.at(-1)!;
+      return "I added a pricing section.";
+    });
+
+    await ask(live, "Add a pricing section");
+
+    expect(told).toContain("eslint(no-debugger)");
+  });
+
+  it("doesn't lint a turn that left the code as it was", async () => {
+    const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
+    const { website, live } = await liveThreadOf();
+    answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
+    answerNext("I added a pricing section.");
+    answerNext("I added a pricing section.");
+    await ask(live, "Add a pricing section");
+    const [draft] = await draftsOf(website);
+    const linting = await lintRuns(draft!.id);
+    const thread = await connectDraftThread(
+      website.project.id,
+      draft!.id,
+      await signIn(website.db, website.memberUser.id),
+    );
+    answerNext("The pricing section shows plans from $9.");
+
+    const view = await ask(thread, "What does the pricing section say?");
+
+    expect(said(view).at(-1)).toEqual({
+      from: "agent",
+      text: "The pricing section shows plans from $9.",
+    });
+    expect(await lintRuns(draft!.id)).toBe(linting);
   });
 });
