@@ -11,6 +11,8 @@ import { tar, type TarEntry } from "../lib/tar";
 import type { Bindings } from "../types";
 
 const MAIN = "main";
+/** The local ref a publish's squashed commit is pushed to `main` from. */
+const PUBLISH_REF = "refs/heads/camox-publish";
 /** The repo the branch is in: its project's, named by the Project ID. */
 const REPO_KEY = "repo";
 /** The branch, named after the draft's ID: a draft with code is one whose branch exists. */
@@ -248,6 +250,77 @@ export class DraftCode extends DurableObject<Bindings> {
       const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
       return { commit: landed, parents: pushed.parent };
     });
+  }
+
+  /**
+   * Pushes the draft's code to `main` as one squashed commit, as a publish lands: the tree of
+   * `commit`, a revision on the branch, with the current tip of `main` as its only parent. A
+   * `main` that already has that tree, as after a retried push that landed, is left as it is.
+   * Returns the commit `main` points to.
+   */
+  publishToMain({ commit, message }: { commit: string; message: string }): Promise<string> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const at = { fs, dir: CODE_ROOT };
+      using artifacts = await this.env.ARTIFACTS.get(this.ctx.storage.kv.get<string>(REPO_KEY)!);
+      const { remote } = await artifacts.info();
+      const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
+      const fetchHead = await this.#mainTip(fs, remote, headers);
+      const { commit: published } = await git.readCommit({ ...at, oid: commit });
+      const { commit: tip } = await git.readCommit({ ...at, oid: fetchHead });
+      if (tip.tree === published.tree) {
+        this.#save(fs);
+        return fetchHead;
+      }
+      const signature = {
+        ...COMMIT_AUTHOR,
+        timestamp: Math.floor(Date.now() / 1000),
+        timezoneOffset: 0,
+      };
+      const squashed = await git.writeCommit({
+        ...at,
+        commit: {
+          message: `${message}\n`,
+          tree: published.tree,
+          parent: [fetchHead],
+          author: signature,
+          committer: signature,
+        },
+      });
+      await git.writeRef({ ...at, ref: PUBLISH_REF, value: squashed, force: true });
+      await git.push({ ...at, http, url: remote, headers, ref: PUBLISH_REF, remoteRef: MAIN });
+      this.#save(fs);
+      return squashed;
+    });
+  }
+
+  /**
+   * The commit `main` points to in the project's repo, fetched into the working copy when it
+   * doesn't hold it yet, as when another publish moved `main` since the draft forked.
+   */
+  async #mainTip(fs: MemoryFs, url: string, headers: Record<string, string>) {
+    const at = { fs, dir: CODE_ROOT };
+    const { refs } = await git.getRemoteInfo2({ http, url, headers });
+    const tip = refs?.find(({ ref }) => ref === `refs/heads/${MAIN}`)?.oid;
+    if (!tip) throw new Error("The project's repo has no main branch");
+    const held = await git.readCommit({ ...at, oid: tip }).then(
+      () => true,
+      () => false,
+    );
+    if (!held) {
+      await git.fetch({
+        ...at,
+        http,
+        url,
+        headers,
+        ref: MAIN,
+        remoteRef: MAIN,
+        singleBranch: true,
+        depth: 1,
+        tags: false,
+      });
+    }
+    return tip;
   }
 
   /** Deletes the draft's branch and everything the working copy stored, as the draft ends. */

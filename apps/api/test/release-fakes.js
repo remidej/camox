@@ -267,6 +267,10 @@ export class FakeSandbox extends DurableObject {
     });
     if (failure) failure.times -= 1;
     const exitCode = failure ? 1 : 0;
+    // A release's deploy makes a new version of the project's Worker serve.
+    if (exitCode === 0 && /\bwrangler deploy\b/.test(command)) {
+      serveVersion(repo, uploadVersion(repo, { build: `release of ${repo}`, vars: {} }));
+    }
     const waits = () => {
       const pattern = held.get(repo);
       return pattern !== undefined && command.includes(pattern);
@@ -629,6 +633,145 @@ export class FakeDispatch extends WorkerEntrypoint {
   }
 }
 
+/** @typedef {{ id: string, build: string, vars: Record<string, string> }} WorkerVersion */
+/** @type {Map<string, WorkerVersion[]>} project → its Worker's versions, oldest first */
+const workerVersions = new Map();
+/** @type {Map<string, string[]>} project → the versions that served all its traffic, in order */
+const deployments = new Map();
+/** @type {Map<string, { command: string, env: Record<string, string> | undefined, order: number }[]>} project → publish sandbox commands */
+const publishCommands = new Map();
+/** @type {{ project: string, pattern: string, times: number }[]} publish sandbox commands that fail */
+const failingPublishCommands = [];
+/** @type {{ project: string, pattern: string }[]} publish sandbox commands held until the test lets them go */
+let heldPublishCommands = [];
+
+/**
+ * Adds a version to a project's Worker, as an upload does, and returns its ID.
+ * @param {string} project
+ * @param {{ build: string, vars: Record<string, string> }} version
+ */
+function uploadVersion(project, { build, vars }) {
+  const id = crypto.randomUUID();
+  workerVersions.set(project, [...(workerVersions.get(project) ?? []), { id, build, vars }]);
+  return id;
+}
+
+/**
+ * @param {string} project
+ * @param {string} version
+ */
+function serveVersion(project, version) {
+  deployments.set(project, [...(deployments.get(project) ?? []), version]);
+}
+
+/** @param {string} project The version serving the project's Worker, if any. */
+function servedVersionOf(project) {
+  const id = deployments.get(project)?.at(-1);
+  return workerVersions.get(project)?.find((version) => version.id === id) ?? null;
+}
+
+const WRANGLER_NAME = /--name (\S+)/;
+const WRANGLER_VAR = /--var (\S+?):(\S+)/g;
+const VERSIONS_DEPLOY = /\bwrangler versions deploy ([0-9a-f-]+)@100%/;
+const UNPACK_COMMAND = /\btar -xzf (\S+) /;
+
+/**
+ * The sandbox a publish with code uploads and promotes the project's Worker in, as
+ * `@cloudflare/sandbox`'s `getSandbox` drives it over RPC. It runs no wrangler: it records each
+ * command, and `versions upload` adds a version of the build it unpacked (the fake archive the
+ * revision sandbox wrote) to the project's Worker, which `versions deploy` serves. Any command
+ * can be made to fail, or to wait until the test lets it go.
+ */
+export class FakePublishSandbox extends DurableObject {
+  /** @type {string} */
+  name = "";
+  /** @type {Map<string, Uint8Array>} */
+  files = new Map();
+  /** @type {string | null} the build last unpacked */
+  build = null;
+
+  async configure(configuration) {
+    this.name = configuration.sandboxName?.name ?? this.name;
+  }
+
+  async writeFile(path, content, options = {}) {
+    this.files.set(path, await bytesOf(content, options.encoding));
+    return { success: true, path, timestamp: new Date().toISOString() };
+  }
+
+  /**
+   * @param {string} command
+   * @param {{ env?: Record<string, string> }} options
+   */
+  async exec(command, options = {}) {
+    const commands = publishCommands.get(this.name) ?? [];
+    commands.push({ command, env: options.env, order: commandsRunCount++ });
+    publishCommands.set(this.name, commands);
+    const result = (exitCode, stdout = "", stderr = "") => ({
+      success: exitCode === 0,
+      exitCode,
+      stdout,
+      stderr,
+      command,
+      duration: 0,
+      timestamp: "",
+    });
+    // Polled: a promise resolved from the request letting go wouldn't wake this one.
+    const held = () =>
+      heldPublishCommands.some(
+        ({ project, pattern }) => project === this.name && command.includes(pattern),
+      );
+    while (held()) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const failure = failingPublishCommands.find(
+      ({ project, pattern, times }) =>
+        project === this.name && times > 0 && command.includes(pattern),
+    );
+    if (failure) {
+      failure.times -= 1;
+      return result(1, "", `✘ [ERROR] A request to the Cloudflare API failed.`);
+    }
+    const unpack = UNPACK_COMMAND.exec(command);
+    if (unpack) {
+      const archive = this.files.get(unpack[1]);
+      if (!archive) return result(2, "", `tar: ${unpack[1]}: Cannot open`);
+      this.build = JSON.parse(new TextDecoder().decode(archive)).build;
+      return result(0);
+    }
+    const project = WRANGLER_NAME.exec(command)?.[1] ?? this.name;
+    if (/\bwrangler versions upload\b/.test(command)) {
+      if (!this.build) return result(1, "", "✘ [ERROR] Missing entry-point");
+      const vars = Object.fromEntries(
+        [...command.matchAll(WRANGLER_VAR)].map(([, k, v]) => [k, v]),
+      );
+      const id = uploadVersion(project, { build: this.build, vars });
+      return result(0, `Uploaded ${project}\nWorker Version ID: ${id}\n`);
+    }
+    if (/\bwrangler deployments status\b/.test(command)) {
+      const served = servedVersionOf(project);
+      return result(
+        0,
+        JSON.stringify({ versions: served ? [{ version_id: served.id, percentage: 100 }] : [] }),
+      );
+    }
+    const deploy = VERSIONS_DEPLOY.exec(command);
+    if (deploy) {
+      if (!workerVersions.get(project)?.some(({ id }) => id === deploy[1])) {
+        return result(1, "", `✘ [ERROR] Version ${deploy[1]} not found`);
+      }
+      serveVersion(project, deploy[1]);
+      return result(0, `Deployed ${project} version ${deploy[1]} at 100%\n`);
+    }
+    return result(0);
+  }
+
+  async destroy() {
+    this.files.clear();
+    this.build = null;
+  }
+}
+
 /** The `send_email` binding: records each email instead of sending it. */
 export class FakeEmail extends WorkerEntrypoint {
   /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
@@ -878,6 +1021,56 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} sandbox How long a revision sandbox was told to stay up idle. */
   async sandboxSleepAfter(sandbox) {
     return sandboxSleepAfter.get(sandbox);
+  }
+
+  /** @param {string} project The version serving the project's Worker, with its build and vars. */
+  async servedVersion(project) {
+    return servedVersionOf(project);
+  }
+
+  /** @param {string} project Every version of the project's Worker, oldest first. */
+  async workerVersions(project) {
+    return workerVersions.get(project) ?? [];
+  }
+
+  /** @param {string} project The versions that served all the project's traffic, in order. */
+  async deployments(project) {
+    return deployments.get(project) ?? [];
+  }
+
+  /** @param {string} project The commands a project's publish sandbox ran, oldest first. */
+  async publishCommands(project) {
+    return publishCommands.get(project) ?? [];
+  }
+
+  /**
+   * Makes the next `times` commands containing `pattern` in a project's publish sandbox fail.
+   * @param {string} project
+   * @param {string} pattern
+   * @param {number} times
+   */
+  async failPublishCommand(project, pattern, times) {
+    failingPublishCommands.push({ project, pattern, times });
+  }
+
+  /**
+   * Makes commands containing `pattern` in a project's publish sandbox wait until
+   * `letGoPublishCommand`.
+   * @param {string} project
+   * @param {string} pattern
+   */
+  async holdPublishCommand(project, pattern) {
+    heldPublishCommands.push({ project, pattern });
+  }
+
+  /**
+   * @param {string} project
+   * @param {string} pattern
+   */
+  async letGoPublishCommand(project, pattern) {
+    heldPublishCommands = heldPublishCommands.filter(
+      (held) => held.project !== project || held.pattern !== pattern,
+    );
   }
 
   /** @param {string} name Deploys a user Worker into the `production` dispatch namespace. */

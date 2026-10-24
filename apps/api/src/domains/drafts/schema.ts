@@ -1,4 +1,4 @@
-import type { DraftKind, DraftOutcome } from "@camox/api-contract/drafts";
+import type { DraftKind, DraftOutcome, PublishAbortReason } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -42,6 +42,19 @@ export const drafts = sqliteTable(
     // A draft with code's last revision that built and had its Definition Set synced into the
     // draft: the draft reads its own definitions from then on (`definitionsIn`).
     previewedRevisionId: text("previewed_revision_id"),
+    // A draft with code being published (`publishes/workflow.ts`): the revision the publish
+    // ships, which the review pinned, set from the publish's start until it lands or goes back
+    // to the review. While it's set, the draft is in its publishing state, and public reads
+    // naming it see Live overlaid with it (`PUBLISHING_DRAFT_HEADER`).
+    publishingRevisionId: text("publishing_revision_id"),
+    // The publish Workflow's instance, which the publish before it in the project's queue wakes.
+    publishInstanceId: text("publish_instance_id"),
+    // When the publish was asked for: a project's publishes with code run one at a time, in
+    // this order.
+    publishRequestedAt: int("publish_requested_at"),
+    // Why the draft's last publish went back to the review (`PublishAbortReason`), until the
+    // next one starts.
+    publishAbortReason: text("publish_abort_reason").$type<PublishAbortReason>(),
   },
   (table) => [
     index("drafts_project_idx").on(table.projectId),

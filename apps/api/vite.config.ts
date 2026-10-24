@@ -86,7 +86,11 @@ async function sandboxWorker() {
 async function releaseFakesWorker() {
   return {
     ...(await bundledWorker(RELEASE_FAKES_CONFIG)),
-    durableObjects: { SANDBOX: "FakeSandbox", REVISION_SANDBOX: "FakeRevisionSandbox" },
+    durableObjects: {
+      SANDBOX: "FakeSandbox",
+      REVISION_SANDBOX: "FakeRevisionSandbox",
+      PUBLISH_SANDBOX: "FakePublishSandbox",
+    },
     // The API's bucket of revision builds, which the fake dispatch reads them from.
     r2Buckets: { REVISION_BUILDS: "camox-revision-builds" },
   };
@@ -143,6 +147,7 @@ export default defineConfig({
                 durableObjects: {
                   SANDBOX: { className: "FakeSandbox", scriptName: fakes.name },
                   REVISION_SANDBOX: { className: "FakeRevisionSandbox", scriptName: fakes.name },
+                  PUBLISH_SANDBOX: { className: "FakePublishSandbox", scriptName: fakes.name },
                 },
                 bindings: {
                   CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",

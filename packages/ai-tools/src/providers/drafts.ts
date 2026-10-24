@@ -27,6 +27,13 @@ const publishToolInput = z.object({
       "Publish while translations are still running, only when the user asks to: Camox " +
         "finishes them in a draft of its own and publishes it once they're done.",
     ),
+  revision: z
+    .string()
+    .optional()
+    .describe(
+      "For a draft whose code the agent changed: the `code.revision` previewPublish returned, " +
+        "the build publishing ships.",
+    ),
 });
 const discardInput = z.object({});
 
@@ -63,7 +70,7 @@ const publishResultSchema = z.union([
   }),
   z.strictObject({
     published: z.literal(false),
-    reason: z.enum(["conflictsChanged", "blocked", "translating"]),
+    reason: z.enum(["conflictsChanged", "blocked", "translating", "revisionChanged"]),
     message: z.string(),
     preview: publishPreviewSchema,
   }),
@@ -82,7 +89,9 @@ const PREVIEW_SHAPE =
   "which the others are translated from. `token` records the conflicts shown. `code` is null " +
   "unless the agent changed the draft's code: then `revision` is the last revision that built, " +
   "which the preview shows, `includesLive` whether the code holds Live's latest, and `building` " +
-  "whether the latest changes are still building, which publishing should wait for.";
+  "whether the latest changes are still building, which publishing should wait for, " +
+  "`publishing` whether a publish of the draft runs, and `publishAborted` why its last one " +
+  "stopped before landing, if it did.";
 
 const EMPTY = "The draft has no changes, so there is nothing to publish.";
 
@@ -107,7 +116,10 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "changed. Only publish when the user asks to. Pass the token from previewPublish: " +
       "publishing goes ahead only while the draft has no blockers and Live's conflicts are still " +
       "the ones that preview showed. Returns `{ published: true, ended }` once published " +
-      "(a development draft stays open, emptied, so `ended` is null for it). When Live changed " +
+      "(a development draft stays open, emptied, so `ended` is null for it). For a draft whose " +
+      "code the agent changed, also pass previewPublish's `code.revision`: publishing then runs " +
+      "in the background and returns `{ published: true, ended: null }` as it starts; when the " +
+      "code changed since the preview it returns `reason: 'revisionChanged'`. When Live changed " +
       "since the preview, or the draft has blockers, nothing is published and it returns " +
       "`{ published: false, reason: 'conflictsChanged' | 'blocked', message, preview }` with a " +
       "fresh preview and token: show the new list and ask again before retrying. While " +
@@ -123,13 +135,13 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     outputSchema: publishResultSchema,
     meta: { kind: "write", surfaces: ["cli"] },
     handler: async (input) => {
-      const { token, publishAnyway } = publishToolInput.parse(input);
+      const { token, publishAnyway, revision } = publishToolInput.parse(input);
       const notPublished = (reason: NotPublishedReason, message: string) =>
         previewPublish(ctx, { projectId: ctx.projectId }).pipe(
           Effect.map((preview) => ({ published: false as const, reason, message, preview })),
         );
       return runService(
-        publishDraft(ctx, { projectId: ctx.projectId, token, publishAnyway }).pipe(
+        publishDraft(ctx, { projectId: ctx.projectId, token, publishAnyway, revision }).pipe(
           Effect.map(({ empty, ended }) => {
             if (empty)
               return { published: false as const, reason: "empty" as const, message: EMPTY };
@@ -143,6 +155,7 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
             ConflictsChangedError: (error) => notPublished("conflictsChanged", error.message),
             PublishBlockedError: (error) => notPublished("blocked", error.message),
             TranslationsPendingError: (error) => notPublished("translating", error.message),
+            RevisionChangedError: (error) => notPublished("revisionChanged", error.message),
           }),
         ),
       );

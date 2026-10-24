@@ -1,6 +1,7 @@
 import {
   CONFLICTS_CHANGED_ERROR,
   type EndedDraft,
+  REVISION_CHANGED_ERROR,
   TRANSLATIONS_PENDING_ERROR,
 } from "@camox/api-contract/drafts";
 import type { PublishPreview } from "@camox/api-contract/router";
@@ -474,6 +475,26 @@ function StatusLine({ done, children }: { done: boolean; children: React.ReactNo
   );
 }
 
+/** What Publish sends: the review's token, and the revision a draft with code shows. */
+const publishInput = (projectId: number, shown: PublishPreview, publishAnyway?: boolean) => ({
+  projectId,
+  token: shown.token,
+  ...(shown.code?.revision && { revision: shown.code.revision }),
+  ...(publishAnyway && { publishAnyway }),
+});
+
+/** Why a publish with code went back to the review, as the review says it. */
+const PUBLISH_ABORTED: Record<string, string> = {
+  revisionChanged:
+    "The agent changed the code since this review opened, so the publish stopped. Check the preview, then publish again.",
+  conflictsChanged:
+    "Live changed while publishing, so the publish stopped and Live is as it was. Check the new list.",
+  blocked: "Something now needs fixing before publishing, so the publish stopped.",
+  liveCodeMoved:
+    "Live's code changed while publishing, so the publish stopped. Publish again once the draft holds it.",
+  failed: "The publish couldn't finish on Camox's side, and Live is as it was. Try again.",
+};
+
 /**
  * What's fine or still running: the draft is up to date with Live, its latest code changes
  * building, its translations, and the page SEO being written.
@@ -494,12 +515,21 @@ function StatusLines({
   const seoPages = new Set(
     warnings.filter((warning) => warning.code === "metaTitlePending").map((warning) => warning.id),
   ).size;
+  const aborted = code?.publishAborted && !code.publishing ? code.publishAborted : null;
   return (
     <ul className="flex flex-col gap-1.5">
+      {aborted && (
+        <li className="text-sm text-amber-700 dark:text-amber-400">
+          {PUBLISH_ABORTED[aborted] ?? PUBLISH_ABORTED.failed}
+        </li>
+      )}
       {conflicts.length === 0 && (code?.includesLive ?? true) && (
         <StatusLine done>Includes everything published to Live since this draft started</StatusLine>
       )}
       {code?.building && <StatusLine done={false}>Building the latest changes…</StatusLine>}
+      {code?.publishing && (
+        <StatusLine done={false}>Publishing the new code and content…</StatusLine>
+      )}
       {translating.length > 0 ? (
         <StatusLine done={false}>
           Translating into {listFormat.format(translating.map(localeLabel))}.{" "}
@@ -720,7 +750,11 @@ export function ReviewDraftSheet({
 
   const publish = useMutation({
     ...draftMutations.publish(),
-    onSuccess: ({ empty, ended }) => {
+    onSuccess: (result) => {
+      // A draft with code publishes in the background: its viewers learn it landed from the
+      // project room, which ends the draft.
+      if ("publishing" in result && result.publishing) return void preview.refetch();
+      const { empty, ended } = result;
       if (!empty) return leave(ended);
       toast.info("This draft has no changes, so there is nothing to publish.");
       void preview.refetch();
@@ -728,6 +762,11 @@ export function ReviewDraftSheet({
     onError: (error) => {
       if ((error as { code?: string }).code === CONFLICTS_CHANGED_ERROR) {
         toast.error("Live changed since you opened this review. Check the new list.");
+        void preview.refetch();
+        return;
+      }
+      if ((error as { code?: string }).code === REVISION_CHANGED_ERROR) {
+        toast.error(error.message || "The draft changed since you opened this review.");
         void preview.refetch();
         return;
       }
@@ -746,7 +785,13 @@ export function ReviewDraftSheet({
   const busy = publish.isPending;
   // Publishing waits for the draft's latest code changes to build, so they're previewed first.
   const ready =
-    !!data && data.blockers.length === 0 && !data.code?.building && !busy && !preview.isFetching;
+    !!data &&
+    data.blockers.length === 0 &&
+    !data.code?.building &&
+    !data.code?.publishing &&
+    !busy &&
+    !preview.isFetching;
+
   // Publishing waits for pending translations, so every locale goes live together (ADR 0017).
   const translating = data?.translating ?? [];
 
@@ -764,12 +809,12 @@ export function ReviewDraftSheet({
   const { mutate } = publish;
   React.useEffect(() => {
     if (!waiting || !translated || !data || busy) return;
-    mutate({ projectId, token: data.token }, { onSettled: () => setWaiting(null) });
+    mutate(publishInput(projectId, data), { onSettled: () => setWaiting(null) });
   }, [waiting, translated, data, busy, mutate, projectId]);
 
   const publishWhole = () => {
     if (!data) return;
-    if (translating.length === 0) return publish.mutate({ projectId, token: data.token });
+    if (translating.length === 0) return publish.mutate(publishInput(projectId, data));
     setWaiting({ conflicts: new Set(data.conflicts.map(conflictKey)) });
   };
 
@@ -865,9 +910,7 @@ export function ReviewDraftSheet({
                   variant="outline"
                   className="ml-auto"
                   disabled={!ready}
-                  onClick={() =>
-                    data && publish.mutate({ projectId, token: data.token, publishAnyway: true })
-                  }
+                  onClick={() => data && publish.mutate(publishInput(projectId, data, true))}
                 >
                   Publish anyway
                 </Button>

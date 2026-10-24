@@ -5,6 +5,7 @@ import {
   LIVE_READ_ONLY_ERROR,
   NO_DEVELOPMENT_DRAFT_ERROR,
   PUBLISH_BLOCKED_ERROR,
+  REVISION_CHANGED_ERROR,
   TRANSLATIONS_PENDING_ERROR,
 } from "@camox/api-contract/drafts";
 import { ORPCError } from "@orpc/server";
@@ -54,6 +55,8 @@ export function toORPCError(error: ServiceError) {
       return new ORPCError(CONFLICTS_CHANGED_ERROR, { status: 409, message: error.message });
     case "PublishBlockedError":
       return new ORPCError(PUBLISH_BLOCKED_ERROR, { status: 422, message: error.message });
+    case "RevisionChangedError":
+      return new ORPCError(REVISION_CHANGED_ERROR, { status: 409, message: error.message });
     case "TranslationsPendingError":
       return new ORPCError(TRANSLATIONS_PENDING_ERROR, {
         status: 409,

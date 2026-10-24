@@ -1,6 +1,6 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
 import { env, waitUntil } from "cloudflare:workers";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import {
   decodeInput,
   InvalidInputError,
   PublishBlockedError,
+  RevisionChangedError,
   TranslationsPendingError,
 } from "../../lib/errors";
 import { record } from "../../lib/journal";
@@ -66,7 +67,7 @@ import {
 } from "./overview";
 import { peopleNamed } from "./people";
 import { checkRemovals, REMOVAL_PROBLEM_CODES, type RemovalFinding } from "./removals";
-import { drafts } from "./schema";
+import { drafts, endedDrafts } from "./schema";
 import { draftIn, draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
 import { dropIfEmpty, findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
@@ -77,6 +78,7 @@ export type { Owner, Subject, SubjectKind } from "./subjects";
 // its token records the conflicts it showed, and publishing aborts when they've changed since.
 
 type Scope = NonNullable<DraftScope>;
+type BatchItem = overlay.BatchItem;
 type FileRow = typeof files.$inferSelect;
 
 /**
@@ -169,6 +171,11 @@ export const publishInput = z.object({
    * publishes once they're done (ADR 0017).
    */
   publishAnyway: z.boolean().optional(),
+  /**
+   * The revision the review showed (`code.revision`), for a draft with code: publishing ships it,
+   * and is refused once the agent left a newer one.
+   */
+  revision: z.string().optional(),
 });
 export const discardInput = z.object({ projectId: z.number() });
 export const revertToLiveInput = z.object({
@@ -707,9 +714,11 @@ const recordEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft |
  */
 export type PublishResult =
   | { empty: true; ended: null }
-  | { empty: false; ended: EndedDraft | null };
+  | { empty: false; ended: EndedDraft | null; publishing?: undefined }
+  | { empty: false; ended: null; publishing: true };
 
 const nothingToPublish: PublishResult = { empty: true, ended: null };
+const publishingStarted: PublishResult = { empty: false, ended: null, publishing: true };
 const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, ended });
 
 /**
@@ -727,6 +736,8 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
     stored: overlay.StoredChange[];
     /** Whether a translation requested since the check stops publishing, rather than dropping. */
     translated?: boolean;
+    /** Statements of the batch's own, run once Live holds what the draft publishes. */
+    after?: BatchItem[];
   },
 ) {
   const { projectId } = scope;
@@ -747,6 +758,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
         ...thread.statements,
+        ...(options.after ?? []),
       ],
     }),
   );
@@ -769,19 +781,39 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
  * Publishes the request's draft whole, once it has no blockers and no pending translations, if
  * its conflicts are still those the token was given for. Published anyway, the translations
  * still pending carry on in Camox's catch-up draft, against the new Live.
+ *
+ * A draft with code is published by a publish Workflow instead (`../publishes/workflow.ts`), once
+ * the revision the review showed, `revision`, is still the one the draft previews: the request
+ * starts it and returns at once, `publishing`. Its viewers learn how it ends through the project
+ * room.
  */
 export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof publishInput>,
 ) {
-  const { projectId, token, publishAnyway } = yield* decodeInput(publishInput, rawInput);
+  const { projectId, token, publishAnyway, revision } = yield* decodeInput(publishInput, rawInput);
   const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
   if (!scope) return endedAs(earlier);
   const shown = yield* decodeToken(token);
   const stored = yield* overlay.changesOf(ctx.db, scope);
-  if (stored.length === 0) return nothingToPublish;
-
   const preview = yield* computePreview(ctx, scope);
+  // A draft with code publishes its code even when it changed no content.
+  if (stored.length === 0 && !preview.code) return nothingToPublish;
+
+  // A publish of this draft already running, such as one whose response was lost, is the same.
+  if (preview.code?.publishing) {
+    const row = yield* Effect.promise(() =>
+      ctx.db
+        .select({ revision: drafts.publishingRevisionId })
+        .from(drafts)
+        .where(eq(drafts.id, scope.id))
+        .get(),
+    );
+    if (row?.revision === revision) return publishingStarted;
+    return yield* new RevisionChangedError({
+      message: "The draft is already being published from another review",
+    });
+  }
   if (preview.blockers.length > 0) {
     return yield* new PublishBlockedError({
       message: `The draft has ${preview.blockers.length} blocker(s) to fix before publishing`,
@@ -795,9 +827,25 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   }
 
   const user = yield* requireUser(ctx);
-  // Read before the batch drops them with the draft's other translation state.
-  const remaining = yield* translations.pendingRequestsOf(ctx.db, scope.id);
-  const { applied, ended } = yield* publishChecked(ctx, scope, {
+  if (preview.code) {
+    // Publishing ships exactly the revision members previewed: not changes still building, nor
+    // a revision older than the one the draft previews now.
+    if (preview.code.building || !preview.code.revision || preview.code.revision !== revision) {
+      return yield* new RevisionChangedError({
+        message: preview.code.building
+          ? "The draft's latest code changes are still building: publish once they're done"
+          : "The agent changed the draft's code since the review. Review it again before publishing.",
+      });
+    }
+    yield* startPublish(ctx, scope, {
+      revision: preview.code.revision,
+      token,
+      publishedBy: user.id,
+    });
+    return publishingStarted;
+  }
+
+  const { applied, ended } = yield* publishWhole(ctx, scope, {
     shown,
     publishedBy: user.id,
     stored,
@@ -808,9 +856,143 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       message: "Live changed since the preview. Review the new preview before publishing.",
     });
   }
-  yield* catchUpPending(ctx.db, projectId, remaining);
   return endedAs(ended);
 });
+
+/**
+ * Applies a checked draft to Live, as `publishChecked` does, and carries the translations still
+ * pending on in Camox's catch-up draft, against the new Live.
+ */
+const publishWhole = Effect.fn("drafts.publishWhole")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  options: {
+    shown: overlay.ConflictKey[];
+    publishedBy: string;
+    stored: overlay.StoredChange[];
+    after?: BatchItem[];
+  },
+) {
+  // Read before the batch drops them with the draft's other translation state.
+  const remaining = yield* translations.pendingRequestsOf(ctx.db, scope.id);
+  const result = yield* publishChecked(ctx, scope, options);
+  if (result.applied) yield* catchUpPending(ctx.db, scope.projectId, remaining);
+  return result;
+});
+
+/**
+ * Puts a draft with code in its publishing state, pinned to `revision`, and starts its publish
+ * Workflow, which waits for the project's publishes before it to end. Another publish of the
+ * draft starting at the same moment is refused.
+ */
+const startPublish = Effect.fn("drafts.startPublish")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  params: { revision: string; token: string; publishedBy: string },
+) {
+  const instanceId = crypto.randomUUID();
+  const started = yield* Effect.promise(() =>
+    ctx.db
+      .update(drafts)
+      .set({
+        publishingRevisionId: params.revision,
+        publishInstanceId: instanceId,
+        publishRequestedAt: Date.now(),
+        publishAbortReason: null,
+      })
+      .where(and(eq(drafts.id, scope.id), isNull(drafts.publishingRevisionId)))
+      .returning({ id: drafts.id }),
+  );
+  if (started.length === 0) {
+    return yield* new RevisionChangedError({ message: "The draft is already being published" });
+  }
+  const created = yield* Effect.promise(() =>
+    ctx.env.PUBLISH_WORKFLOW.create({
+      id: instanceId,
+      params: { draftId: scope.id, projectId: scope.projectId, ...params },
+    }).then(
+      () => true,
+      (error: unknown) => {
+        console.error("The publish Workflow didn't start", error);
+        return false;
+      },
+    ),
+  );
+  if (!created) {
+    yield* Effect.promise(() =>
+      ctx.db
+        .update(drafts)
+        .set({ publishingRevisionId: null, publishInstanceId: null, publishRequestedAt: null })
+        .where(and(eq(drafts.id, scope.id), eq(drafts.publishInstanceId, instanceId))),
+    );
+    return yield* Effect.die(new Error("The publish couldn't start: try again"));
+  }
+  // The draft's viewers see it publishing.
+  yield* record(ctx.db, { kind: "drafts", projectId: scope.projectId });
+});
+
+/**
+ * The publish batch of a draft with code, which its publish Workflow runs once the revision's
+ * Worker version serves Live: the draft's content, as `publishDraft` applies it, and the pinned
+ * revision's definitions, replacing Live's, in one batch. It aborts when Live's conflicts are no
+ * longer those `token` records, or when the draft previews another revision than `revision`.
+ * Returns whether it applied, and how the draft ended, also when an earlier run ended it.
+ */
+export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
+  db: ServiceContext["db"],
+  {
+    draftId,
+    revision,
+    token,
+    publishedBy,
+  }: { draftId: string; revision: string; token: string; publishedBy: string },
+) {
+  const row = yield* Effect.promise(() =>
+    db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
+  );
+  if (!row) {
+    const ended = yield* Effect.promise(() =>
+      db
+        .select({ projectId: endedDrafts.projectId })
+        .from(endedDrafts)
+        .where(eq(endedDrafts.id, draftId))
+        .get(),
+    );
+    const found = ended ? yield* findEndedDraft(db, ended.projectId, draftId) : undefined;
+    return { applied: false, ended: found ?? null };
+  }
+  const scope = draftOf(row);
+  const shown = yield* decodeToken(token);
+  const stored = yield* overlay.changesOf(db, scope);
+  const result = yield* publishWhole(camoxContext(db), scope, {
+    shown,
+    publishedBy,
+    stored,
+    after: [previewsRevisionGuard(draftId, revision), ...definitionsPublishStatements(db, scope)],
+  });
+  // Live's viewers read its new definitions.
+  if (result.applied) {
+    yield* record(db, { kind: "definitions", projectId: scope.projectId, draftId: null });
+  }
+  return result;
+});
+
+/** Aborts the publish batch unless the draft still previews `revision`, its definitions' source. */
+const previewsRevisionGuard = (draftId: string, revision: string): BatchItem =>
+  sql`select case when exists (
+      select 1 from ${drafts} where ${drafts.id} = ${draftId} and ${drafts.previewedRevisionId} = ${revision})
+    then 1 else json('the draft previews another revision') end`;
+
+/**
+ * Replaces Live's definitions with the draft's, which its previewed revision synced (ADR 0020):
+ * Live's rows go, and the draft's become Live's, before the draft's own would cascade with it.
+ */
+function definitionsPublishStatements(db: ServiceContext["db"], scope: Scope): BatchItem[] {
+  return DEFINITION_KINDS.flatMap(({ table }) => [
+    db.delete(table).where(and(eq(table.projectId, scope.projectId), isNull(table.draftId))),
+    db.update(table).set({ draftId: null }).where(eq(table.draftId, scope.id)),
+  ]);
+}
 
 /** Camox's own context, outside any request: it acts with no session. */
 export const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({

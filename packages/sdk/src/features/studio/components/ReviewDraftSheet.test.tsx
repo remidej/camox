@@ -60,7 +60,13 @@ const emptyPreview = {
   overview: { status: "pending" } as
     | { status: "none" | "pending" | "failed" }
     | { status: "ready"; headline: string; bullets: string[]; stale: boolean },
-  code: null as { revision: string | null; includesLive: boolean; building: boolean } | null,
+  code: null as {
+    revision: string | null;
+    includesLive: boolean;
+    building: boolean;
+    publishing: boolean;
+    publishAborted: string | null;
+  } | null,
 };
 
 /** The code of a draft whose agent changed it, built and holding Live's. */
@@ -68,6 +74,8 @@ const builtCode = {
   revision: "019a0000-0000-7000-8000-000000000050",
   includesLive: true,
   building: false,
+  publishing: false,
+  publishAborted: null as string | null,
 };
 
 const conflictedPreview = {
@@ -1492,6 +1500,46 @@ void test("leaves out the line about Live while the draft's code doesn't hold Li
     assert.ok(
       !statusLines().includes("Includes everything published to Live since this draft started"),
     );
+  } finally {
+    await close();
+  }
+});
+
+void test("publishes a draft with code at the revision it shows, and says it's publishing until it lands", async (t) => {
+  let publishing = false;
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") {
+      return json({ ...emptyPreview, code: { ...builtCode, publishing } });
+    }
+    publishing = true;
+    return json({ empty: false, ended: null, publishing: true });
+  });
+  const close = await openReview();
+  try {
+    await click(publishButton());
+    await settle();
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/publish").map((call) => call.input),
+      [{ projectId: 1, token: "token-1", revision: builtCode.revision }],
+    );
+    // It lands later: the draft's viewers learn it from the project room.
+    assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
+    assert.ok(statusLines().includes("Publishing the new code and content…"));
+    assert.equal(publishButton()?.disabled, true);
+  } finally {
+    await close();
+  }
+});
+
+void test("says why the last publish with code went back to the review", async (t) => {
+  mockApi(t, () =>
+    json({ ...emptyPreview, code: { ...builtCode, publishAborted: "revisionChanged" } }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /The agent changed the code since this review opened/);
+    assert.equal(publishButton()?.disabled, false);
   } finally {
     await close();
   }

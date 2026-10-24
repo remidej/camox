@@ -1,4 +1,5 @@
 import { posthogRegionSchema } from "@camox/api-contract/analytics";
+import { PUBLISH_ABORT_REASONS } from "@camox/api-contract/drafts";
 import { z } from "zod";
 
 import { ENTITY_KINDS } from "../../../../apps/api/src/domains/drafts/overlay";
@@ -265,6 +266,8 @@ export const publishPreviewSchema = z.strictObject({
       revision: z.string().nullable(),
       includesLive: z.boolean(),
       building: z.boolean(),
+      publishing: z.boolean(),
+      publishAborted: z.enum(PUBLISH_ABORT_REASONS).nullable(),
     })
     .nullable(),
 });
