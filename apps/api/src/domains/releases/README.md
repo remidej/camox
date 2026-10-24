@@ -21,7 +21,7 @@ Before releasing, the Workflow refreshes the project's read-only copy of `main`,
 
 1. **Record the release.** It maps the repo to its project, reads the commit's tree and the `camox` version from its `pnpm-lock.yaml` through the Artifacts binding, stops if Live already serves that tree, and writes the release's row as `running`.
 2. **`install`:** `pnpm install --frozen-lockfile`. Its workspace is cached on `pnpm-lock.yaml`, per project.
-3. **`release`:** `pnpm exec camox release`, which builds the website and syncs its Definition Set to Live, as for any release. Syncing the same set again changes nothing.
+3. **`release`:** `pnpm exec camox release`, which builds the website and syncs its Definition Set to Live, as for any release. Syncing the same set again changes nothing. It builds with the hosted build checks on (`src/lib/hosted-build.ts`), so code that breaks one fails here and Live keeps its previous release.
 4. **`deploy`:** `pnpm exec wrangler deploy --dispatch-namespace production --name <Project ID>`. The name comes from the repo, so a project's code can only replace its own Worker.
 
 Live gets the new definitions before the new code is deployed. If the deploy fails for good, Live briefly has definitions the served code lacks, until the release is re-run or a fix is pushed.

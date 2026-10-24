@@ -5,8 +5,16 @@ import { createDb } from "../../db";
 import type { Bindings } from "../../types";
 import { drafts } from "../drafts/schema";
 import { camoxVersionInLockfile } from "../releases/lockfile";
-import { buildRevision, MESSAGES, retried, type RevisionOrigin } from "./build";
+import {
+  BuildInfrastructureError,
+  buildRevision,
+  capped,
+  MESSAGES,
+  retried,
+  type RevisionOrigin,
+} from "./build";
 import type { BuildResult } from "./result";
+import { lintInSandbox } from "./sandbox";
 import { revisions } from "./schema";
 
 /**
@@ -20,21 +28,54 @@ export type TurnBuild =
   /** The turn's code already is a revision: nothing changed since the last one. */
   | { outcome: "unchanged" }
   | { outcome: "built"; result: BuildResult }
+  /** The turn's code builds, and lint found problems in it: the agent is handed `result`. */
+  | { outcome: "linted"; result: BuildResult }
   /** The build failed: the agent is handed `result` to fix it. */
   | { outcome: "failed"; result: BuildResult }
   /** The build failed once too often: the changes are committed anyway, as a revision not built. */
   | { outcome: "committedUnbuilt"; result: BuildResult };
 
-/** The revision the draft holds for the working copy's tree as it is now, if any. */
+/** The working copy's tree as it is now, and the revision the draft holds for it, if any. */
 async function revisionOfTree(env: Bindings, draftId: string) {
   const prepared = await retried(() =>
     env.DRAFT_CODE.getByName(draftId).prepareCommit({ message: MESSAGES.turn }),
   );
-  return createDb(env.DB)
-    .select({ id: revisions.id })
+  const revision = await createDb(env.DB)
+    .select({ id: revisions.id, buildStatus: revisions.buildStatus })
     .from(revisions)
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
     .get();
+  return { prepared, revision };
+}
+
+/**
+ * Lints the turn's code, which built as `result`: a turn whose code has lint findings hands them
+ * to the agent. Lint is for code quality only: when Camox can't run it, the turn just ends.
+ */
+async function lintTurn(
+  env: Bindings,
+  draftId: string,
+  tree: Parameters<typeof lintInSandbox>[2],
+  result: BuildResult,
+): Promise<TurnBuild> {
+  let found;
+  try {
+    found = await retried(() => lintInSandbox(env, draftId, tree));
+  } catch (error) {
+    if (!(error instanceof BuildInfrastructureError)) throw error;
+    console.error("A turn ended without linting its code", error);
+    return { outcome: "built", result };
+  }
+  if (found.length === 0) return { outcome: "built", result };
+  const { shown, total } = capped(found);
+  return {
+    outcome: "linted",
+    result: {
+      ...result,
+      lint: shown,
+      ...(total === undefined ? {} : { truncated: { ...result.truncated, lint: total } }),
+    },
+  };
 }
 
 /**
@@ -43,6 +84,11 @@ async function revisionOfTree(env: Bindings, draftId: string) {
  * covered it. A passing build leaves a revision. `failedInARow` is how many end-of-turn builds of
  * this turn failed before this one: once this one makes `END_OF_TURN_BUILD_FAILURES`, the changes
  * are committed anyway, as a revision that isn't built. `building` runs before a build starts.
+ *
+ * When `lint` is set, code the turn changed that builds is linted too, after its build: findings
+ * hand the agent a `linted` result. Lint never fails a build. The caller sets it once per turn,
+ * with `covered` when the agent's own builds in the turn may have covered its changes: a tree
+ * already built is then linted too.
  */
 export async function buildAtEndOfTurn(
   env: Bindings,
@@ -51,12 +97,26 @@ export async function buildAtEndOfTurn(
     run,
     failedInARow,
     building,
-  }: { run?: RevisionOrigin["run"]; failedInARow: number; building: () => Promise<void> },
+    lint,
+  }: {
+    run?: RevisionOrigin["run"];
+    failedInARow: number;
+    building: () => Promise<void>;
+    lint?: { covered: boolean };
+  },
 ): Promise<TurnBuild> {
-  if (await revisionOfTree(env, draftId)) return { outcome: "unchanged" };
+  const { prepared, revision } = await revisionOfTree(env, draftId);
+  if (revision) {
+    // The agent's own build in this turn covered its changes: they're still to lint.
+    if (!lint?.covered || revision.buildStatus !== "built") return { outcome: "unchanged" };
+    const result = { ok: true, revision: revision.id, build: [], types: [], lint: [] };
+    const linted = await lintTurn(env, draftId, prepared, result);
+    return linted.outcome === "linted" ? linted : { outcome: "unchanged" };
+  }
   await building();
   const result = await buildRevision(env, draftId, { leftBy: "turn", run });
-  if (result.ok) return { outcome: "built", result };
+  if (result.ok)
+    return lint ? lintTurn(env, draftId, prepared, result) : { outcome: "built", result };
   if (failedInARow + 1 < END_OF_TURN_BUILD_FAILURES) return { outcome: "failed", result };
   await commitUnbuilt(env, draftId, { leftBy: "turn", run });
   return { outcome: "committedUnbuilt", result };
@@ -102,6 +162,13 @@ async function commitUnbuilt(env: Bindings, draftId: string, { leftBy, run }: Re
 export const fixBuild = (result: BuildResult) =>
   "Your code changes don't build, so your turn isn't over: fix these errors, then end your " +
   "turn again. Editors don't see this message.\n\n" +
+  JSON.stringify(result);
+
+/** What the agent is told when the code its turn changed builds, but lint found problems in it. */
+export const fixLint = (result: BuildResult) =>
+  "Your code changes build, and the preview shows them, but lint found these problems in them. " +
+  "Fix the ones worth fixing, then end your turn again: Camox won't lint again in this turn, and " +
+  "lint never stops a draft from being published. Editors don't see this message.\n\n" +
   JSON.stringify(result);
 
 /** What the agent is told once the end of its turn failed to build too often in a row. */

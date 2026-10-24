@@ -45,6 +45,10 @@ async function emailsAbout(projectId: string) {
 const WORKFLOW_INSTANCES =
   "https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/workers/workflows/camox-release/instance";
 
+// The variable that turns on the build checks only hosted projects have (`HOSTED_BUILD_ENV` in
+// packages/sdk/src/features/vite/hostedChecks.ts).
+const HOSTED_BUILD_ENV = "CAMOX_INTERNAL_HOSTED";
+
 // The Cloudflare token `wrangler deploy` gets, as the test bindings set it (vite.config.ts).
 const CLOUDFLARE_TOKEN = "test-cloudflare-token";
 
@@ -167,6 +171,30 @@ describe("a push to a project's main branch", () => {
     expect(holding(CLOUDFLARE_TOKEN)).toEqual(["pnpm exec wrangler"]);
     const release = runs.find(({ command }) => command.includes("camox release"));
     expect(release?.env.CAMOX_DEPLOY_TOKEN).toBe(released.deployToken);
+  });
+
+  it("builds as a hosted project, so code breaking a hosted check fails the release before it deploys", async () => {
+    const { db, project: failing } = await createProjectFixture(
+      `release-workflow-${crypto.randomUUID()}`,
+    );
+    const commit = commitSha();
+    await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
+    // The hosted checks fail the build, as `camox release` does when they fail (the SDK's
+    // features/vite/hostedChecks.ts).
+    await fakes.failCommand(failing.uuid, "camox release", Infinity);
+
+    await receivePush(pushEvent(failing.uuid, "refs/heads/main", commit), "errored");
+
+    const runs = await fakes.commandsRun(failing.uuid);
+    expect(runs.map(({ command }) => command)).toContain("pnpm exec camox release");
+    // Only the build has the flag: the install and the deploy run no project code through Vite.
+    for (const { command, env } of runs) {
+      expect(env[HOSTED_BUILD_ENV] === "1").toBe(command === "pnpm exec camox release");
+    }
+    // Nothing deployed: Live keeps serving its previous release.
+    expect(runs.some(({ command }) => command.includes("wrangler deploy"))).toBe(false);
+    const rows = await db.select().from(releases).where(eq(releases.projectId, failing.id));
+    expect(rows).toEqual([expect.objectContaining({ status: "failed", failedStep: "release" })]);
   });
 
   it("records the release as failed at the step that gave up", async () => {
