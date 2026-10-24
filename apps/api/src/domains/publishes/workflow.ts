@@ -21,7 +21,7 @@ import { releases } from "../releases/schema";
 import { buildRevision } from "../revisions/build";
 import { revisions } from "../revisions/schema";
 import { DRAFT_MERGED_EVENT, PUBLISH_TURN_EVENT } from "./events";
-import { turnOf, wakeNextPublish } from "./queue";
+import { leavePublishPush, turnOf, wakeNextPublish } from "./queue";
 import { promoteVersion, servedVersion, uploadVersion } from "./sandbox";
 
 // Publishing a draft with code (ADR 0020, spec #560 section 13): its publish Workflow puts the
@@ -152,7 +152,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
 
       // 5. The publish batch, with the draft's definitions.
       const batch = await step.do("run the publish batch", () =>
-        runService(publishWithCode(db, { ...params, revision: ship.revision })),
+        runService(publishWithCode(db, { ...params, revision: ship.revision, instanceId })),
       );
       if (!batch.applied && batch.ended?.outcome !== "published") {
         await rollBack();
@@ -184,6 +184,8 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
           .update(releases)
           .set({ commit })
           .where(eq(releases.workflowInstanceId, instanceId));
+        // `main` holds the draft's code: what's next in the project's queue may move it.
+        await leavePublishPush(db, params.projectId, instanceId);
       });
 
       // 8. The draft's branch, builds, working copy and sandbox.

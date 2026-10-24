@@ -225,6 +225,13 @@
       "when": 1792812157344,
       "tag": "0031_upgrade_pushes_queued",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1792817020251,
+      "tag": "0032_publish_pushes_queued",
+      "breakpoints": true
     }
   ]
 }

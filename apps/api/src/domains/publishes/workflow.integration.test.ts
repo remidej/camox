@@ -36,6 +36,7 @@ import {
 } from "../../../test/threads";
 import { router } from "../../router";
 import { blocks } from "../../schema";
+import { PUBLISHES_CHECKED_EVERY } from "../upgrades/project-workflow";
 import { INFRASTRUCTURE_RETRIES } from "./workflow";
 
 /** How many times a publish's step that fails on Camox's side runs before it gives up. */
@@ -67,6 +68,9 @@ type Fakes = {
   failPublishCommand(project: string, pattern: string, times: number): Promise<void>;
   losePublishCommandAnswers(project: string, pattern: string, times: number): Promise<void>;
   failPushes(repo: string, branch: string, times: number): Promise<void>;
+  holdPushes(repo: string, branch: string): Promise<void>;
+  letGoPushes(repo: string, branch: string): Promise<void>;
+  pushesWaiting(repo: string): Promise<number>;
   letGoPublishCommand(project: string, pattern: string): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; order: number }[]>;
   log(repo: string): Promise<{ oid: string; message: string }[]>;
@@ -618,6 +622,40 @@ describe("publishing a draft with code", () => {
     const published = Math.max(...(await fakes.publishCommands(repo)).map(({ order }) => order));
     expect(await upgradePushOrder(repo)).toBeGreaterThan(published);
     // The Upgrade's commit sits on the publish's: `main` has both changes.
+    const [upgraded, publishedCommit] = await fakes.log(repo);
+    expect(upgraded!.message).toBe("Upgrade Camox to 1.1.0");
+    expect(publishedCommit!.message).toMatch(/^Publish/);
+    expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
+    expect(await camoxOnMain(repo)).toBe("^1.1.0");
+  });
+
+  it("holds an Upgrade's push to main while the project's publish, batch committed, still pushes", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId, file } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await fakes.holdPushes(repo, "main");
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await ran(repo, "versions upload");
+    await using upgrading = await startUpgrade(repo);
+    await readyToPush(repo);
+
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    // The batch committed, and the publish's push to `main` waits: the Upgrade checks its turn
+    // meanwhile.
+    await vi.waitFor(async () => expect(await fakes.pushesWaiting(repo)).toBe(1), {
+      timeout: 10_000,
+      interval: 50,
+    });
+    expect(await draftsOf(website)).toEqual([]);
+    await new Promise((resolve) =>
+      setTimeout(resolve, 2 * parseFloat(PUBLISHES_CHECKED_EVERY) * 1000),
+    );
+    await fakes.letGoPushes(repo, "main");
+    await publishesEnd(publishes);
+    await upgrading.waitForStatus("complete");
+
     const [upgraded, publishedCommit] = await fakes.log(repo);
     expect(upgraded!.message).toBe("Upgrade Camox to 1.1.0");
     expect(publishedCommit!.message).toMatch(/^Publish/);

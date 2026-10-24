@@ -16,7 +16,10 @@ import {
   gitLog,
   hasGitRepo,
   failPushes,
+  holdPushes,
+  letGoPushes,
   losePushResponse,
+  pushesWaiting,
   readGitCommit,
   readGitFile,
   readGitLink,
@@ -967,6 +970,28 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failPushes(repo, branch, times) {
     failPushes(repo, branch, times);
+  }
+
+  /**
+   * Holds every push to the branch `branch` of `repo` until `letGoPushes`.
+   * @param {string} repo
+   * @param {string} branch
+   */
+  async holdPushes(repo, branch) {
+    holdPushes(repo, branch);
+  }
+
+  /**
+   * @param {string} repo
+   * @param {string} branch
+   */
+  async letGoPushes(repo, branch) {
+    letGoPushes(repo, branch);
+  }
+
+  /** @param {string} repo How many pushes to `repo` wait on a hold now. */
+  async pushesWaiting(repo) {
+    return pushesWaiting(repo);
   }
 
   /** @param {string} repo Whether a Git repo or a pushed repo of that name exists. */

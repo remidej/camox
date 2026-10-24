@@ -42,6 +42,7 @@ import { homeOf } from "../generated-values/service";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
+import { holdPublishPush } from "../publishes/queue";
 import { rootOfItem } from "../repeatable-items/roots";
 import { codeOfDraft, type PreviewCode } from "../revisions/preview";
 import { endingThread } from "../threads/service";
@@ -957,7 +958,15 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
     revision,
     token,
     publishedBy,
-  }: { draftId: string; revision: string; token: string; publishedBy: string },
+    instanceId,
+  }: {
+    draftId: string;
+    revision: string;
+    token: string;
+    publishedBy: string;
+    /** The publish Workflow's instance, which keeps its place in the project's queue. */
+    instanceId: string;
+  },
 ) {
   const row = yield* Effect.promise(() =>
     db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
@@ -980,7 +989,16 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
     shown,
     publishedBy,
     stored,
-    after: [previewsRevisionGuard(draftId, revision), ...definitionsPublishStatements(db, scope)],
+    after: [
+      previewsRevisionGuard(draftId, revision),
+      ...definitionsPublishStatements(db, scope),
+      // The draft's row goes: the publish keeps its place in the queue until it pushed to `main`.
+      holdPublishPush(db, {
+        projectId: scope.projectId,
+        instanceId,
+        requestedAt: row.publishRequestedAt ?? Date.now(),
+      }),
+    ],
   });
   // Live's viewers read its new definitions.
   if (result.applied) {
