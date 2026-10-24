@@ -1,10 +1,12 @@
 import type { InvalidationMessage, QueryKey } from "@camox/api-contract/query-keys";
 
+import { version } from "../../../package.json";
 import type { ContentEdit } from "../../core/editing/contentEdits";
 import type { RepeatableItemSeed } from "../../core/editing/createEditableBlock";
 import type { LocaleView } from "../../lib/locale-path";
 import type { ViewLocale } from "../../lib/view-locale-context";
 import type { EditingOwner } from "../preview/previewStore";
+import type { StudioNotice } from "../preview/studioNotice";
 
 /**
  * The renderer frame's protocol (ADR 0023): how the studio and the renderer frame, a hidden
@@ -23,6 +25,11 @@ import type { EditingOwner } from "../preview/previewStore";
  * `frameElement`, connects, and says `hello`. The studio answers `welcome`, then sends every
  * store's state and every frame, and keeps them current from then on.
  *
+ * Versions: `hello` and `welcome` each carry the SDK version their side was built with, and only
+ * sides of the same version go on: there is no compatibility layer. On a mismatch, the studio
+ * sends nothing more, and its frames say they're updating, until a revision built with its
+ * version loads another renderer. So `hello` and `welcome` keep their shape across versions.
+ *
  * The caches (the riskiest piece of the split): each document keeps its own query cache, and the
  * renderer only ever fills its own, through its own reads (`/_camox/data`, `/_camox/routes`, and
  * the API). One renderer shows one draft; moving to another loads another renderer document, with
@@ -36,7 +43,7 @@ import type { EditingOwner } from "../preview/previewStore";
  * - `outdated`: reads the studio marked outdated, as its writes settle. The renderer refetches
  *   those it holds, its own way.
  * Keys match across documents because both build them from the same reads catalog; the SDK
- * version check (#570) is what guarantees it.
+ * version check is what guarantees it.
  *
  * Editing in place: the renderer's block components never write content. Each edit they make
  * crosses as an `edit`, which the studio writes once, with its own draft-scoped mutations (a
@@ -52,6 +59,9 @@ import type { EditingOwner } from "../preview/previewStore";
 
 /** Bumped when the messages change shape. A renderer of another protocol doesn't connect. */
 export const RENDERER_PROTOCOL = 1;
+
+/** The SDK version this side of the protocol was built with. Both sides must share it. */
+export const SDK_VERSION: string = version;
 
 /** The property of the renderer frame's element that holds the studio's {@link StudioHandle}. */
 export const STUDIO_HANDLE_KEY = "__camoxStudio";
@@ -145,7 +155,7 @@ export type StoreEvent = { type: string; [key: string]: unknown };
 
 /** What the studio tells the renderer. */
 export type StudioMessage =
-  | { type: "welcome"; protocol: number }
+  | { type: "welcome"; protocol: number; sdkVersion: string }
   | {
       type: "frame";
       frameId: string;
@@ -178,7 +188,7 @@ export type StudioMessage =
 
 /** What the renderer tells the studio. */
 export type RendererMessage =
-  | { type: "hello"; protocol: number }
+  | { type: "hello"; protocol: number; sdkVersion: string }
   | { type: "storeEvent"; store: ForwardedStore; event: StoreEvent }
   /** The frame's page committed, and after each change it settled again. */
   | { type: "rendered"; frameId: string }
@@ -191,7 +201,9 @@ export type RendererMessage =
   /** An edit made in place, for the studio to write. The studio answers `edited`. */
   | { type: "edit"; editId: number; edit: ContentEdit }
   /** The answer to the studio's question `askId`, or with `error`, why there is none. */
-  | { type: "answer"; askId: number; value?: unknown; error?: string };
+  | { type: "answer"; askId: number; value?: unknown; error?: string }
+  /** Something a page tells the editor: the renderer's document shows no toasts. */
+  | { type: "notify"; notice: StudioNotice };
 
 /**
  * An inbox that handles each message later, in order, apart from the call that delivered it: the

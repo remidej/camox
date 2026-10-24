@@ -12,9 +12,11 @@ import type { StudioCache, StudioCacheChange } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
 import { previewStore } from "../preview/previewStore";
 import { referencePickerFocus } from "../preview/referencePickerFocus";
+import type { StudioNotice } from "../preview/studioNotice";
 import {
   deferredInbox,
   RENDERER_PROTOCOL,
+  SDK_VERSION,
   type ForwardedStore,
   type Inbox,
   type MirroredStore,
@@ -93,9 +95,19 @@ export interface RendererHost {
    * Returns a function that stops calling it.
    */
   subscribe(listener: () => void): () => void;
+  /** Where the connection to the renderer document stands. */
+  status(): RendererStatus;
+  /** Calls `listener` each time the status changes. Returns a function that stops calling it. */
+  subscribeStatus(listener: () => void): () => void;
   /** Stops following the studio. A renderer still connected hears nothing more. */
   close(): void;
 }
+
+/**
+ * Where the connection stands: no renderer said hello yet, one of the studio's SDK version did,
+ * or one of another version did, so the frames wait for a revision built with the studio's.
+ */
+export type RendererStatus = "connecting" | "connected" | "updating";
 
 type ShownFrame = { slot: HTMLElement; target: RendererFrameTarget; hears: FrameListener };
 
@@ -103,16 +115,19 @@ type ShownFrame = { slot: HTMLElement; target: RendererFrameTarget; hears: Frame
  * The host of the studio whose cache is `studioCache`, viewing the draft `draftScope` names, which
  * the renderer shows too. Without them, the renderer hears nothing of the studio's cache.
  * The edits the renderer makes in place are written with the studio's own mutations, through
- * `queryClient`; without it, every one fails.
+ * `queryClient`; without it, every one fails. What the renderer's pages tell the editor goes to
+ * `notify`.
  */
 export function createRendererHost({
   studioCache,
   draftScope,
   queryClient,
+  notify,
 }: {
   studioCache?: StudioCache;
   draftScope?: DraftScope;
   queryClient?: QueryClient;
+  notify?: (notice: StudioNotice) => void;
 } = {}): RendererHost {
   const applyEdit =
     queryClient && studioCache ? createContentEditor({ queryClient, studioCache }) : undefined;
@@ -129,6 +144,13 @@ export function createRendererHost({
   >();
   let lastAskId = 0;
   const connectionListeners = new Set<() => void>();
+  let status: RendererStatus = "connecting";
+  const statusListeners = new Set<() => void>();
+  const setStatus = (next: RendererStatus) => {
+    if (status === next) return;
+    status = next;
+    for (const listener of statusListeners) listener();
+  };
   let renderer: Inbox<StudioMessage> | null = null;
   /** Sends to the renderer once it said hello, in the protocol it speaks. */
   let welcomed = false;
@@ -185,8 +207,11 @@ export function createRendererHost({
     switch (message.type) {
       case "hello": {
         if (message.protocol !== RENDERER_PROTOCOL) return;
+        // Both sides learn the other's version. Another SDK's renderer hears nothing more.
+        renderer?.({ type: "welcome", protocol: RENDERER_PROTOCOL, sdkVersion: SDK_VERSION });
+        if (message.sdkVersion !== SDK_VERSION) return setStatus("updating");
         welcomed = true;
-        post({ type: "welcome", protocol: RENDERER_PROTOCOL });
+        setStatus("connected");
         for (const store of Object.keys(mirrored) as MirroredStore[]) postStore(store);
         for (const [frameId, { slot, target }] of frames)
           post({ type: "frame", frameId, slot, target });
@@ -218,6 +243,8 @@ export function createRendererHost({
         else question.reject(new Error(message.error));
         return;
       }
+      case "notify":
+        return notify?.(message.notice);
       case "edit": {
         const { editId, edit } = message;
         // The answer goes to the renderer that sent the edit: one connected since never hears it.
@@ -275,8 +302,14 @@ export function createRendererHost({
       connectionListeners.add(listener);
       return () => connectionListeners.delete(listener);
     },
+    status: () => status,
+    subscribeStatus(listener) {
+      statusListeners.add(listener);
+      return () => statusListeners.delete(listener);
+    },
     close() {
       connectionListeners.clear();
+      statusListeners.clear();
       for (const subscription of subscriptions) subscription.unsubscribe();
       stopRelaying?.();
       stopFollowing?.();

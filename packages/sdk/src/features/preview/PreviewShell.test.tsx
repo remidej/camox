@@ -13,6 +13,9 @@ Object.assign(globalThis, { React });
 let canvasImports = 0;
 const preparationUrl = new URL("./previewPreparation.ts", import.meta.url).href;
 
+const navigationStub =
+  "export const useLocation = () => ({pathname: globalThis.testPathname ?? '/', href: 'http://localhost' + (globalThis.testPathname ?? '/'), search: '', hash: ''}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }";
+
 // Keep the shell, mode store, actions and shared-chrome context real. Leaf
 // markers expose which surface owns the preview without loading Canvas itself.
 registerHooks({
@@ -25,19 +28,12 @@ registerHooks({
       })`;
     if (context.parentURL?.endsWith("/CamoxPreview.tsx")) {
       const stubs: Record<string, string> = {
-        "@/features/navigation/navigation":
-          "export const useLocation = () => ({pathname: globalThis.testPathname ?? '/', search: '', hash: ''}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }",
+        "@/features/navigation/navigation": navigationStub,
         "@/hooks/use-page-destinations": "export const usePageDestinations = () => []",
         "@/lib/auth":
           "export const useIsAuthenticated = () => true; export const useProjectUuid = () => 'test'",
-        "@/lib/normalized-data":
-          "export const NormalizedDataProvider = ({children}) => children; export const usePageBlocks = () => ({})",
         "@/lib/queries": "export const blockQueries = {}",
         "@/lib/utils": "export const cn = (...args) => args.filter(Boolean).join(' ')",
-        "../provider/components/CamoxAppContext":
-          "export const useCamoxApp = () => ({}); export const useOptionalCamoxApp = () => ({})",
-        "../page/DerivedPageContent":
-          "export const DerivedPageContent = () => React.createElement('p', {'data-derived-content': true})",
         "./components/PreviewPanel":
           "export const PreviewPanel = ({children, layoutId}) => React.createElement('section', {'data-preview': true, 'data-layout-id': layoutId}, children)",
         // The record page's data and slug following load nothing in the shell.
@@ -56,13 +52,19 @@ registerHooks({
           if (globalThis.testPathname === "/camox/canvas") throw new Promise(() => {});
           return null;
         }`;
-      for (const name of ["BlockErrorBoundary", "CreatePageModal"]) {
+      for (const name of ["CreatePageModal"]) {
         if (specifier === `./components/${name}`) source = `export const ${name} = () => null`;
       }
       if (specifier.includes("feature-flag")) {
         throw new Error("PreviewShell must choose Canvas by mode, not a feature flag");
       }
     }
+    // The Preview's slot reads where it renders, as the shell does.
+    if (
+      context.parentURL?.endsWith("/RendererFrames.tsx") &&
+      specifier === "../navigation/navigation"
+    )
+      source = navigationStub;
     if (
       context.parentURL?.endsWith("/CanvasPreview.tsx") &&
       specifier === "../../canvas/CamoxCanvas"
@@ -305,9 +307,7 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
       <StudioQueryClientProvider client={client}>
-        <CamoxPreview derived={derived} canvasOnly={canvasOnly}>
-          <p data-content>Site content</p>
-        </CamoxPreview>
+        <CamoxPreview derived={derived} canvasOnly={canvasOnly} />
       </StudioQueryClientProvider>,
     );
   try {
@@ -348,24 +348,23 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   const render = (canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
       <StudioQueryClientProvider client={client}>
-        <CamoxPreview canvasOnly={canvasOnly}>
-          <p data-content>Site content</p>
-        </CamoxPreview>
+        <CamoxPreview canvasOnly={canvasOnly} />
       </StudioQueryClientProvider>,
     );
   try {
     previewStore.send({ type: "showCanvas" });
     await render();
-    const content = dom.host.querySelector("[data-content]");
-    assert.ok(content);
+    // The renderer frame renders the page into the Preview's slot.
+    const slot = dom.host.querySelector("[data-camox-renderer-slot]");
+    assert.ok(slot);
     await render(true);
     assert.equal(
-      dom.host.querySelector("[data-content]"),
-      content,
+      dom.host.querySelector("[data-camox-renderer-slot]"),
+      slot,
       "selecting nothing keeps the page",
     );
     await render();
-    assert.equal(dom.host.querySelector("[data-content]"), content);
+    assert.equal(dom.host.querySelector("[data-camox-renderer-slot]"), slot);
   } finally {
     await dom.close();
     client.clear();
@@ -387,9 +386,7 @@ void test("hiding the Canvas after selecting nothing goes back to the last page"
   const render = (canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
       <StudioQueryClientProvider client={client}>
-        <CamoxPreview canvasOnly={canvasOnly}>
-          <p data-content>Site content</p>
-        </CamoxPreview>
+        <CamoxPreview canvasOnly={canvasOnly} />
       </StudioQueryClientProvider>,
     );
   try {

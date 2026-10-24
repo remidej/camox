@@ -1,10 +1,11 @@
 import { Button } from "@camox/ui/button";
-import { toast } from "@camox/ui/toaster";
 import { Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useApplyContentEdit } from "@/core/editing/contentEdits";
 import { useIsEditable } from "@/core/hooks/useIsEditable";
+
+import { useStudioNotice } from "../studioNotice";
 
 /**
  * A block whose definition was removed from code. It renders nothing on the website; in edit
@@ -22,6 +23,7 @@ export function RemovedBlockPlaceholder({
 }) {
   const isEditable = useIsEditable(mode);
   const applyEdit = useApplyContentEdit();
+  const notify = useStudioNotice();
   const [deleting, setDeleting] = React.useState(false);
   if (!isEditable) return null;
 
@@ -29,10 +31,10 @@ export function RemovedBlockPlaceholder({
     setDeleting(true);
     try {
       await applyEdit({ type: "deleteBlock", blockId });
-      toast.success(`Deleted "${type}" block`);
+      notify({ tone: "success", message: `Deleted "${type}" block` });
     } catch (error) {
       console.error("Failed to delete block:", error);
-      toast.error("Could not delete block");
+      notify({ tone: "error", message: "Could not delete block" });
     } finally {
       setDeleting(false);
     }

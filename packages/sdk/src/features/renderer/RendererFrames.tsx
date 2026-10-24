@@ -4,11 +4,13 @@ import * as React from "react";
 import { ArtifactsRunContext, ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../core/hooks/useIsEditable";
 import { useDraftScope } from "../../lib/draft-scope";
+import { RevisionsContext } from "../../lib/revisions";
 import { useStudioCache } from "../../lib/studio-reads";
 import { ViewLocaleContext } from "../../lib/view-locale-context";
 import { CanvasWorkspaceContext } from "../canvas/canvasZoom";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
+import { showNotice } from "../preview/studioNotice";
 import { runtimePath } from "../runtime/navigationTarget";
 import {
   RENDERER_DOCUMENT_PATH,
@@ -18,12 +20,17 @@ import {
   type RendererQuestion,
   type StudioHandle,
 } from "./protocol";
-import { createRendererHost, type FrameListener, type RendererHost } from "./rendererHost";
+import {
+  createRendererHost,
+  type FrameListener,
+  type RendererHost,
+  type RendererStatus,
+} from "./rendererHost";
 
 /** The Website Section's renderer host. `RendererFramesProvider` provides it. */
 export const RendererHostContext = React.createContext<RendererHost | null>(null);
 
-/** The Website Section's renderer host, once it exists, or null when the studio renders pages. */
+/** The Website Section's renderer host, once it exists: null before, and outside the section. */
 export function useRendererHost(): RendererHost | null {
   return React.use(RendererHostContext);
 }
@@ -73,7 +80,8 @@ export function useRendererAnswer<Question extends RendererQuestion>(
  *
  * A renderer shows one draft. Moving to another loads another renderer document, with a cache
  * of its own. A draft the studio's first content write starts is Live plus that write, so the
- * renderer showing Live enters it instead.
+ * renderer showing Live enters it instead. Each new revision of the draft shown loads it again:
+ * the studio keeps the Canvas position and selection, and tells the new renderer.
  */
 export function RendererFramesProvider({
   runtimeBasePath,
@@ -87,7 +95,12 @@ export function RendererFramesProvider({
   const draftScope = useDraftScope();
   const [host, setHost] = React.useState<RendererHost | null>(null);
   React.useEffect(() => {
-    const created = createRendererHost({ studioCache, draftScope, queryClient });
+    const created = createRendererHost({
+      studioCache,
+      draftScope,
+      queryClient,
+      notify: showNotice,
+    });
     // oxlint-disable-next-line react/set-state-in-effect -- the host subscribes to the studio, so it lives with the effect
     setHost(created);
     return () => created.close();
@@ -104,6 +117,16 @@ export function RendererFramesProvider({
       }),
     [draftScope, documentUrl],
   );
+  // How many revisions of the draft shown loaded since: each one loads another renderer document.
+  const [loads, setLoads] = React.useState(0);
+  const revisions = React.use(RevisionsContext);
+  React.useEffect(
+    () =>
+      revisions?.subscribe(({ draftId }) => {
+        if (draftId === draftScope.current()) setLoads((count) => count + 1);
+      }),
+    [revisions, draftScope],
+  );
   const connect = React.useCallback(
     (frame: (HTMLIFrameElement & { [STUDIO_HANDLE_KEY]?: StudioHandle }) | null) => {
       // Set before the frame's document can run: it loads once the frame is in the document.
@@ -116,7 +139,7 @@ export function RendererFramesProvider({
       {children}
       {host && (
         <iframe
-          key={source}
+          key={`${source}#${loads}`}
           ref={connect}
           src={source}
           hidden
@@ -187,7 +210,34 @@ export function RendererSlot({
     if (!host || !slot) return;
     return () => host.hide(frameId);
   }, [host, slot, frameId]);
-  return <div ref={setSlot} data-camox-renderer-slot style={{ display: "contents" }} />;
+  const status = useRendererStatus(host);
+  return (
+    <>
+      <div ref={setSlot} data-camox-renderer-slot style={{ display: "contents" }} />
+      {status === "updating" && (
+        <div role="status" data-camox-renderer-updating style={NOTICE_STYLE}>
+          Updating the preview…
+        </div>
+      )}
+    </>
+  );
+}
+
+/** What the studio says in a frame in place of its page, in the frame's own document. */
+const NOTICE_STYLE: React.CSSProperties = {
+  padding: "24px",
+  fontFamily: "system-ui, sans-serif",
+  fontSize: "14px",
+  color: "#71717a",
+};
+
+function useRendererStatus(host: RendererHost | null): RendererStatus | null {
+  const subscribe = React.useCallback(
+    (listener: () => void) => host?.subscribeStatus(listener) ?? (() => {}),
+    [host],
+  );
+  const status = () => host?.status() ?? null;
+  return React.useSyncExternalStore(subscribe, status, status);
 }
 
 /** `value`, kept while it says the same, so a re-render doesn't show the frame again. */

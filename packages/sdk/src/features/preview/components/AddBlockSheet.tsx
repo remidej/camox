@@ -22,7 +22,6 @@ import { type BlockDefinition, useBlockDefinitions } from "@/lib/studio-definiti
 import { useLocalePath } from "@/lib/view-locale";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
-import { useOptionalCamoxApp } from "../../provider/components/CamoxAppContext";
 import { useRendererHost } from "../../renderer/RendererFrames";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -128,10 +127,8 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
   });
 
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
-  // A new block's initial content needs the block's code. Through the renderer frame, it's asked
-  // of the renderer; the registry is only read without one, until #570 makes it the only way.
+  // A new block's initial content needs the block's code, so it's asked of the renderer frame.
   const rendererHost = useRendererHost();
-  const camoxApp = useOptionalCamoxApp();
   const availableBlocks = useBlockDefinitions().filter((block) => !block.layoutOnly);
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
@@ -183,12 +180,11 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
     setError(null);
     const owner = { kind: "page", pageId: page.page.id } as const;
     try {
-      // The block's code builds its initial content: the renderer frame's, which runs the
-      // draft's code, or else this document's. Without either, the synced defaults, with no
-      // repeatable items.
+      // The block's code builds its initial content, in the renderer frame, which runs the
+      // draft's code. Without it, the synced defaults, with no repeatable items.
       const fromCode = rendererHost
         ? await rendererHost.ask({ type: "initialBundle", blockType: block.id })
-        : camoxApp?.getBlockById(block.id)?._internal.getInitialBundle();
+        : null;
       const bundle = fromCode ?? {
         content: block.defaultContent,
         settings: block.defaultSettings,

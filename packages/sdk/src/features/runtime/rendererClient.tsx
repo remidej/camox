@@ -30,8 +30,12 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
     console.error("Camox: the renderer document is missing its API or project.");
     return;
   }
-  // Editing places and lists any block, so the renderer waits for every definition.
-  await camoxApp.loadAllBlocks();
+  // Editing places and lists any block, so each frame waits for every definition. The renderer
+  // connects meanwhile: code that fails to load fails each frame, and the studio hears it.
+  const codeLoaded = camoxApp.loadAllBlocks();
+  codeLoaded.catch((error: unknown) =>
+    console.error("Camox: the site's code failed to load.", error),
+  );
 
   const queryClient = new QueryClient();
   // The document's URL names the draft it shows, as the studio's does.
@@ -62,6 +66,7 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
               <RendererApp
                 connection={connection}
                 camoxApp={camoxApp}
+                codeLoaded={codeLoaded}
                 projectUuid={input.projectUuid}
                 runtimeBasePath={input.runtimeBasePath}
               />

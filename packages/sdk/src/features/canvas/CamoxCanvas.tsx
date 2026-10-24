@@ -22,7 +22,7 @@ import {
 } from "../preview/previewPageFrame";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, type EditingOwner } from "../preview/previewStore";
-import { useOptionalCamoxApp } from "../provider/components/CamoxAppContext";
+import { useRendererHost } from "../renderer/RendererFrames";
 import { FollowAgentContext } from "../studio/followAgentContext";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
@@ -514,11 +514,12 @@ function useRenamePage() {
 
 /**
  * The still images of a workspace's Pages, where the browser draws them faithfully. They refresh
- * while the camera is still, and all go stale when the website's code changes.
+ * while the camera is still, and all go stale when the website's code changes: each time another
+ * renderer document connects, for a new revision or another draft.
  */
 function useWorkspaceThumbnails(workspaceKey: string) {
   const queryClient = useQueryClient();
-  const app = useOptionalCamoxApp();
+  const renderer = useRendererHost();
   const [thumbnails] = React.useState(() =>
     canvasThumbnailsSupported() ? createCanvasThumbnails(queryClient) : null,
   );
@@ -531,12 +532,10 @@ function useWorkspaceThumbnails(workspaceKey: string) {
     const subscription = canvasStore.subscribe(update);
     return () => subscription.unsubscribe();
   }, [thumbnails, workspaceKey]);
-  const previousApp = React.useRef(app);
   React.useEffect(() => {
-    if (previousApp.current === app) return;
-    previousApp.current = app;
-    thumbnails?.markAllStale();
-  }, [app, thumbnails]);
+    if (!renderer || !thumbnails) return;
+    return renderer.subscribe(() => thumbnails.markAllStale());
+  }, [renderer, thumbnails]);
   return thumbnails;
 }
 
