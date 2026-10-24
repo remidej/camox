@@ -34,7 +34,7 @@ export class BuildInfrastructureError extends Error {
 }
 
 /** Runs `step`, trying it again after a failure, with a growing delay, before giving up. */
-async function retried<T>(step: () => Promise<T>): Promise<T> {
+export async function retried<T>(step: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await step();
@@ -68,7 +68,7 @@ export type RevisionOrigin = {
   run?: { threadId: string; runId: string };
 };
 
-const MESSAGES: Record<RevisionSource, string> = {
+export const MESSAGES: Record<RevisionSource, string> = {
   build: "Camox's agent built its changes",
   turn: "Camox's agent ended its turn",
   merge: "Merge Live's code",

@@ -55,6 +55,12 @@ export class ProjectCode extends DurableObject<Bindings> {
     return refreshed;
   }
 
+  /** The commit of `main` the copy holds, without making it if it never was. */
+  async commit(): Promise<string | undefined> {
+    await this.#refreshing;
+    return this.#commit();
+  }
+
   /** The copy, made first if it never was; only its commit when it's `known`. */
   async snapshot(known?: string): Promise<MainSnapshot> {
     await this.#refreshing;
