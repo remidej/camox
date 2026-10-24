@@ -49,7 +49,7 @@ export async function codeOfDraft(
     .where(eq(drafts.id, draftId))
     .get();
   if (!draft || !(await working.held())) return { code: null, head: null };
-  const [head, building, forkedFrom, main] = await Promise.all([
+  const [head, building, merged, main] = await Promise.all([
     draft.head
       ? db
           .select({
@@ -61,13 +61,13 @@ export async function codeOfDraft(
           .get()
       : undefined,
     working.building(),
-    working.forkedFrom(),
+    working.mergedMain(),
     env.PROJECT_CODE.getByName(draft.projectUuid).commit(),
   ]);
   return {
     code: {
       revision: draft.previewed,
-      includesLive: main === undefined || forkedFrom === main,
+      includesLive: main === undefined || merged === main,
       building,
       publishing: draft.publishing !== null,
       publishAborted: draft.publishAborted,

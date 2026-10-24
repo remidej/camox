@@ -6,6 +6,7 @@ import { codeEnv } from "../domains/code/env";
 import { CODE_ROOT, mountSkills, SKILLS_ROOT, writeFiles } from "../domains/code/main-copy";
 import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/remote-env";
 import { writeLine } from "../domains/code/write-line";
+import type { BuildResult } from "../domains/revisions/result";
 import { MemoryFs, type MemoryFsEntry } from "../lib/memory-fs";
 import { tar, type TarEntry } from "../lib/tar";
 import type { Bindings } from "../types";
@@ -19,6 +20,13 @@ const REPO_KEY = "repo";
 const BRANCH_KEY = "branch";
 /** The commit of `main` the branch forked from. */
 const FORKED_FROM_KEY = "forked-from";
+/** The commit of `main` the branch last merged, once it merged one. */
+const MERGED_KEY = "merged-main";
+/** A merge of `main` that clashed, left for Camox's reconcile turn (`MergeClash`). */
+const CLASH_KEY = "merge-clash";
+/** The local refs a merge of `main` fetches from, and merges: see `mergeMain`. */
+const MERGED_REF = "refs/camox/merged-main";
+const MAIN_REF = "refs/camox/main";
 const TOKEN_KEY = "token";
 /** When the build of the draft's code going now started, if one is. */
 const BUILDING_SINCE_KEY = "building-since";
@@ -54,6 +62,32 @@ export type PreparedCommit = {
   /** The tree's `pnpm-lock.yaml`, if it has one. */
   lockfile: string | null;
 };
+
+/**
+ * A merge of `main` that doesn't land as a revision as it is: it conflicts, or its tree doesn't
+ * build or type check. Recorded until a merge of `main` lands, for Camox's reconcile turn, which
+ * tries once for each move of `main`.
+ */
+export type MergeClash = {
+  /** The commit of `main` that clashed. */
+  main: string;
+  /** The files both sides changed in ways that don't merge, for a merge that conflicts. */
+  conflicts?: string[];
+  /** The merged tree's build, for a merge that doesn't build or type check. */
+  result?: BuildResult;
+};
+
+/** What merging `main` into the working copy found. */
+export type MergeOutcome =
+  /** The draft holds the current `main` already. */
+  | { outcome: "upToDate" }
+  /** The working copy has changes no revision holds yet: the merge waits for them. */
+  | { outcome: "unsettled" }
+  /** This move of `main` clashed already, and isn't merged again until `main` moves again. */
+  | { outcome: "clashed"; main: string }
+  | { outcome: "conflicts"; main: string; conflicts: string[] }
+  /** A merge commit of `main`, not on the branch yet, for a build to commit. */
+  | { outcome: "merged"; main: string; prepared: PreparedCommit };
 
 type NodeRow = {
   path: string;
@@ -98,10 +132,49 @@ export class DraftCode extends DurableObject<Bindings> {
     return this.ctx.storage.kv.get(BRANCH_KEY) !== undefined;
   }
 
-  /** The commit of `main` the draft's branch forked from, once it has code. */
-  async forkedFrom(): Promise<string | undefined> {
+  /**
+   * The commit of `main` the draft's code holds: the one its branch last merged, or forked from,
+   * once it has code.
+   */
+  async mergedMain(): Promise<string | undefined> {
     await this.#queue;
-    return this.ctx.storage.kv.get<string>(FORKED_FROM_KEY);
+    return this.#mergedMain();
+  }
+
+  #mergedMain() {
+    return (
+      this.ctx.storage.kv.get<string>(MERGED_KEY) ??
+      this.ctx.storage.kv.get<string>(FORKED_FROM_KEY)
+    );
+  }
+
+  /**
+   * Where the draft's merges of `main` stand: the branch's head, the `main` it holds, and the
+   * last merge that clashed, read at once, as a commit moves them together.
+   */
+  async merges(): Promise<{ head: string; mergedMain: string; clash: MergeClash | undefined }> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
+      return {
+        head: await git.resolveRef({ fs, dir: CODE_ROOT, ref: `refs/heads/${branch}` }),
+        mergedMain: this.#mergedMain()!,
+        clash: this.ctx.storage.kv.get<MergeClash>(CLASH_KEY),
+      };
+    });
+  }
+
+  /** The last merge of `main` that clashed, until a merge of `main` lands. */
+  async clash(): Promise<MergeClash | undefined> {
+    await this.#queue;
+    return this.ctx.storage.kv.get<MergeClash>(CLASH_KEY);
+  }
+
+  /** Records that the merge of `main` at `clash.main` clashed: see `MergeClash`. */
+  async recordClash(clash: MergeClash): Promise<void> {
+    await this.#queue;
+    if (this.ctx.storage.kv.get(BRANCH_KEY) === undefined) return;
+    this.ctx.storage.kv.put(CLASH_KEY, clash);
   }
 
   /** Records that a build of the draft's code started, or ended. */
@@ -233,9 +306,11 @@ export class DraftCode extends DurableObject<Bindings> {
       const head = await git.resolveRef({ ...at, ref });
       const { commit: made } = await git.readCommit({ ...at, oid: commit });
       let landed = commit;
+      // A merge of `main` lands even when it changes no file: the branch then holds that `main`.
+      const merge = made.parent.length > 1;
       if (head !== commit) {
         const { commit: current } = await git.readCommit({ ...at, oid: head });
-        if (current.tree === made.tree) landed = head;
+        if (current.tree === made.tree && !(merge && made.parent[0] === head)) landed = head;
         else if (made.parent.includes(head)) {
           await git.writeRef({ ...at, ref, value: commit, force: true });
         } else {
@@ -246,6 +321,12 @@ export class DraftCode extends DurableObject<Bindings> {
       const { remote } = await artifacts.info();
       const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
       await git.push({ ...at, http, url: remote, headers, ref: branch, remoteRef: branch });
+      if (merge && landed === commit) {
+        // The merge was made beside the files, which nothing wrote to since: they take its tree.
+        await git.checkout({ ...at, ref: branch, force: true });
+        this.ctx.storage.kv.put(MERGED_KEY, made.parent[1]!);
+        this.ctx.storage.kv.delete(CLASH_KEY);
+      }
       this.#save(fs);
       const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
       return { commit: landed, parents: pushed.parent };
@@ -321,6 +402,92 @@ export class DraftCode extends DurableObject<Bindings> {
       });
     }
     return tip;
+  }
+
+  /**
+   * Merges the current `main` into the branch, without moving it: fetches `main` shallowly, its
+   * history down to the `main` commit the branch last merged or forked from, which is then the
+   * merge base, and merges it into the branch's head. A clean merge is returned as a merge commit
+   * whose parents are the head and `main`, for a build to commit (`commit`): the files stay as
+   * they are until then. A merge that conflicts changes nothing either.
+   *
+   * It waits while the files have changes no commit holds, and doesn't merge again a move of
+   * `main` that clashed.
+   */
+  mergeMain(): Promise<MergeOutcome> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const at = { fs, dir: CODE_ROOT };
+      using artifacts = await this.env.ARTIFACTS.get(this.ctx.storage.kv.get<string>(REPO_KEY)!);
+      const { remote } = await artifacts.info();
+      const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
+      const { refs } = await git.getRemoteInfo2({ http, url: remote, headers });
+      const main = refs?.find(({ ref }) => ref === `refs/heads/${MAIN}`)?.oid;
+      const merged = this.#mergedMain();
+      if (!main || !merged || main === merged) return { outcome: "upToDate" };
+      if (this.ctx.storage.kv.get<MergeClash>(CLASH_KEY)?.main === main) {
+        return { outcome: "clashed", main };
+      }
+      if (!(await settled(fs))) return { outcome: "unsettled" };
+      // Only the commits since the one merged last: the fetch says the working copy has that one.
+      await git.writeRef({ ...at, ref: MERGED_REF, value: merged, force: true });
+      if (!(await holds(fs, main))) {
+        await git.fetch({
+          ...at,
+          http,
+          url: remote,
+          headers,
+          ref: MERGED_REF,
+          remoteRef: MAIN,
+          singleBranch: true,
+          tags: false,
+        });
+      }
+      await git.writeRef({ ...at, ref: MAIN_REF, value: main, force: true });
+      const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY)!;
+      const signature = {
+        ...COMMIT_AUTHOR,
+        timestamp: Math.floor(Date.now() / 1000),
+        timezoneOffset: 0,
+      };
+      try {
+        const { oid, tree } = await git.merge({
+          ...at,
+          ours: `refs/heads/${branch}`,
+          theirs: MAIN_REF,
+          fastForward: false,
+          noUpdateBranch: true,
+          abortOnConflict: true,
+          message: MERGE_MESSAGE,
+          author: signature,
+          committer: signature,
+        });
+        const entries = await treeEntries(fs, oid!);
+        this.#save(fs);
+        const lockfile = entries.find(({ path }) => path === LOCKFILE);
+        return {
+          outcome: "merged",
+          main,
+          prepared: {
+            commit: oid!,
+            tree: tree!,
+            files: tar(entries),
+            lockfile:
+              lockfile && "content" in lockfile ? new TextDecoder().decode(lockfile.content) : null,
+          },
+        };
+      } catch (error) {
+        this.#save(fs);
+        if (error instanceof git.Errors.MergeConflictError) {
+          return { outcome: "conflicts", main, conflicts: error.data.filepaths };
+        }
+        // Both sides added the same file differently: isomorphic-git merges no such conflict.
+        if (error instanceof git.Errors.MergeNotSupportedError) {
+          return { outcome: "conflicts", main, conflicts: [] };
+        }
+        throw error;
+      }
+    });
   }
 
   /** Deletes the draft's branch and everything the working copy stored, as the draft ends. */
@@ -454,6 +621,42 @@ export class DraftCode extends DurableObject<Bindings> {
       }
     }
   }
+}
+
+/** The message of the commits merging `main` into a draft's branch. */
+export const MERGE_MESSAGE = "Merge Live's code";
+
+/** Whether the files are what the index and the head hold: no change is uncommitted. */
+async function settled(fs: MemoryFs) {
+  const rows = await git.statusMatrix({ fs, dir: CODE_ROOT });
+  return rows.every(([, head, workdir, stage]) => head === 1 && workdir === 1 && stage === 1);
+}
+
+/** Whether the working copy holds the object `oid`. */
+async function holds(fs: MemoryFs, oid: string) {
+  return git.readObject({ fs, dir: CODE_ROOT, oid }).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** The files of a commit's tree, as a build streams them. */
+async function treeEntries(fs: MemoryFs, commit: string) {
+  const entries: TarEntry[] = [];
+  await git.walk({
+    fs,
+    dir: CODE_ROOT,
+    trees: [git.TREE({ ref: commit })],
+    map: async (path, [entry]) => {
+      if (!entry || path === "." || (await entry.type()) !== "blob") return true;
+      const mode = await entry.mode();
+      const content = (await entry.content())!;
+      if (mode === 0o120000) entries.push({ path, symlink: new TextDecoder().decode(content) });
+      else entries.push({ path, mode: mode & 0o777, content });
+      return true;
+    },
+  });
+  return entries;
 }
 
 function joined(chunks: Uint8Array[]) {

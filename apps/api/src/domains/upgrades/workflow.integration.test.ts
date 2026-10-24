@@ -150,13 +150,16 @@ describe("upgrading every project to a new SDK", () => {
     }
   });
 
-  it("commits only the changed package.json and lockfile, on top of the main it built", async () => {
+  it("commits only the changed package.json and lockfile, on top of main, checking they are those it built", async () => {
     const { project, head } = await projectOn("0.9.1");
 
     await upgradeTo(NEW_VERSION);
 
     const [push] = await pushesToMain(project.uuid);
-    expect(push?.command).toContain(`fetch -q --depth=1 origin ${head}`);
+    expect(push?.command).toContain(`fetch -q --depth=1 origin ${head} refs/heads/main:`);
+    expect(push?.command).toContain(
+      `git diff --quiet ${head} origin/main -- package.json pnpm-lock.yaml`,
+    );
     expect(push?.command).toContain("git add package.json pnpm-lock.yaml");
     // Pushed with a write token of the project's own repo, which only this step gets.
     expect(push?.env.UPGRADE_GIT_REMOTE).toMatch(new RegExp(`/projects/${project.uuid}\\.git$`));

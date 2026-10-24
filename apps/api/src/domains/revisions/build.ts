@@ -3,6 +3,7 @@ import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 
 import { createDb } from "../../db";
+import type { PreparedCommit } from "../../durable-objects/draft-code";
 import { projectRooms } from "../../lib/project-rooms";
 import { runService } from "../../lib/run-service";
 import type { Bindings } from "../../types";
@@ -95,6 +96,11 @@ const passed = (revision: string): BuildResult => ({
 export type RevisionOrigin = {
   leftBy: RevisionSource;
   run?: { threadId: string; runId: string };
+  /**
+   * The commit to build, made beside the working copy's files, such as a merge of `main`
+   * (`DraftCode.mergeMain`). Without it, the build is of the files.
+   */
+  prepared?: PreparedCommit;
 };
 
 /** The draft a build is of, with what announcing its revisions needs. */
@@ -221,7 +227,7 @@ export const MESSAGES: Record<RevisionSource, string> = {
 export async function buildRevision(
   env: Bindings,
   draftId: string,
-  { leftBy, run }: RevisionOrigin,
+  { leftBy, run, prepared: given }: RevisionOrigin,
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
   const draft = await db
@@ -238,7 +244,8 @@ export async function buildRevision(
     .get();
   if (!draft) throw new Error("The draft to build ended");
   const code = env.DRAFT_CODE.getByName(draftId);
-  const prepared = await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] }));
+  const prepared =
+    given ?? (await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] })));
   const existing = await db
     .select({
       id: revisions.id,
@@ -258,8 +265,8 @@ export async function buildRevision(
     existing.typeCheckStatus !== "pending"
   ) {
     // Code back to an earlier revision's tree, such as a reverted change, is that revision
-    // again, committed on top of the branch.
-    if (draft.headRevisionId !== existing.id) {
+    // again, committed on top of the branch. A merge of `main` changing no file is committed too.
+    if (draft.headRevisionId !== existing.id || given) {
       const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }));
       await db.update(revisions).set({ commit, parents }).where(eq(revisions.id, existing.id));
       await db.update(drafts).set({ headRevisionId: existing.id }).where(eq(drafts.id, draftId));

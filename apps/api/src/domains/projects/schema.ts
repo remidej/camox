@@ -35,6 +35,12 @@ export const projects = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    /**
+     * An Upgrade ready to push to `main`, waiting in the project's queue of publishes with code
+     * (`../publishes/queue.ts`): its project Workflow's instance, and when it joined.
+     */
+    upgradePushInstanceId: text("upgrade_push_instance_id"),
+    upgradePushRequestedAt: int("upgrade_push_requested_at"),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

@@ -51,7 +51,9 @@ type WorkerVersion = { id: string; build: string; vars: Record<string, string> }
 
 type Fakes = {
   defineBuildsOf(marker: string, definitionSet: unknown): Promise<void>;
-  revisionBuilds(sandbox: string): Promise<{ archive: number[] | null }[]>;
+  revisionBuilds(
+    sandbox: string,
+  ): Promise<{ files: Record<string, string>; archive: number[] | null }[]>;
   servedVersion(project: string): Promise<WorkerVersion | null>;
   workerVersions(project: string): Promise<WorkerVersion[]>;
   deployments(project: string): Promise<string[]>;
@@ -264,6 +266,57 @@ async function commandsLike(project: string, pattern: string) {
   return (await fakes.publishCommands(project)).filter(({ command }) => command.includes(pattern));
 }
 
+/** Starts an Upgrade of the project to camox 1.1.0, from the commit `main` points to. */
+async function startUpgrade(repo: string) {
+  const [main] = await fakes.log(repo);
+  const upgrade = crypto.randomUUID();
+  const upgrading = await introspectWorkflowInstance(env.PROJECT_UPGRADE_WORKFLOW, upgrade);
+  await upgrading.modify(async (m) => m.disableRetryDelays());
+  await env.PROJECT_UPGRADE_WORKFLOW.create({
+    id: upgrade,
+    params: {
+      provider: "cloudflare-artifacts",
+      providerData: { namespace: "projects" },
+      event: { type: "push" },
+      owner: "projects",
+      repo,
+      sha: main!.oid,
+      remote: "cloudflare",
+      trigger: "push",
+      ref: "refs/heads/main",
+      branch: "main",
+      camoxVersion: "1.1.0",
+      upgradeInstanceId: crypto.randomUUID(),
+    } as never,
+  });
+  return upgrading;
+}
+
+/** Waits until the project's Upgrade built, and is ready to push. */
+async function readyToPush(repo: string) {
+  await vi.waitFor(
+    async () => {
+      const built = await fakes.commandsRun(repo);
+      expect(built.some(({ command }) => command.includes("camox release --dry-run"))).toBe(true);
+    },
+    { timeout: 10_000, interval: 50 },
+  );
+}
+
+/** The order of the project's Upgrade's push to `main` among the fakes' commands. */
+async function upgradePushOrder(repo: string) {
+  const push = (await fakes.commandsRun(repo)).find(({ command }) =>
+    command.includes("HEAD:refs/heads/main"),
+  );
+  return push!.order;
+}
+
+/** The `camox` version `main`'s `package.json` asks for. */
+async function camoxOnMain(repo: string) {
+  const manifest = JSON.parse((await fakes.readFile(repo, "main", "package.json"))!);
+  return manifest.dependencies.camox as string;
+}
+
 describe("publishing a draft with code", () => {
   it("puts the previewed build, the draft's definitions and content on Live, and its tree on main", async () => {
     const { website, token } = await websiteWithCode();
@@ -358,28 +411,42 @@ describe("publishing a draft with code", () => {
     expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
   });
 
-  it("runs a project's publishes one after the other", async () => {
+  it("runs a project's publishes one after the other, the second shipping its merge of the first", async () => {
     const { website, token } = await websiteWithCode();
-    const { draftId: first } = await draftAddingPricing(website, token);
+    const { draftId: first, file } = await draftAddingPricing(website, token);
     const second = await draftChangingCode(website, token);
+    const changed = await fakes.readFile(website.project.uuid, second, "src/blocks/text.tsx");
     const repo = website.project.uuid;
     await fakes.holdPublishCommand(repo, "versions upload");
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
     await ran(repo, "versions upload");
     await publish(website, second, await previewOf(website, second));
+    const mainBefore = await fakes.log(repo);
     await fakes.letGoPublishCommand(repo, "versions upload");
+
+    // The first lands, moving `main`: the second waits for the draft to merge it.
+    await vi.waitFor(
+      async () => expect(await fakes.log(repo)).toHaveLength(mainBefore.length + 1),
+      {
+        timeout: 10_000,
+        interval: 50,
+      },
+    );
+    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    await deliverPushes(repo);
     await publishesEnd(publishes);
 
-    expect(await fakes.servedVersion(repo)).toMatchObject({ build: await lastBuildOf(first) });
-    // The second checked Live's code once the first had moved it, and doesn't hold it yet.
-    await deliverPushes(repo);
-    expect((await previewOf(website, second)).code).toMatchObject({
-      publishing: false,
-      includesLive: false,
-      publishAborted: "liveCodeMoved",
+    // It shipped the merge revision's build: both drafts' code, on Live and on `main`.
+    const [merge] = (await fakes.revisionBuilds(second)).slice(-1);
+    expect(merge!.files).toMatchObject({
+      "src/blocks/pricing.tsx": file,
+      "src/blocks/text.tsx": changed,
     });
-    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    expect(await fakes.servedVersion(repo)).toMatchObject({ build: await lastBuildOf(second) });
+    expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
+    expect(await fakes.readFile(repo, "main", "src/blocks/text.tsx")).toBe(changed);
+    expect(await draftsOf(website)).toEqual([]);
   });
 
   it("goes back to the review with the new conflicts when they change before promotion", async () => {
@@ -434,53 +501,62 @@ describe("publishing a draft with code", () => {
     expect(await liveBlockTypes(website)).toEqual(["text"]);
   });
 
-  it("holds an Upgrade's push to main until the project's publish ended", async () => {
+  it("holds an Upgrade's push to main until the project's publish pushed, keeping both", async () => {
     const { website, token } = await websiteWithCode();
-    const { draftId } = await draftAddingPricing(website, token);
+    const { draftId, file } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
     await fakes.holdPublishCommand(repo, "versions upload");
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
     await ran(repo, "versions upload");
 
-    const [main] = await fakes.log(repo);
-    const upgrade = crypto.randomUUID();
-    await using upgrading = await introspectWorkflowInstance(env.PROJECT_UPGRADE_WORKFLOW, upgrade);
-    await upgrading.modify(async (m) => m.disableRetryDelays());
-    await env.PROJECT_UPGRADE_WORKFLOW.create({
-      id: upgrade,
-      params: {
-        provider: "cloudflare-artifacts",
-        providerData: { namespace: "projects" },
-        event: { type: "push" },
-        owner: "projects",
-        repo,
-        sha: main!.oid,
-        remote: "cloudflare",
-        trigger: "push",
-        ref: "refs/heads/main",
-        branch: "main",
-        camoxVersion: "1.1.0",
-        upgradeInstanceId: crypto.randomUUID(),
-      } as never,
-    });
-    // The upgrade built, and is ready to push.
-    await vi.waitFor(
-      async () => {
-        const built = await fakes.commandsRun(repo);
-        expect(built.some(({ command }) => command.includes("camox release --dry-run"))).toBe(true);
-      },
-      { timeout: 10_000, interval: 50 },
-    );
+    await using upgrading = await startUpgrade(repo);
+    await readyToPush(repo);
     await fakes.letGoPublishCommand(repo, "versions upload");
     await publishesEnd(publishes);
     await upgrading.waitForStatus("complete");
 
-    const push = (await fakes.commandsRun(repo)).find(({ command }) =>
-      command.includes("HEAD:refs/heads/main"),
-    );
     const published = Math.max(...(await fakes.publishCommands(repo)).map(({ order }) => order));
-    expect(push!.order).toBeGreaterThan(published);
+    expect(await upgradePushOrder(repo)).toBeGreaterThan(published);
+    // The Upgrade's commit sits on the publish's: `main` has both changes.
+    const [upgraded, publishedCommit] = await fakes.log(repo);
+    expect(upgraded!.message).toBe("Upgrade Camox to 1.1.0");
+    expect(publishedCommit!.message).toMatch(/^Publish/);
+    expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
+    expect(await camoxOnMain(repo)).toBe("^1.1.0");
+  });
+
+  it("holds a publish asked for after an Upgrade waiting to push, which then ships over it", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId: first } = await draftAddingPricing(website, token);
+    const second = await draftChangingCode(website, token);
+    const changed = await fakes.readFile(website.project.uuid, second, "src/blocks/text.tsx");
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await using publishes = await watchPublishes();
+    await publish(website, first, await previewOf(website, first));
+    await ran(repo, "versions upload");
+    await using upgrading = await startUpgrade(repo);
+    await readyToPush(repo);
+    await publish(website, second, await previewOf(website, second));
+
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    // The Upgrade pushes before the second publish does anything.
+    await upgrading.waitForStatus("complete");
+    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    expect(await camoxOnMain(repo)).toBe("^1.1.0");
+
+    // The second ships its merge of the upgraded `main`, once that released.
+    await deliverPushes(repo);
+    await publishesEnd(publishes);
+    const [served] = (await fakes.deployments(repo)).slice(-1);
+    expect(await fakes.servedVersion(repo)).toMatchObject({
+      id: served,
+      build: await lastBuildOf(second),
+    });
+    expect(await fakes.readFile(repo, "main", "src/blocks/text.tsx")).toBe(changed);
+    expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).not.toBeNull();
+    expect(await camoxOnMain(repo)).toBe("^1.1.0");
   });
 
   it("deletes the draft's branch, builds, working copy and sandbox once it lands", async () => {

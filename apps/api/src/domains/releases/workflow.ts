@@ -4,11 +4,12 @@ import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
 import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
 import type { WorkflowEvent, WorkflowStep, WorkflowStepConfig } from "cloudflare:workers";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 
 import { createDb, type Database } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
+import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 import { sendReleaseFailureAlert } from "./alert";
 import { camoxVersionInLockfile } from "./lockfile";
@@ -19,6 +20,15 @@ const MAIN = "refs/heads/main";
 /** A few quick retries: a copy of `main` that can't refresh mustn't hold up the release. */
 const REFRESH_RETRIES: WorkflowStepConfig = {
   retries: { limit: 2, delay: "1 second", backoff: "constant" },
+};
+
+/**
+ * Merges build their drafts' trees, so they get a build's time. Each draft retries what fails on
+ * Camox's side, so the step tries once more, for the drafts that didn't merge.
+ */
+const MERGES: WorkflowStepConfig = {
+  retries: { limit: 1, delay: "10 seconds", backoff: "constant" },
+  timeout: "30 minutes",
 };
 
 // `@cloudflare/ci` types every binding its examples have, but the Workflow only reads `ARTIFACTS`,
@@ -46,6 +56,25 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
     // Only a Project ID names a project's repo and Worker. Other repos in the namespace, such as
     // `template-default`, aren't released, and the deploy's `--name` is safe in a command.
     if (push.ref !== MAIN || !projectIdSchema.safeParse(push.repo).success) return;
+    try {
+      await this.release(event, step, ci);
+    } finally {
+      // Once the release deployed, or found nothing to release: a publish waiting for its
+      // draft's merge revision then ships it over this release, never under it.
+      await step
+        .do("merge main into the drafts with code", MERGES, () =>
+          mergeIntoDrafts(this.env, push.repo, push.sha),
+        )
+        .catch((error: unknown) => console.error("Main wasn't merged into the drafts", error));
+    }
+  }
+
+  private async release(
+    event: WorkflowEvent<CiParams<CloudflareArtifacts>>,
+    step: WorkflowStep,
+    ci: CiContext,
+  ) {
+    const push = event.payload;
     const db = createDb(this.env.DB);
 
     // The agent reads the code `main` now has. A copy that couldn't refresh doesn't hold up the
@@ -196,6 +225,35 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       tree: read.treeHash,
       camoxVersion: lockfile ? camoxVersionInLockfile(await lockfile.text()) : null,
     };
+  }
+}
+
+/**
+ * Merges the `main` pushed into every open draft with code of the project `projectUuid`, each in
+ * its thread, which merges right away when its agent is idle, or after its turn otherwise. A
+ * draft that can't merge doesn't hold up the others. A `main` that moved on since `commit` is
+ * left to the release of the push that moved it, which merges once that release ended.
+ */
+async function mergeIntoDrafts(env: Bindings, projectUuid: string, commit: string) {
+  using repo = await env.ARTIFACTS.get(projectUuid);
+  const [main] = await repo.log({ ref: "main", limit: 1 });
+  if (main?.hash !== commit) return;
+  const open = await createDb(env.DB)
+    .select({ id: drafts.id, threadId: drafts.threadId })
+    .from(drafts)
+    .innerJoin(projects, eq(projects.id, drafts.projectId))
+    .where(
+      and(eq(projects.uuid, projectUuid), eq(drafts.kind, "regular"), isNotNull(drafts.threadId)),
+    );
+  const merges = await Promise.allSettled(
+    open.map(async ({ id, threadId }) => {
+      if (!(await env.DRAFT_CODE.getByName(id).held())) return "noCode";
+      return env.THREAD.getByName(threadId!).mergeMain();
+    }),
+  );
+  const failed = merges.flatMap((merge) => (merge.status === "rejected" ? [merge.reason] : []));
+  if (failed.length > 0) {
+    throw new AggregateError(failed, `${failed.length} draft(s) didn't merge Live's code`);
   }
 }
 

@@ -2,7 +2,8 @@
 // memory, served over Git's smart HTTP protocol the way Cloudflare Artifacts serves a repo's
 // `remote`, so that isomorphic-git clones from them and pushes to them as it does in production.
 // Only what isomorphic-git asks for is served: a full or depth-limited clone or fetch of any
-// branch or reachable commit (no `haves`), and a push to any branch with `report-status` over
+// branch or reachable commit, a fetch from a shallow clone of the history since the commits it
+// has (its `haves`, where it finds a merge base), and a push to any branch with `report-status` over
 // `side-band-64k`, creating or deleting it. Every push to `main` is recorded as the event
 // Cloudflare Artifacts sends for it, for the tests to deliver (test/pushes.ts).
 import git from "isomorphic-git";
@@ -183,6 +184,29 @@ export async function readGitLink(name: string, ref: string, path: string) {
   }
 }
 
+/** The regular files of a branch or commit, by path, as text, or null without that commit. */
+export async function gitFiles(name: string, ref: string) {
+  const fs = repos.get(name);
+  if (!fs) return null;
+  const oid = await git.resolveRef({ ...bare(fs), ref }).catch(() => ref);
+  const files: Record<string, string> = {};
+  try {
+    await git.walk({
+      ...bare(fs),
+      trees: [git.TREE({ ref: oid })],
+      map: async (path, [entry]) => {
+        if (entry && path !== "." && (await entry.type()) === "blob") {
+          files[path] = new TextDecoder().decode((await entry.content())!);
+        }
+        return true;
+      },
+    });
+  } catch {
+    return null;
+  }
+  return files;
+}
+
 /** The commits on `main`, newest first, with their message. */
 export async function gitLog(name: string) {
   const fs = repos.get(name);
@@ -280,9 +304,25 @@ async function advertise(fs: MemoryFs, service: string) {
   return concat([pktLine(`# service=${service}\n`), FLUSH, ...lines, FLUSH]);
 }
 
-/** Every object reachable from `commits`, through at most `depth` commits of history when given. */
-async function reachable(fs: MemoryFs, commits: string[], depth = Number.POSITIVE_INFINITY) {
-  const seen = new Set<string>();
+/**
+ * Every object reachable from `commits`, through at most `depth` commits of history when given,
+ * down to the commits the client has, `haves`, which it holds with their trees: the history a
+ * shallow fetch from a known commit sends.
+ */
+async function reachable(
+  fs: MemoryFs,
+  commits: string[],
+  depth = Number.POSITIVE_INFINITY,
+  haves: string[] = [],
+) {
+  const held = new Set<string>();
+  for (const have of haves) {
+    const commit = await git.readCommit({ ...bare(fs), oid: have }).catch(() => null);
+    if (!commit) continue;
+    held.add(have);
+    await collectTree(fs, commit.commit.tree, held);
+  }
+  const seen = new Set<string>(held);
   const visitTree = async (oid: string) => {
     if (seen.has(oid)) return;
     seen.add(oid);
@@ -307,17 +347,30 @@ async function reachable(fs: MemoryFs, commits: string[], depth = Number.POSITIV
     }
     queue.push(...commit.parent.map((parent) => ({ oid: parent, level: level + 1 })));
   }
-  return { oids: [...seen], shallow };
+  return { oids: [...seen].filter((oid) => !held.has(oid)), shallow };
+}
+
+/** Adds the tree `oid` and everything in it to `into`. */
+async function collectTree(fs: MemoryFs, oid: string, into: Set<string>) {
+  if (into.has(oid)) return;
+  into.add(oid);
+  const { tree } = await git.readTree({ ...bare(fs), oid });
+  for (const entry of tree) {
+    if (entry.type === "tree") await collectTree(fs, entry.oid, into);
+    else into.add(entry.oid);
+  }
 }
 
 async function uploadPack(fs: MemoryFs, body: Uint8Array) {
   const { lines } = readPktLines(body);
   const wants = lines.filter((l) => l.startsWith("want ")).map((l) => l.slice(5, 45));
+  const haves = lines.filter((l) => l.startsWith("have ")).map((l) => l.slice(5, 45));
   const deepen = lines.find((l) => l.startsWith("deepen "));
   const { oids, shallow } = await reachable(
     fs,
     wants,
     deepen ? Number(deepen.slice(7)) : undefined,
+    haves,
   );
   const { packfile } = await git.packObjects({ ...bare(fs), oids, write: false });
   return concat([
