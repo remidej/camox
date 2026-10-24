@@ -36,7 +36,7 @@ import {
   wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
 import {
   type CapabilityStartContext,
@@ -506,6 +506,7 @@ export class Thread extends DurableObject<Bindings> {
         Effect.scoped(
           Effect.gen(function* () {
             const { scope: draft } = yield* accessTo(ctx, { project: actor.projectId }, "write");
+            if (draft.kind === "development") return null;
             if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
               yield* Effect.promise(() => startCode(draft.id));
             }
@@ -513,6 +514,13 @@ export class Thread extends DurableObject<Bindings> {
           }),
         ),
       );
+      // A development draft's code is the developer's own, in their checkout.
+      if (draftId === null) {
+        throw new FileError(
+          "permission_denied",
+          "This is a development draft: its code is the developer's, on their computer, and only they change it. You can still change its content.",
+        );
+      }
       if (starting) {
         await this.#wrote(invocation).catch((error: unknown) =>
           console.error("A thread couldn't move into the draft its write started", error),
