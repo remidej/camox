@@ -9,8 +9,8 @@ import * as React from "react";
 
 import { matchDerivedLayout, routeSegments } from "../../core/derivedRoutes";
 import { parseLocalePath } from "../../lib/locale-path";
+import { useRoutableLayouts } from "../../lib/studio-definitions";
 import { useViewLocale } from "../../lib/view-locale-context";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import type { DerivedCanvasPage } from "./canvasPages";
 
 type Props = {
@@ -25,11 +25,11 @@ export function DerivedPagePathInput(props: Props) {
 }
 
 function PagePathForm({ page, pathname, onChange }: Props) {
-  const app = useCamoxApp();
+  const layouts = useRoutableLayouts();
   const { locales } = useViewLocale();
   const [values, setValues] = React.useState<Record<string, string>>(() => {
     if (!pathname || /[?#]/.test(pathname)) return {};
-    const match = matchDerivedLayout(app.getLayouts(), parseLocalePath(pathname, locales).path);
+    const match = matchDerivedLayout(layouts, parseLocalePath(pathname, locales).path);
     return match && match.layout._internal.id === page.layoutId ? match.params : {};
   });
   const [invalid, setInvalid] = React.useState(false);
@@ -53,7 +53,7 @@ function PagePathForm({ page, pathname, onChange }: Props) {
   const matches =
     validParams &&
     !/[?#]/.test(path) &&
-    matchDerivedLayout(app.getLayouts(), path)?.layout._internal.id === page.layoutId;
+    matchDerivedLayout(layouts, path)?.layout._internal.id === page.layoutId;
 
   return (
     <form

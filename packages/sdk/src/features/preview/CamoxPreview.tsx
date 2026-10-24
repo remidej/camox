@@ -26,7 +26,7 @@ import { canvasStore } from "../canvas/canvasStore";
 import { CanvasSidebarSkeleton } from "../canvas/sidebar/CanvasSidebarSkeleton";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { useCamoxApp, useOptionalCamoxApp } from "../provider/components/CamoxAppContext";
 import { takeShowCanvasRequest } from "../provider/signInShortcut";
 import { RendererFramesProvider, RendererSlot } from "../renderer/RendererFrames";
 import { rendererFrameEnabled } from "../renderer/rendererOption";
@@ -305,7 +305,8 @@ export const CamoxPreview = ({
   derived?: PageRenderInput["derived"];
   canvasOnly?: PageRenderInput["canvasOnly"];
 }) => {
-  const camoxApp = useCamoxApp();
+  // Only rendering the page here reads its code; through the renderer frame, nothing does.
+  const camoxApp = useOptionalCamoxApp();
   const location = useLocation();
   useRememberWebsiteLocation(location);
   const shown = useShownPage(location, derived, !!canvasOnly);
@@ -363,14 +364,16 @@ export const CamoxPreview = ({
         canvasOnly={canvasOnly}
         runtimeBasePath={runtimeBasePath}
       >
-        {shownDerived && layout ? (
-          <DerivedPageContent
-            camoxApp={camoxApp}
-            derived={{ ...shownDerived, layout, result: derivedResult }}
-          />
-        ) : shown ? (
-          children
-        ) : null}
+        {shownDerived && layout
+          ? camoxApp && (
+              <DerivedPageContent
+                camoxApp={camoxApp}
+                derived={{ ...shownDerived, layout, result: derivedResult }}
+              />
+            )
+          : shown
+            ? children
+            : null}
       </PreviewShell>
     </PageRecordContext>
   );

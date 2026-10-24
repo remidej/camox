@@ -2,13 +2,13 @@ import * as React from "react";
 
 import { useProjectUuid } from "../../lib/auth";
 import { parseLocalePath } from "../../lib/locale-path";
+import { useRoutableLayouts } from "../../lib/studio-definitions";
 import { reads, useReadQueries, useReadQuery } from "../../lib/studio-reads";
 import { useViewLocale } from "../../lib/view-locale-context";
 import { type CanvasPage, canvasPageId, getCanvasPages } from "../canvas/canvasPages";
 import { selectedCanvasPage } from "../canvas/canvasSelection";
 import { useDiscoveredPreviewPaths } from "../canvas/useDiscoveredPreviewPaths";
 import { useLocation, useNavigate } from "../navigation/navigation";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import {
   createFollowAgent,
   type FollowAgent,
@@ -66,7 +66,7 @@ function useCurrentPageBlocks(page: CanvasPage | undefined, path: string) {
 
 /** Where the editor is, and the Studio content following locates the agent's touches with. */
 function useFollowWhere(runtimeBasePath: string): FollowWhere {
-  const app = useCamoxApp();
+  const layouts = useRoutableLayouts();
   const projectUuid = useProjectUuid();
   const location = useLocation();
   const { locale, locales } = useViewLocale();
@@ -76,10 +76,10 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
   });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
   const canvasPages = React.useMemo(
-    () => (pageList ? getCanvasPages(pageList, app.getLayouts(), discoveredPaths, locale) : []),
-    [pageList, app, discoveredPaths, locale],
+    () => (pageList ? getCanvasPages(pageList, layouts, discoveredPaths, locale) : []),
+    [pageList, layouts, discoveredPaths, locale],
   );
-  const current = selectedCanvasPage(canvasPages, app.getLayouts(), location.pathname, locales);
+  const current = selectedCanvasPage(canvasPages, layouts, location.pathname, locales);
   const blocks = useCurrentPageBlocks(current, parseLocalePath(location.pathname, locales).path);
   const pages = React.useMemo(() => {
     const layoutOf = new Map(pageList?.map((page) => [page.id, page.layoutId]));

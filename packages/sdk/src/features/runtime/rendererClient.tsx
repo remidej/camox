@@ -42,7 +42,7 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
     scope: draftScope,
     api: getDraftReadClient,
   });
-  const connection = connectToStudio(handle, { queryClient, studioCache, draftScope });
+  const connection = connectToStudio(handle, { queryClient, studioCache, draftScope, camoxApp });
 
   const container = document.createElement("div");
   document.body.append(container);

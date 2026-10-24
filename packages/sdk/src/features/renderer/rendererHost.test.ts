@@ -121,6 +121,63 @@ void test("what the renderer says about a frame reaches the one who showed it", 
   ]);
 });
 
+void test("the studio asks the renderer what only the draft's code knows, and hears its answer", async (t) => {
+  const host = setup(t);
+  // Asked before any renderer connected: the first one to connect is asked.
+  const bundle = host.ask({ type: "initialBundle", blockType: "hero" });
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  const [asked] = renderer.all("ask");
+  assert.deepEqual(asked?.question, { type: "initialBundle", blockType: "hero" });
+  const initial = { content: { title: "Hello" }, settings: {}, repeatableItems: [] };
+  renderer.send({ type: "answer", askId: asked!.askId, value: initial });
+  assert.deepEqual(await bundle, initial);
+
+  const missing = host.ask({ type: "initialBundle", blockType: "gone" });
+  await settle();
+  const failing = renderer.last("ask")!;
+  renderer.send({ type: "answer", askId: failing.askId, error: "The block crashed" });
+  await assert.rejects(missing, /The block crashed/);
+});
+
+void test("a question the last renderer left unanswered is asked of the next one, which alone answers", async (t) => {
+  const host = setup(t);
+  const first = fakeRenderer(host.handle);
+  await settle();
+  const title = host.ask({ type: "initialBundle", blockType: "hero" });
+  await settle();
+  const [lost] = first.all("ask");
+  assert.ok(lost);
+  // The renderer reloads before answering.
+  const second = fakeRenderer(host.handle);
+  await settle();
+  const [asked] = second.all("ask");
+  assert.deepEqual(asked?.question, lost.question);
+  first.send({ type: "answer", askId: lost.askId, value: { from: "first" } });
+  second.send({ type: "answer", askId: asked!.askId, value: { from: "second" } });
+  assert.deepEqual(await title, { from: "second" });
+});
+
+void test("the renderer renders each thumbnail shown, even before it connected, until hidden", async (t) => {
+  const host = setup(t);
+  const slot = {} as HTMLElement;
+  host.showThumbnail("hero-thumbnail", slot, "hero");
+  const renderer = fakeRenderer(host.handle);
+  await settle();
+  assert.deepEqual(renderer.all("thumbnail"), [
+    { type: "thumbnail", thumbnailId: "hero-thumbnail", slot, blockType: "hero" },
+  ]);
+  host.hideThumbnail("hero-thumbnail");
+  await settle();
+  assert.deepEqual(renderer.last("thumbnailEnd"), {
+    type: "thumbnailEnd",
+    thumbnailId: "hero-thumbnail",
+  });
+  const reconnected = fakeRenderer(host.handle);
+  await settle();
+  assert.deepEqual(reconnected.all("thumbnail"), [], "a hidden thumbnail isn't shown again");
+});
+
 /** The studio's cache and the draft it views, `draft` or Live. */
 function studioState(draft: string | null) {
   const queryClient = new QueryClient();

@@ -6,6 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 
+import type { CamoxApp } from "../../core/createApp";
 import type { PageRenderInput } from "../runtime/runtime";
 import type { RendererFrameTarget } from "./protocol";
 
@@ -52,7 +53,10 @@ function pageInput(pathname: string, derived?: PageRenderInput["derived"]) {
   } as unknown as PageRenderInput;
 }
 
-async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
+async function setup(
+  t: { after: (fn: () => Promise<void> | void) => void },
+  camoxApp: CamoxApp = {} as never,
+) {
   const dom = new Window({ url: "http://localhost/_camox/renderer" });
   const globals = {
     React,
@@ -60,6 +64,7 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
     document: dom.document,
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
+    localStorage: dom.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
     PageProbe,
   };
@@ -81,6 +86,7 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
   const { fakeStudio, settle } = await import("./protocol.fixtures");
   const { connectToStudio } = await import("./studioConnection");
   const { RendererApp } = await import("./RendererApp");
+  const { AuthContext, createCamoxAuthClient } = await import("../../lib/auth");
 
   /** What each page rendered with, by the content it is. */
   function PageProbe({ content }: { content: string }) {
@@ -142,12 +148,22 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }) {
   await React.act(async () =>
     root.render(
       <StudioQueryClientProvider client={queryClient} draftScope={draftScope}>
-        <RendererApp
-          connection={connection}
-          camoxApp={{} as never}
-          projectUuid="p"
-          runtimeBasePath=""
-        />
+        {/* Only the studio's members load the renderer. */}
+        <AuthContext.Provider
+          value={{
+            projectUuid: "p",
+            apiUrl: "http://localhost:8788",
+            authenticationUrl: "http://localhost:3290",
+            authClient: createCamoxAuthClient("http://localhost:8788"),
+          }}
+        >
+          <RendererApp
+            connection={connection}
+            camoxApp={camoxApp}
+            projectUuid="p"
+            runtimeBasePath=""
+          />
+        </AuthContext.Provider>
       </StudioQueryClientProvider>,
     ),
   );
@@ -273,4 +289,30 @@ void test("an edit made in a frame's page is the studio's to write, and the page
   assert.equal(fetched.mock.callCount(), 0, "the renderer never writes content itself");
   await act(() => studio.send({ type: "edited", editId: sent!.editId, error: "Not a member" }));
   assert.equal(probe().getAttribute("data-saved"), "Not a member");
+});
+
+void test("the renderer renders each block thumbnail with the draft's code, into the slot it is given", async (t) => {
+  const { createApp } = await import("../../core/createApp");
+  const { createBlock } = await import("../../core/createBlock");
+  // A block whose code only the renderer has, lazy as a draft's new block can be.
+  const hero = createBlock({
+    id: "hero",
+    title: "Hero",
+    description: "A hero",
+    content: (field) => ({ title: field.string({ default: "Welcome aboard" }) }),
+    toReact: ({ content }) => <p data-peek>{content.title}</p>,
+    toMarkdown: () => [],
+    toTitle: () => "Hero",
+  });
+  const camoxApp = createApp({ blocks: [], lazyBlocks: { hero: async () => hero as never } });
+  const { studio, visibleFrame, act } = await setup(t, camoxApp);
+  const thumbnail = visibleFrame("http://localhost/");
+  await act(() =>
+    studio.send({ type: "thumbnail", thumbnailId: "t1", slot: thumbnail.slot, blockType: "hero" }),
+  );
+  await act(() => {});
+  assert.equal(thumbnail.slot.querySelector("[data-peek]")?.textContent, "Welcome aboard");
+
+  await act(() => studio.send({ type: "thumbnailEnd", thumbnailId: "t1" }));
+  assert.equal(thumbnail.slot.childElementCount, 0);
 });

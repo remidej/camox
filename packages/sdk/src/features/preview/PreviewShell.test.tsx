@@ -34,7 +34,8 @@ registerHooks({
           "export const NormalizedDataProvider = ({children}) => children; export const usePageBlocks = () => ({})",
         "@/lib/queries": "export const blockQueries = {}",
         "@/lib/utils": "export const cn = (...args) => args.filter(Boolean).join(' ')",
-        "../provider/components/CamoxAppContext": "export const useCamoxApp = () => ({})",
+        "../provider/components/CamoxAppContext":
+          "export const useCamoxApp = () => ({}); export const useOptionalCamoxApp = () => ({})",
         "../page/DerivedPageContent":
           "export const DerivedPageContent = () => React.createElement('p', {'data-derived-content': true})",
         "./components/PreviewPanel":

@@ -1321,7 +1321,7 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
   }
 }
 
-type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
+type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout<Layout>>>;
 
 /**
  * The context `loader` and `routes` get. Its record lookup reads each record's current content;

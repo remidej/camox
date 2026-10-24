@@ -53,7 +53,11 @@ const definition = (blockId: string, title: string, extra: Record<string, unknow
 async function renderSheet(
   t: TestContext,
   definitions: Record<string, ReturnType<typeof definition>[]>,
-  { developmentMode = false } = {},
+  {
+    developmentMode = false,
+    renderer = false,
+    thumbnailsInView = false,
+  }: { developmentMode?: boolean; renderer?: boolean; thumbnailsInView?: boolean } = {},
 ) {
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
@@ -75,9 +79,33 @@ async function renderSheet(
   const { AddBlockSheet } = await import("./AddBlockSheet");
   const { previewStore } = await import("../previewStore");
 
+  const { createRendererHost } = await import("../../renderer/rendererHost");
+  const { RendererHostContext } = await import("../../renderer/RendererFrames");
+  const { fakeRenderer } = await import("../../renderer/protocol.fixtures");
+  if (thumbnailsInView) {
+    // Every thumbnail is in view, and laid out, as soon as it mounts.
+    class InView {
+      constructor(private report: (entries: unknown[]) => void) {}
+      observe() {
+        this.report([{ isIntersecting: true, contentRect: { width: 300 } }]);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.assign(globalThis, { IntersectionObserver: InView, ResizeObserver: InView });
+  }
+  const rendererHost = renderer ? createRendererHost() : null;
+  const rendererFrame = rendererHost ? fakeRenderer(rendererHost.handle) : null;
+
+  const requests: { procedure: string; input: unknown }[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const procedure = new URL(request.url).pathname.replace("/rpc/", "");
     const draft = request.headers.get(DRAFT_HEADER) ?? "live";
+    if (procedure === "blocks/create") {
+      const { json: input } = (await request.json()) as { json: { id: string } };
+      requests.push({ procedure, input });
+      return Response.json({ json: { id: input.id } });
+    }
     if (procedure === "projects/getByUuid") return Response.json({ json: { id: PROJECT_ID } });
     if (procedure === "blockDefinitions/list") {
       return Response.json({ json: definitions[draft] ?? [] });
@@ -111,7 +139,9 @@ async function renderSheet(
             authClient: createCamoxAuthClient("http://localhost:8788"),
           }}
         >
-          <AddBlockSheet />
+          <RendererHostContext value={rendererHost}>
+            <AddBlockSheet />
+          </RendererHostContext>
         </AuthContext.Provider>
       </StudioQueryClientProvider>,
     );
@@ -120,7 +150,15 @@ async function renderSheet(
   for (let i = 0; i < 3; i++) await settle();
 
   t.after(async () => {
-    await act(async () => root.unmount());
+    try {
+      await act(async () => root.unmount());
+    } catch (error) {
+      // happy-dom empties a frame's document as soon as the frame leaves the page, so React
+      // can't take out what it portaled into a thumbnail frame. Browsers keep it until then.
+      const errors = error instanceof AggregateError ? error.errors : [error];
+      if (!errors.every((cause) => String(cause).includes("removeChild"))) throw error;
+    }
+    rendererHost?.close();
     host.remove();
     client.clear();
     previewStore.send({ type: "closeAddBlockSheet" });
@@ -132,6 +170,18 @@ async function renderSheet(
     /** Each listed block's title, with its Synced badge when it has one. */
     listed: () =>
       items().map((item) => item.querySelector(".font-medium")?.parentElement?.textContent),
+    /** Picks the listed block titled `title`, as pressing Enter on it does. */
+    add: (title: string) =>
+      act(async () => {
+        items()
+          .find((item) => item.querySelector(".font-medium")?.textContent === title)
+          ?.click();
+      }),
+    settle,
+    /** The renderer frame the studio talks to, when it renders through one. */
+    renderer: rendererFrame,
+    /** The block creations the API received. */
+    requests,
   };
 }
 
@@ -158,4 +208,71 @@ void test("in a development draft, the add-block sheet lists that draft's block 
   );
 
   assert.deepEqual(sheet.listed(), ["Hero", "Pricing"]);
+});
+
+void test("through the renderer frame, each listed block's thumbnail is the renderer's to render, in its own frame", async (t) => {
+  // "pricing" is a block only the draft's code has: the studio has no registry at all.
+  const sheet = await renderSheet(
+    t,
+    { live: [definition("hero", "Hero"), definition("pricing", "Pricing")] },
+    { renderer: true, thumbnailsInView: true },
+  );
+  for (let i = 0; i < 3; i++) await sheet.settle();
+
+  const thumbnails = sheet.renderer!.all("thumbnail");
+  assert.deepEqual(
+    thumbnails.map(({ blockType }) => blockType),
+    ["hero", "pricing"],
+  );
+  // Each slot is inside the thumbnail frame of its own block's card, never the sheet's document.
+  const cards = [...document.querySelectorAll<HTMLElement>("[cmdk-item]")];
+  for (const [index, { slot }] of thumbnails.entries()) {
+    const frame = cards[index]?.querySelector("iframe");
+    assert.notEqual(slot.ownerDocument, document);
+    assert.equal(slot.ownerDocument, frame?.contentDocument);
+  }
+});
+
+void test("through the renderer frame, a new block starts with the content the renderer gives it", async (t) => {
+  const sheet = await renderSheet(
+    t,
+    { live: [definition("pricing", "Pricing")] },
+    { renderer: true },
+  );
+  await sheet.add("Pricing");
+  await sheet.settle();
+  const [asked] = sheet.renderer!.all("ask");
+  assert.deepEqual(asked?.question, { type: "initialBundle", blockType: "pricing" });
+  assert.equal(sheet.requests.length, 0, "nothing is created before the renderer answers");
+
+  const repeatableItems = [
+    {
+      tempId: "t1",
+      parentTempId: null,
+      fieldName: "plans",
+      content: { name: "Pro" },
+      position: "a0",
+    },
+  ];
+  sheet.renderer!.send({
+    type: "answer",
+    askId: asked!.askId,
+    value: { content: { title: "Simple pricing" }, settings: { yearly: true }, repeatableItems },
+  });
+  for (let i = 0; i < 3; i++) await sheet.settle();
+  const created = sheet.requests[0]?.input as Record<string, unknown> | undefined;
+  assert.deepEqual(
+    {
+      type: created?.type,
+      content: created?.content,
+      settings: created?.settings,
+      repeatableItems: created?.repeatableItems,
+    },
+    {
+      type: "pricing",
+      content: { title: "Simple pricing" },
+      settings: { yearly: true },
+      repeatableItems,
+    },
+  );
 });

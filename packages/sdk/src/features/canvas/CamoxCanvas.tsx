@@ -7,6 +7,7 @@ import { useAuthContext, useProjectUuid } from "../../lib/auth";
 import { useOptionalDraftScope } from "../../lib/draft-scope";
 import { parseLocalePath } from "../../lib/locale-path";
 import { pageMutations } from "../../lib/queries";
+import { useRoutableLayouts } from "../../lib/studio-definitions";
 import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import { useLocalizedPath } from "../../lib/view-locale";
 import { useViewLocale } from "../../lib/view-locale-context";
@@ -21,7 +22,7 @@ import {
 } from "../preview/previewPageFrame";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, type EditingOwner } from "../preview/previewStore";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { useOptionalCamoxApp } from "../provider/components/CamoxAppContext";
 import { FollowAgentContext } from "../studio/followAgentContext";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
@@ -517,7 +518,7 @@ function useRenamePage() {
  */
 function useWorkspaceThumbnails(workspaceKey: string) {
   const queryClient = useQueryClient();
-  const app = useCamoxApp();
+  const app = useOptionalCamoxApp();
   const [thumbnails] = React.useState(() =>
     canvasThumbnailsSupported() ? createCanvasThumbnails(queryClient) : null,
   );
@@ -778,7 +779,7 @@ function CanvasWorkspace({
 }
 
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
-  const app = useCamoxApp();
+  const layouts = useRoutableLayouts();
   const renamePage = useRenamePage();
   const location = useLocation();
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
@@ -814,7 +815,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
   const viewLocale = useViewLocale();
   const canvasPages = pages.data
-    ? getCanvasPages(pages.data, app.getLayouts(), discoveredPaths, viewLocale.locale)
+    ? getCanvasPages(pages.data, layouts, discoveredPaths, viewLocale.locale)
     : [];
   // Whether a pathname is the Canvas itself, with nothing selected.
   const isCanvasPath = (runtimePath: string) =>
@@ -823,7 +824,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const pageAt = (runtimePath: string) =>
     isCanvasPath(runtimePath)
       ? undefined
-      : selectedCanvasPage(canvasPages, app.getLayouts(), runtimePath, viewLocale.locales);
+      : selectedCanvasPage(canvasPages, layouts, runtimePath, viewLocale.locales);
   const selectedPage = pageAt(location.pathname);
   const previewedPath = React.use(PreviewPageFrameContext)?.pathname;
   const previewedPage = previewedPath ? pageAt(previewedPath) : undefined;

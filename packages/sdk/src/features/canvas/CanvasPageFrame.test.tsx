@@ -17,7 +17,9 @@ registerHooks({
     if (specifier === "virtual:camox-overlay-css") source = "export default ''";
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
     if (context.parentURL?.endsWith("/CanvasPageFrame.tsx")) {
-      if (specifier.endsWith("/CamoxAppContext")) source = "export const useCamoxApp = () => ({})";
+      if (specifier.endsWith("/CamoxAppContext"))
+        source =
+          "export const useCamoxApp = () => ({}); export const useOptionalCamoxApp = () => ({})";
       for (const name of ["EditablePageContent", "DerivedPageContent"]) {
         if (specifier.endsWith(`/${name}`))
           source = `export const ${name} = () => React.createElement(globalThis.CanvasContentProbe)`;

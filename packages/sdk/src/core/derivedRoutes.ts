@@ -6,7 +6,13 @@ export function routeSegments(id: string) {
   return id.split(".");
 }
 
-export function matchDerivedLayout(layouts: Layout[], pathname: string) {
+/** A layout as route matching reads it: its code, or its synced definition. */
+export type RoutedLayout = { _internal: Pick<Layout["_internal"], "id" | "kind"> };
+
+export function matchDerivedLayout<L extends RoutedLayout>(
+  layouts: readonly L[],
+  pathname: string,
+): { layout: L; params: Record<string, string> } | null {
   const path = pathname.replace(/^\/|\/$/g, "").split("/");
   const candidates = layouts
     .filter((layout) => layout._internal.kind !== "curated")

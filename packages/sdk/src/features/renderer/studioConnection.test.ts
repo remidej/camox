@@ -4,6 +4,9 @@ import { test } from "node:test";
 import type { QueryKey } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 
+import { createApp, type CamoxApp } from "../../core/createApp";
+import { createBlock, type Block } from "../../core/createBlock";
+import { createLayout } from "../../core/createLayout";
 import { testDraftScope, testStudioCache } from "../../lib/draft-scope.fixtures";
 import { reads } from "../../lib/studio-reads";
 import { canvasStore } from "../canvas/canvasStore";
@@ -23,10 +26,14 @@ function rendererState(draft: string | null = null) {
   return { queryClient, draftScope, studioCache: testStudioCache(queryClient, { draftScope }) };
 }
 
-async function connect(t: { after: (fn: () => void) => void }, draft: string | null = null) {
+async function connect(
+  t: { after: (fn: () => void) => void },
+  draft: string | null = null,
+  camoxApp?: CamoxApp,
+) {
   const studio = fakeStudio();
   const state = rendererState(draft);
-  const connection = connectToStudio(studio.handle, state);
+  const connection = connectToStudio(studio.handle, { ...state, camoxApp });
   t.after(() => {
     connection.close();
     previewStore.send({ type: "reset" });
@@ -179,4 +186,103 @@ void test("the renderer's edits go to the studio, and each settles as the studio
   studio.send({ type: "edited", editId: -1 });
   await settle();
   assert.deepEqual(outcomes, [{ answer: "Not a member" }, "title saved"]);
+});
+
+/** The draft's code: a hero block, and a curated layout titling its pages after the project. */
+function draftCode() {
+  const hero = createBlock({
+    id: "hero",
+    title: "Hero",
+    description: "A hero",
+    content: (field) => ({
+      title: field.string({ default: "Welcome" }),
+      items: field.repeater({
+        title: "Items",
+        content: (field) => ({ label: field.string({ default: "Item" }) }),
+        minItems: 1,
+        maxItems: 3,
+        toMarkdown: () => [],
+        toTitle: () => "Item",
+      }),
+    }),
+    settings: (setting) => ({ dark: setting.boolean({ default: true, title: "Dark" }) }),
+    toReact: () => null,
+    toMarkdown: () => [],
+    toTitle: () => "Hero",
+  }) as unknown as Block;
+  const layout = createLayout({
+    id: "default",
+    title: "Default",
+    description: "A layout",
+    blocks: { before: [], after: [] },
+    toReact: ({ children }: { children: unknown }) => children as never,
+    toTitle: ({ page, project }) => `${page.title} · ${project.name}`,
+    toDescription: () => undefined,
+  });
+  return createApp({ blocks: [hero], layouts: [layout] });
+}
+
+void test("the renderer answers the studio's questions from the draft's code", async (t) => {
+  const { studio } = await connect(t, null, draftCode());
+  const page = { fullPath: "/about", nickname: "About", metaTitle: null };
+  const locale = { tag: "und", isDefault: true };
+  studio.send({ type: "ask", askId: 1, question: { type: "initialBundle", blockType: "hero" } });
+  studio.send({ type: "ask", askId: 2, question: { type: "initialBundle", blockType: "gone" } });
+  studio.send({
+    type: "ask",
+    askId: 3,
+    question: { type: "pageTitle", layoutId: "default", page, projectName: "Acme", locale },
+  });
+  studio.send({
+    type: "ask",
+    askId: 4,
+    question: { type: "pageTitle", layoutId: "gone", page, projectName: "Acme", locale },
+  });
+  await settle();
+  const answers = new Map(studio.all("answer").map(({ askId, ...answer }) => [askId, answer]));
+  const bundle = answers.get(1)?.value as {
+    content: unknown;
+    settings: unknown;
+    repeatableItems: { content: unknown }[];
+  };
+  assert.deepEqual(bundle.content, { title: "Welcome" });
+  assert.deepEqual(bundle.settings, { dark: true });
+  assert.deepEqual(
+    bundle.repeatableItems.map(({ content }) => content),
+    [{ label: "Item" }],
+  );
+  assert.deepEqual(answers.get(2), { type: "answer", value: null });
+  assert.deepEqual(answers.get(3), { type: "answer", value: "About · Acme" });
+  assert.deepEqual(answers.get(4), { type: "answer", value: null });
+});
+
+void test("a question the draft's code fails to answer is answered with why", async (t) => {
+  const app = draftCode();
+  t.mock.method(app.getLayoutById("default")!._internal, "toTitle", () => {
+    throw new Error("toTitle crashed");
+  });
+  const { studio } = await connect(t, null, app);
+  studio.send({
+    type: "ask",
+    askId: 1,
+    question: {
+      type: "pageTitle",
+      layoutId: "default",
+      page: { fullPath: "/", nickname: "Home" },
+      projectName: "Acme",
+      locale: { tag: "und", isDefault: true },
+    },
+  });
+  await settle();
+  assert.deepEqual(studio.all("answer"), [{ type: "answer", askId: 1, error: "toTitle crashed" }]);
+});
+
+void test("the renderer keeps the thumbnails the studio gives it, until they end", async (t) => {
+  const { studio, connection } = await connect(t);
+  const slot = {} as HTMLElement;
+  studio.send({ type: "thumbnail", thumbnailId: "hero", slot, blockType: "hero" });
+  studio.send({ type: "thumbnail", thumbnailId: "faq", slot, blockType: "faq" });
+  studio.send({ type: "thumbnailEnd", thumbnailId: "faq" });
+  await settle();
+  assert.deepEqual(connection.thumbnails(), [{ thumbnailId: "hero", slot, blockType: "hero" }]);
 });

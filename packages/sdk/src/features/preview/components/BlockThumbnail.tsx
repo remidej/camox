@@ -1,26 +1,33 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 
-import type { Block } from "@/core/createBlock";
-import { NormalizedDataProvider } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 
+import { useOptionalCamoxApp } from "../../provider/components/CamoxAppContext";
+import { useRendererHost } from "../../renderer/RendererFrames";
 import { useEditingFrame } from "../editingFrame";
-import { BlockErrorBoundary } from "./BlockErrorBoundary";
+import { BlockPeek } from "./BlockPeek";
 import { FrameContext } from "./Frame";
 import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
 
 const VIEWPORT_WIDTH = 1200;
 const VIEWPORT_HEIGHT = 800;
 
-const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
+const ThumbnailFrame = ({
+  blockType,
+  title,
+  width,
+}: {
+  blockType: string;
+  title: string;
+  width: number;
+}) => {
   // The site's styles, from the page being edited, or else the Studio's document.
   const sourceDocument = useEditingFrame().document;
   const [frame, setFrame] = React.useState<HTMLIFrameElement | null>(null);
   const [root, setRoot] = React.useState<HTMLElement | null>(null);
   const [content, setContent] = React.useState<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = React.useState(VIEWPORT_HEIGHT);
-  const bundle = React.useMemo(() => block._internal.getPeekBundle(), [block]);
   // Ignores stylesheet loads from an earlier initialization of the frame.
   const initialization = React.useRef(0);
 
@@ -101,7 +108,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
     >
       <iframe
         ref={setFrame}
-        title={`${block._internal.title} preview`}
+        title={`${title} preview`}
         srcDoc={EMPTY_PREVIEW_DOCUMENT}
         onLoad={initialize}
         tabIndex={-1}
@@ -118,25 +125,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
             value={{ window: frame?.contentWindow ?? null, iframeElement: frame }}
           >
             <div ref={setContent} style={{ display: "flow-root" }}>
-              <BlockErrorBoundary blockId="thumbnail" blockType={block._internal.id}>
-                <React.Suspense fallback={null}>
-                  <NormalizedDataProvider
-                    files={bundle.files}
-                    repeatableItems={bundle.repeatableItems}
-                  >
-                    <block._internal.Component
-                      blockData={{
-                        _id: "thumbnail",
-                        type: block._internal.id,
-                        content: bundle.block.content as Record<string, unknown>,
-                        settings: bundle.block.settings as Record<string, unknown> | undefined,
-                        position: "",
-                      }}
-                      mode="peek"
-                    />
-                  </NormalizedDataProvider>
-                </React.Suspense>
-              </BlockErrorBoundary>
+              {content && <ThumbnailContent blockType={blockType} slot={content} />}
             </div>
           </FrameContext.Provider>,
           root,
@@ -145,17 +134,41 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
   );
 };
 
+/**
+ * What the thumbnail shows: the block rendered by the renderer frame, which runs the draft's
+ * code, into `slot`; without one, by the code this document has, if it has the block's.
+ */
+const ThumbnailContent = ({ blockType, slot }: { blockType: string; slot: HTMLElement }) => {
+  const host = useRendererHost();
+  const block = useOptionalCamoxApp()?.getBlockById(blockType);
+  const thumbnailId = React.useId();
+  React.useLayoutEffect(() => {
+    if (!host) return;
+    host.showThumbnail(thumbnailId, slot, blockType);
+    return () => host.hideThumbnail(thumbnailId);
+  }, [host, thumbnailId, slot, blockType]);
+  if (host || !block) return null;
+  return <BlockPeek block={block} />;
+};
+
 /** A block's thumbnail, rendered by its code: an empty frame for a block whose code isn't loaded. */
 export const BlockThumbnail = ({
-  block,
+  blockType,
+  title,
   className,
 }: {
-  block: Block | undefined;
+  blockType: string;
+  /** The block's title, naming its frame. */
+  title: string;
   className?: string;
 }) => {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = React.useState(false);
   const [width, setWidth] = React.useState(0);
+  // The renderer frame renders any block the draft's code has; without it, only this document's.
+  const host = useRendererHost();
+  const block = useOptionalCamoxApp()?.getBlockById(blockType);
+  const renderable = !!host || !!block;
 
   React.useEffect(() => {
     const element = ref.current;
@@ -183,7 +196,9 @@ export const BlockThumbnail = ({
       )}
       aria-hidden="true"
     >
-      {block && isVisible && width > 0 && <ThumbnailFrame block={block} width={width} />}
+      {renderable && isVisible && width > 0 && (
+        <ThumbnailFrame blockType={blockType} title={title} width={width} />
+      )}
     </div>
   );
 };

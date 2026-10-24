@@ -17,7 +17,7 @@ import {
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import type { EditingOwner } from "../preview/previewStore";
-import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { useOptionalCamoxApp } from "../provider/components/CamoxAppContext";
 import { RendererSlot, useRendererHost } from "../renderer/RendererFrames";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -101,7 +101,8 @@ function PageFrame({
   onActivate,
   onSettled,
 }: CanvasPageFrameProps) {
-  const camoxApp = useCamoxApp();
+  // Only rendering the page here reads its code; through the renderer frame, nothing does.
+  const camoxApp = useOptionalCamoxApp();
   const href = canvasPageHref(input);
   const owner = useEditingOwner({ pageId, layoutId: input.derived?.layout.layoutId });
   const { iframeRef, iframe, mount, iframeProps } = useCanvasFrame({
@@ -207,7 +208,9 @@ function PageFrame({
                             onClick={preventLinkNavigation}
                           >
                             {input.derived ? (
-                              <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
+                              camoxApp && (
+                                <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
+                              )
                             ) : (
                               <EditablePageContent />
                             )}
