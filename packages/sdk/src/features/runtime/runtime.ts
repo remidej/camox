@@ -737,8 +737,9 @@ function renderHead(
 }
 
 /**
- * The browser loads a page's blocks before hydrating it. Preloading them alongside the entry
- * script avoids a request waterfall.
+ * A visitor's browser loads a page's blocks before hydrating it. Preloading them alongside the
+ * entry script avoids a request waterfall. A member's document loads none: only its renderer
+ * frame runs the site's code.
  */
 function renderBlockPreloads(options: RuntimeOptions, dehydratedState: unknown): string {
   const preloads = options.blockPreloads;
@@ -790,11 +791,14 @@ function renderClientEntryScript(src?: string): string {
   return `<script type="module" src="${escapeXml(src)}"></script>`;
 }
 
-async function preparePreviewDocument(
+/**
+ * The site document the studio's frames load: the site's head and an empty root, which the
+ * renderer frame renders the page into. The studio never renders the site's code itself.
+ */
+function preparePreviewDocument(
   input: PageRenderInput,
   options: RuntimeOptions,
   document: CamoxDocument,
-  content?: string,
 ) {
   const siteHead = renderHead(
     document,
@@ -805,17 +809,7 @@ async function preparePreviewDocument(
   );
   const href = new URL(withRuntimeBasePath(input.pathname, options.runtimeBasePath), input.href)
     .href;
-  const siteHtml =
-    content ??
-    (options.renderPage
-      ? await options.renderPage({
-          ...input,
-          href,
-          presentation: "public",
-          previewDocument: undefined,
-        })
-      : "");
-  input.previewDocument = `<!doctype html><html${siteHead.htmlAttrs}><head><base href="${escapeXml(href)}">${siteHead.headTags}</head><body${siteHead.bodyAttrs}>${siteHead.bodyTagsOpen}<div id="root" data-camox-preview-root>${siteHtml}</div>${siteHead.bodyTags}</body></html>`;
+  input.previewDocument = `<!doctype html><html${siteHead.htmlAttrs}><head><base href="${escapeXml(href)}">${siteHead.headTags}</head><body${siteHead.bodyAttrs}>${siteHead.bodyTagsOpen}<div id="root" data-camox-preview-root></div>${siteHead.bodyTags}</body></html>`;
 }
 
 /**
@@ -1280,9 +1274,7 @@ async function createPageHtmlResponse({
       locale: located.locale,
       locales: located.locales,
     } satisfies PageRenderInput;
-    // Public documents only need site head/attributes for possible client-side
-    // studio activation; avoid rendering or serializing their page content twice.
-    await preparePreviewDocument(pageRenderInput, options, document, studio ? undefined : "");
+    preparePreviewDocument(pageRenderInput, options, document);
     const appHtml = await options.renderPage(pageRenderInput);
     const renderedHead = renderHead(
       studio ? {} : document,
@@ -1299,7 +1291,7 @@ async function createPageHtmlResponse({
 ${renderStudioThemeScript(studio)}
 ${renderedHead.headTags}
 ${renderAnalyticsScripts(analytics)}
-${renderBlockPreloads(options, dehydratedState)}
+${studio ? "" : renderBlockPreloads(options, dehydratedState)}
 <script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(pageRenderInput, appHtml))}</script>
 </head>
 <body${renderedHead.bodyAttrs}>
@@ -1631,7 +1623,7 @@ async function createDerivedResponse(
       },
     };
     const document = (await options.getDocument?.()) ?? {};
-    await preparePreviewDocument(input, options, document, !studio && !dataOnly ? "" : undefined);
+    preparePreviewDocument(input, options, document);
     if (dataOnly)
       return Response.json(input, {
         headers: {
@@ -1649,7 +1641,7 @@ async function createDerivedResponse(
       studio ? undefined : located.locale,
     );
     return new Response(
-      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderAnalyticsScripts(analytics)}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, html))}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderAnalyticsScripts(analytics)}${studio ? "" : renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, html))}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
       {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
@@ -1901,7 +1893,7 @@ async function createPageDataResponse({
       head,
       dehydratedState,
     };
-    await preparePreviewDocument(input, options, (await options.getDocument?.()) ?? {});
+    preparePreviewDocument(input, options, (await options.getDocument?.()) ?? {});
     return Response.json(input, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {

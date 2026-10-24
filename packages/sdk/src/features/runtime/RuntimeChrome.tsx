@@ -12,13 +12,9 @@ import { FollowAgentProvider } from "../studio/FollowAgentProvider";
 import { EditingFallbackContext } from "./editingFallback";
 import type { PageRenderInput } from "./runtime";
 
-const renderEditingFallback = ({
-  layoutPage,
-  children,
-}: {
-  layoutPage: boolean;
-  children: ReactNode;
-}) => <StudioEditingFallback layoutPage={layoutPage}>{children}</StudioEditingFallback>;
+const renderEditingFallback = ({ layoutPage }: { layoutPage: boolean }) => (
+  <StudioEditingFallback layoutPage={layoutPage} />
+);
 
 export function RuntimeChrome({
   input,

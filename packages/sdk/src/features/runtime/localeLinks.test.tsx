@@ -8,7 +8,7 @@ import * as React from "react";
 import { createApp } from "../../core/createApp";
 import { createBlock, type Block, type ContentFieldBuilder } from "../../core/createBlock";
 import { localesResponse, pageListResponse } from "./api.fixtures";
-import { handleCamoxRequest } from "./runtime";
+import { handleCamoxRequest, type PageRenderInput } from "./runtime";
 
 // Localizations keep their original's id (ADR 0015), so a page link names the same page in every
 // locale: it leads to the rendered locale's page, or to the default locale's page when the
@@ -190,12 +190,15 @@ void test("a member's draft in German links to the draft's German pages, and to 
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   mockApi(t);
   const html = await visit(`/de?camox-draft=${DRAFT}`, { Cookie: "camox_auth_cookie=valid" });
-  // A member sees the page in the studio, around the page as visitors see it.
+  // The studio renders no page: the site's code renders the draft's reads the member's
+  // document holds, as the renderer frame does.
   const data = html.match(
     /<script id="__CAMOX_DATA__" type="application\/json">(.*?)<\/script>/s,
   )![1]!;
-  const { previewDocument } = JSON.parse(data) as { previewDocument: string };
-  assert.deepEqual(hrefsIn(previewDocument), {
+  const input = JSON.parse(data) as PageRenderInput;
+  const { renderPageWithApp } = await import("./pageServer");
+  const page = await renderPageWithApp({ ...input, presentation: "public", camoxApp });
+  assert.deepEqual(hrefsIn(page), {
     // The draft removed the pricing page from German.
     Pricing: "/pricing",
     "our prices": "/pricing",

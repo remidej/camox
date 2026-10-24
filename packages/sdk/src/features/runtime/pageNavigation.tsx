@@ -127,7 +127,7 @@ export function PageNavigationProvider({
   const pendingAnnouncement = React.useRef<string | null>(null);
   const announcer = React.useRef<ReturnType<typeof createRouteAnnouncer> | null>(null);
 
-  /** Reads the page at `pathname` from `draft`, once the blocks it shows can render. */
+  /** Reads the page at `pathname` from `draft`, once the blocks a visitor's window shows can render. */
   const loadPage = React.useCallback(
     async (pathname: string, draft: string | null, signal: AbortSignal) => {
       const response = await fetchRuntimeJson(
@@ -142,10 +142,12 @@ export function PageNavigationProvider({
       const next = (await response.json()) as PageRenderInput;
       if (next.pathname !== pathname || !next.dehydratedState)
         throw new Error("Invalid navigation response");
-      await camoxApp.loadBlocks(getPageBlockTypes(next.dehydratedState));
+      // A member's window renders no block: the renderer frame runs the site's code.
+      if (initialInput.presentation !== "studio")
+        await camoxApp.loadBlocks(getPageBlockTypes(next.dehydratedState));
       return next;
     },
-    [camoxApp, draftScope, initialInput.runtimeBasePath],
+    [camoxApp, draftScope, initialInput.runtimeBasePath, initialInput.presentation],
   );
   const [prefetched] = React.useState(() => createPrefetchCache<PageRenderInput>());
   const headManager = React.useRef<{

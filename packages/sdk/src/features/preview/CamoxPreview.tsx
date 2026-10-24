@@ -20,11 +20,17 @@ import {
   useRead,
   useStudioCache,
 } from "../../lib/studio-reads";
+import { CanvasLoadingScreen } from "../canvas/CanvasLoadingScreen";
 import { canvasStore } from "../canvas/canvasStore";
 import { CanvasSidebarSkeleton } from "../canvas/sidebar/CanvasSidebarSkeleton";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { takeShowCanvasRequest } from "../provider/signInShortcut";
-import { RendererFramesProvider, RendererSlot } from "../renderer/RendererFrames";
+import {
+  RendererFramesProvider,
+  RendererSlot,
+  useRendererHost,
+  useRendererStatus,
+} from "../renderer/RendererFrames";
 import type { PageStructure } from "../routes/pageRuntime";
 import type { PageRenderInput } from "../runtime/runtime";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
@@ -33,6 +39,7 @@ import { AddBlockSheet } from "./components/AddBlockSheet";
 import { CanvasPreview, prefetchCanvas } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { PAGE_LOADING_LABEL } from "./components/StudioEditingFallback";
 import {
   getPageRecord,
   PageRecordContext,
@@ -207,6 +214,9 @@ export const CamoxPreview = ({
   });
   const pageData = data && "page" in data ? data : undefined;
   const layout = data && !("page" in data) ? data : undefined;
+  // Whether the renderer frame showed the page once, or why it couldn't.
+  const [pageShown, setPageShown] = React.useState(false);
+  const showPage = React.useCallback(() => setPageShown(true), []);
   return (
     <PageRecordContext value={derivedResult}>
       <PreviewShell
@@ -215,9 +225,15 @@ export const CamoxPreview = ({
         pageLocation={shown?.location}
         canvasOnly={canvasOnly}
         runtimeBasePath={runtimeBasePath}
+        pageShown={pageShown}
       >
         {pathname !== undefined && (
-          <RendererSlot pathname={pathname} derivedLayoutId={shownDerived?.layoutId} />
+          <RendererSlot
+            pathname={pathname}
+            derivedLayoutId={shownDerived?.layoutId}
+            onRendered={showPage}
+            onFailed={showPage}
+          />
         )}
       </PreviewShell>
     </PageRecordContext>
@@ -285,6 +301,7 @@ export const PreviewShell = ({
   pageLocation,
   canvasOnly,
   runtimeBasePath = "",
+  pageShown = true,
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
@@ -293,6 +310,8 @@ export const PreviewShell = ({
   pageLocation?: LocationState;
   canvasOnly?: PageRenderInput["canvasOnly"];
   runtimeBasePath?: string;
+  /** Whether the Preview's page showed: until then, a loading screen covers the Preview. */
+  pageShown?: boolean;
 }) => {
   const isAuthenticated = useIsAuthenticated();
   const projectUuid = useProjectUuid();
@@ -395,7 +414,7 @@ export const PreviewShell = ({
             runtimeBasePath={runtimeBasePath}
             placeholder={<CanvasSidebarSkeleton page={!canvasOnly} layoutPage={!!derivedLayout} />}
           >
-            <div className="flex min-h-0 flex-1 flex-row items-stretch">
+            <div className="relative flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel
                 active={!isCanvasEnabled}
                 isMobileExperience={isMobileStudio}
@@ -406,6 +425,8 @@ export const PreviewShell = ({
               >
                 {children}
               </PreviewPanel>
+              {/* The Canvas prepares its own frames, behind its own loading screen. */}
+              {!pageShown && !isCanvasEnabled && <PreviewPageLoading />}
             </div>
           </CanvasPreview>
           {!isCanvasEnabled && (
@@ -425,6 +446,17 @@ export const PreviewShell = ({
     <RendererFramesProvider runtimeBasePath={runtimeBasePath}>{website}</RendererFramesProvider>
   );
 };
+
+/**
+ * Covers the Preview until the renderer frame shows its page, as the studio does before the
+ * editor loads: the studio never shows a page of its own. A renderer of another SDK version
+ * says, in the frame, that the preview updates.
+ */
+function PreviewPageLoading() {
+  const status = useRendererStatus(useRendererHost());
+  if (status === "updating") return null;
+  return <CanvasLoadingScreen label={PAGE_LOADING_LABEL} />;
+}
 
 /** Zooms out to the whole Canvas, from anywhere in the site or the Studio. */
 export function useShowCanvasAction() {

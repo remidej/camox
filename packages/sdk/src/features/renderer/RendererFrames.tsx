@@ -231,7 +231,8 @@ const NOTICE_STYLE: React.CSSProperties = {
   color: "#71717a",
 };
 
-function useRendererStatus(host: RendererHost | null): RendererStatus | null {
+/** Where the renderer frame of `host` is: null without a host. */
+export function useRendererStatus(host: RendererHost | null): RendererStatus | null {
   const subscribe = React.useCallback(
     (listener: () => void) => host?.subscribeStatus(listener) ?? (() => {}),
     [host],
