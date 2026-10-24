@@ -24,8 +24,8 @@ export type PreviewCode = {
 
 /**
  * Where the code of the draft `draftId` stands for publishing it: the preview's `code`, null for
- * a draft whose code no agent changed, and the build and type-check status of its head revision,
- * if any.
+ * a draft whose code no agent changed, the build and type-check status of its head revision, if
+ * any, and whether merging Live's code into it clashed, until that's fixed.
  */
 export async function codeOfDraft(
   env: Bindings,
@@ -34,6 +34,7 @@ export async function codeOfDraft(
 ): Promise<{
   code: PreviewCode | null;
   head: { buildStatus: RevisionBuildStatus; typeCheckStatus: RevisionTypeCheckStatus } | null;
+  clashed: boolean;
 }> {
   const working = env.DRAFT_CODE.getByName(draftId);
   const draft = await db
@@ -48,8 +49,8 @@ export async function codeOfDraft(
     .innerJoin(projects, eq(projects.id, drafts.projectId))
     .where(eq(drafts.id, draftId))
     .get();
-  if (!draft || !(await working.held())) return { code: null, head: null };
-  const [head, building, merged, main] = await Promise.all([
+  if (!draft || !(await working.held())) return { code: null, head: null, clashed: false };
+  const [head, building, merged, main, clash] = await Promise.all([
     draft.head
       ? db
           .select({
@@ -63,6 +64,7 @@ export async function codeOfDraft(
     working.building(),
     working.mergedMain(),
     env.PROJECT_CODE.getByName(draft.projectUuid).commit(),
+    working.clash(),
   ]);
   return {
     code: {
@@ -73,5 +75,6 @@ export async function codeOfDraft(
       publishAborted: draft.publishAborted,
     },
     head: head ?? null,
+    clashed: clash !== undefined,
   };
 }

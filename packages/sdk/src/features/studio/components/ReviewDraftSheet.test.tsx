@@ -1544,3 +1544,16 @@ void test("says why the last publish with code went back to the review", async (
     await close();
   }
 });
+
+void test("says a publish stopped as Live's code didn't merge, and Camox's agent is fixing it", async (t) => {
+  mockApi(t, () =>
+    json({ ...emptyPreview, code: { ...builtCode, publishAborted: "codeDoesNotMerge" } }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /doesn.t merge with this draft.s yet/);
+    assert.match(dialogText(), /Camox.s agent is fixing it in the draft.s thread/);
+  } finally {
+    await close();
+  }
+});

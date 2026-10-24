@@ -21,6 +21,7 @@ import {
   answerWithScript,
   answerWithToolCall,
   forgetThreadModel,
+  holdNextAnswer,
 } from "../../../test/thread-model";
 import {
   ask,
@@ -447,6 +448,38 @@ describe("publishing a draft with code", () => {
     expect(await fakes.readFile(repo, "main", "src/blocks/pricing.tsx")).toBe(file);
     expect(await fakes.readFile(repo, "main", "src/blocks/text.tsx")).toBe(changed);
     expect(await draftsOf(website)).toEqual([]);
+  });
+
+  it("goes back to the draft with the blocker when the merge it waits for clashes", async () => {
+    const { website, token } = await websiteWithCode();
+    // Both drafts change the text block's code: the second's merge of the first conflicts.
+    const first = await draftChangingCode(website, token);
+    const second = await draftChangingCode(website, token);
+    const repo = website.project.uuid;
+    await fakes.holdPublishCommand(repo, "versions upload");
+    await using publishes = await watchPublishes();
+    await publish(website, first, await previewOf(website, first));
+    await ran(repo, "versions upload");
+    await publish(website, second, await previewOf(website, second));
+    const mainBefore = await fakes.log(repo);
+    // Camox's reconcile turn starts, and is still working when the publish ends.
+    holdNextAnswer("Reconciled.");
+    await fakes.letGoPublishCommand(repo, "versions upload");
+    await vi.waitFor(
+      async () => expect(await fakes.log(repo)).toHaveLength(mainBefore.length + 1),
+      { timeout: 10_000, interval: 50 },
+    );
+
+    await deliverPushes(repo);
+    await publishesEnd(publishes);
+
+    const preview = await previewOf(website, second);
+    expect(preview.code).toMatchObject({ publishing: false, publishAborted: "codeDoesNotMerge" });
+    expect(preview.blockers).toEqual([
+      expect.objectContaining({ entity: "code", code: "codeDoesNotMerge" }),
+    ]);
+    expect(await commandsLike(repo, `draft ${second}`)).toEqual([]);
+    expect((await draftsOf(website)).map(({ id }) => id)).toEqual([second]);
   });
 
   it("goes back to the review with the new conflicts when they change before promotion", async () => {

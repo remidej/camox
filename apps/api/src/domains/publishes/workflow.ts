@@ -235,15 +235,15 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     if (!revision) return { aborted: "revisionChanged" };
     // `main` moved, and the draft hasn't merged it yet: its merge revision is what ships.
     if (main && (main.hash !== merges.mergedMain || merges.head !== revision.commit)) {
-      // Until Camox's reconcile turn (#582), a merge that clashed goes back to the review.
-      return merges.clash?.main === main.hash ? { aborted: "liveCodeMoved" } : { merging: true };
+      // A merge that clashed goes back to the draft, with its blocker, as Camox's turn fixes it.
+      return merges.clash?.main === main.hash ? { aborted: "codeDoesNotMerge" } : { merging: true };
     }
     if (head !== params.revision) {
       // A merge revision ships once the draft previews it, and it type checks.
       if (draft.previewedRevisionId !== head || revision.typeCheckStatus === "pending") {
         return { merging: true };
       }
-      if (revision.typeCheckStatus === "failed") return { aborted: "liveCodeMoved" };
+      if (revision.typeCheckStatus === "failed") return { aborted: "codeDoesNotMerge" };
     } else if (draft.previewedRevisionId !== head) return { aborted: "revisionChanged" };
     if (!revision.archiveKey) {
       await code.markBuilding(true);

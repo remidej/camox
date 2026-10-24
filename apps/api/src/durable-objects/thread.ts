@@ -5,6 +5,7 @@ import {
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
   isSender,
+  RECONCILE_ENTRY,
   RUN_STOPPED_ENTRY,
   type StartedDraft,
   startedDraftSchema,
@@ -70,8 +71,9 @@ import {
   type TurnBuild,
 } from "../domains/revisions/end-of-turn";
 import { type MergeEnd, mergeMainIntoDraft } from "../domains/revisions/merge";
+import { reconcileTurn } from "../domains/revisions/reconcile";
 import type { BuildResult } from "../domains/revisions/result";
-import { buildTool } from "../domains/revisions/tool";
+import { buildTool, conflictsTool } from "../domains/revisions/tool";
 import { moveLiveThreadIntoDraft, reservedDraftState } from "../domains/threads/service";
 import {
   studioAgentTools,
@@ -331,6 +333,7 @@ export class Thread extends DurableObject<Bindings> {
           ...webTools(this.env),
           ...codeReadingTools(),
           ...codeWritingTools(),
+          conflictsTool(() => this.#conflicts()),
           buildTool((invocation) => this.#build(invocation)),
           searchFontsTool(this.env),
         ],
@@ -457,7 +460,10 @@ export class Thread extends DurableObject<Bindings> {
       const refused = writeLine(resolvePath(CODE_ROOT, path), "file");
       if (refused) throw refused;
     }
-    const draftId = await this.#codeAccess(invocation);
+    // Camox's own turn reconciles a draft that has code, as no editor.
+    const draftId = (await this.#reconciling(invocation))
+      ? (await this.#settle())!.draftId!
+      : await this.#codeAccess(invocation);
     await this.#merging;
     return this.#workingCopyEnv(draftId);
   }
@@ -516,6 +522,14 @@ export class Thread extends DurableObject<Bindings> {
     });
     this.#startingCode = started.catch(() => undefined);
     return started;
+  }
+
+  /** The files of the thread's draft that still have merge conflict markers. */
+  async #conflicts(): Promise<string[]> {
+    const draftId =
+      (await this.#settle())?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
+    if (!draftId || !(await this.#hasCode(draftId))) return [];
+    return this.env.DRAFT_CODE.getByName(draftId).conflicts();
   }
 
   /** The last build, which the next waits for: a draft's sandbox builds one tree at a time. */
@@ -587,13 +601,40 @@ export class Thread extends DurableObject<Bindings> {
     return this.#mergeMain(draftId);
   }
 
-  /** Merges `main` into the draft `draftId` in its build queue, code writes waiting for it. */
-  #mergeMain(draftId: string): Promise<MergeEnd> {
+  /**
+   * Merges `main` into the draft `draftId` in its build queue, code writes waiting for it. A
+   * merge that clashed starts Camox's reconcile turn, once the turn going, if any, ended.
+   */
+  async #mergeMain(draftId: string): Promise<MergeEnd> {
     const merged = this.#buildingSerially(draftId, () => mergeMainIntoDraft(this.env, draftId), {
       merge: true,
     });
     this.#merging = merged.catch(() => undefined);
-    return merged;
+    const end = await merged;
+    if (end === "clashed") await this.#startReconciling(draftId);
+    return end;
+  }
+
+  /**
+   * Starts Camox's own turn in the thread, reconciling the draft's code with Live's, which
+   * merging clashed: it opens with a short message saying why, which editors see, while the
+   * agent gets Camox's instructions. It runs after the turn going, if any.
+   */
+  async #startReconciling(draftId: string) {
+    const clash = await this.env.DRAFT_CODE.getByName(draftId).clash();
+    if (!clash) return;
+    const turn = reconcileTurn(clash);
+    await this.harness.submit(turn.instructions, {
+      whenBusy: "followUp",
+      operationId: `camox.reconcile:${clash.main}`,
+      entry: { kind: RECONCILE_ENTRY, data: { message: turn.message } },
+    });
+  }
+
+  /** Whether the run `invocation` is part of is Camox's own reconcile turn. */
+  async #reconciling(invocation: ToolInvocation) {
+    const [entry] = await this.#entriesOfRun(invocation, 1);
+    return entry?.kind === RECONCILE_ENTRY;
   }
 
   /**
@@ -645,7 +686,11 @@ export class Thread extends DurableObject<Bindings> {
       await this.#showBuildStatus("fixing");
       return { continue: fixBuild(turn.result) };
     }
-    if (turn.outcome === "committedUnbuilt" || turn.outcome === "keptErrors") {
+    if (
+      turn.outcome === "committedUnbuilt" ||
+      turn.outcome === "keptErrors" ||
+      turn.outcome === "uncommitted"
+    ) {
       await this.ctx.storage.put(failures, END_OF_TURN_BUILD_FAILURES);
       return { continue: explainFailures(turn) };
     }
@@ -791,6 +836,11 @@ export class Thread extends DurableObject<Bindings> {
     const identity = await this.#settle();
     if (!identity) throw new Error("The thread doesn't know what it belongs to yet");
     const [entry] = await this.#entriesOfRun(invocation, 1);
+    if (entry?.kind === RECONCILE_ENTRY) {
+      throw new Error(
+        "This turn only reconciles the website's code with Live's: leave its content as it is.",
+      );
+    }
     if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
       throw new Error("The thread's run wasn't started by an editor's message");
     }

@@ -5,6 +5,25 @@ import type { ToolInvocation } from "../threads/tools";
 import type { BuildResult } from "./result";
 
 /**
+ * The agent's `conflicts`, which lists the files that still have merge conflict markers, as a
+ * merge of Live's code that conflicts leaves them. `list` lists them in the thread's draft.
+ */
+export const conflictsTool = (list: () => Promise<string[]>) =>
+  defineTool({
+    name: "conflicts",
+    description:
+      "List the files that still have merge conflict markers, as merging Live's code into the " +
+      "draft's leaves them when both changed the same lines. Returns JSON: an array of paths, " +
+      "empty when no file has markers. `build` refuses to commit while any file has them.",
+    parameters: Type.Object({}),
+    replay: "safe",
+    async execute() {
+      const files = await list();
+      return { output: [{ type: "text" as const, text: JSON.stringify(files) }] };
+    },
+  }) as unknown as ToolRegistration;
+
+/**
  * The agent's `build`, which builds its code changes and, when they pass, commits them as the
  * draft's new revision. `build` runs it for the call: the thread knows its draft and run.
  */

@@ -126,6 +126,19 @@ function ThreadMessageRow({
       </Message>
     );
   }
+  if (message.from === "camox") {
+    // Camox started the turn itself, as when Live's code doesn't merge into the draft's.
+    return (
+      <Message>
+        <MessageContent>
+          <MessageHeader className="text-muted-foreground text-xs">Camox</MessageHeader>
+          <Bubble variant="muted" className="max-w-full">
+            <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+          </Bubble>
+        </MessageContent>
+      </Message>
+    );
+  }
   return (
     <Message align="end">
       <MessageAvatar>

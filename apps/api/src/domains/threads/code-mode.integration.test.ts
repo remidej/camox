@@ -83,6 +83,7 @@ describe("the agent reading the website through code mode", () => {
     expect(offered.toSorted()).toEqual([
       "build",
       "codemode",
+      "conflicts",
       "edit",
       "find",
       "grep",

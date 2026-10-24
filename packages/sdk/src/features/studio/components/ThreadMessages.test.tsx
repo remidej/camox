@@ -40,6 +40,24 @@ void test("a thread shows editors' messages, the agent's Markdown answers and it
   assert.match(html, /Working…/);
 });
 
+void test("a turn Camox started itself opens with its message, from no editor", () => {
+  const view: ThreadView = {
+    running: true,
+    messages: [
+      { id: "1", from: "editor", sender: editor, text: "Add a pricing section" },
+      { id: "2", from: "agent", text: "Done." },
+      { id: "3", from: "camox", text: "Live's code changed, and I'm reconciling it." },
+    ],
+  };
+
+  const html = renderToString(<ThreadMessages view={view} showSenders />);
+
+  assert.match(html, /Live&#x27;s code changed, and I&#x27;m reconciling it\./);
+  assert.match(html, />Camox</);
+  // Only the editor's message has an avatar.
+  assert.equal(html.match(/>AL</g)?.length, 1);
+});
+
 void test("a draft's thread names who sent each message; a Live thread doesn't", () => {
   const teammate = { id: "user-2", name: "Grace Hopper", image: null };
   const view: ThreadView = {

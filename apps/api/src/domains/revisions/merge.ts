@@ -17,15 +17,19 @@ export type MergeEnd =
   | "upToDate"
   /** A merge revision landed, built, and the draft previews it. */
   | "merged"
-  /** The merge clashed: it's left for Camox's reconcile turn (`DraftCode.clash`). */
-  | "clashed";
+  /** The merge clashed: it's left for Camox's reconcile turn (`DraftCode.clash`), to start. */
+  | "clashed"
+  /** This move of `main` clashed already: Camox's reconcile turn had its one try. */
+  | "clashedBefore";
 
 /**
  * Merges the current `main` into the draft `draftId`, which has code. A clean merge whose tree
  * builds becomes a merge revision, which the draft previews, silently: its definitions are synced
  * and its viewers' frames reload, as for any revision. A merge that conflicts, or whose tree
- * doesn't build or type check, is recorded as the draft's clash, and the draft keeps its last
- * revision: a tree that built but doesn't type check stays committed, as any revision would.
+ * doesn't build or type check, is recorded as the draft's clash, for Camox's reconcile turn, which
+ * the thread starts (`reconcile.ts`). The draft keeps its last revision, and its files hold the
+ * merge, conflict markers included, for the turn to fix: a tree that built but doesn't type
+ * check stays committed instead, as any revision would.
  *
  * A publish of the draft waiting for the merge hears that it ended.
  */
@@ -34,7 +38,7 @@ export async function mergeMainIntoDraft(env: Bindings, draftId: string): Promis
   // The RPC stub's type of a union loses the cases apart.
   const merge = (await retried(() => code.mergeMain() as Promise<unknown>)) as MergeOutcome;
   if (merge.outcome === "upToDate" || merge.outcome === "unsettled") return "upToDate";
-  if (merge.outcome === "clashed") return "clashed";
+  if (merge.outcome === "clashed") return "clashedBefore";
   let clash: MergeClash | undefined;
   if (merge.outcome === "conflicts") {
     clash = { main: merge.main, conflicts: merge.conflicts };
