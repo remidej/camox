@@ -21,12 +21,16 @@ function memoryCache() {
 /** A website whose public renders go through the cache, with Live and the build as given. */
 function website({
   render = async () => new Response("<h1>Live</h1>", { headers: { "Content-Type": "text/html" } }),
-}: { render?: (request: Request) => Promise<Response | null> } = {}) {
+  openCache,
+}: {
+  render?: (request: Request) => Promise<Response | null>;
+  openCache?: () => Promise<Cache>;
+} = {}) {
   const { cache, kept } = memoryCache();
   const state = { liveCacheKey: "live-1" as string | null, build: "build-1", renders: 0 };
   const pending: Promise<unknown>[] = [];
   const publicCache = (): PublicCache => ({
-    cache,
+    cache: openCache ?? (async () => cache),
     liveCacheKey: async () => state.liveCacheKey,
     build: state.build,
     waitUntil: (promise) => pending.push(promise),
@@ -160,6 +164,54 @@ const options: RuntimeOptions = {
   projectUuid: "test",
   renderPage: async () => "",
 };
+
+/** A cache that throws as `caches.default` does in a dispatch namespace's untrusted mode. */
+const forbidden = () => new Error("This Worker is not permitted to access the default cache.");
+
+for (const [step, openCache] of [
+  [
+    "opened",
+    async () => {
+      throw forbidden();
+    },
+  ],
+  [
+    "read",
+    async () =>
+      ({
+        match: async () => {
+          throw forbidden();
+        },
+        put: async () => {},
+      }) as unknown as Cache,
+  ],
+] as const) {
+  void test(`a page renders without the edge cache when it can't be ${step}`, async () => {
+    const { state, serve } = website({ openCache });
+
+    const first = await serve(new Request("https://site.test/about"));
+    const second = await serve(new Request("https://site.test/about"));
+
+    assert.equal(state.renders, 2);
+    assert.equal(await first!.text(), "<h1>Live</h1>");
+    assert.equal(await second!.text(), "<h1>Live</h1>");
+  });
+}
+
+void test("a page is still answered when the edge cache can't keep its render", async () => {
+  const failing = {
+    match: async () => undefined,
+    put: () => {
+      throw forbidden();
+    },
+  } as unknown as Cache;
+  const { serve } = website({ openCache: async () => failing });
+
+  const response = await serve(new Request("https://site.test/about"));
+
+  assert.equal(response!.status, 200);
+  assert.equal(await response!.text(), "<h1>Live</h1>");
+});
 
 void test("pages and the runtime's public outputs are public requests for visitors", () => {
   for (const path of [

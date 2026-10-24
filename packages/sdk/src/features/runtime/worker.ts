@@ -14,7 +14,7 @@ import {
 } from "virtual:camox/server";
 
 import { fetchLocalhostOnLoopback } from "./loopbackFetch";
-import { readLiveCacheKey, respondThroughPublicCache } from "./publicCache";
+import { PUBLIC_CACHE_NAME, readLiveCacheKey, respondThroughPublicCache } from "./publicCache";
 import { rememberPublishingDraft } from "./publishingDraft";
 import { shouldHandleRequest, withDevHtml } from "./workerRequest";
 
@@ -36,14 +36,14 @@ interface WorkerContext {
  * its context can't keep anything past the response.
  */
 function respond(request: Request, context?: WorkerContext): Promise<Response | null> {
-  const cache = (globalThis.caches as { default?: Cache } | undefined)?.default;
-  if (devHtml || !context || !cache || !isPublicRequest(request))
+  const caches = globalThis.caches as CacheStorage | undefined;
+  if (devHtml || !context || !caches || !isPublicRequest(request))
     return handleCamoxRequest(request);
   const { apiUrl, projectUuid, build } = publicCacheSource;
   return respondThroughPublicCache(
     request,
     {
-      cache,
+      cache: () => caches.open(PUBLIC_CACHE_NAME),
       liveCacheKey: () => readLiveCacheKey(apiUrl, projectUuid),
       build,
       waitUntil: (promise) => context.waitUntil(promise),

@@ -5,17 +5,24 @@ import { prefersMarkdown } from "../routes/pageRuntime";
 // reaches. They're kept under the project's Live cache key, which the API replaces everywhere the
 // moment Live changes, and under the website's build, which a release replaces: renders kept
 // before either are left behind (ADR 0022). Only the key is read on each request.
+//
+// They're kept in a named cache, never `caches.default`: a dispatch namespace's user Workers run
+// in untrusted mode, where `caches.default` throws and each Worker's named caches are its own.
+// The cache only ever saves a render: when it fails, the website renders as if it had none.
 
 /** Where a website's public renders are kept, and what they're kept under. */
 export interface PublicCache {
-  /** Cloudflare's cache in the request's data center: `caches.default`. */
-  cache: Cache;
+  /** Opens Cloudflare's cache in the request's data center: `PUBLIC_CACHE_NAME`. */
+  cache: () => Promise<Cache>;
   /** The project's Live cache key, which changes whenever Live does; null when unreadable. */
   liveCacheKey: () => Promise<string | null>;
   /** The website's build, so a release never serves pages naming the last release's assets. */
   build: string;
   waitUntil: (promise: Promise<unknown>) => void;
 }
+
+/** The named cache public renders are kept in. */
+export const PUBLIC_CACHE_NAME = "camox-public-renders";
 
 /** How long the edge keeps a render. Live changing replaces its key long before. */
 const EDGE_MAX_AGE = 24 * 60 * 60;
@@ -46,12 +53,24 @@ export async function respondThroughPublicCache(
   const liveCacheKey = await publicCache.liveCacheKey();
   if (!liveCacheKey) return render();
   const key = cacheKeyOf(request, `${liveCacheKey}.${publicCache.build}`);
-  const cached = await publicCache.cache.match(withValidators(key, request));
+  let cache: Cache;
+  let cached: Response | undefined;
+  try {
+    cache = await publicCache.cache();
+    cached = await cache.match(withValidators(key, request));
+  } catch (error) {
+    console.error("The edge cache couldn't be read: the page renders without it", error);
+    return render();
+  }
   if (cached) return forVisitors(cached, request);
 
   const response = await render();
   if (!response || !mayBeShared(response)) return response;
-  publicCache.waitUntil(publicCache.cache.put(key, forEdge(response.clone())));
+  publicCache.waitUntil(
+    (async () => cache.put(key, forEdge(response.clone())))().catch((error: unknown) => {
+      console.error("The edge cache couldn't keep a render", error);
+    }),
+  );
   return forVisitors(response, request);
 }
 
