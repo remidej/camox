@@ -349,6 +349,8 @@ const revisionBuilds = new Map();
 const revisionCommands = new Map();
 /** @type {{ marker: string, log: string }[]} builds of a tree with a file holding `marker` fail with `log` */
 const failingBuilds = [];
+/** @type {{ marker: string, definitionSet: unknown }[]} builds of a tree with a file holding `marker` have that Definition Set */
+const definedBuilds = [];
 /** Sandbox calls left that fail, as a sandbox whose container crashed does. */
 let sandboxFailures = 0;
 /** @type {Set<string>} the revision sandboxes destroyed */
@@ -365,7 +367,8 @@ const EXTRACT_COMMAND = /\btar -xf (\S+) /;
  * A revision's sandbox as `@cloudflare/sandbox`'s `getSandbox` drives it over RPC. Its files are
  * held in memory and it runs nothing: extracting a tree reads the archive it was given, a build
  * passes or fails as a test scripted for that tree, and archiving a passed build writes a fake
- * archive naming the tree. Every call can be made to fail, as a crashed container's do.
+ * archive naming the tree, with the Definition Set a test scripted for it (an empty one when none
+ * did), which `FakeDispatch` reads. Every call can be made to fail, as a crashed container's do.
  */
 export class FakeRevisionSandbox extends DurableObject {
   /** @type {string} */
@@ -455,7 +458,12 @@ export class FakeRevisionSandbox extends DurableObject {
     const archive = ARCHIVE_COMMAND.exec(command);
     if (archive) {
       if (!this.built) return result(2, "tar: dist: Cannot stat: No such file or directory");
-      const bytes = new TextEncoder().encode(`fake build of ${await treeOf(this.tree)}`);
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({
+          build: `fake build of ${await treeOf(this.tree)}`,
+          definitionSet: definitionSetOf(this.tree),
+        }),
+      );
       this.files.set(archive[1], bytes);
       revisionBuilds.get(this.name).at(-1).archive = [...bytes];
       return result(0);
@@ -467,6 +475,31 @@ export class FakeRevisionSandbox extends DurableObject {
     destroyedSandboxes.add(this.name);
     this.files.clear();
     this.tree = {};
+  }
+}
+
+/**
+ * The Definition Set of a build of `tree`: the last one a test scripted for a marker the tree
+ * holds, or an empty one.
+ * @param {Record<string, string>} tree
+ */
+function definitionSetOf(tree) {
+  const defined = definedBuilds.findLast(({ marker }) =>
+    Object.values(tree).some((content) => content.includes(marker)),
+  );
+  return defined?.definitionSet ?? { blocks: [], layouts: [], collections: [], homepage: null };
+}
+
+/**
+ * Dispatch's `CamoxRevisions` entrypoint, its Worker Loader faked: a revision's Definition Set is
+ * the one its fake build in `REVISION_BUILDS` carries.
+ */
+export class FakeDispatch extends WorkerEntrypoint {
+  /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
+  async readDefinitionSet({ archiveKey }) {
+    const archive = await this.env.REVISION_BUILDS.get(archiveKey);
+    if (!archive) throw new Error(`The build ${archiveKey} isn't stored`);
+    return JSON.parse(await archive.text()).definitionSet;
   }
 }
 
@@ -627,6 +660,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failBuildsOf(marker, log) {
     failingBuilds.push({ marker, log });
+  }
+
+  /**
+   * Makes every passing build of a tree with a file containing `marker` have `definitionSet` as
+   * its Definition Set.
+   * @param {string} marker
+   * @param {unknown} definitionSet
+   */
+  async defineBuildsOf(marker, definitionSet) {
+    definedBuilds.push({ marker, definitionSet });
   }
 
   /** @param {number} times Makes the next `times` calls to any revision sandbox fail. */

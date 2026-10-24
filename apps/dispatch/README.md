@@ -5,8 +5,10 @@ Serves each project's website at `<slug>.camox.site`. The Worker reads the slug 
 - A known slug whose user Worker isn't deployed yet gets a "This site is being set up" page (503).
 - An unknown slug, a deeper subdomain, or the bare domain gets a not-found page (404).
 
+It also loads drafts' revisions as Dynamic Workers (`src/revisions.ts`), from their builds in the `camox-revision-builds` R2 bucket, through its Worker Loader binding. Each runs under its asset prefix `/_camox/r/<revisionId>/`, and its outbound requests go through the `CamoxGateway` entrypoint: requests to the Camox API (`CAMOX_API_URL`) are sent in the revision's draft, and every other request goes out as it was sent. The API reads a revision's Definition Set through the `CamoxRevisions` entrypoint, over its `DISPATCH` service binding, so dispatch deploys before the API.
+
 ```sh
-pnpm --filter @camox/dispatch test        # routing tests, with a fake KV map and namespace
+pnpm --filter @camox/dispatch test        # routing and revision tests, with fake bindings
 pnpm --filter @camox/dispatch run deploy  # also creates the *.camox.site/* route
 ```
 

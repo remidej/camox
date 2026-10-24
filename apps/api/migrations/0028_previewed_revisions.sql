@@ -1,0 +1,1 @@
+ALTER TABLE `drafts` ADD `previewed_revision_id` text;

@@ -30,6 +30,11 @@
   // Project Slug → Project ID, the map the dispatch Worker serves <slug>.camox.site from
   // (apps/dispatch). The studio's sign-in reads it to tell a project's host.
   "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
+  // Dispatch loads drafts' revisions (apps/dispatch/src/revisions.ts): the API reads their
+  // Definition Sets through it. Dispatch deploys first, as it serves the entrypoint.
+  "services": [
+    { "binding": "DISPATCH", "service": "camox-dispatch", "entrypoint": "CamoxRevisions" },
+  ],
   "r2_buckets": [
     {
       "binding": "FILES_BUCKET",

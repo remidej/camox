@@ -1,6 +1,55 @@
-export interface Env {
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+import {
+  type GatewayProps,
+  loadRevision,
+  readDefinitionSet,
+  type RevisionBindings,
+  type RevisionToLoad,
+} from "./revisions";
+
+export interface Env extends RevisionBindings {
   PROJECT_SLUGS: KVNamespace;
   DISPATCHER: DispatchNamespace;
+  /** The Camox API's origin, which only a revision's gateway lets it reach in its draft. */
+  CAMOX_API_URL: string;
+}
+
+/** The request header naming the draft a Camox API request reads and writes (ADR 0011). */
+const DRAFT_HEADER = "x-camox-draft";
+
+/** What `ctx.exports` makes of dispatch's own entrypoints: a stub per set of props. */
+type OwnExports = { CamoxGateway(options: { props: GatewayProps }): Fetcher };
+
+/**
+ * Where a revision's outbound requests go, made per revision with its project and draft as
+ * `props` (ADR 0021 amendment). A request to the Camox API is sent in the revision's draft,
+ * whichever draft it names, so a revision's code reads and writes nothing else. Every other
+ * request goes out as it was sent.
+ */
+export class CamoxGateway extends WorkerEntrypoint<Env, GatewayProps> {
+  override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).origin !== new URL(this.env.CAMOX_API_URL).origin) {
+      return fetch(request);
+    }
+    const scoped = new Request(request);
+    scoped.headers.set(DRAFT_HEADER, this.ctx.props.draft);
+    return fetch(scoped);
+  }
+}
+
+/**
+ * What the API asks of dispatch about revisions, through its service binding. No public route
+ * reaches it.
+ */
+export class CamoxRevisions extends WorkerEntrypoint<Env> {
+  /** A revision's Definition Set, read from its build (JSON-shaped). */
+  readDefinitionSet(revision: RevisionToLoad): Promise<unknown> {
+    const exports = this.ctx.exports as unknown as OwnExports;
+    return readDefinitionSet(
+      loadRevision(this.env, revision, (props) => exports.CamoxGateway({ props })),
+    );
+  }
 }
 
 const PROJECTS_DOMAIN = ".camox.site";
