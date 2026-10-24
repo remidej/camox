@@ -39,6 +39,19 @@ const MAIN_REF = "refs/camox/main";
 const TOKEN_KEY = "token";
 /** When the build of the draft's code going now started, if one is. */
 const BUILDING_SINCE_KEY = "building-since";
+/**
+ * A build of the draft's code that Camox's infrastructure kept failing, which its retry owes
+ * (`OwedBuild`): the draft shows it's building until one lands.
+ */
+const OWED_BUILD_KEY = "owed-build";
+
+/** How long Camox waits before its first retry of a build it owes, doubling after each. */
+export const OWED_BUILD_RETRY_MS = 30_000;
+/** The longest Camox waits between two retries of a build it owes. A tuning value. */
+export const OWED_BUILD_RETRY_AT_MOST_MS = 15 * 60_000;
+
+/** A build Camox owes the draft: the thread that builds it, and how many retries it had. */
+type OwedBuild = { threadId: string; retries: number };
 
 /**
  * How long a build is taken to still be going, from when it started: one an eviction cut short
@@ -240,10 +253,48 @@ export class DraftCode extends DurableObject<Bindings> {
     else this.ctx.storage.kv.delete(BUILDING_SINCE_KEY);
   }
 
-  /** Whether a build of the draft's code is going: see `BUILD_GOING_FOR_AT_MOST_MS`. */
+  /**
+   * Whether a build of the draft's code is going (see `BUILD_GOING_FOR_AT_MOST_MS`), or owed:
+   * Camox's infrastructure failed the last one, and Camox retries it.
+   */
   async building(): Promise<boolean> {
+    if (this.ctx.storage.kv.get(OWED_BUILD_KEY) !== undefined) return true;
     const since = this.ctx.storage.kv.get<number>(BUILDING_SINCE_KEY);
     return since !== undefined && Date.now() - since < BUILD_GOING_FOR_AT_MOST_MS;
+  }
+
+  /**
+   * Records that the thread `threadId` couldn't build the draft's code because of Camox's own
+   * infrastructure, and has it retry later (`alarm`), each retry waiting longer.
+   */
+  async oweBuild({ threadId }: { threadId: string }): Promise<void> {
+    if (this.ctx.storage.kv.get(BRANCH_KEY) === undefined) return;
+    const owed = this.ctx.storage.kv.get<OwedBuild>(OWED_BUILD_KEY);
+    const retries = owed?.retries ?? 0;
+    this.ctx.storage.kv.put(OWED_BUILD_KEY, { threadId, retries } satisfies OwedBuild);
+    const wait = Math.min(OWED_BUILD_RETRY_MS * 2 ** retries, OWED_BUILD_RETRY_AT_MOST_MS);
+    await this.ctx.storage.setAlarm(Date.now() + wait);
+  }
+
+  /** Forgets the build Camox owed the draft, once one ended without Camox's failing. */
+  async settleOwedBuild(): Promise<void> {
+    if (this.ctx.storage.kv.get(OWED_BUILD_KEY) === undefined) return;
+    this.ctx.storage.kv.delete(OWED_BUILD_KEY);
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  /** Retries the build Camox owes the draft, in its thread's build queue, until one lands. */
+  async alarm(): Promise<void> {
+    const owed = this.ctx.storage.kv.get<OwedBuild>(OWED_BUILD_KEY);
+    if (!owed) return;
+    this.ctx.storage.kv.put(OWED_BUILD_KEY, { ...owed, retries: owed.retries + 1 });
+    try {
+      // A build that fails on Camox's side again owes the next retry itself.
+      if ((await this.env.THREAD.getByName(owed.threadId).retryBuild()) !== "busy") return;
+    } catch (error) {
+      console.error("Camox's retry of a draft's build failed", error);
+    }
+    await this.oweBuild({ threadId: owed.threadId });
   }
 
   /**
@@ -589,6 +640,7 @@ export class DraftCode extends DurableObject<Bindings> {
         if (repo && branch) await this.#deleteBranch(repo, branch);
       } finally {
         this.#fs = undefined;
+        await this.ctx.storage.deleteAlarm();
         await this.ctx.storage.deleteAll();
       }
     });

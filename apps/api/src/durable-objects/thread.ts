@@ -61,7 +61,7 @@ import { writeLine } from "../domains/code/write-line";
 import { accessTo } from "../domains/drafts/access";
 import { searchFontsTool } from "../domains/fonts/tool";
 import { projects } from "../domains/projects/schema";
-import { buildRevision } from "../domains/revisions/build";
+import { BuildInfrastructureError, buildRevision } from "../domains/revisions/build";
 import {
   buildAtEndOfTurn,
   END_OF_TURN_BUILD_FAILURES,
@@ -678,9 +678,14 @@ export class Thread extends DurableObject<Bindings> {
         }),
       );
     } catch (error) {
+      // The draft shows it's building until Camox's retry builds what the turn changed.
       console.error("A turn ended without building its code changes", error);
+      await this.env.DRAFT_CODE.getByName(draftId)
+        .oweBuild({ threadId: this.#threadId() })
+        .catch((owed: unknown) => console.error("A draft's build wasn't retried", owed));
       return undefined;
     }
+    await this.env.DRAFT_CODE.getByName(draftId).settleOwedBuild();
     if (turn.outcome === "failed") {
       await this.ctx.storage.put(failures, failedInARow + 1);
       await this.#showBuildStatus("fixing");
@@ -702,6 +707,36 @@ export class Thread extends DurableObject<Bindings> {
     await this.ctx.storage.delete([linted, built]);
     await this.#mergeAfterTheTurn(draftId);
     return undefined;
+  }
+
+  /**
+   * Builds the code of the thread's draft, as the end of a turn would on its last try, when
+   * Camox's infrastructure failed the last build: changes that don't build are committed as a
+   * revision that isn't built, which blocks publishing. Nothing of it shows in the thread. A
+   * failure on Camox's side again owes the next retry. `busy` while the agent's turn runs: its
+   * end builds.
+   */
+  async retryBuild(): Promise<"built" | "failed" | "busy" | "noCode"> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return "noCode";
+    const draftId =
+      (await this.#settle())?.draftId ?? (await this.#reservedDraft())?.draftId ?? null;
+    if (!draftId || !(await this.#hasCode(draftId))) return "noCode";
+    if (await this.harness.session().busy()) return "busy";
+    const code = this.env.DRAFT_CODE.getByName(draftId);
+    try {
+      await this.#buildingSerially(draftId, () =>
+        buildAtEndOfTurn(this.env, draftId, {
+          failedInARow: END_OF_TURN_BUILD_FAILURES - 1,
+          building: async () => {},
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof BuildInfrastructureError)) throw error;
+      await code.oweBuild({ threadId: this.#threadId() });
+      return "failed";
+    }
+    await code.settleOwedBuild();
+    return "built";
   }
 
   /**

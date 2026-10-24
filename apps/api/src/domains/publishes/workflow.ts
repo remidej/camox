@@ -273,7 +273,10 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         return { merging: true };
       }
       if (revision.typeCheckStatus === "failed") return { aborted: "codeDoesNotMerge" };
-    } else if (draft.previewedRevisionId !== head) return { aborted: "revisionChanged" };
+    } else if (draft.previewedRevisionId !== head || revision.typeCheckStatus === "pending") {
+      // Live never gets code whose type check hasn't passed.
+      return { aborted: "revisionChanged" };
+    }
     if (!revision.archiveKey) {
       await code.markBuilding(true);
       try {

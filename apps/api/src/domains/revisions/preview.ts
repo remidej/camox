@@ -6,7 +6,12 @@ import type { Bindings } from "../../types";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 import type { RevisionId } from "./result";
-import { type RevisionBuildStatus, type RevisionTypeCheckStatus, revisions } from "./schema";
+import {
+  type RevisionBuildStatus,
+  type RevisionSource,
+  type RevisionTypeCheckStatus,
+  revisions,
+} from "./schema";
 
 /** What the publish preview says about a draft's code (spec #560, section 10). */
 export type PreviewCode = {
@@ -33,7 +38,11 @@ export async function codeOfDraft(
   draftId: string,
 ): Promise<{
   code: PreviewCode | null;
-  head: { buildStatus: RevisionBuildStatus; typeCheckStatus: RevisionTypeCheckStatus } | null;
+  head: {
+    buildStatus: RevisionBuildStatus;
+    typeCheckStatus: RevisionTypeCheckStatus;
+    leftBy: RevisionSource;
+  } | null;
   clashed: boolean;
 }> {
   const working = env.DRAFT_CODE.getByName(draftId);
@@ -56,6 +65,7 @@ export async function codeOfDraft(
           .select({
             buildStatus: revisions.buildStatus,
             typeCheckStatus: revisions.typeCheckStatus,
+            leftBy: revisions.leftBy,
           })
           .from(revisions)
           .where(eq(revisions.id, draft.head))
@@ -66,11 +76,15 @@ export async function codeOfDraft(
     env.PROJECT_CODE.getByName(draft.projectUuid).commit(),
     working.clash(),
   ]);
+  // A revision whose type check hasn't ended isn't publishable yet: Live never gets code that
+  // doesn't type check. A publish waits for a merge of `main` instead.
+  const checking =
+    head?.buildStatus === "built" && head.typeCheckStatus === "pending" && head.leftBy !== "merge";
   return {
     code: {
       revision: draft.previewed,
       includesLive: main === undefined || merged === main,
-      building,
+      building: building || checking,
       publishing: draft.publishing !== null,
       publishAborted: draft.publishAborted,
     },

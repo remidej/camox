@@ -6,7 +6,8 @@ import {
   threadViewOf,
 } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRpcContext } from "../../../test/fixtures";
@@ -27,6 +28,7 @@ import {
   answerWithToolCall,
   answerWithToolCallFrom,
   forgetThreadModel,
+  holdNextAnswer,
   threadModelCalls,
 } from "../../../test/thread-model";
 import {
@@ -40,6 +42,7 @@ import {
   type Website,
 } from "../../../test/threads";
 import { router } from "../../router";
+import { INFRASTRUCTURE_ATTEMPTS } from "./build";
 import { END_OF_TURN_BUILD_FAILURES } from "./end-of-turn";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
@@ -305,6 +308,80 @@ RolldownError: ${PRICING_FILE} imports "lodash-es", which a hosted project can't
 
     expect(building.code).toMatchObject({ building: true });
     expect((await previewOf(website, draft.id)).code).toMatchObject({ building: false });
+  });
+});
+
+describe("an end of turn that fails on Camox's side", () => {
+  /** Has the agent change the pricing section, holding `marker`, and end its turn. */
+  async function changePricing(thread: ThreadClient, marker: string) {
+    answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// ${marker}\n` });
+    answerNext("I added yearly plans.");
+    await ask(thread, "Add yearly plans");
+  }
+
+  /** Runs the retry Camox scheduled for the draft's build, if any. Whether one was scheduled. */
+  const retryBuild = (draftId: string) =>
+    runDurableObjectAlarm(env.DRAFT_CODE.getByName(draftId) as never);
+
+  it("leaves the draft building, not publishable, until Camox's retry builds it", async () => {
+    const { website, draft, thread } = await draftWithPricing();
+    const before = (await previewOf(website, draft.id)).code!.revision;
+    const marker = crypto.randomUUID();
+    await fakes.crashSandboxes(marker, INFRASTRUCTURE_ATTEMPTS);
+    await changePricing(thread, marker);
+
+    expect((await previewOf(website, draft.id)).code).toMatchObject({
+      revision: before,
+      building: true,
+    });
+
+    expect(await retryBuild(draft.id)).toBe(true);
+    const after = (await previewOf(website, draft.id)).code!;
+    expect(after).toMatchObject({ building: false });
+    expect(after.revision).not.toBe(before);
+    expect(await retryBuild(draft.id)).toBe(false);
+    thread.close();
+  });
+
+  it("leaves the draft building until Camox checks the types of a revision whose check crashed", async () => {
+    const { website, draft, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.crashTypeChecks(marker, INFRASTRUCTURE_ATTEMPTS);
+    await changePricing(thread, marker);
+
+    // The revision built, and the preview shows it, but its type check never ran.
+    const checking = (await previewOf(website, draft.id)).code!;
+    expect(checking).toMatchObject({ building: true });
+
+    expect(await retryBuild(draft.id)).toBe(true);
+    expect((await previewOf(website, draft.id)).code).toMatchObject({
+      revision: checking.revision,
+      building: false,
+    });
+    thread.close();
+  });
+
+  it("says the draft is building while its agent's revision, whose check crashed, isn't checked", async () => {
+    const { website, draft, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.crashTypeChecks(marker, INFRASTRUCTURE_ATTEMPTS);
+    answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// ${marker}\n` });
+    answerWithToolCall("build", {});
+    const calls = threadModelCalls();
+    const answer = holdNextAnswer("I added yearly plans.");
+    thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
+    // The agent has its build's answer: the revision built, and its check failed on Camox's side.
+    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 3), {
+      timeout: 10_000,
+      interval: 50,
+    });
+
+    expect((await previewOf(website, draft.id)).code).toMatchObject({ building: true });
+    answer();
+    await thread.untilIdle();
+    // The end of the turn checks it again.
+    expect((await previewOf(website, draft.id)).code).toMatchObject({ building: false });
+    thread.close();
   });
 });
 

@@ -410,6 +410,8 @@ const lintedTrees = [];
  * crash reaches only the build its test scripted it for
  */
 const sandboxCrashes = [];
+/** @type {{ marker: string, times: number }[]} type checks left that crash, as tsrs crashing does, of a tree with a file holding `marker` */
+const typeCheckCrashes = [];
 /** @type {{ revision: string, archiveKey: string, project: string, draft: string }[]} revisions dispatch prewarmed, oldest first */
 const prewarmed = [];
 /** @type {Map<string, number>} project → how many of its next prewarms fail, as an unreachable dispatch's would */
@@ -572,6 +574,14 @@ export class FakeRevisionSandbox extends DurableObject {
     const typeCheck = TYPE_CHECK_COMMAND.exec(command);
     if (typeCheck) {
       while (heldTypeChecks.has(this.name)) await new Promise((resolve) => setTimeout(resolve, 10));
+      const crash = typeCheckCrashes.find(
+        ({ marker, times }) =>
+          times > 0 && Object.values(this.tree).some((content) => content.includes(marker)),
+      );
+      if (crash) {
+        crash.times -= 1;
+        return result(139, "Segmentation fault (core dumped)");
+      }
       // It checks the files its config includes, as tsrs reads them.
       const configPath = typeCheck[1].startsWith("/")
         ? typeCheck[1]
@@ -1098,6 +1108,15 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async crashSandboxes(marker, times) {
     sandboxCrashes.push({ marker, times });
+  }
+
+  /**
+   * Makes the next `times` type checks of a tree with a file holding `marker` crash.
+   * @param {string} marker
+   * @param {number} times
+   */
+  async crashTypeChecks(marker, times) {
+    typeCheckCrashes.push({ marker, times });
   }
 
   /** @param {string} sandbox Whether a revision sandbox was destroyed. */
