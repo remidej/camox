@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture } from "../../../test/fixtures";
 import { projects } from "../../schema";
+import { buildCommand, updateCommand } from "./commands";
 import { PROJECTS_PER_BATCH } from "./workflow";
 
 // After each SDK publish, the upgrade Workflow moves every project to the new SDK: in a sandbox,
@@ -141,8 +142,8 @@ describe("upgrading every project to a new SDK", () => {
 
     for (const { project } of [first, second]) {
       expect(await commands(project.uuid)).toEqual([
-        `npm pkg set dependencies.camox=^${NEW_VERSION} && pnpm install --no-frozen-lockfile`,
-        "pnpm exec camox release --dry-run",
+        updateCommand(`npm pkg set dependencies.camox=^${NEW_VERSION}`),
+        buildCommand(),
         expect.stringContaining(`git commit -q -m "Upgrade Camox to ${NEW_VERSION}"`),
       ]);
       expect(await pushesToMain(project.uuid)).toHaveLength(1);
@@ -180,10 +181,10 @@ describe("upgrading every project to a new SDK", () => {
     await upgradeTo(NEW_VERSION);
 
     const runs = await fakes.commandsRun(project.uuid);
-    expect(runs.map(({ command }) => command)).toContain("pnpm exec camox release --dry-run");
+    expect(runs.map(({ command }) => command)).toContain(buildCommand());
     // Only the build has the flag: the update and the push run no project code through Vite.
     for (const { command, env } of runs) {
-      expect(env[HOSTED_BUILD_ENV] === "1").toBe(command === "pnpm exec camox release --dry-run");
+      expect(env[HOSTED_BUILD_ENV] === "1").toBe(command === buildCommand());
     }
     expect(await pushesToMain(project.uuid)).toEqual([]);
   });
@@ -199,7 +200,9 @@ describe("upgrading every project to a new SDK", () => {
     await upgradeTo(NEW_VERSION);
 
     expect((await commands(project.uuid))[0]).toBe(
-      `npm pkg set dependencies.camox=^${NEW_VERSION} dependencies.@camox/ui=^${NEW_VERSION} devDependencies.@camox/cli=^${NEW_VERSION} && pnpm install --no-frozen-lockfile`,
+      updateCommand(
+        `npm pkg set dependencies.camox=^${NEW_VERSION} dependencies.@camox/ui=^${NEW_VERSION} devDependencies.@camox/cli=^${NEW_VERSION}`,
+      ),
     );
   });
 
