@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.2](https://github.com/remidej/camox/compare/camox-v0.52.1...camox-v0.52.2) (2026-10-25)
+
+
+### Bug Fixes
+
+* **api:** keep an upgrade's updated package.json and lockfile across its steps ([#589](https://github.com/remidej/camox/issues/589)) ([adb8846](https://github.com/remidej/camox/commit/adb88460e4cbfd33d804c0e7dfdba4d29bf4d1e2))
+
 ## [0.52.1](https://github.com/remidej/camox/compare/camox-v0.52.0...camox-v0.52.1) (2026-10-24)
 
 
