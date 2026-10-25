@@ -52,8 +52,18 @@ export type SandboxBuild =
   | { ok: true; archive: Uint8Array; typeCheck: Promise<SandboxTypeCheck> }
   | { ok: false; log: string };
 
+/**
+ * How the API talks to the sandbox's container. The tree's archive is written as a stream, which
+ * only the RPC transport takes: the default HTTP one throws. Every `getSandbox` of a draft's
+ * sandbox passes the same one, as changing it drops the calls in flight.
+ */
+export const REVISION_SANDBOX_TRANSPORT = "rpc";
+
 const sandboxOf = (env: Pick<Bindings, "REVISION_SANDBOX">, draftId: string) =>
-  getSandbox(env.REVISION_SANDBOX, draftId, { sleepAfter: REVISION_SANDBOX_SLEEP_AFTER });
+  getSandbox(env.REVISION_SANDBOX, draftId, {
+    sleepAfter: REVISION_SANDBOX_SLEEP_AFTER,
+    transport: REVISION_SANDBOX_TRANSPORT,
+  });
 
 /**
  * The draft's sandbox running each command on its own, outside its shell session, which runs
@@ -62,6 +72,7 @@ const sandboxOf = (env: Pick<Bindings, "REVISION_SANDBOX">, draftId: string) =>
 const sessionlessSandboxOf = (env: Pick<Bindings, "REVISION_SANDBOX">, draftId: string) =>
   getSandbox(env.REVISION_SANDBOX, draftId, {
     sleepAfter: REVISION_SANDBOX_SLEEP_AFTER,
+    transport: REVISION_SANDBOX_TRANSPORT,
     enableDefaultSession: false,
   });
 

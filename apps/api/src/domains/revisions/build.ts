@@ -49,7 +49,8 @@ export async function retried<T>(step: () => Promise<T>): Promise<T> {
       return await step();
     } catch (error) {
       if (attempt >= INFRASTRUCTURE_ATTEMPTS) throw new BuildInfrastructureError(error);
-      console.warn("A revision's build step failed, and is tried again", error);
+      // The message too: an error from another Worker logs only its stack.
+      console.warn(`A revision's build step failed, and is tried again: ${String(error)}`, error);
       await scheduler.wait(INFRASTRUCTURE_RETRY_DELAY_MS * 2 ** (attempt - 1));
     }
   }
