@@ -7,6 +7,7 @@ import { createDb, type Database } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { leaveUpgradePush, queueUpgradePush, turnOf } from "../publishes/queue";
+import { buildCommand, pushCommand, updateCommand } from "./commands";
 
 type UpgradeEnv = Bindings & CiBindings;
 
@@ -73,10 +74,12 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
 
     try {
       const updated = await run(ci, "update", async () => ({
-        command: `${await step.do("read the Camox packages", () => setVersionsCommand(this.env, params))} && pnpm install --no-frozen-lockfile`,
+        command: updateCommand(
+          await step.do("read the Camox packages", () => setVersionsCommand(this.env, params)),
+        ),
       }));
       const built = await run(updated, "build", async () => ({
-        command: "pnpm exec camox release --dry-run",
+        command: buildCommand(),
         // A new hosted check that the project's code breaks fails the Upgrade's build.
         env: { ...HOSTED_BUILD },
       }));
@@ -162,29 +165,6 @@ async function setVersionsCommand(env: Bindings, params: ProjectUpgradeParams) {
   );
   if (settings.length === 0) throw new Error("The project doesn't depend on camox.");
   return `npm pkg set ${settings.join(" ")}`;
-}
-
-/**
- * Commits the changed `package.json` and lockfile on top of the current `main`, and pushes it.
- * `main` may have moved since the commit the upgrade built, by a publish with code, which only
- * ever changes `src/`: the step checks that `package.json` and the lockfile are still that
- * commit's, and refuses otherwise. The workspace has no `.git`, so the step fetches both commits
- * first. A `main` that already has the upgraded files, as after a retried push that landed, is
- * left as it is. A `main` that moves during the step is refused, rather than overwritten.
- */
-function pushCommand(sha: string, camoxVersion: string) {
-  const platform = "package.json pnpm-lock.yaml";
-  return [
-    "git init -q",
-    'git remote add origin "$UPGRADE_GIT_REMOTE"',
-    `git fetch -q --depth=1 origin ${sha} refs/heads/main:refs/remotes/origin/main`,
-    "git reset -q origin/main",
-    `if git diff --quiet -- ${platform}; then exit 0; fi`,
-    `git diff --quiet ${sha} origin/main -- ${platform}`,
-    `git add ${platform}`,
-    `git commit -q -m "Upgrade Camox to ${camoxVersion}"`,
-    "git push -q origin HEAD:refs/heads/main",
-  ].join(" && ");
 }
 
 /**
