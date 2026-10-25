@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.3](https://github.com/remidej/camox/compare/camox-v0.52.2...camox-v0.52.3) (2026-10-25)
+
+
+### Bug Fixes
+
+* **api:** build revisions over the sandbox's RPC transport ([#591](https://github.com/remidej/camox/issues/591)) ([a5d4663](https://github.com/remidej/camox/commit/a5d466396804aae64f85ebd301d48b9c6618aa78))
+
 ## [0.52.2](https://github.com/remidej/camox/compare/camox-v0.52.1...camox-v0.52.2) (2026-10-25)
 
 
