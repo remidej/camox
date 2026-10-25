@@ -779,7 +779,6 @@ function CanvasWorkspace({
 
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const layouts = useRoutableLayouts();
-  const renamePage = useRenamePage();
   const location = useLocation();
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const viewport = CANVAS_DEVICES[viewportMode === "full" ? "desktop" : viewportMode];
@@ -914,7 +913,6 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
               onShowPage: (key) => workspace.current?.showPage(key),
             }}
             onShowWholeCanvas={() => workspace.current?.showWholeCanvas()}
-            onRenamePage={renamePage}
             owner={editingOwner}
             pageRecord={pageRecord}
           />

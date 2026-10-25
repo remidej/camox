@@ -1,5 +1,7 @@
+import { SidebarStack, SidebarStackView } from "../../preview/components/SidebarStack";
 import { CanvasInspectorBody, CanvasInspectorHeaderSkeleton } from "./CanvasInspector";
 import { CanvasSidebarFrame } from "./CanvasSidebarFrame";
+import { CanvasViewHeader } from "./CanvasViewHeader";
 import { CuratedPageSkeleton, LayoutPageSkeleton } from "./PageInspectorSkeleton";
 
 /**
@@ -19,12 +21,16 @@ export function CanvasSidebarSkeleton({
   return (
     <CanvasSidebarFrame data-canvas-sidebar-skeleton>
       {page && (
-        <>
+        // In the stack's layout, so nothing shifts once it shows.
+        <SidebarStack>
+          <CanvasViewHeader covered />
           <CanvasInspectorHeaderSkeleton />
           <CanvasInspectorBody>
-            {layoutPage ? <LayoutPageSkeleton /> : <CuratedPageSkeleton />}
+            <SidebarStackView depth={1} className="flex flex-col">
+              {layoutPage ? <LayoutPageSkeleton /> : <CuratedPageSkeleton />}
+            </SidebarStackView>
           </CanvasInspectorBody>
-        </>
+        </SidebarStack>
       )}
     </CanvasSidebarFrame>
   );

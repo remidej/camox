@@ -1,6 +1,7 @@
 import type * as React from "react";
 
 import { SelectionEditor } from "../../preview/components/SelectionEditor";
+import { SidebarStackView } from "../../preview/components/SidebarStack";
 import { usePreviewTargetSelection } from "../../preview/previewSelection";
 
 /**
@@ -10,5 +11,11 @@ import { usePreviewTargetSelection } from "../../preview/previewSelection";
  */
 export function PageOverview({ children }: { children: React.ReactNode }) {
   const selection = usePreviewTargetSelection();
-  return selection != null ? <SelectionEditor /> : children;
+  return selection != null ? (
+    <SelectionEditor pageCrumb={false} />
+  ) : (
+    <SidebarStackView depth={1} className="flex flex-col">
+      {children}
+    </SidebarStackView>
+  );
 }
