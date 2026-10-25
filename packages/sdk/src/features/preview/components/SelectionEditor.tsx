@@ -14,12 +14,10 @@ import { editorAssetField } from "@/features/content/collection-form";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
 import { blockMutations, repeatableItemMutations } from "@/lib/queries";
 import { type BlockDefinition, useBlockDefinition } from "@/lib/studio-definitions";
-import { cn } from "@/lib/utils";
 
 import { reads, useReadQueries, useReadQuery } from "../../../lib/studio-reads";
 import { useEditingFrame } from "../editingFrame";
 import { entityName } from "../entityName";
-import { selectionHoverMessage } from "../overlayMessages";
 import { usePageRecordPlacer } from "../pageRecord";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
@@ -32,7 +30,6 @@ import {
   selectionItemId,
   selectionForOwner,
   type EditingOwner,
-  type Selection,
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
 import { contentFieldSchema } from "./contentFieldSchema";
@@ -41,6 +38,7 @@ import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
 import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
+import { SelectionViewCount, SidebarStackHeader, SidebarStackView } from "./SidebarStack";
 import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
 import { type RecordPlacer, useRecordView, type SelectionCrumb } from "./useRecordView";
 import { type RepeatableArraySchema, useRepeatableItemActions } from "./useRepeatableItemActions";
@@ -145,29 +143,30 @@ const buildAncestorChain = (
  * SelectionEditor
  * -----------------------------------------------------------------------------------------------*/
 
-const SelectionEditor = () => {
+const SelectionEditor = ({
+  pageCrumb = true,
+}: {
+  /** Whether the path starts with the page. The Canvas sidebar's page header stands for it. */
+  pageCrumb?: boolean;
+}) => {
   const owner = React.useContext(PreviewEditingOwnerContext);
   if (owner == null) return null;
-  return <SelectionEditorContent owner={owner} />;
+  return <SelectionEditorContent owner={owner} pageCrumb={pageCrumb} />;
 };
 
-const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
+const SelectionEditorContent = ({
+  owner,
+  pageCrumb,
+}: {
+  owner: EditingOwner;
+  pageCrumb: boolean;
+}) => {
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
 
   // Get state from store
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const { send } = useEditingFrame();
-
-  const [hoveredBreadcrumb, setHoveredBreadcrumb] = React.useState<{
-    target: Selection | null;
-    selection: Selection | null;
-  } | null>(null);
-  React.useEffect(() => {
-    if (!hoveredBreadcrumb || hoveredBreadcrumb.selection !== selection) return;
-    send(selectionHoverMessage(hoveredBreadcrumb.target, true));
-    return () => send(selectionHoverMessage(hoveredBreadcrumb.target, false));
-  }, [hoveredBreadcrumb, send, selection]);
 
   const blockId = selectionBlockId(selection);
   const currentItemId = selectionItemId(selection);
@@ -483,85 +482,44 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
         ]
       : []),
   ];
+  const stackedItems = pageCrumb ? navigationItems : navigationItems.slice(1);
+  // Under the Canvas's view, then the page's, unless the path starts with the page.
+  const firstDepth = pageCrumb ? 1 : 2;
+  const front = stackedItems[stackedItems.length - 1];
   return (
     <>
-      <SidebarSection divider="bottom" className="pt-3">
-        <nav aria-label="Selection path" className="text-muted-foreground text-sm">
-          <ol className="flex flex-col">
-            {navigationItems.map((item, index) => {
-              const isFirstItem = index === 0;
-              const isLastItem = index === navigationItems.length - 1;
-
-              return (
-                <li
-                  key={item.key}
-                  className="relative min-w-0 pl-6"
-                  onMouseEnter={() =>
-                    setHoveredBreadcrumb(
-                      !item.isCurrent && item.hoverTarget !== undefined
-                        ? { target: item.hoverTarget, selection }
-                        : null,
-                    )
-                  }
-                  onMouseLeave={() => setHoveredBreadcrumb(null)}
-                  onClickCapture={() => setHoveredBreadcrumb(null)}
+      {/* The path as a stack of views: the selection's on top, each step under it a header. */}
+      <SelectionViewCount count={stackedItems.length} />
+      <nav aria-label="Selection path" className="shrink-0">
+        <ol className="flex flex-col">
+          {stackedItems.map((item, index) => {
+            const distance = stackedItems.length - 1 - index;
+            const covered = distance > 0;
+            return (
+              <li key={item.key} className="relative flex flex-col">
+                <SidebarStackHeader
+                  depth={firstDepth + index}
+                  distance={distance}
+                  first={pageCrumb && index === 0}
+                  onSelect={item.onClick}
+                  hoverTarget={item.hoverTarget}
                 >
-                  <svg
-                    aria-hidden="true"
-                    className="text-muted-foreground pointer-events-none absolute top-0 left-0 h-7 w-4"
-                    fill="none"
-                    preserveAspectRatio="none"
-                    viewBox="0 0 16 28"
-                  >
-                    {!isFirstItem && (
-                      <path
-                        d="M8 0 V10"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    )}
-                    {!isLastItem && (
-                      <path
-                        d="M8 18 V28"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    )}
-                    <circle
-                      className="fill-background"
-                      cx="8"
-                      cy="14"
-                      r="4"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </svg>
-                  {item.onClick ? (
-                    <button
-                      type="button"
-                      className={cn(
-                        "hover:text-foreground block h-7 max-w-full cursor-pointer truncate text-left leading-7 transition-colors",
-                        item.isCurrent && "text-foreground font-medium",
-                      )}
-                      onClick={item.onClick}
-                    >
-                      {item.label}
-                    </button>
+                  {covered ? (
+                    item.label
                   ) : (
-                    <span className="text-foreground block h-7 min-w-0 truncate leading-7 font-medium">
-                      {item.label}
-                    </span>
+                    <span className="truncate font-medium">{item.label}</span>
                   )}
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
-      </SidebarSection>
-      <div className="relative min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                </SidebarStackHeader>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+      <SidebarStackView
+        key={`${block?.id ?? "layout"}:${front?.key}`}
+        depth={firstDepth + stackedItems.length - 1}
+        className="relative min-w-0 overflow-x-hidden overflow-y-auto"
+      >
         <div>
           {isItemLoading ? (
             <div className="flex h-full items-center justify-center py-12">
@@ -844,7 +802,7 @@ const SelectionEditorContent = ({ owner }: { owner: EditingOwner }) => {
             </>
           )}
         </div>
-      </div>
+      </SidebarStackView>
     </>
   );
 };

@@ -106,8 +106,12 @@ function pageStructure(path: string) {
   };
 }
 
-async function setup() {
-  const dom = new Window({ url: "http://localhost/" });
+async function setup({ motion = false } = {}) {
+  // Views that go linger as copies while they move away, which most tests don't watch.
+  const dom = new Window({
+    url: "http://localhost/",
+    settings: { device: { prefersReducedMotion: motion ? "no-preference" : "reduce" } },
+  });
   const calls: unknown[] = [];
   const api = {
     pages: {
@@ -156,11 +160,9 @@ async function setup() {
   });
   const navigations: { to: string; replace?: boolean }[] = [];
   let canvasShown = 0;
-  const renames: [pageId: string, nickname: string][] = [];
   return {
     api,
     calls,
-    renames,
     client,
     mount,
     navigations,
@@ -189,9 +191,6 @@ async function setup() {
                   page={page}
                   navigator={{ pages: [], onShowPage: () => {}, ...navigator }}
                   onShowWholeCanvas={() => canvasShown++}
-                  onRenamePage={async (pageId, nickname) => {
-                    renames.push([pageId, nickname]);
-                  }}
                   owner={owner}
                   pageRecord={pageRecord}
                 />
@@ -394,6 +393,28 @@ void test("the active frame owner's selection opens the selection editor in plac
   }
 });
 
+void test("a view that goes stays out of reach while it moves away, then leaves no trace", async () => {
+  const dom = await setup({ motion: true });
+  dom.store.send({ type: "showCanvas" });
+  const owner: EditingOwner = { kind: "page", pageId: "7" };
+  try {
+    await dom.render("/", home, {}, { owner });
+    await dom.settle();
+
+    dom.store.send({ type: "setFocusedBlock", ...owner, blockId: "42" });
+    await dom.render("/", home, {}, { owner });
+    const going = dom.mount.querySelectorAll('[data-panel="PageTree"]');
+    assert.equal(going.length, 1, "the page's view moves behind the selection's");
+    assert.ok(going[0].closest('[inert][aria-hidden="true"]'), "where nothing reaches it");
+    assert.ok(dom.mount.querySelector('[data-panel="SelectionEditor"]'), "under the selection's");
+
+    await React.act(() => new Promise((resolve) => setTimeout(resolve, 800)));
+    assert.equal(dom.mount.querySelector('[data-panel="PageTree"]'), null, "then it's gone");
+  } finally {
+    await dom.close();
+  }
+});
+
 void test("a record page's selected record opens the editor, and its notice says where the record is edited", async () => {
   const dom = await setup();
   dom.store.send({ type: "showCanvas" });
@@ -491,7 +512,7 @@ void test("the Canvas navigator lists every Page, searches, and shows the picked
   }
 });
 
-void test("a selected Page's sidebar names it under a back button that shows the whole Canvas", async () => {
+void test("a selected Page's sidebar names it over the Canvas's header, which shows the whole Canvas", async () => {
   const dom = await setup();
   try {
     for (const [url, page] of [
@@ -501,48 +522,16 @@ void test("a selected Page's sidebar names it under a back button that shows the
       await dom.render(url, page);
       await dom.settle();
       const aside = dom.mount.querySelector("aside")!;
-      const heading = aside.querySelector("h2")!;
-      const nickname = heading.querySelector("input");
-      assert.equal(nickname?.value ?? heading.textContent, page.title);
-      assert.equal(!!nickname, page.kind === "curated", "only a Page's nickname can be edited");
+      assert.equal(aside.querySelector("h2")?.textContent, page.title);
       assert.equal(aside.getAttribute("aria-label"), page.title);
       assert.equal(dom.mount.querySelector("[data-canvas-navigator]"), null);
     }
-    const back = dom.mount.querySelector<HTMLButtonElement>('[aria-label="Show whole canvas"]')!;
+    const back = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside button")].find(
+      (button) => button.textContent === "Site",
+    )!;
     await React.act(async () => back.click());
     assert.equal(dom.canvasShown, 1);
     assert.deepEqual(dom.navigations, [], "the Canvas, not the sidebar, leaves the selection");
-  } finally {
-    await dom.close();
-  }
-});
-
-void test("a Page's nickname is renamed from the sidebar's header", async () => {
-  const dom = await setup();
-  try {
-    await dom.render("/", home);
-    await dom.settle();
-    const input = dom.mount.querySelector(
-      'aside h2 input[aria-label="Page nickname"]',
-    ) as unknown as HTMLInputElement;
-    const type = async (value: string, key: string) => {
-      await React.act(async () => {
-        input.focus();
-        input.value = value;
-        input.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
-      });
-      await dom.settle();
-    };
-
-    await type("  Landing  ", "Enter");
-    assert.deepEqual(dom.renames, [["7", "Landing"]], "Enter saves the trimmed nickname");
-
-    await type("Draft", "Escape");
-    assert.equal(input.value, "Home", "Escape puts the nickname back");
-    await type("", "Enter");
-    assert.equal(input.value, "Home", "an empty nickname is refused");
-    await type("Home", "Enter");
-    assert.deepEqual(dom.renames, [["7", "Landing"]], "nothing else saves");
   } finally {
     await dom.close();
   }
