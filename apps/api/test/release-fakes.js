@@ -394,6 +394,8 @@ const prewarmFailures = new Map();
 const destroyedSandboxes = new Set();
 /** @type {Map<string, string>} sandbox → how long it stays up idle */
 const sandboxSleepAfter = new Map();
+/** @type {Map<string, string>} sandbox → the transport its `getSandbox` configured */
+const sandboxTransports = new Map();
 /** @type {Map<string, { running: number, most: number }>} sandbox → its builds running now, and the most that ran at once */
 const buildsAtOnce = new Map();
 /** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
@@ -476,9 +478,16 @@ export class FakeRevisionSandbox extends DurableObject {
     if (configuration.sleepAfter !== undefined) {
       sandboxSleepAfter.set(this.name, configuration.sleepAfter);
     }
+    if (configuration.transport !== undefined) {
+      sandboxTransports.set(this.name, configuration.transport);
+    }
   }
 
   async writeFile(path, content, options = {}) {
+    // As the real sandbox does: only its RPC transport writes a stream.
+    if (content instanceof ReadableStream && sandboxTransports.get(this.name) !== "rpc") {
+      throw new Error("writeFileStream requires the rpc transport. Set SANDBOX_TRANSPORT=rpc.");
+    }
     const bytes = await bytesOf(content, options.encoding);
     this.#crash(bytes);
     this.files.set(path, bytes);
