@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.0](https://github.com/remidej/camox/compare/camox-v0.54.0...@camox/ui-v0.55.0) (2026-10-26)
+
+
+### Features
+
+* **sdk:** light sidebar cards from above, and fold one more parent ([#608](https://github.com/remidej/camox/issues/608)) ([84f42cc](https://github.com/remidej/camox/commit/84f42ccbc1c6c2336ee6a7054a1e31ff1c9612b4))
+
 ## [0.54.0](https://github.com/remidej/camox/compare/camox-v0.53.1...@camox/ui-v0.54.0) (2026-10-26)
 
 
