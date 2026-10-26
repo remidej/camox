@@ -45,7 +45,7 @@ void test("before the editor loads, a spinner in the Canvas's background holds t
 
     await render(true);
     assert.equal(sidebar(), null, "with the Canvas hidden, there is no Content Sidebar");
-    assert.ok(loading()?.className.includes("bg-muted"), "the Canvas's own background");
+    assert.ok(loading()?.className.includes("bg-canvas"), "the Canvas's own background");
     assert.equal(status()?.getAttribute("aria-label"), "Loading the page");
 
     await React.act(async () => previewStore.send({ type: "showCanvas" }));
