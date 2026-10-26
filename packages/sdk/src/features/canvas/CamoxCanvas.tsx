@@ -64,7 +64,7 @@ import {
   useCanvasThumbnail,
 } from "./canvasThumbnails";
 import { CanvasWorkspaceContext } from "./canvasZoom";
-import { CanvasSidebar } from "./sidebar/CanvasSidebar";
+import { ContentSidebar } from "./sidebar/ContentSidebar";
 import { useCanvasCamera, type CanvasInsets } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
 import { useDiscoveredPreviewPaths } from "./useDiscoveredPreviewPaths";
@@ -72,7 +72,7 @@ import { useDiscoveredPreviewPaths } from "./useDiscoveredPreviewPaths";
 type CanvasViewport = { width: number; height: number };
 
 /**
- * The Canvas spans the studio under its sidebars, the Canvas sidebar on its left and the chat on
+ * The Canvas spans the studio under its sidebars, the Content Sidebar on its left and the Agent Sidebar on
  * its right: the camera frames and snaps Pages between them, and above the studio's bottom edge.
  */
 const CANVAS_INSETS: CanvasInsets = {
@@ -514,7 +514,7 @@ function CanvasPageItem({
   );
 }
 
-/** What the Canvas offers to the Canvas sidebar beside it. */
+/** What the Canvas offers to the Content Sidebar beside it. */
 type CanvasWorkspaceHandle = {
   /**
    * Shows a Page: selects it as from outside the Canvas, so the camera flies to
@@ -856,7 +856,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const previewedPath = React.use(PreviewPageFrameContext)?.pathname;
   const previewedPage = previewedPath ? pageAt(previewedPath) : undefined;
   // A Canvas selection commits once its route payload loads. Until then, the
-  // Canvas sidebar and the camera already follow it, so they move as the camera snaps.
+  // Content Sidebar and the camera already follow it, so they move as the camera snaps.
   const [intent, setIntent] = React.useState<{ from: string; to: typeof location } | null>(null);
   // An intent ends once the location leaves where it started, committed or not, so
   // coming back there later doesn't revive it.
@@ -928,14 +928,14 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     );
   const editingOwner = activeFrame?.pathname === intended.pathname ? activeFrame.owner : null;
   return (
-    // The Canvas spans the whole row, under the Canvas sidebar laid over its left side.
+    // The Canvas spans the whole row, under the Content Sidebar laid over its left side.
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
       {selectedPage?.kind === "curated" && <CuratedBlockShortcuts />}
-      {/* The Canvas sidebar stays mounted and routes to the intended selection, or the Canvas itself. */}
+      {/* The Content Sidebar stays mounted and routes to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>
         {/* The record page's record, which its sidebar edits. */}
         <PageRecordContext value={recordResult}>
-          <CanvasSidebar
+          <ContentSidebar
             page={intendedPage}
             navigator={{
               pages: canvasPages,

@@ -12,8 +12,8 @@ import { NavigationProvider } from "../../navigation/navigation";
 import type { EditingOwner } from "../../preview/previewStore";
 import type { CanvasPage } from "../canvasPages";
 
-type CanvasSidebarProps = React.ComponentProps<typeof import("./CanvasSidebar").CanvasSidebar>;
-type CanvasNavigator = CanvasSidebarProps["navigator"];
+type ContentSidebarProps = React.ComponentProps<typeof import("./ContentSidebar").ContentSidebar>;
+type CanvasNavigator = ContentSidebarProps["navigator"];
 
 const navigationUrl = new URL("../../navigation/navigation.tsx", import.meta.url).href;
 const ownerUrl = new URL("../../preview/previewSelection.ts", import.meta.url).href;
@@ -150,7 +150,7 @@ async function setup({ motion = false } = {}) {
   );
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
-  const { CanvasSidebar } = await import("./CanvasSidebar");
+  const { ContentSidebar } = await import("./ContentSidebar");
   const { PreviewEditingOwnerContext } = await import("../../preview/previewSelection");
   const { previewStore: store } = await import("../../preview/previewStore");
   const mount = dom.document.createElement("div");
@@ -175,7 +175,7 @@ async function setup({ motion = false } = {}) {
       url: string,
       page: CanvasPage | undefined,
       navigator: Partial<CanvasNavigator> = {},
-      { owner, pageRecord }: Pick<CanvasSidebarProps, "owner" | "pageRecord"> = {},
+      { owner, pageRecord }: Pick<ContentSidebarProps, "owner" | "pageRecord"> = {},
     ) {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
@@ -188,7 +188,7 @@ async function setup({ motion = false } = {}) {
               }}
             >
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
-                <CanvasSidebar
+                <ContentSidebar
                   page={page}
                   navigator={{ pages: [], onShowPage: () => {}, ...navigator }}
                   onShowWholeCanvas={() => canvasShown++}

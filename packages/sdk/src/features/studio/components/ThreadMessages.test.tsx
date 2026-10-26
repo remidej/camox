@@ -95,20 +95,8 @@ void test("a turn without the agent's message says it was stopped, and by whom, 
   assert.doesNotMatch(html, /Working…/);
 });
 
-void test("an empty thread says what the agent can do, in one line", () => {
-  const html = renderToString(<ThreadMessages view={{ messages: [], running: false }} />);
-
-  assert.match(html, /data-thread-empty/);
-  assert.doesNotMatch(html, /Working…/);
-});
-
-void test("a fresh Live thread links to the draft the editor's previous one continued in", () => {
-  const continuedIn = { label: "Ada Lovelace, Oct 20", href: "/pricing?camox-draft=d1" };
-
-  const empty = renderToString(
-    <ThreadMessages view={{ messages: [], running: false }} continuedIn={continuedIn} />,
-  );
-  const answered = renderToString(
+void test("the squareling stays at the end of the thread, idle, after a turn", () => {
+  const html = renderToString(
     <ThreadMessages
       view={{
         running: false,
@@ -117,16 +105,19 @@ void test("a fresh Live thread links to the draft the editor's previous one cont
           { id: "2", from: "agent", text: "Plans start at $9." },
         ],
       }}
-      continuedIn={continuedIn}
     />,
   );
 
-  for (const html of [empty, answered]) {
-    assert.match(
-      html,
-      /Continued in(<!-- -->)? <a [^>]*href="\/pricing\?camox-draft=d1"[^>]*>Ada Lovelace, Oct 20<\/a>/,
-    );
-  }
+  assert.match(html, /Plans start at \$9\.[\s\S]*data-squareling="idle"/);
+  assert.doesNotMatch(html, /Working…/);
+});
+
+void test("an empty thread has the agent's squareling ask how it can help", () => {
+  const html = renderToString(<ThreadMessages view={{ messages: [], running: false }} />);
+
+  assert.match(html, /data-thread-empty/);
+  assert.match(html, /How can I help\?/);
+  assert.doesNotMatch(html, /Working…/);
 });
 
 void test("a message still on its way to the thread shows the agent working before its run starts", () => {

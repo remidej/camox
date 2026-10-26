@@ -1,14 +1,14 @@
 import { SidebarStack, SidebarStackView } from "../../preview/components/SidebarStack";
 import { CanvasInspectorBody, CanvasInspectorHeaderSkeleton } from "./CanvasInspector";
-import { CanvasSidebarFrame } from "./CanvasSidebarFrame";
 import { CanvasViewHeader } from "./CanvasViewHeader";
+import { ContentSidebarFrame } from "./ContentSidebarFrame";
 import { CuratedPageSkeleton, LayoutPageSkeleton } from "./PageInspectorSkeleton";
 
 /**
- * Stands in for the Canvas sidebar while the Canvas loads, where the sidebar will show. For a
+ * Stands in for the Content Sidebar while the Canvas loads, where the sidebar will show. For a
  * selected Page, it takes the Canvas Inspector's layout. Without one, it is empty.
  */
-export function CanvasSidebarSkeleton({
+export function ContentSidebarSkeleton({
   page = true,
   layoutPage = false,
 }: {
@@ -17,7 +17,7 @@ export function CanvasSidebarSkeleton({
   layoutPage?: boolean;
 }) {
   return (
-    <CanvasSidebarFrame data-canvas-sidebar-skeleton>
+    <ContentSidebarFrame data-content-sidebar-skeleton>
       {page && (
         // In the stack's layout, so nothing shifts once it shows.
         <SidebarStack>
@@ -30,6 +30,6 @@ export function CanvasSidebarSkeleton({
           </CanvasInspectorBody>
         </SidebarStack>
       )}
-    </CanvasSidebarFrame>
+    </ContentSidebarFrame>
   );
 }

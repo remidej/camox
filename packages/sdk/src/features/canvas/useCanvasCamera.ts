@@ -635,7 +635,7 @@ export function useCanvasCamera(
         const destination = targetOf(key);
         if (key !== requested) {
           // Selected from anywhere but the camera, such as a header or the
-          // Canvas sidebar: fly there to snap to it.
+          // Content Sidebar: fly there to snap to it.
           requested = key;
           selection = key;
           if (destination && !isCanvasCameraSnapped(rest(target), viewportSize, destination))

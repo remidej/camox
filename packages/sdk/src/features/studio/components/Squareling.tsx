@@ -1,3 +1,5 @@
+import type * as React from "react";
+
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,12 +16,15 @@ export type SquarelingStatus = "idle" | "thinking" | "acting" | "fixing";
 export function Squareling({
   status,
   className,
+  ref,
 }: {
   status: SquarelingStatus;
   className?: string;
+  ref?: React.Ref<SVGSVGElement>;
 }) {
   return (
     <svg
+      ref={ref}
       viewBox="0 0 100 100"
       aria-hidden
       data-squareling={status}

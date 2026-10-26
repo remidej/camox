@@ -1,59 +1,38 @@
 import { EMPTY_THREAD_VIEW, type TouchedBatch } from "@camox/api-contract/threads";
 import * as React from "react";
 
-import { useNavigate } from "@/features/navigation/navigation";
-
 import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId, useDraftScope } from "../../../lib/draft-scope";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { type CarriedThread, useThread } from "../../../lib/use-thread";
 import { cn } from "../../../lib/utils";
-import {
-  BOTTOM_CARD_EDGES,
-  CARD_BODY_EDGES,
-  SIDEBAR_GUTTER,
-} from "../../preview/components/SidebarStack";
-import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
-import { draftLabel } from "../draftLabel";
+import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { FollowAgentContext } from "../followAgentContext";
-import { Squareling } from "./Squareling";
 import { ThreadComposer } from "./ThreadComposer";
-import { type ContinuedInLink, ThreadMessages } from "./ThreadMessages";
+import { ThreadMessages } from "./ThreadMessages";
 
 /**
- * Where an editor works with Camox's agent in a thread, beside the Canvas. Elsewhere in the
+ * The Agent Sidebar's Chat widget, where an editor works with Camox's agent in a thread. Elsewhere in the
  * studio it is only hidden: the studio keeps following the editor's runs there. It follows
  * where the studio is: the editor's own Live thread on Live, and the draft's thread in a draft.
  * When the Live thread starts a draft, the studio enters it with the thread.
  */
-export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
+export function ChatWidget({ className }: { className?: string }) {
   return (
-    <aside
-      aria-label="Agent"
-      data-chat-sidebar
-      hidden={hidden}
-      // Laid over the Canvas's right side, as the Canvas sidebar is over its left: only its card
-      // has a background, and the Canvas shows around it.
-      className={cn(
-        "absolute inset-y-0 right-0 z-10 flex flex-col py-2 max-md:hidden",
-        SIDEBAR_GUTTER,
-      )}
-      style={{ width: CMS_SIDEBAR_WIDTH }}
-    >
-      {/* A card like the Canvas sidebar's front one, across the page, in height, edges and type. */}
+    <section aria-label="Chat" data-chat-widget className={cn("flex flex-col", className)}>
+      {/* A card like the Content Sidebar's front one, across the page, in height, edges and type. */}
       <header
         className={cn(
-          "bg-background flex h-11 min-w-0 shrink-0 items-center justify-center gap-2 px-3",
+          "bg-background flex h-11 min-w-0 shrink-0 items-center justify-center px-3",
           BOTTOM_CARD_EDGES,
         )}
       >
-        <Squareling status="idle" className="size-5" />
         <h2 className="truncate text-sm font-medium">Agent</h2>
       </header>
       <div className={cn("bg-background flex min-h-0 flex-1 flex-col", CARD_BODY_EDGES)}>
         <CurrentThread />
       </div>
-    </aside>
+    </section>
   );
 }
 
@@ -134,15 +113,9 @@ function Thread({
     follow?.resume();
     send(text);
   };
-  const messages = { view, sending };
-  const continuedIn = draftId === null ? view.continuedIn?.draftId : undefined;
   return (
     <>
-      {continuedIn ? (
-        <ContinuedInMessages {...messages} projectId={projectId} draftId={continuedIn} />
-      ) : (
-        <ThreadMessages {...messages} />
-      )}
+      <ThreadMessages view={view} sending={sending} />
       {error && (
         <p role="alert" className="text-destructive px-2 pt-2 text-sm">
           {error}
@@ -151,28 +124,4 @@ function Thread({
       <ThreadComposer onSend={sendFollowing} onStop={stop} running={view.running} />
     </>
   );
-}
-
-/**
- * A fresh Live thread's messages, linking to the draft the editor's previous one continued in,
- * named as the drafts control names it.
- */
-function ContinuedInMessages({
-  projectId,
-  draftId,
-  ...messages
-}: React.ComponentProps<typeof ThreadMessages> & { projectId: number; draftId: string }) {
-  const draftScope = useDraftScope();
-  const navigate = useNavigate();
-  const { data: draft } = useReadQuery(reads.draft({ projectId, draftId }));
-  const link: ContinuedInLink = {
-    // A draft published or discarded since has no summary left: the studio says how it ended.
-    label: draft ? draftLabel(draft) : "a draft",
-    href: draftScope.hrefFor(window.location.href, { draft: draftId }),
-    onOpen: (event) => {
-      event.preventDefault();
-      void navigate({ to: window.location.href, draft: draftId });
-    },
-  };
-  return <ThreadMessages {...messages} continuedIn={link} />;
 }

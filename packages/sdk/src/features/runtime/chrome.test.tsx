@@ -24,8 +24,8 @@ registerHooks({
   },
 });
 
-/** The chat sidebar, rendered but hidden. */
-const HIDDEN_CHAT = /<aside(?=[^>]*data-chat-sidebar)(?=[^>]*\shidden[\s=>])[^>]*>/;
+/** The Agent Sidebar, with the chat, rendered but hidden. */
+const HIDDEN_AGENT_SIDEBAR = /<aside(?=[^>]*data-agent-sidebar)(?=[^>]*\shidden[\s=>])[^>]*>/;
 
 void test("token links SSR a styled sign-in page before loading any content or stylesheets", async (t) => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
@@ -120,7 +120,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.doesNotMatch(html, /site-content/);
   assert.match(html, /role="status"[^>]*aria-label="Loading the page"/);
   // The Preview hides the chat. It keeps its thread, so the Preview follows the editor's runs.
-  assert.match(html, HIDDEN_CHAT);
+  assert.match(html, HIDDEN_AGENT_SIDEBAR);
 
   const studioHtml = renderToString(
     createElement(PageApp, {
@@ -138,7 +138,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(studioHtml, /My actual project/);
   assert.doesNotMatch(studioHtml, /camox-loading/);
   // The chat is part of the Canvas: other Studio pages hide it but keep its thread.
-  assert.match(studioHtml, HIDDEN_CHAT);
+  assert.match(studioHtml, HIDDEN_AGENT_SIDEBAR);
 
   // With the Canvas shown, a page location shows the chat.
   const { previewStore } = await import("../preview/previewStore");
@@ -147,8 +147,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     const canvasPageHtml = renderToString(
       createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
     );
-    assert.match(canvasPageHtml, /data-chat-sidebar/);
-    assert.doesNotMatch(canvasPageHtml, HIDDEN_CHAT);
+    assert.match(canvasPageHtml, /data-chat-widget/);
+    assert.match(canvasPageHtml, /data-workers-widget/);
+    assert.doesNotMatch(canvasPageHtml, HIDDEN_AGENT_SIDEBAR);
   } finally {
     previewStore.send({ type: "reset" });
   }

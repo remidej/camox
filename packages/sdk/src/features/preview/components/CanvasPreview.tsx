@@ -134,7 +134,7 @@ export function CanvasPreview({
   pagePathname?: string;
   runtimeBasePath: string;
   /**
-   * Stands where the Canvas sidebar will be while the Canvas prepares, so the sidebars
+   * Stands where the Content Sidebar will be while the Canvas prepares, so the sidebars
    * settle right away. The rest of the Canvas's place shows a loading screen meanwhile.
    */
   placeholder?: React.ReactNode;
