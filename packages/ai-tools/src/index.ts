@@ -6,6 +6,7 @@ export { blockTypesProvider } from "./providers/block-types";
 export { blocksProvider } from "./providers/blocks";
 export { collectionsProvider } from "./providers/collections";
 export { draftsProvider } from "./providers/drafts";
+export { MAX_DOWNLOAD_BYTES } from "./providers/files";
 export { layoutsProvider } from "./providers/layouts";
 export { localesProvider } from "./providers/locales";
 export { pagesProvider } from "./providers/pages";

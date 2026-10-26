@@ -1,18 +1,36 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
+import { Effect } from "effect";
 import { z } from "zod";
 
 import {
+  fileMetadataInput,
+  filenameInput,
   updateFileMetadataInput,
   getProjectFile,
   listFiles,
   updateFile,
 } from "../../../../apps/api/src/domains/files/service";
+import { downloadUpload, storeUpload } from "../../../../apps/api/src/domains/files/upload";
+import { InvalidInputError } from "../../../../apps/api/src/lib/errors";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import { fileSchema } from "../lib/outputs";
 import { defineTool, type ToolProvider } from "../types";
 
 const target = z.object({ id: uuidv7Schema });
 const updateInput = target.and(updateFileMetadataInput);
+
+/**
+ * The largest file `uploadFile` downloads. Below the upload route's 100 MiB: the download is held
+ * in memory, in the Worker or Durable Object running the tool, before it's stored.
+ */
+export const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+
+const uploadInput = z
+  .object({
+    url: z.url({ protocol: /^https?$/ }),
+    filename: filenameInput.optional(),
+  })
+  .and(fileMetadataInput);
 
 export const filesProvider: ToolProvider = (ctx) => [
   defineTool({
@@ -31,6 +49,37 @@ export const filesProvider: ToolProvider = (ctx) => [
     meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async (input) =>
       runService(getProjectFile(ctx, { ...target.parse(input), projectId: ctx.projectId })),
+  }),
+  defineTool({
+    name: "uploadFile",
+    description:
+      "Upload a file from a public HTTP(S) URL into the current draft: Camox downloads it and " +
+      `stores its own copy, at most ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MiB, so the URL needn't ` +
+      "stay up. Returns the new file: image and file fields take it as `{ _fileId: id }`. " +
+      "`filename` overrides the name from the URL's last path segment. Without `alt` or " +
+      "`aiMetadata`, a raster image's alt text and filename are generated; `alt` makes them " +
+      "manual, and `aiMetadata: true` is only for raster images.",
+    inputSchema: uploadInput,
+    outputSchema: fileSchema,
+    meta: { kind: "write", surfaces: ["cli", "studio-agent"] },
+    handler: async (input) => {
+      const { url, filename, ...metadata } = uploadInput.parse(input);
+      const { apiOrigin } = ctx;
+      return runService(
+        Effect.gen(function* () {
+          if (!apiOrigin) {
+            return yield* new InvalidInputError({ message: "Uploads aren't available here." });
+          }
+          const file = yield* downloadUpload(url, { maxBytes: MAX_DOWNLOAD_BYTES, filename });
+          return yield* storeUpload(ctx, {
+            projectId: ctx.projectId,
+            file,
+            metadata,
+            apiOrigin,
+          });
+        }),
+      );
+    },
   }),
   defineTool({
     name: "updateFile",

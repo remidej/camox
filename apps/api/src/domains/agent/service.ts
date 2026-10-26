@@ -46,6 +46,7 @@ export const buildToolContext = Effect.fn("agent.buildToolContext")(function* (
     telemetryDisabled: ctx.telemetryDisabled,
     draft: ctx.draft,
     locale: ctx.locale,
+    apiOrigin: ctx.apiOrigin,
     projectId,
   };
 });

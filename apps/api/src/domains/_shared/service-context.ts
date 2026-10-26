@@ -43,6 +43,11 @@ export type ServiceContext = {
    * every other project's content as missing.
    */
   projectId?: number;
+  /**
+   * The API's public origin, which stored files' URLs start with: the request's, or for the
+   * agent's thread, that of the requests connecting to it. Absent where nothing names it.
+   */
+  apiOrigin?: string;
 };
 
 /**
@@ -56,7 +61,8 @@ export function agentServiceContext({
   waitUntil,
   draftId = null,
   starting,
-}: Pick<ServiceContext, "db" | "env" | "user" | "waitUntil"> & {
+  apiOrigin,
+}: Pick<ServiceContext, "db" | "env" | "user" | "waitUntil" | "apiOrigin"> & {
   draftId?: string | null;
   starting?: { id: string; threadId: string };
 }): ServiceContext {
@@ -67,6 +73,7 @@ export function agentServiceContext({
     waitUntil,
     client: "camox-agent",
     telemetryDisabled: false,
+    apiOrigin,
     draft: draftId
       ? { id: draftId, create: false }
       : starting

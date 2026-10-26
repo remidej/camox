@@ -1125,11 +1125,45 @@ export class ReleaseFakes extends WorkerEntrypoint {
 /** The host of a public website the agent reads in tests (web-tools.integration.test.ts). */
 const FAKE_WEB_HOST = "website.camox.test";
 
-/** A page of the fake public website, served as Markdown, so reading it needs no Workers AI. */
-const serveWebsite = (/** @type {Request} */ request) =>
-  new Response(`# ${new URL(request.url).pathname}\n\nOpening hours: 9am to 5pm.\n`, {
+/**
+ * The fake public website (web-tools.integration.test.ts, upload.integration.test.ts): under
+ * `/media/`, a file whose bytes name its path, typed by `?type=`; at `/redirect?to=`, a redirect
+ * there; at `/bytes?count=`, that many bytes, streamed with no length; and anywhere else a page,
+ * served as Markdown, so reading it needs no Workers AI.
+ * @param {Request} request
+ */
+function serveWebsite(request) {
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/media/")) {
+    const type = url.searchParams.get("type");
+    return new Response(
+      new TextEncoder().encode(`bytes of ${url.pathname}`),
+      type ? { headers: { "content-type": type } } : {},
+    );
+  }
+  if (url.pathname === "/redirect") {
+    return new Response(null, {
+      status: 302,
+      headers: { location: url.searchParams.get("to") ?? "" },
+    });
+  }
+  if (url.pathname === "/bytes") {
+    let left = Number(url.searchParams.get("count"));
+    const chunk = new Uint8Array(1024 * 1024);
+    return new Response(
+      new ReadableStream({
+        pull(controller) {
+          if (left <= 0) return controller.close();
+          controller.enqueue(chunk.slice(0, Math.min(left, chunk.length)));
+          left -= chunk.length;
+        },
+      }),
+    );
+  }
+  return new Response(`# ${url.pathname}\n\nOpening hours: 9am to 5pm.\n`, {
     headers: { "content-type": "text/markdown; charset=utf-8" },
   });
+}
 
 /** The Google Fonts Developer API key the API is given in tests (vite.config.ts). */
 const GOOGLE_FONTS_API_KEY = "test-google-fonts-key";

@@ -21,6 +21,8 @@ export type BaseContext = {
   client: string;
   telemetryDisabled: boolean;
   waitUntil: (promise: Promise<unknown>) => void;
+  /** The API's public origin, which stored files' URLs start with. */
+  apiOrigin?: string;
 };
 
 export type AuthedContext = BaseContext & {

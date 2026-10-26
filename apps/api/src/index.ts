@@ -149,6 +149,7 @@ app.all("/rpc/*", async (c) => {
       client: c.var.client,
       telemetryDisabled: c.var.telemetryDisabled,
       waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+      apiOrigin: new URL(c.req.url).origin,
     },
   });
 
