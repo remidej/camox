@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.0](https://github.com/remidej/camox/compare/camox-v0.54.0...@camox/cli-v0.55.0) (2026-10-26)
+
+
+### Miscellaneous
+
+* **@camox/cli:** Synchronize camox versions
+
 ## [0.54.0](https://github.com/remidej/camox/compare/camox-v0.53.1...@camox/cli-v0.54.0) (2026-10-26)
 
 

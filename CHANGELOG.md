@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.55.0](https://github.com/remidej/camox/compare/camox-v0.54.0...camox-v0.55.0) (2026-10-26)
+
+
+### Features
+
+* **api:** let the agent upload files from a URL ([#606](https://github.com/remidej/camox/issues/606)) ([626856b](https://github.com/remidej/camox/commit/626856bb46645c35f17ea4f1bf5ebb22e2701ca7))
+* **sdk:** light sidebar cards from above, and fold one more parent ([#608](https://github.com/remidej/camox/issues/608)) ([84f42cc](https://github.com/remidej/camox/commit/84f42ccbc1c6c2336ee6a7054a1e31ff1c9612b4))
+* **sdk:** split the Canvas's right side into an Agent Sidebar with workers and chat ([#610](https://github.com/remidej/camox/issues/610)) ([131fa57](https://github.com/remidej/camox/commit/131fa573f03a835200bbc118e5968a60252a4e68))
+
+
+### Bug Fixes
+
+* **api:** lint a draft's code as a dry-run release ([#609](https://github.com/remidej/camox/issues/609)) ([4a8182a](https://github.com/remidej/camox/commit/4a8182a38f165e18f66c576692a7818964fa3b9b))
+
 ## [0.54.0](https://github.com/remidej/camox/compare/camox-v0.53.1...camox-v0.54.0) (2026-10-26)
 
 
