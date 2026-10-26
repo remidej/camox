@@ -384,7 +384,7 @@ for (const outcome of ["rendered", "error"] as const) {
         </StudioQueryClientProvider>,
       );
       assert.ok(loading(), "before any renderer connects");
-      assert.ok(loading()!.closest("[data-canvas-loading]")!.className.includes("bg-muted"));
+      assert.ok(loading()!.closest("[data-canvas-loading]")!.className.includes("bg-canvas"));
 
       const frame = dom.host.querySelector("iframe[data-camox-renderer]") as unknown as Record<
         typeof STUDIO_HANDLE_KEY,
