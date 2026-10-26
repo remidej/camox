@@ -1,4 +1,5 @@
 import { useSelector } from "@xstate/store-react";
+import { File } from "lucide-react";
 import * as React from "react";
 
 import { useLocation } from "../../navigation/navigation";
@@ -88,7 +89,15 @@ export function PageInspector({
         onSelect={() => previewStore.send({ type: "clearSelection" })}
         hoverTarget={null}
       >
-        {covered ? page.title : <CanvasInspectorTitle>{page.title}</CanvasInspectorTitle>}
+        {/* A page icon sets the Page apart from the blocks and fields stacked on it. */}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <File className="size-3.5 shrink-0" />
+          {covered ? (
+            <span className="truncate">{page.title}</span>
+          ) : (
+            <CanvasInspectorTitle>{page.title}</CanvasInspectorTitle>
+          )}
+        </span>
       </SidebarStackHeader>
       <CanvasInspectorBody>
         <PreviewEditingOwnerContext value={owner}>

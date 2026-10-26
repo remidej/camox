@@ -12,7 +12,7 @@ import type { Selection } from "../previewStore";
  * step of the selection path, each view laid over the one before. Only the front view shows its
  * content; the views behind it show just their header, which goes back to that view.
  *
- * The cards behind lean back, narrow, and darken the further back they are, by less each step,
+ * The cards behind lean back, narrow, and shade the further back they are, by less each step,
  * and the card in front of each casts its shadow on it. Hovering one lifts it. When the
  * selection changes, cards move rather than cut: a deeper view is laid on top, a shallower one
  * pulls the cards in front of it away, and the views on the way move into place.
@@ -24,10 +24,33 @@ const FIRST_STEP_INSET = 9;
 const STEP_FALLOFF = 0.65;
 /** How far the header right behind the front leans back, in degrees. */
 const FIRST_STEP_TILT = 4;
-/** How far each card behind darkens, in percent of black, relative to the one in front. */
-const STEP_SHADE = 1.2;
-/** How much each card behind past the first fades its name, which shows depth on dark backgrounds too. */
-const STEP_FADE = 0.05;
+/**
+ * How far the card right behind the front shades, in percent of black, or of white in dark mode,
+ * where the background is too dark to darken.
+ */
+const FIRST_STEP_SHADE = 1.2;
+/** How much more cards lighten in dark mode than they darken in light mode, to show as much. */
+const DARK_SHADE_STRENGTH = 2.5;
+/** Keeps a sidebar's cards off its sides, so their edges show. */
+export const SIDEBAR_GUTTER = "px-2";
+
+/** The front card's sides and bottom, drawn just outside it, above the bottom of the sidebar. */
+export const CARD_BODY_EDGES =
+  "rounded-b-lg shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border),0_1px_0_var(--color-border)]";
+
+/**
+ * The bottom card's edges, as it meets the top of a sidebar, which crops anything above it: it
+ * draws its top edge inside, and nothing lies behind it to cast a shadow on. One border, a pixel
+ * past each side to meet the sides below, keeps the edge even around the rounded corners.
+ */
+export const BOTTOM_CARD_EDGES =
+  "relative rounded-t-lg before:pointer-events-none before:absolute before:-inset-x-px before:inset-y-0 before:rounded-t-[inherit] before:border before:border-b-0 before:border-border";
+
+/**
+ * How much the second card behind the front fades its name, which shows depth on dark
+ * backgrounds too. The card right behind the front doesn't fade.
+ */
+const FIRST_STEP_FADE = 0.05;
 /** How far away the eye is from the stack, in px: the less, the stronger the depth. */
 const PERSPECTIVE = 900;
 /** How far a hovered header lifts, in px. */
@@ -145,7 +168,7 @@ export function SidebarStack({ children }: { children: React.ReactNode }) {
   return (
     <SelectionViewsContext value={{ count, setCount }}>
       <StackMotionContext value={motion}>
-        <div className="relative isolate flex min-h-0 flex-1 flex-col px-2 pt-2">
+        <div className={cn("relative isolate flex min-h-0 flex-1 flex-col", SIDEBAR_GUTTER)}>
           {children}
           <div
             ref={(node) => {
@@ -287,7 +310,7 @@ export function SidebarStackView({
       ref={ref}
       className={cn(
         "bg-background min-h-0 flex-1 origin-top",
-        inStack && "shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border)]",
+        inStack && CARD_BODY_EDGES,
         className,
       )}
     >
@@ -309,7 +332,7 @@ export function SidebarStackHeader({
   depth?: number;
   /** How many views are laid over this one. Under any, only its header shows. */
   distance?: number;
-  /** Whether it's the bottom of the stack. Outside a padded stack, at its front, it's flat. */
+  /** Whether it's the bottom of the stack. Outside a stack, at its front, it's flat. */
   first?: boolean;
   /** Goes back to this view, while covered. */
   onSelect?: () => void;
@@ -335,11 +358,11 @@ export function SidebarStackHeader({
   useStackCard(ref, depth, false);
 
   const liftable = covered && onSelect != null;
-  // A stack pads its top, so its bottom card is a card too; elsewhere it meets the edge.
+  // In a stack, off the sidebar's edges, its bottom card is a card too; elsewhere it meets the edge.
   const inStack = React.useContext(StackMotionContext) != null;
   const flat = first && !covered && !inStack;
   const tilt = covered ? stepSeries(FIRST_STEP_TILT, distance) : 0;
-  const shade = distance * STEP_SHADE;
+  const shade = stepSeries(FIRST_STEP_SHADE, distance);
 
   const button = liftable ? (
     <button
@@ -362,16 +385,19 @@ export function SidebarStackHeader({
       <div
         className={cn(
           "relative flex min-w-0 items-center justify-center text-center text-sm",
-          !flat && "rounded-t-sm",
+          !flat && !first && "rounded-t-sm",
           // Ancestors' names, between muted and full, so they read without competing with the front.
           "[--ancestor-foreground:color-mix(in_oklab,var(--color-muted-foreground),var(--color-foreground)_40%)]",
           "[--fade:var(--rest-fade)] [--lift:0px] [--shade:var(--rest-shade)] [--tilt:var(--rest-tilt)]",
+          "[--shade-color:black] [--shade-strength:1] dark:[--shade-color:white] dark:[--shade-strength:var(--dark-shade-strength)]",
           "origin-bottom [backface-visibility:hidden] motion-reduce:transition-none!",
-          covered
-            ? "h-[38px] pb-1 shadow-[0_0_0_1px_var(--color-border),0_-2px_5px_-3px_rgb(0_0_0/0.08),inset_0_1px_0_rgb(255_255_255/0.5)] dark:shadow-[0_0_0_1px_var(--color-border),0_-2px_5px_-3px_rgb(0_0_0/0.4),inset_0_1px_0_rgb(255_255_255/0.05)]"
-            : "h-11 px-3",
+          covered ? "h-[38px] pb-1" : "h-11 px-3",
+          first && !flat && BOTTOM_CARD_EDGES,
+          covered &&
+            !first &&
+            "shadow-[0_0_0_1px_var(--color-border),0_-2px_5px_-3px_rgb(0_0_0/0.08),inset_0_1px_0_rgb(255_255_255/0.5)] dark:shadow-[0_0_0_1px_var(--color-border),0_-2px_5px_-3px_rgb(0_0_0/0.4),inset_0_1px_0_rgb(255_255_255/0.05)]",
           !covered &&
-            !flat &&
+            !first &&
             (inStack
               ? "shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border),0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border),0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.4)]"
               : "shadow-[0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.4)]"),
@@ -385,12 +411,15 @@ export function SidebarStackHeader({
             "--rest-tilt": `${tilt}deg`,
             "--hover-tilt": `${tilt / 2}deg`,
             "--rest-shade": `${shade}%`,
-            "--hover-shade": `${Math.max(0, shade - STEP_SHADE)}%`,
-            "--hover-lift": `${-HOVER_LIFT}px`,
-            "--rest-fade": covered ? Math.max(0.8, 1 - (distance - 1) * STEP_FADE) : 1,
+            "--dark-shade-strength": DARK_SHADE_STRENGTH,
+            "--hover-shade": `${stepSeries(FIRST_STEP_SHADE, Math.max(0, distance - 1))}%`,
+            // Lifted, the bottom card would rise past the top of the sidebar.
+            "--hover-lift": `${first ? 0 : -HOVER_LIFT}px`,
+            "--rest-fade": covered ? 1 - stepSeries(FIRST_STEP_FADE, distance - 1) : 1,
             marginInline: covered ? stackInset(distance) : undefined,
             transform: `perspective(${PERSPECTIVE}px) translateY(var(--lift)) rotateX(var(--tilt))`,
-            backgroundColor: "color-mix(in oklab, var(--color-background), black var(--shade))",
+            backgroundColor:
+              "color-mix(in oklab, var(--color-background), var(--shade-color) calc(var(--shade) * var(--shade-strength)))",
             transition: HEADER_TRANSITION,
           } as React.CSSProperties
         }

@@ -7,6 +7,12 @@ import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId, useDraftScope } from "../../../lib/draft-scope";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { type CarriedThread, useThread } from "../../../lib/use-thread";
+import { cn } from "../../../lib/utils";
+import {
+  BOTTOM_CARD_EDGES,
+  CARD_BODY_EDGES,
+  SIDEBAR_GUTTER,
+} from "../../preview/components/SidebarStack";
 import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
 import { draftLabel } from "../draftLabel";
 import { FollowAgentContext } from "../followAgentContext";
@@ -25,15 +31,23 @@ export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
       aria-label="Chat"
       data-chat-sidebar
       hidden={hidden}
-      className="bg-background flex shrink-0 flex-col border-l-2 max-md:hidden"
+      // Above the bottom of the page, as the Canvas row is.
+      className={cn("bg-background flex shrink-0 flex-col pb-2 max-md:hidden", SIDEBAR_GUTTER)}
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
-      {/* Mirrors the Canvas Inspector's header across the page, in height, border and type. */}
-      <header className="border-border box-content flex h-8 min-w-0 items-center gap-2 border-b px-2 py-2">
+      {/* A card like the Canvas sidebar's front one, across the page, in height, edges and type. */}
+      <header
+        className={cn(
+          "flex h-11 min-w-0 shrink-0 items-center justify-center gap-2 px-3",
+          BOTTOM_CARD_EDGES,
+        )}
+      >
         <CamoxMark />
         <h2 className="truncate text-sm font-medium">Chat</h2>
       </header>
-      <CurrentThread />
+      <div className={cn("flex min-h-0 flex-1 flex-col", CARD_BODY_EDGES)}>
+        <CurrentThread />
+      </div>
     </aside>
   );
 }
