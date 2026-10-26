@@ -36,6 +36,13 @@ const TYPE_CHECK_CONFIG_CONTENT = JSON.stringify({
  */
 const TYPE_CHECK_COMMAND = `tsrs -p ${TYPE_CHECK_CONFIG} --pretty false`;
 
+/**
+ * What `vp build` and `vp lint` run with: both load the project's Vite config, whose Camox plugin
+ * throws for a build that isn't a release when no `camox login` is around, which the sandbox
+ * hasn't. A dry-run release builds without one, and turns on the hosted projects' checks.
+ */
+const VITE_ENV = { CAMOX_INTERNAL_RELEASE: "dry-run", ...HOSTED_BUILD, CI: "1", NO_COLOR: "1" };
+
 /** A sandbox that failed to do its part, as opposed to a build that failed. */
 export class SandboxError extends Error {
   override name = "SandboxError";
@@ -164,7 +171,7 @@ export async function buildInSandbox(
   typeCheck.catch(() => undefined);
   const built = await sandbox.exec("pnpm exec vp build", {
     cwd: WORKSPACE,
-    env: { CAMOX_INTERNAL_RELEASE: "dry-run", ...HOSTED_BUILD, CI: "1", NO_COLOR: "1" },
+    env: VITE_ENV,
   });
   if (!built.success) return { ok: false, log: `${built.stdout}\n${built.stderr}` };
 
@@ -190,10 +197,7 @@ export async function lintInSandbox(
   const { sandbox } = await workspaceWith(env, draftId, tree);
   const command = "pnpm exec vp lint --format json src";
   // Exits non-zero when it finds an error, which its report then lists.
-  const linted = await sandbox.exec(command, {
-    cwd: WORKSPACE,
-    env: { CI: "1", NO_COLOR: "1" },
-  });
+  const linted = await sandbox.exec(command, { cwd: WORKSPACE, env: VITE_ENV });
   const errors = lintErrorsOf(linted.stdout);
   if (!errors) {
     throw new SandboxError(
