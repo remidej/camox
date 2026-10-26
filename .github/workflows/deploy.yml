@@ -19,8 +19,71 @@ env:
   NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
 
 jobs:
-  deploy:
+  # Gates the deploy, split across runners: the API's integration tests alone take about 25
+  # CPU-minutes, which one runner's 4 vCPUs would run in about 10.
+  test:
     needs: release-please
+    if: ${{ github.ref == 'refs/heads/main' && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    name: test (${{ matrix.suite }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        include:
+          - suite: checks
+          - suite: workspace
+          # The API's `test-shard-*` Nx targets (apps/api/package.json).
+          - suite: api
+            shard: 1
+          - suite: api
+            shard: 2
+          - suite: api
+            shard: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The API's tests import its workspace dependencies from source, so only the others build.
+      - if: ${{ matrix.suite != 'api' }}
+        run: pnpm nx run-many -t build --projects=tag:type:pkg
+
+      - if: ${{ matrix.suite == 'checks' }}
+        run: pnpm check
+
+      - name: Validate API bundle before changing production
+        if: ${{ matrix.suite == 'checks' }}
+        run: |
+          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config sandbox/wrangler.jsonc
+          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config release-sandbox/wrangler.jsonc
+          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
+
+      - name: Validate dispatch Worker bundle before changing production
+        if: ${{ matrix.suite == 'checks' }}
+        run: pnpm --filter @camox/dispatch exec wrangler deploy --dry-run --minify
+
+      - if: ${{ matrix.suite == 'workspace' }}
+        run: pnpm nx run-many -t test --all --exclude=@camox/api
+
+      - if: ${{ matrix.suite == 'workspace' }}
+        run: pnpm --filter @camox/template-default test:production
+
+      # Refreshes a local stand-in for template-default, installing from npm.
+      - if: ${{ matrix.suite == 'workspace' }}
+        run: pnpm --filter @camox/cli test:network
+
+      - if: ${{ matrix.suite == 'api' }}
+        run: pnpm nx run @camox/api:test-shard-${{ matrix.shard }}
+
+  deploy:
+    needs: [release-please, test]
     if: ${{ github.ref == 'refs/heads/main' && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -57,28 +120,24 @@ jobs:
       # Build local workspace packages, including the unpublished SDK and CLI.
       - run: pnpm nx run-many -t build --projects=tag:type:pkg
 
-      - run: pnpm check
-
-      - run: pnpm test
-
-      - run: pnpm --filter @camox/template-default test:production
-
-      # Refreshes a local stand-in for template-default, installing from npm.
-      - run: pnpm --filter @camox/cli test:network
+      # The publish job publishes these builds, taken before the dashboard's build rebuilds any.
+      - name: Keep package builds for publishing
+        if: ${{ needs.release-please.outputs.release_created == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-builds
+          path: |
+            packages/api-contract/dist
+            packages/ui/dist
+            packages/cli/dist
+            packages/sdk/dist
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Build dashboard
         run: pnpm nx run dashboard:build
         env:
           VITE_API_URL: https://api.camox.ai
-
-      - name: Validate API bundle before changing production
-        run: |
-          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config sandbox/wrangler.jsonc
-          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify --config release-sandbox/wrangler.jsonc
-          pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
-
-      - name: Validate dispatch Worker bundle before changing production
-        run: pnpm --filter @camox/dispatch exec wrangler deploy --dry-run --minify
 
       # Serves projects' websites at <slug>.camox.site; apps/dispatch/README.md has its setup.
       # Deployed before the API, which binds its `CamoxRevisions` entrypoint. Dispatch binds the
@@ -158,9 +217,14 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: "pnpm"
 
+      # pnpm publish reads workspace dependencies' versions from node_modules.
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm nx run-many -t build --projects=tag:type:pkg
+      # The deploy job's builds of the same commit.
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-builds
+          path: packages
 
       - name: Publish @camox/api-contract
         run: pnpm publish --no-git-checks --access public

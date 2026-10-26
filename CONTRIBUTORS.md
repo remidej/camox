@@ -26,11 +26,12 @@ bumps and changelogs from Conventional Commits.
 2. A maintainer reviews the proposed versions and release notes, then merges
    the release PR when ready to ship.
 3. The resulting push to `main` creates the root GitHub release, and
-   release-please reports `release_created`. That starts the `deploy` job, which
-   runs the checks and tests, then deploys production (see Production
-   deployment). The `publish` job runs only once that deployment has succeeded,
-   so no published SDK is ahead of the deployed API (ADR 0019).
-4. It builds workspace packages and publishes, in order: `@camox/api-contract`,
+   release-please reports `release_created`. That starts the `test` jobs, which
+   run the checks and tests in parallel, then the `deploy` job, which deploys
+   production (see Production deployment). The `publish` job runs only once that
+   deployment has succeeded, so no published SDK is ahead of the deployed API
+   (ADR 0019).
+4. It publishes the `deploy` job's package builds, in order: `@camox/api-contract`,
    `@camox/ui`, `@camox/cli`, `create-camox`, and `camox`.
 5. The `refresh-template` job then pushes the Template at the published version
    to `template-default` on Cloudflare Artifacts, which new projects fork
@@ -106,9 +107,12 @@ Git-triggered builds for these apps to avoid competing deployments.
 
 ### Deployment order
 
-1. Validate credentials; install with the frozen lockfile.
-2. Build workspace packages, run checks and tests, build dashboard, dry-run the API
-   bundle and its two sandbox Workers (building the release sandbox's Container image).
+1. The `test` jobs run on parallel runners: checks with dry-runs of the API bundle, its two
+   sandbox Workers (building the release sandbox's Container image) and the dispatch Worker;
+   the workspace's tests and smoke tests; and the API's tests in three shards. The deploy
+   starts once they all pass.
+2. Validate credentials; install with the frozen lockfile; build workspace packages and
+   dashboard.
 3. Apply pending production D1 migrations, deploy the code mode sandbox Worker
    (`deploy:sandbox`) and the release sandbox Worker (`deploy:release-sandbox`), whose
    Durable Objects the API binds, then deploy the API.
