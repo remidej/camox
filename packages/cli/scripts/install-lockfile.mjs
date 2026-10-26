@@ -19,7 +19,7 @@ function isVersionNotOnRegistry(error) {
  */
 export async function installLockfile(
   dir,
-  { run: runCommand = run, attempts = 10, retryDelayMs = 30_000, onRetry = () => {} } = {},
+  { run: runCommand = run, attempts = 60, retryDelayMs = 10_000, onRetry = () => {} } = {},
 ) {
   for (let attempt = 1; ; attempt++) {
     try {
