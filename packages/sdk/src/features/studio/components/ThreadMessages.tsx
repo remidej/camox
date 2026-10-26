@@ -12,6 +12,7 @@ import {
 } from "@camox/ui/message-scroller";
 import type * as React from "react";
 
+import { Squareling, type SquarelingStatus } from "./Squareling";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
 /** The draft the editor's previous Live thread continued in, as a link to it. */
@@ -22,21 +23,20 @@ export type ContinuedInLink = {
 };
 
 /**
- * A thread's messages, and "Working…" while a run is going or a message is still `sending`: on
- * its way to the thread, which hasn't accepted it yet. While the end of a turn builds the
- * agent's code, or the agent fixes a build error, it says so instead. A draft's thread is shared, so it shows
- * senders' names too (`showSenders`). A fresh Live thread links to the draft the editor's
- * previous one continued in (`continuedIn`).
+ * A thread's messages, and the agent's squareling at work while a run is going or a message is
+ * still `sending`: on its way to the thread, which hasn't accepted it yet. Its face says whether
+ * the agent thinks or acts (uses its tools, or builds its code). While the end of a turn builds
+ * the agent's code, or the agent fixes a build error, it says so in words too. Each editor's message shows its sender's
+ * avatar, without their name. A fresh Live thread links to the draft the editor's previous one
+ * continued in (`continuedIn`).
  */
 export function ThreadMessages({
   view,
   sending = false,
-  showSenders = false,
   continuedIn,
 }: {
   view: ThreadView;
   sending?: boolean;
-  showSenders?: boolean;
   continuedIn?: ContinuedInLink;
 }) {
   const working = view.running || sending;
@@ -67,11 +67,11 @@ export function ThreadMessages({
                 scrollAnchor={message.from === "editor"}
                 className="flex flex-col gap-4"
               >
-                <ThreadMessageRow message={message} showSender={showSenders} />
-                {working && index === view.messages.length - 1 && <Working status={view.status} />}
+                <ThreadMessageRow message={message} />
+                {working && index === view.messages.length - 1 && <Working view={view} />}
               </MessageScrollerItem>
             ))}
-            {working && view.messages.length === 0 && <Working status={view.status} />}
+            {working && view.messages.length === 0 && <Working view={view} />}
           </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton />
@@ -84,12 +84,27 @@ export function ThreadMessages({
  * Shown in the last message, not after it: the scroller only brings a message the editor just
  * sent into view when it's appended last, and it arrives while the agent is already working.
  */
-function Working({ status }: { status: ThreadView["status"] }) {
+function Working({ view: { status, usingTools } }: { view: ThreadView }) {
+  // The squareling alone says whether the agent thinks or acts, without the details of how it
+  // works. Building and fixing also say so in words.
   return (
-    <p role="status" className="shimmer text-muted-foreground text-sm">
-      {status ? STATUS_LINES[status] : "Working…"}
-    </p>
+    <div role="status" className="text-muted-foreground flex items-center gap-2 text-sm">
+      <Squareling status={squarelingStatus(status, usingTools)} className="size-6" />
+      {status ? (
+        <span className="shimmer">{STATUS_LINES[status]}</span>
+      ) : (
+        <span className="sr-only">Working…</span>
+      )}
+    </div>
   );
+}
+
+function squarelingStatus(
+  status: ThreadView["status"],
+  usingTools: ThreadView["usingTools"],
+): SquarelingStatus {
+  if (status === "fixing") return "fixing";
+  return status === "building" || usingTools ? "acting" : "thinking";
 }
 
 const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
@@ -97,13 +112,7 @@ const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
   fixing: "Fixing a build error…",
 };
 
-function ThreadMessageRow({
-  message,
-  showSender,
-}: {
-  message: ThreadMessage;
-  showSender: boolean;
-}) {
+function ThreadMessageRow({ message }: { message: ThreadMessage }) {
   if (message.from === "stopped" || message.from === "failed") {
     return (
       <Message>
@@ -145,11 +154,6 @@ function ThreadMessageRow({
         <SenderAvatar sender={message.sender} />
       </MessageAvatar>
       <MessageContent>
-        {showSender && (
-          <MessageHeader className="text-muted-foreground text-xs">
-            {message.sender.name}
-          </MessageHeader>
-        )}
         <Bubble align="end" variant="muted" className="max-w-full">
           <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
         </Bubble>

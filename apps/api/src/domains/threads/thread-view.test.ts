@@ -7,7 +7,7 @@ import {
   RUN_STOPPED_ENTRY,
   threadViewOf,
 } from "@camox/api-contract/threads";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -16,16 +16,22 @@ import { describe, expect, it } from "vite-plus/test";
 
 const editor = { id: "user-1", name: "Ada Lovelace", image: null };
 
-/** A snapshot of a thread whose transcript is `entries`, with no run going unless `running`. */
+/**
+ * A snapshot of a thread whose transcript is `entries`, with no run going unless `running`, and
+ * the model's `tools` calls of the round.
+ */
 const snapshot = (
   entries: Omit<EntryRecord, "id" | "conversationId">[],
-  { running = false }: { running?: boolean } = {},
+  {
+    running = false,
+    tools = [],
+  }: { running?: boolean; tools?: { callId: string; status: string }[] } = {},
 ): AgentEvent =>
   ({
     type: "snapshot",
     ...(running && { run: { taskId: "run", inputs: ["input"] } }),
     entries: entries.map((entry, index) => ({ ...entry, id: index + 1, conversationId: "root" })),
-    tools: [],
+    tools,
     nestedTools: [],
     compactions: [],
     inbox: [],
@@ -121,5 +127,76 @@ describe("a thread's view", () => {
         continuation("Your code changes still don't build"),
       ]),
     ).toEqual({ said: ["editor"], status: undefined });
+  });
+
+  it("says the agent uses its tools from writing a call until the model thinks again", () => {
+    const call = fauxToolCall("codemode", { code: "await camox.pages.list()" }, { id: "call-1" });
+    const calling = fauxAssistantMessage([call], { stopReason: "toolUse" });
+    const thinking = fauxAssistantMessage([]);
+    const events: AgentEvent[] = [
+      snapshot([editorMessage("Which pages mention pricing?")], { running: true }),
+      { type: "message_start", message: thinking },
+      {
+        type: "message_update",
+        usage: thinking.usage,
+        changes: [{ type: "text_start", contentIndex: 0, block: fauxText("") }],
+      },
+      {
+        type: "message_update",
+        usage: thinking.usage,
+        changes: [{ type: "toolcall_start", contentIndex: 1, block: call }],
+      },
+      {
+        type: "message_end",
+        entry: {
+          id: 2,
+          conversationId: "root",
+          kind: "pi.assistant",
+          model: [calling],
+        } as unknown as EntryRecord,
+      },
+      { type: "tool_execution_start", toolCallId: "call-1", toolName: "codemode", args: {} },
+      { type: "tool_execution_end", toolCallId: "call-1", toolName: "codemode" },
+      { type: "message_start", message: thinking },
+    ];
+    const usingTools = (count: number) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).usingTools;
+
+    expect(usingTools(3)).toBeUndefined();
+    expect(usingTools(4)).toBe(true);
+    expect(usingTools(5)).toBe(true);
+    expect(usingTools(6)).toBe(true);
+    expect(usingTools(7)).toBe(true);
+    expect(usingTools(8)).toBeUndefined();
+  });
+
+  it("says the agent uses its tools while a call it made runs, not a tool's own calls", () => {
+    const running = (tools: { callId: string; status: string }[], after: AgentEvent[] = []) =>
+      threadViewOf(
+        reduceThreadEvents(EMPTY_THREAD_STATE, [
+          snapshot([editorMessage("Translate the home page")], { running: true, tools }),
+          ...after,
+        ]),
+      ).usingTools;
+
+    expect(running([{ callId: "call-1", status: "running" }])).toBe(true);
+    expect(running([{ callId: "call-1", status: "done" }])).toBeUndefined();
+    expect(
+      running(
+        [],
+        [
+          {
+            type: "tool_execution_start",
+            toolCallId: "call-1/0",
+            toolName: "pages_list",
+            args: {},
+            parentToolCallId: "call-1",
+          },
+        ],
+      ),
+    ).toBeUndefined();
+    expect(
+      running([{ callId: "call-1", status: "running" }], [{ type: "run_end", inputs: [] }]),
+    ).toBeUndefined();
   });
 });

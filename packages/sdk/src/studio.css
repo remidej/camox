@@ -56,3 +56,86 @@ code {
       -16px 0px;
   }
 }
+
+/* The agent's squareling (Squareling.tsx): its motion says what the agent is doing. */
+.squareling :is(.squareling-body, .squareling-eyes, .squareling-eye) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.squareling .squareling-body {
+  transform-origin: 50% 100%;
+}
+[data-squareling="thinking"] .squareling-eyes {
+  animation: squareling-look 3.6s ease-in-out infinite;
+}
+[data-squareling="thinking"] .squareling-eye {
+  animation: squareling-blink 3.6s linear infinite;
+}
+[data-squareling="acting"] .squareling-body {
+  animation: squareling-hop 0.8s ease-in-out infinite;
+}
+[data-squareling="fixing"] .squareling-body {
+  animation: squareling-wiggle 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .squareling * {
+    animation: none !important;
+  }
+}
+
+@keyframes squareling-look {
+  0%,
+  18%,
+  92%,
+  100% {
+    transform: translate(0, 0);
+  }
+  26%,
+  44% {
+    transform: translate(3px, -10px);
+  }
+  54%,
+  80% {
+    transform: translate(-26px, 0);
+  }
+}
+@keyframes squareling-blink {
+  0%,
+  86%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  88% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes squareling-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  15% {
+    transform: translateY(0) scale(1.06, 0.92);
+  }
+  45% {
+    transform: translateY(-12px) scale(0.97, 1.04);
+  }
+  75% {
+    transform: translateY(0) scale(1.04, 0.95);
+  }
+}
+@keyframes squareling-wiggle {
+  0%,
+  50%,
+  100% {
+    transform: rotate(0deg);
+  }
+  15%,
+  35% {
+    transform: rotate(-7deg);
+  }
+  25% {
+    transform: rotate(7deg);
+  }
+}
