@@ -4,7 +4,7 @@ import type * as React from "react";
 import { SidebarStackHeader } from "../../preview/components/SidebarStack";
 
 /*
- * The Canvas Inspector: the Canvas sidebar's view of a selected Canvas item, laid over the
+ * The Canvas Inspector: the Content Sidebar's view of a selected Canvas item, laid over the
  * Canvas's own view. Each kind of item composes these pieces: a header with the item's name,
  * then a body with the item's own content.
  */

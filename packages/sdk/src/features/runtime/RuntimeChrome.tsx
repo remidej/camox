@@ -6,7 +6,7 @@ import { PreviewToolbar } from "../preview/components/PreviewToolbar";
 import { StudioEditingFallback } from "../preview/components/StudioEditingFallback";
 import { shownRecordPage } from "../preview/pageRecord";
 import { previewStore, selectIsCanvasShown } from "../preview/previewStore";
-import { ChatSidebar } from "../studio/components/ChatSidebar";
+import { AgentSidebar } from "../studio/components/AgentSidebar";
 import { Navbar } from "../studio/components/Navbar";
 import { FollowAgentProvider } from "../studio/FollowAgentProvider";
 import { EditingFallbackContext } from "./editingFallback";
@@ -26,8 +26,8 @@ export function RuntimeChrome({
   const website = !input.routeKind;
   const hidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
-  // The chat is part of the Canvas. A page location shows the Canvas or the Preview.
-  const showChat = website && isCanvasShown;
+  // The Agent Sidebar is part of the Canvas. A page location shows the Canvas or the Preview.
+  const showAgentSidebar = website && isCanvasShown;
 
   return (
     <FollowAgentProvider runtimeBasePath={input.runtimeBasePath} website={website}>
@@ -49,12 +49,8 @@ export function RuntimeChrome({
               <PreviewToolbar />
             </div>
           </div>
-          {/*
-           * Laid over the Canvas, which spans the row under it. Outside the route content, so
-           * the chat survives leaving the Canvas. Everywhere else hides it but keeps its thread,
-           * so the Preview and Studio pages follow the editor's runs too.
-           */}
-          <ChatSidebar hidden={!showChat} />
+          {/* Outside the route content, so the chat survives leaving the Canvas. */}
+          <AgentSidebar hidden={!showAgentSidebar} />
         </div>
       </div>
     </FollowAgentProvider>

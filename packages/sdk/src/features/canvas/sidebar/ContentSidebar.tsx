@@ -6,15 +6,15 @@ import type { PageRecordId } from "../../preview/pageRecord";
 import type { EditingOwner } from "../../preview/previewStore";
 import type { CanvasPage } from "../canvasPages";
 import { CanvasNavigator } from "./CanvasNavigator";
-import { CanvasSidebarFrame } from "./CanvasSidebarFrame";
 import { CanvasViewHeader } from "./CanvasViewHeader";
+import { ContentSidebarFrame } from "./ContentSidebarFrame";
 import { PageInspector } from "./PageInspector";
 
 /**
  * The sidebar beside the Canvas, a stack of views: the Canvas's own, which shows the Canvas
  * Navigator, then the Canvas Inspector of the selected Page laid over it, if any.
  */
-export function CanvasSidebar({
+export function ContentSidebar({
   page,
   navigator,
   onShowWholeCanvas,
@@ -34,7 +34,7 @@ export function CanvasSidebar({
   runtimeBasePath: string;
 }) {
   return (
-    <CanvasSidebarFrame label={page?.title ?? "Canvas navigator"}>
+    <ContentSidebarFrame label={page?.title ?? "Canvas navigator"}>
       <SidebarStack>
         <CanvasViewHeader covered={page != null} onShowWholeCanvas={onShowWholeCanvas} />
         {page ? (
@@ -51,6 +51,6 @@ export function CanvasSidebar({
         )}
       </SidebarStack>
       <CreatePageModal />
-    </CanvasSidebarFrame>
+    </ContentSidebarFrame>
   );
 }

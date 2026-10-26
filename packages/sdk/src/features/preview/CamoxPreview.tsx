@@ -22,7 +22,7 @@ import {
 } from "../../lib/studio-reads";
 import { CanvasLoadingScreen } from "../canvas/CanvasLoadingScreen";
 import { canvasStore } from "../canvas/canvasStore";
-import { CanvasSidebarSkeleton } from "../canvas/sidebar/CanvasSidebarSkeleton";
+import { ContentSidebarSkeleton } from "../canvas/sidebar/ContentSidebarSkeleton";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { takeShowCanvasRequest } from "../provider/signInShortcut";
 import {
@@ -412,7 +412,7 @@ export const PreviewShell = ({
             pathname={pathname}
             pagePathname={pageLocation?.pathname}
             runtimeBasePath={runtimeBasePath}
-            placeholder={<CanvasSidebarSkeleton page={!canvasOnly} layoutPage={!!derivedLayout} />}
+            placeholder={<ContentSidebarSkeleton page={!canvasOnly} layoutPage={!!derivedLayout} />}
           >
             <div className="relative flex min-h-0 flex-1 flex-row items-stretch">
               <PreviewPanel

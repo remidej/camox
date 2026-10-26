@@ -58,8 +58,8 @@ registerHooks({
       source =
         "export const CanvasPreviewPageSlot = (props) => { globalThis.CanvasPreviewSlotProbe?.(props); return null }";
     if (specifier.endsWith("/FieldToolbar")) source = "export const FieldToolbar = () => null";
-    if (specifier.endsWith("/CanvasSidebar"))
-      source = `export const CanvasSidebar = (props) => globalThis.CanvasSidebarProbe("Canvas", props)`;
+    if (specifier.endsWith("/ContentSidebar"))
+      source = `export const ContentSidebar = (props) => globalThis.ContentSidebarProbe("Canvas", props)`;
     if (specifier.endsWith("/CanvasPageHeader"))
       source = "export const CanvasPageHeader = (props) => globalThis.CanvasHeaderProbe(props)";
     if (specifier.endsWith("/PreviewPanel"))
@@ -143,7 +143,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       sidebarPathname = props.location.pathname;
       return props.children;
     },
-    CanvasSidebarProbe: (side: string, props: SidebarProps) => {
+    ContentSidebarProbe: (side: string, props: SidebarProps) => {
       sidebars.set(side, props);
       return null;
     },
@@ -333,7 +333,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       }
     });
     await t.test(
-      "the Canvas sidebar's navigator shows the picked Page, and the back button the whole Canvas",
+      "the Content Sidebar's navigator shows the picked Page, and the back button the whole Canvas",
       async () => {
         scenario = "";
         includeNewPage = false;
@@ -559,7 +559,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(
           sidebars.get("Canvas")!.page,
           undefined,
-          "the Canvas sidebar shows the Canvas",
+          "the Content Sidebar shows the Canvas",
         );
         assert.equal(
           sidebars.get("Canvas")!.navigator!.selectedKey,
@@ -575,7 +575,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       }
     });
     await t.test(
-      "zooming out of a selection goes to the Canvas route, and the Canvas sidebar follows",
+      "zooming out of a selection goes to the Canvas route, and the Content Sidebar follows",
       async () => {
         scenario = "";
         includeNewPage = false;
@@ -632,7 +632,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.equal(
             shownPage("Canvas"),
             undefined,
-            "the Canvas sidebar switches to the Canvas at once",
+            "the Content Sidebar switches to the Canvas at once",
           );
           assert.equal(sidebarPathname, "/camox/canvas");
 

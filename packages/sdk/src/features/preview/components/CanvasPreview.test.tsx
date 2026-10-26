@@ -184,11 +184,11 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(preview(), original, "the original DOM survives module suspension");
     assert.equal(preview()?.value, "Keep this value");
     assert.equal(canvas(), null);
-    assert.ok(placeholder(), "the Canvas sidebar's placeholder shows while the Canvas prepares");
+    assert.ok(placeholder(), "the Content Sidebar's placeholder shows while the Canvas prepares");
     assert.equal(
       placeholder()?.nextElementSibling,
       preview()?.closest("[data-read-only-preview]"),
-      "the placeholder stands over the preview, where the Canvas sidebar shows",
+      "the placeholder stands over the preview, where the Content Sidebar shows",
     );
     assert.equal(
       loading()?.parentElement,

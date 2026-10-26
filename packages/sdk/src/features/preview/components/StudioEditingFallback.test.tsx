@@ -23,7 +23,7 @@ void test("before the editor loads, a spinner in the Canvas's background holds t
   const { StudioEditingFallback } = await import("./StudioEditingFallback");
   const { previewStore } = await import("../previewStore");
   const root = createRoot(dom.document.body as unknown as HTMLElement);
-  const sidebar = () => dom.document.querySelector("[data-canvas-sidebar-skeleton]");
+  const sidebar = () => dom.document.querySelector("[data-content-sidebar-skeleton]");
   const loading = () => dom.document.querySelector("[data-canvas-loading]");
   const status = () => dom.document.querySelector('[role="status"]');
   const render = (chrome: boolean) =>
@@ -44,7 +44,7 @@ void test("before the editor loads, a spinner in the Canvas's background holds t
     assert.equal(dom.document.body.innerHTML, "", "without the Studio chrome, nothing shows");
 
     await render(true);
-    assert.equal(sidebar(), null, "with the Canvas hidden, there is no Canvas sidebar");
+    assert.equal(sidebar(), null, "with the Canvas hidden, there is no Content Sidebar");
     assert.ok(loading()?.className.includes("bg-muted"), "the Canvas's own background");
     assert.equal(status()?.getAttribute("aria-label"), "Loading the page");
 
@@ -52,7 +52,7 @@ void test("before the editor loads, a spinner in the Canvas's background holds t
     assert.ok(sidebar(), "showing the Canvas makes room for its sidebar right away");
     assert.ok(
       sidebar()!.compareDocumentPosition(loading()!) & dom.Node.DOCUMENT_POSITION_FOLLOWING,
-      "the Canvas sidebar sits before the loading screen",
+      "the Content Sidebar sits before the loading screen",
     );
     assert.ok(status(), "the loading screen stays, where the Canvas will show");
 

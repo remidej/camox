@@ -302,13 +302,21 @@ _Avoid_: Iframe, view mode
 A studio view that shows many pages side by side, which editors and agents pan and zoom across, and where content is selected and edited in place. The Website Section shows either the Canvas or the Preview.
 _Avoid_: Board, overview, sitemap view, edit mode, design mode
 
+**Content Sidebar**:
+The sidebar on the Canvas's left side, where editors find and edit content: the Canvas Navigator, with the Canvas Inspector of the selection over it.
+_Avoid_: Canvas sidebar, left sidebar
+
 **Canvas Navigator**:
-The Canvas sidebar while nothing is selected: every page of the canvas, to search and pick from.
-_Avoid_: Canvas sidebar, outline, page list
+The Content Sidebar while nothing is selected: every page of the canvas, to search and pick from.
+_Avoid_: Outline, page list
 
 **Canvas Inspector**:
-The Canvas sidebar while a page is selected: that page's name and its content to edit.
+The Content Sidebar while a page is selected: that page's name and its content to edit.
 _Avoid_: Item sidebar, page sidebar, properties panel
+
+**Agent Sidebar**:
+The sidebar on the Canvas's right side, where editors work with Camox's agent: the Workers widget over the Chat widget, which shows the current Thread.
+_Avoid_: Chat sidebar, right sidebar
 
 **Dashboard**:
 The hosted interface for managing organizations and their members, and for creating, opening and deleting projects, outside any one website. A project's settings live in its studio, not here.

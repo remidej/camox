@@ -10,46 +10,33 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@camox/ui/message-scroller";
-import type * as React from "react";
+import * as React from "react";
 
 import { Squareling, type SquarelingStatus } from "./Squareling";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
-/** The draft the editor's previous Live thread continued in, as a link to it. */
-export type ContinuedInLink = {
-  label: string;
-  href: string;
-  onOpen?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
-};
-
 /**
- * A thread's messages, and the agent's squareling at work while a run is going or a message is
- * still `sending`: on its way to the thread, which hasn't accepted it yet. Its face says whether
- * the agent thinks or acts (uses its tools, or builds its code). While the end of a turn builds
- * the agent's code, or the agent fixes a build error, it says so in words too. Each editor's message shows its sender's
- * avatar, without their name. A fresh Live thread links to the draft the editor's previous one
- * continued in (`continuedIn`).
+ * A thread's messages, and the agent's squareling, which always lives in it. An empty thread has
+ * it greet the editor; when the first message arrives, it moves to the end of the thread, and
+ * stays there after each message. While a run is going or a message is still `sending` (on its
+ * way to the thread, which hasn't accepted it yet), its face says whether the agent thinks or
+ * acts (uses its tools, or builds its code). While the end of a turn builds the agent's code, or
+ * the agent fixes a build error, it says so in words too. Each editor's message shows its
+ * sender's avatar, without their name.
  */
-export function ThreadMessages({
-  view,
-  sending = false,
-  continuedIn,
-}: {
-  view: ThreadView;
-  sending?: boolean;
-  continuedIn?: ContinuedInLink;
-}) {
+export function ThreadMessages({ view, sending = false }: { view: ThreadView; sending?: boolean }) {
   const working = view.running || sending;
-  if (view.messages.length === 0 && !working) {
+  const empty = view.messages.length === 0 && !working;
+  const squareling = useSquarelingMorph(empty);
+  if (empty) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {continuedIn && <ContinuedIn link={continuedIn} />}
-        <p
-          data-thread-empty
-          className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm"
-        >
-          Ask Camox about your website’s content.
-        </p>
+      // The agent's squareling greets the editor, in the middle of the empty thread.
+      <div
+        data-thread-empty
+        className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center text-sm"
+      >
+        <Squareling ref={squareling} status="idle" className="size-10" />
+        <p>How can I help?</p>
       </div>
     );
   }
@@ -59,7 +46,6 @@ export function ThreadMessages({
       <MessageScroller className="min-h-0 flex-1">
         <MessageScrollerViewport>
           <MessageScrollerContent className="flex flex-col gap-4 px-2 py-3">
-            {continuedIn && <ContinuedIn link={continuedIn} />}
             {view.messages.map((message, index) => (
               <MessageScrollerItem
                 key={message.id}
@@ -68,10 +54,14 @@ export function ThreadMessages({
                 className="flex flex-col gap-4"
               >
                 <ThreadMessageRow message={message} />
-                {working && index === view.messages.length - 1 && <Working view={view} />}
+                {index === view.messages.length - 1 && (
+                  <AgentPresence view={view} working={working} squareling={squareling} />
+                )}
               </MessageScrollerItem>
             ))}
-            {working && view.messages.length === 0 && <Working view={view} />}
+            {view.messages.length === 0 && (
+              <AgentPresence view={view} working={working} squareling={squareling} />
+            )}
           </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton />
@@ -80,21 +70,73 @@ export function ThreadMessages({
   );
 }
 
+/** How long the greeting's squareling takes to reach the end of the thread, in ms. */
+const MORPH_DURATION = 350;
+/** A strong ease-in-out, for moving across the screen. */
+const MORPH_EASING = "cubic-bezier(0.77, 0, 0.175, 1)";
+
 /**
- * Shown in the last message, not after it: the scroller only brings a message the editor just
- * sent into view when it's appended last, and it arrives while the agent is already working.
+ * Moves the squareling from where the greeting showed it to the end of the thread, as the first
+ * message arrives, so it reads as the same one. Without motion for editors who reduce it.
  */
-function Working({ view: { status, usingTools } }: { view: ThreadView }) {
+function useSquarelingMorph(empty: boolean) {
+  const node = React.useRef<SVGSVGElement>(null);
+  /** Where the greeting showed it, as of the last render of the empty thread. */
+  const greeting = React.useRef<DOMRect | null>(null);
+  React.useLayoutEffect(() => {
+    const element = node.current;
+    if (!element) return;
+    if (empty) {
+      greeting.current = element.getBoundingClientRect();
+      return;
+    }
+    const from = greeting.current;
+    greeting.current = null;
+    if (!from || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const to = element.getBoundingClientRect();
+    if (to.width === 0) return;
+    const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+    const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+    element.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) scale(${from.width / to.width})` },
+        { transform: "none" },
+      ],
+      { duration: MORPH_DURATION, easing: MORPH_EASING },
+    );
+  });
+  return node;
+}
+
+/**
+ * The squareling at the end of the thread: idle between turns, at work during one. Shown in the
+ * last message, not after it: the scroller only brings a message the editor just sent into view
+ * when it's appended last, and it arrives while the agent is already working.
+ */
+function AgentPresence({
+  view: { status, usingTools },
+  working,
+  squareling,
+}: {
+  view: ThreadView;
+  working: boolean;
+  squareling: React.Ref<SVGSVGElement>;
+}) {
   // The squareling alone says whether the agent thinks or acts, without the details of how it
   // works. Building and fixing also say so in words.
   return (
     <div role="status" className="text-muted-foreground flex items-center gap-2 text-sm">
-      <Squareling status={squarelingStatus(status, usingTools)} className="size-6" />
-      {status ? (
-        <span className="shimmer">{STATUS_LINES[status]}</span>
-      ) : (
-        <span className="sr-only">Working…</span>
-      )}
+      <Squareling
+        ref={squareling}
+        status={working ? squarelingStatus(status, usingTools) : "idle"}
+        className="size-6"
+      />
+      {working &&
+        (status ? (
+          <span className="shimmer">{STATUS_LINES[status]}</span>
+        ) : (
+          <span className="sr-only">Working…</span>
+        ))}
     </div>
   );
 }
@@ -159,17 +201,6 @@ function ThreadMessageRow({ message }: { message: ThreadMessage }) {
         </Bubble>
       </MessageContent>
     </Message>
-  );
-}
-
-function ContinuedIn({ link }: { link: ContinuedInLink }) {
-  return (
-    <p className="text-muted-foreground px-2 pt-3 text-center text-sm">
-      Continued in{" "}
-      <a href={link.href} onClick={link.onOpen} className="text-foreground underline">
-        {link.label}
-      </a>
-    </p>
   );
 }
 

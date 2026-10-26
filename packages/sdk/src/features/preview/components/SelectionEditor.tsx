@@ -170,7 +170,7 @@ const buildAncestorChain = (
 const SelectionEditor = ({
   pageCrumb = true,
 }: {
-  /** Whether the path starts with the page. The Canvas sidebar's page header stands for it. */
+  /** Whether the path starts with the page. The Content Sidebar's page header stands for it. */
   pageCrumb?: boolean;
 }) => {
   const owner = React.useContext(PreviewEditingOwnerContext);
