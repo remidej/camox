@@ -138,7 +138,6 @@ async function setup({ motion = false } = {}) {
     document: dom.document,
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
-    // The Canvas navigator's Command list measures itself.
     ResizeObserver: dom.ResizeObserver,
     requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
     cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
@@ -444,15 +443,13 @@ void test("a record page's selected record opens the editor, and its notice says
   }
 });
 
-void test("the Canvas navigator lists every Page, searches, and shows the picked one", async () => {
+void test("the Canvas navigator lists every Page and shows the picked one", async () => {
   const dom = await setup();
   const shown: string[] = [];
   const entries = () =>
-    [...dom.mount.querySelectorAll("[cmdk-item]")].map((entry) => ({
-      text: entry.textContent,
-      current: entry.getAttribute("aria-current"),
-      group: entry.closest("[cmdk-group]")?.querySelector("[cmdk-group-heading]")?.textContent,
-    }));
+    [...dom.mount.querySelectorAll<HTMLButtonElement>("[data-canvas-navigator] li button")].map(
+      (entry) => ({ text: entry.textContent, current: entry.getAttribute("aria-current") }),
+    );
   try {
     await dom.render("/camox/canvas", undefined, {
       pages: [home, singleton],
@@ -463,39 +460,20 @@ void test("the Canvas navigator lists every Page, searches, and shows the picked
     assert.deepEqual(
       entries(),
       [
-        { text: "Home/", current: null, group: "Pages (2)" },
-        { text: "About/about", current: "true", group: "Pages (2)" },
+        { text: "Home/", current: null },
+        { text: "About/about", current: "page" },
       ],
       "every Page, in Canvas order, with its path, and the selected one marked",
     );
-
-    const search = dom.mount.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
-    assert.equal(document.activeElement, search, "the search takes focus");
-    const type = (value: string) =>
-      React.act(async () => {
-        // Set the value past React's own tracking, as typing does.
-        Reflect.set(Object.getPrototypeOf(search), "value", value, search);
-        search.dispatchEvent(new window.Event("input", { bubbles: true }));
-      });
-    await type("about");
-    assert.deepEqual(
-      entries().map(({ text }) => text),
-      ["About/about"],
-      "searching matches titles",
+    assert.equal(
+      dom.mount.querySelector("[data-canvas-navigator] input"),
+      null,
+      "no search to take focus",
     );
-    await type("/abo");
-    assert.deepEqual(
-      entries().map(({ text }) => text),
-      ["About/about"],
-      "and paths",
-    );
-    await type("page:");
-    assert.deepEqual(entries(), [], "but never Page keys");
-    await type("");
 
-    const about = [...dom.mount.querySelectorAll("[cmdk-item]")].find(
-      (entry) => entry.textContent === "About/about",
-    ) as unknown as HTMLElement;
+    const about = [
+      ...dom.mount.querySelectorAll<HTMLButtonElement>("[data-canvas-navigator] li button"),
+    ].find((entry) => entry.textContent === "About/about")!;
     await React.act(async () => about.click());
     assert.deepEqual(shown, [singleton.key], "picking a Page shows it");
 
