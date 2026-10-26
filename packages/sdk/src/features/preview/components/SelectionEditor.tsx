@@ -6,7 +6,7 @@ import { Spinner } from "@camox/ui/spinner";
 import { Switch } from "@camox/ui/switch";
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { CirclePlus, Trash2 } from "lucide-react";
+import { CirclePlus, Ellipsis, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
@@ -44,6 +44,30 @@ import { type RecordPlacer, useRecordView, type SelectionCrumb } from "./useReco
 import { type RepeatableArraySchema, useRepeatableItemActions } from "./useRepeatableItemActions";
 
 const EMPTY_CONTENT: Record<string, unknown> = {};
+
+/* -------------------------------------------------------------------------------------------------
+ * Helper: Collapse the middle of a long selection path
+ * -----------------------------------------------------------------------------------------------*/
+
+/** A header in the path's stack: one step, or the steps collapsed into one, from `index` on. */
+type StackRow =
+  | { index: number; item: SelectionCrumb; collapsed?: undefined }
+  | { index: number; collapsed: SelectionCrumb[] };
+
+/**
+ * The path's headers. The `kept` first steps, the selection and its parent always show; two or
+ * more steps between them collapse into one header, which lists them.
+ */
+function stackRows(items: SelectionCrumb[], kept: number): StackRow[] {
+  const rows = items.map((item, index): StackRow => ({ index, item }));
+  const between = items.slice(kept, -2);
+  if (between.length < 2) return rows;
+  return [
+    ...rows.slice(0, kept),
+    { index: kept, collapsed: between },
+    ...rows.slice(kept + between.length),
+  ];
+}
 
 /* -------------------------------------------------------------------------------------------------
  * Helper: Get settings fields from schema
@@ -486,21 +510,54 @@ const SelectionEditorContent = ({
   // Under the Canvas's view, then the page's, unless the path starts with the page.
   const firstDepth = pageCrumb ? 1 : 2;
   const front = stackedItems[stackedItems.length - 1];
+  const rows = stackRows(stackedItems, pageCrumb ? 1 : 0);
   return (
     <>
       {/* The path as a stack of views: the selection's on top, each step under it a header. */}
-      <SelectionViewCount count={stackedItems.length} />
+      <SelectionViewCount count={rows.length} />
       <nav aria-label="Selection path" className="shrink-0">
         <ol className="flex flex-col">
-          {stackedItems.map((item, index) => {
-            const distance = stackedItems.length - 1 - index;
+          {rows.map((row, index) => {
+            const distance = rows.length - 1 - index;
             const covered = distance > 0;
+            const depth = firstDepth + row.index;
+            if (row.collapsed) {
+              return (
+                <li key="collapsed-parents" className="relative flex flex-col">
+                  <SidebarStackHeader
+                    depth={depth}
+                    distance={distance}
+                    popover={
+                      <ol aria-label="Collapsed parents" className="flex flex-col">
+                        {row.collapsed.map((item) => (
+                          <li key={item.key} className="flex">
+                            <button
+                              type="button"
+                              className="hover:bg-accent hover:text-accent-foreground min-w-0 flex-1 cursor-pointer truncate rounded-sm px-2 py-1.5 text-left text-sm"
+                              onClick={item.onClick}
+                            >
+                              {item.label}
+                            </button>
+                          </li>
+                        ))}
+                      </ol>
+                    }
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Ellipsis className="size-3.5 shrink-0" />
+                      <span className="truncate">{row.collapsed.length} parents</span>
+                    </span>
+                  </SidebarStackHeader>
+                </li>
+              );
+            }
+            const { item } = row;
             return (
               <li key={item.key} className="relative flex flex-col">
                 <SidebarStackHeader
-                  depth={firstDepth + index}
+                  depth={depth}
                   distance={distance}
-                  first={pageCrumb && index === 0}
+                  first={pageCrumb && row.index === 0}
                   onSelect={item.onClick}
                   hoverTarget={item.hoverTarget}
                 >
