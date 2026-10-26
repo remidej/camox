@@ -362,7 +362,7 @@ function scrimGradient(towards: "left" | "right", inset: number) {
   const length = inset + CANVAS_PAGE_FIT_PADDING - SCRIM_FADE_START;
   const stops = SCRIM_EASING.map(
     (alpha, index) =>
-      `color-mix(in oklab, var(--color-muted) ${alpha * SCRIM_MAX_OPACITY * 100}%, transparent) ${from + (length * index) / (SCRIM_EASING.length - 1)}px`,
+      `color-mix(in oklab, var(--color-canvas) ${alpha * SCRIM_MAX_OPACITY * 100}%, transparent) ${from + (length * index) / (SCRIM_EASING.length - 1)}px`,
   );
   return `linear-gradient(to ${towards === "left" ? "right" : "left"}, ${stops.join(", ")})`;
 }
@@ -708,7 +708,7 @@ function CanvasWorkspace({
       // Only this element's children place themselves with the camera's
       // position. Ending its inheritance below them keeps a pan from restyling
       // every frame, header and overlay in the Canvas.
-      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
+      className="bg-canvas relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
       style={{
         userSelect: "none",
         overscrollBehavior: "none",

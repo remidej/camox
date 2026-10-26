@@ -14,7 +14,7 @@ export function CanvasLoadingScreen({
   label?: string;
 }) {
   return (
-    <div data-canvas-loading className="bg-muted absolute inset-0 grid place-items-center">
+    <div data-canvas-loading className="bg-canvas absolute inset-0 grid place-items-center">
       {spinner && <Spinner className="text-muted-foreground size-6" aria-label={label} />}
     </div>
   );
