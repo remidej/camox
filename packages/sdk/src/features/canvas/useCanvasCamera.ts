@@ -92,13 +92,6 @@ export interface CanvasCameraRow {
   /** The camera snapped to an item. */
   onSelect: (key: string) => void;
   /**
-   * The camera snapped onto an item from a scroll, swipe or zoom. A zoom that
-   * stretches past the snap reports it as it springs back.
-   */
-  onSnap?: () => void;
-  /** A zoom kept going past the snap it reported, which it reports again as it springs back. */
-  onSnapStretched?: () => void;
-  /**
    * The key of the selected item, if any. A selection is a snapped camera: the
    * camera flies to an item selected from anywhere else.
    */
@@ -107,7 +100,22 @@ export interface CanvasCameraRow {
   onDeselect?: () => void;
   /** The editor panned or zoomed the camera themselves, as opposed to a flight or a resize. */
   onEditorMove?: () => void;
+  /**
+   * Room the viewport's edges keep for chrome laid over it, such as sidebars. The camera
+   * frames, fits and snaps within the rest, its working area, while items still show under it.
+   */
+  insets?: CanvasInsets;
 }
+
+/** Screen space, in px, kept off each edge of the Canvas viewport. */
+export interface CanvasInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+const NO_INSETS: CanvasInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** Animate only the camera's CSS properties; page trees never rerender on pan/zoom. */
 export function useCanvasCamera(
@@ -183,17 +191,24 @@ export function useCanvasCamera(
     };
     ownerWindow.addEventListener("wheel", preventHistorySwipe, { capture: true, passive: false });
 
-    let viewportSize = { width: viewport.clientWidth, height: viewport.clientHeight };
+    // The camera's coordinates and sizes are the working area's: the viewport less its insets.
+    // Only painting and pointer input place them in the viewport, past the insets.
+    let insets = rowRef.current?.insets ?? NO_INSETS;
+    const measureViewport = () => {
+      insets = rowRef.current?.insets ?? NO_INSETS;
+      return {
+        width: Math.max(0, viewport.clientWidth - insets.left - insets.right),
+        height: Math.max(0, viewport.clientHeight - insets.top - insets.bottom),
+      };
+    };
+    let viewportSize = measureViewport();
     const measureContent = () => ({
       width: rowRef.current?.width ?? content.offsetWidth,
       height: content.offsetHeight,
     });
     let contentSize = measureContent();
     let minimumScale = canvasMinimumScale(viewportSize, contentSize);
-    const updateGeometry = (
-      nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight },
-      nextContent = measureContent(),
-    ) => {
+    const updateGeometry = (nextViewport = measureViewport(), nextContent = measureContent()) => {
       // Cache dimensions and their zoom floor together: synchronous measurements
       // can consume a resize before ResizeObserver delivers the same dimensions.
       viewportSize = nextViewport;
@@ -208,9 +223,6 @@ export function useCanvasCamera(
     let stretch: { point: CanvasPoint } | undefined;
     // Pinches end when their pointers lift, other zooms when their input pauses.
     let zoomEnd = 0;
-    // The item a zoom snapped onto, until the zoom ends: a stretch past it
-    // defers its report to the spring-back.
-    let landing: { key: string; stretched: boolean } | undefined;
     // Page fit is the zoom ceiling: the camera can't zoom in past where it snaps.
     // Zooming past a limit only stretches the view, as long as its input lasts.
     const constrain = (next: CanvasCamera, stretched = !!stretch) =>
@@ -346,13 +358,6 @@ export function useCanvasCamera(
         y: anchored.y + translation.y,
       };
       if (!candidate || !fit || !isCanvasPageScale(snapped, fit.scale)) return next;
-      const entered = selection !== candidate.key;
-      if (entered) landing = { key: candidate.key, stretched: stretched };
-      else if (stretched && landing && !landing.stretched) {
-        landing.stretched = true;
-        rowRef.current?.onSnapStretched?.();
-      }
-      if (entered && !stretched) rowRef.current?.onSnap?.();
       select(candidate.key);
       // Keep the zoom anchor vertically, rather than jumping back to page top.
       // A stretch stays centered on the page it springs back to.
@@ -385,7 +390,6 @@ export function useCanvasCamera(
       if (!candidate || !fit || fit.scale < minimumScale) return intended;
       const held = isCanvasCameraSnapped(base, viewportSize, candidate);
       if (!isInCanvasSnapWindow(intended, viewportSize, candidate, held)) return intended;
-      if (selection !== candidate.key) rowRef.current?.onSnap?.();
       select(candidate.key);
       // Carry intent over to the fit's zoom, at the same offset from the page's
       // center, so the release band measures from where the input would be.
@@ -402,8 +406,6 @@ export function useCanvasCamera(
         markMoving();
         applyCamera(next);
       }
-      if (landing?.stretched && landing.key === selection) rowRef.current?.onSnap?.();
-      landing = undefined;
     };
     const pointers = new Map<number, CanvasPoint>();
     // Like Figma, holding Space arms the hand tool; the background is otherwise
@@ -478,8 +480,8 @@ export function useCanvasCamera(
       if (!wasMoving) setMoving(true);
     };
     const paintElement = (element: HTMLElement) => {
-      element.style.setProperty("--canvas-x", `${camera.x}px`);
-      element.style.setProperty("--canvas-y", `${camera.y}px`);
+      element.style.setProperty("--canvas-x", `${camera.x + insets.left}px`);
+      element.style.setProperty("--canvas-y", `${camera.y + insets.top}px`);
       element.style.setProperty("--canvas-zoom", String(camera.scale));
       // With the zoom, sizes a screen's device pixel in the Canvas world.
       element.style.setProperty("--canvas-pixel-ratio", String(ownerWindow.devicePixelRatio));
@@ -589,7 +591,6 @@ export function useCanvasCamera(
       gesture = undefined;
       ownerWindow.clearTimeout(zoomEnd);
       stretch = undefined;
-      landing = undefined;
       // Navigation can commit new slots before ResizeObserver runs. Measure the
       // committed DOM now so even reduced-motion arrivals use the new bounds.
       updateGeometry();
@@ -613,7 +614,8 @@ export function useCanvasCamera(
         // Where the painted camera shows the element, in world space. Frames are
         // scaled by the camera, while the element's rect is in its frame's pixels.
         const rect = element.getBoundingClientRect();
-        const frameTop = frame.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+        const frameTop =
+          frame.getBoundingClientRect().top - viewport.getBoundingClientRect().top - insets.top;
         const worldTop = (frameTop + rect.top * camera.scale - camera.y) / camera.scale;
         // Measure against the camera's destination, so input in progress isn't undone.
         const delta = revealScrollDelta(
@@ -684,7 +686,9 @@ export function useCanvasCamera(
                 doc,
                 Math.max(
                   0,
-                  (viewport.getBoundingClientRect().top - element.getBoundingClientRect().top) /
+                  (viewport.getBoundingClientRect().top +
+                    insets.top -
+                    element.getBoundingClientRect().top) /
                     camera.scale,
                 ),
               )
@@ -713,7 +717,10 @@ export function useCanvasCamera(
         if (anchor && doc) {
           const y = resolveViewportAnchor(doc, anchor);
           const frameOffsetY = page
-            ? (page.getBoundingClientRect().top - viewport.getBoundingClientRect().top - camera.y) /
+            ? (page.getBoundingClientRect().top -
+                viewport.getBoundingClientRect().top -
+                insets.top -
+                camera.y) /
               camera.scale
             : 0;
           next = placeCanvasPageAnchor(viewportSize, destination, y, fit.scale, frameOffsetY);
@@ -726,9 +733,12 @@ export function useCanvasCamera(
     // oxlint-disable-next-line react/immutability -- the continuity store is a mutable object shared outside React
     if (continuity) continuity.canvas = continuityBinding;
     const resize = new ResizeObserver(() => {
-      const nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight };
+      const previousInsets = insets;
+      const nextViewport = measureViewport();
       const nextContent = measureContent();
       if (
+        insets.left === previousInsets.left &&
+        insets.top === previousInsets.top &&
         nextViewport.width === viewportSize.width &&
         nextViewport.height === viewportSize.height &&
         nextContent.width === contentSize.width &&
@@ -776,14 +786,14 @@ export function useCanvasCamera(
     resize.observe(content);
     const localPoint = (x: number, y: number): CanvasPoint => {
       const rect = viewport.getBoundingClientRect();
-      return { x: x - rect.left, y: y - rect.top };
+      return { x: x - rect.left - insets.left, y: y - rect.top - insets.top };
     };
     const onWheel = (event: WheelEvent) => {
       // Wheel gestures belong to the camera even over header controls.
       // Pointer and keyboard events still retain normal control behavior.
       event.preventDefault();
-      const dx = canvasWheelDelta(event.deltaX, event.deltaMode, viewport.clientWidth);
-      const dy = canvasWheelDelta(event.deltaY, event.deltaMode, viewport.clientHeight);
+      const dx = canvasWheelDelta(event.deltaX, event.deltaMode, viewportSize.width);
+      const dy = canvasWheelDelta(event.deltaY, event.deltaMode, viewportSize.height);
       if (!dx && !dy) return;
       rowRef.current?.onEditorMove?.();
       // Interrupt before computing intent so input starts at the painted view,
@@ -901,7 +911,14 @@ export function useCanvasCamera(
     const onFocusIn = (event: FocusEvent) => {
       if (!isControl(event.target)) return;
       const rect = (event.target as Element).getBoundingClientRect();
-      const bounds = viewport.getBoundingClientRect();
+      // Into the working area, clear of the chrome over the viewport's edges.
+      const viewportRect = viewport.getBoundingClientRect();
+      const bounds = {
+        left: viewportRect.left + insets.left,
+        top: viewportRect.top + insets.top,
+        right: viewportRect.left + insets.left + viewportSize.width,
+        bottom: viewportRect.top + insets.top + viewportSize.height,
+      };
       const dx =
         Math.max(0, bounds.left + 16 - rect.left) - Math.max(0, rect.right - bounds.right + 16);
       const dy =
@@ -921,7 +938,7 @@ export function useCanvasCamera(
         (event.shiftKey && event.code === "Digit1")
       )
         cancelCameraFlight();
-      const center = { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 };
+      const center = { x: viewportSize.width / 2, y: viewportSize.height / 2 };
       // Keyboard zoom snaps like any other zoom.
       const factor =
         event.key === "+" || event.key === "="

@@ -3,8 +3,6 @@ import { createStore } from "@xstate/store";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
-
 import { useAuthContext, useProjectUuid } from "../../lib/auth";
 import { useOptionalDraftScope } from "../../lib/draft-scope";
 import { parseLocalePath } from "../../lib/locale-path";
@@ -17,9 +15,9 @@ import { NavigationProvider, useLocation, useNavigate } from "../navigation/navi
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import type { ReleaseEditingFrame } from "../preview/editingFrame";
 import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
+import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import {
   CANVAS_CHROME_Z_INDEX,
-  CANVAS_CORNERS,
   PREVIEW_PAGE_SLOT_ATTRIBUTE,
   PreviewPageFrameContext,
 } from "../preview/previewPageFrame";
@@ -28,7 +26,7 @@ import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useRendererHost } from "../renderer/RendererFrames";
 import { FollowAgentContext } from "../studio/followAgentContext";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
-import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
+import { CANVAS_HEADER_HEIGHT, CANVAS_PAGE_FIT_PADDING } from "./canvasCamera";
 import { canvasBlockOverlap } from "./canvasFrameDocument";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
@@ -67,11 +65,22 @@ import {
 } from "./canvasThumbnails";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { CanvasSidebar } from "./sidebar/CanvasSidebar";
-import { useCanvasCamera } from "./useCanvasCamera";
+import { useCanvasCamera, type CanvasInsets } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
 import { useDiscoveredPreviewPaths } from "./useDiscoveredPreviewPaths";
 
 type CanvasViewport = { width: number; height: number };
+
+/**
+ * The Canvas spans the studio under its sidebars, the Canvas sidebar on its left and the chat on
+ * its right: the camera frames and snaps Pages between them, and above the studio's bottom edge.
+ */
+const CANVAS_INSETS: CanvasInsets = {
+  top: 0,
+  right: CMS_SIDEBAR_WIDTH,
+  bottom: 8,
+  left: CMS_SIDEBAR_WIDTH,
+};
 
 function usePreparationFailure(error: Error | null, selected = true) {
   const preparation = React.useContext(PreviewPreparationContext);
@@ -334,18 +343,26 @@ function CanvasPageFrameLoader({
   );
 }
 
-// Quick to appear, slower to fade, so it reads as one pulse.
-const SNAP_FLASH_KEYFRAMES: Keyframe[] = [
-  { opacity: 0 },
-  { opacity: 1, offset: 0.15 },
-  { opacity: 0 },
-];
-const SNAP_FLASH_TIMING: KeyframeAnimationOptions = {
-  duration: 600,
-  easing: "ease-out",
-  // The ring is the Canvas edge's, which stays.
-  pseudoElement: "::after",
-};
+/**
+ * How far a sidebar's scrim fades, in px: from this far inside the sidebar, to the edge of a
+ * snapped Page, past it by the page fit's padding.
+ */
+const SCRIM_FADE_INSIDE = 48;
+/** How opaque the scrim gets at most: what's under it always shows through, faintly. */
+const SCRIM_MAX_OPACITY = 0.8;
+/** Opacity along the fade, relative to the most, eased so it leaves no visible edge where it ends. */
+const SCRIM_EASING = [1, 0.92, 0.78, 0.6, 0.42, 0.26, 0.13, 0.05, 0];
+
+/** Fades what the Canvas shows around a sidebar into the Canvas's background, toward the sidebar. */
+function scrimGradient(towards: "left" | "right", inset: number) {
+  const from = inset - SCRIM_FADE_INSIDE;
+  const length = SCRIM_FADE_INSIDE + CANVAS_PAGE_FIT_PADDING;
+  const stops = SCRIM_EASING.map(
+    (alpha, index) =>
+      `color-mix(in oklab, var(--color-muted) ${alpha * SCRIM_MAX_OPACITY * 100}%, transparent) ${from + (length * index) / (SCRIM_EASING.length - 1)}px`,
+  );
+  return `linear-gradient(to ${towards === "left" ? "right" : "left"}, ${stops.join(", ")})`;
+}
 
 /** A frame header above an item's slot, at a constant on-screen height. */
 function CanvasHeaderSlot({
@@ -626,8 +643,6 @@ function CanvasWorkspace({
   // Narrower devices leave room around frames: their areas are shaded, to explain why frames are centered.
   const framed = viewport.width < CANVAS_SLOT_WIDTH;
   const snapTargets = canvasSnapTargets(items);
-  const edgeRef = React.useRef<HTMLDivElement>(null);
-  const snapFlash = React.useRef<Animation>(null);
   const { viewportRef, contentRef, flyTo, mirrorCamera, reveal, fitAll } = useCanvasCamera(
     workspaceKey,
     snapTargets.find(({ key }) => key === selectedPage?.key),
@@ -640,14 +655,7 @@ function CanvasWorkspace({
       },
       selected: intendedPageKey && pageSlots.has(intendedPageKey) ? intendedPageKey : null,
       onDeselect: () => goTo(localized(STUDIO_CANVAS_PATH)),
-      // The camera snapped onto a Page from a scroll, swipe or zoom: flash a
-      // ring around the viewport so the snap reads as locking onto it.
-      onSnap: () => {
-        snapFlash.current =
-          edgeRef.current?.animate(SNAP_FLASH_KEYFRAMES, SNAP_FLASH_TIMING) ?? null;
-      },
-      // The flash returns as the zoom springs back to the snap.
-      onSnapStretched: () => snapFlash.current?.cancel(),
+      insets: CANVAS_INSETS,
       // The editor moving the camera themselves stops following the agent.
       onEditorMove: () => follow?.takeOver(),
     },
@@ -697,10 +705,7 @@ function CanvasWorkspace({
       // Only this element's children place themselves with the camera's
       // position. Ending its inheritance below them keeps a pan from restyling
       // every frame, header and overlay in the Canvas.
-      className={cn(
-        CANVAS_CORNERS,
-        "bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none",
-      )}
+      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
       style={{
         userSelect: "none",
         overscrollBehavior: "none",
@@ -776,22 +781,24 @@ function CanvasWorkspace({
         edit it. Focus the canvas and use plus or minus to zoom, arrow keys to pan, 0 for 100%, or
         Home / Shift+1 to fit all pages.
       </p>
-      {/* Above the page headers and the Preview frame laid over the Canvas. */}
       {/*
-       * The Canvas's edge, over the Pages, the Preview's frame among them: an inner shadow that
-       * sets the Canvas into the studio, and the ring a snap flashes.
+       * Under each sidebar, a scrim fades the Pages around it into the Canvas's background, so
+       * they don't distract from it. Above the Pages, the Preview frame among them, below the sidebars.
        */}
-      <div
-        ref={edgeRef}
-        aria-hidden
-        data-canvas-edge
-        className={cn(
-          "pointer-events-none absolute inset-0 shadow-[inset_0_1px_3px_rgb(0_0_0/0.08)] dark:shadow-[inset_0_1px_3px_rgb(0_0_0/0.4)]",
-          "after:ring-primary after:absolute after:inset-0 after:rounded-[inherit] after:opacity-0 after:ring-3 after:ring-inset",
-          CANVAS_CORNERS,
-        )}
-        style={{ zIndex: CANVAS_CHROME_Z_INDEX }}
-      />
+      {(["left", "right"] as const).map((side) => (
+        <div
+          key={side}
+          aria-hidden
+          data-canvas-scrim={side}
+          className="pointer-events-none absolute inset-y-0"
+          style={{
+            [side]: 0,
+            width: CANVAS_INSETS[side] + CANVAS_PAGE_FIT_PADDING,
+            background: scrimGradient(side, CANVAS_INSETS[side]),
+            zIndex: CANVAS_CHROME_Z_INDEX,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -918,8 +925,8 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     );
   const editingOwner = activeFrame?.pathname === intended.pathname ? activeFrame.owner : null;
   return (
-    // The Studio's background shows past the Canvas's rounded corners, and below it.
-    <div className="bg-background flex min-h-0 flex-1 overflow-hidden pb-2">
+    // The Canvas spans the whole row, under the Canvas sidebar laid over its left side.
+    <div className="relative flex min-h-0 flex-1 overflow-hidden">
       {selectedPage?.kind === "curated" && <CuratedBlockShortcuts />}
       {/* The Canvas sidebar stays mounted and routes to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>

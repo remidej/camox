@@ -821,8 +821,6 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
   let selected = "middle";
   let ordered = pages;
   const events: string[] = [];
-  let snaps = 0;
-  let stretches = 0;
   let controls!: ReturnType<typeof useCanvasCamera>;
   function Fixture() {
     controls = useCanvasCamera("deselect", pages[1], {
@@ -837,8 +835,6 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
         events.push("deselect");
         selected = "";
       },
-      onSnap: () => snaps++,
-      onSnapStretched: () => stretches++,
     });
     return (
       <div ref={controls.viewportRef}>
@@ -915,18 +911,15 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
     assert.deepEqual(events, [], "zooming out further doesn't deselect again");
     await rerender();
 
-    // A zoom that jumps past a snap reports it as it springs back.
+    // A zoom that jumps past a snap selects it.
     time += 200;
     wheel(0, -1000, true);
     assert.deepEqual(events.splice(0), ["select middle"], "zooming in past a page snaps to it");
-    assert.equal(snaps, 0, "a stretch past the snap defers its report");
     await rerender();
     await dom.happyDOM.waitUntilComplete();
-    assert.equal(snaps, 1, "to the spring-back");
     flush();
     assert.ok(snappedTo(pages[1]!));
-    assert.equal(stretches, 0, "nothing was reported before the stretch");
-    // A zoom the detent captures reports the snap at once.
+    // The detent captures a gentle zoom.
     const fitScale = read().scale;
     const leave = () => {
       time += 200;
@@ -939,26 +932,21 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
     wheel(0, -0.1 / CANVAS_WHEEL_ZOOM_RATE, true);
     assert.equal(read().scale, fitScale, "the detent captures the zoom");
     assert.deepEqual(events.splice(0), ["select middle"]);
-    assert.equal(snaps, 2, "and reports the snap at once");
     await rerender();
     await dom.happyDOM.waitUntilComplete();
     flush();
-    assert.equal(snaps, 2, "only once");
-    // Zooming on past the captured snap takes the report back until the spring-back.
+    // Zooming on past the captured snap stretches the view, then springs back to it.
     leave();
     await rerender();
     time += 200;
     wheel(0, -0.1 / CANVAS_WHEEL_ZOOM_RATE, true);
-    assert.equal(snaps, 3);
     assert.deepEqual(events.splice(0), ["select middle"]);
     await rerender();
     wheel(0, -100, true);
     wheel(0, -100, true);
     assert.ok(read().scale > fitScale);
-    assert.equal(stretches, 1, "the stretch past the reported snap takes it back once");
     await dom.happyDOM.waitUntilComplete();
     flush();
-    assert.equal(snaps, 4, "and reports it again as it springs back");
     assert.ok(snappedTo(pages[1]!));
     time += 200;
     wheel(0, 1000, true);
@@ -973,7 +961,6 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
     assert.deepEqual(events, []);
     await dom.happyDOM.waitUntilComplete();
     flush();
-    assert.equal(snaps, 4, "a flight to a selection never reports a snap");
     await rerender();
     assert.ok(snappedTo(pages[2]!));
 
@@ -982,11 +969,9 @@ void test("a selection is a snapped camera: leaving the snap deselects, selectin
     assert.deepEqual(events.splice(0), ["deselect"], "panning out of the snap deselects");
     await rerender();
     time += 200;
-    const panSnaps = snaps;
     wheel(-size.width / 4 + 10, 0);
     assert.ok(snappedTo(pages[2]!));
     assert.deepEqual(events.splice(0), ["select last"], "panning into a snap selects");
-    assert.equal(snaps, panSnaps + 1, "and lands at once");
     const snapped = read();
     await rerender();
     assert.deepEqual(read(), snapped, "the camera's own selection doesn't fly");
@@ -2308,6 +2293,84 @@ void test("a zoomed-out camera away from the overview keeps its place as page he
       read(),
       constrainCanvasCamera(moved, viewportSize, contentSize),
       "the camera stays where the editor left it",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("insets keep a snapped page centered and fitted between the chrome over the viewport", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  let resize = () => {};
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: () => 0,
+    cancelAnimationFrame: () => {},
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: false }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 1600, height: 900 };
+  const insets = { top: 0, right: 300, bottom: 10, left: 200 };
+  const area = {
+    width: size.width - insets.left - insets.right,
+    height: size.height - insets.top - insets.bottom,
+  };
+  const page = { key: "page", left: 1606, width: 1366 };
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("insets", page, {
+      targets: [page],
+      onSelect: () => {},
+      insets,
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 8000 },
+      offsetHeight: { get: () => 12000 },
+    });
+    resize();
+    const x = parseFloat(viewport.style.getPropertyValue("--canvas-x"));
+    const scale = Number(viewport.style.getPropertyValue("--canvas-zoom"));
+    assert.equal(scale, fitCanvasPage(area, page).scale, "fits the page to the area's width");
+    assert.ok(scale < fitCanvasPage(size, page).scale, "not to the whole viewport's");
+    assert.ok(
+      Math.abs(x + (page.left + page.width / 2) * scale - (insets.left + area.width / 2)) < 0.5,
+      "centers the page in the area, not in the viewport",
     );
   } finally {
     await act(async () => root.unmount());

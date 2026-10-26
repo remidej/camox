@@ -108,8 +108,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let cameraRow!: {
     selected?: string | null;
     onDeselect?: () => void;
-    onSnap?: () => void;
-    onSnapStretched?: () => void;
   };
   let sidebarPathname: string | undefined;
   type SidebarProps = {

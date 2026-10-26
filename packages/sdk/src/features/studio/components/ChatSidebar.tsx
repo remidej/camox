@@ -31,21 +31,25 @@ export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
       aria-label="Chat"
       data-chat-sidebar
       hidden={hidden}
-      // Above the bottom of the page, as the Canvas row is.
-      className={cn("bg-background flex shrink-0 flex-col pb-2 max-md:hidden", SIDEBAR_GUTTER)}
+      // Laid over the Canvas's right side, as the Canvas sidebar is over its left: only its card
+      // has a background, and the Canvas shows around it.
+      className={cn(
+        "absolute inset-y-0 right-0 z-10 flex flex-col py-2 max-md:hidden",
+        SIDEBAR_GUTTER,
+      )}
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
       {/* A card like the Canvas sidebar's front one, across the page, in height, edges and type. */}
       <header
         className={cn(
-          "flex h-11 min-w-0 shrink-0 items-center justify-center gap-2 px-3",
+          "bg-background flex h-11 min-w-0 shrink-0 items-center justify-center gap-2 px-3",
           BOTTOM_CARD_EDGES,
         )}
       >
         <CamoxMark />
         <h2 className="truncate text-sm font-medium">Chat</h2>
       </header>
-      <div className={cn("flex min-h-0 flex-1 flex-col", CARD_BODY_EDGES)}>
+      <div className={cn("bg-background flex min-h-0 flex-1 flex-col", CARD_BODY_EDGES)}>
         <CurrentThread />
       </div>
     </aside>

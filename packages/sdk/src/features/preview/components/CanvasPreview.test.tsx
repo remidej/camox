@@ -159,7 +159,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
     const original = preview()!;
     original.value = "Keep this value";
     assert.equal(imports, 0, "read-only preview never imports Canvas");
-    assert.equal(placeholder(), null, "the read-only preview makes no room for a sidebar");
+    assert.equal(placeholder(), null, "the read-only preview shows no sidebar placeholder");
     assert.equal(loading(), null, "the read-only preview shows the page");
     assert.equal(toast.getToasts().length, 0);
 
@@ -184,11 +184,11 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(preview(), original, "the original DOM survives module suspension");
     assert.equal(preview()?.value, "Keep this value");
     assert.equal(canvas(), null);
-    assert.ok(placeholder(), "the preview makes room for the Canvas sidebar while it prepares");
+    assert.ok(placeholder(), "the Canvas sidebar's placeholder shows while the Canvas prepares");
     assert.equal(
       placeholder()?.nextElementSibling,
       preview()?.closest("[data-read-only-preview]"),
-      "the placeholder stands beside the preview, where the Canvas sidebar shows",
+      "the placeholder stands over the preview, where the Canvas sidebar shows",
     );
     assert.equal(
       loading()?.parentElement,
@@ -221,7 +221,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
     assert.equal(canvas(), firstCanvas, "revealing does not remount the prepared workspace");
     assert.equal(preparation()?.style.opacity, "1");
     assert.equal(preparation()?.hasAttribute("inert"), false);
-    assert.ok(placeholder(), "the preview keeps its room under the revealed Canvas");
+    assert.equal(placeholder(), null, "the revealed Canvas's own sidebar replaces the placeholder");
     assert.equal(loading(), null, "the revealed Canvas ends the loading screen");
     assert.equal(toast.getToasts().length, 0, "readiness shows no notification");
 
@@ -239,7 +239,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
       ["canvas-capture", true],
       "capture precedes canvas removal",
     );
-    assert.equal(placeholder(), null, "leaving editing gives the preview its room back");
+    assert.equal(placeholder(), null, "leaving editing shows no placeholder");
     assert.equal(canvas(), firstCanvas, "leaving editing keeps the ready Canvas, hidden");
     const outgoing = preview();
     const importsBeforeWarm = imports;
@@ -275,7 +275,7 @@ void test("Canvas handoff never remounts the original preview through loading, r
     await React.act(async () => current.fail(new Error("Page data unavailable")));
     assert.equal(preview(), outgoing);
     assert.equal(canvas(), null);
-    assert.equal(placeholder(), null, "a failed Canvas gives the preview its room back");
+    assert.equal(placeholder(), null, "a failed Canvas shows no placeholder");
     assert.equal(loading(), null, "a failed Canvas shows the page again");
     assertFailureToast();
     await retryToast();

@@ -5,10 +5,8 @@ import { CanvasViewHeader } from "./CanvasViewHeader";
 import { CuratedPageSkeleton, LayoutPageSkeleton } from "./PageInspectorSkeleton";
 
 /**
- * Stands in for the Canvas sidebar while the Canvas loads, so the page beside it
- * doesn't shift once the Canvas shows. For a selected Page, it takes the Canvas
- * Inspector's layout. Without one, it is empty but just as wide, so selecting and
- * deselecting on the Canvas never resizes the page frame's place under it.
+ * Stands in for the Canvas sidebar while the Canvas loads, where the sidebar will show. For a
+ * selected Page, it takes the Canvas Inspector's layout. Without one, it is empty.
  */
 export function CanvasSidebarSkeleton({
   page = true,

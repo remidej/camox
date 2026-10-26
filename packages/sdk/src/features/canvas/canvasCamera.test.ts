@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   CANVAS_HEADER_HEIGHT,
+  CANVAS_PAGE_FIT_PADDING,
   CANVAS_OVERSCROLL,
   canvasMaximumScale,
   stretchCanvasZoom,
@@ -222,14 +223,18 @@ void test("pending evidence expires and alternating horizontal deltas cannot can
   assert.equal(canvasVerticalRail({ x: 1, y: 20 }, 16, free).mode, "free");
 });
 
-void test("the initial page view fits its width with 24px padding, regardless of site height", () => {
+void test("the initial page view fits its width within its padding, regardless of site height", () => {
   const viewport = { width: 900, height: 800 };
   for (const left of [0, 1606, 3212]) {
     const page = { left, width: 1366 };
     const camera = fitCanvasPage(viewport, page);
-    assert.equal(camera.scale, (900 - 48) / 1366);
-    assert.ok(Math.abs(camera.x + left * camera.scale - 24) < 1e-8);
-    assert.equal(camera.y, 24 + CANVAS_HEADER_HEIGHT, "the page header shows above the page");
+    assert.equal(camera.scale, (900 - CANVAS_PAGE_FIT_PADDING * 2) / 1366);
+    assert.ok(Math.abs(camera.x + left * camera.scale - CANVAS_PAGE_FIT_PADDING) < 1e-8);
+    assert.equal(
+      camera.y,
+      CANVAS_PAGE_FIT_PADDING + CANVAS_HEADER_HEIGHT,
+      "the page header shows above the page",
+    );
     for (const height of [900, 30000])
       assert.deepEqual(constrainCanvasCamera(camera, viewport, { width: 4578, height }), camera);
   }

@@ -44,7 +44,7 @@ export function findCanvasSnapTarget<T extends CanvasSnapTarget>(
 export const CANVAS_PADDING = 64;
 export const CANVAS_HEADER_HEIGHT = 52;
 /** Screen-space inset of a Page snapped to fit the viewport's width. */
-export const CANVAS_PAGE_FIT_PADDING = 24;
+export const CANVAS_PAGE_FIT_PADDING = 16;
 export const MAX_CANVAS_ZOOM = 2;
 /**
  * Below this, Pages are too small to read while every frame comes near the
