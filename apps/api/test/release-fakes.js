@@ -408,6 +408,13 @@ const BUILD_COMMAND = /\bvp build\b/;
 const ARCHIVE_COMMAND = /^tar -czf (\S+) /;
 const EXTRACT_COMMAND = /\btar -xf (\S+) /;
 const LINT_COMMAND = /\bvp lint\b/;
+/**
+ * What the Camox plugin throws as Vite+ loads the config for a build, which `vp lint` loads it as
+ * too, unless `CAMOX_INTERNAL_RELEASE` says a release runs it: the sandbox has no `camox login`.
+ */
+const UNAUTHENTICATED =
+  "Error: Camox: not authenticated. Run `npx camox login` before building the site.";
+const releases = (env) => ["1", "dry-run"].includes(env?.CAMOX_INTERNAL_RELEASE);
 /** The type check the revision sandbox runs, with the config naming the files it checks. */
 const TYPE_CHECK_COMMAND = /^tsrs -p (\S+)/;
 
@@ -559,6 +566,10 @@ export class FakeRevisionSandbox extends DurableObject {
       this.tree = untar(tar);
       this.built = false;
       return result(0);
+    }
+    if (BUILD_COMMAND.test(command) && !releases(options.env)) return result(1, UNAUTHENTICATED);
+    if (LINT_COMMAND.test(command) && !releases(options.env)) {
+      return result(1, "", `Failed to parse oxlint configuration file.\n${UNAUTHENTICATED}`);
     }
     if (BUILD_COMMAND.test(command)) {
       // Builds sharing the sandbox's one workspace at once would build each other's files.
