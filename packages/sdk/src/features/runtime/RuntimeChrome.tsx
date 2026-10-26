@@ -36,7 +36,7 @@ export function RuntimeChrome({
         <div className={website ? "max-md:hidden" : undefined} hidden={website && hidden}>
           <Navbar isWebsite={website} recordPage={shownRecordPage(input)} />
         </div>
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               {/* A Canvas-only location has no page to lay out while the editor loads. */}
@@ -50,9 +50,9 @@ export function RuntimeChrome({
             </div>
           </div>
           {/*
-           * Outside the route content, so the chat survives leaving the Canvas. Everywhere else
-           * hides it but keeps its thread, so the Preview and Studio pages follow the editor's
-           * runs too.
+           * Laid over the Canvas, which spans the row under it. Outside the route content, so
+           * the chat survives leaving the Canvas. Everywhere else hides it but keeps its thread,
+           * so the Preview and Studio pages follow the editor's runs too.
            */}
           <ChatSidebar hidden={!showChat} />
         </div>

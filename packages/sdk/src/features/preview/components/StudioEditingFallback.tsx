@@ -14,7 +14,7 @@ export function StudioEditingFallback({ layoutPage }: { layoutPage: boolean }) {
   const isCanvasShown = useSelector(previewStore, selectIsCanvasShown);
 
   return (
-    <div className="flex h-full min-h-0 flex-1">
+    <div className="relative flex h-full min-h-0 flex-1">
       {isCanvasShown && <CanvasSidebarSkeleton layoutPage={layoutPage} />}
       <div className="relative min-h-0 min-w-0 flex-1">
         <CanvasLoadingScreen label={isCanvasShown ? undefined : PAGE_LOADING_LABEL} />

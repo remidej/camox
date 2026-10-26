@@ -250,7 +250,8 @@ export function CanvasPreview({
           continuity={continuity}
         >
           <div className="relative flex min-h-0 flex-1" data-preview-surface>
-            {enabled && phase !== "failed" && placeholder}
+            {/* Only until the Canvas shows: its sidebar is see-through around its cards. */}
+            {enabled && phase === "preparing" && placeholder}
             {/* Never unmounted: the Canvas borrows its page frame for the selected Page. */}
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-read-only-preview>
               {children}
