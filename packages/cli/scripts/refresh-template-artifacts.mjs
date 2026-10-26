@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { copyTemplateSource, makeStandalone, readWorkspaceCatalog } from "../src/lib/template.ts";
-import { installLockfile, run } from "./install-lockfile.mjs";
+import { installLockfile, run, waitForCamox } from "./install-lockfile.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const NAMESPACE = "projects";
@@ -105,6 +105,12 @@ async function main() {
     // Starting from the previous lockfile keeps every dependency that didn't change where it was.
     const previousLockfile = path.join(clone, "pnpm-lock.yaml");
     if (existsSync(previousLockfile)) cpSync(previousLockfile, path.join(copy, "pnpm-lock.yaml"));
+
+    log(`Waiting for npm to serve camox@${camoxVersion}...`);
+    await waitForCamox(camoxVersion, {
+      onRetry: (attempt, attempts) =>
+        attempt % 6 === 0 && log(`Still waiting for npm (${attempt}/${attempts})...`),
+    });
 
     log(`Resolving the Template's dependencies at camox@${camoxVersion}...`);
     await installLockfile(copy, {
