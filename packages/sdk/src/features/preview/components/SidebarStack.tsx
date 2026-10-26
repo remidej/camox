@@ -34,17 +34,21 @@ const DARK_SHADE_STRENGTH = 2.5;
 /** Keeps a sidebar's cards off its sides, so their edges show. */
 export const SIDEBAR_GUTTER = "px-2";
 
-/** The front card's sides and bottom, drawn just outside it, above the bottom of the sidebar. */
-export const CARD_BODY_EDGES =
-  "rounded-b-lg shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border),0_1px_0_var(--color-border)]";
-
 /**
- * The bottom card's edges, as it meets the top of a sidebar, which crops anything above it: it
- * draws its top edge inside, and nothing lies behind it to cast a shadow on. One border, a pixel
- * past each side to meet the sides below, keeps the edge even around the rounded corners.
+ * The color of a card's edges: the border's, solid. Dark mode's border is translucent, so it's
+ * laid over the Canvas behind the sidebars, to look the same over the card as beside it.
  */
-export const BOTTOM_CARD_EDGES =
-  "relative rounded-t-lg before:pointer-events-none before:absolute before:-inset-x-px before:inset-y-0 before:rounded-t-[inherit] before:border before:border-b-0 before:border-border";
+const CARD_EDGE_COLOR =
+  "border-border dark:border-[color-mix(in_srgb,var(--color-muted),white_10%)]";
+
+/** The front card's sides and bottom, under its header. */
+export const CARD_BODY_EDGES = `rounded-b-lg border border-t-0 ${CARD_EDGE_COLOR}`;
+
+/** The bottom card's top and sides, as it meets the top of a sidebar. */
+export const BOTTOM_CARD_EDGES = `rounded-t-lg border border-b-0 ${CARD_EDGE_COLOR}`;
+
+/** The front card's top and sides, over the cards behind it. */
+const FRONT_CARD_EDGES = `border border-b-0 ${CARD_EDGE_COLOR}`;
 
 /**
  * How much the second card behind the front fades its name, which shows depth on dark
@@ -395,12 +399,12 @@ export function SidebarStackHeader({
           first && !flat && BOTTOM_CARD_EDGES,
           covered &&
             !first &&
-            "shadow-[0_0_0_1px_var(--color-border),0_-2px_5px_-3px_rgb(0_0_0/0.08),inset_0_1px_0_rgb(255_255_255/0.5)] dark:shadow-[0_0_0_1px_var(--color-border),0_-2px_5px_-3px_rgb(0_0_0/0.4),inset_0_1px_0_rgb(255_255_255/0.05)]",
+            `border ${CARD_EDGE_COLOR} shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.08)] dark:shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.4)]`,
           !covered &&
             !first &&
             (inStack
-              ? "shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border),0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[-1px_0_0_var(--color-border),1px_0_0_var(--color-border),0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.4)]"
-              : "shadow-[0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-1px_0_var(--color-border),0_-3px_8px_-4px_rgb(0_0_0/0.4)]"),
+              ? `${FRONT_CARD_EDGES} shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]`
+              : `border-t ${CARD_EDGE_COLOR} shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]`),
           liftable &&
             "hover:[--fade:1] hover:[--lift:var(--hover-lift)] hover:[--shade:var(--hover-shade)] hover:[--tilt:var(--hover-tilt)]",
           liftable &&
