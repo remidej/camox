@@ -20,6 +20,7 @@ export function CanvasSidebar({
   onShowWholeCanvas,
   owner = null,
   pageRecord,
+  runtimeBasePath,
 }: {
   page: CanvasPage | undefined;
   /** Shown without a selection, on the Canvas itself. */
@@ -29,13 +30,20 @@ export function CanvasSidebar({
   owner?: EditingOwner | null;
   /** The record of the selected record page, if any. */
   pageRecord?: PageRecordId;
+  /** Where the runtime is mounted. */
+  runtimeBasePath: string;
 }) {
   return (
     <CanvasSidebarFrame label={page?.title ?? "Canvas navigator"}>
       <SidebarStack>
         <CanvasViewHeader covered={page != null} onShowWholeCanvas={onShowWholeCanvas} />
         {page ? (
-          <PageInspector page={page} owner={owner} pageRecord={pageRecord} />
+          <PageInspector
+            page={page}
+            owner={owner}
+            pageRecord={pageRecord}
+            runtimeBasePath={runtimeBasePath}
+          />
         ) : (
           <SidebarStackView depth={0} className="flex flex-col">
             <CanvasNavigator {...navigator} />

@@ -1401,29 +1401,57 @@ async function loadLayoutResult(
   return serializedResult;
 }
 
+/** Who reads a layout page's Markdown. Without a member's session, Live. */
+interface LayoutMarkdownReader {
+  member: boolean;
+  /** The member's session, which reads the draft and its record drafts. */
+  authCookieHeader?: string;
+  /** The draft the request's URL names, which only a member reads. */
+  requestedDraft?: string;
+}
+
 /**
  * The Markdown of a singleton or derived page: front matter, its before blocks, the layout's
- * toMarkdown output, then its after blocks. Without toMarkdown, the page is HTML only.
+ * toMarkdown output, then its after blocks. Null without toMarkdown: the page is then HTML only.
+ * The layout's blocks settle which draft it reads, as they do for the page's HTML.
  */
-async function createLayoutMarkdownResponse(
+async function buildLayoutMarkdown(
   options: RuntimeOptions,
   match: DerivedMatch,
   locale: LocaleView,
   /** The page's full path, with its locale's prefix, and its absolute URL, which the front matter states. */
   page: { pathname: string; url: string },
-): Promise<Response | null> {
+  reader: LayoutMarkdownReader = { member: false },
+): Promise<string | null> {
   const { toMarkdown, id } = match.layout._internal;
   const { apiUrl, projectUuid } = options;
   if (!toMarkdown || !apiUrl || !projectUuid) return null;
-  const api = createServerApiClient(apiUrl, { locale });
+  const authCookieHeader = reader.member ? reader.authCookieHeader : undefined;
+  const api = (draftId: string | undefined) =>
+    createServerApiClient(apiUrl, { authCookieHeader, draftId, locale });
+  const { value: slots, draftId } = await readDraftOrLive(
+    reader.requestedDraft,
+    reader.member,
+    (draftId) => api(draftId).blocks.getLayoutMarkdown({ projectUuid, layoutId: id }),
+  ).catch((error) => {
+    // A layout that was never synced has no blocks yet.
+    if (!isNotFoundError(error)) throw error;
+    return {
+      value: { before: "", after: "", projectName: "" },
+      draftId: reader.member ? reader.requestedDraft : undefined,
+    };
+  });
   const app = await options.getCamoxApp?.();
   /** The layout's own Markdown, between its before and after blocks, and what built it. */
   const layoutMarkdown = async () => {
-    // Markdown is a public output: it reads published records whoever asks.
     const result = await loadLayoutResult(
       app,
       match,
-      createLayoutRequestContext(options, "live", { locale }),
+      createLayoutRequestContext(options, reader.member ? "draft" : "live", {
+        authCookieHeader,
+        draftId,
+        locale,
+      }),
       locale,
     );
     const record = asCollectionItem(result);
@@ -1435,7 +1463,7 @@ async function createLayoutMarkdownResponse(
     const template = recordMarkdownTemplate(collection, (item) =>
       toMarkdown({ data, params: match.params, item }),
     );
-    const body = await api.collectionDefinitions.recordMarkdown({
+    const body = await api(draftId).collectionDefinitions.recordMarkdown({
       projectUuid,
       collectionId: record.collectionId,
       id: data.id,
@@ -1443,18 +1471,7 @@ async function createLayoutMarkdownResponse(
     });
     return { body: [body], data, record: recordPageValues(collection, record) };
   };
-  let rendered: Awaited<ReturnType<typeof layoutMarkdown>>;
-  try {
-    rendered = await layoutMarkdown();
-  } catch (error) {
-    if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
-    throw error;
-  }
-  const slots = await api.blocks.getLayoutMarkdown({ projectUuid, layoutId: id }).catch((error) => {
-    // A layout that was never synced has no blocks yet.
-    if (isNotFoundError(error)) return { before: "", after: "", projectName: "" };
-    throw error;
-  });
+  const rendered = await layoutMarkdown();
   // The same title and description as the page's head.
   const meta = buildPageMeta({
     layout: match.layout._internal,
@@ -1468,9 +1485,71 @@ async function createLayoutMarkdownResponse(
     }),
   });
   const markdown = [slots.before, ...rendered.body, slots.after].filter(Boolean).join("\n\n");
-  return new Response(withFrontMatter(markdown, { ...meta, url: page.url }), {
+  return withFrontMatter(markdown, { ...meta, url: page.url });
+}
+
+/**
+ * A singleton or derived page's public Markdown Representation. Markdown is a public output: it
+ * reads published records and blocks whoever asks.
+ */
+async function createLayoutMarkdownResponse(
+  options: RuntimeOptions,
+  match: DerivedMatch,
+  locale: LocaleView,
+  page: { pathname: string; url: string },
+): Promise<Response | null> {
+  let markdown: string | null;
+  try {
+    markdown = await buildLayoutMarkdown(options, match, locale, page);
+  } catch (error) {
+    if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
+    throw error;
+  }
+  if (markdown === null) return null;
+  return new Response(markdown, {
     headers: { "Content-Type": "text/markdown; charset=utf-8" },
   });
+}
+
+/**
+ * A singleton or derived page's Markdown Representation as JSON (`/_camox/data?markdown`), read
+ * like the page's data: in the draft the URL names, for a member. The studio shows it, while the
+ * page's `.md` URL always reads Live. `markdown` is null when the layout declares none.
+ */
+async function createLayoutMarkdownDataResponse(
+  options: RuntimeOptions,
+  request: Request,
+  /** The page's full path, with its locale's prefix. */
+  pathname: string,
+): Promise<Response> {
+  const located = await locateRequest(request, options, pathname);
+  const app = await options.getCamoxApp?.();
+  const match = app && matchDerivedLayout(app.getLayouts(), located.path);
+  if (!match || matchLocalizedRoute(located.path)?.kind !== "page")
+    return new Response("Not found", { status: 404 });
+  const { project, clearAuthCookie } = await resolveRequestMember(request, options);
+  const headers = {
+    ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
+    Vary: "Cookie",
+    ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+  };
+  try {
+    const markdown = await buildLayoutMarkdown(
+      options,
+      match,
+      located.locale,
+      { pathname, url: absoluteUrl(request, options)(pathname) },
+      {
+        member: project !== undefined,
+        authCookieHeader: getServerAuthCookieHeader(request.headers),
+        requestedDraft: getRequestDraftId(request, options),
+      },
+    );
+    return Response.json({ markdown }, { headers });
+  } catch (error) {
+    if (isNotFoundError(error)) return new Response("Not found", { status: 404, headers });
+    throw error;
+  }
 }
 
 interface DerivedResponseOptions {
@@ -1961,8 +2040,11 @@ export async function handleCamoxRequest(
   }
 
   if (match.kind === "data") {
-    const targetPathname = normalizePagePath(new URL(request.url).searchParams.get("path"));
+    const { searchParams } = new URL(request.url);
+    const targetPathname = normalizePagePath(searchParams.get("path"));
     if (matchRuntimeOwnedRoute(targetPathname)) return new Response("Not found", { status: 404 });
+    if (searchParams.has("markdown"))
+      return createLayoutMarkdownDataResponse(options, request, targetPathname);
     return respondInLocale(options, request, targetPathname, { dataOnly: true });
   }
 

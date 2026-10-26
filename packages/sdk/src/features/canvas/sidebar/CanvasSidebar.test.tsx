@@ -68,6 +68,8 @@ registerHooks({
       if (specifier.endsWith("/PageInfo")) source = panel("PageInfo", "props.pageId");
       if (specifier === "./LayoutPageBlocks")
         source = panel("LayoutPageBlocks", "props.layout.layoutId");
+      if (specifier === "./LayoutPageSeo")
+        source = panel("LayoutPageSeo", 'props.target.derivedLayoutId ?? "singleton"');
       if (specifier.endsWith("/SelectionEditor")) source = panel("SelectionEditor", "null");
     }
     if (source)
@@ -192,6 +194,7 @@ async function setup({ motion = false } = {}) {
                   onShowWholeCanvas={() => canvasShown++}
                   owner={owner}
                   pageRecord={pageRecord}
+                  runtimeBasePath=""
                 />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
@@ -300,7 +303,14 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
     ] as const) {
       await dom.render(path, page);
       await dom.settle();
-      assert.deepEqual(dom.panels(), [["LayoutPageBlocks", page.layoutId]]);
+      assert.deepEqual(
+        dom.panels(),
+        [
+          ["LayoutPageBlocks", page.layoutId],
+          ["LayoutPageSeo", page.kind === "derived" ? page.layoutId : "singleton"],
+        ],
+        "a layout page shows its layout's blocks, then its SEO and Markdown",
+      );
       assert.match(dom.mount.textContent, notice);
       const sidebar = dom.mount.querySelector('[data-panel="LayoutPageBlocks"]')!;
       assert.equal(sidebar.getAttribute("data-id"), page.layoutId);
@@ -433,7 +443,10 @@ void test("a record page's selected record opens the editor, and its notice says
 
     dom.store.send({ type: "clearSelection" });
     await render();
-    assert.deepEqual(dom.panels(), [["LayoutPageBlocks", "articles.$slug"]]);
+    assert.deepEqual(dom.panels(), [
+      ["LayoutPageBlocks", "articles.$slug"],
+      ["LayoutPageSeo", "articles.$slug"],
+    ]);
     assert.match(
       dom.mount.textContent,
       /Select this page’s content in the preview to edit its record/,

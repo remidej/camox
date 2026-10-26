@@ -8,14 +8,17 @@ import { LayoutPageOverview } from "./LayoutPageOverview";
 export function DerivedPageInspector({
   layoutId,
   pageRecord,
+  runtimeBasePath,
 }: {
   layoutId: string;
+  runtimeBasePath: string;
   /** The record of a record page. */
   pageRecord?: PageRecordId;
 }) {
   return (
     <LayoutPageOverview
       layoutId={layoutId}
+      target={{ runtimeBasePath, derivedLayoutId: layoutId }}
       notice={{
         title: "Shared layout blocks",
         description: pageRecord
