@@ -1,3 +1,4 @@
+import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
 import * as Tooltip from "@camox/ui/tooltip";
 import * as React from "react";
 
@@ -20,8 +21,15 @@ import type { Selection } from "../previewStore";
 
 /** How much narrower, on each side, the header right behind the front is than the front's. */
 const FIRST_STEP_INSET = 9;
+/**
+ * How much each step back shades a card, relative to the step in front of it. The selection
+ * path collapses its middle, so the stack stays short and its steps can stay even.
+ */
+const STEP_FALLOFF = 0.85;
 /** How much each step back narrows a header, relative to the step in front of it. */
-const STEP_FALLOFF = 0.65;
+const INSET_FALLOFF = 0.75;
+/** How much each step back tilts a header, relative to the step in front of it. */
+const TILT_FALLOFF = 0.65;
 /** How far the header right behind the front leans back, in degrees. */
 const FIRST_STEP_TILT = 4;
 /**
@@ -61,13 +69,13 @@ const PERSPECTIVE = 900;
 const HOVER_LIFT = 1.5;
 
 /** Sums the steps of a falloff series, `distance` views behind the front. */
-function stepSeries(first: number, distance: number) {
-  return (first * (1 - STEP_FALLOFF ** distance)) / (1 - STEP_FALLOFF);
+function stepSeries(first: number, distance: number, falloff = STEP_FALLOFF) {
+  return (first * (1 - falloff ** distance)) / (1 - falloff);
 }
 
 /** A header's inset on each side, `distance` views behind the front. */
 function stackInset(distance: number) {
-  return stepSeries(FIRST_STEP_INSET, distance);
+  return stepSeries(FIRST_STEP_INSET, distance, INSET_FALLOFF);
 }
 
 /** Cards settle into place, without bouncing. */
@@ -93,7 +101,8 @@ const HEADER_TRANSITION = [
  *
  * Cards are opaque: one laid on top or pulled away slides whole, fading only at the far end of
  * its way, so it covers the cards it passes rather than blending with them. The card behind
- * barely moves, as the card in front of it hides it.
+ * barely moves, as the card in front of it hides it. One sent behind fades out, as the headers
+ * laid over it are narrower and would show its sides.
  */
 type Motion = "front" | "back" | "same";
 
@@ -110,7 +119,7 @@ const COMING: Record<Motion, Keyframe[]> = {
 };
 const GOING: Record<Motion, Keyframe[]> = {
   front: [PLACED, { opacity: 1, offset: 0.3 }, PULLED],
-  back: [PLACED, BEHIND],
+  back: [PLACED, { ...BEHIND, opacity: 0 }],
   same: [{ opacity: 1 }, { opacity: 0 }],
 };
 const GOING_TIMING: Record<Motion, KeyframeAnimationOptions> = {
@@ -330,6 +339,7 @@ export function SidebarStackHeader({
   onSelect,
   hoverTarget,
   tooltip,
+  popover,
   children,
 }: {
   /** How many views are under this one in the stack, so it moves as it comes and goes. */
@@ -343,6 +353,8 @@ export function SidebarStackHeader({
   /** What hovering the header highlights in the editing frame, while covered. `null` is the page. */
   hoverTarget?: Selection | null;
   tooltip?: React.ReactNode;
+  /** What clicking the header opens, while covered, instead of going back to its view. */
+  popover?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const covered = distance > 0;
@@ -361,22 +373,23 @@ export function SidebarStackHeader({
   const ref = React.useRef<HTMLDivElement>(null);
   useStackCard(ref, depth, false);
 
-  const liftable = covered && onSelect != null;
+  const [popoverOpen, setPopoverOpen] = React.useState(false);
+  const liftable = covered && (onSelect != null || popover != null);
   // In a stack, off the sidebar's edges, its bottom card is a card too; elsewhere it meets the edge.
   const inStack = React.useContext(StackMotionContext) != null;
   const flat = first && !covered && !inStack;
-  const tilt = covered ? stepSeries(FIRST_STEP_TILT, distance) : 0;
+  const tilt = covered ? stepSeries(FIRST_STEP_TILT, distance, TILT_FALLOFF) : 0;
   const shade = stepSeries(FIRST_STEP_SHADE, distance);
 
   const button = liftable ? (
     <button
       type="button"
-      className="hover:text-foreground flex h-full w-full min-w-0 cursor-pointer items-center justify-center rounded-[inherit] px-3 text-center text-(--ancestor-foreground) transition-colors focus-visible:outline-none"
+      className="hover:text-foreground data-popup-open:text-foreground flex h-full w-full min-w-0 cursor-pointer items-center justify-center rounded-[inherit] px-3 text-center text-(--ancestor-foreground) transition-colors focus-visible:outline-none"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => {
         setHovered(false);
-        onSelect();
+        onSelect?.();
       }}
     >
       <span className="truncate opacity-(--fade) transition-opacity">{children}</span>
@@ -409,6 +422,9 @@ export function SidebarStackHeader({
             "hover:[--fade:1] hover:[--lift:var(--hover-lift)] hover:[--shade:var(--hover-shade)] hover:[--tilt:var(--hover-tilt)]",
           liftable &&
             "has-focus-visible:[--fade:1] has-focus-visible:[--lift:var(--hover-lift)] has-focus-visible:[--shade:var(--hover-shade)] has-focus-visible:[--tilt:var(--hover-tilt)]",
+          // Lifted while its popover is open, as when hovered.
+          liftable &&
+            "has-data-popup-open:[--fade:1] has-data-popup-open:[--lift:var(--hover-lift)] has-data-popup-open:[--shade:var(--hover-shade)] has-data-popup-open:[--tilt:var(--hover-tilt)]",
         )}
         style={
           {
@@ -428,7 +444,22 @@ export function SidebarStackHeader({
           } as React.CSSProperties
         }
       >
-        {button && tooltip ? (
+        {button && popover ? (
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            <PopoverTrigger render={button} />
+            {/* Picking anything in it moves the selection, which leaves it. */}
+            <PopoverContent
+              side="bottom"
+              // Narrower than the header under it, and further down, so their edges don't
+              // nearly line up.
+              sideOffset={8}
+              className="w-48 gap-0 p-1"
+              onClick={() => setPopoverOpen(false)}
+            >
+              {popover}
+            </PopoverContent>
+          </Popover>
+        ) : button && tooltip ? (
           <Tooltip.Tooltip>
             <Tooltip.TooltipTrigger render={button} />
             <Tooltip.TooltipContent side="bottom">{tooltip}</Tooltip.TooltipContent>

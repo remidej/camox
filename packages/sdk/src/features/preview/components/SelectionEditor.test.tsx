@@ -778,7 +778,7 @@ void test("clicking the record card opens the record view with its field rows an
 
 void test("breadcrumbs step up from a record field to the record, the reference field and the block", async (t) => {
   const sidebar = await renderSidebar(t, recordField("quote", "String"));
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme", "Quote"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme", "Quote"]);
   const recordCrumb = [...sidebar.host.querySelectorAll("nav li > button")].find(
     (element) => element.textContent === "Acme",
   );
@@ -1027,7 +1027,7 @@ void test("clicking a listed record card opens its record view, whose field edit
     }),
   );
   await sidebar.settle();
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos", "Acme", "Quote"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme", "Quote"]);
   await sidebar.typeText("Superb");
   assert.deepEqual(sidebar.writes, [
     {
@@ -1040,8 +1040,11 @@ void test("clicking a listed record card opens its record view, whose field edit
       },
     },
   ]);
+  // The steps between the page and the record's parent are collapsed, and listed on click.
+  await sidebar.click("2 parents");
   await sidebar.click("Logos");
   assert.deepEqual(sidebar.selection(), logosField);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos"]);
 });
 
 void test("a selection on a record no longer in the list falls back to the reference list view", async (t) => {
@@ -1336,7 +1339,7 @@ void test("an item's reference opens its record view under the item, and steps b
     fieldName: "sponsor",
     recordId: ACME,
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "People", "Ada", "Sponsor", "Acme"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Sponsor", "Acme"]);
   assert.match(sidebar.text(), /Quote\s*Great/);
   assert.ok(!sidebar.hasButton("Add sibling"), "item list actions belong to the item view");
 
@@ -1385,7 +1388,7 @@ void test("an item's record selection falls back to the item's reference field o
   });
   await sidebar.settle();
   assert.deepEqual(sidebar.selection(), sponsorField);
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "People", "Ada", "Sponsor"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Ada", "Sponsor"]);
   assert.ok(sidebar.host.querySelector("button[aria-haspopup]"), "the picker is shown again");
 });
 
@@ -1451,16 +1454,10 @@ void test("a placed record's reference opens the record it links, one hop furthe
   });
   await sidebar.click("Open Ada Lovelace");
   assert.deepEqual(sidebar.selection(), contactRecord);
-  assert.deepEqual(sidebar.crumbs(), [
-    "Page",
-    "Testimonial",
-    "Company",
-    "Acme",
-    "Contact",
-    "Ada Lovelace",
-  ]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Contact", "Ada Lovelace"]);
   assert.match(sidebar.text(), /Role\s*CTO/);
 
+  await sidebar.click("3 parents");
   await sidebar.click("Acme");
   assert.deepEqual(sidebar.selection(), {
     type: "record",
@@ -1525,7 +1522,7 @@ void test("a linked record's selection falls back to the placed record's field o
     recordFieldName: "contact",
     recordFieldType: "Reference",
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme", "Contact"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme", "Contact"]);
 });
 
 void test("the block field list summarizes a query-backed reference list by its result count", async (t) => {
