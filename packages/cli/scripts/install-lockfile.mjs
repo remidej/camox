@@ -13,9 +13,43 @@ function isVersionNotOnRegistry(error) {
   return `${error?.stdout ?? ""}${error?.stderr ?? ""}`.includes("ERR_PNPM_NO_MATCHING_VERSION");
 }
 
+const REGISTRY = "https://registry.npmjs.org";
+
 /**
- * Writes `dir`'s `pnpm-lock.yaml`. npm can take a while to serve a version it has just
- * published, so this waits for one it doesn't serve yet, and fails at once on any other error.
+ * Waits until npm serves `name@version`, and returns its manifest. It asks for that one version,
+ * which npm's CDN doesn't cache, unlike the package metadata pnpm resolves from: asking pnpm before
+ * the version is out caches metadata without it for 5 minutes.
+ */
+export async function waitForPublished(
+  name,
+  version,
+  { fetch: fetchImpl = fetch, attempts = 90, retryDelayMs = 5_000, onRetry = () => {} } = {},
+) {
+  const url = `${REGISTRY}/${name}/${version}`;
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetchImpl(url);
+    if (response.ok) return response.json();
+    if (response.status !== 404 || attempt === attempts) {
+      throw new Error(`npm doesn't serve ${name}@${version} (${response.status} from ${url})`);
+    }
+    onRetry(attempt, attempts);
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  }
+}
+
+/** Waits until npm serves `camox@version` and the `@camox/*` packages it depends on. */
+export async function waitForCamox(version, options) {
+  const manifest = await waitForPublished("camox", version, options);
+  const dependencies = Object.entries(manifest.dependencies ?? {}).filter(([name]) =>
+    name.startsWith("@camox/"),
+  );
+  await Promise.all(dependencies.map(([name, range]) => waitForPublished(name, range, options)));
+}
+
+/**
+ * Writes `dir`'s `pnpm-lock.yaml`. If the registry doesn't serve a version yet, which
+ * can last 5 minutes after `waitForPublished` sees it, this retries, and fails at once on any
+ * other error.
  */
 export async function installLockfile(
   dir,
