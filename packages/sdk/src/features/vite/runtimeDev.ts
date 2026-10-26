@@ -32,6 +32,8 @@ const VIRTUAL_BLOCK_CHUNKS = "virtual:camox/block-chunks";
 const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0" + VIRTUAL_BLOCK_CHUNKS;
 const VIRTUAL_APP_STYLESHEET_URL = "virtual:camox/app-stylesheet-url";
 const RESOLVED_VIRTUAL_APP_STYLESHEET_URL = "\0" + VIRTUAL_APP_STYLESHEET_URL;
+const VIRTUAL_APP_STYLESHEET = "virtual:camox/app-stylesheet";
+const RESOLVED_VIRTUAL_APP_STYLESHEET = "\0" + VIRTUAL_APP_STYLESHEET;
 const VIRTUAL_STUDIO_CSS = "virtual:camox-studio-css";
 const RESOLVED_VIRTUAL_STUDIO_CSS = "\0" + VIRTUAL_STUDIO_CSS;
 const VIRTUAL_OVERLAY_CSS = "virtual:camox-overlay-css";
@@ -217,6 +219,12 @@ export default stylesheetUrl;
 `;
 }
 
+/** The app's compiled stylesheet as text, which page images render with. */
+function generateVirtualAppStylesheet(): string {
+  return `export { default } from "/src/styles.css?inline";
+`;
+}
+
 function generateVirtualCamoxServer(runtimeBasePath?: string): string {
   return `import {
   handleCamoxRequest as handleRuntimeRequest,
@@ -247,6 +255,8 @@ const options = {
   developmentDraft: __CAMOX_DEVELOPMENT_DRAFT__,
   getCamoxApp: async () => camoxApp,
   getDocument: async () => camoxDocument,
+  // Loaded by the first page image, so the stylesheet stays out of the Worker's main chunk.
+  getImageStylesheet: () => import("virtual:camox/app-stylesheet").then((module) => module.default),
   projectUuid: __CAMOX_PROJECT_ID__,
   renderPage,
   renderStudio,
@@ -295,6 +305,7 @@ export function resolveRuntimeDevId(id: string, importer?: string): string | und
   if (id === VIRTUAL_RENDERER_CLIENT) return RESOLVED_VIRTUAL_RENDERER_CLIENT;
   if (id === VIRTUAL_RENDERER_CLIENT_URL) return RESOLVED_VIRTUAL_RENDERER_CLIENT_URL;
   if (id === VIRTUAL_APP_STYLESHEET_URL) return RESOLVED_VIRTUAL_APP_STYLESHEET_URL;
+  if (id === VIRTUAL_APP_STYLESHEET) return RESOLVED_VIRTUAL_APP_STYLESHEET;
   if (id === VIRTUAL_BLOCK_CHUNKS) return RESOLVED_VIRTUAL_BLOCK_CHUNKS;
   if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
   if (id === VIRTUAL_OVERLAY_CSS) return RESOLVED_VIRTUAL_OVERLAY_CSS;
@@ -320,6 +331,7 @@ export function loadRuntimeDevModule(
   if (id === RESOLVED_VIRTUAL_RENDERER_CLIENT) return generateVirtualRendererClient();
   if (id === RESOLVED_VIRTUAL_RENDERER_CLIENT_URL) return generateVirtualRendererClientUrl();
   if (id === RESOLVED_VIRTUAL_APP_STYLESHEET_URL) return generateVirtualAppStylesheetUrl();
+  if (id === RESOLVED_VIRTUAL_APP_STYLESHEET) return generateVirtualAppStylesheet();
   if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
     const cssPath = resolve(sdkRoot, "dist/studio.css");
     const cssUrl = `/@fs/${cssPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;

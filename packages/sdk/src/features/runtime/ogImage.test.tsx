@@ -13,19 +13,24 @@ import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest, type RuntimeOptions } from "./runtime";
 
 // `/og` renders the website's real pages: it loads the page its path names, runs its layout's
-// loader, and renders the layout's `toImage`, or Camox's default image, with the page's context.
+// loader, and renders the layout's `toImage`, or Camox's default image, with the page's context
+// and the site's stylesheet and fonts.
 
 Object.assign(globalThis, {
   __CAMOX_TELEMETRY_DISABLED__: true,
   React,
-  // The image renderer is the built package's wasm module: the image's markup stands in for it.
-  __renderOgImage: (element: React.ReactElement) => renderToStaticMarkup(element),
+  // The image renderer is the built package's wasm module: the image's markup stands in for it,
+  // and a header reports the style it was given.
+  __renderOgImage: (element: React.ReactElement, style: unknown) =>
+    new Response(renderToStaticMarkup(element), {
+      headers: { "X-Image-Style": JSON.stringify(style) },
+    }),
 });
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier !== "camox/_internal/imageResponse") return nextResolve(specifier, context);
-    const body = `export class ImageResponse extends Response {
-      constructor(element) { super(globalThis.__renderOgImage(element)); }
+    const body = `export async function createImageResponse(element, size, style) {
+      return globalThis.__renderOgImage(element, style);
     }`;
     return { url: `data:text/javascript,${encodeURIComponent(body)}`, shortCircuit: true };
   },
@@ -174,6 +179,7 @@ const visit = (
   layouts: Layouts,
   path: string,
   headers: Record<string, string> = {},
+  site: Partial<RuntimeOptions> = {},
 ): Promise<Response> => {
   const app = createApp({ blocks: [], collections: [articles], layouts });
   const options: RuntimeOptions = {
@@ -182,6 +188,7 @@ const visit = (
     projectUuid: "test",
     getCamoxApp: async () => app,
     renderPage: async () => "<main></main>",
+    ...site,
   };
   return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), options).then(
     (response) => response!,
@@ -279,6 +286,45 @@ void test("/og answers a repeat request with not modified until the page changes
   assert.equal(changed.status, 200);
   assert.equal(await changed.text(), "<h1>Image of Neue Preise</h1>");
   assert.notEqual(changed.headers.get("ETag"), etag);
+});
+
+void test("/og renders with the site's stylesheet and the Google Fonts its document loads", async (t) => {
+  mockApi(t);
+  const url = (await ogImageOf([regular], "/de/preise"))!.slice("https://site.test".length);
+  const image = await visit(
+    [regular],
+    url,
+    {},
+    {
+      getImageStylesheet: async () => ".bg-canvas { background: black; }",
+      getDocument: async () => ({
+        link: [
+          { rel: "preconnect", href: "https://fonts.googleapis.com" },
+          {
+            rel: "stylesheet",
+            href: "https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,100..900;1,100..900&display=swap",
+          },
+          { rel: "stylesheet", href: "/fonts.css" },
+        ],
+      }),
+    },
+  );
+  assert.deepEqual(JSON.parse(image.headers.get("X-Image-Style")!), {
+    css: ".bg-canvas { background: black; }",
+    fonts: [{ name: "Archivo", weight: "100..900", style: ["normal", "italic"] }],
+  });
+});
+
+void test("/og revalidates a cached image once the site's stylesheet changes", async (t) => {
+  mockApi(t);
+  const url = (await ogImageOf([regular], "/de/preise"))!.slice("https://site.test".length);
+  const themed = (css: string) => ({ getImageStylesheet: async () => css });
+  const first = await visit([regular], url, {}, themed(".a {}"));
+  const etag = first.headers.get("ETag")!;
+  const same = await visit([regular], url, { "If-None-Match": etag }, themed(".a {}"));
+  assert.equal(same.status, 304);
+  const rethemed = await visit([regular], url, { "If-None-Match": etag }, themed(".b {}"));
+  assert.equal(rethemed.status, 200);
 });
 
 void test("/og shows a member the draft its URL names, and nobody else", async (t) => {

@@ -36,6 +36,7 @@ import {
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
 import { reads, type StudioCache } from "../../lib/studio-reads";
+import { documentGoogleFonts } from "../og/documentFonts";
 import { DefaultPageImage, renderPageImage } from "../og/pageImage";
 import {
   buildCamoxPageHead,
@@ -201,6 +202,11 @@ export interface RuntimeOptions {
   rendererClientEntryUrl?: string;
   getCamoxApp?: () => Promise<CamoxApp>;
   getDocument?: () => Promise<CamoxDocument>;
+  /**
+   * The app's stylesheet, compiled, which page images render with: a `toImage` styles its
+   * elements with the same classes as the site.
+   */
+  getImageStylesheet?: () => Promise<string>;
   projectUuid?: string;
   renderPage?: (input: PageRenderInput) => Promise<string>;
   renderStudio?: (input: StudioRenderInput) => Promise<string>;
@@ -552,8 +558,9 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
 
 /**
  * The image of the page `/og?path=` names, by its path with its locale's prefix: its layout's
- * `toImage`, or Camox's default image, rendered with the page's context. Only real pages have
- * one, read as the page itself would be, in the draft the URL names for a member.
+ * `toImage`, or Camox's default image, rendered with the page's context and the site's
+ * stylesheet and fonts. Only real pages have one, read as the page itself would be, in the draft
+ * the URL names for a member.
  */
 async function createOgResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
@@ -562,15 +569,20 @@ async function createOgResponse(request: Request, options: RuntimeOptions): Prom
   }
   const source = await readPageImageSource(request, options, camoxApp);
   if (!source) return new Response("Not found", { status: 404 });
-  // The image is drawn from the page's context alone, so the context validates it without
-  // rendering it. Caches keep it, but ask again each time: a publish shows up at once.
+  const [css, document] = await Promise.all([
+    options.getImageStylesheet?.(),
+    options.getDocument?.(),
+  ]);
+  const style = { css, fonts: documentGoogleFonts(document ?? {}) };
+  // The image is drawn from the page's context and the site's style alone, so they validate it
+  // without rendering it. Caches keep it, but ask again each time: a publish shows up at once.
   const headers = {
-    ETag: await etagOf(JSON.stringify([source.layout?.id ?? null, source.context])),
+    ETag: await etagOf(JSON.stringify([source.layout?.id ?? null, source.context, style])),
     "Cache-Control": isPrivateRender(request, options) ? "private, no-store" : "public, no-cache",
   };
   if (namesEtag(request, headers.ETag)) return new Response(null, { status: 304, headers });
   const toImage = source.layout?.toImage ?? DefaultPageImage;
-  const image = await renderPageImage(toImage(source.context));
+  const image = await renderPageImage(toImage(source.context), style);
   for (const [name, value] of Object.entries(headers)) image.headers.set(name, value);
   return image;
 }
