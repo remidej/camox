@@ -44,4 +44,6 @@ lint rules say. You can't add a dependency: build with the ones listed.
 - A block's file name is its id: the block \`pricing-table\` is \`src/blocks/pricing-table.tsx\`. \
 Write the id as a string literal, \`createBlock({ id: "pricing-table", … })\`: the build reads it \
 there, and fails when it isn't one or doesn't match the file name.
+- Images and other media are files, managed as content, never code: upload one from a URL with \
+uploadFile, and use it through an image or file field.
 - Interactive blocks: ${INTERACTIVE_BLOCKS}`;

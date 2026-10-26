@@ -57,25 +57,22 @@ export const fileMetadataInput = z
     message: "Alt text cannot be combined with automatic metadata enabled.",
   });
 export const projectFileInput = z.object({ projectId: z.number(), id: uuidv7Schema });
+/** A file's name: no directories, and no control characters. */
+export const filenameInput = z
+  .string()
+  .refine(
+    (filename) =>
+      filename.trim().length > 0 &&
+      filename !== "." &&
+      filename !== ".." &&
+      !/[\\/]/.test(filename) &&
+      !filename
+        .split("")
+        .some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127),
+    { message: "Provide a non-empty filename without directories or control characters." },
+  );
 export const updateFileMetadataInput = fileMetadataInput
-  .and(
-    z.object({
-      filename: z
-        .string()
-        .refine(
-          (filename) =>
-            filename.trim().length > 0 &&
-            filename !== "." &&
-            filename !== ".." &&
-            !/[\\/]/.test(filename) &&
-            !filename
-              .split("")
-              .some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127),
-          { message: "Provide a non-empty filename without directories or control characters." },
-        )
-        .optional(),
-    }),
-  )
+  .and(z.object({ filename: filenameInput.optional() }))
   .refine((data) => data.aiMetadata !== true || data.filename === undefined, {
     message: "A filename cannot be combined with automatic metadata enabled.",
   })

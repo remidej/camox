@@ -107,6 +107,12 @@ export const THREAD_CONTINUED_HEADER = "x-camox-thread-continued-in";
 const IDENTITY_KEY = "camox.identity";
 
 /**
+ * The API's public origin, as the connection of the last message sent named it: the files the
+ * agent uploads are served from it, and a run has no request of its own to read it from.
+ */
+const API_ORIGIN_KEY = "camox.api-origin";
+
+/**
  * The draft a Live thread's first write starts, set aside before it's created, with the
  * operations of the run whose write created it once one did (a `StartedDraft`).
  */
@@ -162,13 +168,15 @@ export const ENDED_KEY = "camox.ended";
 const OPEN = 1;
 
 /**
- * What a connection carries: who sent it, what the API authorized it to reach, and for a fresh
- * Live thread, the draft the editor's previous one continued in.
+ * What a connection carries: who sent it, what the API authorized it to reach, where the API
+ * forwarded it from, and for a fresh Live thread, the draft the editor's previous one continued in.
  */
 const participantSchema = z.object({
   sender: threadSenderSchema,
   identity: threadIdentitySchema,
   continuedIn: startedDraftSchema.optional(),
+  /** The API's public origin, which the API forwarded the connection from. */
+  apiOrigin: z.string(),
 });
 type Participant = z.infer<typeof participantSchema>;
 
@@ -842,6 +850,7 @@ export class Thread extends DurableObject<Bindings> {
       sender: parseJson(ctx.request.headers.get(THREAD_SENDER_HEADER)),
       identity: parseJson(ctx.request.headers.get(THREAD_IDENTITY_HEADER)),
       continuedIn: parseJson(ctx.request.headers.get(THREAD_CONTINUED_HEADER)),
+      apiOrigin: new URL(ctx.request.url).origin,
     });
     if (!participant.success) {
       connection.close(1008, "Unauthorized");
@@ -904,6 +913,7 @@ export class Thread extends DurableObject<Bindings> {
       projectId: identity.projectId,
       draftId: identity.draftId,
       userId: entry.data.id,
+      apiOrigin: await this.ctx.storage.get<string>(API_ORIGIN_KEY),
     };
     if (identity.draftId || kind !== "write") return actor;
     return {
@@ -1186,6 +1196,10 @@ export class Thread extends DurableObject<Bindings> {
         if (!(await this.#start(participant.data))) {
           connection.close(1008, "Unauthorized");
           return;
+        }
+        const { apiOrigin } = participant.data;
+        if ((await this.ctx.storage.get(API_ORIGIN_KEY)) !== apiOrigin) {
+          await this.ctx.storage.put(API_ORIGIN_KEY, apiOrigin);
         }
         try {
           // A message sent while the agent works joins its run after the current round of tool

@@ -89,6 +89,7 @@ describe("Live is read-only", () => {
         "editCollectionRecord",
         "deleteCollectionRecord",
         "updateFile",
+        "uploadFile",
         "createPage",
         "updatePage",
         "setPageLayout",

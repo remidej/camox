@@ -46,6 +46,8 @@ export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
 export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & {
   userId: string;
   draftToStart?: { id: string; threadId: string };
+  /** The API's public origin, which files the agent uploads are served from. */
+  apiOrigin?: string;
 };
 
 /** Whether a tool reads content or writes it. */
@@ -85,7 +87,10 @@ export function threadToolDispatch(
   touched: (invocation: ToolInvocation, touches: Touch[]) => Promise<void>,
 ): ToolDispatch {
   return async ({ name, meta }, args, invocation) => {
-    const { projectId, draftId, userId, draftToStart } = await actor(invocation, meta.kind);
+    const { projectId, draftId, userId, draftToStart, apiOrigin } = await actor(
+      invocation,
+      meta.kind,
+    );
     const starting = draftId ? undefined : draftToStart;
     const db = createDb(env.DB);
     const acting = await db.select().from(user).where(eq(user.id, userId)).get();
@@ -96,6 +101,7 @@ export function threadToolDispatch(
       waitUntil,
       draftId,
       starting,
+      apiOrigin,
     });
     const response = await Effect.runPromise(
       dispatchTool(ctx, { projectId, surface: SURFACE, name, args }).pipe(

@@ -1,3 +1,5 @@
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -12,6 +14,7 @@ import {
 import {
   ask,
   connectLiveThread,
+  draftsOf,
   lastAnswer,
   said,
   signIn,
@@ -301,6 +304,33 @@ describe("the agent reading the website through code mode", () => {
       ],
     ]);
     thread.close();
+  });
+
+  it("uploads a file from a URL into the draft its write starts, served by the API", async () => {
+    const website = await websiteFixture({ about: "We build websites." });
+    answerWithScript(`
+      const file = await tools.uploadFile({
+        url: "https://website.camox.test/media/team.png?type=image/png",
+        alt: "The team",
+      });
+      text(JSON.stringify(file));
+    `);
+    answerFrom(({ scriptOutput }) => scriptOutput);
+
+    const view = await ask(await openThread(website), "Add our team photo to the files");
+
+    const [draft, ...others] = await draftsOf(website);
+    expect(others).toEqual([]);
+    const file = JSON.parse(lastAnswer(view)!);
+    expect(file).toMatchObject({ filename: "team.png", alt: "The team", mimeType: "image/png" });
+    // The thread has no request of its own: its files are served by the API its studio reached.
+    expect(file.url).toMatch(/^http:\/\/localhost\/files\/serve\//);
+    const inDraft = await call(
+      router.files.list,
+      { projectId: website.project.id },
+      { context: createRpcContext(website.db, website.memberUser, { [DRAFT_HEADER]: draft!.id }) },
+    );
+    expect(inDraft.map(({ id }) => id)).toEqual([file.id]);
   });
 
   it("reports nothing touched for a script that only reads", async () => {

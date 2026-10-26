@@ -1,5 +1,4 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
 import { edgeCacheTags } from "../../lib/edge-cache-purges";
@@ -8,10 +7,8 @@ import { runService } from "../../lib/run-service";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import { authed, contentWrite, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
-import { accessTo } from "../drafts/access";
-import { imageDimensions } from "./image-dimensions";
 import * as service from "./service";
-import { optimizeVideo } from "./video-optimization";
+import { MAX_UPLOAD_BYTES, storeUpload } from "./upload";
 
 // Every procedure reads and writes files in the draft the request names (`x-camox-draft`),
 // once the file's project is known. Writes need a draft: on Live the create header starts one.
@@ -136,8 +133,7 @@ fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
 /**
  * Uploads a new file, or replaces a file's content keeping its id (`/:id/content`), in the
  * draft the request names. Like any content write it needs one: Live is read-only, and
- * uploading on Live with the create header starts a draft. The blob
- * is stored before the row is written, and deleted again when the write fails.
+ * uploading on Live with the create header starts a draft.
  */
 const uploadContent: Handler<AppEnv> = async (c) => {
   if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
@@ -169,64 +165,19 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   if (!(file instanceof File)) return c.json({ error: "Missing file" }, 400);
   if (!Number.isSafeInteger(projectId) || projectId <= 0)
     return c.json({ error: "Missing projectId" }, 400);
-  if (file.size > 100 * 1024 * 1024) return c.json({ error: "File exceeds 100 MiB limit" }, 413);
+  if (file.size > MAX_UPLOAD_BYTES) return c.json({ error: "File exceeds 100 MiB limit" }, 413);
   if (metadata.data.aiMetadata && !isRasterImage(file.type)) {
     return c.json({ error: "Automatic metadata requires a raster image" }, 400);
   }
 
-  const apiOrigin = new URL(c.req.url).origin;
-  const filename = file.name.split(/[\\/]/).pop() || "upload";
-
-  const upload = Effect.scoped(
-    Effect.gen(function* () {
-      // Reject a missing target before storing any blob.
-      const bound = { ...ctx, projectId };
-      const target = id === undefined ? undefined : yield* accessTo(bound, { file: id }, "write");
-      const { scope } = target ?? (yield* accessTo(bound, { project: projectId }, "write"));
-
-      // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
-      const key = `${projectId}/${crypto.randomUUID()}`;
-      yield* Effect.promise(() =>
-        c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
-      );
-      const optimized = yield* optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
-      // Image headers sit near the start of the file: a JPEG's frame follows its metadata.
-      const dimensions = isRasterImage(file.type)
-        ? imageDimensions(
-            new Uint8Array(yield* Effect.promise(() => file.slice(0, 512 * 1024).arrayBuffer())),
-          )
-        : null;
-      const asset = {
-        blobId: key,
-        path: key,
-        url: `${apiOrigin}/files/serve/${optimized?.key ?? key}`,
-        filename,
-        mimeType: file.type,
-        size: file.size,
-        optimizedSize: optimized?.size ?? null,
-        width: dimensions?.width ?? null,
-        height: dimensions?.height ?? null,
-      };
-
-      const now = Date.now();
-      const write = target
-        ? service.replaceFileContent(ctx, target, asset, metadata.data)
-        : service.createFile(
-            ctx,
-            {
-              ...(typeof newId === "string" ? { id: newId } : {}),
-              ...asset,
-              projectId,
-              createdAt: now,
-              updatedAt: now,
-            },
-            metadata.data,
-            scope,
-          );
-      // A failed write must not leave an orphaned blob.
-      return yield* write.pipe(Effect.onError(() => service.deleteUnreferencedBlobs(ctx, [key])));
-    }),
-  );
+  const upload = storeUpload(ctx, {
+    projectId,
+    file,
+    metadata: metadata.data,
+    apiOrigin: new URL(c.req.url).origin,
+    targetId: id,
+    newId: typeof newId === "string" ? newId : undefined,
+  });
 
   return respondToUpload(c, upload, id !== undefined ? 200 : 201);
 };
