@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.53.0](https://github.com/remidej/camox/compare/camox-v0.52.3...camox-sdk-v0.53.0) (2026-10-26)
+
+
+### Features
+
+* **sdk:** list the Canvas navigator's Pages without a search ([be96c92](https://github.com/remidej/camox/commit/be96c92be7a57cec3e305373a5f1ca160bd2ad19))
+* **sdk:** navigate the Canvas sidebar as a stack of views ([c7a934b](https://github.com/remidej/camox/commit/c7a934bac879ac6ec87e7d656d7fc8eee2ad4a00))
+* **sdk:** set the Canvas and sidebars into the studio as rounded cards ([16e2520](https://github.com/remidej/camox/commit/16e2520fe5cd6ea1947a582e61dc5249639f91ab))
+* **sdk:** show SEO and Markdown for singleton and derived pages ([#596](https://github.com/remidej/camox/issues/596)) ([4bdb249](https://github.com/remidej/camox/commit/4bdb249e8fc0a6c89acf22b446e0db9590c0421e))
+* **sdk:** span the Canvas across the studio, under its sidebars ([557c6a2](https://github.com/remidej/camox/commit/557c6a29e8eb3063157c9e74f8dd904dff2fce69))
+
 ## [0.52.3](https://github.com/remidej/camox/compare/camox-v0.52.2...camox-sdk-v0.52.3) (2026-10-25)
 
 
