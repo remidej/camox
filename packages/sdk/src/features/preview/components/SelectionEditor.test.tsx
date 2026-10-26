@@ -565,7 +565,7 @@ void test("an item without a Summary is named by its title in its repeater's lis
     { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID },
     options,
   );
-  assert.deepEqual(item.crumbs(), ["Page", "Testimonial", "People", "Founder card"]);
+  assert.deepEqual(item.crumbs(), ["Page", "2 parents", "Founder card"]);
 });
 
 void test("an item's Summary wins over its title in its repeater's list and the breadcrumb", async (t) => {
@@ -583,7 +583,7 @@ void test("an item's Summary wins over its title in its repeater's list and the 
     { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID },
     options,
   );
-  assert.deepEqual(item.crumbs(), ["Page", "Testimonial", "People", "Ada"]);
+  assert.deepEqual(item.crumbs(), ["Page", "2 parents", "Ada"]);
 });
 
 void test("the path's headers narrow the further under the selection they are, by less each step", async (t) => {
@@ -593,7 +593,7 @@ void test("the path's headers narrow the further under the selection they are, b
   ];
   // Each header's inset on either side, from the top of the path down to the selection.
   const insets = headers.map((header) => parseFloat(header.style.marginInline || "0"));
-  assert.equal(insets.length, 4);
+  assert.equal(insets.length, 3);
   assert.equal(insets.at(-1), 0, "the selection's own header is full width");
   const steps = insets.slice(1).map((inset, index) => insets[index]! - inset);
   assert.ok(
@@ -765,7 +765,7 @@ void test("clicking the record card opens the record view with its field rows an
     recordId: ACME,
   });
   assert.equal(sidebar.sheetOpened(), false, "the page editor no longer opens the edit sheet");
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme"]);
   assert.ok(
     !sidebar.host.querySelector("[data-shared-record]"),
     "a single reference's record view has no shared header",
@@ -778,12 +778,13 @@ void test("clicking the record card opens the record view with its field rows an
 
 void test("breadcrumbs step up from a record field to the record, the reference field and the block", async (t) => {
   const sidebar = await renderSidebar(t, recordField("quote", "String"));
-  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme", "Quote"]);
-  const recordCrumb = [...sidebar.host.querySelectorAll("nav li > button")].find(
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Quote"]);
+
+  await sidebar.click("3 parents");
+  const recordCrumb = [...document.querySelectorAll("button")].find(
     (element) => element.textContent === "Acme",
   );
   assert.doesNotMatch(recordCrumb?.className ?? "", /purple/, "the sidebar has no purple");
-
   await sidebar.click("Acme");
   assert.deepEqual(sidebar.selection(), {
     type: "record",
@@ -791,6 +792,7 @@ void test("breadcrumbs step up from a record field to the record, the reference 
     fieldName: "company",
     recordId: ACME,
   });
+  await sidebar.click("2 parents");
   await sidebar.click("Company");
   assert.deepEqual(sidebar.selection(), {
     type: "block-field",
@@ -836,7 +838,7 @@ void test("a record selection falls back to the reference field view once the re
     fieldName: "company",
     recordId: ACME,
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme"]);
   await act(async () => {
     testStudioCache(sidebar.client).set(reads.blockBundle(BLOCK_ID), (bundle: any) => ({
       ...bundle,
@@ -1013,7 +1015,7 @@ void test("clicking a listed record card opens its record view, whose field edit
     fieldName: "logos",
     recordId: ACME,
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos", "Acme"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme"]);
   assert.ok(sidebar.host.querySelector("[data-shared-record]"));
   await act(async () =>
     sidebar.previewStore.send({
@@ -1027,7 +1029,7 @@ void test("clicking a listed record card opens its record view, whose field edit
     }),
   );
   await sidebar.settle();
-  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme", "Quote"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Quote"]);
   await sidebar.typeText("Superb");
   assert.deepEqual(sidebar.writes, [
     {
@@ -1040,8 +1042,8 @@ void test("clicking a listed record card opens its record view, whose field edit
       },
     },
   ]);
-  // The steps between the page and the record's parent are collapsed, and listed on click.
-  await sidebar.click("2 parents");
+  // The steps between the page and the selection are collapsed, and listed on click.
+  await sidebar.click("3 parents");
   await sidebar.click("Logos");
   assert.deepEqual(sidebar.selection(), logosField);
   assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos"]);
@@ -1103,7 +1105,7 @@ void test("a selected record still in the list but not yet loaded keeps its sele
   });
   await sidebar.settle();
   assert.deepEqual(sidebar.selection(), selection);
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos", "Initech"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Initech"]);
 });
 
 void test("reordering a list keeps the selected record", async (t) => {
@@ -1339,12 +1341,15 @@ void test("an item's reference opens its record view under the item, and steps b
     fieldName: "sponsor",
     recordId: ACME,
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Sponsor", "Acme"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "4 parents", "Acme"]);
   assert.match(sidebar.text(), /Quote\s*Great/);
   assert.ok(!sidebar.hasButton("Add sibling"), "item list actions belong to the item view");
 
+  await sidebar.click("4 parents");
   await sidebar.click("Sponsor");
   assert.deepEqual(sidebar.selection(), sponsorField);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Sponsor"]);
+  await sidebar.click("3 parents");
   await sidebar.click("Ada");
   assert.deepEqual(sidebar.selection(), { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID });
 });
@@ -1388,7 +1393,7 @@ void test("an item's record selection falls back to the item's reference field o
   });
   await sidebar.settle();
   assert.deepEqual(sidebar.selection(), sponsorField);
-  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Ada", "Sponsor"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Sponsor"]);
   assert.ok(sidebar.host.querySelector("button[aria-haspopup]"), "the picker is shown again");
 });
 
@@ -1454,10 +1459,10 @@ void test("a placed record's reference opens the record it links, one hop furthe
   });
   await sidebar.click("Open Ada Lovelace");
   assert.deepEqual(sidebar.selection(), contactRecord);
-  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Contact", "Ada Lovelace"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "4 parents", "Ada Lovelace"]);
   assert.match(sidebar.text(), /Role\s*CTO/);
 
-  await sidebar.click("3 parents");
+  await sidebar.click("4 parents");
   await sidebar.click("Acme");
   assert.deepEqual(sidebar.selection(), {
     type: "record",
@@ -1522,7 +1527,7 @@ void test("a linked record's selection falls back to the placed record's field o
     recordFieldName: "contact",
     recordFieldType: "Reference",
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme", "Contact"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Contact"]);
 });
 
 void test("the block field list summarizes a query-backed reference list by its result count", async (t) => {
@@ -1583,7 +1588,7 @@ void test("clicking a query result card opens its record view, whose field edits
     fieldName: "recent",
     recordId: ACME,
   });
-  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Recent", "Acme"]);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "2 parents", "Acme"]);
   assert.ok(sidebar.host.querySelector("[data-shared-record]"));
   await act(async () =>
     sidebar.previewStore.send({
@@ -1690,6 +1695,6 @@ void test("a record page's record opens the records it links", async (t) => {
     },
     { recordPage: acmePage },
   );
-  assert.deepEqual(sidebar.crumbs(), ["Layout", "Acme", "Contact", "Ada Lovelace"]);
+  assert.deepEqual(sidebar.crumbs(), ["Layout", "2 parents", "Ada Lovelace"]);
   assert.match(sidebar.text(), /Role\s*CTO/);
 });

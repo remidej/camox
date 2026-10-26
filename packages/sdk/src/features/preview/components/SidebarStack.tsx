@@ -42,21 +42,23 @@ const DARK_SHADE_STRENGTH = 2.5;
 /** Keeps a sidebar's cards off its sides, so their edges show. */
 export const SIDEBAR_GUTTER = "px-2";
 
-/**
- * The color of a card's edges: the border's, solid. Dark mode's border is translucent, so it's
- * laid over the Canvas behind the sidebars, to look the same over the card as beside it.
+/*
+ * Cards have no borders: they're lit from above, with a lighter top edge and a darker bottom
+ * one, like the preview toolbar, and their shadows set them apart from what's behind.
  */
-const CARD_EDGE_COLOR =
-  "border-border dark:border-[color-mix(in_srgb,var(--color-muted),white_10%)]";
 
-/** The front card's sides and bottom, under its header. */
-export const CARD_BODY_EDGES = `rounded-b-lg border border-t-0 ${CARD_EDGE_COLOR}`;
+/**
+ * The front card's bottom, under its header, with a soft shadow down its sides that stops short
+ * of its top, so it doesn't fall on its header.
+ */
+export const CARD_BODY_EDGES =
+  "rounded-b-lg inset-shadow-raised-bottom shadow-[0_12px_24px_-12px_rgb(0_0_0/0.14)] dark:shadow-[0_12px_24px_-12px_rgb(0_0_0/0.6)]";
 
-/** The bottom card's top and sides, as it meets the top of a sidebar. */
-export const BOTTOM_CARD_EDGES = `rounded-t-lg border border-b-0 ${CARD_EDGE_COLOR}`;
+/** The bottom card's top, as it meets the top of a sidebar. */
+export const BOTTOM_CARD_EDGES = "rounded-t-lg inset-shadow-raised-top";
 
-/** The front card's top and sides, over the cards behind it. */
-const FRONT_CARD_EDGES = `border border-b-0 ${CARD_EDGE_COLOR}`;
+/** A card's top, over the cards behind it. */
+const CARD_TOP_EDGE = "inset-shadow-raised-top";
 
 /**
  * How much the second card behind the front fades its name, which shows depth on dark
@@ -316,7 +318,7 @@ export function SidebarStackView({
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   useStackCard(ref, depth, true);
-  // Off the sidebar's edges, in a stack, the front card shows its sides.
+  // Off the sidebar's edges, in a stack, the front card is lit and casts its shadow.
   const inStack = React.useContext(StackMotionContext) != null;
   return (
     <div
@@ -412,12 +414,10 @@ export function SidebarStackHeader({
           first && !flat && BOTTOM_CARD_EDGES,
           covered &&
             !first &&
-            `border ${CARD_EDGE_COLOR} shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.08)] dark:shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.4)]`,
+            `${CARD_TOP_EDGE} shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.08)] dark:shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.4)]`,
           !covered &&
             !first &&
-            (inStack
-              ? `${FRONT_CARD_EDGES} shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]`
-              : `border-t ${CARD_EDGE_COLOR} shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]`),
+            `${CARD_TOP_EDGE} shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]`,
           liftable &&
             "hover:[--fade:1] hover:[--lift:var(--hover-lift)] hover:[--shade:var(--hover-shade)] hover:[--tilt:var(--hover-tilt)]",
           liftable &&

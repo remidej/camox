@@ -344,22 +344,25 @@ function CanvasPageFrameLoader({
 }
 
 /**
- * How far a sidebar's scrim fades, in px: from this far inside the sidebar, to the edge of a
- * snapped Page, past it by the page fit's padding.
+ * Where a sidebar's scrim starts fading, in px from the studio's edge: past the sidebar's outer
+ * gutter (`SIDEBAR_GUTTER`), so it fades across the whole of the sidebar's contents.
  */
-const SCRIM_FADE_INSIDE = 48;
+const SCRIM_FADE_START = 8;
 /** How opaque the scrim gets at most: what's under it always shows through, faintly. */
 const SCRIM_MAX_OPACITY = 0.8;
 /** Opacity along the fade, relative to the most, eased so it leaves no visible edge where it ends. */
 const SCRIM_EASING = [1, 0.92, 0.78, 0.6, 0.42, 0.26, 0.13, 0.05, 0];
 
-/** Fades what the Canvas shows around a sidebar into the Canvas's background, toward the sidebar. */
+/**
+ * Fades what the Canvas shows around a sidebar into the Canvas's background, toward the sidebar:
+ * from nothing past a snapped Page's edge, to the most only at the sidebar's outer gutter.
+ */
 function scrimGradient(towards: "left" | "right", inset: number) {
-  const from = inset - SCRIM_FADE_INSIDE;
-  const length = SCRIM_FADE_INSIDE + CANVAS_PAGE_FIT_PADDING;
+  const from = SCRIM_FADE_START;
+  const length = inset + CANVAS_PAGE_FIT_PADDING - SCRIM_FADE_START;
   const stops = SCRIM_EASING.map(
     (alpha, index) =>
-      `color-mix(in oklab, var(--color-muted) ${alpha * SCRIM_MAX_OPACITY * 100}%, transparent) ${from + (length * index) / (SCRIM_EASING.length - 1)}px`,
+      `color-mix(in oklab, var(--color-canvas) ${alpha * SCRIM_MAX_OPACITY * 100}%, transparent) ${from + (length * index) / (SCRIM_EASING.length - 1)}px`,
   );
   return `linear-gradient(to ${towards === "left" ? "right" : "left"}, ${stops.join(", ")})`;
 }
@@ -705,7 +708,7 @@ function CanvasWorkspace({
       // Only this element's children place themselves with the camera's
       // position. Ending its inheritance below them keeps a pan from restyling
       // every frame, header and overlay in the Canvas.
-      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
+      className="bg-canvas relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
       style={{
         userSelect: "none",
         overscrollBehavior: "none",

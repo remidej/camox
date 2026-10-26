@@ -36,6 +36,9 @@
   --sidebar-accent-foreground: theme(--color-zinc-900);
   --sidebar-border: theme(--color-zinc-200);
   --sidebar-ring: theme(--color-zinc-400);
+  /* Raised surfaces, lit from above: a lighter top edge and a darker bottom one. */
+  --raised-top: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  --raised-bottom: inset 0 -1px 0 rgb(0 0 0 / 0.06), inset 0 -10px 12px -12px rgb(0 0 0 / 0.08);
 }
 
 .dark,
@@ -72,9 +75,16 @@
   --sidebar-accent-foreground: theme(--color-zinc-50);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: theme(--color-zinc-500);
+  --raised-top:
+    inset 0 1px 0 rgb(255 255 255 / 0.1), inset 0 10px 16px -12px rgb(255 255 255 / 0.05);
+  --raised-bottom: inset 0 -1px 0 rgb(0 0 0 / 0.5), inset 0 -10px 16px -12px rgb(0 0 0 / 0.3);
 }
 
 @theme inline {
+  /* `inset-shadow-raised*`: off, outside the studio's theme. */
+  --inset-shadow-raised-top: var(--raised-top, 0 0 #0000);
+  --inset-shadow-raised-bottom: var(--raised-bottom, 0 0 #0000);
+  --inset-shadow-raised: var(--raised-top, 0 0 #0000), var(--raised-bottom, 0 0 #0000);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

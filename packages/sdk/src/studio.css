@@ -26,18 +26,22 @@ code {
   --color-checker-bg: #f8f9fa;
   --color-checker: #e9ecef;
   --invalid: theme(--color-red-400);
+  /* Behind the Canvas's Pages: darker than muted in light mode, so the white cards over it stand out. */
+  --canvas: oklch(0.925 0.004 286);
 }
 
 .dark {
   --preview-background: oklch(0.18 0.025 264.665);
   --color-checker-bg: #212529;
   --color-checker: #1a1e22;
+  --canvas: theme(--color-zinc-800);
 }
 
 @theme inline {
   --color-checker-bg: var(--color-checker-bg);
   --color-checker: var(--color-checker);
   --color-invalid: var(--invalid);
+  --color-canvas: var(--canvas);
 }
 
 @layer utilities {
