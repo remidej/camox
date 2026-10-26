@@ -198,28 +198,11 @@ const PageInfo = ({
           pageSettings
         ) : (
           <>
-            <div className="space-y-2">
-              <Label>SEO</Label>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => setIsSeoSheetOpen(true)}
-              >
-                Manage page metadata
-              </Button>
-            </div>
-            <div className="space-y-2">
-              <Label>GEO</Label>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => setIsMarkdownSheetOpen(true)}
-              >
-                View page markdown
-              </Button>
-            </div>
+            <PageDiscoverabilityButtons
+              metadataLabel="Manage page metadata"
+              onOpenMetadata={() => setIsSeoSheetOpen(true)}
+              onOpenMarkdown={() => setIsMarkdownSheetOpen(true)}
+            />
             <div className="flex items-center gap-2">
               <Checkbox
                 id={showSettingsId}
@@ -261,6 +244,32 @@ const PageInfo = ({
     </>
   );
 };
+
+/** What opens a page's SEO metadata and its Markdown, which agents read (GEO). */
+export const PageDiscoverabilityButtons = ({
+  metadataLabel,
+  onOpenMetadata,
+  onOpenMarkdown,
+}: {
+  metadataLabel: string;
+  onOpenMetadata: () => void;
+  onOpenMarkdown: () => void;
+}) => (
+  <>
+    <div className="space-y-2">
+      <Label>SEO</Label>
+      <Button type="button" variant="outline" className="w-full" onClick={onOpenMetadata}>
+        {metadataLabel}
+      </Button>
+    </div>
+    <div className="space-y-2">
+      <Label>GEO</Label>
+      <Button type="button" variant="outline" className="w-full" onClick={onOpenMarkdown}>
+        View page markdown
+      </Button>
+    </div>
+  </>
+);
 
 const PageDeleteButton = ({ page }: { page: Pick<Page, "id" | "nickname" | "fullPath"> }) => {
   const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
@@ -645,23 +654,32 @@ const PageSeoSheet = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pageId: string;
-}) => {
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="gap-0 data-[side=right]:sm:max-w-xl">
-        <SheetHeader className="border-b">
-          <SheetTitle>SEO metadata</SheetTitle>
-          <SheetDescription>
-            Control how this page appears in search and social previews.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex-1 overflow-y-auto p-4">
-          <PageSeoContent pageId={pageId} />
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-};
+}) => (
+  <PageSeoSheetFrame open={open} onOpenChange={onOpenChange}>
+    <PageSeoContent pageId={pageId} />
+  </PageSeoSheetFrame>
+);
+
+/** The sheet a page's SEO metadata opens in, whoever writes it. */
+export const PageSeoSheetFrame = ({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) => (
+  <Sheet open={open} onOpenChange={onOpenChange}>
+    <SheetContent side="right" className="gap-0 data-[side=right]:sm:max-w-xl">
+      <SheetHeader className="border-b">
+        <SheetTitle>SEO metadata</SheetTitle>
+        <SheetDescription>How this page appears in search and social previews.</SheetDescription>
+      </SheetHeader>
+      <div className="flex-1 overflow-y-auto p-4">{children}</div>
+    </SheetContent>
+  </Sheet>
+);
 
 export const PageSeoContent = ({ pageId }: { pageId: string }) => {
   const { page, metaTitle } = usePageMetadataData(pageId);
@@ -692,6 +710,7 @@ const PageSeoEditor = ({
 }) => {
   // The title and description are one group: AI-generated, or both written by hand (ADR 0012).
   const setSeo = useMutation(pageMutations.setSeo());
+  const localized = useLocalizedPath();
 
   return (
     <div className="space-y-4">
@@ -721,7 +740,7 @@ const PageSeoEditor = ({
         onSave={(value) => setSeo.mutate({ id: page.id, metaDescription: value })}
       />
       <SearchEnginePreview
-        page={page}
+        path={localized(page.fullPath)}
         metaTitle={metaTitle}
         metaDescription={page.metaDescription ?? ""}
       />
@@ -747,19 +766,28 @@ const PageMarkdownSheet = ({
   metaTitle: string;
   metaDescription: string;
 }) => (
+  <PageMarkdownSheetFrame open={open} onOpenChange={onOpenChange}>
+    <PageMarkdownPreview pageId={pageId} metaTitle={metaTitle} metaDescription={metaDescription} />
+  </PageMarkdownSheetFrame>
+);
+
+/** The sheet a page's Markdown Representation opens in. */
+export const PageMarkdownSheetFrame = ({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) => (
   <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent side="right" className="gap-0 data-[side=right]:sm:max-w-2xl">
       <SheetHeader className="border-b">
         <SheetTitle>Markdown content</SheetTitle>
         <SheetDescription>How your content will be served to AI agents.</SheetDescription>
       </SheetHeader>
-      <div className="flex-1 overflow-y-auto p-4">
-        <PageMarkdownPreview
-          pageId={pageId}
-          metaTitle={metaTitle}
-          metaDescription={metaDescription}
-        />
-      </div>
+      <div className="flex-1 overflow-y-auto p-4">{children}</div>
     </SheetContent>
   </Sheet>
 );
@@ -781,18 +809,18 @@ function truncateText(text: string, maxLen: number) {
   return text.slice(0, maxLen) + "...";
 }
 
-const SearchEnginePreview = ({
-  page,
+export const SearchEnginePreview = ({
+  path,
   metaTitle,
   metaDescription,
 }: {
-  page: Pick<Page, "fullPath">;
+  /** The page's path, with its locale's prefix. */
+  path: string;
   metaTitle: string;
   metaDescription: string;
 }) => {
-  const localized = useLocalizedPath();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}${localized(page.fullPath)}`;
+  const url = `${origin}${path}`;
 
   return (
     <div className="space-y-1 pt-2">
@@ -914,37 +942,56 @@ const SocialPreviewSection = ({
           }}
         />
       </div>
-      <div className="border-border max-w-xl overflow-hidden rounded-lg border">
-        <UploadDropZone
-          onDrop={handleFiles}
-          label={hasCustomImage ? "Drop image to replace" : "Drop image to upload"}
-          className="block"
-        >
-          <img
-            src={ogImage}
-            alt=""
-            className="w-full object-cover"
-            style={{ aspectRatio: "1200 / 630" }}
-          />
-        </UploadDropZone>
-        <div className="space-y-1.5 border-t px-3 py-2.5">
-          <p className="text-foreground truncate text-sm font-semibold">
-            {metaTitle || "Untitled"}
-          </p>
-          <p className="text-muted-foreground line-clamp-2 text-xs">
-            {metaDescription || "No description"}
-          </p>
-          <div className="pt-1.5">
-            <p className="text-muted-foreground flex items-center gap-1 text-xs">
-              <Globe className="size-3 shrink-0" />
-              <span className="truncate">{url}</span>
-            </p>
-          </div>
-        </div>
-      </div>
+      <SocialPreviewCard
+        image={
+          <UploadDropZone
+            onDrop={handleFiles}
+            label={hasCustomImage ? "Drop image to replace" : "Drop image to upload"}
+            className="block"
+          >
+            <SocialPreviewImage src={ogImage} />
+          </UploadDropZone>
+        }
+        metaTitle={metaTitle}
+        metaDescription={metaDescription}
+        url={url}
+      />
     </div>
   );
 };
+
+export const SocialPreviewImage = ({ src }: { src: string }) => (
+  <img src={src} alt="" className="w-full object-cover" style={{ aspectRatio: "1200 / 630" }} />
+);
+
+/** How a page shows when shared: its image, title, description and URL. */
+export const SocialPreviewCard = ({
+  image,
+  metaTitle,
+  metaDescription,
+  url,
+}: {
+  image: React.ReactNode;
+  metaTitle: string;
+  metaDescription: string;
+  url: string;
+}) => (
+  <div className="border-border max-w-xl overflow-hidden rounded-lg border">
+    {image}
+    <div className="space-y-1.5 border-t px-3 py-2.5">
+      <p className="text-foreground truncate text-sm font-semibold">{metaTitle || "Untitled"}</p>
+      <p className="text-muted-foreground line-clamp-2 text-xs">
+        {metaDescription || "No description"}
+      </p>
+      <div className="pt-1.5">
+        <p className="text-muted-foreground flex items-center gap-1 text-xs">
+          <Globe className="size-3 shrink-0" />
+          <span className="truncate">{url}</span>
+        </p>
+      </div>
+    </div>
+  </div>
+);
 
 const PageMarkdownPreview = ({
   pageId,

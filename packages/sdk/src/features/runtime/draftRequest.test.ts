@@ -96,7 +96,9 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       });
     if (url.pathname.endsWith("/findRecordsByField")) return Response.json({ json: [] });
     if (url.pathname.endsWith("/getLayoutMarkdown"))
-      return Response.json({ json: { before: "", after: "" } });
+      return Response.json({
+        json: { before: `# ${source}`, after: "", projectName: project.name },
+      });
     if (url.pathname.endsWith("/layouts/get"))
       return Response.json({
         json: {
@@ -238,6 +240,45 @@ void test("Markdown and the sitemap read Live, even for a member naming a draft"
     requests.filter((entry) => entry.draft),
     [],
   );
+});
+
+void test("the studio reads a layout page's Markdown in the draft its URL names, others Live's", async (t) => {
+  const requests = mockApi(t);
+  const read = async (query: string, cookie?: string) => {
+    const response = await request(`/_camox/data?path=/pokedex&markdown${query}`, { cookie });
+    const { markdown } = (await response!.json()) as { markdown: string };
+    const lookups = requests
+      .splice(0)
+      .filter((entry) => entry.path.endsWith("/findRecordsByField"))
+      .map((entry) => entry.draft);
+    return {
+      markdown: markdownBody(markdown),
+      lookups,
+      cacheControl: response!.headers.get("Cache-Control"),
+    };
+  };
+
+  assert.deepEqual(await read("&camox-draft=d1", MEMBER_SESSION), {
+    markdown: "# draft d1\n\nPokédex",
+    lookups: ["d1"],
+    cacheControl: "private, no-store",
+  });
+  assert.equal(
+    (await read(`&camox-draft=${MISSING_DRAFT}`, MEMBER_SESSION)).markdown,
+    "# Live\n\nPokédex",
+  );
+  assert.deepEqual(await read("&camox-draft=d1"), {
+    markdown: "# Live\n\nPokédex",
+    lookups: [null],
+    cacheControl: "private, no-store",
+  });
+  assert.deepEqual(await read(""), {
+    markdown: "# Live\n\nPokédex",
+    lookups: [null],
+    cacheControl: null,
+  });
+  const curated = await request("/_camox/data?path=/about&markdown", { cookie: MEMBER_SESSION });
+  assert.equal(curated!.status, 404, "a curated page's Markdown is read from the API");
 });
 
 /** What a page renders for a request, and the input the browser hydrates from. */

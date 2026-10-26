@@ -45,17 +45,25 @@ class PageInspectorBoundary extends React.Component<
 function PageInspectorContent({
   page,
   pageRecord,
+  runtimeBasePath,
 }: {
   page: CanvasPage;
   pageRecord?: PageRecordId;
+  runtimeBasePath: string;
 }) {
   switch (page.kind) {
     case "curated":
       return <CuratedPageInspector />;
     case "singleton":
-      return <SingletonPageInspector layoutId={page.layoutId} />;
+      return <SingletonPageInspector layoutId={page.layoutId} runtimeBasePath={runtimeBasePath} />;
     case "derived":
-      return <DerivedPageInspector layoutId={page.layoutId} pageRecord={pageRecord} />;
+      return (
+        <DerivedPageInspector
+          layoutId={page.layoutId}
+          pageRecord={pageRecord}
+          runtimeBasePath={runtimeBasePath}
+        />
+      );
   }
 }
 
@@ -68,12 +76,15 @@ export function PageInspector({
   page,
   owner,
   pageRecord,
+  runtimeBasePath,
 }: {
   page: CanvasPage;
   /** What the Page's frame edits, once it's the active one. */
   owner: EditingOwner | null;
   /** The record of a record page. */
   pageRecord?: PageRecordId;
+  /** Where the runtime is mounted, which a layout page's frame reads its render under. */
+  runtimeBasePath: string;
 }) {
   const { pathname } = useLocation();
   const covered =
@@ -109,7 +120,11 @@ export function PageInspector({
                 </SidebarStackView>
               }
             >
-              <PageInspectorContent page={page} pageRecord={pageRecord} />
+              <PageInspectorContent
+                page={page}
+                pageRecord={pageRecord}
+                runtimeBasePath={runtimeBasePath}
+              />
             </React.Suspense>
           </PageInspectorBoundary>
         </PreviewEditingOwnerContext>

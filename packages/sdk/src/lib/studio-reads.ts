@@ -403,6 +403,32 @@ export const reads = {
   }),
 
   /**
+   * A singleton or derived page's Markdown Representation, with its front matter, as the read's
+   * draft builds it. Null when its layout declares none.
+   */
+  layoutPageMarkdown: entry<DerivedPageParams, string | null>({
+    key: ({ projectUuid, runtimeBasePath, pathname }) => [
+      ...queryKeys.layouts.all,
+      "markdown",
+      projectUuid,
+      runtimeBasePath,
+      pathname,
+    ],
+    fetch: async ({ runtimeJson, draft, signal }, { runtimeBasePath, pathname }) => {
+      const response = await runtimeJson(
+        "/_camox/data",
+        runtimeBasePath,
+        { path: pathname, markdown: "" },
+        draft,
+        signal,
+      );
+      if (!response.ok) throw new Error(`Could not load the Markdown of ${pathname}.`);
+      return ((await response.json()) as { markdown: string | null }).markdown;
+    },
+    retry: false,
+  }),
+
+  /**
    * The first page a derived layout's route discovery lists in the read's locale, or with
    * `recordId` the page of that record; null without one. The path is the locale's, after its
    * prefix.

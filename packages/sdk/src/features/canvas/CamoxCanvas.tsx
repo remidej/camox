@@ -935,6 +935,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
             onShowWholeCanvas={() => workspace.current?.showWholeCanvas()}
             owner={editingOwner}
             pageRecord={pageRecord}
+            runtimeBasePath={runtimeBasePath}
           />
         </PageRecordContext>
       </NavigationProvider>

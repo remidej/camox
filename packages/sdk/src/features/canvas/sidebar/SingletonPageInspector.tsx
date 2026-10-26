@@ -1,10 +1,17 @@
 import { LayoutPageOverview } from "./LayoutPageOverview";
 
 /** A singleton page: its layout's blocks are all its blocks, edited here, at a fixed URL. */
-export function SingletonPageInspector({ layoutId }: { layoutId: string }) {
+export function SingletonPageInspector({
+  layoutId,
+  runtimeBasePath,
+}: {
+  layoutId: string;
+  runtimeBasePath: string;
+}) {
   return (
     <LayoutPageOverview
       layoutId={layoutId}
+      target={{ runtimeBasePath }}
       notice={{
         title: "Fixed page structure",
         description:
