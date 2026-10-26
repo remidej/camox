@@ -55,12 +55,12 @@ type StackRow =
   | { index: number; collapsed: SelectionCrumb[] };
 
 /**
- * The path's headers. The `kept` first steps, the selection and its parent always show; two or
+ * The path's headers. The `kept` first steps and the selection always show; two or
  * more steps between them collapse into one header, which lists them.
  */
 function stackRows(items: SelectionCrumb[], kept: number): StackRow[] {
   const rows = items.map((item, index): StackRow => ({ index, item }));
-  const between = items.slice(kept, -2);
+  const between = items.slice(kept, -1);
   if (between.length < 2) return rows;
   return [
     ...rows.slice(0, kept),
