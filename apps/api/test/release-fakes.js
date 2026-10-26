@@ -473,8 +473,24 @@ export class FakeRevisionSandbox extends DurableObject {
     }
   }
 
+  /**
+   * @param {DurableObjectState} ctx
+   * @param {unknown} env
+   */
+  constructor(ctx, env) {
+    super(ctx, env);
+    // As the real sandbox does, it keeps its name across restarts: `getSandbox` configures it only
+    // once per API isolate, so a sandbox evicted since isn't told its name again.
+    ctx.blockConcurrencyWhile(async () => {
+      this.name = (await ctx.storage.get("name")) ?? "";
+    });
+  }
+
   async configure(configuration) {
-    this.name = configuration.sandboxName?.name ?? this.name;
+    if (configuration.sandboxName) {
+      this.name = configuration.sandboxName.name;
+      await this.ctx.storage.put("name", this.name);
+    }
     if (configuration.sleepAfter !== undefined) {
       sandboxSleepAfter.set(this.name, configuration.sleepAfter);
     }
