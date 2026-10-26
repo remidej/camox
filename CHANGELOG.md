@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.54.0](https://github.com/remidej/camox/compare/camox-v0.53.1...camox-v0.54.0) (2026-10-26)
+
+
+### Features
+
+* **sdk:** collapse the middle of long selection paths in the sidebar stack ([#604](https://github.com/remidej/camox/issues/604)) ([b8bbc1c](https://github.com/remidej/camox/commit/b8bbc1c40184554a37c47cc9f5b6d788ff347720))
+* **sdk:** give the agent a squareling avatar that shows what it's doing ([#605](https://github.com/remidej/camox/issues/605)) ([231adc3](https://github.com/remidej/camox/commit/231adc3022172761803f116ac87d9c918ce78f56))
+* **sdk:** style page images with the site's Tailwind theme and fonts ([#600](https://github.com/remidej/camox/issues/600)) ([6d88acf](https://github.com/remidej/camox/commit/6d88acf5cea0c8f3a06e75b2df063ffb2054d916))
+
+
+### Bug Fixes
+
+* **sdk:** draw sidebar card edges as solid inner borders ([#603](https://github.com/remidej/camox/issues/603)) ([5b7de9b](https://github.com/remidej/camox/commit/5b7de9b07d5179f2540b0ccbcb92fbde42b33268))
+* **sdk:** preload block code in production builds ([#601](https://github.com/remidej/camox/issues/601)) ([c02f319](https://github.com/remidej/camox/commit/c02f319f3d08d85190033e816638f3e799ac2d38)), closes [#558](https://github.com/remidej/camox/issues/558)
+
 ## [0.53.1](https://github.com/remidej/camox/compare/camox-v0.53.0...camox-v0.53.1) (2026-10-26)
 
 
