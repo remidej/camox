@@ -85,25 +85,20 @@ Singleton and derived layouts also receive `data` and `params`, and record pages
 
 ## OG Image — `toImage` (optional)
 
-Returns JSX rendered as a 1200×630 image. Use **inline styles, not Tailwind**, and `display: "flex"` for layout: this runs in an image-generation engine, not a browser.
+Returns JSX rendered as a 1200×630 image. Style it with the Theme's utilities, like a block: the image renders with the site's compiled `src/styles.css` and the Google Fonts that `src/document.ts` loads. It runs in an image engine, not a browser, so:
+
+- Size the root with `h-full w-full`, and lay out with flexbox or grid.
+- Put the color scheme class (`dark`, `brand`, …) and `font-body` on the root: the document's `<html>` classes and base styles don't apply.
+- Only class, id and descendant selectors match, so `hover:` and other state variants do nothing. Breakpoints see a 1200px-wide viewport.
 
 ```tsx
 toImage: ({ page, project }) => (
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      width: "100%",
-      height: "100%",
-      padding: 60,
-      backgroundColor: "#09090b",
-      color: "#fafafa",
-      fontFamily: "sans-serif",
-    }}
-  >
-    {project.name && <div style={{ fontSize: 24 }}>{project.name}</div>}
-    <div style={{ fontSize: 64 }}>{page.title}</div>
-    {page.description && <div style={{ fontSize: 28 }}>{page.description}</div>}
+  <div className="dark bg-canvas text-ink font-body flex h-full w-full flex-col justify-center px-20 py-16">
+    {project.name && <div className="text-brand mb-6 text-2xl uppercase">{project.name}</div>}
+    <div className="font-heading line-clamp-2 text-6xl font-semibold">{page.title}</div>
+    {page.description && (
+      <div className="text-ink-muted mt-6 line-clamp-2 text-3xl">{page.description}</div>
+    )}
   </div>
 ),
 ```

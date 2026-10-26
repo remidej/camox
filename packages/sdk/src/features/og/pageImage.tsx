@@ -1,6 +1,7 @@
 import type * as React from "react";
 
 import type { CuratedLayoutContext } from "../../core/layoutContext";
+import type { ImageStyle } from "./imageResponse";
 
 /** The size every page image renders at, which the page head states. */
 export const PAGE_IMAGE_SIZE = { width: 1200, height: 630 } as const;
@@ -57,12 +58,18 @@ export function DefaultPageImage({ page, project }: CuratedLayoutContext): React
   );
 }
 
-/** Renders a page image as a PNG response. Server only. */
-export async function renderPageImage(element: React.ReactElement): Promise<Response> {
+/**
+ * Renders a page image as a PNG response, styled like the site: its elements' `className`s match
+ * the site's compiled stylesheet, and its text uses the site's fonts. Server only.
+ */
+export async function renderPageImage(
+  element: React.ReactElement,
+  style: ImageStyle,
+): Promise<Response> {
   // This guard also lets Vite remove the wasm import from client builds.
   if (import.meta.env?.SSR === false) {
     throw new Error("OG images can only be rendered on the server.");
   }
-  const { ImageResponse } = await import("camox/_internal/imageResponse");
-  return new ImageResponse(element, PAGE_IMAGE_SIZE);
+  const { createImageResponse } = await import("camox/_internal/imageResponse");
+  return createImageResponse(element, PAGE_IMAGE_SIZE, style);
 }

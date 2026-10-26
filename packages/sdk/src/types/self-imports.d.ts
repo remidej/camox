@@ -8,5 +8,5 @@
  * package none does, so TypeScript needs a hint.
  */
 declare module "camox/_internal/imageResponse" {
-  export { ImageResponse } from "../features/og/imageResponse";
+  export { createImageResponse, ImageResponse } from "../features/og/imageResponse";
 }

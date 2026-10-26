@@ -22,7 +22,7 @@ Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier !== "camox/_internal/imageResponse") return nextResolve(specifier, context);
-    const body = "export class ImageResponse extends Response {}";
+    const body = "export async function createImageResponse() { return new Response(); }";
     return { url: `data:text/javascript,${encodeURIComponent(body)}`, shortCircuit: true };
   },
 });

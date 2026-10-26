@@ -43,8 +43,21 @@ const appOwnDynamicImport: BundlerLog = {
     "src/lib/chart.ts is dynamically imported by src/blocks/stats.tsx but also statically imported by src/blocks/hero.tsx, dynamic import will not move module into another chunk.",
 };
 
+const stylesheetWithoutSourcemap: BundlerLog = {
+  code: "SOURCEMAP_BROKEN",
+  message:
+    "Sourcemap is likely to be incorrect: a plugin (@tailwindcss/vite:generate:build) was used to transform files, but didn't generate a sourcemap for the transformation. Consult the plugin documentation for help: https://rolldown.rs/guide/troubleshooting#warning-sourcemap-is-likely-to-be-incorrect",
+};
+
+const appPluginWithoutSourcemap: BundlerLog = {
+  code: "SOURCEMAP_BROKEN",
+  message:
+    "Sourcemap is likely to be incorrect: a plugin (my-plugin) was used to transform files, but didn't generate a sourcemap for the transformation.",
+};
+
 void test("Bundling drops warnings every Camox app produces", () => {
   assert.deepEqual(passedThrough(useClientDirective), []);
+  assert.deepEqual(passedThrough(stylesheetWithoutSourcemap), []);
   assert.deepEqual(passedThrough(lazyBlockAlsoImportedByLayout), []);
   assert.deepEqual(passedThrough(layoutBlockAlsoImportedByServerApp), []);
 });
@@ -52,6 +65,7 @@ void test("Bundling drops warnings every Camox app produces", () => {
 void test("Bundling keeps warnings about the app's own code", () => {
   assert.deepEqual(passedThrough(useServerDirective), [useServerDirective]);
   assert.deepEqual(passedThrough(appOwnDynamicImport), [appOwnDynamicImport]);
+  assert.deepEqual(passedThrough(appPluginWithoutSourcemap), [appPluginWithoutSourcemap]);
 });
 
 void test("Bundling hands the app's own log handler only the warnings it keeps", () => {

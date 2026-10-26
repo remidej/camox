@@ -22,5 +22,8 @@ function isExpectedCamoxLog(log: BundlerLog): boolean {
   // The server imports every block up front and the browser loads each one on
   // demand, so a block a layout also imports can't move to its own chunk.
   if (log.code === "INEFFECTIVE_DYNAMIC_IMPORT") return log.message.includes("virtual:camox/app");
+  // The Worker inlines the app's stylesheet for page images, and Tailwind's plugin compiles it
+  // without a sourcemap. A stylesheet has no code to map.
+  if (log.code === "SOURCEMAP_BROKEN") return log.message.includes("(@tailwindcss/vite:");
   return false;
 }
