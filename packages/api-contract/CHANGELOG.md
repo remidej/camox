@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.0](https://github.com/remidej/camox/compare/camox-v0.53.1...@camox/api-contract-v0.54.0) (2026-10-26)
+
+
+### Features
+
+* **sdk:** give the agent a squareling avatar that shows what it's doing ([#605](https://github.com/remidej/camox/issues/605)) ([231adc3](https://github.com/remidej/camox/commit/231adc3022172761803f116ac87d9c918ce78f56))
+
 ## [0.53.1](https://github.com/remidej/camox/compare/camox-v0.53.0...@camox/api-contract-v0.53.1) (2026-10-26)
 
 
