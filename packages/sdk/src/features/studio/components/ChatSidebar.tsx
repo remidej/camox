@@ -16,6 +16,7 @@ import {
 import { CMS_SIDEBAR_WIDTH } from "../../preview/previewConstants";
 import { draftLabel } from "../draftLabel";
 import { FollowAgentContext } from "../followAgentContext";
+import { Squareling } from "./Squareling";
 import { ThreadComposer } from "./ThreadComposer";
 import { type ContinuedInLink, ThreadMessages } from "./ThreadMessages";
 
@@ -28,7 +29,7 @@ import { type ContinuedInLink, ThreadMessages } from "./ThreadMessages";
 export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
   return (
     <aside
-      aria-label="Chat"
+      aria-label="Agent"
       data-chat-sidebar
       hidden={hidden}
       // Laid over the Canvas's right side, as the Canvas sidebar is over its left: only its card
@@ -46,30 +47,13 @@ export function ChatSidebar({ hidden = false }: { hidden?: boolean }) {
           BOTTOM_CARD_EDGES,
         )}
       >
-        <CamoxMark />
-        <h2 className="truncate text-sm font-medium">Chat</h2>
+        <Squareling status="idle" className="size-5" />
+        <h2 className="truncate text-sm font-medium">Agent</h2>
       </header>
       <div className={cn("bg-background flex min-h-0 flex-1 flex-col", CARD_BODY_EDGES)}>
         <CurrentThread />
       </div>
     </aside>
-  );
-}
-
-/** Camox's logo, beside the heading: the agent is Camox. */
-function CamoxMark() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 191.03 132"
-      className="size-5 shrink-0"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M0 22.55A22.55 22.55 0 0 1 22.55 0L90.19 0A5.32 5.32 0 0 1 95.52 5.32L95.52 36.48L36.48 36.48L36.48 95.52L5.32 95.52A5.32 5.32 0 0 1 0 90.19ZM95.52 36.48L181.48 36.48A5.32 5.32 0 0 1 186.01 44.61L138.61 121.31A22.55 22.55 0 0 1 119.43 132L41.81 132A5.32 5.32 0 0 1 36.48 126.68L36.48 95.52L95.52 95.52Z"
-        fill="#00BC7D"
-      />
-    </svg>
   );
 }
 
@@ -150,7 +134,7 @@ function Thread({
     follow?.resume();
     send(text);
   };
-  const messages = { view, sending, showSenders: draftId !== null };
+  const messages = { view, sending };
   const continuedIn = draftId === null ? view.continuedIn?.draftId : undefined;
   return (
     <>

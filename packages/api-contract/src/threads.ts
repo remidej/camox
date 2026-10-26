@@ -143,6 +143,11 @@ export type ThreadView = LiveThreadHandoff & {
    * turn is building it, or it failed and the agent is fixing it.
    */
   status?: BuildStatus;
+  /**
+   * While a run is going, whether the agent is using its tools, code mode included, rather than
+   * thinking: from writing a call until the model is called again.
+   */
+  usingTools?: true;
 };
 
 export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
@@ -152,7 +157,14 @@ export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
  * and whether a run is going. The studio and the tests fold Pi's events into this, and derive
  * the view from it with `threadViewOf`, so a snapshot and the events that led to it show the same.
  */
-export type ThreadState = LiveThreadHandoff & { steps: readonly ThreadStep[]; running: boolean };
+export type ThreadState = LiveThreadHandoff & {
+  steps: readonly ThreadStep[];
+  running: boolean;
+  /** The model's calls still running, by call id. A tool's own calls aren't the agent's. */
+  toolCalls?: readonly string[];
+  /** Whether the model's latest message makes tool calls: it writes them, then they run. */
+  callingTools?: boolean;
+};
 
 export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
 
@@ -280,7 +292,13 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
  * run is over, or a later message started another run after its last model call came back
  * unfinished. While Pi retries a failed call, the run goes on, so the turn shows as working.
  */
-export function threadViewOf({ steps, running, ...drafts }: ThreadState): ThreadView {
+export function threadViewOf({
+  steps,
+  running,
+  toolCalls = [],
+  callingTools = false,
+  ...drafts
+}: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
   // The latest editor's message of a turn still waiting for the agent's message.
   let waiting: string | undefined;
@@ -353,7 +371,14 @@ export function threadViewOf({ steps, running, ...drafts }: ThreadState): Thread
     }
   }
   if (!running) fail();
-  return { ...drafts, messages, running, ...(running && status && { status }) };
+  const usingTools = running && (callingTools || toolCalls.length > 0);
+  return {
+    ...drafts,
+    messages,
+    running,
+    ...(running && status && { status }),
+    ...(usingTools && { usingTools }),
+  };
 }
 
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {
@@ -370,14 +395,33 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         ...state,
         steps: event.entries.flatMap((entry) => threadStepOf(entry) ?? []),
         running: event.run !== undefined,
+        toolCalls: event.tools.flatMap((tool) => (tool.status === "done" ? [] : [tool.callId])),
+        callingTools: !!event.generation?.message?.content.some((part) => part.type === "toolCall"),
       };
     case "run_start":
       return { ...state, running: true };
     case "run_end":
-      return { ...state, running: false };
+      return { ...state, running: false, toolCalls: [], callingTools: false };
+    case "message_start":
+      // The model is called again: it thinks until it writes a tool call.
+      return event.message.role === "assistant" ? { ...state, callingTools: false } : state;
+    case "message_update":
+      return event.changes.some((change) => change.type === "toolcall_start")
+        ? { ...state, callingTools: true }
+        : state;
+    case "tool_execution_start":
+      if (event.parentToolCallId !== undefined) return state;
+      return { ...state, toolCalls: [...(state.toolCalls ?? []), event.toolCallId] };
+    case "tool_execution_end":
+      return append(
+        {
+          ...state,
+          toolCalls: state.toolCalls?.filter((callId) => callId !== event.toolCallId),
+        },
+        event.entry,
+      );
     case "message_end":
     case "entry_appended":
-    case "tool_execution_end":
       return append(state, event.entry);
     default:
       return state;

@@ -50,7 +50,7 @@ void test("a turn Camox started itself opens with its message, from no editor", 
     ],
   };
 
-  const html = renderToString(<ThreadMessages view={view} showSenders />);
+  const html = renderToString(<ThreadMessages view={view} />);
 
   assert.match(html, /Live&#x27;s code changed, and I&#x27;m reconciling it\./);
   assert.match(html, />Camox</);
@@ -58,7 +58,7 @@ void test("a turn Camox started itself opens with its message, from no editor", 
   assert.equal(html.match(/>AL</g)?.length, 1);
 });
 
-void test("a draft's thread names who sent each message; a Live thread doesn't", () => {
+void test("a thread shows who sent each message by their avatar, without their name", () => {
   const teammate = { id: "user-2", name: "Grace Hopper", image: null };
   const view: ThreadView = {
     running: false,
@@ -69,12 +69,12 @@ void test("a draft's thread names who sent each message; a Live thread doesn't",
     ],
   };
 
-  const inDraft = renderToString(<ThreadMessages view={view} showSenders />);
-  const onLive = renderToString(<ThreadMessages view={view} />);
+  const html = renderToString(<ThreadMessages view={view} />);
 
-  assert.match(inDraft, />Ada Lovelace</);
-  assert.match(inDraft, />Grace Hopper</);
-  assert.doesNotMatch(onLive, />Ada Lovelace</);
+  assert.match(html, />AL</);
+  assert.match(html, />GH</);
+  assert.doesNotMatch(html, /Ada Lovelace/);
+  assert.doesNotMatch(html, /Grace Hopper/);
 });
 
 void test("a turn without the agent's message says it was stopped, and by whom, or couldn't finish", () => {
@@ -168,4 +168,32 @@ void test("a thread says the agent's code is building, then that it fixes a buil
   assert.match(shown("fixing"), /Fixing a build error…/);
   assert.doesNotMatch(shown("fixing"), /Working…/);
   assert.match(shown(), /Working…/);
+});
+
+void test("the agent's squareling thinks, acts while it uses its tools or builds, and fixes; only building and fixing say it in words", () => {
+  const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
+  const { document } = new Window();
+  const shown = (status?: ThreadView["status"], usingTools?: true) => {
+    document.body.innerHTML = renderToString(
+      <ThreadMessages view={{ running: true, messages: [asked], status, usingTools }} />,
+    );
+    const working = document.querySelector('[role="status"]')!;
+    return {
+      squareling: working.querySelector("[data-squareling]")?.getAttribute("data-squareling"),
+      visibleText: [...working.children]
+        .filter((child) => child.tagName !== "svg" && !child.classList.contains("sr-only"))
+        .map((child) => child.textContent)
+        .join(""),
+    };
+  };
+
+  assert.equal(shown().squareling, "thinking");
+  assert.equal(shown().visibleText, "");
+  assert.equal(shown(undefined, true).squareling, "acting");
+  assert.equal(shown(undefined, true).visibleText, "");
+  assert.equal(shown("building").squareling, "acting");
+  assert.equal(shown("building").visibleText, "Building…");
+  assert.equal(shown("fixing").squareling, "fixing");
+  assert.equal(shown("fixing", true).squareling, "fixing");
+  assert.equal(shown("fixing").visibleText, "Fixing a build error…");
 });
