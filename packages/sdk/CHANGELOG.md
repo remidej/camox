@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.53.1](https://github.com/remidej/camox/compare/camox-v0.53.0...camox-sdk-v0.53.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **sdk:** load a started draft's renderer on its first revision ([#597](https://github.com/remidej/camox/issues/597)) ([26fcb9b](https://github.com/remidej/camox/commit/26fcb9b6044c86fcdf0e697ec7e89deb122ab534))
+
 ## [0.53.0](https://github.com/remidej/camox/compare/camox-v0.52.3...camox-sdk-v0.53.0) (2026-10-26)
 
 
