@@ -311,6 +311,9 @@ export function camox(options: CamoxPluginOptions): Plugin {
   return {
     name: "camox",
     enforce: "pre",
+    // Vite loads the config file again for each environment's build. One instance carries the
+    // client build's block chunks to the server build.
+    sharedDuringBuild: true,
     resolveId(id, importer) {
       if (hostedProject) {
         const forbidden = forbiddenImport(hostedProject, id, importer);

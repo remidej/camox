@@ -16,6 +16,9 @@ const fixtureRoot = join(sdkRoot, "test/fixture-app");
 
 export const FIXTURE_PROJECT_ID = "01a15fff-627b-7fa1-938b-93ab659c1acc";
 
+/** Where the fixture's config file finds the plugins to build with. */
+const FIXTURE_CONFIG_GLOBAL = "__camoxFixtureConfig";
+
 /** A running copy of the built Worker. */
 export interface ServedBuild {
   url: string;
@@ -66,12 +69,11 @@ export async function buildFixtureApp({
     await linkDependencies(root);
     const env = { CAMOX_INTERNAL_RELEASE: "dry-run", [HOSTED_BUILD_ENV]: hosted ? "1" : undefined };
     await withEnv(env, async () => {
-      const builder = await createBuilder({
-        configFile: false,
-        root,
-        logLevel: "silent",
-        // Emit the fixture's tiny font as a file, as a real one would be.
-        build: { assetsInlineLimit: 0 },
+      // A config file, as apps have: Vite loads it again for each environment, so each
+      // environment's build gets its own plugin instances unless a plugin is shared.
+      const configFile = join(root, "vite.config.mjs");
+      await writeFile(configFile, `export default globalThis.${FIXTURE_CONFIG_GLOBAL}();\n`);
+      (globalThis as Record<string, unknown>)[FIXTURE_CONFIG_GLOBAL] = () => ({
         plugins: [
           cloudflare(),
           camox({
@@ -79,6 +81,13 @@ export async function buildFixtureApp({
             _internal: { apiUrl, authenticationUrl: apiUrl },
           }),
         ],
+      });
+      const builder = await createBuilder({
+        configFile,
+        root,
+        logLevel: "silent",
+        // Emit the fixture's tiny font as a file, as a real one would be.
+        build: { assetsInlineLimit: 0 },
       });
       await builder.buildApp();
     });
