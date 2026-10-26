@@ -3,6 +3,8 @@ import { createStore } from "@xstate/store";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
+import { cn } from "@/lib/utils";
+
 import { useAuthContext, useProjectUuid } from "../../lib/auth";
 import { useOptionalDraftScope } from "../../lib/draft-scope";
 import { parseLocalePath } from "../../lib/locale-path";
@@ -17,6 +19,7 @@ import type { ReleaseEditingFrame } from "../preview/editingFrame";
 import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
 import {
   CANVAS_CHROME_Z_INDEX,
+  CANVAS_CORNERS,
   PREVIEW_PAGE_SLOT_ATTRIBUTE,
   PreviewPageFrameContext,
 } from "../preview/previewPageFrame";
@@ -337,7 +340,12 @@ const SNAP_FLASH_KEYFRAMES: Keyframe[] = [
   { opacity: 1, offset: 0.15 },
   { opacity: 0 },
 ];
-const SNAP_FLASH_TIMING: KeyframeAnimationOptions = { duration: 600, easing: "ease-out" };
+const SNAP_FLASH_TIMING: KeyframeAnimationOptions = {
+  duration: 600,
+  easing: "ease-out",
+  // The ring is the Canvas edge's, which stays.
+  pseudoElement: "::after",
+};
 
 /** A frame header above an item's slot, at a constant on-screen height. */
 function CanvasHeaderSlot({
@@ -618,7 +626,7 @@ function CanvasWorkspace({
   // Narrower devices leave room around frames: their areas are shaded, to explain why frames are centered.
   const framed = viewport.width < CANVAS_SLOT_WIDTH;
   const snapTargets = canvasSnapTargets(items);
-  const snapRingRef = React.useRef<HTMLDivElement>(null);
+  const edgeRef = React.useRef<HTMLDivElement>(null);
   const snapFlash = React.useRef<Animation>(null);
   const { viewportRef, contentRef, flyTo, mirrorCamera, reveal, fitAll } = useCanvasCamera(
     workspaceKey,
@@ -636,7 +644,7 @@ function CanvasWorkspace({
       // ring around the viewport so the snap reads as locking onto it.
       onSnap: () => {
         snapFlash.current =
-          snapRingRef.current?.animate(SNAP_FLASH_KEYFRAMES, SNAP_FLASH_TIMING) ?? null;
+          edgeRef.current?.animate(SNAP_FLASH_KEYFRAMES, SNAP_FLASH_TIMING) ?? null;
       },
       // The flash returns as the zoom springs back to the snap.
       onSnapStretched: () => snapFlash.current?.cancel(),
@@ -689,7 +697,10 @@ function CanvasWorkspace({
       // Only this element's children place themselves with the camera's
       // position. Ending its inheritance below them keeps a pan from restyling
       // every frame, header and overlay in the Canvas.
-      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
+      className={cn(
+        CANVAS_CORNERS,
+        "bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none",
+      )}
       style={{
         userSelect: "none",
         overscrollBehavior: "none",
@@ -766,11 +777,19 @@ function CanvasWorkspace({
         Home / Shift+1 to fit all pages.
       </p>
       {/* Above the page headers and the Preview frame laid over the Canvas. */}
+      {/*
+       * The Canvas's edge, over the Pages, the Preview's frame among them: an inner shadow that
+       * sets the Canvas into the studio, and the ring a snap flashes.
+       */}
       <div
-        ref={snapRingRef}
+        ref={edgeRef}
         aria-hidden
-        data-canvas-snap-ring
-        className="ring-primary pointer-events-none absolute inset-0 opacity-0 ring-3 ring-inset"
+        data-canvas-edge
+        className={cn(
+          "pointer-events-none absolute inset-0 shadow-[inset_0_1px_3px_rgb(0_0_0/0.08)] dark:shadow-[inset_0_1px_3px_rgb(0_0_0/0.4)]",
+          "after:ring-primary after:absolute after:inset-0 after:rounded-[inherit] after:opacity-0 after:ring-3 after:ring-inset",
+          CANVAS_CORNERS,
+        )}
         style={{ zIndex: CANVAS_CHROME_Z_INDEX }}
       />
     </div>
@@ -899,7 +918,8 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     );
   const editingOwner = activeFrame?.pathname === intended.pathname ? activeFrame.owner : null;
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    // The Studio's background shows past the Canvas's rounded corners, and below it.
+    <div className="bg-background flex min-h-0 flex-1 overflow-hidden pb-2">
       {selectedPage?.kind === "curated" && <CuratedBlockShortcuts />}
       {/* The Canvas sidebar stays mounted and routes to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>

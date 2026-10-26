@@ -117,6 +117,9 @@ export function usePreviewPageFrame() {
 export const PREVIEW_PAGE_Z_INDEX = 1;
 export const CANVAS_CHROME_Z_INDEX = PREVIEW_PAGE_Z_INDEX + 1;
 
+/** The Canvas viewport's corners, which the frame's clip over it shares. */
+export const CANVAS_CORNERS = "rounded-lg";
+
 /** Marks the Canvas slot whose Page the Preview page frame shows. */
 export const PREVIEW_PAGE_SLOT_ATTRIBUTE = "data-canvas-preview-page";
 const PREVIEW_PAGE_IFRAME_ATTRIBUTE = "data-preview-page-frame";

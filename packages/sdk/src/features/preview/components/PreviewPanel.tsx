@@ -18,6 +18,7 @@ import {
 import { useActionShortcuts } from "../../provider/useAdminShortcuts";
 import { useEditingFrameClaim, useEditingOwner } from "../editingFrame";
 import {
+  CANVAS_CORNERS,
   PREVIEW_PAGE_Z_INDEX,
   previewPageIframeProps,
   usePreviewPageFrame,
@@ -383,6 +384,7 @@ function PreviewPageClip({
         // items stay reachable around it.
         slot &&
           "pointer-events-none overflow-clip *:pointer-events-auto data-[canvas-pan]:**:pointer-events-none",
+        slot && CANVAS_CORNERS,
       )}
       style={slot && rect ? { ...rect, zIndex: PREVIEW_PAGE_Z_INDEX } : undefined}
     >

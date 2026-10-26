@@ -14,7 +14,7 @@ export function CanvasSidebarFrame({
   return (
     <aside
       aria-label={label}
-      className="bg-background relative flex shrink-0 flex-col border-r-2"
+      className="bg-background relative flex shrink-0 flex-col"
       style={{ width: CMS_SIDEBAR_WIDTH }}
       {...props}
     >
