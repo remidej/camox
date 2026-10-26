@@ -193,3 +193,22 @@ void test("client chunks name every build file relative to themselves, wherever 
   }
   assert.ok(references > 0, "No client chunk names another build file");
 });
+
+void test("a page preloads the code of the blocks it renders", async () => {
+  const worker = await build.serve();
+  try {
+    const response = await worker.fetch("/");
+    const html = await response.text();
+    assert.equal(response.status, 200, html);
+    const preloaded = await Promise.all(
+      loadedUrls(html).modulepreload.map((url) => readFile(builtFile(url, "/"), "utf8")),
+    );
+    // The hero block's description is in its own code only.
+    assert.ok(
+      preloaded.some((code) => code.includes("A title")),
+      "The page doesn't preload its hero block's chunk",
+    );
+  } finally {
+    await worker.close();
+  }
+});
