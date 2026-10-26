@@ -168,6 +168,13 @@ void test("moving to another draft loads another renderer; a draft a first write
   assert.notEqual(rendererFrame(), live);
 });
 
+void test("a revision of a draft a first write started loads that draft's renderer, not Live's", async (t) => {
+  const { draftScope, rendererFrame, act, revisions } = await setup(t, null);
+  await act(() => void draftScope.enterStarted("fresh"));
+  await act(() => revisions.announce({ draftId: "fresh", revisionId: "r1", sdkVersion: "1" }));
+  assert.equal(rendererFrame()?.getAttribute("src"), "/_camox/renderer?camox-draft=fresh");
+});
+
 void test("with a renderer of another SDK version, the frames say they're updating", async (t) => {
   const { rendererFrame, visible, act, fakeRenderer } = await setup(t, null);
   const { SDK_VERSION } = await import("./protocol");
