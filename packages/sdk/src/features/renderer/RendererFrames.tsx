@@ -123,9 +123,12 @@ export function RendererFramesProvider({
   React.useEffect(
     () =>
       revisions?.subscribe(({ draftId }) => {
-        if (draftId === draftScope.current()) setLoads((count) => count + 1);
+        if (draftId !== draftScope.current()) return;
+        // A draft a first write started still shows Live's renderer, until its first revision.
+        setSource(documentUrl());
+        setLoads((count) => count + 1);
       }),
-    [revisions, draftScope],
+    [revisions, draftScope, documentUrl],
   );
   const connect = React.useCallback(
     (frame: (HTMLIFrameElement & { [STUDIO_HANDLE_KEY]?: StudioHandle }) | null) => {
