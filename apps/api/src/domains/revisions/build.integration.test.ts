@@ -362,6 +362,42 @@ RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is
     expect(installs[0]).toBeLessThan(extracts[1]!);
   });
 
+  it("starts the revision builder as the sandbox starts, once it installed", async () => {
+    const { draft } = await buildInFirstTurn({ "src/blocks/pricing.tsx": PRICING });
+
+    const commands = (await fakes.revisionCommands(draft.id)) as {
+      command: string;
+      env?: Record<string, string>;
+      background?: boolean;
+    }[];
+    const at = (found: (command: string) => boolean) =>
+      commands.findIndex(({ command }) => found(command));
+    const started = at((command) => command.includes("revision-builder.mjs serve"));
+    // Started with the sandbox, so it loads Vite as the agent writes, not as the build waits.
+    expect(started).toBeGreaterThan(at((command) => command.includes("pnpm install")));
+    expect(started).toBeLessThan(at((command) => command.includes("vp build")));
+    expect(commands[started]).toMatchObject({
+      background: true,
+      env: { CAMOX_INTERNAL_RELEASE: "dry-run" },
+    });
+  });
+
+  it("leaves the revision builder's report out of a failed build's log", async () => {
+    const marker = crypto.randomUUID();
+    const last = "FATAL ERROR: Reached heap limit Allocation failed";
+    await fakes.failBuildsOf(
+      marker,
+      `camox-builder: {"ok":false,"build":3,"ms":2100,"cpuMhz":2550}\n${last}\n`,
+    );
+    const { thread } = await draftWithChanges({ "src/blocks/pricing.tsx": broken(marker) });
+
+    const result = await build(thread);
+    thread.close();
+
+    expect(result).toMatchObject({ ok: false, build: [{ file: "" }] });
+    expect((result.build as { message: string }[])[0]!.message.trim()).toBe(last);
+  });
+
   it("doesn't install in a new sandbox whose image installed the lockfile", async () => {
     await fakes.installInImage(LOCKFILE);
     try {

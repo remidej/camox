@@ -23,3 +23,8 @@ RUN cd /opt/camox/website \
     && printf %s "$(sha256sum pnpm-lock.yaml | cut -c1-64)" > node_modules/.camox-installed-lockfile; \
   fi \
   && find . -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +
+
+# The revision builder, which a revision sandbox keeps up to build its revisions without loading
+# Vite and the website's plugins for each (revision-builder.mjs). After the install, so a change
+# to it doesn't install again.
+COPY revision-builder.mjs /opt/camox/revision-builder.mjs

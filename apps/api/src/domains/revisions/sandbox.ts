@@ -8,8 +8,8 @@ import type { LintError } from "./result";
 
 // Each draft with code builds its revisions in its own sandbox, named by the draft's ID: a
 // Container in the release sandbox Worker (release-sandbox/), with the release sandbox's image,
-// which holds the Template's install. It's reused across the agent's turns, keeping its install,
-// and sleeps once idle.
+// which holds the Template's install. It's reused across the agent's turns, keeping its install
+// and its revision builder, and sleeps once idle.
 
 /** How long a revision sandbox stays up idle, keeping its install for the next build. */
 export const REVISION_SANDBOX_SLEEP_AFTER = "15m";
@@ -42,11 +42,58 @@ const TYPE_CHECK_CONFIG_CONTENT = JSON.stringify({
 const TYPE_CHECK_COMMAND = `tsrs -p ${TYPE_CHECK_CONFIG} --pretty false`;
 
 /**
- * What `vp build` and `vp lint` run with: both load the project's Vite config, whose Camox plugin
+ * What builds and `vp lint` run with: both load the project's Vite config, whose Camox plugin
  * throws for a build that isn't a release when no `camox login` is around, which the sandbox
  * hasn't. A dry-run release builds without one, and turns on the hosted projects' checks.
  */
 const VITE_ENV = { CAMOX_INTERNAL_RELEASE: "dry-run", ...HOSTED_BUILD, CI: "1", NO_COLOR: "1" };
+
+/** Vite+'s CLI, run as it's installed rather than through `pnpm exec`, which starts pnpm first. */
+const VP = "node_modules/.bin/vp";
+
+/**
+ * The revision builder (release-sandbox/revision-builder.mjs): a process that stays up in the
+ * sandbox with Vite and the website's plugins loaded, and builds without loading them again.
+ */
+const REVISION_BUILDER = "/opt/camox/revision-builder.mjs";
+/**
+ * Starts the revision builder, which stays if one of the workspace's install is up already, and
+ * replaces one of another. A sandbox whose image has none starts nothing.
+ */
+const START_BUILDER_COMMAND = `sh -c '[ -f ${REVISION_BUILDER} ] && exec node ${REVISION_BUILDER} serve'`;
+/**
+ * The build: through the revision builder, or with `vp build` when none can build, as in a
+ * sandbox whose image has none. Both print the same log. The builder's exit 75 says it couldn't.
+ */
+const BUILD_COMMAND = `sh -c 'if [ -f ${REVISION_BUILDER} ]; then node ${REVISION_BUILDER} build; status=$?; [ $status -eq 75 ] || exit $status; fi; exec ${VP} build'`;
+/** The lines the revision builder prints what a span logs of its build on, as JSON. */
+const BUILDER_REPORT = /^camox-builder: (.*)\n?/gm;
+
+/**
+ * A build's log without the revision builder's report, and the report's fields: the build's
+ * number in the builder's life, how long it took there, the host's CPU clock, or why the
+ * builder couldn't build. `builder` says whether it built.
+ */
+function builderReportOf(log: string): { log: string; fields: SpanFields } {
+  const fields: SpanFields = {};
+  for (const [, json] of log.matchAll(BUILDER_REPORT)) {
+    try {
+      const { build, ms, cpuMhz, unavailable } = JSON.parse(json!) as Record<string, unknown>;
+      Object.assign(fields, {
+        builderBuild: typeof build === "number" ? build : undefined,
+        builderMs: typeof ms === "number" ? ms : undefined,
+        cpuMhz: typeof cpuMhz === "number" ? cpuMhz : undefined,
+        builderUnavailable: typeof unavailable === "string" ? unavailable.slice(0, 200) : undefined,
+      });
+    } catch {
+      // Not the builder's report after all: the line stays out of the fields.
+    }
+  }
+  return {
+    log: log.replace(BUILDER_REPORT, ""),
+    fields: { ...fields, builder: fields.builderBuild !== undefined },
+  };
+}
 
 /** A sandbox that failed to do its part, as opposed to a build that failed. */
 export class SandboxError extends Error {
@@ -176,6 +223,18 @@ async function workspaceWith(
     },
     (installed) => ({ installed }),
   );
+  // Once installed, so the builder loads that install. It loads as the agent writes, in a
+  // sandbox started ahead of its build, and a builder that didn't start leaves `vp build` to it.
+  try {
+    const started = await sandbox.startProcess(START_BUILDER_COMMAND, {
+      cwd: WORKSPACE,
+      env: VITE_ENV,
+    });
+    // Nothing else is asked of the process: its methods, stubs over RPC, are let go now.
+    (started as Partial<Disposable>)[Symbol.dispose]?.();
+  } catch (error) {
+    console.warn("A revision sandbox's builder didn't start", error);
+  }
   return { sandbox, run };
 }
 
@@ -212,16 +271,21 @@ export async function buildInSandbox(
   const built = await timed(
     "revision.sandbox.viteBuild",
     span,
-    () => sandbox.exec("pnpm exec vp build", { cwd: WORKSPACE, env: VITE_ENV }),
-    ({ success }) => ({ built: success }),
+    async () => {
+      const result = await sandbox.exec(BUILD_COMMAND, { cwd: WORKSPACE, env: VITE_ENV });
+      return { ...result, ...builderReportOf(`${result.stdout}\n${result.stderr}`) };
+    },
+    ({ success, fields }) => ({ built: success, ...fields }),
   );
-  if (!built.success) return { ok: false, log: `${built.stdout}\n${built.stderr}` };
+  if (!built.success) return { ok: false, log: built.log };
 
   const archive = await timed(
     "revision.sandbox.archive",
     span,
     async () => {
-      await run(`tar -czf ${BUILD_ARCHIVE} -C . dist`);
+      // gzip's fastest level, in a third of the default's time: the archive only goes to R2,
+      // inside Cloudflare, where a few more bytes cost less than a second more.
+      await run(`tar -I 'gzip -1' -cf ${BUILD_ARCHIVE} -C . dist`);
       const { content } = await sandbox.readFile(BUILD_ARCHIVE, { encoding: "base64" });
       return Uint8Array.from(atob(content), (char) => char.charCodeAt(0));
     },
@@ -242,7 +306,7 @@ export async function lintInSandbox(
   span: SpanFields = { draftId },
 ): Promise<LintError[]> {
   const { sandbox } = await workspaceWith(env, draftId, tree, span);
-  const command = "pnpm exec vp lint --format json src";
+  const command = `${VP} lint --format json src`;
   // Exits non-zero when it finds an error, which its report then lists.
   const linted = await timed("revision.sandbox.lint", span, () =>
     sandbox.exec(command, { cwd: WORKSPACE, env: VITE_ENV }),

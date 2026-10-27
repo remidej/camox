@@ -445,14 +445,19 @@ async function buildAndPreview(
     draft: draftId,
     revision: revisionId,
   });
-  await retried(() => env.REVISION_BUILDS.put(archiveKey, outcome.archive), {
-    name: "revision.build.r2Put",
-    fields: { ...span, revisionId, bytes: outcome.archive.byteLength },
-  });
-  const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }), {
-    name: "revision.build.push",
-    fields: { ...span, revisionId },
-  });
+  // The archive's upload and the push go at once. A push that landed without its archive is no
+  // revision yet: the next build of the tree uploads one and commits it again, which keeps the
+  // branch's head as it is (`commit` in DraftCode).
+  const [, { commit, parents }] = await Promise.all([
+    retried(() => env.REVISION_BUILDS.put(archiveKey, outcome.archive), {
+      name: "revision.build.r2Put",
+      fields: { ...span, revisionId, bytes: outcome.archive.byteLength },
+    }),
+    retried(() => code.commit({ commit: prepared.commit }), {
+      name: "revision.build.push",
+      fields: { ...span, revisionId },
+    }),
+  ]);
   const built = {
     commit,
     parents,

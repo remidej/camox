@@ -432,6 +432,15 @@ export function camox(options: CamoxPluginOptions): Plugin {
         }),
         build: {
           emitAssets: true,
+          rolldownOptions: {
+            experimental: {
+              // Rolldown reads only the modules a barrel's used exports come from, rather than
+              // every module it re-exports. Each `lucide-react` icon import otherwise makes it
+              // read all 1,900 of lucide's: more than half of a Camox app's modules, in both
+              // builds. The output is the same.
+              lazyBarrel: true,
+            },
+          },
         },
         // An app's own build order wins.
         ...(_config.builder?.buildApp ? {} : { builder: { buildApp: buildClientThenWorker } }),
