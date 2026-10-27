@@ -1,6 +1,7 @@
 import {
   BUILD_STATUS_ENTRY,
   type BuildStatus,
+  DRAFT_ENDED_ENTRY,
   EDITOR_MESSAGE_ENTRY,
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
@@ -80,6 +81,13 @@ const buildStatus = (status: BuildStatus) => ({ kind: BUILD_STATUS_ENTRY, data: 
 /** The message Pi continues a run with when the end of a turn sends the agent back to work. */
 const continuation = (text: string) => ({
   kind: "pi.user",
+  model: [{ role: "user" as const, content: text, timestamp: 0 }],
+});
+
+/** Camox's note to the agent on Live that a draft it started ended, which the model alone reads. */
+const draftEnded = (text: string) => ({
+  kind: DRAFT_ENDED_ENTRY,
+  data: { draftId: "d" },
   model: [{ role: "user" as const, content: text, timestamp: 0 }],
 });
 
@@ -260,5 +268,25 @@ describe("a thread's view", () => {
         answer("It's in the draft."),
       ]).said,
     ).toEqual(["editor", "draft", "editor", "agent"]);
+  });
+
+  it("never shows the note that a draft ended, nor hides the answer before it", () => {
+    const ended = draftEnded("The draft New prices was published by Ada Lovelace.");
+    const turns = [
+      editorMessage("Raise the price"),
+      ...handOff({ draftId: "d", name: "N" }),
+      editorMessage("Is it live yet?"),
+      answer("Not yet."),
+    ];
+
+    expect(shown([...turns, ended], false).said).toEqual(["editor", "draft", "editor", "agent"]);
+    expect(shown([...turns, ended, editorMessage("And now?"), answer("Yes.")]).said).toEqual([
+      "editor",
+      "draft",
+      "editor",
+      "agent",
+      "editor",
+      "agent",
+    ]);
   });
 });

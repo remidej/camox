@@ -37,6 +37,15 @@ export const RECONCILE_ENTRY = "camox.reconcile";
 export const BRIEF_ENTRY = "camox.brief";
 
 /**
+ * The kind of the transcript entry telling the agent on Live that a draft it started ended,
+ * published or deleted, with the draft's id as data (`draftEndedDataSchema`). The model reads
+ * it at the end of the conversation; editors never see it, since the draft's card says so.
+ */
+export const DRAFT_ENDED_ENTRY = "camox.draft-ended";
+
+export const draftEndedDataSchema = z.object({ draftId: z.string() });
+
+/**
  * The agent's tool on Live handing a request off to a draft it starts (ADR 0025). A run whose
  * call of it went through ends on the draft's card.
  */
@@ -274,6 +283,8 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
     const build = buildStatusDataSchema.safeParse(entry.data).data;
     return build && { id, type: "build", status: build.status };
   }
+  // Only the model reads it: as a user message, it would otherwise read as Pi continuing a run.
+  if (entry.kind === DRAFT_ENDED_ENTRY) return undefined;
   const message = entry.model?.find((candidate) => candidate.role !== "system");
   if (!message) return undefined;
   if (message.role === "user") {
