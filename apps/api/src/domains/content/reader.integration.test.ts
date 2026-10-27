@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, seedLive } from "../../../test/fixtures";
+import { createProjectFixture, noArtifactFields, seedLive } from "../../../test/fixtures";
 import { createDb } from "../../db";
 import { runService } from "../../lib/run-service";
 import {
@@ -258,9 +258,16 @@ describe("the content reader", () => {
 
     const draft = await f.openDraft();
     await runService(
-      overlay.update(f.db, draft, sharedContents, shared.id, {
-        content: { title: "Drafted", author: ada.id },
-      }),
+      overlay.update(
+        f.db,
+        draft,
+        sharedContents,
+        shared.id,
+        {
+          content: { title: "Drafted", author: ada.id },
+        },
+        noArtifactFields,
+      ),
     );
     await runService(
       overlay.update(f.db, draft, collectionRecords, ada.id, {

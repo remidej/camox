@@ -26,6 +26,7 @@ import {
   bumpsForSharedContents,
 } from "../../lib/bump-content-updated-at";
 import { record, type Change } from "../../lib/journal";
+import { artifactSourcesOf, storingSources } from "../artifact-sources/store";
 import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
 import { files } from "../files/schema";
@@ -101,7 +102,7 @@ const bookkeeping = [
   "publishedBy",
 ] as const;
 /** The columns a write may set: everything but the overlay's own bookkeeping. */
-type Patch<T extends ContentTable> = Partial<Omit<Values<T>, (typeof bookkeeping)[number]>>;
+export type Patch<T extends ContentTable> = Partial<Omit<Values<T>, (typeof bookkeeping)[number]>>;
 
 /**
  * A column naming the entity's parent: `key` on the parent's table, also matching every
@@ -629,16 +630,68 @@ export const runPlanned = Effect.fn("overlay.runPlanned")(function* <A>(
   return planned.result;
 });
 
-/**
- * Options of a single write: `alongside` names statements that write no content entity, run in
- * the write's batch only when the write runs, such as storing the artifact sources it sets.
- */
-export type WriteOptions = { alongside?: readonly BatchItem[] };
+// --- Artifact sources ---
+//
+// Content never names an artifact source the artifact source store lacks (ADR 0002): a write
+// setting the content of a table that can hold artifacts stores the sources it sets in its own
+// batch. Such a write must say where its sources come from, so none can forget to.
 
-const alongside = <A>(planned: Planned<A>, options: WriteOptions): Planned<A> =>
-  options.alongside?.length
-    ? { ...planned, statements: [...planned.statements, ...options.alongside] }
-    : planned;
+/** The content a row or a patch sets, if any. */
+const contentOf = (values: object): unknown => (values as { content?: unknown }).content;
+
+/** The tables whose content can hold artifact sources. */
+type ArtifactTable = typeof blocks | typeof sharedContents | typeof repeatableItems;
+
+/**
+ * Where the artifact sources a content write sets come from:
+ * - `{ schema }`, the content's schema: the write stores the sources its artifact fields hold,
+ *   but those the entity held already, which are stored;
+ * - `"stored"`: the store holds them already, for content copied from the project's own
+ *   content, or declared by a definition sync, which stores what it declares in its batch.
+ */
+export type ArtifactSourcesOf = { schema: unknown } | "stored";
+
+/** Options of a single write. */
+export type WriteOptions = {
+  /** Where the artifact sources of an artifact table's content come from. */
+  artifactSources?: ArtifactSourcesOf;
+  /** The entity's project, for a Live item whose block is created in the same batch. */
+  projectId?: number;
+};
+
+/**
+ * A write's options: required with `artifactSources` when it sets the content of a table that
+ * can hold artifacts, optional otherwise.
+ */
+export type WriteOptionsArgs<T extends ContentTable, V> = T extends ArtifactTable
+  ? "content" extends keyof V
+    ? [options: WriteOptions & { artifactSources: ArtifactSourcesOf }]
+    : [options?: WriteOptions]
+  : [options?: WriteOptions];
+
+/**
+ * The statements storing the artifact sources `content` holds for `artifactSources`' schema,
+ * but those `held` held already, to run in the batch of the write setting it.
+ */
+const storingSourcesOf = Effect.fn("overlay.storingSourcesOf")(function* (
+  db: Database,
+  projectId: number | undefined,
+  content: unknown,
+  artifactSources: ArtifactSourcesOf | undefined,
+  held?: unknown,
+) {
+  if (artifactSources === undefined || artifactSources === "stored") return [];
+  const { schema } = artifactSources;
+  const heldSources = new Set(artifactSourcesOf(schema, held).values());
+  const sources = [...artifactSourcesOf(schema, content).values()].filter(
+    (source) => !heldSources.has(source),
+  );
+  if (sources.length === 0) return [];
+  if (projectId === undefined) {
+    return yield* Effect.die(new Error("Artifact sources written outside any project"));
+  }
+  return yield* storingSources(db, projectId, sources);
+});
 
 /** The default locale's tag in a project, as Live or a draft reads its locales. */
 const defaultLocaleTag = Effect.fn("overlay.defaultLocaleTag")(function* (
@@ -715,15 +768,13 @@ const storedAfter = <T extends ContentTable>(
  * one. Plans nothing, returning undefined, when the target already reads an entity with this id,
  * or a draft deleted it. A release's entity is published by no member, now. A release finds the
  * entity's project in its values, or for an item in its block: `projectId` names it when the
- * block is created in the same batch.
+ * block is created in the same batch. Stores the artifact sources it sets in the same batch.
  */
-export const planInsert = Effect.fn("overlay.planInsert")(function* <T extends ContentTable>(
-  db: Database,
-  target: WriteTarget,
-  table: T,
-  values: Patch<T> & { id?: string },
-  options: { projectId?: number } = {},
-) {
+export const planInsert = Effect.fn("overlay.planInsert")(function* <
+  T extends ContentTable,
+  V extends Patch<T> & { id?: string },
+>(db: Database, target: WriteTarget, table: T, values: V, ...[given]: WriteOptionsArgs<T, V>) {
+  const options: WriteOptions = given ?? {};
   const projectId = yield* projectOfWrite(db, target, values, options.projectId);
   const locale = yield* localeOfWrite(db, target, table, projectId);
   if (values.id !== undefined) {
@@ -751,6 +802,7 @@ export const planInsert = Effect.fn("overlay.planInsert")(function* <T extends C
       .insert(table as SQLiteTable)
       .values(row as Values<T>)
       .onConflictDoNothing(),
+    ...(yield* storingSourcesOf(db, projectId, contentOf(values), options.artifactSources)),
   ];
   if (target === RELEASE) statements.push(...liveFollowUps(table, row.id));
   const planned = { version: 1, ...row } as unknown as Row<T>;
@@ -765,16 +817,13 @@ export const planInsert = Effect.fn("overlay.planInsert")(function* <T extends C
  * Creates an entity in the target, in its locale. Undefined when the target already reads an
  * entity with this id, or a draft deleted it. A release's entity is published by no member, now.
  */
-export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTable>(
-  db: Database,
-  target: WriteTarget,
-  table: T,
-  values: Patch<T> & { id?: string },
-  options: WriteOptions = {},
-) {
-  const planned = yield* planInsert(db, target, table, values);
+export const insert = Effect.fn("overlay.insert")(function* <
+  T extends ContentTable,
+  V extends Patch<T> & { id?: string },
+>(db: Database, target: WriteTarget, table: T, values: V, ...options: WriteOptionsArgs<T, V>) {
+  const planned = yield* planInsert(db, target, table, values, ...options);
   if (!planned.result) return undefined;
-  yield* runPlanned(db, alongside(planned, options));
+  yield* runPlanned(db, planned);
   return yield* storedAfter(db, target, table, planned.result);
 });
 
@@ -782,20 +831,35 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
  * Plans changing an entity as the target reads it. A release counts a change on Live's
  * `version`, so drafts that copied the entity see a conflict. In a draft, the first write copies
  * the whole Live entity, recording the version it copied. Plans nothing, returning undefined,
- * when the target reads no entity with this id.
+ * when the target reads no entity with this id. Stores the artifact sources it sets that the
+ * entity didn't hold, in the same batch.
  */
-export const planUpdate = Effect.fn("overlay.planUpdate")(function* <T extends ContentTable>(
+export const planUpdate = Effect.fn("overlay.planUpdate")(function* <
+  T extends ContentTable,
+  V extends Patch<T>,
+>(
   db: Database,
   target: WriteTarget,
   table: T,
   id: string,
-  patch: Patch<T>,
+  patch: V,
+  ...[options]: WriteOptionsArgs<T, V>
 ) {
   const columns = Object.keys(patch);
+  const storing = (projectId: number | undefined, held: Row<T>) =>
+    storingSourcesOf(db, projectId, contentOf(patch), options?.artifactSources, contentOf(held));
   if (target === RELEASE) {
     const current = yield* getStored(db, null, table, id);
     if (!current) return nothingPlanned<Row<T> | undefined>(undefined);
     const now = Date.now();
+    const row = {
+      ...current,
+      ...patch,
+      version: current.version + 1,
+      publishedAt: now,
+      publishedBy: null,
+    } as Row<T>;
+    const projectId = yield* projectOfLive(db, row);
     const statements: BatchItem[] = [
       ...liveFollowUps(table, id),
       db
@@ -808,15 +872,8 @@ export const planUpdate = Effect.fn("overlay.planUpdate")(function* <T extends C
         } as Partial<Values<T>>)
         .where(and(storedIn(table, null), eq(table.id, id), inLocaleOf(table, null))),
       ...liveFollowUps(table, id),
+      ...(yield* storing(projectId, current)),
     ];
-    const row = {
-      ...current,
-      ...patch,
-      version: current.version + 1,
-      publishedAt: now,
-      publishedBy: null,
-    } as Row<T>;
-    const projectId = yield* projectOfLive(db, row);
     return {
       statements,
       changes: contentChanges(target, projectId, table, row, "changed", columns),
@@ -827,13 +884,16 @@ export const planUpdate = Effect.fn("overlay.planUpdate")(function* <T extends C
   if (stored?.deleted) return nothingPlanned<Row<T> | undefined>(undefined);
   const statements: BatchItem[] = [];
   let row: Row<T>;
+  let held: Row<T>;
   if (stored) {
+    held = stored;
     row = { ...stored, ...patch } as Row<T>;
   } else {
     const live = yield* liveRowFor(db, target, table, id);
     if (!live) return nothingPlanned<Row<T> | undefined>(undefined);
     const copy = copyIntoDraft(db, target, table, live, patch);
     statements.push(copy.statement);
+    held = live;
     row = copy.row as Row<T>;
   }
   // Patches the draft's copy, also when a concurrent write copied it first.
@@ -852,6 +912,7 @@ export const planUpdate = Effect.fn("overlay.planUpdate")(function* <T extends C
         ),
     );
   }
+  statements.push(...(yield* storing(target.projectId, held)));
   return {
     statements,
     changes: contentChanges(target, target.projectId, table, row, "changed", columns),
@@ -863,19 +924,22 @@ export const planUpdate = Effect.fn("overlay.planUpdate")(function* <T extends C
  * Changes an entity as the target reads it. A release counts a change on Live's `version`, so
  * drafts that copied the entity see a conflict. In a draft, the first write copies the whole Live
  * entity, recording the version it copied. Undefined when the target reads no entity with this
- * id.
+ * id. Stores the artifact sources it sets that the entity didn't hold, in the same batch.
  */
-export const update = Effect.fn("overlay.update")(function* <T extends ContentTable>(
+export const update = Effect.fn("overlay.update")(function* <
+  T extends ContentTable,
+  V extends Patch<T>,
+>(
   db: Database,
   target: WriteTarget,
   table: T,
   id: string,
-  patch: Patch<T>,
-  options: WriteOptions = {},
+  patch: V,
+  ...options: WriteOptionsArgs<T, V>
 ) {
-  const planned = yield* planUpdate(db, target, table, id, patch);
+  const planned = yield* planUpdate(db, target, table, id, patch, ...options);
   if (!planned.result) return undefined;
-  yield* runPlanned(db, alongside(planned, options));
+  yield* runPlanned(db, planned);
   return yield* storedAfter(db, target, table, planned.result);
 });
 

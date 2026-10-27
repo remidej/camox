@@ -7,7 +7,6 @@ import type { TranslationJob } from "../../lib/ai-job-queue";
 import type { TranslationText } from "../../lib/ai-model";
 import { blocks, repeatableItems, sharedContents } from "../../schema";
 import { defaultOf, fieldsOf, itemSchemas } from "../_shared/fields";
-import { storingArtifactSources } from "../artifact-sources/store";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import * as overlay from "../drafts/overlay";
 import type { Draft } from "../drafts/scope";
@@ -120,7 +119,7 @@ export const translateDefaults = Effect.fn("translation.defaults")(function* (
       id,
       { content: { ...content, ...patch }, updatedAt: now },
       // Translated defaults include artifact sources: each is stored with the write.
-      { alongside: yield* storingArtifactSources(db, root.projectId, schema, patch) },
+      { artifactSources: { schema } },
     );
     written ||= row !== undefined;
   }

@@ -10,7 +10,6 @@ import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { storingArtifactSources } from "../artifact-sources/store";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { initializeBlockContent } from "../blocks/initialize-content";
 import {
@@ -30,6 +29,7 @@ import { generateNow, requestGeneration, type Stale } from "../generated-values/
 import { copyValue, homeOf, readValue, saveValue } from "../generated-values/service";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
+import { insertItemSeeds } from "./seeds";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -437,52 +437,16 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
       createdAt: now,
       updatedAt: now,
     },
-    {
-      alongside: yield* storingArtifactSources(
-        ctx.db,
-        project.id,
-        repeater?.items,
-        sanitizedContent,
-      ),
-    },
+    { artifactSources: { schema: repeater?.items } },
   );
   if (!result) return yield* new ConflictError({ message: `Repeatable item ${id} already exists` });
-
-  // Insert client-provided nested item seeds
-  if (preparedSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, string>();
-
-    for (const seed of preparedSeeds) {
-      // null parentTempId means child of the item being created
-      const seedParentId = seed.parentTempId
-        ? (tempIdToRealId.get(seed.parentTempId) ?? result.id)
-        : result.id;
-      const inserted = yield* overlay.insert(
-        ctx.db,
-        scope,
-        repeatableItems,
-        {
-          ...rootColumns(tree.root),
-          parentItemId: seedParentId,
-          fieldName: seed.fieldName,
-          content: seed.content,
-          settings: seed.settings,
-          position: seed.position,
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          alongside: yield* storingArtifactSources(
-            ctx.db,
-            project.id,
-            seedSchemas.get(seed.tempId),
-            seed.content,
-          ),
-        },
-      );
-      tempIdToRealId.set(seed.tempId, inserted!.id);
-    }
-  }
+  yield* insertItemSeeds(ctx.db, scope, {
+    root: tree.root,
+    parent: result.id,
+    schema: repeater?.items,
+    seeds: preparedSeeds,
+    now,
+  });
   yield* requestGeneration(
     ctx.db,
     homeOf(scope, project.id),
@@ -533,9 +497,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       repeatableItems,
       id,
       { content: merged, updatedAt: Date.now() },
-      {
-        alongside: yield* storingArtifactSources(ctx.db, project.id, itemSchema, sanitizedPatch),
-      },
+      { artifactSources: { schema: itemSchema } },
     );
     yield* requestGeneration(ctx.db, homeOf(scope, project.id), {
       entity: "repeatableItem",
@@ -655,16 +617,23 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
     const nextItem = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
     const position = generateKeyBetween(original.position, nextItem?.position ?? null);
 
-    const result = yield* overlay.insert(ctx.db, scope, repeatableItems, {
-      ...rootColumns(tree.root),
-      parentItemId: original.parentItemId,
-      fieldName: original.fieldName,
-      content: original.content,
-      settings: original.settings,
-      position,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // A copy of the original's content, whose artifact sources are stored.
+    const result = yield* overlay.insert(
+      ctx.db,
+      scope,
+      repeatableItems,
+      {
+        ...rootColumns(tree.root),
+        parentItemId: original.parentItemId,
+        fieldName: original.fieldName,
+        content: original.content,
+        settings: original.settings,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { artifactSources: "stored" },
+    );
     if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken" });
     yield* copyValue(
       ctx.db,

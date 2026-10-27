@@ -2,7 +2,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  noArtifactFields,
+} from "../../../test/fixtures";
 import { journaled } from "../../lib/journal";
 import { runService as run } from "../../lib/run-service";
 import { blocks, drafts, locales, pages } from "../../schema";
@@ -56,11 +60,13 @@ async function fixture(suffix: string) {
   });
   /** A block on Live in the default locale, and its German localization, sharing its id. */
   const localizedBlock = async () => {
-    const english = (await run(overlay.insert(db, RELEASE, blocks, newBlock("Hello"))))!;
+    const english = (await run(
+      overlay.insert(db, RELEASE, blocks, newBlock("Hello"), noArtifactFields),
+    ))!;
     const draft = await openDraft();
     const german = inLocale(draft, "de");
     await run(overlay.insert(db, german, pages, { ...pageValues, id: page.id }));
-    await run(overlay.insert(db, german, blocks, newBlock("Hallo", english.id)));
+    await run(overlay.insert(db, german, blocks, newBlock("Hallo", english.id), noArtifactFields));
     await publish(draft);
     return english.id;
   };
@@ -73,16 +79,31 @@ async function fixture(suffix: string) {
 describe("content keyed by locale", () => {
   it("reads and writes the same id in each locale apart", async () => {
     const { db, openDraft, newBlock, titleIn } = await fixture("locales-read-write");
-    const english = (await run(overlay.insert(db, RELEASE, blocks, newBlock("Hello"))))!;
+    const english = (await run(
+      overlay.insert(db, RELEASE, blocks, newBlock("Hello"), noArtifactFields),
+    ))!;
     const draft = await openDraft();
     const german = inLocale(draft, "de");
 
     // A localization keeps its original's id.
-    const created = await run(overlay.insert(db, german, blocks, newBlock("Hallo", english.id)));
+    const created = await run(
+      overlay.insert(db, german, blocks, newBlock("Hallo", english.id), noArtifactFields),
+    );
     expect(created).toMatchObject({ id: english.id, locale: "de" });
 
-    await run(overlay.update(db, draft, blocks, english.id, { content: { title: "Hi" } }));
-    await run(overlay.update(db, german, blocks, english.id, { content: { title: "Servus" } }));
+    await run(
+      overlay.update(db, draft, blocks, english.id, { content: { title: "Hi" } }, noArtifactFields),
+    );
+    await run(
+      overlay.update(
+        db,
+        german,
+        blocks,
+        english.id,
+        { content: { title: "Servus" } },
+        noArtifactFields,
+      ),
+    );
 
     expect(await titleIn(draft, english.id)).toBe("Hi");
     expect(await titleIn(german, english.id)).toBe("Servus");
@@ -95,7 +116,9 @@ describe("content keyed by locale", () => {
     const id = await localizedBlock();
     const draft = await openDraft();
 
-    await run(overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }));
+    await run(
+      overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }, noArtifactFields),
+    );
     await run(overlay.remove(db, inLocale(draft, "de"), blocks, id));
 
     const changes = await run(overlay.changesOf(db, draft));
@@ -113,9 +136,18 @@ describe("content keyed by locale", () => {
     const id = await localizedBlock();
     const draft = await openDraft();
 
-    await run(overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }));
     await run(
-      overlay.update(db, inLocale(draft, "de"), blocks, id, { content: { title: "Servus" } }),
+      overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }, noArtifactFields),
+    );
+    await run(
+      overlay.update(
+        db,
+        inLocale(draft, "de"),
+        blocks,
+        id,
+        { content: { title: "Servus" } },
+        noArtifactFields,
+      ),
     );
     await publish(draft);
 
@@ -133,7 +165,14 @@ describe("content keyed by locale", () => {
     const draft = await openDraft();
 
     await run(
-      overlay.update(db, inLocale(draft, "de"), blocks, id, { content: { title: "Servus" } }),
+      overlay.update(
+        db,
+        inLocale(draft, "de"),
+        blocks,
+        id,
+        { content: { title: "Servus" } },
+        noArtifactFields,
+      ),
     );
     await publish(draft, [], Math.max(before.en, before.de) + 1000);
 
@@ -158,9 +197,18 @@ describe("content keyed by locale", () => {
       await fixture("locales-delete-draft");
     const id = await localizedBlock();
     const draft = await openDraft();
-    await run(overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }));
     await run(
-      overlay.update(db, inLocale(draft, "de"), blocks, id, { content: { title: "Servus" } }),
+      overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }, noArtifactFields),
+    );
+    await run(
+      overlay.update(
+        db,
+        inLocale(draft, "de"),
+        blocks,
+        id,
+        { content: { title: "Servus" } },
+        noArtifactFields,
+      ),
     );
 
     await run(
@@ -179,17 +227,40 @@ describe("content keyed by locale", () => {
     const id = await localizedBlock();
     const draft = await openDraft();
     await run(
-      overlay.update(db, inLocale(draft, "de"), blocks, id, { content: { title: "Servus" } }),
+      overlay.update(
+        db,
+        inLocale(draft, "de"),
+        blocks,
+        id,
+        { content: { title: "Servus" } },
+        noArtifactFields,
+      ),
     );
 
     // A release changes the default locale's block, which the draft didn't copy.
-    await run(overlay.update(db, RELEASE, blocks, id, { content: { title: "Hello again" } }));
+    await run(
+      overlay.update(
+        db,
+        RELEASE,
+        blocks,
+        id,
+        { content: { title: "Hello again" } },
+        noArtifactFields,
+      ),
+    );
     expect(await run(overlay.conflictsOf(db, draft))).toEqual([]);
 
     // Another draft publishes a change to the German block the draft copied.
     const other = await openDraft();
     await run(
-      overlay.update(db, inLocale(other, "de"), blocks, id, { content: { title: "Moin" } }),
+      overlay.update(
+        db,
+        inLocale(other, "de"),
+        blocks,
+        id,
+        { content: { title: "Moin" } },
+        noArtifactFields,
+      ),
     );
     await publish(other);
     const conflicts = await run(overlay.conflictsOf(db, draft));
@@ -206,11 +277,25 @@ describe("content keyed by locale", () => {
     const id = await localizedBlock();
     const draft = await openDraft();
     await run(
-      overlay.update(db, inLocale(draft, "de"), blocks, id, { content: { title: "Servus" } }),
+      overlay.update(
+        db,
+        inLocale(draft, "de"),
+        blocks,
+        id,
+        { content: { title: "Servus" } },
+        noArtifactFields,
+      ),
     );
     const other = await openDraft();
     await run(
-      overlay.update(db, inLocale(other, "de"), blocks, id, { content: { title: "Moin" } }),
+      overlay.update(
+        db,
+        inLocale(other, "de"),
+        blocks,
+        id,
+        { content: { title: "Moin" } },
+        noArtifactFields,
+      ),
     );
     await publish(other);
     const [conflict] = await run(overlay.conflictsOf(db, draft));
@@ -223,8 +308,12 @@ describe("content keyed by locale", () => {
     const draft = await openDraft();
     const german = inLocale(draft, "de");
     // The page exists in the default locale only.
-    const orphan = (await run(overlay.insert(db, german, blocks, newBlock("Hallo"))))!;
-    const kept = (await run(overlay.insert(db, draft, blocks, newBlock("Hello"))))!;
+    const orphan = (await run(
+      overlay.insert(db, german, blocks, newBlock("Hallo"), noArtifactFields),
+    ))!;
+    const kept = (await run(
+      overlay.insert(db, draft, blocks, newBlock("Hello"), noArtifactFields),
+    ))!;
 
     const lost = await run(overlay.lostOf(db, draft));
 
@@ -242,14 +331,14 @@ describe("content keyed by locale", () => {
     await run(overlay.remove(db, inLocale(draft, "de"), pages, page.id));
 
     const english = await openDraft();
-    await run(overlay.insert(db, english, blocks, newBlock("Welcome")));
+    await run(overlay.insert(db, english, blocks, newBlock("Welcome"), noArtifactFields));
     await publish(english);
     expect(await run(overlay.conflictsOf(db, draft))).toEqual([]);
     expect(await run(overlay.lostOf(db, draft))).toEqual([]);
 
     const german = await openDraft();
     const added = (await run(
-      overlay.insert(db, inLocale(german, "de"), blocks, newBlock("Willkommen")),
+      overlay.insert(db, inLocale(german, "de"), blocks, newBlock("Willkommen"), noArtifactFields),
     ))!;
     await publish(german);
     expect(await run(overlay.lostOf(db, draft))).toEqual([
@@ -312,9 +401,13 @@ describe("content keyed by locale", () => {
         ),
       );
 
-    const live = (await run(overlay.insert(db, RELEASE, blocks, newBlock("Bonjour"))))!;
+    const live = (await run(
+      overlay.insert(db, RELEASE, blocks, newBlock("Bonjour"), noArtifactFields),
+    ))!;
     const draft = await openDraft();
-    const drafted = (await run(overlay.insert(db, draft, blocks, newBlock("Salut"))))!;
+    const drafted = (await run(
+      overlay.insert(db, draft, blocks, newBlock("Salut"), noArtifactFields),
+    ))!;
 
     expect(live.locale).toBe("fr");
     expect(drafted.locale).toBe("fr");

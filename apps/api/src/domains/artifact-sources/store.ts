@@ -2,7 +2,8 @@ import { artifactSourceHash } from "@camox/api-contract";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { fieldsOf, itemSchemas } from "../_shared/fields";
+import { isObject } from "../../lib/is-object";
+import { fieldsOf, seedSchemas, type ItemSeed } from "../_shared/fields";
 import type { BatchItem } from "../drafts/overlay";
 import { artifactSources } from "./schema";
 
@@ -13,18 +14,34 @@ import { artifactSources } from "./schema";
  */
 export function artifactSourcesOf(schema: unknown, content: unknown): Map<string, string> {
   const sources = new Map<string, string>();
-  if (!content || typeof content !== "object" || Array.isArray(content)) return sources;
-  const values = content as Record<string, unknown>;
+  if (!isObject(content)) return sources;
   for (const field of fieldsOf(schema)) {
     if (field.kind !== "Artifact") continue;
-    const value = values[field.name];
+    const value = content[field.name];
     if (typeof value === "string" && value.trim() !== "") sources.set(field.name, value);
   }
   return sources;
 }
 
-/** An item seed: content beneath a parent seed (or the root) by temporary ids. */
-type Seed = { tempId: string; parentTempId: string | null; fieldName: string; content: unknown };
+/**
+ * Visits `schema` with `content`, then each of its repeaters' item schemas, at any depth, with
+ * each inline item the content holds there. Without content, it visits each item schema once,
+ * with no content.
+ */
+function eachNested(
+  schema: unknown,
+  content: unknown,
+  visit: (schema: unknown, content: unknown) => void,
+) {
+  visit(schema, content);
+  for (const field of fieldsOf(schema)) {
+    if (field.kind !== "Repeater") continue;
+    const items =
+      content === undefined ? [undefined] : isObject(content) ? content[field.name] : undefined;
+    if (!Array.isArray(items)) continue;
+    for (const item of items) eachNested(field.itemContentSchema, item, visit);
+  }
+}
 
 /**
  * Every artifact source content declared under `schema` holds, as a definition sync or a seed
@@ -34,28 +51,17 @@ type Seed = { tempId: string; parentTempId: string | null; fieldName: string; co
 export function declaredArtifactSources(
   schema: unknown,
   content: unknown,
-  seeds: readonly Seed[] = [],
+  seeds: readonly ItemSeed[] = [],
 ): Set<string> {
   const sources = new Set<string>();
-  const walk = (schema: unknown, content: unknown) => {
+  const add = (schema: unknown, content: unknown) => {
     for (const source of artifactSourcesOf(schema, content).values()) sources.add(source);
-    if (!content || typeof content !== "object") return;
-    for (const field of fieldsOf(schema)) {
-      const items = (content as Record<string, unknown>)[field.name];
-      if (field.kind !== "Repeater" || !Array.isArray(items)) continue;
-      for (const item of items) walk(field.itemContentSchema, item);
-    }
   };
-  walk(schema, content);
-  const schemas = itemSchemas(
-    schema,
-    seeds.map((seed) => ({
-      id: seed.tempId,
-      parentItemId: seed.parentTempId,
-      fieldName: seed.fieldName,
-    })),
-  );
-  for (const seed of seeds) walk(schemas.get(seed.tempId)?.content, seed.content);
+  eachNested(schema, content ?? null, add);
+  const schemas = seedSchemas(schema, seeds);
+  for (const seed of seeds) {
+    eachNested(schemas.get(seed.tempId)?.content, seed.content ?? null, add);
+  }
   return sources;
 }
 
@@ -65,14 +71,12 @@ export function declaredArtifactSources(
  */
 export function defaultArtifactSources(schema: unknown): Set<string> {
   const sources = new Set<string>();
-  const walk = (schema: unknown) => {
+  eachNested(schema, undefined, (schema) => {
     for (const field of fieldsOf(schema)) {
-      if (field.kind === "Repeater") walk(field.itemContentSchema);
       const fallback = field.kind === "Artifact" ? field.schema.default : undefined;
       if (typeof fallback === "string" && fallback.trim() !== "") sources.add(fallback);
     }
-  };
-  walk(schema);
+  });
   return sources;
 }
 
@@ -94,22 +98,10 @@ export const artifactHashesOf = Effect.fn("artifactSources.hashesOf")(function* 
 });
 
 /**
- * The statements storing the artifact sources a write of `content` sets, to run in the same batch
- * as the write, so content never holds a source the store lacks. Storing a source again does
- * nothing: a hash names one source for good.
- */
-export const storingArtifactSources = Effect.fn("artifactSources.storing")(function* (
-  db: Database,
-  projectId: number,
-  schema: unknown,
-  content: unknown,
-) {
-  return yield* storingSources(db, projectId, artifactSourcesOf(schema, content).values());
-});
-
-/**
  * The statements storing `sources` for a project, to run in the batch of the write whose content
- * holds them. Storing a source again does nothing.
+ * holds them, so content never holds a source the store lacks. Storing a source again does
+ * nothing: a hash names one source for good. Content writes store theirs through the overlay
+ * (`overlay.ArtifactSourcesOf`).
  */
 export const storingSources = Effect.fn("artifactSources.storingSources")(function* (
   db: Database,

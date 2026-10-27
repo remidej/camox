@@ -245,17 +245,25 @@ export async function startDraft(
   return draft.id;
 }
 
+/** A write's options for content whose schema has no artifact field, so it stores no source. */
+export const noArtifactFields = { artifactSources: { schema: null } } as const;
+
 /**
  * Writes Live content as a release does, through the drafts overlay: for Live states publish
  * refuses, such as an empty required reference, or Live changing under a draft to set up a
- * conflict.
+ * conflict. Seeded content stores no artifact source, unless `options` names its schema.
  */
 export async function seedLive<T extends ContentTable>(
   db: ReturnType<typeof createDb>,
   table: T,
-  values: Parameters<typeof overlay.insert<T>>[3],
+  values: overlay.Patch<T> & { id?: string },
+  options: overlay.WriteOptions = {},
 ): Promise<T["$inferSelect"]> {
-  const row = await runService(overlay.insert(db, RELEASE, table, values));
+  const seeded = [{ artifactSources: "stored", ...options }] as overlay.WriteOptionsArgs<
+    T,
+    typeof values
+  >;
+  const row = await runService(overlay.insert(db, RELEASE, table, values, ...seeded));
   if (!row) throw new Error("seedLive: Live already holds this entity");
   return row;
 }

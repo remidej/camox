@@ -28,9 +28,7 @@ import {
 import { nestChildItems } from "../_shared/block-markers";
 import { conformBlocks } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
-import { itemSchemas } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
-import { storingArtifactSources } from "../artifact-sources/store";
 import { blockScope, validateReferenceValues } from "../collections/references";
 import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type ContentAccess } from "../drafts/access";
@@ -48,6 +46,7 @@ import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { namingProject, projectRefOf } from "../projects/ref";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
+import { insertItemSeeds } from "../repeatable-items/seeds";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { translatePlacedDefaults } from "../translations/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
@@ -540,12 +539,6 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
         }
       }
 
-      const storing = yield* storingArtifactSources(
-        ctx.db,
-        scope.projectId,
-        fieldSchema.items,
-        nonRepeatableOverrides,
-      );
       writes.push(
         overlay.update(
           ctx.db,
@@ -553,7 +546,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
           repeatableItems,
           itemId,
           { content: newContent, position, updatedAt: now },
-          { alongside: storing },
+          { artifactSources: { schema: fieldSchema.items } },
         ),
       );
       continue;
@@ -573,26 +566,6 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
       fieldSchema.itemSettingsSchema,
       { contentSchema: rootSchema, settingsSchema: rootSchema },
     );
-    const storing = yield* storingArtifactSources(
-      ctx.db,
-      scope.projectId,
-      fieldSchema.items,
-      itemContent,
-    );
-    // Child seeds whose parent is null belong to the new item, whose schema is the root here.
-    const childSchemas = schemasOfSeeds(fieldSchema.items, childSeeds);
-    const childStoring = new Map<string, overlay.BatchItem[]>();
-    for (const seed of childSeeds) {
-      childStoring.set(
-        seed.tempId,
-        yield* storingArtifactSources(
-          ctx.db,
-          scope.projectId,
-          childSchemas.get(seed.tempId)?.content,
-          seed.content,
-        ),
-      );
-    }
     writes.push(
       Effect.gen(function* () {
         const inserted = (yield* overlay.insert(
@@ -609,35 +582,15 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
             createdAt: now,
             updatedAt: now,
           },
-          { alongside: storing },
+          { artifactSources: { schema: fieldSchema.items } },
         ))!;
-
-        if (childSeeds.length > 0) {
-          const tempIdToRealId = new Map<string, string>();
-          for (const seed of childSeeds) {
-            // parentTempId === null → child of the just-inserted item; otherwise resolve.
-            const seedParent = seed.parentTempId
-              ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
-              : inserted.id;
-            const sub = (yield* overlay.insert(
-              ctx.db,
-              scope,
-              repeatableItems,
-              {
-                ...rootColumns(root),
-                parentItemId: seedParent,
-                fieldName: seed.fieldName,
-                content: seed.content,
-                settings: seed.settings,
-                position: seed.position,
-                createdAt: now,
-                updatedAt: now,
-              },
-              { alongside: childStoring.get(seed.tempId) },
-            ))!;
-            tempIdToRealId.set(seed.tempId, sub.id);
-          }
-        }
+        yield* insertItemSeeds(ctx.db, scope, {
+          root,
+          parent: inserted.id,
+          schema: fieldSchema.items,
+          seeds: childSeeds,
+          now,
+        });
       }),
     );
   }
@@ -648,24 +601,6 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     writes.push(deleteOnPurpose(ctx.db, scope, repeatableItems, item.id));
   }
 });
-
-/**
- * Each seed's schemas, by temp id, found from the schema its root seeds' repeaters are in: the
- * block's, or the new item's for an item's nested seeds.
- */
-function schemasOfSeeds(
-  rootSchema: unknown,
-  seeds: readonly { tempId: string; parentTempId: string | null; fieldName: string }[],
-) {
-  return itemSchemas(
-    rootSchema,
-    seeds.map((seed) => ({
-      id: seed.tempId,
-      parentItemId: seed.parentTempId,
-      fieldName: seed.fieldName,
-    })),
-  );
-}
 
 // --- Reads ---
 
@@ -834,9 +769,10 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   shared: SharedContentRow | null,
   values: { content?: unknown; settings?: unknown; updatedAt: number },
   scope: Draft,
-  options: overlay.WriteOptions = {},
+  artifactSources: overlay.ArtifactSourcesOf,
 ) {
   const { block } = access;
+  const options = { artifactSources };
   if (!shared) {
     const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values, options);
     if (!result) return yield* new NotFoundError();
@@ -914,7 +850,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     def?.contentSchema,
     def?.settingsSchema,
   );
-  const allSeeds = prepared.seeds;
   yield* validateReferenceValues(
     ctx,
     { ...page, draft: scope },
@@ -973,53 +908,16 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       createdAt: now,
       updatedAt: now,
     },
-    {
-      alongside: yield* storingArtifactSources(
-        ctx.db,
-        page.projectId,
-        def?.contentSchema,
-        prepared.content,
-      ),
-    },
+    { artifactSources: { schema: def?.contentSchema } },
   );
   if (!result) return yield* new ConflictError({ message: `Block ${id} already exists` });
-
-  // Insert repeatable item seeds in topological order (parents before children).
-  if (allSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, string>();
-    const seedSchemas = schemasOfSeeds(def?.contentSchema, allSeeds);
-
-    for (const seed of allSeeds) {
-      const parentItemId = seed.parentTempId
-        ? (tempIdToRealId.get(seed.parentTempId) ?? null)
-        : null;
-      // A fresh id, so the scope can't already hold the item.
-      const inserted = (yield* overlay.insert(
-        ctx.db,
-        scope,
-        repeatableItems,
-        {
-          blockId: result.id,
-          parentItemId,
-          fieldName: seed.fieldName,
-          content: seed.content,
-          settings: seed.settings,
-          position: seed.position,
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          alongside: yield* storingArtifactSources(
-            ctx.db,
-            page.projectId,
-            seedSchemas.get(seed.tempId)?.content,
-            seed.content,
-          ),
-        },
-      ))!;
-      tempIdToRealId.set(seed.tempId, inserted.id);
-    }
-  }
+  yield* insertItemSeeds(ctx.db, scope, {
+    root: { blockId: result.id },
+    parent: null,
+    schema: def?.contentSchema,
+    seeds: prepared.seeds,
+    now,
+  });
 
   yield* placeContent(ctx, scope, result);
 
@@ -1098,15 +996,7 @@ const writeBlockContent = Effect.fn("blocks.writeBlockContent")(function* (
     owner.shared,
     { content: merged, updatedAt: now },
     scope,
-    {
-      // Only the sources this write sets: those it keeps are stored already.
-      alongside: yield* storingArtifactSources(
-        ctx.db,
-        project.id,
-        contentSchema,
-        Object.fromEntries(Object.keys(patch).map((key) => [key, merged[key]])),
-      ),
-    },
+    { schema: contentSchema },
   );
 
   yield* requestGeneration(ctx.db, homeOf(scope, project.id), {
@@ -1146,6 +1036,8 @@ const writeBlockSettings = Effect.fn("blocks.writeBlockSettings")(function* (
     owner.shared,
     { settings: merged, updatedAt: Date.now() },
     scope,
+    // Settings hold no artifact source.
+    "stored",
   );
   return yield* shownBlock(ctx, project.id, scope, result);
 });
@@ -1261,18 +1153,25 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   const nextBlock = siblings.find((b) => b.position > original.position);
   const position = generateKeyBetween(original.position, nextBlock?.position ?? null);
 
-  const result = yield* overlay.insert(ctx.db, scope, blocks, {
-    projectId: original.projectId,
-    pageId: original.pageId,
-    layoutId: original.layoutId,
-    type: original.type,
-    content: original.content,
-    settings: original.settings,
-    slot: original.slot,
-    position,
-    createdAt: now,
-    updatedAt: now,
-  });
+  // A copy of the original's content, whose artifact sources are stored.
+  const result = yield* overlay.insert(
+    ctx.db,
+    scope,
+    blocks,
+    {
+      projectId: original.projectId,
+      pageId: original.pageId,
+      layoutId: original.layoutId,
+      type: original.type,
+      content: original.content,
+      settings: original.settings,
+      slot: original.slot,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    },
+    { artifactSources: "stored" },
+  );
   if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
   // A copy made before the original's defaults were translated holds them untranslated.
   yield* placeContent(ctx, scope, result);

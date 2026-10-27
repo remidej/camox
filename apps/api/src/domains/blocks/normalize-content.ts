@@ -2,20 +2,11 @@ import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
 import { InvalidInputError } from "../../lib/errors";
-import { fieldOf } from "../_shared/fields";
+import { fieldOf, type ItemSeed } from "../_shared/fields";
 import { normalizeFieldValue } from "./asset-value";
 import { validateContent } from "./validate-content";
 
 export { sanitizeAssetValue } from "./asset-value";
-
-export type BlockItemSeed = {
-  tempId: string;
-  parentTempId: string | null;
-  fieldName: string;
-  content: unknown;
-  settings?: unknown;
-  position: string;
-};
 
 export type SchemaProps = Record<string, FieldSchema>;
 /** A stored JSON Schema node, as services pass schemas around. `fieldOf` reads its fields. */
@@ -35,7 +26,7 @@ export type FieldSchema = {
 
 /** Explicit seeds carry their parent relationships separately from their content. */
 export const validateItemSeeds = Effect.fn("validateItemSeeds")(function* (
-  seeds: BlockItemSeed[],
+  seeds: ItemSeed[],
   rootProperties: SchemaProps | undefined,
   path = "repeatableItems",
   rootSchema: unknown = { properties: rootProperties },
@@ -88,7 +79,7 @@ export const normalizeBlockContent = Effect.fn("normalizeBlockContent")(function
   rootSchema: unknown = contentSchema,
 ) {
   yield* validateContent(rawContent, contentSchema, { rootSchema });
-  const ctx = { counter: { v: 0 }, seeds: [] as BlockItemSeed[] };
+  const ctx = { counter: { v: 0 }, seeds: [] as ItemSeed[] };
   const content = yield* walk(rawContent, contentSchema, null, ctx);
   return { content, seeds: ctx.seeds };
 });
@@ -97,7 +88,7 @@ const walk = Effect.fn("walk")(function* (
   rawContent: unknown,
   schema: unknown,
   parentTempId: string | null,
-  ctx: { counter: { v: number }; seeds: BlockItemSeed[] },
+  ctx: { counter: { v: number }; seeds: ItemSeed[] },
 ): Effect.fn.Return<Record<string, unknown>, InvalidInputError> {
   if (rawContent == null || typeof rawContent !== "object" || Array.isArray(rawContent)) {
     return {};
@@ -124,7 +115,7 @@ const walk = Effect.fn("walk")(function* (
         const tempId = `__auto_${ctx.counter.v++}`;
         const position = generateKeyBetween(prevPos, null);
         // Push parent before recursing so child seeds appear after their parent (topological order).
-        const seed: BlockItemSeed = {
+        const seed: ItemSeed = {
           tempId,
           parentTempId,
           fieldName: key,
