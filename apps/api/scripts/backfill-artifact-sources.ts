@@ -1,11 +1,10 @@
 // One-off migration (#640): stores every artifact source the API's content holds, in Live and in
-// every draft, in the artifact source store (src/domains/artifact-sources/backfill.ts). Run it
-// once the `artifact_sources` table exists, after the API that stores sources on write deployed:
-//
-//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm exec tsx scripts/backfill-artifact-sources.ts
-//
-// from apps/api, with a token allowed to edit D1. It reaches the remote `camox` database through
-// Cloudflare's D1 HTTP API. Storing a source again does nothing, so it's safe to run again.
+// every draft, in the artifact source store (src/domains/artifact-sources/backfill.ts). The API's
+// deploy runs it once the new API is live and before the landing site deploys, so no public page
+// points at a source the store lacks. It reaches the remote `camox` database through Cloudflare's
+// D1 HTTP API with CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (D1 edit), which the deploy job
+// already sets. Storing a source again does nothing, so it's safe to run again. Delete this script
+// and its deploy step once a release has run it.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
