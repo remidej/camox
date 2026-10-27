@@ -32,16 +32,16 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { getDraftReadClient } from "@/lib/api-client";
 import { useDraftScope } from "@/lib/draft-scope";
 import { draftMutations, type DraftSummary } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import { reads, useReadQuery } from "../../../lib/studio-reads";
+import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { previewStore } from "../../preview/previewStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { localeLabel } from "../localeOptions";
 import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
-import { useRenameDraft } from "./RenameDraftDialog";
 
 type Subject = PublishPreview["changes"][number];
 type Problem = PublishPreview["blockers"][number];
@@ -634,6 +634,23 @@ export function useLeaveDraft() {
     const left = draftScope.leave(ended);
     if (left && ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
   };
+}
+
+/**
+ * Renames a regular draft, whichever draft the studio views: the request names the draft it
+ * renames. A blank name clears it, so the draft shows its computed label again.
+ */
+function useRenameDraft(projectId: number) {
+  const studioCache = useStudioCache();
+  return useMutation({
+    mutationFn: ({ draftId, name }: { draftId: string; name: string }) =>
+      getDraftReadClient(draftId).drafts.rename({ projectId, name }),
+    onSuccess: (renamed) => {
+      studioCache.set(reads.draft({ projectId, draftId: renamed.id }), renamed);
+      void studioCache.invalidate(reads.draftList({ projectId }));
+    },
+    onError: (error) => toast.error(error.message || "Could not rename the draft"),
+  });
 }
 
 /**
