@@ -340,6 +340,28 @@ RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is
     expect(await fakes.sandboxSleepAfter(draft.id)).toBe(REVISION_SANDBOX_SLEEP_AFTER);
   });
 
+  it("starts the sandbox as the agent first writes code, installing before it builds", async () => {
+    const { draft } = await buildInFirstTurn({
+      "src/blocks/pricing.tsx": PRICING,
+      "src/blocks/faq.tsx": `export const faq = "Ask us";\n`,
+    });
+
+    const commands = (await fakes.revisionCommands(draft.id)).map(({ command }) => command);
+    const built = commands.findIndex((command) => command.includes("vp build"));
+    const beforeBuild = commands.slice(0, built);
+    const extracts = beforeBuild.flatMap((command, at) =>
+      command.includes("tar -xf") ? [at] : [],
+    );
+    const installs = beforeBuild.flatMap((command, at) =>
+      command.includes("pnpm install") ? [at] : [],
+    );
+    // Its first write started the sandbox, once for both writes, and the build found the install.
+    expect(extracts).toHaveLength(2);
+    expect(installs).toHaveLength(1);
+    expect(installs[0]).toBeGreaterThan(extracts[0]!);
+    expect(installs[0]).toBeLessThan(extracts[1]!);
+  });
+
   it("doesn't install in a new sandbox whose image installed the lockfile", async () => {
     await fakes.installInImage(LOCKFILE);
     try {

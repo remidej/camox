@@ -82,6 +82,9 @@ const COMMIT_AUTHOR = { name: "Camox", email: "agent@camox.ai" };
 
 /** The lockfile, whose changes a build installs. */
 const LOCKFILE = "pnpm-lock.yaml";
+/** The files `pnpm install` reads: the manifest, the lockfile, pnpm's settings and patches. */
+const INSTALL_FILES =
+  /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|\.pnpmfile\.cjs|patches\/.+)$/;
 
 /** A commit `prepareCommit` made, not on the branch yet. */
 export type PreparedCommit = {
@@ -379,6 +382,29 @@ export class DraftCode extends DurableObject<Bindings> {
         if (hasConflictMarkers(new TextDecoder().decode(entry.data))) found.push(filepath);
       }
       return found;
+    });
+  }
+
+  /**
+   * The working copy's files that installing its dependencies reads, as a tar archive, with its
+   * lockfile: what its sandbox needs to install ahead of a build, which `prepareCommit` would
+   * give only once it staged and committed every change.
+   */
+  installFiles(): Promise<Pick<PreparedCommit, "files" | "lockfile">> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const entries: TarEntry[] = [];
+      for (const entry of fs.entries()) {
+        const path = entry.path.slice(1);
+        if (entry.kind !== "file" || !INSTALL_FILES.test(path)) continue;
+        entries.push({ path, mode: entry.mode & 0o777, content: entry.data });
+      }
+      const lockfile = entries.find(({ path }) => path === LOCKFILE);
+      return {
+        files: tar(entries),
+        lockfile:
+          lockfile && "content" in lockfile ? new TextDecoder().decode(lockfile.content) : null,
+      };
     });
   }
 

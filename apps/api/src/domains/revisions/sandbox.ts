@@ -180,6 +180,20 @@ async function workspaceWith(
 }
 
 /**
+ * Starts the draft's sandbox and installs the dependencies of `tree`, which holds the files the
+ * install reads, so the build that follows doesn't wait for either: it writes its own tree, and
+ * installs only if the lockfile changed since. Throws a `SandboxError` when the sandbox fails.
+ */
+export async function warmSandbox(
+  env: Pick<Bindings, "REVISION_SANDBOX">,
+  draftId: string,
+  tree: Tree,
+  span: SpanFields = { draftId },
+): Promise<void> {
+  await workspaceWith(env, draftId, tree, span);
+}
+
+/**
  * Builds a tree in the draft's sandbox, as a dry-run release of a hosted project. The type check
  * of `src/` runs beside the build, and a passed build returns it still going. Throws a
  * `SandboxError` when the sandbox, not the build, fails.

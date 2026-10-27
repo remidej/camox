@@ -77,6 +77,7 @@ import {
 import { type MergeEnd, mergeMainIntoDraft } from "../domains/revisions/merge";
 import { reconcileTurn } from "../domains/revisions/reconcile";
 import type { BuildResult } from "../domains/revisions/result";
+import { warmSandbox } from "../domains/revisions/sandbox";
 import { buildTool, conflictsTool } from "../domains/revisions/tool";
 import { draftCardsOf, startDraftFromLive } from "../domains/threads/service";
 import { type DraftHandOff, startDraftTool } from "../domains/threads/start-draft";
@@ -94,7 +95,7 @@ import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
 import { serialQueue } from "../lib/serial-queue";
 import { threadModel } from "../lib/thread-model";
-import { logSpan } from "../lib/timing";
+import { logSpan, timed } from "../lib/timing";
 import { user } from "../schema";
 import type { Bindings } from "../types";
 
@@ -539,7 +540,42 @@ export class Thread extends DurableObject<Bindings> {
       ? (await this.#knownIdentity())!.draftId!
       : await this.#codeAccess(invocation);
     await this.#merging;
+    await this.#warmSandbox(invocation, draftId);
     return this.#workingCopyEnv(draftId);
+  }
+
+  /** The turn whose first code write started the draft's sandbox (`#warmSandbox`). */
+  #warmedFor: string | undefined;
+
+  /**
+   * Starts the draft's sandbox as a turn first writes code, in its build queue, so the
+   * container's start and install overlap with the agent writing rather than delay the turn's
+   * first build. Never fails the write: a sandbox that didn't start is started by the build.
+   */
+  async #warmSandbox(invocation: ToolInvocation, draftId: string) {
+    try {
+      const { api, context } = invocation;
+      const live = await api.snapshot(LiveDoc, api.conversationId, context);
+      // A turn is its run's input: its task changes with each of the agent's steps.
+      const run = live?.run;
+      const turn = run?.inputs[0] === undefined ? undefined : String(run.inputs[0]);
+      if (!run || turn === undefined || this.#warmedFor === turn) return;
+      this.#warmedFor = turn;
+      const span = { draftId, threadId: this.#threadId(), runId: String(run.taskId) };
+      const warmed = this.#building
+        .run(() =>
+          timed("revision.sandbox.warm", span, async () => {
+            const tree = await this.env.DRAFT_CODE.getByName(draftId).installFiles();
+            await warmSandbox(this.env, draftId, tree, span);
+          }),
+        )
+        .catch((error: unknown) =>
+          console.warn("A draft's sandbox wasn't started ahead of its build", error),
+        );
+      this.ctx.waitUntil(warmed);
+    } catch (error) {
+      console.warn("A draft's sandbox wasn't started ahead of its build", error);
+    }
   }
 
   /** The last code write's access, which the next waits for: concurrent first writes start one. */
