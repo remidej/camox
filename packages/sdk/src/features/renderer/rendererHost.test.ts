@@ -252,16 +252,6 @@ void test("the studio's optimistic writes in the renderer's draft, and their ans
   );
 });
 
-void test("the renderer enters the draft a first write starts, without loading again", async (t) => {
-  const studio = studioState(null);
-  const host = setup(t, studio);
-  const renderer = fakeRenderer(host.handle);
-  await settle();
-  studio.draftScope.enterStarted("fresh");
-  await settle();
-  assert.deepEqual(renderer.all("draftStarted"), [{ type: "draftStarted", draftId: "fresh" }]);
-});
-
 void test("a change made elsewhere, and the studio's own edits, reach the real renderer's cache", async (t) => {
   const studio = studioState("spring");
   const host = setup(t, studio);

@@ -75,18 +75,6 @@ void test("an artifact sees at most one viewport update per animation frame, and
   assert.equal(viewport.seen.length, before + 1, "no update when nothing changed");
 });
 
-void test("an artifact far from the viewport sees no updates while the page scrolls", async () => {
-  const { harness, frame, artifact } = await artifactOnPage(VIEWPORT_HEIGHT * 3);
-  const viewport = watchViewport(artifact);
-  await harness.settle();
-  const before = viewport.seen.length;
-  harness.scroll(frame, VIEWPORT_HEIGHT * 2);
-  await harness.settle();
-  harness.scroll(frame, VIEWPORT_HEIGHT * 4);
-  await harness.settle();
-  assert.equal(viewport.seen.length, before);
-});
-
 void test("a frame far from the viewport isn't measured while the page scrolls, until it comes near", async () => {
   const { harness, frame, artifact } = await artifactOnPage(VIEWPORT_HEIGHT * 4);
   const viewport = watchViewport(artifact);

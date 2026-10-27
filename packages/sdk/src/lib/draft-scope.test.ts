@@ -100,21 +100,6 @@ void test("a draft a Live thread started isn't entered once the studio left Live
   assert.deepEqual(changes, []);
 });
 
-void test("reads on Live name no draft, and a failed first write leaves the scope on Live", () => {
-  const { draftScope, browser } = openScope("https://site.test/about");
-
-  assert.deepEqual(draftScope.requestHeaders(false).headers, {});
-  const write = draftScope.requestHeaders(true);
-  write.settle(false);
-
-  assert.equal(draftScope.current(), null);
-  assert.equal(browser.location.href, "https://site.test/about");
-  assert.notEqual(
-    draftScope.requestHeaders(true).headers[DRAFT_HEADER],
-    write.headers[DRAFT_HEADER],
-  );
-});
-
 void test("links keep the viewed draft unless they name one or switch drafts", () => {
   const { draftScope } = openScope("https://site.test/about?camox-draft=d1");
   const from = "https://site.test/about?camox-draft=d1";

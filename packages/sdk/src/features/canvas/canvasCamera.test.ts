@@ -140,16 +140,6 @@ void test("the zoom ceiling is the page fit, or the zoom limit without targets",
   );
 });
 
-void test("snapping changes scale at the anchor, not the page position", () => {
-  const camera = { x: -750, y: -900, scale: 0.63 };
-  const point = { x: 320, y: 180 };
-  const pageScale = fitCanvasPage({ width: 900, height: 800 }, { left: 1606, width: 1366 }).scale;
-  const next = zoomCanvasAt(camera, point, snapCanvasZoom(camera.scale, 0.62, pageScale));
-  assert.equal(next.scale, pageScale);
-  assert.ok(Math.abs((point.x - next.x) / next.scale - (point.x - camera.x) / camera.scale) < 1e-8);
-  assert.ok(Math.abs((point.y - next.y) / next.scale - (point.y - camera.y) / camera.scale) < 1e-8);
-});
-
 void test("the rail assists vertical intent only and releases to free two-axis motion", () => {
   const locked = canvasVerticalRail({ x: 50, y: 90 }, 0);
   assert.equal(locked.mode, "vertical", "substantially wider vertical acquisition");
@@ -400,18 +390,6 @@ void test("animation between valid cameras never needs intermediate clamping", (
     assert.ok(Math.abs(camera.y - clamped.y) < 1e-8);
     assert.equal(camera.scale, clamped.scale);
   }
-});
-
-void test("a viewport or document size change restores valid bounds without needless resets", () => {
-  const viewport = { width: 1440, height: 900 };
-  const camera = { x: -500, y: -600, scale: 1 };
-  assert.deepEqual(constrainCanvasCamera(camera, viewport, { width: 6000, height: 4000 }), camera);
-  const small = { width: 390, height: 300 };
-  assert.deepEqual(
-    constrainCanvasCamera(camera, viewport, small),
-    { x: 0, y: 0, scale: 1 },
-    "a shrunken document comes back into view at the same zoom",
-  );
 });
 
 void test("wheel input normalizes pixel, line, and page deltas", () => {

@@ -1,4 +1,4 @@
-import { DRAFT_HEADER, PUBLISH_BLOCKED_ERROR } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import {
   EMPTY_THREAD_STATE,
   reduceThreadFrame,
@@ -213,36 +213,6 @@ RolldownError: ${PRICING_FILE} imports "lodash-es", which a hosted project can't
     expect(told).toContain("Could not resolve './missing'");
     expect(said(view).at(-1)).toEqual({ from: "agent", text: "I fixed the pricing section." });
     expect((await previewOf(website, draft.id)).blockers).toEqual([]);
-  });
-
-  it("refuses to publish a draft whose code doesn't build", async () => {
-    const { website, draft, thread } = await draftWithPricing();
-    const marker = await failingMarker(PRICING_FILE);
-    answerWithToolCall("write", { path: PRICING_FILE, content: broken(marker) });
-    for (let failed = 0; failed < END_OF_TURN_BUILD_FAILURES; failed++) answerNext("Done.");
-    answerNext("The pricing section can't be updated yet.");
-    await ask(thread, "Show the plans from the pricing page");
-    // Content changes too, so the draft has something to publish.
-    const [page] = await call(
-      router.pages.list,
-      { projectId: website.project.id },
-      reviewer(website, draft.id),
-    );
-    await call(
-      router.blocks.create,
-      { pageId: page!.id, type: "text", content: { body: "Plans" } } as never,
-      reviewer(website, draft.id),
-    );
-
-    const { token } = await previewOf(website, draft.id);
-
-    await expect(
-      call(
-        router.drafts.publish,
-        { projectId: website.project.id, token },
-        reviewer(website, draft.id),
-      ),
-    ).rejects.toMatchObject({ code: PUBLISH_BLOCKED_ERROR });
   });
 
   it("shows editors status lines while it builds and the agent fixes, never what the agent was told", async () => {

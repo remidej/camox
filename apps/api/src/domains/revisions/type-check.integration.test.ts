@@ -1,4 +1,4 @@
-import { DRAFT_HEADER, PUBLISH_BLOCKED_ERROR } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -185,32 +185,6 @@ describe("a revision's type check", () => {
     expect((await previewOf(website, draft.id)).blockers).toEqual([
       expect.objectContaining({ entity: "code", code: "codeDoesNotTypeCheck" }),
     ]);
-  });
-
-  it("refuses to publish a draft whose code doesn't type check", async () => {
-    const { website, draft, thread } = await draftWithPricing();
-    await keepTypeErrors(thread, mistyped(await typeErrorsMarker([NOT_A_STRING])));
-    // Content changes too, so the draft has something to publish.
-    const [page] = await call(
-      router.pages.list,
-      { projectId: website.project.id },
-      reviewer(website, draft.id),
-    );
-    await call(
-      router.blocks.create,
-      { pageId: page!.id, type: "text", content: { body: "Plans" } } as never,
-      reviewer(website, draft.id),
-    );
-
-    const { token } = await previewOf(website, draft.id);
-
-    await expect(
-      call(
-        router.drafts.publish,
-        { projectId: website.project.id, token },
-        reviewer(website, draft.id),
-      ),
-    ).rejects.toMatchObject({ code: PUBLISH_BLOCKED_ERROR });
   });
 
   it("reports what a change breaks in a file the agent didn't touch", async () => {

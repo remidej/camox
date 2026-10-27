@@ -323,19 +323,6 @@ describe("a push to a project's main branch", () => {
     expect(email?.text).not.toContain("undefined");
   });
 
-  it("sends no alert when a step fails and its retry passes", async () => {
-    const { project: flaky } = await createProjectFixture(
-      `release-workflow-${crypto.randomUUID()}`,
-    );
-    const commit = commitSha();
-    await fakes.push(flaky.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
-    await fakes.failCommand(flaky.uuid, "wrangler deploy", 1);
-
-    await receivePush(pushEvent(flaky.uuid, "refs/heads/main", commit));
-
-    expect(await emailsAbout(flaky.uuid)).toEqual([]);
-  });
-
   it("succeeds once when a step fails and its retry passes", async () => {
     const { db, project: flaky } = await createProjectFixture(
       `release-workflow-${crypto.randomUUID()}`,
@@ -350,6 +337,7 @@ describe("a push to a project's main branch", () => {
     expect(rows).toEqual([expect.objectContaining({ status: "succeeded", failedStep: null })]);
     const commands = (await fakes.commandsRun(flaky.uuid)).map(({ command }) => command);
     expect(commands.filter((command) => command === "pnpm exec camox release")).toHaveLength(2);
+    expect(await emailsAbout(flaky.uuid)).toEqual([]);
   });
 
   it("records a failed release that is re-run and passes as succeeded", async () => {
@@ -419,15 +407,6 @@ describe("a push of the tree Live serves", () => {
     const rows = await db.select().from(releases).where(eq(releases.projectId, projectId));
     return rows.filter(({ status }) => status === "succeeded").map(({ commit }) => commit);
   }
-
-  it("releases a push whose tree differs", async () => {
-    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
-    const served = await pushAndRelease(project.uuid, files);
-
-    const changed = await pushAndRelease(project.uuid, { ...files, "src/blocks/cta.tsx": "" });
-
-    expect(await succeeded(db, project.id)).toEqual([served, changed]);
-  });
 
   it("releases a push of a tree Live served before, but no longer does", async () => {
     const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);

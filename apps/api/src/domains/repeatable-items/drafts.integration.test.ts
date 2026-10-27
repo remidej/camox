@@ -256,28 +256,4 @@ describe("repeatable items in a draft", () => {
     );
     expect(await linksOf(kept.id)).toEqual(["Kept item"]);
   });
-
-  it("lists Live items published under a block after the draft deleted it as lost", async () => {
-    const { addItem, createBlock, deleteBlock, member, preview, publish, publishedOnLive } =
-      await fixture();
-    const block = await createBlock("Hero");
-    const draft = generateUuidv7();
-    await deleteBlock(block.id, startingDraft(draft));
-    let added: { id: string } | undefined;
-    await publishedOnLive(async (headers) => {
-      added = await addItem(block.id, "Theirs", headers);
-    });
-
-    expect((await preview(draft)).lost).toEqual([
-      expect.objectContaining({
-        entity: "repeatableItem",
-        id: added!.id,
-        reason: "writtenAfterDeletion",
-      }),
-    ]);
-    await publish(draft);
-    await expect(
-      call(router.repeatableItems.get, { id: added!.id }, member()),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
 });

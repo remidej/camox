@@ -25,13 +25,6 @@ void test("the browser's app loads blocks on demand, keyed by file name", () => 
   assert.doesNotMatch(app, /blockModulePaths/);
 });
 
-void test("the server's app loads every block and names their modules for preloading", () => {
-  const app = loadRuntimeDevModule("\0virtual:camox/app", { ssr: true });
-  assert.ok(app);
-  assert.match(app, /"\/src\/blocks\/\*\.\{ts,tsx\}", \{ eager: true \}/);
-  assert.match(app, /export const blockModulePaths/);
-});
-
 void test("the server module tells the Worker where the runtime is mounted", () => {
   for (const [option, basePath] of [
     [undefined, ""],

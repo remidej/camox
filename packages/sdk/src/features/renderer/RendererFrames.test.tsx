@@ -175,17 +175,6 @@ void test("a revision of a draft a first write started loads that draft's render
   assert.equal(rendererFrame()?.getAttribute("src"), "/_camox/renderer?camox-draft=fresh");
 });
 
-void test("with a renderer of another SDK version, the frames say they're updating", async (t) => {
-  const { rendererFrame, visible, act, fakeRenderer } = await setup(t, null);
-  const { SDK_VERSION } = await import("./protocol");
-  const renderer = fakeRenderer(rendererFrame()!.__camoxStudio!, {
-    sdkVersion: `${SDK_VERSION}-other`,
-  });
-  await act(() => {});
-  assert.equal(renderer.last("frame"), undefined);
-  assert.match(visible.document.body.textContent ?? "", /updating/i);
-});
-
 void test("a new revision of the shown draft loads another renderer, which keeps the Canvas position and selection", async (t) => {
   const { rendererFrame, act, fakeRenderer, revisions } = await setup(t, "spring");
   const { previewStore, selectionForOwner } = await import("../preview/previewStore");

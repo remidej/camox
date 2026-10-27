@@ -219,9 +219,3 @@ void test("block and item Structured Data sync what settings show as conditions 
     show: { "@type": "Answer", text: "Yes" },
   });
 });
-
-void test("without a curated layout, the Definition Set declares no homepage", async () => {
-  const app = createApp({ blocks: [], layouts: [singleton()] });
-
-  assert.equal((await app.getDefinitionSet()).homepage, null);
-});

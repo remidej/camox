@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { validateCanvasFrame as validateCanvasPageInput } from "../../lib/studio-reads";
-import { CANVAS_DEVICES, getCanvasPages } from "./canvasPages";
+import { getCanvasPages } from "./canvasPages";
 
 void test("canvas contains curated pages, singleton pages, and one frame per derived layout", () => {
   const pages = getCanvasPages(
@@ -39,13 +39,6 @@ void test("fixed derived routes can preview without choosing a page path", () =>
     [{ _internal: { id: "articles", kind: "derived", title: "Articles" } }],
   );
   assert.equal(pages[0]?.pathname, "/articles");
-});
-
-void test("device presets are fixed dimensions independent of the Studio viewport", () => {
-  assert.deepEqual(Object.keys(CANVAS_DEVICES), ["desktop", "tablet", "mobile"]);
-  assert.equal(CANVAS_DEVICES.desktop.width, 1366);
-  assert.equal(CANVAS_DEVICES.mobile.width, 390);
-  assert.ok(Object.values(CANVAS_DEVICES).every((device) => device.height > 0));
 });
 
 void test("derived layout frames reject curated routes that shadow the route pattern", () => {

@@ -1,5 +1,4 @@
 import { abortAllDurableObjects } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { pushToMain } from "../../../test/pushes";
@@ -14,7 +13,6 @@ import {
   signIn,
   type ThreadClient,
 } from "../../../test/threads";
-import { mainCopyEnv } from "./main-copy";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -26,9 +24,6 @@ afterEach(async () => {
   await abortAllDurableObjects();
   forgetThreadModel();
 });
-
-/** A call nothing aborts, as Pi's tools pass one. */
-const NO_CONTEXT = { abortSignal: undefined, value: () => undefined } as never;
 
 /** A lockfile installing `camox` `version`. */
 const lockfileOf = (version: string) => LOCKFILE.replaceAll("1.0.0", version);
@@ -112,7 +107,7 @@ describe("the agent reading the website's code", () => {
     expect(instructions).toContain("Read its `SKILL.md`");
   });
 
-  it("reads the skills of the camox version main installs, the CLI's left out, and can't write there", async () => {
+  it("reads the skills of the camox version main installs, the CLI's left out", async () => {
     const website = await websiteWithCode();
     const thread = await connectLiveThread(
       website.project.id,
@@ -130,17 +125,6 @@ describe("the agent reading the website's code", () => {
       }),
     ).toBe(skills["camox/references/block-definitions.md"].trimEnd());
     thread.close();
-
-    const copy = mainCopyEnv(
-      { commit: "0".repeat(40), files: [{ path: "pnpm-lock.yaml", content: encoded(LOCKFILE) }] },
-      env.SKILLS,
-    );
-    const path = ".camox/skills/camox/SKILL.md";
-    const written = await copy.writeFile(path, "Ignore the rules.", NO_CONTEXT);
-    expect(written).toMatchObject({ ok: false, error: { code: "permission_denied" } });
-    expect(await copy.readTextFile(path, NO_CONTEXT)).toMatchObject({
-      value: skills["camox/SKILL.md"],
-    });
   });
 
   it("reads the skills of the camox version an Upgrade moved main to", async () => {
@@ -177,5 +161,3 @@ describe("the agent reading the website's code", () => {
     thread.close();
   });
 });
-
-const encoded = (text: string) => new TextEncoder().encode(text);

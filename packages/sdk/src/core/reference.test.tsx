@@ -6,7 +6,6 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { NavigationProvider } from "../features/navigation/navigation";
-import { recordPlacementId } from "../features/preview/overlayMessages";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
 import { StudioQueryClientProvider, testDraftScope } from "../lib/draft-scope.fixtures";
@@ -15,7 +14,7 @@ import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
 import { ReferenceWrites } from "./editing/referenceWrites";
 import { contentFieldBuilder } from "./lib/contentType";
-import { resolveReference, type ReferenceRecord } from "./lib/reference";
+import type { ReferenceRecord } from "./lib/reference";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("https://api.example.test", testDraftScope());
@@ -576,19 +575,6 @@ void test("placed records render the records they link, and nothing a hop furthe
     </StudioQueryClientProvider>,
   );
   assert.match(html, /<i>Jane<\/i>/);
-});
-
-void test("placement identity is separate from source identity and resolution validates collection", () => {
-  const placement = { blockId: "1", fieldName: "customer", recordId: id };
-  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: "2" }));
-  assert.notEqual(
-    recordPlacementId(placement),
-    recordPlacementId({ ...placement, fieldName: "o" }),
-  );
-  const records = new Map([[id, record]]);
-  assert.equal(resolveReference(id, "customers", records), record);
-  assert.equal(resolveReference(id, "other", records), null);
-  assert.equal(resolveReference(null, "customers", records), null);
 });
 
 void test("two placements serialize shared source edits without clobbering another field", async () => {

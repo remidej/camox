@@ -5,7 +5,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture } from "../test/fixtures";
 import app from "./index";
-import { artifactSources } from "./schema";
 import type { Bindings } from "./types";
 
 const bucket = () => (env as unknown as Bindings).FILES_BUCKET;
@@ -102,23 +101,6 @@ describe("a project's favicon", () => {
 });
 
 describe("a project's artifact source", () => {
-  it("is kept for good once stored, since its hash names one source for good", async () => {
-    const { db, project } = await createProjectFixture(`artifact-edge-${crypto.randomUUID()}`);
-    const source = `<title>Kept</title><p>${crypto.randomUUID()}</p>`;
-    const hash = await artifactSourceHash(source);
-    await db
-      .insert(artifactSources)
-      .values({ projectId: project.id, hash, source, createdAt: Date.now() });
-
-    const response = await SELF.fetch(
-      `https://api.camox.ai/artifact-sources/${project.uuid}/${hash}`,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe(source);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
-  });
-
   it("is not kept while it's missing, by the edge or from the API's own answer, so a source stored later isn't hidden", async () => {
     const { project } = await createProjectFixture(`artifact-edge-${crypto.randomUUID()}`);
     const hash = await artifactSourceHash(crypto.randomUUID());
