@@ -2,18 +2,23 @@ import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import type { ThreadView } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { addMember, createRpcContext, startDraft } from "../../../test/fixtures";
+import { answerNext as answerOverview } from "../../../test/generation";
 import {
   answerFrom,
   answerNext,
   answerWithMessages,
   answerWithScript,
   answerWithToolCall,
+  answerWithToolCallFrom,
   forgetThreadModel,
   holdNextScript,
+  type ModelRequest,
+  threadModelCalls,
 } from "../../../test/thread-model";
 import {
   ask,
@@ -28,6 +33,9 @@ import {
   type Website,
   websiteFixture,
 } from "../../../test/threads";
+import type { DraftOverview } from "../../lib/ai-model";
+import { runService } from "../../lib/run-service";
+import { runOverviewJob } from "../drafts/overview-job";
 import { draftProcedures } from "../drafts/routes";
 import { liveThreads } from "./schema";
 
@@ -43,6 +51,7 @@ vi.mock("../../lib/thread-model", async () => {
 
 afterEach(async () => {
   await abortAllDurableObjects();
+  vi.restoreAllMocks();
   forgetThreadModel();
 });
 
@@ -259,6 +268,169 @@ describe("a Live thread handing a request off to a draft", () => {
   });
 });
 
+/** The note Camox adds to the Live thread once a draft it started ended. */
+const PUBLISHED_NOTE =
+  'Note from Camox: the draft "New prices" you started was published by Teammate, so its ' +
+  "changes are on Live now. Its Draft Overview:\n\nPlans cost $12\n- The pricing page's price " +
+  "rose from $9 to $12";
+const DELETED_NOTE =
+  'Note from Camox: the draft "New prices" you started was deleted by Teammate, so none of its ' +
+  "changes reached Live.";
+
+/**
+ * A draft named "New prices" the agent on Live started as the fixture member asked, whose agent
+ * raised the price, and what the agent on Live saw as it started it.
+ */
+async function handedOffDraft(website: Website, token: string) {
+  let handingOff: ModelRequest | undefined;
+  answerWithToolCallFrom("startDraft", (request) => {
+    handingOff = request;
+    return { name: "New prices", brief: BRIEF };
+  });
+  answerWithScript(RAISE_PRICE);
+  answerNext("Raised the price.");
+  await ask(await connectLiveThread(website.project.id, token), "Raise the price to $12");
+  const [draft] = await draftsOf(website);
+  const inDraft = await connectDraftThread(website.project.id, draft!.id, token);
+  await inDraft.untilIdle(3);
+  inDraft.close();
+  return { draftId: draft!.id, handingOff: handingOff! };
+}
+
+/** Scripts the model's next answer, keeping what it saw as it was called. */
+function seenByNextAnswer(text: string) {
+  const seen: { request?: ModelRequest } = {};
+  answerFrom((request) => {
+    seen.request = request;
+    return text;
+  });
+  return seen;
+}
+
+describe("the agent on Live hearing that a draft it started ended", () => {
+  it("reads who published it and its Draft Overview after everything before, which shows no note", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const teammate = await addMember(website.db, website.project.organizationId);
+    const { draftId, handingOff } = await handedOffDraft(website, token);
+    await writeOverview(website, draftId, {
+      headline: "Plans cost $12",
+      bullets: ["The pricing page's price rose from $9 to $12"],
+    });
+
+    await publish(website, draftId, teammate);
+
+    const seen = seenByNextAnswer("It's live.");
+    const view = await ask(await connectLiveThread(website.project.id, token), "Is it live?");
+    expect(seen.request?.editorMessages).toEqual([
+      "Raise the price to $12",
+      PUBLISHED_NOTE,
+      "Is it live?",
+    ]);
+    expect(seen.request?.instructions).toBe(handingOff.instructions);
+    expect(said(view)).toEqual([
+      { from: "editor", text: "Raise the price to $12" },
+      { from: "draft", name: "New prices" },
+      { from: "editor", text: "Is it live?" },
+      { from: "agent", text: "It's live." },
+    ]);
+  });
+
+  it("reads who deleted it at the next break of the run going", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const teammate = await addMember(website.db, website.project.organizationId);
+    const { draftId } = await handedOffDraft(website, token);
+    const live = await connectLiveThread(website.project.id, token);
+    const calls = threadModelCalls();
+    const release = holdNextScript(`text((await tools.listPages({})).length + " page");`);
+    const seen = seenByNextAnswer("It was deleted, so prices stay at $9.");
+    live.send({ type: "send", operationId: crypto.randomUUID(), text: "Do prices change?" });
+    await until(async () => threadModelCalls() > calls);
+
+    await deleteDraft(website, draftId, teammate);
+    release();
+
+    await live.until(() => !live.view().running && lastAnswer(live.view()) !== undefined);
+    expect(seen.request?.editorMessages).toEqual([
+      "Raise the price to $12",
+      "Do prices change?",
+      DELETED_NOTE,
+    ]);
+    expect(said(live.view()).at(-1)).toEqual({
+      from: "agent",
+      text: "It was deleted, so prices stay at $9.",
+    });
+    live.close();
+  });
+
+  it("hears nothing of a draft no Live thread started", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { db, memberUser, project } = website;
+    const token = await signIn(db, memberUser.id);
+    answerNext("Plans start at $9.");
+    await ask(await connectLiveThread(project.id, token), "What do plans cost?");
+    const draftId = await startDraft(db, project.id, memberUser.id);
+
+    await deleteDraft(website, draftId, memberUser);
+
+    const seen = seenByNextAnswer("Still $9.");
+    await ask(await connectLiveThread(project.id, token), "And now?");
+    expect(seen.request?.editorMessages).toEqual(["What do plans cost?", "And now?"]);
+  });
+
+  it.each([
+    ["published", publish],
+    ["deleted", deleteDraft],
+  ] as const)(
+    "leaves the draft %s when the note can't reach the Live thread",
+    async (outcome, end) => {
+      const website = await websiteFixture({ pricing: "Plans start at $9." });
+      const token = await signIn(website.db, website.memberUser.id);
+      const { draftId } = await handedOffDraft(website, token);
+      const liveThreadId = await liveThreadIdOf(website);
+      const getByName = env.THREAD.getByName.bind(env.THREAD);
+      vi.spyOn(env.THREAD, "getByName").mockImplementation((name) => {
+        if (name === liveThreadId) throw new Error("The Live thread is unreachable");
+        return getByName(name);
+      });
+
+      const result = await end(website, draftId, website.memberUser);
+
+      expect(result.ended).toMatchObject({ draftId, outcome });
+      expect(await draftsOf(website)).toEqual([]);
+    },
+  );
+});
+
+type Member = Website["memberUser"];
+
+const inDraft = ({ db }: Website, draftId: string, member: Member) => ({
+  context: createRpcContext(db, member, { [DRAFT_HEADER]: draftId }),
+});
+
+/** Deletes a draft as `member` (the fixture member by default) does from the studio. */
+function deleteDraft(website: Website, draftId: string, member: Member = website.memberUser) {
+  return call(
+    draftProcedures.delete,
+    { projectId: website.project.id },
+    inDraft(website, draftId, member),
+  );
+}
+
+/** Publishes a draft as `member` does from the studio, after reviewing it. */
+async function publish(website: Website, draftId: string, member: Member) {
+  const projectId = website.project.id;
+  const options = inDraft(website, draftId, member);
+  const { token } = await call(draftProcedures.previewPublish, { projectId }, options);
+  return call(draftProcedures.publish, { projectId, token }, options);
+}
+
+/** Has the model write `overview` as the draft's Draft Overview. */
+async function writeOverview(website: Website, draftId: string, overview: DraftOverview) {
+  answerOverview("draftOverview", overview);
+  await runService(runOverviewJob(website.db, { kind: "overview", draftId }));
+}
 describe("a Live thread's card for a draft it started", () => {
   it("shows the draft's new name once it's renamed, on the Live thread already open and on the next", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
@@ -296,7 +468,7 @@ describe("a Live thread's card for a draft it started", () => {
     await until(async () => (await pagesOf(website, draft!.id))["/pricing"]![0]!.includes("$12"));
     await renameDraft(website, draft!.id, "Prices for 2027");
 
-    await publishDraft(website, draft!.id);
+    await publish(website, draft!.id, website.memberUser);
 
     await live.until(() => cardOf(live.view())?.ended !== undefined);
     expect(cardOf(live.view())).toEqual({
@@ -379,25 +551,11 @@ const cardOf = (view: ThreadView) => {
   return message?.from === "draft" ? message : undefined;
 };
 
-/** Publishes a draft whole, as a member does from its review. */
-async function publishDraft({ db, memberUser, project }: Website, draftId: string) {
-  const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
-  const { token } = await call(
-    draftProcedures.previewPublish,
-    { projectId: project.id },
-    { context },
+/** Renames a draft as the fixture member does from the studio. */
+function renameDraft(website: Website, draftId: string, name: string) {
+  return call(
+    draftProcedures.rename,
+    { projectId: website.project.id, name },
+    inDraft(website, draftId, website.memberUser),
   );
-  await call(draftProcedures.publish, { projectId: project.id, token }, { context });
-}
-
-/** Renames a draft as a member does from the studio. */
-async function renameDraft({ db, memberUser, project }: Website, draftId: string, name: string) {
-  const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
-  await call(draftProcedures.rename, { projectId: project.id, name }, { context });
-}
-
-/** Deletes a draft as a member does from the studio. */
-async function deleteDraft({ db, memberUser, project }: Website, draftId: string) {
-  const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
-  await call(draftProcedures.delete, { projectId: project.id }, { context });
 }

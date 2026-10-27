@@ -2,6 +2,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   BRIEF_ENTRY,
   BUILD_STATUS_ENTRY,
+  DRAFT_ENDED_ENTRY,
   type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
@@ -1155,6 +1156,26 @@ export class Thread extends DurableObject<Bindings> {
       operationId: last.operationId,
       entry: entryOf(last.operationId),
     });
+  }
+
+  /**
+   * Adds Camox's `note` that the draft `draftId`, which this Live thread started, ended, at the
+   * end of the conversation: right away when the thread is idle, or else at the next break of
+   * the run going, as Pi places a write the model reads. Only the model reads it, and it asks the
+   * model nothing: nothing earlier, nor the system prompt, changes (ADR 0025). Repeating it adds
+   * nothing.
+   */
+  async noteDraftEnded({ draftId, note }: { draftId: string; note: string }): Promise<void> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return;
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    await root?.submit(
+      {
+        type: "write",
+        requestId: `${DRAFT_ENDED_ENTRY}:${draftId}`,
+        entry: { kind: DRAFT_ENDED_ENTRY, data: { draftId }, model: [userMessage(note)] },
+      },
+      BACKGROUND,
+    );
   }
 
   async #watch(socket: WebSocket) {

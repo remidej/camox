@@ -7,6 +7,7 @@ import { isProjectMember } from "../../authorization";
 import type { Database } from "../../db";
 import type { ServiceContext } from "../_shared/service-context";
 import { writeAccessWhilePublishing } from "../drafts/access";
+import { peopleNamed, personOf } from "../drafts/people";
 import { drafts, endedDrafts } from "../drafts/schema";
 import type { DraftRequest } from "../drafts/scope";
 import { startDraft } from "../drafts/service";
@@ -156,43 +157,99 @@ export const draftThread = Effect.fn("draftThread")(function* (
   return { draft, threadId };
 });
 
+/** How a draft ends, and who ends it, by the id the draft's record stores. */
+export type DraftEnding = { outcome: "published" | "deleted"; by: string };
+
 /**
- * A draft's thread, as a publish or delete ends the draft, read before it does. Its `statements`
- * join the batch ending the draft, letting go of the thread there: a development draft stays
- * open, so the next one to open its thread starts a new one, and a regular draft lets go of it
- * with its row. Once the batch applied, `end` deletes the thread, which wipes what it stored
- * and turns away whatever reaches it after. A Live thread that started the draft is never
- * ended: it's the editor's for good, and only shows its card's draft as ended.
+ * The note Camox adds at the end of the Live thread that started a draft once it ended, which
+ * only the model reads: the draft's name, who ended it, and for a publish, its Draft Overview.
+ */
+function draftEndedNote(ended: {
+  name: string | null;
+  outcome: DraftEnding["outcome"];
+  by: string;
+  overview?: { headline: string; bullets: readonly string[] };
+}) {
+  const draft = ended.name ? `the draft "${ended.name}"` : "a draft";
+  const note = `Note from Camox: ${draft} you started was ${ended.outcome} by ${ended.by}`;
+  if (ended.outcome === "deleted") return `${note}, so none of its changes reached Live.`;
+  const published = `${note}, so its changes are on Live now.`;
+  if (!ended.overview) return published;
+  const bullets = ended.overview.bullets.map((bullet) => `\n- ${bullet}`).join("");
+  return `${published} Its Draft Overview:\n\n${ended.overview.headline}${bullets}`;
+}
+
+/**
+ * A draft's threads, as a publish or delete ends the draft, read before it does. Its
+ * `statements` join the batch ending the draft, letting go of its own thread there: a
+ * development draft stays open, so the next one to open its thread starts a new one, and a
+ * regular draft lets go of it with its row. Once the batch applied, `end` deletes that thread,
+ * which wipes what it stored and turns away whatever reaches it after. The Live thread that
+ * started the draft, if any, is the editor's for good: `end` only adds Camox's note at its end,
+ * saying how the draft ended, and shows the draft's card as ended (ADR 0025).
  *
  * The draft ended either way, so `end` never fails: a thread it couldn't reach is only reported.
  */
 export const endingThread = Effect.fn("endingThread")(function* (
   ctx: Pick<ServiceContext, "db" | "env">,
   draftId: string,
+  ending: DraftEnding,
 ) {
-  const liveThreadId = yield* Effect.promise(() =>
+  const draft = yield* Effect.promise(() =>
     ctx.db
-      .select({ liveThreadId: drafts.liveThreadId })
+      .select({
+        threadId: drafts.threadId,
+        liveThreadId: drafts.liveThreadId,
+        name: drafts.name,
+        overviewHeadline: drafts.overviewHeadline,
+        overviewBullets: drafts.overviewBullets,
+      })
       .from(drafts)
       .where(eq(drafts.id, draftId))
       .get(),
-  ).pipe(Effect.map((row) => row?.liveThreadId));
-  const showOnLive = showDraftOnLive(ctx, liveThreadId);
-  const threadId = yield* threadOfDraft(ctx.db, draftId);
-  if (!threadId) return { statements: [], end: showOnLive };
+  );
+  const threadId = draft?.threadId ?? null;
+  const liveThreadId = draft?.liveThreadId ?? null;
+  const note =
+    draft && liveThreadId
+      ? draftEndedNote({
+          name: draft.name,
+          outcome: ending.outcome,
+          by: personOf(yield* peopleNamed(ctx.db, [ending.by]), ending.by).name,
+          overview:
+            ending.outcome === "published" && draft.overviewHeadline
+              ? { headline: draft.overviewHeadline, bullets: draft.overviewBullets ?? [] }
+              : undefined,
+        })
+      : undefined;
+  const endThread = Effect.promise(async () => {
+    if (!threadId) return;
+    try {
+      await ctx.env.THREAD.getByName(threadId).end();
+    } catch (error) {
+      console.error("A thread didn't end with its draft", error);
+    }
+  }).pipe(Effect.withSpan("endThread"));
+  const tellLive = Effect.promise(async () => {
+    if (!liveThreadId || !note) return;
+    try {
+      await ctx.env.THREAD.getByName(liveThreadId).noteDraftEnded({ draftId, note });
+    } catch (error) {
+      console.error("The Live thread that started a draft didn't hear it ended", error);
+    }
+  }).pipe(Effect.withSpan("noteDraftEnded"));
   return {
-    statements: [
-      ctx.db
-        .update(drafts)
-        .set({ threadId: null })
-        .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
-    ],
-    end: Effect.promise(async () => {
-      try {
-        await ctx.env.THREAD.getByName(threadId).end();
-      } catch (error) {
-        console.error("A thread didn't end with its draft", error);
-      }
-    }).pipe(Effect.withSpan("endThread"), Effect.andThen(showOnLive)),
+    statements: threadId
+      ? [
+          ctx.db
+            .update(drafts)
+            .set({ threadId: null })
+            .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
+        ]
+      : [],
+    end: endThread.pipe(
+      Effect.andThen(tellLive),
+      Effect.andThen(showDraftOnLive(ctx, liveThreadId)),
+    ),
   };
 });
