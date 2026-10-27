@@ -40,12 +40,10 @@ export const BRIEF_ENTRY = "camox.brief";
 
 /**
  * The kind of the transcript entry telling the agent on Live that a draft it started ended,
- * published or deleted, with the draft's id as data (`draftEndedDataSchema`). The model reads
+ * published or deleted, with the draft's id as data (`{ draftId }`). The model reads
  * it at the end of the conversation; editors never see it, since the draft's card says so.
  */
 export const DRAFT_ENDED_ENTRY = "camox.draft-ended";
-
-export const draftEndedDataSchema = z.object({ draftId: z.string() });
 
 /**
  * The agent's tool on Live handing a request off to a draft it starts (ADR 0025). A run whose
@@ -272,7 +270,8 @@ export type ThreadServerMessage =
  */
 export const THREAD_ENDED_CLOSE_CODE = 4000;
 
-const textOf = (content: Message["content"]) =>
+/** The text of a message's content: its text parts, joined. */
+export const textOf = (content: Message["content"]) =>
   typeof content === "string"
     ? content
     : content

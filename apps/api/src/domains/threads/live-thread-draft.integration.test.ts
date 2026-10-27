@@ -3,7 +3,6 @@ import type { ThreadView } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { addMember, createRpcContext, startDraft } from "../../../test/fixtures";
@@ -17,6 +16,7 @@ import {
   answerWithToolCallFrom,
   forgetThreadModel,
   holdNextScript,
+  holdNextToolCall,
   type ModelRequest,
   threadModelCalls,
 } from "../../../test/thread-model";
@@ -37,7 +37,6 @@ import type { DraftOverview } from "../../lib/ai-model";
 import { runService } from "../../lib/run-service";
 import { runOverviewJob } from "../drafts/overview-job";
 import { draftProcedures } from "../drafts/routes";
-import { liveThreads } from "./schema";
 
 // The agent on Live changes nothing itself: it hands each request that would change the website
 // off to a draft it starts with `startDraft`, whose thread takes the request on from a Brief
@@ -84,15 +83,18 @@ const CREATE_LAUNCH_PAGE = `
 /** Scripts the agent on Live handing the request off to a draft named `name`. */
 const handOff = (name: string, brief = BRIEF) => answerWithToolCall("startDraft", { name, brief });
 
-/** The Live thread's id, which the socket's route resolves for its editor. */
-const liveThreadIdOf = async ({ db, memberUser, project }: Website) => {
-  const row = await db
-    .select({ threadId: liveThreads.threadId })
-    .from(liveThreads)
-    .where(and(eq(liveThreads.projectId, project.id), eq(liveThreads.userId, memberUser.id)))
-    .get();
-  return row?.threadId;
-};
+/** The id of the Live thread the editor signed in with `token` reaches, as its socket's route names it. */
+async function liveThreadIdOf({ project }: Website, token: string) {
+  const getByName = vi.spyOn(env.THREAD, "getByName");
+  try {
+    (await connectLiveThread(project.id, token)).close();
+    const [threadId] = getByName.mock.calls.at(-1) ?? [];
+    if (!threadId) throw new Error("The socket reached no thread");
+    return threadId;
+  } finally {
+    getByName.mockRestore();
+  }
+}
 
 describe("a Live thread handing a request off to a draft", () => {
   it("answers a read-only question without starting a draft", async () => {
@@ -194,6 +196,45 @@ describe("a Live thread handing a request off to a draft", () => {
     expect(await pagesOf(website)).toEqual(LIVE_PRICING);
   });
 
+  it("hands off a message sent as the agent on Live starts the draft, its turn still ending on the card", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { db, memberUser, project } = website;
+    const token = await signIn(db, memberUser.id);
+    const live = await connectLiveThread(project.id, token);
+    const release = holdNextToolCall("startDraft", { name: "Launch page", brief: BRIEF });
+    answerFrom(({ editorMessages }) => `Saw: ${editorMessages.join(" | ")}.`);
+    live.send({ type: "send", operationId: crypto.randomUUID(), text: "Add a launch page" });
+    await live.until(() => live.view().running);
+    // Sent while the agent on Live was calling startDraft.
+    const steering = crypto.randomUUID();
+    live.send({ type: "send", operationId: steering, text: "Link it from pricing" });
+    await live.until(() =>
+      live.frames.some((frame) => frame.type === "accepted" && frame.operationId === steering),
+    );
+    const calls = threadModelCalls();
+
+    release();
+
+    await live.until(() => !live.view().running && live.view().messages.at(-1)?.from === "draft");
+    const [draft] = await draftsOf(website);
+    const inDraft = await connectDraftThread(project.id, draft!.id, token);
+    await inDraft.untilIdle(4);
+    expect(said(inDraft.view())).toEqual([
+      { from: "camox", text: BRIEF },
+      { from: "editor", text: "Add a launch page" },
+      { from: "editor", text: "Link it from pricing" },
+      { from: "agent", text: `Saw: ${BRIEF} | Add a launch page | Link it from pricing.` },
+    ]);
+    inDraft.close();
+    // The agent on Live said nothing after the card: only the draft's agent answered.
+    expect(threadModelCalls()).toBe(calls + 1);
+    expect(said(live.view())).toEqual([
+      { from: "editor", text: "Add a launch page" },
+      { from: "draft", name: "Launch page" },
+    ]);
+    live.close();
+  });
+
   it("refuses a script that writes on Live", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
@@ -213,7 +254,7 @@ describe("a Live thread handing a request off to a draft", () => {
     const threadId = await (async () => {
       answerNext("Plans start at $9.");
       await ask(await connectLiveThread(website.project.id, token), "What do plans cost?");
-      return liveThreadIdOf(website);
+      return liveThreadIdOf(website, token);
     })();
     handOff("New prices");
     answerNext("Raised the price.");
@@ -230,7 +271,7 @@ describe("a Live thread handing a request off to a draft", () => {
 
     const view = await ask(await connectLiveThread(website.project.id, token), "Add a launch page");
 
-    expect(await liveThreadIdOf(website)).toBe(threadId);
+    expect(await liveThreadIdOf(website, token)).toBe(threadId);
     expect(said(view)).toEqual([
       { from: "editor", text: "What do plans cost?" },
       { from: "agent", text: "Plans start at $9." },
@@ -388,7 +429,7 @@ describe("the agent on Live hearing that a draft it started ended", () => {
       const website = await websiteFixture({ pricing: "Plans start at $9." });
       const token = await signIn(website.db, website.memberUser.id);
       const { draftId } = await handedOffDraft(website, token);
-      const liveThreadId = await liveThreadIdOf(website);
+      const liveThreadId = await liveThreadIdOf(website, token);
       const getByName = env.THREAD.getByName.bind(env.THREAD);
       vi.spyOn(env.THREAD, "getByName").mockImplementation((name) => {
         if (name === liveThreadId) throw new Error("The Live thread is unreachable");
