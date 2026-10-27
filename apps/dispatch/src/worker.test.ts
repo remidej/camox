@@ -409,15 +409,23 @@ describe("a draft with code's preview", () => {
     expect(asked).toEqual([{ project: PROJECT, draft: DRAFT, session: MEMBER_SESSION }]);
   });
 
-  it("reaches it with Better Auth's own cookie too, as on the API's host", async () => {
-    const { fetch } = await previewingEnv();
+  it.each([
+    ["the project's camox.site host", undefined],
+    ["the project's Custom Domain", "acme.example"],
+  ])(
+    "treats a request with only a native session cookie as signed out on %s",
+    async (_, customDomain) => {
+      // On camox.ai, Better Auth's own cookie is the dashboard's session, set for every host.
+      const { fetch, asked } = await previewingEnv({ customDomain });
 
-    const response = await fetch(`/_camox/renderer?camox-draft=${DRAFT}`, {
-      cookie: `theme=dark; ${MEMBER_SESSION}`,
-    });
+      const response = await fetch(`/_camox/renderer?camox-draft=${DRAFT}`, {
+        cookie: `theme=dark; ${MEMBER_SESSION}`,
+      });
 
-    expect(await response.text()).toContain(`The revision under ${PREFIX}`);
-  });
+      expect(await response.text()).toBe(`Live's code at /_camox/renderer?camox-draft=${DRAFT}`);
+      expect(asked).toEqual([]);
+    },
+  );
 
   it("asks the API with the request's session, about the project its host serves", async () => {
     const { fetch, asked } = await previewingEnv();

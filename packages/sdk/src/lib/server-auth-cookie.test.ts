@@ -15,17 +15,14 @@ void test("uses the cross-domain mirror when present", () => {
   );
 });
 
-void test("supports native HttpOnly session cookies without forwarding unrelated cookies", () => {
+void test("ignores native session cookies, which on camox.ai are the dashboard's session", () => {
   for (const name of ["better-auth.session_token", "__Secure-better-auth.session_token"]) {
-    const cookie = `${name}=token.signature%3D`;
     for (const mirror of ["", "camox_auth_cookie=; ", "camox_auth_cookie=%ZZ; "]) {
       assert.equal(
         getServerAuthCookieHeader(
-          new Headers({
-            Cookie: `${mirror}theme=dark; ${cookie}; unrelated=secret`,
-          }),
+          new Headers({ Cookie: `${mirror}theme=dark; ${name}=token.signature%3D` }),
         ),
-        cookie,
+        "",
       );
     }
   }

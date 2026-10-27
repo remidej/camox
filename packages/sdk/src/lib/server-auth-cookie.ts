@@ -4,29 +4,20 @@ export function buildClearServerAuthCookieHeader() {
   return `${SERVER_AUTH_COOKIE_NAME}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
-/** Forward credentials to the API for validation; cookie presence is not authentication.
- * Cross-domain sessions use the mirror. Same-host sessions (including localhost
- * on different ports) may only have Better Auth's native, HttpOnly cookie.
+/**
+ * The session to forward to the API for validation; cookie presence is not authentication. Only
+ * the studio's session counts, which the SDK mirrors into `camox_auth_cookie`. Better Auth's own
+ * cookies don't: on a Custom Domain like camox.ai they're the dashboard's session, set for every
+ * host (ADR 0028). Mirrored in apps/dispatch/src/previews.ts: keep the two in sync.
  */
 export function getServerAuthCookieHeader(headers: Headers): string {
   const cookies = (headers.get("Cookie") ?? "").split(";").map((part) => part.trim());
   const mirror = cookies.find((part) => part.startsWith(`${SERVER_AUTH_COOKIE_NAME}=`));
-  if (mirror) {
-    try {
-      const value = decodeURIComponent(mirror.slice(SERVER_AUTH_COOKIE_NAME.length + 1));
-      if (value) return value;
-    } catch {
-      // A malformed mirror should not prevent a valid native session from working.
-    }
+  if (!mirror) return "";
+  try {
+    return decodeURIComponent(mirror.slice(SERVER_AUTH_COOKIE_NAME.length + 1));
+  } catch {
+    // A malformed mirror is no session.
+    return "";
   }
-
-  // Don't forward unrelated application cookies to the API, or decode native
-  // values: Better Auth must receive the signed cookie exactly as the browser sent it.
-  return cookies
-    .filter(
-      (part) =>
-        part.startsWith("better-auth.session_token=") ||
-        part.startsWith("__Secure-better-auth.session_token="),
-    )
-    .join("; ");
 }
