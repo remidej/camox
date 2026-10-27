@@ -12,6 +12,7 @@ import {
 } from "@camox/ui/message-scroller";
 import * as React from "react";
 
+import { cn } from "../../../lib/utils";
 import { Squareling, type SquarelingStatus } from "./Squareling";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
@@ -171,37 +172,10 @@ function ThreadMessageRow({
   onOpenDraft?: (draftId: string) => void;
 }) {
   if (message.from === "draft") {
-    // The agent on Live handed the request off to this draft, where its agent does the work.
-    // Once the draft ended, there's nothing to open: the card says how it ended.
-    if (message.ended) {
-      return (
-        <Message>
-          <MessageContent>
-            <div
-              data-thread-draft-card
-              className="bg-muted/50 flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-sm"
-            >
-              <span className="text-muted-foreground text-xs">
-                {message.ended === "published" ? "Published" : "Deleted"}
-              </span>
-              <span className="font-medium">{message.name}</span>
-            </div>
-          </MessageContent>
-        </Message>
-      );
-    }
     return (
       <Message>
         <MessageContent>
-          <button
-            type="button"
-            data-thread-draft-card
-            onClick={() => onOpenDraft?.(message.draftId)}
-            className="bg-muted/50 hover:bg-muted focus-visible:ring-ring flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
-          >
-            <span className="text-muted-foreground text-xs">Started a draft</span>
-            <span className="font-medium">{message.name}</span>
-          </button>
+          <DraftCard message={message} onOpenDraft={onOpenDraft} />
         </MessageContent>
       </Message>
     );
@@ -262,6 +236,47 @@ const initials = (name: string) =>
     .join("")
     .toUpperCase()
     .slice(0, 2);
+
+const DRAFT_CARD_CLASSES =
+  "bg-muted/50 flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left text-sm";
+
+/**
+ * The card of the draft the agent on Live handed the request off to, where its agent does the
+ * work: it opens the draft. Once the draft ended, there's nothing to open: it says how it ended.
+ */
+function DraftCard({
+  message,
+  onOpenDraft,
+}: {
+  message: Extract<ThreadMessage, { from: "draft" }>;
+  onOpenDraft?: (draftId: string) => void;
+}) {
+  const name = <span className="font-medium">{message.name}</span>;
+  if (message.ended) {
+    return (
+      <div data-thread-draft-card className={DRAFT_CARD_CLASSES}>
+        <span className="text-muted-foreground text-xs">
+          {message.ended === "published" ? "Published" : "Deleted"}
+        </span>
+        {name}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-thread-draft-card
+      onClick={() => onOpenDraft?.(message.draftId)}
+      className={cn(
+        DRAFT_CARD_CLASSES,
+        "hover:bg-muted focus-visible:ring-ring transition-colors focus-visible:ring-2 focus-visible:outline-none",
+      )}
+    >
+      <span className="text-muted-foreground text-xs">Started a draft</span>
+      {name}
+    </button>
+  );
+}
 
 function SenderAvatar({ sender }: { sender: ThreadSender }) {
   return (
