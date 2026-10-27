@@ -77,6 +77,7 @@ import {
   type PageIdentity,
 } from "./alternates";
 import { type AnalyticsProviders, configuredProviders, renderAnalyticsScripts } from "./analytics";
+import { createArtifactDocumentResponse, isArtifactPath } from "./artifactDocuments";
 import { omitArtifactSources } from "./artifactSources";
 import { assetPrefix } from "./assetPrefix";
 import { type Crumb, readBreadcrumb } from "./breadcrumbs";
@@ -111,7 +112,12 @@ const STUDIO_ROUTE_KINDS = [
 
 export type StudioRouteKind = (typeof STUDIO_ROUTE_KINDS)[number];
 
-export type RuntimeRouteKind = RuntimeOwnedRouteKind | "canvas" | "page" | StudioRouteKind;
+export type RuntimeRouteKind =
+  | RuntimeOwnedRouteKind
+  | "artifact"
+  | "canvas"
+  | "page"
+  | StudioRouteKind;
 
 export interface RuntimeRouteMatch {
   kind: RuntimeRouteKind;
@@ -308,6 +314,7 @@ function getLayoutIdentity(
 export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   const ownedRoute = matchRuntimeOwnedRoute(pathname);
   if (ownedRoute) return { kind: ownedRoute, pathname };
+  if (isArtifactPath(pathname)) return { kind: "artifact", pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
   if (pathname === STUDIO_CANVAS_PATH) return { kind: "canvas", pathname };
   if (
@@ -2025,6 +2032,10 @@ export async function handleCamoxRequest(
       blocks: camoxApp.getBlocks().map((block) => block._internal.id),
       layouts: camoxApp.getLayouts().map((layout) => layout._internal.id),
     });
+  }
+
+  if (match.kind === "artifact") {
+    return createArtifactDocumentResponse(pathname, options);
   }
 
   if (match.kind === "og") {

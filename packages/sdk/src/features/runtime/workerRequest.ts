@@ -1,4 +1,4 @@
-import { matchRuntimeOwnedRoute } from "./runtimeRoutes";
+import { ARTIFACTS_PATH_PREFIX, matchRuntimeOwnedRoute } from "./runtimeRoutes";
 
 /** How the Camox Worker picks the requests it answers and prepares its responses. */
 function isDocumentRequest(request: Request): boolean {
@@ -19,7 +19,7 @@ export function shouldHandleRequest(request: Request, basePath: string): boolean
   const pathname = getRuntimePathname(new URL(request.url).pathname, basePath);
   if (!pathname) return false;
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  if (matchRuntimeOwnedRoute(pathname)) return true;
+  if (matchRuntimeOwnedRoute(pathname) || pathname.startsWith(ARTIFACTS_PATH_PREFIX)) return true;
   if (pathname === "/camox" || pathname.startsWith("/camox/")) return true;
   // Besides its own routes, a page's Markdown Representation is the only file-like URL it answers.
   if (pathname.endsWith(".md")) return true;
