@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.58.0](https://github.com/remidej/camox/compare/camox-v0.57.0...@camox/api-contract-v0.58.0) (2026-10-27)
+
+
+### Features
+
+* public pages load artifacts by URL ([#643](https://github.com/remidej/camox/issues/643)) ([8cb2fa5](https://github.com/remidej/camox/commit/8cb2fa57176d9407604f1df8f0c19422e935baff))
+
 ## [0.57.0](https://github.com/remidej/camox/compare/camox-v0.56.0...@camox/api-contract-v0.57.0) (2026-10-27)
 
 
