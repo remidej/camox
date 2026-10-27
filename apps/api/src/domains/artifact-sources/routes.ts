@@ -25,7 +25,8 @@ artifactSourceRoutes.get("/:projectUuid/:hash", async (c) => {
       ),
     )
     .get();
-  if (!row) return c.json({ error: "Not found" }, 404);
+  // A miss isn't kept, so a source stored later isn't hidden (the edge also keeps only hits).
+  if (!row) return c.json({ error: "Not found" }, 404, { "Cache-Control": "no-store" });
   return new Response(row.source, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",

@@ -5,11 +5,11 @@ import { EDGE_CACHE_PURGE_URL } from "./lib/edge-cache-purges";
 import type { Bindings } from "./types";
 
 // The API's public reads, cached by Cloudflare in front of the Worker (Workers Caching): stored
-// files, favicons, each project's Live cache key, and its artifact sources. Only the `EdgeCache` entrypoint has caching
-// enabled (wrangler.jsonc `exports`); the default entrypoint stays uncached and forwards these
-// reads to it. Cloudflare answers a hit without running the Worker, slices Range requests out of
-// the full response it stored, and answers HEAD from the GET entry. What it keeps is purged by
-// tag (`edgeCachePurges`).
+// files, favicons, each project's Live cache key, and its artifact sources. Only the `EdgeCache`
+// entrypoint has caching enabled (wrangler.jsonc `exports`); the default entrypoint stays
+// uncached and forwards these reads to it. Cloudflare answers a hit without running the Worker,
+// slices Range requests out of the full response it stored, and answers HEAD from the GET entry.
+// What it keeps is purged by tag (`edgeCachePurges`).
 
 const EDGE_CACHED_PATHS = [
   /^\/files\/serve\/.+/,
