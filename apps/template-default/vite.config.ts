@@ -29,8 +29,9 @@ export default defineConfig({
       _internal: {
         authenticationUrl: process.env.VITE_DASHBOARD_URL ?? "http://localhost:3274",
         apiUrl: process.env.VITE_API_URL ?? "http://localhost:8787",
-        // The deploy token apps/api's dev seed gives every project.
-        seedLiveDeployToken: "camox-dev-deploy-token",
+        // The deploy token apps/api's dev seed gives every project: each save releases to
+        // local Live with it.
+        localDeployToken: "camox-dev-deploy-token",
       },
       // camox-cli:dev-only-end
     }),

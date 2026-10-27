@@ -78,7 +78,11 @@ async function definitionSetInDevMode() {
       { name: "vite-plugin-cloudflare" },
       camox({
         projectId: FIXTURE_PROJECT_ID,
-        _internal: { apiUrl: "http://127.0.0.1:9", authenticationUrl: "http://127.0.0.1:9" },
+        _internal: {
+          apiUrl: "http://127.0.0.1:9",
+          authenticationUrl: "http://127.0.0.1:9",
+          localDeployToken: "local-deploy-token",
+        },
       }),
     ],
   });

@@ -1,4 +1,3 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { type Logger, type ViteDevServer, isRunnableDevEnvironment } from "vite-plus";
 
 import type { CamoxApp, DefinitionSet } from "@/core/createApp";
@@ -10,24 +9,8 @@ const SYNC_DEBOUNCE_DELAY_MS = 100;
 interface SyncDefinitionsOptions {
   projectUuid: string;
   apiUrl: string;
-  autoCreate: boolean;
-  authToken?: string;
-  deployToken?: string;
-  /**
-   * A deploy token that releases the local definitions to Live before the first sync, when Live
-   * has no pages yet, so content seeded in dev can be published over it.
-   */
-  releaseToEmptyLive?: string;
-}
-
-/**
- * The client definitions sync with. A release (deploy token) syncs Live's definitions; dev mode
- * sends the developer's session and syncs their development draft, which its first sync
- * creates (ADR 0006).
- */
-function createSyncClient(options: { apiUrl: string; authToken?: string; deployToken?: string }) {
-  const draftId = options.deployToken ? undefined : DEVELOPMENT_DRAFT;
-  return createServerApiClient(options.apiUrl, options.authToken, draftId);
+  /** The Deploy Token every sync releases with, as `camox release` does. */
+  deployToken: string;
 }
 
 function throwIfSyncAuthError(error: unknown): void {
@@ -48,22 +31,6 @@ function isNotFoundError(error: unknown): boolean {
   );
 }
 
-/**
- * A sync that may not create the development draft finds nothing to write to: a release names a
- * project that doesn't exist, or dev mode has no development draft yet (ADR 0006).
- */
-function throwSyncTargetNotFoundError(projectUuid: string, deployToken?: string): never {
-  if (deployToken) {
-    throw new Error(
-      `[camox] No project has the Project ID "${projectUuid}". Check the camox() projectId.`,
-    );
-  }
-  throw new Error(
-    `[camox] You have no development draft in the project with Project ID "${projectUuid}" yet. ` +
-      `Run the dev server while authenticated to create it first.`,
-  );
-}
-
 /** `count` of `noun`, pluralized: "1 block", "2 blocks". */
 function counted(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -75,32 +42,36 @@ function quoted(names: readonly string[]) {
 }
 
 /**
- * Send a Definition Set to the API: Live's for a release, the development draft's in dev mode.
- * It goes in one `definitions.sync` call, which either fully applies it or changes nothing.
+ * Release a Definition Set to Live with the Deploy Token, adding the content it declares that
+ * Live lacks. It goes in one `definitions.sync` call, which either fully applies it or changes
+ * nothing.
  */
 export async function syncDefinitionsToApi(options: {
   definitionSet: DefinitionSet;
   projectUuid: string;
   apiUrl: string;
-  autoCreate: boolean;
-  authToken?: string;
-  deployToken?: string;
+  deployToken: string;
   logger: Logger;
 }): Promise<void> {
-  const { definitionSet, projectUuid, autoCreate, deployToken, logger } = options;
-  const client = createSyncClient(options);
+  const { definitionSet, projectUuid, apiUrl, deployToken, logger } = options;
+  const client = createServerApiClient(apiUrl);
 
   let result;
   try {
-    result = await client.definitions.sync({ projectUuid, deployToken, autoCreate, definitionSet });
+    result = await client.definitions.sync({
+      projectUuid,
+      deployToken,
+      autoCreate: false,
+      definitionSet,
+    });
   } catch (error) {
     throwIfSyncAuthError(error);
-    if (!autoCreate && isNotFoundError(error))
-      throwSyncTargetNotFoundError(projectUuid, deployToken);
+    if (isNotFoundError(error)) {
+      throw new Error(
+        `[camox] No project has the Project ID "${projectUuid}". Check the camox() projectId.`,
+      );
+    }
     throw error;
-  }
-  if (result.draftCreated) {
-    logger.info("[camox] Created your development draft", { timestamp: true });
   }
 
   const definitionCount =
@@ -161,7 +132,7 @@ export async function syncDefinitionsToApi(options: {
     }
   }
 
-  // The homepage is only created for a fresh project or draft.
+  // The homepage is only created for a fresh project.
   const { homepage } = definitionSet;
   if (homepage && result.homepage?.created) {
     if (homepage.hasInitialBlocks) {
@@ -248,64 +219,31 @@ function isScriptFile(file: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(file) && !file.endsWith(".d.ts");
 }
 
-/** Whether a project's Live has no pages, as on a fresh database. */
-async function liveHasNoPages(apiUrl: string, projectUuid: string): Promise<boolean> {
-  const { pages } = await createServerApiClient(apiUrl).pages.listBySlug({ projectUuid });
-  return pages.length === 0;
-}
-
 /**
- * Sync the app's whole Definition Set to the development draft now, then again whenever a module
- * the app depends on changes (debounced), skipping a sync when the set equals the last one sent
- * (ADR 0006). Resolves once the initial sync settles: `synced` if definitions reached the API,
- * and `releasedToLive` if it first released them to an empty Live (`releaseToEmptyLive`).
+ * Release the app's whole Definition Set to Live now, then again whenever a module the app depends
+ * on changes (debounced), skipping a release when the set equals the last one sent (ADR 0027).
+ * Resolves once the initial release settles: `synced` if definitions reached the API.
  */
 export async function syncDefinitions(
   server: ViteDevServer,
   options: SyncDefinitionsOptions,
-): Promise<{ synced: boolean; releasedToLive: boolean }> {
-  const { projectUuid, apiUrl, autoCreate, authToken, deployToken, releaseToEmptyLive } = options;
+): Promise<{ synced: boolean }> {
   const logger = server.config.logger;
 
-  /** What the development draft last received, so an unchanged set isn't sent again. */
+  /** What Live last received, so an unchanged set isn't sent again. */
   let lastSynced: string | undefined;
-  let releasedToLive = false;
 
-  async function sync({ initial = false } = {}): Promise<void> {
+  async function sync(): Promise<void> {
     const definitionSet = await loadDefinitionSet(server);
     const serialized = serializeDefinitionSet(definitionSet);
     if (serialized === lastSynced) return;
-
-    // Release before the dev sync: the development draft then sees Live's layout blocks and
-    // homepage, instead of seeding its own copies that publishing would duplicate.
-    if (initial && releaseToEmptyLive && (await liveHasNoPages(apiUrl, projectUuid))) {
-      logger.info("[camox] Live is empty: releasing your definitions to it", { timestamp: true });
-      await syncDefinitionsToApi({
-        definitionSet,
-        projectUuid,
-        apiUrl,
-        autoCreate: false,
-        deployToken: releaseToEmptyLive,
-        logger,
-      });
-      releasedToLive = true;
-    }
-
-    await syncDefinitionsToApi({
-      definitionSet,
-      projectUuid,
-      apiUrl,
-      autoCreate,
-      authToken,
-      deployToken,
-      logger,
-    });
+    await syncDefinitionsToApi({ ...options, definitionSet, logger });
     lastSynced = serialized;
   }
 
   let synced = false;
   try {
-    await sync({ initial: true });
+    await sync();
     synced = true;
   } catch (error) {
     logger.error(`[camox] Failed to sync Camox definitions: ${String(error)}`, {
@@ -341,5 +279,5 @@ export async function syncDefinitions(
     if (isScriptFile(file) || isAppDependency(server, file)) scheduleSync();
   });
 
-  return { synced, releasedToLive };
+  return { synced };
 }
