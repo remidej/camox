@@ -45,10 +45,10 @@ export function Squareling(props: SquarelingProps) {
       <g className="squareling-body">
         <path d={look.body} className={look.fill} />
         <g className="squareling-eyes fill-neutral-950">
-          {variant === "agent" ? (
-            <AgentEyes status={status as SquarelingStatus} />
+          {props.variant === undefined || props.variant === "agent" ? (
+            <AgentEyes eyes={look.eyes} status={props.status} />
           ) : (
-            <PatrollerEyes eyes={look.eyes} working={status === "working"} />
+            <PatrollerEyes eyes={look.eyes} working={props.status === "working"} />
           )}
         </g>
       </g>
@@ -85,41 +85,53 @@ const NARROWED = 6;
 /** How far down a narrowed eye sits, from the top of the open one. */
 const NARROWED_OFFSET = 8;
 
-function AgentEyes({ status }: { status: SquarelingStatus }) {
+/**
+ * One eye, its left edge at `x` and its top at `y` while open: open, or narrowed on the work.
+ * Only an eye that blinks carries the class `studio.css` blinks.
+ */
+function Eye({
+  x,
+  y,
+  narrowed,
+  blinks,
+}: {
+  x: number;
+  y: number;
+  narrowed: boolean;
+  blinks: boolean;
+}) {
+  return (
+    <rect
+      className={blinks ? "squareling-eye" : undefined}
+      x={x}
+      y={narrowed ? y + NARROWED_OFFSET : y}
+      width={EYE_WIDTH}
+      height={narrowed ? NARROWED : OPEN}
+    />
+  );
+}
+
+/**
+ * The agent's eyes: open, blinking, while idle or thinking; both narrowed while acting; the
+ * right one narrowed while fixing.
+ */
+function AgentEyes({ eyes, status }: { eyes: Eyes; status: SquarelingStatus }) {
+  const [left, right] = eyes.x;
+  const blinks = status === "idle" || status === "thinking";
   return (
     <>
-      {(status === "idle" || status === "thinking") && (
-        <>
-          <rect className="squareling-eye" x="50" y="36" width="11" height="17" />
-          <rect className="squareling-eye" x="69" y="36" width="11" height="17" />
-        </>
-      )}
-      {status === "acting" && (
-        <>
-          <rect x="50" y="44" width="11" height="6" />
-          <rect x="69" y="44" width="11" height="6" />
-        </>
-      )}
-      {status === "fixing" && (
-        <>
-          <rect x="50" y="36" width="11" height="17" />
-          <rect x="69" y="44" width="11" height="6" />
-        </>
-      )}
+      <Eye x={left} y={eyes.y} narrowed={status === "acting"} blinks={blinks} />
+      <Eye
+        x={right}
+        y={eyes.y}
+        narrowed={status === "acting" || status === "fixing"}
+        blinks={blinks}
+      />
     </>
   );
 }
 
 /** A patroller's eyes: open while idle, narrowed on the work while working. */
 function PatrollerEyes({ eyes, working }: { eyes: Eyes; working: boolean }) {
-  return eyes.x.map((x) => (
-    <rect
-      key={x}
-      className="squareling-eye"
-      x={x}
-      y={working ? eyes.y + NARROWED_OFFSET : eyes.y}
-      width={EYE_WIDTH}
-      height={working ? NARROWED : OPEN}
-    />
-  ));
+  return eyes.x.map((x) => <Eye key={x} x={x} y={eyes.y} narrowed={working} blinks />);
 }
