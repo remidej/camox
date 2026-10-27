@@ -5,6 +5,7 @@ import { Effect } from "effect";
 
 import { isProjectMember } from "../../authorization";
 import type { Database } from "../../db";
+import type { Bindings } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import { writeAccessWhilePublishing } from "../drafts/access";
 import { peopleNamed, personOf } from "../drafts/people";
@@ -107,6 +108,30 @@ export const draftCardsOf = Effect.fn("draftCardsOf")(function* (
   return cards;
 });
 
+type ThreadStub = ReturnType<Bindings["THREAD"]["getByName"]>;
+
+/**
+ * Calls the thread `threadId`, if any, on a best-effort basis: a thread it can't reach is only
+ * reported, as `failure`, and never fails the caller.
+ */
+const tellThread = (
+  ctx: Pick<ServiceContext, "env">,
+  threadId: string | null | undefined,
+  {
+    span,
+    failure,
+    tell,
+  }: { span: string; failure: string; tell: (thread: ThreadStub) => Promise<void> },
+) =>
+  Effect.promise(async () => {
+    if (!threadId) return;
+    try {
+      await tell(ctx.env.THREAD.getByName(threadId));
+    } catch (error) {
+      console.error(failure, error);
+    }
+  }).pipe(Effect.withSpan(span));
+
 /**
  * Tells the Live thread that started a draft, if any, to show its card's draft as it stands now,
  * once it's renamed or ended. A Live thread that can't be reached shows it when next opened.
@@ -115,14 +140,11 @@ export const showDraftOnLive = (
   ctx: Pick<ServiceContext, "env">,
   liveThreadId: string | null | undefined,
 ) =>
-  Effect.promise(async () => {
-    if (!liveThreadId) return;
-    try {
-      await ctx.env.THREAD.getByName(liveThreadId).showDrafts();
-    } catch (error) {
-      console.error("A Live thread didn't show where its card's draft stands", error);
-    }
-  }).pipe(Effect.withSpan("showDraftOnLive"));
+  tellThread(ctx, liveThreadId, {
+    span: "showDraftOnLive",
+    failure: "A Live thread didn't show where its card's draft stands",
+    tell: (thread) => thread.showDrafts(),
+  });
 
 /** The id of a draft's thread, once someone opened it: null before. */
 const threadOfDraft = Effect.fn("threadOfDraft")(function* (db: Database, draftId: string) {
@@ -157,21 +179,22 @@ export const draftThread = Effect.fn("draftThread")(function* (
   return { draft, threadId };
 });
 
-/** How a draft ends, and who ends it, by the id the draft's record stores. */
-export type DraftEnding = { outcome: "published" | "deleted"; by: string };
+/** How a draft ends, and the id of the user who ends it, which the draft's record stores. */
+export type DraftEnding = { outcome: "published" | "deleted"; byUserId: string };
 
 /**
  * The note Camox adds at the end of the Live thread that started a draft once it ended, which
- * only the model reads: the draft's name, who ended it, and for a publish, its Draft Overview.
+ * only the model reads: the draft's name, the name of who ended it, and for a publish, its Draft
+ * Overview.
  */
 function draftEndedNote(ended: {
   name: string | null;
   outcome: DraftEnding["outcome"];
-  by: string;
+  byName: string;
   overview?: { headline: string; bullets: readonly string[] };
 }) {
   const draft = ended.name ? `the draft "${ended.name}"` : "a draft";
-  const note = `Note from Camox: ${draft} you started was ${ended.outcome} by ${ended.by}`;
+  const note = `Note from Camox: ${draft} you started was ${ended.outcome} by ${ended.byName}`;
   if (ended.outcome === "deleted") return `${note}, so none of its changes reached Live.`;
   const published = `${note}, so its changes are on Live now.`;
   if (!ended.overview) return published;
@@ -215,29 +238,25 @@ export const endingThread = Effect.fn("endingThread")(function* (
       ? draftEndedNote({
           name: draft.name,
           outcome: ending.outcome,
-          by: personOf(yield* peopleNamed(ctx.db, [ending.by]), ending.by).name,
+          byName: personOf(yield* peopleNamed(ctx.db, [ending.byUserId]), ending.byUserId).name,
           overview:
             ending.outcome === "published" && draft.overviewHeadline
               ? { headline: draft.overviewHeadline, bullets: draft.overviewBullets ?? [] }
               : undefined,
         })
       : undefined;
-  const endThread = Effect.promise(async () => {
-    if (!threadId) return;
-    try {
-      await ctx.env.THREAD.getByName(threadId).end();
-    } catch (error) {
-      console.error("A thread didn't end with its draft", error);
-    }
-  }).pipe(Effect.withSpan("endThread"));
-  const tellLive = Effect.promise(async () => {
-    if (!liveThreadId || !note) return;
-    try {
-      await ctx.env.THREAD.getByName(liveThreadId).noteDraftEnded({ draftId, note });
-    } catch (error) {
-      console.error("The Live thread that started a draft didn't hear it ended", error);
-    }
-  }).pipe(Effect.withSpan("noteDraftEnded"));
+  const endThread = tellThread(ctx, threadId, {
+    span: "endThread",
+    failure: "A thread didn't end with its draft",
+    tell: (thread) => thread.end(),
+  });
+  const tellLive = note
+    ? tellThread(ctx, liveThreadId, {
+        span: "noteDraftEnded",
+        failure: "The Live thread that started a draft didn't hear it ended",
+        tell: (thread) => thread.noteDraftEnded({ draftId, note }),
+      })
+    : Effect.void;
   return {
     statements: threadId
       ? [
