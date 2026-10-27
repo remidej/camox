@@ -1,5 +1,5 @@
 export interface PreviewTarget {
-  /** The Project ID of the project the CLI or dev server targets. */
+  /** The Project ID of the project the dev server targets. */
   projectUuid: string;
   apiUrl: string;
 }
@@ -18,5 +18,5 @@ export function validatePreviewTarget(raw: string | null, target: PreviewTarget)
   } catch {
     // Malformed handoffs must not silently fall back to the public page.
   }
-  return "Preview destination does not match the CLI project or backend. Check --cwd and --url, then run camox preview again.";
+  return "This sign-in link is for another project or backend. Open the one your dev server printed.";
 }

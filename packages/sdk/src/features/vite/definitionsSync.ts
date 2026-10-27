@@ -61,7 +61,6 @@ export async function syncDefinitionsToApi(options: {
     result = await client.definitions.sync({
       projectUuid,
       deployToken,
-      autoCreate: false,
       definitionSet,
     });
   } catch (error) {

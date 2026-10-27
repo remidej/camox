@@ -82,8 +82,8 @@ function DevAuthorizePage() {
         description={
           <>
             Authorize your local dev server at{" "}
-            <span className="text-foreground font-medium">{origin}</span> to sync your code&apos;s
-            definitions into your development draft.
+            <span className="text-foreground font-medium">{origin}</span> to sign you in to its
+            studio.
           </>
         }
       />

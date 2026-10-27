@@ -283,7 +283,7 @@ void test("a release syncs the app's blocks to Live: its requests name no draft"
   );
 });
 
-void test("a dry-run release builds for Live without a login or a Deploy Token, and syncs nothing", async (t) => {
+void test("a dry-run release builds without a login or a Deploy Token, and syncs nothing", async (t) => {
   const checkout = await devCheckout(t);
   // Nobody is logged in where the upgrade job builds a project.
   await rm(join(checkout.root, ".camox"), { recursive: true });
@@ -304,7 +304,7 @@ void test("a dry-run release builds for Live without a login or a Deploy Token, 
     _internal: { apiUrl: checkout.apiUrl, authenticationUrl: AUTHENTICATION_URL },
   });
 
-  const config = await resolveConfig(
+  await resolveConfig(
     {
       configFile: false,
       root: checkout.root,
@@ -315,8 +315,6 @@ void test("a dry-run release builds for Live without a login or a Deploy Token, 
   );
   await (plugin.closeBundle as () => Promise<void>)();
 
-  // Built as a release would be: for Live, not a development draft.
-  assert.equal(config.define?.__CAMOX_DEVELOPMENT_DRAFT__, "false");
   assert.deepEqual(checkout.requests, []);
 });
 

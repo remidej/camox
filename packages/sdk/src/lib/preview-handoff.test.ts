@@ -24,7 +24,10 @@ void test("mismatched project and backend fail closed before token exchange", ()
     {},
     null,
   ]) {
-    assert.match(validatePreviewTarget(JSON.stringify(expected), target) ?? "", /does not match/);
+    assert.match(
+      validatePreviewTarget(JSON.stringify(expected), target) ?? "",
+      /another project or backend/,
+    );
   }
-  assert.match(validatePreviewTarget("not json", target) ?? "", /does not match/);
+  assert.match(validatePreviewTarget("not json", target) ?? "", /another project or backend/);
 });

@@ -97,8 +97,7 @@ type StoredAuth = NonNullable<ReturnType<typeof readAuthTokenForUrl>>;
  * CLI can pick up the same Project ID / apiUrl / authenticationUrl the
  * plugin actually used. The CLI treats the vite config as the source of
  * truth for those values — there is no other reliable way to recover them
- * from outside vite. No draft is written here: the CLI always works in the
- * developer's development draft (ADR 0010).
+ * from outside vite.
  */
 function writeRuntimeSidecar(
   root: string,
@@ -433,14 +432,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
       if (env.command === "serve" && !env.isPreview) {
         localDeployToken = localDeployTokenOf(apiUrl, options);
       }
-      if (!isRelease) {
-        localAuth = readAuthTokenForUrl(authenticationUrl);
-        if (isBuild && !localAuth) {
-          throw new Error(
-            "Camox: not authenticated. Run `npx camox login` before building the site.",
-          );
-        }
-      }
+      if (!isBuild) localAuth = readAuthTokenForUrl(authenticationUrl);
       return {
         // One build serves under any URL prefix: Live's `/`, or a revision's preview.
         ...(isBuild && {
@@ -481,9 +473,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
           __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: JSON.stringify(
             options._internal?.enableExperimentalFeatures ?? false,
           ),
-          // Dev mode edits in regular drafts (ADR 0027). A build that isn't a release still works
-          // in the developer's development draft (ADR 0006).
-          __CAMOX_DEVELOPMENT_DRAFT__: JSON.stringify(isBuild && !isRelease),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),
           __CAMOX_PROJECT_ID__: JSON.stringify(projectUuid),
@@ -582,11 +571,12 @@ export function camox(options: CamoxPluginOptions): Plugin {
       }
 
       const mode = config.command === "serve" ? "Running" : "Building";
-      let target = "your development draft";
+      // A build that isn't a release reads Live, and releases nothing.
+      let target = "Live, not released";
       if (isDryRun) target = "Live, dry run";
       else if (isRelease) target = "Live";
       else if (localDeployToken) target = "local Live";
-      else if (!localAuth) target = "authentication required";
+      else if (!isBuild && !localAuth) target = "authentication required";
       config.logger.info(`${mode} Camox app (${target})`, { timestamp: true });
     },
 

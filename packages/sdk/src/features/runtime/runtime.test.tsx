@@ -426,10 +426,6 @@ void test("the Canvas route opens the page app with nothing selected", async (t)
     assert.equal(await draft("/_camox/data?path=/camox/canvas"), undefined, "Live");
     assert.equal(await draft("/_camox/data?path=/camox/canvas&camox-draft=spring"), "spring");
     assert.equal(
-      await draft("/_camox/data?path=/camox/canvas", { developmentDraft: true }),
-      "development",
-    );
-    assert.equal(
       await draft("/_camox/data?path=/camox/canvas&camox-draft=spring", {}, false),
       undefined,
       "anyone else sees Live",

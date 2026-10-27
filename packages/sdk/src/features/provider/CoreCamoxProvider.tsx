@@ -103,7 +103,7 @@ export function CoreCamoxProvider({
   if (isPreviewHandoff && !ready) return <PreviewSignInPage />;
   if (isPreviewHandoff && !initialAuthenticated) {
     return (
-      <PreviewSignInPage error="Draft preview is not authenticated. Run camox preview again for a fresh link." />
+      <PreviewSignInPage error="This sign-in link didn't sign you in. Restart the dev server for a fresh link." />
     );
   }
 

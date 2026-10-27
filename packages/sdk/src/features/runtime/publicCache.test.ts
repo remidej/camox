@@ -253,10 +253,3 @@ void test("the Studio, the Canvas and the runtime's member routes are never publ
     assert.equal(isPublicRequest(new Request(`https://site.test${path}`), options), false, path);
   }
 });
-
-void test("dev mode, which reads the developer's development draft, is never public", () => {
-  assert.equal(
-    isPublicRequest(new Request("https://site.test/about"), { ...options, developmentDraft: true }),
-    false,
-  );
-});

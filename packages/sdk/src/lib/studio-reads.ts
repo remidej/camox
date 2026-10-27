@@ -792,8 +792,7 @@ export function createStudioCache({
     },
     receive: async (message, projectId) => {
       changed({ type: "received", message, projectId });
-      const keyScope =
-        message.draftId === null ? null : await scope.keyScopeOfDraft(message.draftId, projectId);
+      const keyScope = message.draftId;
       await Promise.all(
         message.targets.map((queryKey) =>
           queryClient.invalidateQueries({

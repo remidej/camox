@@ -1,5 +1,5 @@
 import type { PageUrlMarker } from "@camox/api-contract";
-import { DEVELOPMENT_DRAFT, LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, Script, UseHeadInput } from "unhead/types";
@@ -193,11 +193,6 @@ export interface RuntimeOptions {
     /** The built chunks each block module needs, by module path. `null` in dev. */
     chunks: Record<string, string[]> | null;
   };
-  /**
-   * Dev mode: every render reads the caller's development draft and ignores the URL's draft
-   * (ADR 0006).
-   */
-  developmentDraft?: boolean;
   pageClientEntryUrl?: string;
   studioClientEntryUrl?: string;
   /** The renderer frame's client entry, which renders the studio's pages (ADR 0023). */
@@ -239,12 +234,8 @@ export function getRuntimePathname(
   return stripped || "/";
 }
 
-/**
- * The draft the request's URL names, if any, or in dev mode the development draft. Sitemaps and
- * Markdown ignore it: they read Live.
- */
-function getRequestDraftId(request: Request, options: RuntimeOptions): string | undefined {
-  if (options.developmentDraft) return DEVELOPMENT_DRAFT;
+/** The draft the request's URL names, if any. Sitemaps and Markdown ignore it: they read Live. */
+function getRequestDraftId(request: Request): string | undefined {
   return draftNamedBy(request.url) ?? undefined;
 }
 
@@ -252,11 +243,8 @@ function getRequestDraftId(request: Request, options: RuntimeOptions): string | 
  * Whether a response may show what only this visitor sees: a session, or a draft named in the
  * URL. Shared caches must never keep it.
  */
-function isPrivateRender(request: Request, options: RuntimeOptions): boolean {
-  return (
-    !!getServerAuthCookieHeader(request.headers) ||
-    getRequestDraftId(request, options) !== undefined
-  );
+function isPrivateRender(request: Request): boolean {
+  return !!getServerAuthCookieHeader(request.headers) || getRequestDraftId(request) !== undefined;
 }
 
 /** The routes whose response is the same for every visitor, unless the request is private. */
@@ -276,7 +264,7 @@ const PUBLIC_ROUTE_KINDS: ReadonlySet<RuntimeRouteKind> = new Set([
  */
 export function isPublicRequest(request: Request, options: RuntimeOptions = {}): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  if (isPrivateRender(request, options) || isPreviewHandoff(request, options)) return false;
+  if (isPrivateRender(request) || isPreviewHandoff(request, options)) return false;
   const pathname = getRuntimePathname(request.url, options.runtimeBasePath);
   return pathname !== null && PUBLIC_ROUTE_KINDS.has(matchRuntimeRoute(pathname).kind);
 }
@@ -580,7 +568,7 @@ async function createOgResponse(request: Request, options: RuntimeOptions): Prom
   // without rendering it. Caches keep it, but ask again each time: a publish shows up at once.
   const headers = {
     ETag: await etagOf(JSON.stringify([source.layout?.id ?? null, source.context, style])),
-    "Cache-Control": isPrivateRender(request, options) ? "private, no-store" : "public, no-cache",
+    "Cache-Control": isPrivateRender(request) ? "private, no-store" : "public, no-cache",
   };
   if (namesEtag(request, headers.ETag)) return new Response(null, { status: 304, headers });
   const toImage = source.layout?.toImage ?? DefaultPageImage;
@@ -604,7 +592,7 @@ async function readPageImageSource(
   const { project } = await resolveRequestMember(request, options);
   const member = project !== undefined;
   const authCookieHeader = member ? getServerAuthCookieHeader(request.headers) : undefined;
-  const requestedDraft = getRequestDraftId(request, options);
+  const requestedDraft = getRequestDraftId(request);
   const api = (draftId: string | undefined) =>
     createServerApiClient(apiUrl, { authCookieHeader, draftId, locale: located.locale });
 
@@ -839,14 +827,14 @@ function hydrationInputFor(input: PageRenderInput, html: string): PageRenderInpu
 /**
  * The render input with its artifacts loaded by URL, where a visitor reads Live: each artifact
  * source becomes a reference to the document the website serves, so neither the page's HTML nor
- * its data carries a source, and the client renders the frames the server did. The studio, drafts
- * and dev mode keep inlined sources, so an agent's change shows at once.
+ * its data carries a source, and the client renders the frames the server did. The studio and
+ * drafts keep inlined sources, so an agent's change shows at once.
  */
 async function withArtifactsByUrl(
   input: PageRenderInput,
   options: RuntimeOptions,
 ): Promise<PageRenderInput> {
-  if (input.presentation !== "public" || input.draftId || options.developmentDraft) return input;
+  if (input.presentation !== "public" || input.draftId) return input;
   const shell = await readArtifactShell(options);
   const artifactsPath = `${input.runtimeBasePath}${ARTIFACTS_PATH_PREFIX}${shell.hash}/`;
   return {
@@ -863,14 +851,13 @@ function renderStudioThemeScript(enabled: boolean) {
 
 /**
  * The analytics providers a render counts its reader with: only a visitor, meaning someone the
- * API didn't confirm as a member, on a Live page. A development draft never counts anyone.
+ * API didn't confirm as a member, on a Live page.
  */
 function visitorAnalytics(
-  options: RuntimeOptions,
   render: { studio: boolean; draftId?: string },
   project: { analytics?: AnalyticsProviders },
 ): AnalyticsProviders | undefined {
-  if (render.studio || render.draftId || options.developmentDraft) return undefined;
+  if (render.studio || render.draftId) return undefined;
   return configuredProviders(project.analytics);
 }
 
@@ -1150,7 +1137,7 @@ function readCuratedPage(
   const result = loadCamoxPageForRequest({
     apiUrl: options.apiUrl,
     authCookieHeader: getServerAuthCookieHeader(request.headers),
-    draftId: getRequestDraftId(request, options),
+    draftId: getRequestDraftId(request),
     locale,
     origin: new URL(request.url).origin,
     pathname: path,
@@ -1209,7 +1196,7 @@ function curatedPageLocaleReads(
   const authCookieHeader = getServerAuthCookieHeader(request.headers);
   const forDraft = (draftId: string | undefined) =>
     requestLocaleReads(options, { authCookieHeader, draftId, queryClient });
-  const readsLive = !getRequestDraftId(request, options) || !authCookieHeader;
+  const readsLive = !getRequestDraftId(request) || !authCookieHeader;
   if (!readsLive) return forDraft;
   const live = forDraft(undefined);
   // The page's read loads its own locale's pages and the default locale's.
@@ -1266,7 +1253,7 @@ async function createPageHtmlResponse({
       Vary: "Cookie",
       Link: llmsTxtLinkHeader(options),
     });
-    if (isPrivateRender(request, options)) headers.set("Cache-Control", "private, no-store");
+    if (isPrivateRender(request)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -1284,7 +1271,6 @@ async function createPageHtmlResponse({
     const { project } = result;
     const studio = project !== undefined;
     const analytics = visitorAnalytics(
-      options,
       { studio, draftId: result.draftId },
       result.data.page.project,
     );
@@ -1566,7 +1552,7 @@ async function createLayoutMarkdownDataResponse(
     return new Response("Not found", { status: 404 });
   const { project, clearAuthCookie } = await resolveRequestMember(request, options);
   const headers = {
-    ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
+    ...(isPrivateRender(request) ? { "Cache-Control": "private, no-store" } : {}),
     Vary: "Cookie",
     ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
   };
@@ -1579,7 +1565,7 @@ async function createLayoutMarkdownDataResponse(
       {
         member: project !== undefined,
         authCookieHeader: getServerAuthCookieHeader(request.headers),
-        requestedDraft: getRequestDraftId(request, options),
+        requestedDraft: getRequestDraftId(request),
       },
     );
     return Response.json({ markdown }, { headers });
@@ -1615,7 +1601,7 @@ async function createDerivedResponse(
     const studio = project !== undefined;
     // Only a member's session reads record drafts, in the loader and in linked records.
     const authCookieHeader = studio ? getServerAuthCookieHeader(request.headers) : undefined;
-    const requestedDraft = getRequestDraftId(request, options);
+    const requestedDraft = getRequestDraftId(request);
     const readLayout = () =>
       readDraftOrLive(requestedDraft, studio, (draftId) =>
         createServerApiClient(options.apiUrl!, {
@@ -1711,7 +1697,7 @@ async function createDerivedResponse(
     // The data route only serves navigation, which never loads the scripts.
     const analytics = dataOnly
       ? undefined
-      : visitorAnalytics(options, { studio, draftId: read.draftId }, shared.project);
+      : visitorAnalytics({ studio, draftId: read.draftId }, shared.project);
     const input = await withArtifactsByUrl(
       {
         alternates,
@@ -1746,7 +1732,7 @@ async function createDerivedResponse(
     if (dataOnly)
       return Response.json(input, {
         headers: {
-          ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
+          ...(isPrivateRender(request) ? { "Cache-Control": "private, no-store" } : {}),
           Vary: "Cookie",
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
@@ -1766,7 +1752,7 @@ async function createDerivedResponse(
           "Content-Type": "text/html; charset=utf-8",
           Vary: "Cookie",
           Link: llmsTxtLinkHeader(options),
-          ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
+          ...(isPrivateRender(request) ? { "Cache-Control": "private, no-store" } : {}),
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
       },
@@ -1919,7 +1905,7 @@ async function createCanvasOnlyResponse({
     canvasOnly: true,
     // Nothing here reads the draft, but it is the one the Page left was in: client
     // navigation remounts the studio, hiding the Canvas, when the draft changes.
-    draftId: studio ? getRequestDraftId(request, options) : undefined,
+    draftId: studio ? getRequestDraftId(request) : undefined,
   };
   const headers = {
     "Cache-Control": "private, no-store",
@@ -1979,7 +1965,7 @@ async function createPageDataResponse({
       "Content-Type": "application/json; charset=utf-8",
       Vary: "Cookie",
     });
-    if (isPrivateRender(request, options)) headers.set("Cache-Control", "private, no-store");
+    if (isPrivateRender(request)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -2214,7 +2200,7 @@ async function locateRequest(
           apiUrl,
           projectUuid,
           authCookieHeader: getServerAuthCookieHeader(request.headers),
-          draftId: getRequestDraftId(request, options),
+          draftId: getRequestDraftId(request),
         })
       : [UNNAMED_DEFAULT_LOCALE];
   return { ...parseLocalePath(pathname, locales), locales };
