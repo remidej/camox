@@ -13,7 +13,7 @@ import { env, exports } from "cloudflare:workers";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { callSeedingLive, createRpcContext } from "../../../test/fixtures";
+import { callSeedingLive, createRpcContext, startDraft } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
 import { deliverPushes, pushToMain } from "../../../test/pushes";
 import {
@@ -26,7 +26,6 @@ import {
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
   draftsOf,
   pagesOf,
   signIn,
@@ -138,9 +137,16 @@ async function websiteWithCode() {
 /** The pricing block's file, which the fake sandbox builds into a set with the pricing block. */
 const pricingFile = (marker: string) => `export const pricing = "built"; // ${marker}\n`;
 
+/** A new draft of the website, started by the fixture member, and its thread. */
+async function draftWithThread(website: Website, token: string) {
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
+  return { draftId, thread };
+}
+
 /**
  * A draft whose agent wrote a pricing block, built it and placed it on the home page, in one
- * turn on Live. Returns the draft and the block's file.
+ * turn. Returns the draft and the block's file.
  */
 async function draftAddingPricing(website: Website, token: string) {
   const marker = crypto.randomUUID();
@@ -150,7 +156,7 @@ async function draftAddingPricing(website: Website, token: string) {
     collections: [],
     homepage: null,
   });
-  const thread = await connectLiveThread(website.project.id, token);
+  const { draftId, thread } = await draftWithThread(website, token);
   answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: pricingFile(marker) });
   answerWithToolCall("build", {});
   answerWithScript(`
@@ -160,8 +166,7 @@ async function draftAddingPricing(website: Website, token: string) {
   `);
   answerFrom(() => "Added it.");
   await ask(thread, "Add a pricing section saying plans start at $9");
-  const [draft] = await draftsOf(website);
-  return { draftId: draft!.id, file: pricingFile(marker) };
+  return { draftId, file: pricingFile(marker) };
 }
 
 const memberContext = ({ db, memberUser }: Website, draftId?: string) =>
@@ -306,12 +311,11 @@ async function uploadsOf(project: string) {
 }
 
 /**
- * A draft whose agent changed the text block's code and built it, on Live, changing no content.
- * Returns the draft.
+ * A draft whose agent changed the text block's code and built it, changing no content. Returns
+ * the draft.
  */
 async function draftChangingCode(website: Website, token: string) {
-  const before = new Set((await draftsOf(website)).map(({ id }) => id));
-  const thread = await connectLiveThread(website.project.id, token);
+  const { draftId, thread } = await draftWithThread(website, token);
   answerWithToolCall("write", {
     path: "src/blocks/text.tsx",
     content: `export const text = "${crypto.randomUUID()}";\n`,
@@ -319,7 +323,7 @@ async function draftChangingCode(website: Website, token: string) {
   answerWithToolCall("build", {});
   answerFrom(() => "Changed it.");
   await ask(thread, "Change the text block's code");
-  return (await draftsOf(website)).find(({ id }) => !before.has(id))!.id;
+  return draftId;
 }
 
 /** Has the draft's agent change its code again and build it: a newer revision. */
@@ -483,12 +487,12 @@ describe("publishing a draft with code", () => {
     await fakes.configureBuildsOf(marker, {
       compatibility_flags: ["nodejs_compat", "experimental"],
     });
-    const thread = await connectLiveThread(website.project.id, token);
+    const { draftId, thread } = await draftWithThread(website, token);
     answerWithToolCall("write", { path: "src/blocks/text.tsx", content: `// ${marker}\n` });
     answerWithToolCall("build", {});
     answerFrom(() => "Changed it.");
     await ask(thread, "Change the text block's code");
-    const [draft] = await draftsOf(website);
+    const draft = { id: draftId };
     const before = await served(website);
 
     await using publishes = await watchPublishes();

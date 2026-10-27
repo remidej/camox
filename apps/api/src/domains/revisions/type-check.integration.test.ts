@@ -3,7 +3,7 @@ import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import {
   type FakeTypeError,
   PRICING,
@@ -21,8 +21,6 @@ import {
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
-  draftsOf,
   said,
   signIn,
   type ThreadClient,
@@ -56,13 +54,12 @@ const previewOf = (website: Website, draftId: string) =>
 async function draftWithPricing() {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
-  const live = await connectLiveThread(website.project.id, token);
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
   answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
   answerNext("I added a pricing section.");
-  await ask(live, "Add a pricing section");
-  const [draft] = await draftsOf(website);
-  const thread = await connectDraftThread(website.project.id, draft!.id, token);
-  return { website, draft: draft!, thread };
+  await ask(thread, "Add a pricing section", { keepOpen: true });
+  return { website, draft: { id: draftId }, thread };
 }
 
 /** The pricing section, marked so the fake sandbox's type check of a tree holding it fails. */

@@ -1,7 +1,7 @@
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { createProjectFixture, startDraft } from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -13,8 +13,8 @@ import {
 } from "../../../test/thread-model";
 import {
   connectDraftThread,
-  connectLiveThread,
   lastAnswer,
+  pagesOf,
   said,
   signIn,
   storedThreadOf,
@@ -62,14 +62,25 @@ afterEach(async () => {
   forgetThreadModel();
 });
 
-/** The fixture member's Live thread, opened as their studio does. */
+/** The thread of a draft the fixture member started, opened as their studio does in it. */
 async function openThread() {
   const fixture = await createProjectFixture(crypto.randomUUID());
-  const thread = await connectLiveThread(
+  const draftId = await startDraft(fixture.db, fixture.project.id, fixture.memberUser.id);
+  const thread = await connectDraftThread(
     fixture.project.id,
+    draftId,
     await signIn(fixture.db, fixture.memberUser.id),
   );
-  return { ...fixture, thread };
+  return { ...fixture, draftId, thread };
+}
+
+/** Waits until the draft `draftId` has a page at `/launch`, as a script's write made it. */
+async function untilLaunched(fixture: Parameters<typeof pagesOf>[0], draftId: string) {
+  const deadline = Date.now() + 10_000;
+  while (!("/launch" in (await pagesOf(fixture, draftId)))) {
+    if (Date.now() > deadline) throw new Error("The launch page never appeared");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 /** Sends `text` in `thread`, returning its operation id. */
@@ -133,7 +144,7 @@ describe("a run in a thread", () => {
   });
 
   it("gives a reconnecting socket no touches from before", async () => {
-    const { thread, project, db, memberUser } = await openThread();
+    const { thread, project, db, memberUser, draftId } = await openThread();
     answerWithScript(`await tools.createPage({ pathSegment: "launch", layoutId: "default" });`);
     answerNext("Added a launch page.");
     send(thread, "Add a launch page");
@@ -141,8 +152,6 @@ describe("a run in a thread", () => {
     expect(touchedOf(thread)).toHaveLength(1);
     thread.close();
 
-    // The write started a draft, which the thread moved into.
-    const draftId = thread.view().startedDraft!.draftId;
     const again = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
     await again.untilIdle(2);
 
@@ -151,7 +160,8 @@ describe("a run in a thread", () => {
   });
 
   it("reports the writes of a script an editor stops, keeping none of them", async () => {
-    const { thread, db } = await openThread();
+    const fixture = await openThread();
+    const { thread, db, draftId } = fixture;
     const release = holdTool("listPages");
     answerWithScript(`
       await tools.createPage({ pathSegment: "launch", layoutId: "default" });
@@ -159,8 +169,8 @@ describe("a run in a thread", () => {
     `);
     const operationId = send(thread, "Add a launch page, then check every page");
     try {
-      // The write started a draft; the script waits on its read.
-      await thread.until(() => thread.frames.some((frame) => frame.type === "started-draft"));
+      // The write went through; the script waits on its read.
+      await untilLaunched(fixture, draftId);
       thread.send({ type: "stop" });
       // The run ends once the call it waits on returns.
       await thread.until(() => thread.view().messages.some(({ from }) => from === "stopped"));
@@ -175,13 +185,14 @@ describe("a run in a thread", () => {
         touches: [expect.objectContaining({ entity: "page", kind: "created" })],
       },
     ]);
-    const { keys } = await storedThreadOf(db, thread.view().startedDraft!.draftId);
+    const { keys } = await storedThreadOf(db, draftId);
     expect(keys.filter((key) => key.startsWith("camox.touches:"))).toEqual([]);
     thread.close();
   });
 
   it("reports a write that goes through after its script was stopped, keeping none of it", async () => {
-    const { thread, db } = await openThread();
+    const fixture = await openThread();
+    const { thread, db, draftId } = fixture;
     const release = holdTool("createBlock");
     answerWithScript(`
       const { page } = await tools.createPage({ pathSegment: "launch", layoutId: "default" });
@@ -189,7 +200,7 @@ describe("a run in a thread", () => {
     `);
     const operationId = send(thread, "Add a launch page with an intro");
     try {
-      await thread.until(() => thread.frames.some((frame) => frame.type === "started-draft"));
+      await untilLaunched(fixture, draftId);
       thread.send({ type: "stop" });
       // The run ends once the call it waits on returns.
       await thread.until(() => thread.view().messages.some(({ from }) => from === "stopped"));
@@ -209,7 +220,7 @@ describe("a run in a thread", () => {
         touches: [expect.objectContaining({ entity: "page", blockId: expect.any(String) })],
       },
     ]);
-    const { keys } = await storedThreadOf(db, thread.view().startedDraft!.draftId);
+    const { keys } = await storedThreadOf(db, draftId);
     expect(keys.filter((key) => key.startsWith("camox.touches:"))).toEqual([]);
     thread.close();
   });
@@ -235,7 +246,7 @@ describe("a run in a thread", () => {
   });
 
   it("keeps what the agent did before a stop", async () => {
-    const { thread, project, db, memberUser } = await openThread();
+    const { thread, project, db, memberUser, draftId } = await openThread();
     answerNext("You have no pages yet.");
     send(thread, "Which pages do we have?");
     await thread.untilIdle(2);
@@ -247,7 +258,7 @@ describe("a run in a thread", () => {
     await thread.untilIdle(4);
     thread.close();
 
-    const again = await connectLiveThread(project.id, await signIn(db, memberUser.id));
+    const again = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
     answerFrom(({ scriptOutput }) => `Before you stopped me: ${scriptOutput}`);
     send(again, "What did you find?");
     await again.untilIdle(6);
@@ -342,13 +353,13 @@ describe("a run in a thread", () => {
   });
 
   it("still shows a failed turn to an editor connecting afterwards", async () => {
-    const { thread, project, db, memberUser } = await openThread();
+    const { thread, project, db, memberUser, draftId } = await openThread();
     failNext();
     send(thread, "Rewrite the home page");
     await thread.untilIdle(2);
     thread.close();
 
-    const again = await connectLiveThread(project.id, await signIn(db, memberUser.id));
+    const again = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
 
     expect(again.view()).toEqual(thread.view());
     again.close();

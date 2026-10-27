@@ -188,3 +188,53 @@ void test("the agent's squareling thinks, acts while it uses its tools or builds
   assert.equal(shown("fixing", true).squareling, "fixing");
   assert.equal(shown("fixing").visibleText, "Fixing a build error…");
 });
+
+void test("a Live turn handed off to a draft ends on the draft's card, which opens it", async () => {
+  const view: ThreadView = {
+    running: false,
+    messages: [
+      { id: "1", from: "editor", sender: editor, text: "Raise the price" },
+      { id: "2", from: "draft", draftId: "draft-1", name: "New prices" },
+    ],
+  };
+  const window = new Window();
+  const globals = {
+    window,
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    MutationObserver: window.MutationObserver,
+    ResizeObserver: window.ResizeObserver,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    matchMedia: window.matchMedia.bind(window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const before = Object.fromEntries(
+    Object.keys(globals).map((key) => [key, (globalThis as Record<string, unknown>)[key]]),
+  );
+  Object.assign(globalThis, globals);
+  try {
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = window.document.createElement("div");
+    window.document.body.append(container);
+    const opened: string[] = [];
+    const root = createRoot(container as unknown as Element);
+    await act(async () =>
+      root.render(<ThreadMessages view={view} onOpenDraft={(id) => opened.push(id)} />),
+    );
+
+    const card = container.querySelector("[data-thread-draft-card]")!;
+    assert.match(card.textContent, /New prices/);
+    // The handoff answers the turn: nothing says Camox couldn't finish it.
+    assert.doesNotMatch(container.textContent, /couldn’t finish/);
+    await act(async () => (card as unknown as HTMLElement).click());
+    assert.deepEqual(opened, ["draft-1"]);
+    await act(async () => root.unmount());
+  } finally {
+    Object.assign(globalThis, before);
+  }
+});

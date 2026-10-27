@@ -4,7 +4,7 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import {
   broken,
@@ -30,8 +30,6 @@ import {
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
-  draftsOf,
   lastAnswer,
   said,
   signIn,
@@ -108,13 +106,12 @@ const blockersOf = async (website: Website, draftId: string) =>
 async function draftChanging(path: string, content: string) {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
-  const live = await connectLiveThread(website.project.id, token);
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
   answerWithToolCall("write", { path, content });
   answerNext("I changed the website.");
-  await ask(live, "Change the website");
-  const [draft] = await draftsOf(website);
-  const thread = await connectDraftThread(website.project.id, draft!.id, token);
-  return { website, token, draftId: draft!.id, thread };
+  await ask(thread, "Change the website", { keepOpen: true });
+  return { website, token, draftId, thread };
 }
 
 describe("Camox's reconcile turn", () => {
@@ -317,8 +314,10 @@ describe("a merge of main into files holding one Camox's turn didn't fix", () =>
 describe("conflict markers", () => {
   it("keeps build from committing a CSS file that still has them", async () => {
     const website = await websiteWithCode();
-    const live = await connectLiveThread(
+    const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+    const thread = await connectDraftThread(
       website.project.id,
+      draftId,
       await signIn(website.db, website.memberUser.id),
     );
     answerWithToolCall("write", { path: STYLES_FILE, content: CONFLICTED_STYLES });
@@ -331,8 +330,7 @@ describe("conflict markers", () => {
     // The end of the turn refuses them too, and the agent fixes them.
     answerWithToolCall("write", { path: STYLES_FILE, content: STYLES });
     answerNext("I fixed the styles.");
-    await ask(live, "Change the accent color");
-    const [draft] = await draftsOf(website);
+    await ask(thread, "Change the accent color");
 
     expect(JSON.parse(result!)).toMatchObject({
       ok: false,
@@ -340,8 +338,8 @@ describe("conflict markers", () => {
     });
     expect(JSON.parse(result!)).not.toHaveProperty("revision");
     // Nothing with markers was built or committed: only the fixed styles were.
-    const builds = await fakes.revisionBuilds(draft!.id);
+    const builds = await fakes.revisionBuilds(draftId);
     expect(builds.map(({ files }) => files[STYLES_FILE])).toEqual([STYLES]);
-    expect(await fakes.readFile(website.project.uuid, draft!.id, STYLES_FILE)).toBe(STYLES);
+    expect(await fakes.readFile(website.project.uuid, draftId, STYLES_FILE)).toBe(STYLES);
   });
 });

@@ -18,10 +18,13 @@ export const drafts = sqliteTable(
     // The creating user's id. No foreign key, so a departed member's draft survives.
     createdBy: text("created_by").notNull(),
     createdAt: int("created_at").notNull(),
-    // The draft's thread with Camox's agent, set aside when someone first opens it there, or the
-    // Live thread whose write created the draft; a thread starts with its first message. It lives
-    // in its own Durable Object, addressed by this id.
+    // The draft's thread with Camox's agent, set aside when someone first opens it there, or as
+    // the agent on Live starts the draft; a thread starts with its first message. It lives in its
+    // own Durable Object, addressed by this id.
     threadId: text("thread_id"),
+    // The Live thread whose agent started the draft with `startDraft`, handing it a request
+    // (ADR 0025): null for a draft an editor started. No foreign key, as for `threadId`.
+    liveThreadId: text("live_thread_id"),
     // The Draft Overview AI writes about the draft's changes (`overview.ts`). It describes the
     // draft rather than its content, so it's never a change, a conflict or published, and goes
     // with the draft; emptying a development draft clears it.

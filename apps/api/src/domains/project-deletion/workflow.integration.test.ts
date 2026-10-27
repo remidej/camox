@@ -3,10 +3,10 @@ import { abortAllDurableObjects, introspectWorkflowInstance } from "cloudflare:t
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { PRICING, websiteWithCode } from "../../../test/revision-builds";
 import { answerNext, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
-import { ask, connectLiveThread, draftsOf, signIn } from "../../../test/threads";
+import { ask, connectDraftThread, signIn } from "../../../test/threads";
 import { router } from "../../router";
 import { publishScriptsTag } from "../publishes/scripts";
 
@@ -105,11 +105,12 @@ describe("cleaning up a deleted project", () => {
   it("deletes its code: the copy of main, its drafts' working copies, builds and sandboxes", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
+    const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+    const thread = await connectDraftThread(website.project.id, draftId, token);
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING });
     answerNext("I added a pricing section.");
-    await ask(live, "Add a pricing section");
-    const [draft] = await draftsOf(website);
+    await ask(thread, "Add a pricing section");
+    const draft = { id: draftId };
     const projectId = website.project.uuid;
     expect(await env.PROJECT_CODE.getByName(projectId).commit()).toBeDefined();
     expect((await env.REVISION_BUILDS.list({ prefix: `${projectId}/` })).objects).not.toEqual([]);

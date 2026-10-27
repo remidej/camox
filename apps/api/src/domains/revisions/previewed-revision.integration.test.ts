@@ -5,15 +5,13 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext, createSessionFixture } from "../../../test/fixtures";
+import { createRpcContext, createSessionFixture, startDraft } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
 import { pushToMain } from "../../../test/pushes";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
-  draftsOf,
   signIn,
   textDefinition,
   type ThreadClient,
@@ -128,15 +126,13 @@ async function writeAndBuild(thread: ThreadClient, content: string, { keepOpen =
 }
 
 /**
- * Has the agent write and build the pricing block as `content` on Live, which starts a draft,
- * and connects to the draft's thread.
+ * Starts a draft whose agent writes and builds the pricing block as `content`, its thread open.
  */
-async function startDraft(website: Website, token: string, content: string) {
-  const live = await connectLiveThread(website.project.id, token);
-  const result = await writeAndBuild(live, content, { keepOpen: false });
-  const [draft] = await draftsOf(website);
-  const thread = await connectDraftThread(website.project.id, draft!.id, token);
-  return { draftId: draft!.id, thread, result };
+async function draftBuilding(website: Website, token: string, content: string) {
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
+  const result = await writeAndBuild(thread, content);
+  return { draftId, thread, result };
 }
 
 /** A draft with code whose pricing block's build passed, defining it. */
@@ -144,7 +140,7 @@ async function draftWithPricing() {
   const { website, token } = await websiteWithCode();
   const marker = crypto.randomUUID();
   await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
-  const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
+  const { draftId, thread, result } = await draftBuilding(website, token, blockFile(marker));
   return {
     website,
     token,
@@ -214,7 +210,7 @@ describe("a draft's new revision", () => {
     // The agent's build fails its prewarms, then the end of its turn's build.
     await fakes.failPrewarms(website.project.uuid, 2 * INFRASTRUCTURE_ATTEMPTS);
 
-    const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
+    const { draftId, thread, result } = await draftBuilding(website, token, blockFile(marker));
     thread.close();
 
     expect(result).toContain("a problem on its side");
@@ -236,7 +232,7 @@ describe("a draft's new revision", () => {
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
     await fakes.failPrewarms(website.project.uuid, INFRASTRUCTURE_ATTEMPTS - 1);
 
-    const { draftId, thread, result } = await startDraft(website, token, blockFile(marker));
+    const { draftId, thread, result } = await draftBuilding(website, token, blockFile(marker));
     thread.close();
 
     expect(JSON.parse(result)).toMatchObject({ ok: true });
@@ -248,7 +244,7 @@ describe("a draft's new revision", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, { blocks: [{ blockId: 42 }] });
-    const { thread, result } = await startDraft(website, token, blockFile(marker));
+    const { thread, result } = await draftBuilding(website, token, blockFile(marker));
     thread.close();
 
     expect(JSON.parse(result)).toMatchObject({ ok: false });
@@ -271,7 +267,7 @@ describe("a draft's new revision", () => {
     for (const marker of markers) {
       await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
     }
-    const first = await startDraft(website, token, blockFile(markers[0]!));
+    const first = await draftBuilding(website, token, blockFile(markers[0]!));
     const { draftId, thread } = first;
     const revisions = [JSON.parse(first.result).revision as string];
     for (const marker of markers.slice(1)) {

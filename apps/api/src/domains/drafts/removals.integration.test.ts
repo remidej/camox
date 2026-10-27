@@ -8,6 +8,7 @@ import { collection as customers } from "../../../../playground/src/collections/
 import {
   callSeedingLive,
   createRpcContext,
+  startDraft,
   syncDefinitionSet,
   type TestDefinitionSet,
 } from "../../../test/fixtures";
@@ -15,8 +16,7 @@ import { pushToMain } from "../../../test/pushes";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import {
   ask,
-  connectLiveThread,
-  draftsOf,
+  connectDraftThread,
   signIn,
   textDefinition,
   type Website,
@@ -128,7 +128,8 @@ async function websiteWithCode(live: Code = {}) {
 async function draftWithCode(website: Website, token: string, code: Code) {
   const marker = crypto.randomUUID();
   await fakes.defineBuildsOf(marker, definitionSetWith(website, code));
-  const thread = await connectLiveThread(website.project.id, token);
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
   answerWithToolCall("write", {
     path: "src/blocks/text.tsx",
     content: `export const text = "changed"; // ${marker}\n`,
@@ -136,8 +137,7 @@ async function draftWithCode(website: Website, token: string, code: Code) {
   answerWithToolCall("build", {});
   answerFrom(() => "Changed it.");
   await ask(thread, "Change the website's code");
-  const [draft] = await draftsOf(website);
-  return draft!.id;
+  return draftId;
 }
 
 /** Ada, a Live customer record. */

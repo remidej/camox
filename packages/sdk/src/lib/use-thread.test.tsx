@@ -5,8 +5,8 @@ import {
   EDITOR_MESSAGE_ENTRY,
   THREAD_ENDED_CLOSE_CODE,
   type ThreadClientMessage,
+  START_DRAFT_TOOL,
   type ThreadServerMessage,
-  threadViewOf,
   type TouchedBatch,
 } from "@camox/api-contract/threads";
 import { Window } from "happy-dom";
@@ -21,7 +21,6 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { useThread } = await import("./use-thread");
-type CarriedThread = import("./use-thread").CarriedThread;
 
 /** A thread's end of the socket, standing in for the API. */
 class ThreadSocket extends EventTarget {
@@ -170,106 +169,124 @@ function snapshotOf(messages: { text: string; operationId: string }[]): ThreadSe
   };
 }
 
-type Entered = { draftId: string; messages: string[]; unaccepted: string[] };
-
-/** A studio on Live, recording the drafts it enters with what it carries into them. */
-async function liveStudio(t: TestContext) {
-  const entered: Entered[] = [];
-  const opened = await studio(t, null, {
-    onEnterDraft: (draftId, { state, unaccepted }) =>
-      entered.push({
-        draftId,
-        messages: threadViewOf(state).messages.map((message) =>
-          "text" in message ? message.text : message.from,
-        ),
-        unaccepted: [...unaccepted.values()],
-      }),
-  });
+/** A studio, on Live unless `draftId` names a draft, recording the drafts it's told to enter. */
+async function enteringStudio(t: TestContext, draftId: string | null = null) {
+  const entered: string[] = [];
+  const opened = await studio(t, draftId, { onEnterDraft: (started) => entered.push(started) });
   return { ...opened, entered };
 }
 
-type LiveStudio = Awaited<ReturnType<typeof liveStudio>>;
+type EnteringStudio = Awaited<ReturnType<typeof enteringStudio>>;
 
-/** Sends `text` from the studio, returning its operation id. */
-async function sendFrom(live: LiveStudio, text: string) {
-  await act(async () => live.thread().send(text));
-  const sent = live.socket().received.at(-1);
+/** Sends `text` from the studio, returning its operation id once the thread accepted it. */
+async function sendFrom(studio: EnteringStudio, text: string) {
+  await act(async () => studio.thread().send(text));
+  const sent = studio.socket().received.at(-1);
   assert.ok(sent?.type === "send");
+  await act(async () => studio.socket().reply({ type: "accepted", operationId: sent.operationId }));
   return sent.operationId;
 }
 
-void test("the studio whose message wrote enters the draft with the thread as it showed it", async (t) => {
-  const live = await liveStudio(t);
-  const operationId = await sendFrom(live, "Raise the price to $12");
-  await act(async () => live.socket().reply({ type: "accepted", operationId }));
+/** The thread's events: the editor's message, then the agent on Live's `startDraft` call. */
+function handedOff(operationId: string): ThreadServerMessage {
+  const card = { draftId: STARTED_DRAFT, name: "New prices" };
+  return {
+    type: "events",
+    events: [
+      {
+        type: "snapshot",
+        entries: [
+          {
+            id: 1,
+            conversationId: "root",
+            kind: EDITOR_MESSAGE_ENTRY,
+            data: { ...ada, operationId },
+            model: [{ role: "user", content: "Raise the price", timestamp: 0 }],
+          },
+          {
+            id: 2,
+            conversationId: "root",
+            kind: "pi.tool-result",
+            model: [
+              {
+                role: "toolResult",
+                toolCallId: "call-1",
+                toolName: START_DRAFT_TOOL,
+                content: [{ type: "text", text: JSON.stringify(card) }],
+                details: card,
+                isError: false,
+                timestamp: 0,
+              },
+            ],
+          },
+        ],
+        tools: [],
+        nestedTools: [],
+        compactions: [],
+        inbox: [],
+      } as never,
+    ],
+  };
+}
 
-  // The thread's last events and the move arrive together.
+void test("the studio whose message the agent on Live handed off enters the draft, the Live thread staying as it is", async (t) => {
+  const live = await enteringStudio(t);
+  const operationId = await sendFrom(live, "Raise the price");
+
   await act(async () => {
-    live.socket().reply(snapshotOf([{ text: "Raise the price to $12", operationId }]));
     live.socket().reply({
       type: "started-draft",
       startedDraft: { draftId: STARTED_DRAFT, operationIds: [operationId] },
     });
+    live.socket().reply(handedOff(operationId));
   });
 
-  assert.deepEqual(live.entered, [
-    { draftId: STARTED_DRAFT, messages: ["Raise the price to $12"], unaccepted: [] },
-  ]);
-  assert.equal(ThreadSocket.opened.length, 1, "the studio keeps following the thread");
-});
-
-void test("a studio whose messages didn't write moves to the editor's fresh Live thread", async (t) => {
-  const live = await liveStudio(t);
-  // This studio asked something earlier; another tab's message started the run that wrote.
-  const earlier = await sendFrom(live, "What do plans cost?");
-  await act(async () => live.socket().reply({ type: "accepted", operationId: earlier }));
-  const first = live.socket();
-  const startedDraft = { draftId: STARTED_DRAFT, operationIds: ["another-tab"] };
-
-  await act(async () => first.reply({ type: "started-draft", startedDraft }));
-  await waitFor(() => live.socket() !== first && live.socket().readyState === 1, "it reconnects");
-  await act(async () => {
-    live.socket().reply({ type: "continued-in", continuedIn: startedDraft });
-    live.socket().reply(snapshotOf([]));
-  });
-
+  assert.deepEqual(live.entered, [STARTED_DRAFT]);
+  assert.equal(ThreadSocket.opened.length, 1, "the studio keeps the Live thread");
   assert.equal(new URL(live.socket().url).pathname, "/threads/live/1");
-  assert.equal(first.readyState, 3, "the studio left the thread that moved into the draft");
-  assert.deepEqual(live.entered, []);
-  assert.deepEqual(live.thread().view.continuedIn, startedDraft);
-  assert.equal(live.thread().view.startedDraft, undefined);
-  assert.deepEqual(live.thread().view.messages, []);
+  assert.deepEqual(
+    live.thread().view.messages.map(({ from }) => from),
+    ["editor", "draft"],
+  );
 });
 
-void test("a studio reconnecting after its message wrote enters the draft, taking what it hasn't sent", async (t) => {
-  const live = await liveStudio(t);
-  const wrote = await sendFrom(live, "Raise the price to $12");
-  await act(async () => {
-    live.socket().reply({ type: "accepted", operationId: wrote });
-    live.socket().reply(snapshotOf([{ text: "Raise the price to $12", operationId: wrote }]));
-  });
-  await sendFrom(live, "And add a launch page");
+void test("another studio on Live stays there, showing the draft's card", async (t) => {
+  const live = await enteringStudio(t);
+  // This studio asked something earlier; another tab's message was handed off.
+  await sendFrom(live, "What do plans cost?");
   const first = live.socket();
-  await act(async () => first.close());
-  await waitFor(() => live.socket() !== first && live.socket().readyState === 1, "it reconnects");
 
-  // Back on Live, the editor's fresh thread says where the last one went.
   await act(async () => {
-    live.socket().reply({
-      type: "continued-in",
-      continuedIn: { draftId: STARTED_DRAFT, operationIds: [wrote] },
+    first.reply({
+      type: "started-draft",
+      startedDraft: { draftId: STARTED_DRAFT, operationIds: ["another-tab"] },
     });
-    live.socket().reply(snapshotOf([]));
+    first.reply(handedOff("another-tab"));
   });
 
-  assert.deepEqual(live.entered, [
-    {
-      draftId: STARTED_DRAFT,
-      messages: ["Raise the price to $12"],
-      unaccepted: ["And add a launch page"],
-    },
-  ]);
-  assert.deepEqual(live.socket().received, [], "nothing goes to the fresh Live thread");
+  assert.deepEqual(live.entered, []);
+  assert.equal(live.socket(), first, "the studio keeps the Live thread");
+  assert.equal(first.readyState, 1);
+  assert.deepEqual(live.thread().view.messages.at(-1), {
+    id: "2",
+    from: "draft",
+    draftId: STARTED_DRAFT,
+    name: "New prices",
+  });
+});
+
+void test("a studio no longer on Live isn't told to enter the draft", async (t) => {
+  const inDraft = await enteringStudio(t, "019a0000-0000-7000-8000-000000000002");
+  const operationId = await sendFrom(inDraft, "Raise the price");
+
+  await act(async () =>
+    inDraft.socket().reply({
+      type: "started-draft",
+      startedDraft: { draftId: STARTED_DRAFT, operationIds: [operationId] },
+    }),
+  );
+
+  assert.deepEqual(inDraft.entered, []);
 });
 
 void test("the studio doesn't reconnect to a draft's thread that ended with the draft", async (t) => {
@@ -288,17 +305,6 @@ void test("the studio doesn't reconnect to a draft's thread that ended with the 
   });
 
   assert.ok(socket() === ended, "the studio left the ended thread closed");
-});
-
-void test("on Live, the studio moves on to the editor's fresh Live thread", async (t) => {
-  // The draft the Live thread's write started ended before the thread moved into it.
-  const { socket } = await studio(t, null);
-  const ended = socket();
-
-  await act(async () => ended.end());
-
-  await waitFor(() => socket() !== ended && socket().readyState === 1, "the studio reconnects");
-  assert.equal(new URL(socket().url).pathname, "/threads/live/1");
 });
 
 void test("in dev mode, the studio moves on to the development draft's new thread", async (t) => {
@@ -343,45 +349,4 @@ void test("the studio leaves out what teammates' runs touched", async (t) => {
 
   assert.deepEqual(thread().touched?.batch, ours, "the studio still shows its own run's");
   assert.equal(thread().touched?.sequence, 1, "the teammate's run reported nothing new");
-});
-
-/** A studio on Live whose message's first write started a draft, as it enters that draft. */
-async function enteringStudio(t: TestContext) {
-  const carried: CarriedThread[] = [];
-  const live = await studio(t, null, { onEnterDraft: (_, thread) => carried.push(thread) });
-  await act(async () => live.thread().send("Add a hero"));
-  const sent = live.socket().received.at(-1);
-  assert.ok(sent?.type === "send");
-  const { operationId } = sent;
-  const startedDraft = { draftId: STARTED_DRAFT, operationIds: [operationId] };
-  const touched = { operationIds: [operationId], ...ADDED_HERO };
-  // The script that wrote ends as the thread moves into the draft.
-  await act(async () => {
-    live.socket().reply({ type: "accepted", operationId });
-    live.socket().reply(snapshotOf([{ text: "Add a hero", operationId }]));
-    live.socket().reply({ type: "started-draft", startedDraft });
-    live.socket().reply({ type: "touched", touched });
-  });
-  assert.equal(carried.length, 1, "the studio enters the draft");
-  assert.equal(live.thread().touched, undefined, "the studio follows it in the draft, not on Live");
-  const draft = await studio(t, STARTED_DRAFT, { carried: carried[0] });
-  return { ...draft, operationId, touched };
-}
-
-void test("the studio entering the draft its Live thread started follows what the write touched there", async (t) => {
-  const { thread, touched } = await enteringStudio(t);
-
-  assert.deepEqual(thread().touched?.batch, touched);
-});
-
-void test("in the draft its Live thread started, the studio follows the rest of its run", async (t) => {
-  const { thread, socket, operationId } = await enteringStudio(t);
-  const next = {
-    operationIds: [operationId],
-    touches: [{ entity: "page", pageId: "page-2", kind: "settings" }],
-  } satisfies TouchedBatch;
-
-  await act(async () => socket().reply({ type: "touched", touched: next }));
-
-  assert.deepEqual(thread().touched?.batch, next);
 });

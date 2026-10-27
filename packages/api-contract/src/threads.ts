@@ -36,6 +36,16 @@ export const RECONCILE_ENTRY = "camox.reconcile";
  */
 export const BRIEF_ENTRY = "camox.brief";
 
+/**
+ * The agent's tool on Live handing a request off to a draft it starts (ADR 0025). A run whose
+ * call of it went through ends on the draft's card.
+ */
+export const START_DRAFT_TOOL = "startDraft";
+
+/** The draft a `startDraft` call started, as its result's details name it for the card. */
+export const startedDraftCardSchema = z.object({ draftId: z.string(), name: z.string() });
+export type StartedDraftCard = z.infer<typeof startedDraftCardSchema>;
+
 export const reconcileDataSchema = z.object({ message: z.string() });
 
 export const buildStatusSchema = z.enum(["building", "fixing"]);
@@ -61,9 +71,9 @@ export const editorMessageDataSchema = threadSenderSchema.extend({
 });
 
 /**
- * A draft a Live thread started with its first write, becoming its thread, and the operation ids
- * of the messages of the run that made the write: the studio that sent one of them enters the
- * draft with the thread.
+ * A draft the agent on Live started with `startDraft`, and the operation ids of the messages of
+ * the run that started it: the studio that sent one of them enters the draft, if it still shows
+ * Live.
  */
 export const startedDraftSchema = z.object({
   draftId: z.string(),
@@ -126,22 +136,15 @@ export type ThreadMessage =
    */
   | { id: string; from: "failed" }
   /** In place of the agent's message, for a turn an editor stopped: `sender` stopped it. */
-  | { id: string; from: "stopped"; sender: ThreadSender };
-
-/** Where a Live thread's messages went when it started a draft, beside its transcript. */
-type LiveThreadHandoff = {
+  | { id: string; from: "stopped"; sender: ThreadSender }
   /**
-   * The draft this Live thread started with its first write, whose thread it became. The studio
-   * that sent a message of that run enters the draft with the thread; other tabs on Live move to
-   * the editor's fresh Live thread.
+   * In place of the agent's message, for a Live turn handed off to a draft the agent started:
+   * the draft's card, which opens it. The turn is finished.
    */
-  startedDraft?: StartedDraft;
-  /** The draft the editor's previous Live thread continued in, for a fresh Live thread. */
-  continuedIn?: StartedDraft;
-};
+  | ({ id: string; from: "draft" } & StartedDraftCard);
 
 /** Everything the studio shows for a thread. */
-export type ThreadView = LiveThreadHandoff & {
+export type ThreadView = {
   messages: readonly ThreadMessage[];
   /** Whether a run is going: the agent is working on a turn, and stopping would end it. */
   running: boolean;
@@ -164,7 +167,7 @@ export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
  * and whether a run is going. The studio and the tests fold Pi's events into this, and derive
  * the view from it with `threadViewOf`, so a snapshot and the events that led to it show the same.
  */
-export type ThreadState = LiveThreadHandoff & {
+export type ThreadState = {
   steps: readonly ThreadStep[];
   running: boolean;
   /** The model's calls still running, by call id. A tool's own calls aren't the agent's. */
@@ -186,6 +189,8 @@ type ThreadStep = { id: string } & (
   /** A model call that ended without an answer: failed, aborted, or cut short. */
   | { type: "unfinished" }
   | { type: "stopped"; sender: ThreadSender }
+  /** A `startDraft` call that went through, which ends the turn on the draft's card. */
+  | ({ type: "draft" } & StartedDraftCard)
   /** Where the build of the turn's code stands, as the turn ends. */
   | { type: "build"; status: BuildStatus }
   /**
@@ -218,13 +223,11 @@ export type ThreadServerMessage =
   | { type: "events"; events: readonly AgentEvent[] }
   /** The thread recorded the message sent with this operation id (once, however often sent). */
   | { type: "accepted"; operationId: string }
-  /** This Live thread started a draft with its first write, and became that draft's thread. */
-  | { type: "started-draft"; startedDraft: StartedDraft }
   /**
-   * The editor's previous Live thread continued in this draft: this one is fresh. Sent before
-   * the snapshot.
+   * The agent on Live started a draft with `startDraft`: the studio that sent a message of the
+   * run enters it, if it still shows Live. Live only: a snapshot never replays it.
    */
-  | { type: "continued-in"; continuedIn: StartedDraft }
+  | { type: "started-draft"; startedDraft: StartedDraft }
   /**
    * A code-mode script that wrote something ended, failed or not: what its successful writes
    * touched. Sent once per such script, live only: a snapshot never replays past touches.
@@ -287,15 +290,21 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
     return { id, type: "continued" };
   }
   if (message.role === "assistant") return assistantStep(id, message);
-  if (message.role === "toolResult") return { id, type: "tools" };
+  if (message.role === "toolResult") {
+    const card =
+      message.toolName === START_DRAFT_TOOL && !message.isError
+        ? startedDraftCardSchema.safeParse(message.details).data
+        : undefined;
+    return card ? { id, type: "draft", ...card } : { id, type: "tools" };
+  }
   return undefined;
 }
 
 /**
  * What the studio shows for a thread. A turn starts with an editor's message, or Camox's own
  * when it began the turn itself, and messages sent
- * while it runs join it. It ends with the agent's final message; text written beside tool calls
- * is never shown. A stopped turn shows who stopped it instead, and whatever its run wrote after
+ * while it runs join it. It ends with the agent's final message, or on Live, the card of the
+ * draft it handed the request off to; text written beside tool calls is never shown. A stopped turn shows who stopped it instead, and whatever its run wrote after
  * the stop is left out. A turn that ended without either shows a failed line in its place: its
  * run is over, or a later message started another run after its last model call came back
  * unfinished. While Pi retries a failed call, the run goes on, so the turn shows as working.
@@ -305,7 +314,6 @@ export function threadViewOf({
   running,
   toolCalls = [],
   callingTools = false,
-  ...drafts
 }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
   // The latest editor's message of a turn still waiting for the agent's message.
@@ -358,6 +366,12 @@ export function threadViewOf({
           answered = before;
         }
         break;
+      case "draft":
+        // The handoff answers the turn: the agent says nothing more.
+        if (waiting === undefined && messages.at(-1)?.from === "stopped") break;
+        messages.push({ id: step.id, from: "draft", draftId: step.draftId, name: step.name });
+        endTurn();
+        break;
       case "continued":
         // The answer before wasn't the turn's last. Once the end of the turn gives up fixing,
         // the agent explains without a status.
@@ -381,7 +395,6 @@ export function threadViewOf({
   if (!running) fail();
   const usingTools = running && (callingTools || toolCalls.length > 0);
   return {
-    ...drafts,
     messages,
     running,
     ...(running && status && { status }),
@@ -447,10 +460,6 @@ export function reduceThreadFrame(state: ThreadState, frame: ThreadServerMessage
   switch (frame.type) {
     case "events":
       return reduceThreadEvents(state, frame.events);
-    case "started-draft":
-      return { ...state, startedDraft: frame.startedDraft };
-    case "continued-in":
-      return { ...state, continuedIn: frame.continuedIn };
     default:
       return state;
   }

@@ -22,9 +22,18 @@ import { ThreadMarkdown } from "./ThreadMarkdown";
  * way to the thread, which hasn't accepted it yet), its face says whether the agent thinks or
  * acts (uses its tools, or builds its code). While the end of a turn builds the agent's code, or
  * the agent fixes a build error, it says so in words too. Each editor's message shows its
- * sender's avatar, without their name.
+ * sender's avatar, without their name. A Live turn handed off to a draft ends on the draft's
+ * card, which `onOpenDraft` opens.
  */
-export function ThreadMessages({ view, sending = false }: { view: ThreadView; sending?: boolean }) {
+export function ThreadMessages({
+  view,
+  sending = false,
+  onOpenDraft,
+}: {
+  view: ThreadView;
+  sending?: boolean;
+  onOpenDraft?: (draftId: string) => void;
+}) {
   const working = view.running || sending;
   const empty = view.messages.length === 0 && !working;
   const squareling = useSquarelingMorph(empty);
@@ -53,7 +62,7 @@ export function ThreadMessages({ view, sending = false }: { view: ThreadView; se
                 scrollAnchor={message.from === "editor"}
                 className="flex flex-col gap-4"
               >
-                <ThreadMessageRow message={message} />
+                <ThreadMessageRow message={message} onOpenDraft={onOpenDraft} />
                 {index === view.messages.length - 1 && (
                   <AgentPresence view={view} working={working} squareling={squareling} />
                 )}
@@ -154,7 +163,31 @@ const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
   fixing: "Fixing a build error…",
 };
 
-function ThreadMessageRow({ message }: { message: ThreadMessage }) {
+function ThreadMessageRow({
+  message,
+  onOpenDraft,
+}: {
+  message: ThreadMessage;
+  onOpenDraft?: (draftId: string) => void;
+}) {
+  if (message.from === "draft") {
+    // The agent on Live handed the request off to this draft, where its agent does the work.
+    return (
+      <Message>
+        <MessageContent>
+          <button
+            type="button"
+            data-thread-draft-card
+            onClick={() => onOpenDraft?.(message.draftId)}
+            className="bg-muted/50 hover:bg-muted focus-visible:ring-ring flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <span className="text-muted-foreground text-xs">Started a draft</span>
+            <span className="font-medium">{message.name}</span>
+          </button>
+        </MessageContent>
+      </Message>
+    );
+  }
   if (message.from === "stopped" || message.from === "failed") {
     return (
       <Message>

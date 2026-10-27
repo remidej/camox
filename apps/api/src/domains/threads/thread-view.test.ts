@@ -5,6 +5,7 @@ import {
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
   RUN_STOPPED_ENTRY,
+  START_DRAFT_TOOL,
   threadViewOf,
 } from "@camox/api-contract/threads";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -47,6 +48,32 @@ const answer = (text: string) => ({
   kind: "pi.assistant",
   model: [fauxAssistantMessage([fauxText(text)])],
 });
+
+/** The agent on Live calling `startDraft`, and the call's result, failed or not. */
+const handOff = (card: { draftId: string; name: string }, { isError = false } = {}) => [
+  {
+    kind: "pi.assistant",
+    model: [
+      fauxAssistantMessage([fauxToolCall(START_DRAFT_TOOL, { name: card.name, brief: "…" })], {
+        stopReason: "toolUse",
+      }),
+    ],
+  },
+  {
+    kind: "pi.tool-result",
+    model: [
+      {
+        role: "toolResult" as const,
+        toolCallId: "call-1",
+        toolName: START_DRAFT_TOOL,
+        content: [{ type: "text" as const, text: isError ? "The draft ended." : "{}" }],
+        ...(!isError && { details: card }),
+        isError,
+        timestamp: 0,
+      },
+    ],
+  },
+];
 
 const buildStatus = (status: BuildStatus) => ({ kind: BUILD_STATUS_ENTRY, data: { status } });
 
@@ -198,5 +225,40 @@ describe("a thread's view", () => {
     expect(
       running([{ callId: "call-1", status: "running" }], [{ type: "run_end", inputs: [] }]),
     ).toBeUndefined();
+  });
+
+  it("ends a Live turn handed off to a draft on the draft's card, as finished", () => {
+    const card = { draftId: "draft-1", name: "New prices" };
+    const view = threadViewOf(
+      reduceThreadEvents(EMPTY_THREAD_STATE, [
+        snapshot([editorMessage("Raise the price"), ...handOff(card)]),
+      ]),
+    );
+
+    expect(view.messages.map(({ from }) => from)).toEqual(["editor", "draft"]);
+    expect(view.messages.at(-1)).toMatchObject({ from: "draft", ...card });
+  });
+
+  it("shows a startDraft call that failed as a turn Camox couldn't finish, with no card", () => {
+    expect(
+      shown(
+        [
+          editorMessage("Raise the price"),
+          ...handOff({ draftId: "d", name: "N" }, { isError: true }),
+        ],
+        false,
+      ).said,
+    ).toEqual(["editor", "failed"]);
+  });
+
+  it("keeps a card a Live turn ended on as the next turn starts", () => {
+    expect(
+      shown([
+        editorMessage("Raise the price"),
+        ...handOff({ draftId: "d", name: "N" }),
+        editorMessage("And the launch page?"),
+        answer("It's in the draft."),
+      ]).said,
+    ).toEqual(["editor", "draft", "editor", "agent"]);
   });
 });
