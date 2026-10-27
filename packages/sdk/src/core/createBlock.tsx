@@ -20,7 +20,12 @@ import {
   useArtifactHost,
   useInitialArtifactData,
 } from "./hooks/useArtifactHost";
-import { artifactFrameProps, artifactStandInProps, isArtifactSource } from "./lib/artifact";
+import {
+  artifactFrameProps,
+  artifactStandInProps,
+  isArtifactSource,
+  isArtifactSourceReference,
+} from "./lib/artifact";
 import { artifactData } from "./lib/artifactData";
 import {
   resolveBlockFields,
@@ -280,9 +285,17 @@ function createViewBlock(options: EditableOptions) {
       size: useFieldSchema(name)?.size,
       navigate: useNavigate(),
     });
-    const initialData = useInitialArtifactData(value, data);
+    // A reference read again is a new object: its URL names the same source.
+    const initialData = useInitialArtifactData(
+      isArtifactSourceReference(value) ? value.artifactUrl : value,
+      data,
+    );
     const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
     const runs = React.use(ArtifactsRunContext);
+    // A public page holds a reference to each source, and every artifact there runs.
+    if (isArtifactSourceReference(value)) {
+      return children({ ...artifactFrameProps(value, { data: initialData }), ...hostProps });
+    }
     if (!isArtifactSource(value)) return null;
     return children({
       ...(runs

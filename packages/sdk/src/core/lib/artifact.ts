@@ -6,14 +6,36 @@ import type { CamoxDocument } from "../defineDocument";
 import type { ArtifactData } from "./artifactData";
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
-/** The frame attributes of an artifact source. */
-export type ArtifactFrameProps = {
-  srcDoc: string;
+/** The frame attributes an artifact's frame has, whichever way it loads its document. */
+type ArtifactFrameAttributes = {
   sandbox: string;
   allow: string;
   title: string;
   loading: "lazy";
 };
+
+/** The frame attributes of an artifact whose document is inlined. */
+export type InlineArtifactFrameProps = ArtifactFrameAttributes & { srcDoc: string; src?: never };
+
+/** The frame attributes of an artifact: its document inlined, or loaded by URL. */
+export type ArtifactFrameProps =
+  | InlineArtifactFrameProps
+  | (ArtifactFrameAttributes & { src: string; srcDoc?: never });
+
+/**
+ * What a public page holds in place of an artifact source: the URL the website serves its
+ * document at, named by its shell and source hashes, and its title. Frames load it by URL, so
+ * neither the page's HTML nor its hydration data carries the source, and the client renders the
+ * same frames as the server.
+ */
+export type ArtifactSourceReference = { artifactUrl: string; title: string };
+
+/** Whether a stored artifact value was replaced by a reference to its source. */
+export function isArtifactSourceReference(value: unknown): value is ArtifactSourceReference {
+  if (typeof value !== "object" || value === null) return false;
+  const { artifactUrl, title } = value as Partial<ArtifactSourceReference>;
+  return typeof artifactUrl === "string" && typeof title === "string";
+}
 
 /** What `block.Artifact` passes to its render prop, to spread onto an `<iframe>`. */
 export type ArtifactRenderProps = ArtifactFrameProps & {
@@ -148,21 +170,40 @@ export function artifactSourceOf(document: string) {
 }
 
 /**
- * The frame props for an artifact source, with its initial Artifact Data and the website's font
- * links. This getter is the boundary that hides how the source reaches the frame (inline `srcdoc`
- * today), so blocks never depend on it.
+ * The frame props for an artifact, with its initial Artifact Data and the website's font links.
+ * This getter is the boundary that hides how the source reaches the frame, so blocks never
+ * depend on it: a source is inlined with `srcdoc`, while a reference to one loads by URL, its
+ * initial Artifact Data in the URL's fragment.
  */
 export function artifactFrameProps(
   source: string,
+  options?: ArtifactDocumentOptions,
+): InlineArtifactFrameProps;
+export function artifactFrameProps(
+  artifact: string | ArtifactSourceReference,
+  options?: ArtifactDocumentOptions,
+): ArtifactFrameProps;
+export function artifactFrameProps(
+  artifact: string | ArtifactSourceReference,
   options: ArtifactDocumentOptions = {},
 ): ArtifactFrameProps {
-  return {
-    srcDoc: artifactDocument(source, options),
+  const attributes = {
     // Never `allow-same-origin`: the opaque origin keeps the page away from the site and studio.
     sandbox: "allow-scripts",
     allow: "fullscreen; clipboard-write",
-    title: artifactTitle(source),
     loading: "lazy",
+  } as const;
+  if (typeof artifact === "string") {
+    return {
+      srcDoc: artifactDocument(artifact, options),
+      ...attributes,
+      title: artifactTitle(artifact),
+    };
+  }
+  return {
+    src: `${artifact.artifactUrl}${artifactDataFragment(options.data ?? {})}`,
+    ...attributes,
+    title: artifact.title,
   };
 }
 

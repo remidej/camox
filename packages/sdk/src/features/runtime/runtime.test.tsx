@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { renderToString } from "react-dom/server";
-
 import type { CamoxApp } from "../../core/createApp";
-import { artifactFrameProps } from "../../core/lib/artifact";
 import {
   localesResponse,
   markdownBody,
@@ -709,44 +706,6 @@ void test("in dev, a page preloads its blocks' modules", async (t) => {
   const html = await renderPageWithBlocks(null);
 
   assert.deepEqual(modulePreloads(html), ["/src/blocks/hero.tsx"]);
-});
-
-void test("a public page's hydration data leaves out the artifact sources its frames hold", async (t) => {
-  const source = "<!doctype html><title>Orbit diagram</title><svg></svg>";
-  t.mock.method(globalThis, "fetch", async (request: Request) => {
-    if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
-    const path = new URL(request.url).pathname;
-    if (path.endsWith("/listBySlug")) return pageListResponse();
-    if (path.endsWith("/getByPath"))
-      return Response.json({
-        json: {
-          page: { id: "1", fullPath: "/about", pathSegment: "about", status: "published" },
-          layout: null,
-          project,
-          projectName: project.name,
-          blocks: [
-            { id: 1, type: "hero", content: { visual: source }, settings: {}, position: "a" },
-          ],
-          files: [],
-          repeatableItems: [],
-        },
-      });
-    throw new Error(`Unexpected API request ${path}`);
-  });
-  const response = await handleCamoxRequest(new Request("http://localhost:3000/about"), {
-    apiUrl: "https://api.test",
-    authenticationUrl: "https://auth.test",
-    projectUuid: "test",
-    pageClientEntryUrl: "/client.js",
-    getCamoxApp: async () => app,
-    renderPage: async () => renderToString(<iframe {...artifactFrameProps(source)} />),
-  });
-  const html = await response!.text();
-  const [head, body] = html.split("</head>");
-
-  assert.ok(body.includes("Orbit diagram"));
-  assert.ok(!head.includes("Orbit diagram"));
-  assert.ok(head.includes("camox-artifact-source"));
 });
 
 void test("the renderer document loads the renderer's client, privately, without reading anything", async (t) => {
