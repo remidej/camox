@@ -381,3 +381,39 @@ void test("the studio leaves out what teammates' runs touched", async (t) => {
   assert.deepEqual(thread().touched?.batch, ours, "the studio still shows its own run's");
   assert.equal(thread().touched?.sequence, 1, "the teammate's run reported nothing new");
 });
+
+void test("the studio that entered the draft its request was handed off to follows the draft's agent", async (t) => {
+  const live = await enteringStudio(t);
+  const operationId = await sendFrom(live, "Add a hero");
+  await act(async () =>
+    live.socket().reply({
+      type: "started-draft",
+      startedDraft: { draftId: STARTED_DRAFT, operationIds: [operationId] },
+    }),
+  );
+  assert.deepEqual(live.entered, [STARTED_DRAFT]);
+
+  // The studio enters the draft, following its thread instead, where the agent runs on the
+  // editor's message.
+  const inDraft = await studio(t, STARTED_DRAFT);
+  const touched = { operationIds: [operationId], ...ADDED_HERO };
+  await act(async () => inDraft.socket().reply({ type: "touched", touched }));
+
+  assert.deepEqual(inDraft.thread().touched?.batch, touched);
+});
+
+void test("a studio entering a draft on its own leaves out what the handed-off run touched", async (t) => {
+  const live = await enteringStudio(t);
+  await act(async () =>
+    live.socket().reply({
+      type: "started-draft",
+      startedDraft: { draftId: STARTED_DRAFT, operationIds: ["another-tab"] },
+    }),
+  );
+
+  const inDraft = await studio(t, STARTED_DRAFT);
+  const touched = { operationIds: ["another-tab"], ...ADDED_HERO };
+  await act(async () => inDraft.socket().reply({ type: "touched", touched }));
+
+  assert.equal(inDraft.thread().touched, undefined);
+});
