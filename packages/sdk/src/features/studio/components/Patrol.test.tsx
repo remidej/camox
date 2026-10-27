@@ -237,6 +237,7 @@ function renderOne(patroller: PatrollerView) {
     subtitleHidden: subtitle?.getAttribute("aria-hidden") === "true",
     announced: text(row.querySelector("[data-working-status]")),
     indicator: row.querySelector("[data-working-indicator]"),
+    squareling: row.querySelector("[data-squareling]"),
   };
 }
 
@@ -281,6 +282,27 @@ void test("the avatar circle shows a working indicator only while working", () =
   assert.equal(working.indicator.getAttribute("aria-hidden"), "true");
 
   assert.equal(renderOne(seoManager()).indicator, null);
+});
+
+void test("each patroller shows its own squareling, never the agent's, with its idle face until it works", () => {
+  const face = (patroller: PatrollerView) => {
+    const { squareling } = renderOne(patroller);
+    return {
+      variant: squareling?.getAttribute("data-squareling-variant"),
+      face: squareling?.getAttribute("data-squareling"),
+    };
+  };
+
+  assert.deepEqual(face(translator), { variant: "translator", face: "idle" });
+  assert.deepEqual(face(translating({ count: 1, subject: hero, locale: "es" })), {
+    variant: "translator",
+    face: "working",
+  });
+  assert.deepEqual(face(seoManager()), { variant: "seoManager", face: "idle" });
+  assert.deepEqual(face(seoManager({ working: { count: 3, subject: null, locale: "de" } })), {
+    variant: "seoManager",
+    face: "working",
+  });
 });
 
 void test("assistive technology hears the working state in words, once", () => {

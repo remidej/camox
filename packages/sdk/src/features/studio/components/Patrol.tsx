@@ -293,7 +293,11 @@ function PatrollerRow({
         className="hover:bg-muted/60 focus-visible:ring-ring/50 flex items-center gap-2.5 px-3 py-1.5 text-left outline-none focus-visible:ring-[3px]"
       >
         <span className="bg-muted relative flex size-8 shrink-0 items-center justify-center rounded-full">
-          <Squareling status="idle" className="size-5" />
+          <Squareling
+            variant={patroller.id}
+            status={working ? "working" : "idle"}
+            className="size-5"
+          />
           {working && <WorkingArc />}
         </span>
         <span className="flex min-w-0 flex-col">

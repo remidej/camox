@@ -81,6 +81,16 @@ code {
 [data-squareling="fixing"] .squareling-body {
   animation: squareling-wiggle 1.2s ease-in-out infinite;
 }
+/*
+ * A working patroller's narrowed eyes follow the work, at the pace of reading, along its body:
+ * across the Translator's wide wedge, down the SEO manager's tall block.
+ */
+[data-squareling="working"][data-squareling-variant="translator"] .squareling-eyes {
+  animation: squareling-glance 2.8s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+[data-squareling="working"][data-squareling-variant="seoManager"] .squareling-eyes {
+  animation: squareling-scan 2.8s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .squareling * {
     animation: none !important;
@@ -112,6 +122,32 @@ code {
   }
   88% {
     transform: scaleY(0.1);
+  }
+}
+@keyframes squareling-glance {
+  0%,
+  30%,
+  100% {
+    transform: translate(0, 0);
+  }
+  45%,
+  80% {
+    transform: translate(-22px, 0);
+  }
+}
+@keyframes squareling-scan {
+  0%,
+  20%,
+  100% {
+    transform: translate(0, 0);
+  }
+  35%,
+  45% {
+    transform: translate(0, 18px);
+  }
+  60%,
+  75% {
+    transform: translate(0, 36px);
   }
 }
 @keyframes squareling-hop {
