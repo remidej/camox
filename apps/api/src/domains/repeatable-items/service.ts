@@ -10,6 +10,7 @@ import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { storingArtifactSources } from "../artifact-sources/store";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { initializeBlockContent } from "../blocks/initialize-content";
 import {
@@ -421,17 +422,30 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     );
   }
 
-  const result = yield* overlay.insert(ctx.db, scope, repeatableItems, {
-    id,
-    ...rootColumns(tree.root),
-    parentItemId: parentItemId ?? null,
-    fieldName,
-    content: sanitizedContent,
-    settings: sanitizedSettings,
-    position,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const result = yield* overlay.insert(
+    ctx.db,
+    scope,
+    repeatableItems,
+    {
+      id,
+      ...rootColumns(tree.root),
+      parentItemId: parentItemId ?? null,
+      fieldName,
+      content: sanitizedContent,
+      settings: sanitizedSettings,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      alongside: yield* storingArtifactSources(
+        ctx.db,
+        project.id,
+        repeater?.items,
+        sanitizedContent,
+      ),
+    },
+  );
   if (!result) return yield* new ConflictError({ message: `Repeatable item ${id} already exists` });
 
   // Insert client-provided nested item seeds
@@ -443,16 +457,29 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
       const seedParentId = seed.parentTempId
         ? (tempIdToRealId.get(seed.parentTempId) ?? result.id)
         : result.id;
-      const inserted = yield* overlay.insert(ctx.db, scope, repeatableItems, {
-        ...rootColumns(tree.root),
-        parentItemId: seedParentId,
-        fieldName: seed.fieldName,
-        content: seed.content,
-        settings: seed.settings,
-        position: seed.position,
-        createdAt: now,
-        updatedAt: now,
-      });
+      const inserted = yield* overlay.insert(
+        ctx.db,
+        scope,
+        repeatableItems,
+        {
+          ...rootColumns(tree.root),
+          parentItemId: seedParentId,
+          fieldName: seed.fieldName,
+          content: seed.content,
+          settings: seed.settings,
+          position: seed.position,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          alongside: yield* storingArtifactSources(
+            ctx.db,
+            project.id,
+            seedSchemas.get(seed.tempId),
+            seed.content,
+          ),
+        },
+      );
       tempIdToRealId.set(seed.tempId, inserted!.id);
     }
   }
@@ -500,10 +527,16 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       ...(access.item.content as Record<string, unknown>),
       ...sanitizedPatch,
     };
-    const result = yield* overlay.update(ctx.db, scope, repeatableItems, id, {
-      content: merged,
-      updatedAt: Date.now(),
-    });
+    const result = yield* overlay.update(
+      ctx.db,
+      scope,
+      repeatableItems,
+      id,
+      { content: merged, updatedAt: Date.now() },
+      {
+        alongside: yield* storingArtifactSources(ctx.db, project.id, itemSchema, sanitizedPatch),
+      },
+    );
     yield* requestGeneration(ctx.db, homeOf(scope, project.id), {
       entity: "repeatableItem",
       row: { id },

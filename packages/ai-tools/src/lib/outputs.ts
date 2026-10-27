@@ -91,6 +91,8 @@ export const blockSchema = z.strictObject({
   position: z.string(),
   summary: z.string(),
   title: z.string(),
+  /** The hash of each artifact source in its content, by field. */
+  artifactHashes: z.record(z.string(), z.string()),
 });
 
 /** A block a tool wrote, with what its content may be missing. */
@@ -111,6 +113,8 @@ const repeatableItemSchema = z.strictObject({
   fieldName: z.string(),
   summary: z.string(),
   title: z.string(),
+  /** The hash of each artifact source in its content, by field. */
+  artifactHashes: z.record(z.string(), z.string()),
 });
 
 const blockWithReferencesSchema = blockSchema.extend({ references: resolvedReferencesSchema });

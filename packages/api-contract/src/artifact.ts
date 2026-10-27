@@ -36,3 +36,15 @@ export function artifactSourceTitle(source: string): string | undefined {
 export function artifactTitle(source: string): string {
   return artifactSourceTitle(source) ?? UNTITLED_ARTIFACT;
 }
+
+/**
+ * The hash an artifact source is stored and served under: the SHA-256 of its UTF-8 bytes, in
+ * URL-safe base64 without padding. Shared by the API, which stores sources under it, and the SDK,
+ * which names the URLs public pages load artifacts from.
+ */
+export async function artifactSourceHash(source: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  let binary = "";
+  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}

@@ -629,6 +629,17 @@ export const runPlanned = Effect.fn("overlay.runPlanned")(function* <A>(
   return planned.result;
 });
 
+/**
+ * Options of a single write: `alongside` names statements that write no content entity, run in
+ * the write's batch only when the write runs, such as storing the artifact sources it sets.
+ */
+export type WriteOptions = { alongside?: readonly BatchItem[] };
+
+const alongside = <A>(planned: Planned<A>, options: WriteOptions): Planned<A> =>
+  options.alongside?.length
+    ? { ...planned, statements: [...planned.statements, ...options.alongside] }
+    : planned;
+
 /** The default locale's tag in a project, as Live or a draft reads its locales. */
 const defaultLocaleTag = Effect.fn("overlay.defaultLocaleTag")(function* (
   db: Database,
@@ -759,10 +770,11 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
   target: WriteTarget,
   table: T,
   values: Patch<T> & { id?: string },
+  options: WriteOptions = {},
 ) {
   const planned = yield* planInsert(db, target, table, values);
   if (!planned.result) return undefined;
-  yield* runPlanned(db, planned);
+  yield* runPlanned(db, alongside(planned, options));
   return yield* storedAfter(db, target, table, planned.result);
 });
 
@@ -859,10 +871,11 @@ export const update = Effect.fn("overlay.update")(function* <T extends ContentTa
   table: T,
   id: string,
   patch: Patch<T>,
+  options: WriteOptions = {},
 ) {
   const planned = yield* planUpdate(db, target, table, id, patch);
   if (!planned.result) return undefined;
-  yield* runPlanned(db, planned);
+  yield* runPlanned(db, alongside(planned, options));
   return yield* storedAfter(db, target, table, planned.result);
 });
 
