@@ -1,14 +1,25 @@
-import type { PatrollerId, PatrollerView, PatrolView } from "@camox/api-contract/patrol";
+import type {
+  PatrollerId,
+  PatrollerView,
+  PatrolView,
+  ReportView,
+} from "@camox/api-contract/patrol";
 import { Badge } from "@camox/ui/badge";
 import * as React from "react";
 
 import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId } from "../../../lib/draft-scope";
+import { localizedPath } from "../../../lib/locale-path";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { cn } from "../../../lib/utils";
+import { useViewLocale } from "../../../lib/view-locale-context";
+import { useNavigate } from "../../navigation/navigation";
+import { AssetLightbox } from "../../preview/components/AssetLightbox";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { timeAgo } from "../draftLabel";
-import { moreSentence, reportSentence, shortTimeAgo } from "../reportSentence";
+import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
+import { editCollectionItemPath } from "../routes";
+import { useShowInCanvas } from "../showInCanvas";
 import { Squareling } from "./Squareling";
 
 /**
@@ -56,6 +67,8 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
   const [heldOrder, setHeldOrder] = React.useState<readonly PatrollerId[] | null>(null);
   const shown = view && inHeldOrder(view, heldOrder);
   const roster = useMovingRows(shown?.patrollers.map(({ id }) => id).join(" "));
+  const [openFileId, setOpenFileId] = React.useState<string | null>(null);
+  const show = useShowReport(inDraft, setOpenFileId);
   if (!shown) return null;
   return (
     <div
@@ -71,9 +84,47 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
         singleLocale={locales?.length === 1}
         expanded={expanded}
         onToggle={toggle}
+        onShow={show}
       />
+      {openFileId && (
+        <AssetLightbox
+          open
+          onOpenChange={(open) => {
+            if (!open) setOpenFileId(null);
+          }}
+          fileId={openFileId}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Shows a report's subject where it is, in the report's locale, and on Live for a Live report seen
+ * from a draft: a page, block or item selected on the Canvas, a record in its collection, or a
+ * file, opened over the Canvas.
+ */
+function useShowReport(inDraft: boolean, openFile: (fileId: string) => void) {
+  const showInCanvas = useShowInCanvas();
+  const navigate = useNavigate();
+  const view = useViewLocale();
+  return (report: ReportView) => {
+    const { place } = report;
+    if (!place) return;
+    const toLive = inDraft && report.live ? { draft: null } : {};
+    const tag = report.summary.kind === "structured" ? report.summary.locale : null;
+    if (place.kind === "page") {
+      const { pageId, blockId, itemId } = place;
+      return void showInCanvas({ pageId, locale: tag, blockId, itemId, ...toLive });
+    }
+    if (place.kind === "record") {
+      const locale = view.locales.find((each) => each.tag === tag) ?? view.locale;
+      const path = editCollectionItemPath(place.collectionId, place.recordId);
+      return void navigate({ to: localizedPath(path, locale), ...toLive });
+    }
+    if (inDraft && report.live) void navigate({ to: window.location.href, draft: null });
+    openFile(place.fileId);
+  };
 }
 
 /**
@@ -147,6 +198,7 @@ export function PatrolRoster({
   singleLocale,
   expanded,
   onToggle,
+  onShow,
 }: {
   view: PatrolView;
   now: number;
@@ -154,6 +206,8 @@ export function PatrolRoster({
   singleLocale: boolean;
   expanded: ReadonlySet<string>;
   onToggle: (id: PatrollerId) => void;
+  /** Shows a report's subject where it is: one with a place only. */
+  onShow: (report: ReportView) => void;
 }) {
   return (
     <ul className="flex flex-col py-1">
@@ -170,6 +224,7 @@ export function PatrolRoster({
           }
           expanded={expanded.has(patroller.id)}
           onToggle={() => onToggle(patroller.id)}
+          onShow={onShow}
         />
       ))}
     </ul>
@@ -183,6 +238,7 @@ function PatrollerRow({
   idle,
   expanded,
   onToggle,
+  onShow,
 }: {
   patroller: PatrollerView;
   now: number;
@@ -191,6 +247,7 @@ function PatrollerRow({
   idle: string | undefined;
   expanded: boolean;
   onToggle: () => void;
+  onShow: (report: ReportView) => void;
 }) {
   const reportsId = React.useId();
   const subtitle =
@@ -219,10 +276,12 @@ function PatrollerRow({
       {expanded && (
         <ul id={reportsId} className="flex flex-col gap-1 pt-0.5 pr-3 pb-2 pl-[3.375rem] text-xs">
           {patroller.reports.map((report) => (
-            <li key={report.id} data-report className="flex items-baseline gap-2">
-              <span className="min-w-0 flex-1">
-                {reportSentence(report.summary, report.outcome)}
-              </span>
+            <li
+              key={report.id}
+              data-report
+              className="has-focus-visible:ring-ring/50 has-[button:hover]:bg-muted/60 relative -mx-1.5 flex items-baseline gap-2 rounded-sm px-1.5 has-focus-visible:ring-[3px]"
+            >
+              <ReportSentence report={report} inDraft={inDraft} onShow={onShow} />
               {inDraft && report.live && (
                 <Badge variant="outline" size="sm">
                   Live
@@ -244,5 +303,33 @@ function PatrollerRow({
         </ul>
       )}
     </li>
+  );
+}
+
+/**
+ * A report's sentence: a button showing its subject where it is, over the whole row, named for
+ * where it leads. A report without a place is plain text.
+ */
+function ReportSentence({
+  report,
+  inDraft,
+  onShow,
+}: {
+  report: ReportView;
+  inDraft: boolean;
+  onShow: (report: ReportView) => void;
+}) {
+  const sentence = reportSentence(report.summary, report.outcome);
+  const leads = whereReportLeads(report, inDraft);
+  if (leads === null) return <span className="min-w-0 flex-1">{sentence}</span>;
+  return (
+    <button
+      type="button"
+      aria-label={`${sentence}: ${leads}`}
+      onClick={() => onShow(report)}
+      className="min-w-0 flex-1 cursor-pointer text-left outline-none after:absolute after:inset-0"
+    >
+      {sentence}
+    </button>
   );
 }

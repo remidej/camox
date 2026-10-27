@@ -1,6 +1,7 @@
 import {
   type PatrollerView,
   type PatrolView,
+  type ReportPlace,
   type ReportEntity,
   type ReportSummary,
   REPORTS_SHOWN,
@@ -43,8 +44,11 @@ export const getPatrolInput = z.object({ projectId: z.number() });
 
 type ReportRow = typeof reports.$inferSelect;
 
+/** A subject a scope holds: its name, as the Canvas names it, and where the studio shows it. */
+type Named = { name: string; place: ReportPlace | null };
+
 /**
- * Names the subjects of one entity a scope holds, by id, as the Canvas names them: those it
+ * Names the subjects of one entity a scope holds, by id, and says where each shows: those it
  * doesn't hold have no name. Each entity a report can be about has one.
  */
 type Namer = (
@@ -52,13 +56,29 @@ type Namer = (
   projectId: number,
   scope: ReadScope,
   ids: readonly string[],
-) => Effect.Effect<Map<string, string>>;
+) => Effect.Effect<Map<string, Named>>;
+
+/** Where a page's block shows, with an item in it to select. A layout's block has no one page. */
+const onPage = (
+  block: { id: string; pageId: string | null } | undefined,
+  itemId: string | null = null,
+): ReportPlace | null =>
+  block?.pageId ? { kind: "page", pageId: block.pageId, blockId: block.id, itemId } : null;
 
 const NAMERS: Record<ReportEntity, Namer> = {
   page: (db, _projectId, scope, ids) =>
     Effect.map(
       selectInChunks(db, scope, pages, ids, (chunk) => inArray(pages.id, chunk)),
-      (rows) => new Map(rows.map((page) => [page.id, page.nickname])),
+      (rows) =>
+        new Map(
+          rows.map((page) => [
+            page.id,
+            {
+              name: page.nickname,
+              place: { kind: "page", pageId: page.id, blockId: null, itemId: null },
+            },
+          ]),
+        ),
     ),
   // Blocks and repeatable items by their summary, or their title until they have one.
   block: (db, projectId, scope, ids) =>
@@ -67,26 +87,48 @@ const NAMERS: Record<ReportEntity, Namer> = {
         inArray(blocks.id, chunk),
       );
       const shown = yield* contentReader({ db }, { projectId, draft: scope }).shown.blocks(rows);
-      return new Map(shown.map((block) => [block.id, block.summary || block.title || block.type]));
+      const byId = new Map(rows.map((block) => [block.id, block]));
+      return new Map(
+        shown.map((block) => [
+          block.id,
+          { name: block.summary || block.title || block.type, place: onPage(byId.get(block.id)) },
+        ]),
+      );
     }),
+  // An item shows on its tree's block's page.
   repeatableItem: (db, projectId, scope, ids) =>
     Effect.gen(function* () {
       const rows = yield* selectInChunks(db, scope, repeatableItems, ids, (chunk) =>
         inArray(repeatableItems.id, chunk),
       );
       const shown = yield* contentReader({ db }, { projectId, draft: scope }).shown.items(rows);
-      return new Map(shown.map((item) => [item.id, item.summary || item.title || item.fieldName]));
+      const blockIds = [...new Set(rows.flatMap((item) => (item.blockId ? [item.blockId] : [])))];
+      const roots = yield* selectInChunks(db, scope, blocks, blockIds, (chunk) =>
+        inArray(blocks.id, chunk),
+      );
+      const blockOf = new Map(rows.map((item) => [item.id, item.blockId]));
+      const rootsById = new Map(roots.map((block) => [block.id, block]));
+      return new Map(
+        shown.map((item) => [
+          item.id,
+          {
+            name: item.summary || item.title || item.fieldName,
+            place: onPage(rootsById.get(blockOf.get(item.id) ?? ""), item.id),
+          },
+        ]),
+      );
     }),
-  // Shared content by the name of its synced block definition.
+  // Shared content by the name of its synced block definition. It shows wherever it's placed.
   sharedContent: (db, projectId, scope, ids) =>
     Effect.gen(function* () {
       const rows = yield* selectInChunks(db, scope, sharedContents, ids, (chunk) =>
         inArray(sharedContents.id, chunk),
       );
       const reader = contentReader({ db }, { projectId, draft: scope });
-      const names = new Map<string, string>();
+      const names = new Map<string, Named>();
       for (const row of rows) {
-        names.set(row.id, (yield* reader.blockDefinition(row.type))?.title ?? row.type);
+        const name = (yield* reader.blockDefinition(row.type))?.title ?? row.type;
+        names.set(row.id, { name, place: null });
       }
       return names;
     }),
@@ -96,10 +138,13 @@ const NAMERS: Record<ReportEntity, Namer> = {
         inArray(collectionRecords.id, chunk),
       );
       const reader = contentReader({ db }, { projectId, draft: scope });
-      const names = new Map<string, string>();
+      const names = new Map<string, Named>();
       for (const [collectionId, inCollection] of Map.groupBy(rows, (row) => row.collectionId)) {
         for (const record of yield* reader.shown.records(collectionId, inCollection)) {
-          names.set(record.id, record.title || record.id);
+          names.set(record.id, {
+            name: record.title || record.id,
+            place: { kind: "record", collectionId, recordId: record.id },
+          });
         }
       }
       return names;
@@ -113,7 +158,13 @@ const NAMERS: Record<ReportEntity, Namer> = {
       );
       const shown = yield* withFileMetadata(db, inDefault, rows);
       return new Map(
-        shown.map((file) => [file.id, file.filename || file.url.split("/").pop() || file.id]),
+        shown.map((file) => [
+          file.id,
+          {
+            name: file.filename || file.url.split("/").pop() || file.id,
+            place: { kind: "file", fileId: file.id },
+          },
+        ]),
       );
     }),
 };
@@ -126,7 +177,7 @@ const localeOfRow = (row: ReportRow) =>
   row.summary.kind === "structured" ? row.summary.locale : null;
 
 /**
- * The names of the reports' subjects, by report, in each report's scope and locale. Reports
+ * The names and places of the reports' subjects, by report, in each report's scope and locale. Reports
  * without a subject have none; those whose subject is gone are missing.
  */
 const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
@@ -150,7 +201,7 @@ const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
     group.rows.push(row);
     groups.set(key, group);
   }
-  const names = new Map<ReportRow, string>();
+  const names = new Map<ReportRow, Named>();
   for (const group of groups.values()) {
     const named = yield* NAMERS[group.entity](
       db,
@@ -205,7 +256,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
         ? row.summary
         : {
             ...row.summary,
-            subject: row.summary.subject && { ...row.summary.subject, name: names.get(row)! },
+            subject: row.summary.subject && { ...row.summary.subject, name: names.get(row)!.name },
           };
     return {
       id: `${row.draftId ?? "live"}:${row.key}`,
@@ -215,6 +266,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       at: row.at,
       // Live's own, or the catch-up draft's unless that's the draft viewed.
       live: row.draftId === null || row.draftId !== viewed?.id,
+      place: names.get(row)?.place ?? null,
     };
   };
 

@@ -251,6 +251,22 @@ describe("the SEO manager", () => {
     });
   });
 
+  it("says where its reports' subjects show: a page on the Canvas, a file as itself", async () => {
+    const { page, file, writeSeo, describeFile, seoManager } = await fixture();
+
+    await writeSeo(page.id);
+    await describeFile();
+
+    const places = (await seoManager()).reports.map((report) => report.place);
+    expect(places).toEqual(
+      expect.arrayContaining([
+        { kind: "page", pageId: page.id, blockId: null, itemId: null },
+        { kind: "file", fileId: file.id },
+      ]),
+    );
+    expect(places).toHaveLength(2);
+  });
+
   it("leaves summaries out of the Patrol", async () => {
     const { page, inDraft, member, run, patrol } = await fixture();
     const block = await call(

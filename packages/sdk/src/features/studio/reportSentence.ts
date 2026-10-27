@@ -1,4 +1,9 @@
-import type { ReportOutcome, ReportSummary, ReportVerb } from "@camox/api-contract/patrol";
+import type {
+  ReportOutcome,
+  ReportSummary,
+  ReportVerb,
+  ReportView,
+} from "@camox/api-contract/patrol";
 
 import { localeName } from "./localeOptions";
 
@@ -26,6 +31,24 @@ export function reportSentence(summary: ReportSummary, outcome: ReportOutcome): 
   if (summary.subject) parts.push(summary.subject.name);
   if (summary.locale && phrase.locale) parts.push(phrase.locale, localeName(summary.locale));
   return parts.join(" ");
+}
+
+/**
+ * Where clicking a report leads, as its accessible name ends: "show it on the Canvas in German",
+ * "open the file on Live". Null for a report that leads nowhere: one without a place.
+ */
+export function whereReportLeads(
+  { summary, place, live }: Pick<ReportView, "summary" | "place" | "live">,
+  inDraft: boolean,
+): string | null {
+  if (!place) return null;
+  const locale = summary.kind === "structured" ? summary.locale : null;
+  const inLocale = locale ? ` in ${localeName(locale)}` : "";
+  // A Live report seen from a draft shows its subject as it is on Live.
+  const onLive = inDraft && live;
+  if (place.kind === "file") return `open the file${onLive ? " on Live" : ""}`;
+  if (place.kind === "record") return `open it${inLocale}${onLive ? " on Live" : ""}`;
+  return `show it on ${onLive ? "Live's" : "the"} Canvas${inLocale}`;
 }
 
 /** The reports not shown, by locale: "…and 212 more in German, 3 in French". */

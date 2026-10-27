@@ -379,6 +379,38 @@ describe("the Translator's report subjects", () => {
     ]);
   });
 
+  it("says where each subject shows: a block or item on its page, a record in its collection", async () => {
+    const f = await fixture();
+    const [item] = (await f.tool("getBlock", { id: f.block.id }, {})).repeatableItems;
+    const edited = await f.draft(async (starting) => {
+      await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, starting);
+      const headers = { [DRAFT_HEADER]: starting[DRAFT_HEADER]! };
+      await call(
+        router.repeatableItems.updateContent,
+        { id: item.id, content: { label: "Hello" } },
+        f.member(headers),
+      );
+      await f.tool(
+        "editCollectionRecord",
+        { collectionId: "articles", id: f.record.id, content: { title: "Welcome" } },
+        headers,
+      );
+    });
+    await f.runTranslationsInto("de");
+
+    const places = Object.fromEntries(
+      (await f.translator(edited.headers)).reports.map((report) => [
+        report.summary.kind === "structured" ? report.summary.subject?.entity : "-",
+        report.place,
+      ]),
+    );
+    expect(places).toEqual({
+      block: { kind: "page", pageId: f.page.id, blockId: f.block.id, itemId: null },
+      repeatableItem: { kind: "page", pageId: f.page.id, blockId: f.block.id, itemId: item.id },
+      record: { kind: "record", collectionId: "articles", recordId: f.record.id },
+    });
+  });
+
   it("leaves out a report about a subject removed from the report's locale", async () => {
     const f = await fixture();
     const edited = await retitled(f);

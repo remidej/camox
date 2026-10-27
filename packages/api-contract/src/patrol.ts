@@ -49,6 +49,15 @@ export type ReportOutcome = "done" | "failed";
 /** Whether a report needs a human. Nothing raises one yet. */
 export type AttentionLevel = "none" | "needed";
 
+/**
+ * Where the studio shows a report's subject: a page on the Canvas, with the block and repeatable
+ * item to select on it, a collection record, or a file.
+ */
+export type ReportPlace =
+  | { kind: "page"; pageId: string; blockId: string | null; itemId: string | null }
+  | { kind: "record"; collectionId: string; recordId: string }
+  | { kind: "file"; fileId: string };
+
 export type ReportView = {
   /** Unique among the patroller's reports in the view. */
   id: string;
@@ -59,6 +68,11 @@ export type ReportView = {
   at: number;
   /** Whether the report is Live's, seen from a draft or from Live. */
   live: boolean;
+  /**
+   * Where its subject shows, in the report's scope and locale. Null without a subject, or for one
+   * with no single place, such as a synced block's shared content or a layout's block.
+   */
+  place: ReportPlace | null;
 };
 
 /** What a patroller is on: how many subjects, and the one subject and locale when there's one. */

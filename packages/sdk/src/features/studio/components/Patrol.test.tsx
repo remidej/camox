@@ -24,6 +24,7 @@ const report = (
   attention: "none",
   at: minutes(2),
   live: false,
+  place: null,
   ...overrides,
 });
 
@@ -74,6 +75,7 @@ function render(
       singleLocale={options.singleLocale ?? false}
       expanded={new Set(options.expanded ?? [])}
       onToggle={() => {}}
+      onShow={() => {}}
     />,
   );
   const patrollers = [...document.querySelectorAll("[data-patroller]")];
@@ -93,6 +95,12 @@ function render(
       document.querySelector('[aria-expanded="true"]')?.querySelector("[data-patroller-role]"),
     ),
     more: (id: string) => text(document.querySelector(`[data-patroller="${id}"] [data-more]`)),
+    // What each report leads to, by its accessible name, or null for one that leads nowhere.
+    leads: (id: string) =>
+      [...document.querySelectorAll(`[data-patroller="${id}"] [data-report]`)].map((row) => {
+        const control = row.querySelector("button, a, [role=button], [role=link], [tabindex]");
+        return control ? control.getAttribute("aria-label") : null;
+      }),
   };
 }
 
@@ -244,4 +252,72 @@ void test("an expanded patroller stays expanded when it moves", () => {
 
   assert.equal(before.expandedRole, "Translator");
   assert.equal(after.expandedRole, "Translator");
+});
+
+const onPricing = { kind: "page" as const, pageId: "page-1", blockId: null, itemId: null };
+
+void test("a report leads to where its subject shows, named so, and one without a place leads nowhere", () => {
+  const hero = { entity: "block" as const, id: "block-1", name: "hero" };
+  const welcome = { entity: "record" as const, id: "record-1", name: "Welcome" };
+  const reports = [
+    report("1", {
+      summary: { kind: "structured", verb: "wroteSeo", subject: pricing, locale: "de" },
+      place: onPricing,
+    }),
+    report("2", {
+      summary: { kind: "structured", verb: "translated", subject: hero, locale: "es" },
+      place: { ...onPricing, blockId: "block-1" },
+    }),
+    report("3", {
+      summary: { kind: "structured", verb: "translated", subject: welcome, locale: "fr" },
+      place: { kind: "record", collectionId: "articles", recordId: "record-1" },
+    }),
+    report("4", {
+      summary: { kind: "structured", verb: "describedFile", subject: team, locale: "en" },
+      place: { kind: "file", fileId: "file-1" },
+    }),
+    report("5", {
+      live: true,
+      summary: { kind: "structured", verb: "publishedCatchUp", subject: null, locale: null },
+    }),
+    report("6", { summary: { kind: "text", text: "Checked every link on Pricing" } }),
+  ];
+  const shown = render(
+    { patrollers: [seoManager({ reports })] },
+    { expanded: ["seoManager"], inDraft: false },
+  );
+
+  assert.deepEqual(shown.leads("seoManager"), [
+    "Wrote SEO for Pricing in German: show it on the Canvas in German",
+    "Translated hero to Spanish: show it on the Canvas in Spanish",
+    "Translated Welcome to French: open it in French",
+    "Described team.png in English: open the file",
+    null,
+    null,
+  ]);
+});
+
+void test("a Live report seen from a draft leads to Live", () => {
+  const reports = [
+    report("1", {
+      live: true,
+      summary: { kind: "structured", verb: "wroteSeo", subject: pricing, locale: "de" },
+      place: onPricing,
+    }),
+    report("2", {
+      live: true,
+      summary: { kind: "structured", verb: "describedFile", subject: team, locale: "en" },
+      place: { kind: "file", fileId: "file-1" },
+    }),
+  ];
+  const view = { patrollers: [seoManager({ reports })] };
+
+  assert.deepEqual(render(view, { expanded: ["seoManager"] }).leads("seoManager"), [
+    "Wrote SEO for Pricing in German: show it on Live's Canvas in German",
+    "Described team.png in English: open the file on Live",
+  ]);
+  assert.deepEqual(render(view, { expanded: ["seoManager"], inDraft: false }).leads("seoManager"), [
+    "Wrote SEO for Pricing in German: show it on the Canvas in German",
+    "Described team.png in English: open the file",
+  ]);
 });
