@@ -40,7 +40,7 @@ import {
   wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
-import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
 import {
   type CapabilityStartContext,
@@ -605,13 +605,12 @@ export class Thread extends DurableObject<Bindings> {
         });
         this.#draftsWithCode.add(draftId);
       };
-      const draftId = await runService(
+      return runService(
         Effect.scoped(
           Effect.gen(function* () {
             const { scope: draft } = yield* writeAccessWhilePublishing(ctx, {
               project: actor.projectId,
             });
-            if (draft.kind === "development") return null;
             if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
               yield* Effect.promise(() => startCode(draft.id));
             }
@@ -619,14 +618,6 @@ export class Thread extends DurableObject<Bindings> {
           }),
         ),
       );
-      // A development draft's code is the developer's own, in their checkout.
-      if (draftId === null) {
-        throw new FileError(
-          "permission_denied",
-          "This is a development draft: its code is the developer's, on their computer, and only they change it. You can still change its content.",
-        );
-      }
-      return draftId;
     });
   }
 
@@ -1491,8 +1482,7 @@ export class Thread extends DurableObject<Bindings> {
    * conversation yet: the run going stops, and studios still open on it see an empty thread
    * before their sockets close. The sandbox's object for the thread stores nothing.
    *
-   * Its draft no longer names it, and a development draft, which stays open, gets a new thread,
-   * but a socket the API forwarded just before may still reach it. So the thread keeps the
+   * Its draft is gone, but a socket the API forwarded just before may still reach it. So the thread keeps the
    * record that it ended, and turns away every socket and message after, as its alarm does
    * nothing: nothing opens Pi again. The object isn't reset, which would fail whatever reached
    * it next.
@@ -1518,7 +1508,7 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * Shows a socket an empty thread and closes it for good, the thread having ended: the studio
-   * doesn't reconnect to it, but to a development draft's new thread.
+   * doesn't reconnect to it.
    */
   #turnAway(socket: WebSocket) {
     send(socket, { type: "events", events: [NOT_STARTED] });

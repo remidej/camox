@@ -10,7 +10,7 @@ import { drafts } from "../drafts/schema";
 // translations up to date (ADR 0017). This is the one place that knows it.
 
 /** The Patrol scope of work done in a draft: Live (null) for the catch-up draft, else its own. */
-export const patrolScopeOf = (draft: { id: string; kind: string; createdBy: string }) =>
+export const patrolScopeOf = (draft: { id: string; createdBy: string }) =>
   isCatchUpDraft(draft) ? null : draft.id;
 
 /**
@@ -29,7 +29,7 @@ export const liveWorkScopes = Effect.fn("patrol.liveWorkScopes")(function* (
 export const patrolDraftRow = (db: Database, draftId: string) =>
   Effect.tryPromise(() =>
     db
-      .select({ id: drafts.id, kind: drafts.kind, createdBy: drafts.createdBy })
+      .select({ id: drafts.id, createdBy: drafts.createdBy })
       .from(drafts)
       .where(eq(drafts.id, draftId))
       .get(),

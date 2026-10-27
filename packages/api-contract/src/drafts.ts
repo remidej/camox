@@ -31,25 +31,10 @@ export const PUBLISHING_DRAFT_VAR = "CAMOX_PUBLISHING_DRAFT";
  */
 export const DRAFT_CREATE_HEADER = "x-camox-draft-create";
 
-/**
- * The `x-camox-draft` value naming the caller's own development draft in the project a request
- * acts on (ADR 0006, ADR 0011). Dev mode and the CLI always send it.
- */
-export const DEVELOPMENT_DRAFT = "development";
-
-/**
- * oRPC error code for a request naming the development draft before dev mode created it: the
- * first dev-mode sync after login does, so the site has to run locally once first.
- */
-export const NO_DEVELOPMENT_DRAFT_ERROR = "NO_DEVELOPMENT_DRAFT";
-
 /** URL search param carrying the current draft's id in the studio and the rendered site. */
 export const DRAFT_SEARCH_PARAM = "camox-draft";
 
-/** A regular draft is a named set of edits; a development draft backs a dev server. */
-export type DraftKind = "regular" | "development";
-
-/** How a regular draft ended. */
+/** How a draft ended. */
 export type DraftOutcome = "published" | "deleted";
 
 /** Who ended a draft, how and when, from its ended-drafts record (ADR 0009, ADR 0011). */
@@ -140,7 +125,7 @@ export const LIVE_READ_ONLY_ERROR = "LIVE_READ_ONLY";
 // for one on Live. Every procedure is listed, so a new one fails the type check until it's
 // classified and can't be forgotten. Procedures that only fill a generated value (ADR 0012),
 // like `generateSummary`, write no content. A synced block's shared content is written through
-// `blocks` and `repeatableItems`. Releases and dev-mode sync aren't listed.
+// `blocks` and `repeatableItems`. Releases aren't listed.
 const BLOCK_WRITES: Record<keyof Router["blocks"], boolean> = {
   get: false,
   getPageMarkdown: false,
@@ -223,7 +208,7 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   addBack: true,
 };
 
-// `definitions` is absent: its sync is a release or a dev sync, never a studio content write.
+// `definitions` is absent: its sync is a release, never a studio content write.
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCK_WRITES,
   locales: LOCALE_WRITES,

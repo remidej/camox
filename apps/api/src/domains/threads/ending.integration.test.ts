@@ -1,16 +1,11 @@
-import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { THREAD_ENDED_CLOSE_CODE } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  addMember,
-  createRpcContext,
-  openDevelopmentDraft,
-  startDraft,
-} from "../../../test/fixtures";
+import { addMember, createRpcContext, startDraft } from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -21,7 +16,6 @@ import {
   connectDraftThread,
   connectForwarded,
   ENDED_THREAD_STORED,
-  said,
   signIn,
   storedThread,
   threadIdOf,
@@ -42,23 +36,17 @@ afterEach(async () => {
   forgetThreadModel();
 });
 
-/** How the studio names a draft: by its id, or as `development` for a development draft. */
-const headerOf = (draftId: string, development: boolean) =>
-  development ? DEVELOPMENT_DRAFT : draftId;
-
 /**
- * The thread of draft `draftId` (the fixture member's development draft when `development`),
- * which raised the price in it as the fixture member asked, with `watcherId`'s studio still open
- * on it.
+ * The thread of draft `draftId`, which raised the price in it as the fixture member asked, with
+ * `watcherId`'s studio still open on it.
  */
 async function threadThatChanged(
   website: Website,
-  { draftId, development, watcherId }: { draftId: string; development: boolean; watcherId: string },
+  { draftId, watcherId }: { draftId: string; watcherId: string },
 ) {
   const { db, memberUser, project } = website;
-  const draft = headerOf(draftId, development);
-  const thread = await connectDraftThread(project.id, draft, await signIn(db, memberUser.id));
-  const watching = await connectDraftThread(project.id, draft, await signIn(db, watcherId));
+  const thread = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+  const watching = await connectDraftThread(project.id, draftId, await signIn(db, watcherId));
   answerWithScript(`
     const pricing = await tools.getPage({ path: "/pricing" });
     await tools.editBlock({ id: pricing.blocks[0].id, content: { body: "Plans start at $12." } });
@@ -77,11 +65,7 @@ async function draftWithThread(website: Website) {
   const { db, memberUser, project } = website;
   const teammate = await addMember(db, project.organizationId);
   const draftId = await startDraft(db, project.id, memberUser.id);
-  const opened = await threadThatChanged(website, {
-    draftId,
-    development: false,
-    watcherId: teammate.id,
-  });
+  const opened = await threadThatChanged(website, { draftId, watcherId: teammate.id });
   return { draftId, ...opened };
 }
 
@@ -158,38 +142,5 @@ describe("a draft's thread ending with its draft", () => {
     const result = await end(website, draftId);
 
     expect(result.ended).toMatchObject({ draftId, outcome: ending });
-  });
-});
-
-describe("a development draft's thread", () => {
-  it.each(endings)("is emptied when the draft is %s, which stays open", async (_ending, end) => {
-    const website = await websiteFixture({ pricing: "Plans start at $9." });
-    const { db, memberUser, project } = website;
-    const draftId = await openDevelopmentDraft(db, project.id, memberUser.id);
-    const { threadId, watching } = await threadThatChanged(website, {
-      draftId,
-      development: true,
-      watcherId: memberUser.id,
-    });
-
-    await end(website, DEVELOPMENT_DRAFT);
-
-    await watching.until(() => watching.closedWith() !== undefined);
-    expect(watching.view().messages).toEqual([]);
-    expect(await storedThread(threadId)).toEqual(ENDED_THREAD_STORED);
-    answerNext("Hello again.");
-    const reopened = await connectDraftThread(
-      project.id,
-      DEVELOPMENT_DRAFT,
-      await signIn(db, memberUser.id),
-    );
-    expect(reopened.view().messages).toEqual([]);
-    reopened.send({ type: "send", operationId: crypto.randomUUID(), text: "Hi" });
-    await reopened.untilIdle(2);
-    expect(said(reopened.view())).toEqual([
-      { from: "editor", text: "Hi" },
-      { from: "agent", text: "Hello again." },
-    ]);
-    reopened.close();
   });
 });

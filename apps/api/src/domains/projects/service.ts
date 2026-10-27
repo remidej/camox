@@ -545,7 +545,7 @@ type HomepagePlan = {
 
 /**
  * Plans the homepage a Definition Set declares, with its blocks, for a target that reads no page
- * yet: on Live as released content, in a development draft as draft rows (ADR 0006). Plans
+ * yet: on Live as released content, in a draft with code as draft rows (ADR 0006). Plans
  * nothing once the target reads pages, or when the layout isn't a curated one the target holds
  * once the sync ran (`layouts`). Block and collection definitions come from the sync
  * (`definitions`, `collections`); `definitions` learns the ones the homepage gives shared content.

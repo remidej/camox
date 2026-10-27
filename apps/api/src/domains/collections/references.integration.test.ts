@@ -7,6 +7,7 @@ import {
   createServiceContext,
   seedLiveThrough,
   inScope,
+  startDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import type { Database } from "../../db";
@@ -425,36 +426,15 @@ describe("reference lists", () => {
     ).toEqual([f.gamma.id, f.alpha.id]);
 
     const otherProject = await fixture();
-    // A record only the development draft holds is out of Live's reach.
-    const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await syncDefinitionSet(
-      f.db,
-      f.project,
-      {
-        collections: [
-          {
-            collectionId: "customers",
-            title: "Customers",
-            description: "",
-            toTitle: "{{name}}",
-            toDescription: null,
-            contentSchema: {
-              type: "object",
-              properties: { name: { type: "string", fieldType: "String" } },
-              required: ["name"],
-              additionalProperties: false,
-            },
-          },
-        ],
-      },
-      { as: f.memberUser },
-    );
-    const developmentRecord = await runService(
-      createRecord(devCtx, { ...f.scope, content: { name: "Dev" } }),
+    // A record only a draft holds is out of Live's reach.
+    const draftId = await startDraft(f.db, f.project.id, f.memberUser.id);
+    const draftCtx = { ...f.ctx, draft: { id: draftId, create: false } };
+    const draftRecord = await runService(
+      createRecord(draftCtx, { ...f.scope, content: { name: "Drafted" } }),
     );
     for (const invalid of [
       [otherProject.record.id],
-      [developmentRecord.id],
+      [draftRecord.id],
       [f.alpha.id, f.alpha.id],
       [f.alpha.id, f.beta.id, f.gamma.id, otherProject.record.id],
       ["not-a-uuid"],

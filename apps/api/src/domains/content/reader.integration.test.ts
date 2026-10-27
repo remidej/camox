@@ -171,7 +171,6 @@ async function fixture() {
         .insert(drafts)
         .values({
           projectId: project.id,
-          kind: "regular",
           createdBy: base.memberUser.id,
           createdAt: now,
         })

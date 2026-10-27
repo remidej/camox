@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -31,11 +32,7 @@ describe("page persistence", () => {
         assertSyncAccess(
           db,
           { projectUuid: project.uuid },
-          {
-            user: null,
-            draft: null,
-            deployToken: "test-deploy-token",
-          },
+          { draft: null, deployToken: "test-deploy-token" },
         ),
       ),
     ).resolves.toMatchObject({ project: { id: project.id }, scope: null });
@@ -46,8 +43,7 @@ describe("page persistence", () => {
           db,
           { projectUuid: project.uuid },
           {
-            user: null,
-            draft: { development: true },
+            draft: { id: generateUuidv7(), create: false },
             deployToken: "test-deploy-token",
           },
         ),

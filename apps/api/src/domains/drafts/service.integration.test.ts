@@ -97,7 +97,6 @@ describe("draft request scope", () => {
 
     await expect(resolve("member", { [DRAFT_HEADER]: draftId })).resolves.toEqual({
       id: draftId,
-      kind: "regular",
       projectId: project.id,
     });
   });

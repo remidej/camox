@@ -5,7 +5,7 @@ import type { LintError } from "./result";
 // What `vp lint --format json` prints: Oxlint's JSON report, after whatever the project's Vite
 // config logged as Vite+ loaded it (the Camox plugin says what it builds), such as:
 //
-//   4:00:00 AM [vite+] Building Camox app (your development draft)
+//   4:00:00 AM [vite+] Building Camox app (Live, not released)
 //   { "diagnostics": [{"message": "`debugger` statement is not allowed","code": "eslint(no-debugger)",
 //     "severity": "warning", …, "help": "Remove the debugger statement","filename": "src/x.ts",
 //     "labels": [{"span": {"offset": 33,"length": 9,"line": 2,"column": 3}}]}], "number_of_files": 24, … }

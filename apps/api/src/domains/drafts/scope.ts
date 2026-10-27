@@ -1,5 +1,3 @@
-import type { DraftKind } from "@camox/api-contract/drafts";
-
 /**
  * A draft a request or job resolved to, checked against its project. As a scope, it reads and
  * writes content in `locale`, a locale's tag, or without one in the project's default locale
@@ -7,7 +5,6 @@ import type { DraftKind } from "@camox/api-contract/drafts";
  */
 export type Draft = {
   id: string;
-  kind: DraftKind;
   projectId: number;
   locale?: string;
   /**
@@ -21,7 +18,6 @@ export type Draft = {
 export function draftOf(row: Draft): Draft {
   return {
     id: row.id,
-    kind: row.kind,
     projectId: row.projectId,
     ...(row.ownDefinitions ? { ownDefinitions: true as const } : {}),
   };
@@ -83,7 +79,6 @@ export function readScopeOf(target: WriteTarget): Draft | null {
 
 /**
  * The draft a request names, before it is checked: a draft's id, where `create` asks for a
- * missing regular draft to be created with it, or the caller's development draft in the
- * project the request acts on (ADR 0011).
+ * missing draft to be created with it (ADR 0011).
  */
-export type DraftRequest = { id: string; create: boolean } | { development: true };
+export type DraftRequest = { id: string; create: boolean };

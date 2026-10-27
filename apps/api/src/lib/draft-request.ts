@@ -1,17 +1,16 @@
-import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 
 import type { DraftRequest } from "../domains/drafts/scope";
 
 /** Why a request's draft header names no draft. */
-export const INVALID_DRAFT_HEADER = `${DRAFT_HEADER} must be a UUIDv7 or "${DEVELOPMENT_DRAFT}"`;
+export const INVALID_DRAFT_HEADER = `${DRAFT_HEADER} must be a UUIDv7`;
 
 /**
  * The draft a request names as the studio does: a draft's id, which `create` asks to create when
- * missing, or `development` for the caller's development draft. Undefined when it's neither.
+ * missing. Undefined when it's not a draft's id.
  */
 export function draftRequestNamed(name: string, create: boolean): DraftRequest | undefined {
-  if (name === DEVELOPMENT_DRAFT) return { development: true };
   if (!uuidv7Schema.safeParse(name).success) return undefined;
   return { id: name, create };
 }

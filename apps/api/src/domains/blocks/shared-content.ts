@@ -28,7 +28,7 @@ import { prepareBlockContent } from "./prepare-content";
  *
  * Shared content and its repeatable items live in Live and in drafts like any content: a draft
  * reads its own copy over Live's, and every placement in the draft shows that copy. A release's
- * definition sync writes Live; dev mode's writes the development draft, as draft rows.
+ * definition sync writes Live; a revision's writes its draft, as draft rows.
  */
 
 /**
@@ -426,7 +426,7 @@ const planItemsRemoval = Effect.fn("planItemsRemoval")(function* (
 
 /**
  * Plans becoming synced (ADR 0007), in the scope whose definitions changed: Live for a release,
- * a development draft for dev mode. The shared content is taken from the most recently published
+ * a draft with code for a revision's sync. The shared content is taken from the most recently published
  * placement, items included, or from the definition's defaults when there is none. Every
  * placement's own content is cleared. On Live that is a change drafts that copied a placement
  * see as a conflict; in a draft it writes draft rows.
@@ -544,7 +544,7 @@ const planSharedContentAlignment = Effect.fn("planSharedContentAlignment")(funct
 
 /**
  * A definition's synced flag, in the target whose definitions a sync writes: Live for a release,
- * a development draft for dev mode (ADR 0006). `defaults` are the definition's as the sync
+ * a draft with code for a revision's sync (ADR 0006). `defaults` are the definition's as the sync
  * writes it, which shared content built from defaults starts from.
  */
 type SyncedFlag = {

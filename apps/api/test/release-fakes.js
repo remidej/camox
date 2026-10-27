@@ -640,7 +640,7 @@ export class FakeRevisionSandbox extends DurableObject {
         )
         .flatMap(({ diagnostics }) => diagnostics);
       // As `vp lint` prints it: the Camox plugin logs as Vite+ loads the config, then the JSON.
-      const stdout = `4:00:00 AM [vite+] Building Camox app (your development draft)
+      const stdout = `4:00:00 AM [vite+] Building Camox app (Live, not released)
 { "diagnostics": [${diagnostics.map((diagnostic) => JSON.stringify(diagnostic)).join(",\n")}],
               "number_of_files": ${Object.keys(this.tree).length},
               "number_of_rules": 127,

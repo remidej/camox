@@ -5,11 +5,19 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createServiceContext,
-  openDevelopmentDraft,
   inScope,
+  startDraft,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blockDefinitions, blocks, files, layouts, pages, repeatableItems } from "../../schema";
+import {
+  blockDefinitions,
+  blocks,
+  drafts,
+  files,
+  layouts,
+  pages,
+  repeatableItems,
+} from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { callTool } from "../agent/service";
 import { getLayout } from "./service";
@@ -167,13 +175,19 @@ describe("standalone shared layout reads", () => {
     // Another project's layout has the same name.
     await createProjectFixture("layout-tool-other");
     const now = Date.now();
-    // Only the member's development draft declares this layout; Live doesn't.
-    const devLayout = await db
+    // Only a draft with code declares this layout, as its previewed revision synced it; Live
+    // doesn't.
+    const draftId = await startDraft(db, project.id, memberUser.id);
+    await db
+      .update(drafts)
+      .set({ previewedRevisionId: generateUuidv7() })
+      .where(eq(drafts.id, draftId));
+    const draftLayout = await db
       .insert(layouts)
       .values({
         projectId: project.id,
-        draftId: await openDevelopmentDraft(db, project.id, memberUser.id),
-        layoutId: "development-only",
+        draftId,
+        layoutId: "draft-only",
         contentUpdatedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -187,11 +201,11 @@ describe("standalone shared layout reads", () => {
           { projectId: project.id, name: "getLayout", arguments: { layoutId } },
         ),
       );
-    const development = { development: true as const };
-    for (const layoutId of ["missing", devLayout.layoutId]) {
+    const inDraft = { id: draftId, create: false };
+    for (const layoutId of ["missing", draftLayout.layoutId]) {
       expect(await read(layoutId)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     }
-    expect(await read("missing", development)).toMatchObject({
+    expect(await read("missing", inDraft)).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -199,9 +213,9 @@ describe("standalone shared layout reads", () => {
       ok: true,
       result: { layout: { layoutId: layout.layoutId } },
     });
-    expect(await read(devLayout.layoutId, development)).toMatchObject({
+    expect(await read(draftLayout.layoutId, inDraft)).toMatchObject({
       ok: true,
-      result: { layout: { layoutId: devLayout.layoutId } },
+      result: { layout: { layoutId: draftLayout.layoutId } },
     });
     for (const layoutId of ["", 1, undefined]) {
       expect(await read(layoutId)).toMatchObject({ ok: false });

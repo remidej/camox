@@ -288,6 +288,13 @@
       "when": 1793142785647,
       "tag": "0040_project_code_outside_camox",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1793143594140,
+      "tag": "0041_remove_development_drafts",
+      "breakpoints": true
     }
   ]
 }

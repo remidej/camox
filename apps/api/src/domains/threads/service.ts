@@ -159,7 +159,7 @@ const threadOfDraft = Effect.fn("threadOfDraft")(function* (db: Database, draftI
  * id is set aside the first time someone opens the draft's thread, so everyone in the draft
  * reaches the same one; the thread itself only starts with its first message. Its runs change
  * the draft's content, so content access checks the draft as for a write: only members reach a
- * regular draft's thread, and only its developer a development draft's.
+ * draft's thread.
  */
 export const draftThread = Effect.fn("draftThread")(function* (
   ctx: ServiceContext & { draft: DraftRequest },
@@ -203,10 +203,8 @@ function draftEndedNote(ended: {
 }
 
 /**
- * A draft's threads, as a publish or delete ends the draft, read before it does. Its
- * `statements` join the batch ending the draft, letting go of its own thread there: a
- * development draft stays open, so the next one to open its thread starts a new one, and a
- * regular draft lets go of it with its row. Once the batch applied, `end` deletes that thread,
+ * A draft's threads, as a publish or delete ends the draft, read before it does. Once the batch
+ * ending the draft applied, `end` deletes the draft's own thread,
  * which wipes what it stored and turns away whatever reaches it after. The Live thread that
  * started the draft, if any, is the editor's for good: `end` only adds Camox's note at its end,
  * saying how the draft ended, and shows the draft's card as ended (ADR 0025).
@@ -258,14 +256,6 @@ export const endingThread = Effect.fn("endingThread")(function* (
       })
     : Effect.void;
   return {
-    statements: threadId
-      ? [
-          ctx.db
-            .update(drafts)
-            .set({ threadId: null })
-            .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
-        ]
-      : [],
     end: endThread.pipe(
       Effect.andThen(tellLive),
       Effect.andThen(showDraftOnLive(ctx, liveThreadId)),

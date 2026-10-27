@@ -6,11 +6,10 @@ import { skillsKey } from "../src/domains/code/skills";
 // (scripts/upload-skills.mjs): fixtures of their own, so tests show which version's the agent
 // reads.
 
-/** A version's skills, `camox` and the CLI's, each SKILL.md naming the version. */
+/** A version's `camox` skill, its SKILL.md naming the version. */
 export const skillsOf = (version: string) => ({
   "camox/SKILL.md": `# Camox ${version}\n\nRead [Block Definitions](references/block-definitions.md).\n`,
   "camox/references/block-definitions.md": `# Block Definitions of ${version}\n\nUse createBlock.\n`,
-  "camox-cli/SKILL.md": `# Camox CLI ${version}\n`,
 });
 
 /** Uploads `skillsOf(version)` as the publish of `version` does. */

@@ -420,7 +420,7 @@ export function dropLocaleStatements(db: Database, draft: Draft, tag: string) {
 
 /**
  * Statements dropping a draft's pending translations, claims and bookkeeping when it's published
- * or deleted: its jobs then do nothing, also in a development draft, which stays (ADR 0006).
+ * or deleted: its jobs then do nothing.
  * Publishing copies its bookkeeping to Live first (`bookkeeping.publishStatements`).
  */
 export function endStatements(db: Database, draftId: string) {

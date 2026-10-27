@@ -38,7 +38,7 @@ function placeName(change: Change): string {
 }
 
 const isEntity = (change: Change): change is Change & { entity: overlay.EntityKind } =>
-  change.entity !== "definition";
+  change.entity !== "code";
 
 type PathRename = { change: OverviewChange; before: string; after: string; follows: boolean };
 

@@ -5,7 +5,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createServiceContext,
-  openDevelopmentDraft,
   seedLive,
   noArtifactFields,
 } from "../../../test/fixtures";
@@ -39,7 +38,7 @@ async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
   const { db, project, layout, memberUser, outsiderUser } = base;
 
-  // A second member, whose development draft the first may not use.
+  // A second member, whose draft the first may use too.
   const [colleague] = await db
     .insert(user)
     .values({
@@ -58,17 +57,10 @@ async function fixture(suffix: string) {
     role: "member",
     createdAt: new Date(now),
   });
-  const colleaguesDevelopmentDraft = await openDevelopmentDraft(db, project.id, colleague.id);
-
-  const openDraft = async (projectId: number) =>
-    (
-      await db
-        .insert(drafts)
-        .values({ projectId, kind: "regular", createdBy: memberUser.id, createdAt: now })
-        .returning()
-        .get()
-    ).id;
+  const openDraft = async (projectId: number, createdBy = memberUser.id) =>
+    (await db.insert(drafts).values({ projectId, createdBy, createdAt: now }).returning().get()).id;
   const draft = await openDraft(project.id);
+  const colleaguesDraft = await openDraft(project.id, colleague.id);
   const other = await createProjectFixture(`${suffix}-other`);
   const otherProjectsDraft = await openDraft(other.project.id);
   const endedDraft = generateUuidv7();
@@ -143,8 +135,7 @@ async function fixture(suffix: string) {
 
   return {
     ...base,
-    colleague,
-    colleaguesDevelopmentDraft,
+    colleaguesDraft,
     draft,
     otherProjectsDraft,
     endedDraft,
@@ -215,22 +206,13 @@ describe("content access", () => {
         }
       });
 
-      it("refuses someone else's development draft with 403, and a missing own one", async () => {
-        const f = await fixture(`access-development-${kind}`);
+      it("opens a draft another member started to every member", async () => {
+        const f = await fixture(`access-colleague-${kind}`);
         const ref = f.refs[kind];
 
         expect(
-          await f.outcome(f.memberUser, ref, "write", {
-            id: f.colleaguesDevelopmentDraft,
-            create: false,
-          }),
-        ).toBe("ForbiddenError");
-        expect(await f.outcome(f.memberUser, ref, "write", { development: true })).toBe(
-          "NoDevelopmentDraftError",
-        );
-        expect(await f.outcome(f.colleague, ref, "write", { development: true })).toBe(
-          `ok:${f.colleaguesDevelopmentDraft}`,
-        );
+          await f.outcome(f.memberUser, ref, "write", { id: f.colleaguesDraft, create: false }),
+        ).toBe(`ok:${f.colleaguesDraft}`);
       });
 
       it("reads another project's content as missing for a request bound to a project", async () => {
@@ -276,7 +258,7 @@ describe("content access", () => {
 
   it("finds an entity the draft created in that draft only, and none the draft deleted", async () => {
     const f = await fixture("access-draft-only");
-    const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
+    const scope = { id: f.draft, projectId: f.project.id };
     const created = (await runService(
       overlay.insert(
         f.db,
@@ -313,7 +295,7 @@ describe("content access", () => {
 
   it("returns the entity as the scope sees it", async () => {
     const f = await fixture("access-entity");
-    const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
+    const scope = { id: f.draft, projectId: f.project.id };
     await runService(
       overlay.update(
         f.db,

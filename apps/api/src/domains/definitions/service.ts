@@ -45,8 +45,7 @@ export const definitionSetInput = z.object({
 
 export const syncDefinitionsInput = namingProject(
   z.object({
-    deployToken: z.string().optional(),
-    autoCreate: z.boolean(),
+    deployToken: z.string(),
     definitionSet: definitionSetInput,
   }),
 );
@@ -54,34 +53,28 @@ export const syncDefinitionsInput = namingProject(
 // --- Writes ---
 
 /**
- * Applies a Definition Set to the sync's target, in one batch: Live for a release with the deploy
- * token, or the caller's development draft for dev mode, which a sync allowed to `autoCreate`
- * creates first (ADR 0006). The set either fully lands or changes nothing, except for a
- * development draft just created, which stays empty. Content never blocks it (ADR 0007).
+ * Applies a Definition Set to Live, in one batch, for a release with the deploy token (ADR 0006).
+ * The set either fully lands or changes nothing. Content never blocks it (ADR 0007).
  *
- * The sync reads the target's state once, validates the whole set, and plans every write from
- * that state: parts planned later take the definitions they depend on from the set, not from
- * rows the batch hasn't written yet. Two syncs into one development draft at once both plan from
- * the same state, as they always could: one may then fail on rows the other wrote.
+ * The sync reads Live's state once, validates the whole set, and plans every write from that
+ * state: parts planned later take the definitions they depend on from the set, not from rows the
+ * batch hasn't written yet.
  */
 export const syncDefinitions = Effect.fn("definitions.syncDefinitions")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof syncDefinitionsInput>,
 ) {
   const input = yield* decodeInput(syncDefinitionsInput, rawInput);
-  // Outside the batch: a sync that fails later leaves the development draft it created, empty.
-  const target = yield* assertSyncAccess(
-    ctx.db,
-    projectRefOf(input),
-    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
-    { create: input.autoCreate },
-  );
+  const target = yield* assertSyncAccess(ctx.db, projectRefOf(input), {
+    draft: ctx.draft,
+    deployToken: input.deployToken,
+  });
   return yield* applyDefinitionSet(ctx, target, input.definitionSet);
 });
 
 /**
  * Syncs a revision's Definition Set into its draft, a draft with code: Camox's own sync target,
- * which no session or Deploy Token reaches. It follows dev mode's rules (ADR 0006): the whole set
+ * which no session or Deploy Token reaches. It follows a release's rules (ADR 0006): the whole set
  * is replaced, content never blocks it, and the content it declares is added as draft rows. In the
  * same batch, the revision becomes the draft's previewed revision, so the draft reads its own
  * definitions from its first synced revision on.
@@ -111,7 +104,7 @@ export const syncRevisionDefinitions = Effect.fn("definitions.syncRevisionDefini
   const scope: Draft = { ...draftOf(found.draft), ownDefinitions: true };
   return yield* applyDefinitionSet(
     ctx,
-    { project: found.project, scope, writes: scope, draftCreated: false },
+    { project: found.project, scope, writes: scope },
     set,
     overlay.plannedStatements(
       ctx.db.update(drafts).set({ previewedRevisionId: revisionId }).where(eq(drafts.id, draftId)),
@@ -162,7 +155,7 @@ const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function*
   const blocks = plan.add(yield* planBlockDefinitions(ctx, target, set.blocks, now));
   const collectionsResult = plan.add(yield* planCollectionDefinitions(ctx, target, collections));
   const synced = { definitions: blocks.definitions, collections: collectionIds };
-  // ADR 0006 has dev mode replace the draft's whole definition set, but a set declaring no
+  // ADR 0006 has a sync replace the target's whole definition set, but a set declaring no
   // layouts deliberately leaves the target's layouts (and their layout-only cleanup) as they
   // are: the SDK before definitions.sync skipped layouts.sync for an app without layouts.
   const declaresLayouts = set.layouts.length > 0;
@@ -201,7 +194,6 @@ const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function*
   }
 
   return {
-    draftCreated: target.draftCreated,
     blocks: {
       count: set.blocks.length,
       deletedDefinitionTypes: blocks.deletedDefinitionTypes,

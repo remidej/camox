@@ -1,4 +1,3 @@
-import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { env } from "cloudflare:workers";
@@ -15,8 +14,8 @@ import {
 import { router } from "../../router";
 import { createRecord } from "../collections/service";
 
-// `definitions.sync`: a website's whole Definition Set, applied to Live by a release or to the
-// caller's development draft by dev mode, in one batch (ADR 0006).
+// `definitions.sync`: a website's whole Definition Set, applied to Live by a release, in one batch
+// (ADR 0006).
 
 const titled = {
   type: "object",
@@ -95,7 +94,6 @@ async function fixture() {
   const member = (headers: Record<string, string> = {}) => ({
     context: createRpcContext(db, memberUser, headers),
   });
-  const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
 
   /** What a target reads of its definitions and the content they declare. */
   const stateOf = async (headers: Record<string, string> = {}) => {
@@ -154,11 +152,8 @@ async function fixture() {
     ...base,
     member,
     liveAuthor,
-    development,
     stateOf,
     release: (set: TestDefinitionSet) => syncDefinitionSet(db, project, set),
-    syncDevelopment: (set: TestDefinitionSet) =>
-      syncDefinitionSet(db, project, set, { as: memberUser }),
   };
 }
 
@@ -189,27 +184,9 @@ describe("definitions.sync", () => {
       pages: [{ path: "/", blocks: [{ type: "hero", title: "Welcome" }] }],
     });
     expect(result).toMatchObject({
-      draftCreated: false,
       homepage: { created: true, blockCount: 1 },
       layouts: { layouts: [{ layoutId: "default", wasExisting: true }] },
     });
-  });
-
-  it("applies a whole Definition Set to the caller's development draft, which its first sync creates, leaving Live as it was", async () => {
-    const { syncDevelopment, stateOf, development } = await fixture();
-    const live = await stateOf();
-
-    const result = await syncDevelopment(website);
-
-    expect(result.draftCreated).toBe(true);
-    expect(await stateOf(development)).toEqual({
-      definitions: ["hero", "navbar"],
-      layouts: [{ layoutId: "default", blocks: [{ type: "navbar", title: "Nav" }] }],
-      collections: ["authors"],
-      pages: [{ path: "/", blocks: [{ type: "hero", title: "Welcome" }] }],
-    });
-    expect(await stateOf()).toEqual(live);
-    expect((await syncDevelopment(website)).draftCreated).toBe(false);
   });
 
   it("lands a new layout-only block together with the new layout declaring it", async () => {
@@ -286,31 +263,6 @@ describe("definitions.sync", () => {
     expect(await stateOf()).toEqual(before);
   });
 
-  it("leaves the development draft exactly as it was when its batch fails", async () => {
-    const { syncDevelopment, stateOf, development } = await fixture();
-    await syncDevelopment(website);
-    const before = await stateOf(development);
-    await failingOnLayout("landing");
-
-    await expect(
-      syncDevelopment({
-        blocks: [block("footer", { layoutOnly: true })],
-        layouts: [
-          { layoutId: "default", description: "Default", blocks: [] },
-          {
-            layoutId: "landing",
-            description: "Landing",
-            blocks: [{ type: "footer", slot: "after", content: { title: "Bye" } }],
-          },
-        ],
-        collections: [],
-        homepage: null,
-      }),
-    ).rejects.toThrow();
-
-    expect(await stateOf(development)).toEqual(before);
-  });
-
   it.each([
     [
       "a bad reference schema",
@@ -355,22 +307,6 @@ describe("definitions.sync", () => {
     expect(await stateOf()).toEqual(before);
   });
 
-  it.each(["layout", "homepage"] as const)(
-    "lets a %s's declared content link a record of a collection the set brings to a target lacking it",
-    async (where) => {
-      const { release, syncDevelopment, liveAuthor, stateOf, development } = await fixture();
-      // Live holds the authors and a record; the development draft holds no definitions yet.
-      await release({ ...website, homepage: null });
-      const jane = await liveAuthor("Jane");
-
-      await syncDevelopment(declaringByline(where, jane.id));
-
-      const state = await stateOf(development);
-      const declared = where === "layout" ? state.layouts[0]!.blocks : state.pages[0]!.blocks;
-      expect(declared).toContainEqual({ type: "byline", author: jane.id });
-    },
-  );
-
   it.each([
     [
       "a record of a collection the set removes",
@@ -388,28 +324,25 @@ describe("definitions.sync", () => {
     expect(await stateOf()).toEqual(before);
   });
 
-  it("lists each layout with the title its code gives it, in Live and in a development draft", async () => {
-    const { release, syncDevelopment, member, development, project } = await fixture();
+  it("lists each layout with the title its code gives it", async () => {
+    const { release, member, project } = await fixture();
     const titled = (title: string): TestDefinitionSet => ({
       ...website,
       layouts: [{ ...website.layouts![0]!, title }],
     });
-    const titles = async (headers: Record<string, string> = {}) =>
-      (await call(router.layouts.list, { projectId: project.id }, member(headers))).map(
+    const titles = async () =>
+      (await call(router.layouts.list, { projectId: project.id }, member())).map(
         ({ layoutId, title }) => ({ layoutId, title }),
       );
 
     await release(titled("Marketing page"));
-    await syncDevelopment(titled("Landing page"));
-
     expect(await titles()).toEqual([{ layoutId: "default", title: "Marketing page" }]);
-    expect(await titles(development)).toEqual([{ layoutId: "default", title: "Landing page" }]);
 
     await release(titled("Article"));
     expect(await titles()).toEqual([{ layoutId: "default", title: "Article" }]);
   });
 
-  it("refuses a caller with neither a session nor the deploy token before looking at the set", async () => {
+  it("refuses a caller without the project's deploy token before looking at the set", async () => {
     const { db, project } = await fixture();
 
     await expect(
@@ -417,7 +350,7 @@ describe("definitions.sync", () => {
         router.definitions.sync,
         {
           projectUuid: project.uuid,
-          autoCreate: false,
+          deployToken: "not-the-deploy-token",
           definitionSet: {
             blocks: [],
             layouts: [],

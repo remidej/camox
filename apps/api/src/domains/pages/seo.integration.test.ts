@@ -29,13 +29,11 @@ async function fixture() {
   // read-only.
   const scope = {
     id: generateUuidv7(),
-    kind: "regular" as const,
     projectId: base.project.id,
   };
   await base.db.insert(drafts).values({
     id: scope.id,
     projectId: scope.projectId,
-    kind: scope.kind,
     createdBy: base.memberUser.id,
     createdAt: Date.now(),
   });

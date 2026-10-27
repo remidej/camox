@@ -15,7 +15,7 @@ import { pages } from "../domains/pages/schema";
 
 /**
  * Bumps the Live pages, and the layouts, owning the Live blocks `where` matches on the alias
- * "b". A layout is bumped in Live and in development drafts, which show Live's blocks too.
+ * "b". A layout is bumped in Live and in drafts with code, which show Live's blocks too.
  */
 function bumpOwnersOfBlocks(where: SQL, now: number): SQL[] {
   const liveBlocks = sql`from ${blocks} as "b" where "b"."draft_id" is null and ${where}`;

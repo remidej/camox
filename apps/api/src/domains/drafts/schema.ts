@@ -1,4 +1,4 @@
-import type { DraftKind, DraftOutcome, PublishAbortReason } from "@camox/api-contract/drafts";
+import type { DraftOutcome, PublishAbortReason } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -13,7 +13,6 @@ export const drafts = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    kind: text().notNull().$type<DraftKind>(),
     name: text(),
     // The creating user's id. No foreign key, so a departed member's draft survives.
     createdBy: text("created_by").notNull(),
@@ -27,7 +26,7 @@ export const drafts = sqliteTable(
     liveThreadId: text("live_thread_id"),
     // The Draft Overview AI writes about the draft's changes (`overview.ts`). It describes the
     // draft rather than its content, so it's never a change, a conflict or published, and goes
-    // with the draft; emptying a development draft clears it.
+    // with the draft.
     overviewHeadline: text("overview_headline"),
     overviewBullets: text("overview_bullets", { mode: "json" }).$type<string[]>(),
     overviewRequestedAt: int("overview_requested_at"),
@@ -64,19 +63,15 @@ export const drafts = sqliteTable(
   },
   (table) => [
     index("drafts_project_idx").on(table.projectId),
-    // Each member has one development draft per project (ADR 0006).
-    uniqueIndex("drafts_development_idx")
-      .on(table.projectId, table.createdBy)
-      .where(sql`${table.kind} = 'development'`),
     // Camox keeps one catch-up draft open per project (ADR 0017): `camox` is `CAMOX_ACTOR`.
     uniqueIndex("drafts_catch_up_idx")
       .on(table.projectId)
-      .where(sql`${table.kind} = 'regular' and ${table.createdBy} = 'camox'`),
+      .where(sql`${table.createdBy} = 'camox'`),
   ],
 );
 
 /**
- * The record a regular draft leaves when it's published or deleted, written in the batch
+ * The record a draft leaves when it's published or deleted, written in the batch
  * that deletes it (ADR 0009). It answers later requests naming the draft with who ended it and
  * how, makes retries safe, and keeps the create header from bringing the draft back.
  */
