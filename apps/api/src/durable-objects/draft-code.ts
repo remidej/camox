@@ -523,8 +523,7 @@ export class DraftCode extends DurableObject<Bindings> {
    */
   async #mainTip(fs: MemoryFs, url: string, headers: Record<string, string>) {
     const at = { fs, dir: CODE_ROOT };
-    const { refs } = await git.getRemoteInfo2({ http, url, headers });
-    const tip = refs?.find(({ ref }) => ref === `refs/heads/${MAIN}`)?.oid;
+    const tip = await remoteMain(url, headers);
     if (!tip) throw new Error("The project's repo has no main branch");
     const held = await git.readCommit({ ...at, oid: tip }).then(
       () => true,
@@ -564,8 +563,7 @@ export class DraftCode extends DurableObject<Bindings> {
       using artifacts = await this.env.ARTIFACTS.get(this.ctx.storage.kv.get<string>(REPO_KEY)!);
       const { remote } = await artifacts.info();
       const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
-      const { refs } = await git.getRemoteInfo2({ http, url: remote, headers });
-      const main = refs?.find(({ ref }) => ref === `refs/heads/${MAIN}`)?.oid;
+      const main = await remoteMain(remote, headers);
       const merged = this.#mergedMain();
       if (!main || !merged || main === merged) return { outcome: "upToDate" };
       if (this.ctx.storage.kv.get<MergeClash>(CLASH_KEY)?.main === main) {
@@ -897,4 +895,16 @@ function joined(chunks: Uint8Array[]) {
     at += chunk.byteLength;
   }
   return data;
+}
+
+/**
+ * The commit `main` points to in the repo at `url`, or undefined without one. Listed with Git's
+ * protocol v2, which Cloudflare Artifacts speaks: its answer to `getRemoteInfo2` has no refs.
+ * The listing adds a protocol v2 header to the headers it's given, which the fetches and pushes
+ * that reuse them must not send, so it gets a copy.
+ */
+async function remoteMain(url: string, headers: Record<string, string>) {
+  const ref = `refs/heads/${MAIN}`;
+  const refs = await git.listServerRefs({ http, url, headers: { ...headers }, prefix: ref });
+  return refs.find((listed) => listed.ref === ref)?.oid;
 }

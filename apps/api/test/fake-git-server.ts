@@ -5,7 +5,8 @@
 // branch or reachable commit, a fetch from a shallow clone of the history since the commits it
 // has (its `haves`, where it finds a merge base), and a push to any branch with `report-status` over
 // `side-band-64k`, creating or deleting it. Every push to `main` is recorded as the event
-// Cloudflare Artifacts sends for it, for the tests to deliver (test/pushes.ts).
+// Cloudflare Artifacts sends for it, for the tests to deliver (test/pushes.ts). A client asking
+// for Git's protocol v2 gets it, as from Cloudflare Artifacts, for listing refs (`ls-refs`).
 import git from "isomorphic-git";
 
 import { MemoryFs } from "../src/lib/memory-fs";
@@ -327,6 +328,40 @@ export async function gitBranches(name: string) {
   return (await branchesOf(fs)).map(({ ref }) => ref.slice("refs/heads/".length));
 }
 
+/** The protocol v2 advertisement: no refs, which only `ls-refs` lists. */
+function advertiseV2(service: string) {
+  return concat([
+    pktLine(`# service=${service}\n`),
+    FLUSH,
+    pktLine("version 2\n"),
+    pktLine("agent=camox-fake\n"),
+    pktLine("ls-refs\n"),
+    FLUSH,
+  ]);
+}
+
+/** Answers a protocol v2 `ls-refs` command: the branches, `main` first, under its prefixes. */
+async function listRefs(fs: MemoryFs, body: Uint8Array) {
+  const lines: string[] = [];
+  for (let at = 0; at + 4 <= body.byteLength;) {
+    const length = parseInt(new TextDecoder().decode(body.subarray(at, at + 4)), 16);
+    at += 4;
+    // A flush (0000) ends the request; a delimiter (0001) separates its arguments.
+    if (length === 0) break;
+    if (length === 1) continue;
+    lines.push(new TextDecoder().decode(body.subarray(at, at + length - 4)).replace(/\n$/, ""));
+    at += length - 4;
+  }
+  if (lines[0] !== "command=ls-refs") throw new Error(`Unsupported command: ${lines[0]}`);
+  const prefixes = lines
+    .filter((line) => line.startsWith("ref-prefix "))
+    .map((line) => line.slice("ref-prefix ".length));
+  const refs = (await branchesOf(fs)).filter(
+    ({ ref }) => prefixes.length === 0 || prefixes.some((prefix) => ref.startsWith(prefix)),
+  );
+  return concat([...refs.map(({ ref, oid }) => pktLine(`${oid} ${ref}\n`)), FLUSH]);
+}
+
 async function advertise(fs: MemoryFs, service: string) {
   const branches = await branchesOf(fs);
   const head = branches.find(({ ref }) => ref === MAIN)?.oid;
@@ -472,14 +507,15 @@ export async function serveGit(request: Request): Promise<Response> {
       return new Response("Unauthorized", { status: 401 });
     }
   }
+  const v2 = service === "git-upload-pack" && request.headers.get("git-protocol") === "version=2";
   if (endpoint === "info/refs") {
-    return new Response(await advertise(fs, service!), {
+    return new Response(v2 ? advertiseV2(service!) : await advertise(fs, service!), {
       headers: { "content-type": `application/x-${service}-advertisement` },
     });
   }
   const body = new Uint8Array(await request.arrayBuffer());
   if (service === "git-upload-pack") {
-    return new Response(await uploadPack(fs, body), {
+    return new Response(v2 ? await listRefs(fs, body) : await uploadPack(fs, body), {
       headers: { "content-type": "application/x-git-upload-pack-result" },
     });
   }
