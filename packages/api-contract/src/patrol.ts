@@ -43,6 +43,11 @@ export type ReportSummary =
     }
   | { kind: "text"; text: string };
 
+/** The locale a summary's work was in: a structured summary's, if any. A text summary has none. */
+export const reportLocale = (
+  summary: { kind: "structured"; locale: string | null } | { kind: "text" },
+) => (summary.kind === "structured" ? summary.locale : null);
+
 /** Whether the work was done, or failed. A failure shows in its report only. */
 export type ReportOutcome = "done" | "failed";
 
@@ -75,11 +80,16 @@ export type ReportView = {
   place: ReportPlace | null;
 };
 
-/** What a patroller is on: how many subjects, and the one subject and locale when there's one. */
+/** How many subjects a patroller is on in one locale, a locale's tag. */
+export type LocaleCount = { locale: string; count: number };
+
+/**
+ * What a patroller is on: the one subject when there's one, and how many subjects in each
+ * locale, the most first. A subject in several locales counts in each.
+ */
 export type PatrollerWorking = {
-  count: number;
   subject: ReportSubject | null;
-  locale: string | null;
+  locales: LocaleCount[];
 };
 
 export type PatrollerView = {

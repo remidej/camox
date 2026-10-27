@@ -4,6 +4,7 @@ import {
   type PatrolView,
   type ReportPlace,
   type ReportEntity,
+  reportLocale,
   type ReportSummary,
   REPORTS_SHOWN,
   type ReportView,
@@ -19,7 +20,6 @@ import type { ServiceContext } from "../_shared/service-context";
 import { selectInChunks } from "../content/chunks";
 import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
-import { catchUpDraftOf } from "../drafts/catch-up";
 import {
   draftIn,
   draftOf,
@@ -34,6 +34,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { pages } from "../pages/schema";
 import { PATROLLERS } from "./patrollers";
 import { reports } from "./schema";
+import { liveWorkScopes } from "./scopes";
 import type { PendingWork } from "./working";
 
 // The Patrol read (ADR 0024): every patroller of the registry, with its reports in the scope the
@@ -175,9 +176,6 @@ const NAMERS: Record<ReportEntity, Namer> = {
 const subjectOf = (row: ReportRow) =>
   row.summary.kind === "structured" ? row.summary.subject : null;
 
-const localeOfRow = (row: ReportRow) =>
-  row.summary.kind === "structured" ? row.summary.locale : null;
-
 /**
  * The names and places of the reports' subjects, by report, in each report's scope and locale. Reports
  * without a subject have none; those whose subject is gone are missing.
@@ -193,7 +191,7 @@ const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
   for (const row of rows) {
     const subject = subjectOf(row);
     if (!subject) continue;
-    const locale = localeOfRow(row);
+    const locale = reportLocale(row.summary);
     const draft = row.draftId === null ? null : draftsById.get(row.draftId);
     if (draft === undefined) continue;
     const scope: ReadScope =
@@ -221,8 +219,8 @@ const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
 
 /**
  * What a patroller's pending work says it's on, and since when it's been on it: how many
- * subjects, with the one subject, named in the scope's default locale, when there's one, and
- * the locale when they share one.
+ * subjects in each locale, with the one subject, named in the scope's default locale, when
+ * there's one.
  */
 const workingOn = Effect.fn("patrol.workingOn")(function* (
   db: Database,
@@ -232,20 +230,24 @@ const workingOn = Effect.fn("patrol.workingOn")(function* (
 ) {
   if (pending.length === 0) return { working: null, since: undefined };
   const since = Math.min(...pending.map((work) => work.requestedAt));
-  const locales = new Set(pending.map((work) => work.locale));
-  const locale = locales.size === 1 ? pending[0]!.locale : null;
-  if (pending.length > 1) {
-    return { working: { count: pending.length, subject: null, locale }, since };
-  }
+  const counts = new Map<string, number>();
+  for (const work of pending) counts.set(work.locale, (counts.get(work.locale) ?? 0) + 1);
+  const locales = mostFirst(counts);
+  if (pending.length > 1) return { working: { subject: null, locales }, since };
   const { entity, id } = pending[0]!;
   const name = (yield* NAMERS[entity](db, projectId, scope, [id])).get(id)?.name;
   const working: PatrollerWorking = {
-    count: 1,
     subject: name === undefined ? null : { entity, id, name },
-    locale,
+    locales,
   };
   return { working, since };
 });
+
+/** Counts by locale, the most first, then by tag. */
+const mostFirst = <L extends string | null>(counts: ReadonlyMap<L, number>) =>
+  [...counts]
+    .map(([locale, count]) => ({ locale, count }))
+    .sort((a, b) => b.count - a.count || (a.locale ?? "").localeCompare(b.locale ?? ""));
 
 /** The latest of some times, or null when none is known. */
 const latest = (...times: (number | undefined)[]) => {
@@ -264,7 +266,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   const { projectId } = yield* decodeInput(getPatrolInput, rawInput);
   const { scope } = yield* accessTo(ctx, { project: projectId }, "member");
   const viewed = draftIn(scope);
-  const catchUp = yield* catchUpDraftOf(ctx.db, projectId);
+  const { catchUp, scopes: liveScopes } = yield* liveWorkScopes(ctx.db, projectId);
   const draftsById = new Map<string, Draft>();
   if (catchUp) draftsById.set(catchUp.id, draftOf(catchUp));
   if (viewed) draftsById.set(viewed.id, draftOf(viewed));
@@ -307,7 +309,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   };
 
   // What's pending in the scope viewed: on Live, the catch-up draft's work is Live's.
-  const workScopes = viewed ? [viewed.id] : [null, ...(catchUp ? [catchUp.id] : [])];
+  const workScopes = viewed ? [viewed.id] : liveScopes;
   const working = yield* Effect.forEach(PATROLLERS, (patroller) =>
     Effect.flatMap(patroller.pending(ctx.db, projectId, workScopes), (pending) =>
       workingOn(ctx.db, projectId, pending, viewed ? draftOf(viewed) : null),
@@ -318,7 +320,8 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
     const own = shown.filter((row) => row.patroller === patroller.id).sort(newestFirst);
     const rest = new Map<string | null, number>();
     for (const row of own.slice(REPORTS_SHOWN)) {
-      rest.set(localeOfRow(row), (rest.get(localeOfRow(row)) ?? 0) + 1);
+      const locale = reportLocale(row.summary);
+      rest.set(locale, (rest.get(locale) ?? 0) + 1);
     }
     return {
       id: patroller.id,
@@ -326,9 +329,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       working: working[index]!.working,
       lastActivityAt: latest(own[0]?.at, working[index]!.since),
       reports: own.slice(0, REPORTS_SHOWN).map(viewOf),
-      more: [...rest]
-        .map(([locale, count]) => ({ locale, count }))
-        .sort((a, b) => b.count - a.count || (a.locale ?? "").localeCompare(b.locale ?? "")),
+      more: mostFirst(rest),
     };
   });
   // The latest activity first, those that never worked last, in the registry's order.

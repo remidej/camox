@@ -1,8 +1,9 @@
-import type {
-  PatrollerId,
-  PatrollerView,
-  PatrolView,
-  ReportView,
+import {
+  type PatrollerId,
+  type PatrollerView,
+  type PatrolView,
+  reportLocale,
+  type ReportView,
 } from "@camox/api-contract/patrol";
 import { Badge } from "@camox/ui/badge";
 import * as React from "react";
@@ -20,7 +21,7 @@ import { timeAgo } from "../draftLabel";
 import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
 import { editCollectionItemPath } from "../routes";
 import { useShowInCanvas } from "../showInCanvas";
-import { workingSentence } from "../workingSentence";
+import { singleLocaleSentence, workingSentence } from "../workingSentence";
 import { Squareling } from "./Squareling";
 
 /**
@@ -113,7 +114,7 @@ function useShowReport(inDraft: boolean, openFile: (fileId: string) => void) {
     const { place } = report;
     if (!place) return;
     const toLive = inDraft && report.live ? { draft: null } : {};
-    const tag = report.summary.kind === "structured" ? report.summary.locale : null;
+    const tag = reportLocale(report.summary);
     if (place.kind === "page") {
       const { pageId, blockId, itemId } = place;
       return void showInCanvas({ pageId, locale: tag, blockId, itemId, ...toLive });
@@ -205,7 +206,7 @@ export function PatrolRoster({
   now: number;
   inDraft: boolean;
   singleLocale: boolean;
-  expanded: ReadonlySet<string>;
+  expanded: ReadonlySet<PatrollerId>;
   onToggle: (id: PatrollerId) => void;
   /** Shows a report's subject where it is: one with a place only. */
   onShow: (report: ReportView) => void;
@@ -218,11 +219,7 @@ export function PatrolRoster({
           patroller={patroller}
           now={now}
           inDraft={inDraft}
-          idle={
-            patroller.id === "translator" && singleLocale
-              ? "Add a language to translate into"
-              : undefined
-          }
+          idle={singleLocale ? singleLocaleSentence(patroller.id) : undefined}
           expanded={expanded.has(patroller.id)}
           onToggle={() => onToggle(patroller.id)}
           onShow={onShow}
@@ -278,6 +275,7 @@ function PatrollerRow({
   onShow: (report: ReportView) => void;
 }) {
   const reportsId = React.useId();
+  const statusId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
   const subtitle =
     working ??
@@ -289,6 +287,7 @@ function PatrollerRow({
         type="button"
         aria-expanded={expanded}
         aria-controls={reportsId}
+        aria-describedby={working ? statusId : undefined}
         onClick={onToggle}
         className="hover:bg-muted/60 focus-visible:ring-ring/50 flex items-center gap-2.5 px-3 py-1.5 text-left outline-none focus-visible:ring-[3px]"
       >
@@ -311,13 +310,13 @@ function PatrollerRow({
           >
             {subtitle}
           </span>
-          {working && (
-            <span data-working-status className="sr-only">
-              Working: {working.charAt(0).toLowerCase() + working.slice(1)}
-            </span>
-          )}
         </span>
       </button>
+      {/* Announced as it changes, and read with the patroller as its description. Always there,
+          empty while idle, so that starting work is announced too. */}
+      <span id={statusId} data-working-status role="status" className="sr-only">
+        {working && `Working: ${working.charAt(0).toLowerCase()}${working.slice(1)}`}
+      </span>
       {expanded && (
         <ul id={reportsId} className="flex flex-col gap-1 pt-0.5 pr-3 pb-2 pl-[3.375rem] text-xs">
           {patroller.reports.map((report) => (

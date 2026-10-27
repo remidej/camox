@@ -1,8 +1,9 @@
-import type {
-  ReportOutcome,
-  ReportSummary,
-  ReportVerb,
-  ReportView,
+import {
+  type ReportOutcome,
+  reportLocale,
+  type ReportSummary,
+  type ReportVerb,
+  type ReportView,
 } from "@camox/api-contract/patrol";
 
 import { localeName } from "./localeOptions";
@@ -42,7 +43,7 @@ export function whereReportLeads(
   inDraft: boolean,
 ): string | null {
   if (!place) return null;
-  const locale = summary.kind === "structured" ? summary.locale : null;
+  const locale = reportLocale(summary);
   const inLocale = locale ? ` in ${localeName(locale)}` : "";
   // A Live report seen from a draft shows its subject as it is on Live.
   const onLive = inDraft && live;

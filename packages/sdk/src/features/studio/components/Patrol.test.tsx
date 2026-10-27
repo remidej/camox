@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { PatrollerView, PatrolView, ReportView } from "@camox/api-contract/patrol";
+import type {
+  PatrollerId,
+  PatrollerView,
+  PatrolView,
+  ReportView,
+} from "@camox/api-contract/patrol";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
@@ -64,7 +69,7 @@ const translator: PatrollerView = {
 /** Renders the Patrol into a document, to read it as editors do. */
 function render(
   view: PatrolView,
-  options: { expanded?: string[]; inDraft?: boolean; singleLocale?: boolean } = {},
+  options: { expanded?: PatrollerId[]; inDraft?: boolean; singleLocale?: boolean } = {},
 ) {
   const { document } = new Window();
   document.body.innerHTML = renderToString(
@@ -232,10 +237,17 @@ function renderOne(patroller: PatrollerView) {
   const text = (element: { textContent: string | null } | null) =>
     element?.textContent?.replace(/\s+/g, " ").trim() ?? "";
   const subtitle = row.querySelector("[data-patroller-subtitle]");
+  const button = row.querySelector("button")!;
+  const live = row.querySelector('[aria-live="polite"], [role="status"]');
+  const describedBy = button.getAttribute("aria-describedby");
   return {
     subtitle: text(subtitle),
     subtitleHidden: subtitle?.getAttribute("aria-hidden") === "true",
-    announced: text(row.querySelector("[data-working-status]")),
+    /** The polite live region's text, null without one. */
+    announced: live && text(live),
+    /** What the button reads as itself, without what it's described by. */
+    buttonText: text(button),
+    description: describedBy ? text(document.getElementById(describedBy)) : "",
     indicator: row.querySelector("[data-working-indicator]"),
     squareling: row.querySelector("[data-squareling]"),
   };
@@ -248,36 +260,86 @@ const translating = (working: PatrollerView["working"]): PatrollerView => ({
 });
 
 void test("a working patroller's subtitle names its one subject and the locale", () => {
-  const shown = renderOne(translating({ count: 1, subject: hero, locale: "es" }));
+  const shown = renderOne(translating({ subject: hero, locales: [{ locale: "es", count: 1 }] }));
 
   assert.equal(shown.subtitle, "Translating hero into Spanish");
 });
 
 void test("a working patroller's subtitle counts a burst into a locale", () => {
-  const shown = renderOne(translating({ count: 38, subject: null, locale: "de" }));
+  const shown = renderOne(translating({ subject: null, locales: [{ locale: "de", count: 38 }] }));
 
   assert.equal(shown.subtitle, "Translating 38 items into German");
 });
 
-void test("a burst across locales is counted without naming one", () => {
-  const shown = renderOne(translating({ count: 76, subject: null, locale: null }));
+void test("a burst across locales is counted in each locale, the most first", () => {
+  const shown = renderOne(
+    translating({
+      subject: null,
+      locales: [
+        { locale: "de", count: 38 },
+        { locale: "es", count: 12 },
+      ],
+    }),
+  );
 
-  assert.equal(shown.subtitle, "Translating 76 items");
+  assert.equal(shown.subtitle, "Translating 38 items into German and 12 into Spanish");
+});
+
+void test("a burst across many locales names the first and counts the rest together", () => {
+  const shown = renderOne(
+    translating({
+      subject: null,
+      locales: [
+        { locale: "de", count: 38 },
+        { locale: "es", count: 12 },
+        { locale: "fr", count: 5 },
+        { locale: "it", count: 4 },
+      ],
+    }),
+  );
+
+  assert.equal(
+    shown.subtitle,
+    "Translating 38 items into German, 12 into Spanish and 9 into 2 other languages",
+  );
+});
+
+void test("a burst across three locales names each one", () => {
+  const shown = renderOne(
+    seoManager({
+      working: {
+        subject: null,
+        locales: [
+          { locale: "de", count: 3 },
+          { locale: "es", count: 2 },
+          { locale: "fr", count: 1 },
+        ],
+      },
+    }),
+  );
+
+  assert.equal(shown.subtitle, "Writing SEO for 3 items in German, 2 in Spanish and 1 in French");
 });
 
 void test("the SEO manager says what it's writing, or which file it's describing", () => {
-  const writing = renderOne(seoManager({ working: { count: 1, subject: pricing, locale: "fr" } }));
+  const writing = renderOne(
+    seoManager({ working: { subject: pricing, locales: [{ locale: "fr", count: 1 }] } }),
+  );
   assert.equal(writing.subtitle, "Writing SEO for Pricing in French");
 
-  const describing = renderOne(seoManager({ working: { count: 1, subject: team, locale: "en" } }));
+  const describing = renderOne(
+    seoManager({ working: { subject: team, locales: [{ locale: "en", count: 1 }] } }),
+  );
   assert.equal(describing.subtitle, "Describing team.png in English");
 
-  const burst = renderOne(seoManager({ working: { count: 3, subject: null, locale: "de" } }));
+  const burst = renderOne(
+    seoManager({ working: { subject: null, locales: [{ locale: "de", count: 3 }] } }),
+  );
   assert.equal(burst.subtitle, "Writing SEO for 3 items in German");
 });
 
 void test("the avatar circle shows a working indicator only while working", () => {
-  const working = renderOne(translating({ count: 1, subject: hero, locale: "es" }));
+  const working = renderOne(translating({ subject: hero, locales: [{ locale: "es", count: 1 }] }));
   assert.ok(working.indicator);
   assert.equal(working.indicator.getAttribute("aria-hidden"), "true");
 
@@ -294,24 +356,32 @@ void test("each patroller shows its own squareling, never the agent's, with its 
   };
 
   assert.deepEqual(face(translator), { variant: "translator", face: "idle" });
-  assert.deepEqual(face(translating({ count: 1, subject: hero, locale: "es" })), {
+  assert.deepEqual(face(translating({ subject: hero, locales: [{ locale: "es", count: 1 }] })), {
     variant: "translator",
     face: "working",
   });
   assert.deepEqual(face(seoManager()), { variant: "seoManager", face: "idle" });
-  assert.deepEqual(face(seoManager({ working: { count: 3, subject: null, locale: "de" } })), {
-    variant: "seoManager",
-    face: "working",
-  });
+  assert.deepEqual(
+    face(seoManager({ working: { subject: null, locales: [{ locale: "de", count: 3 }] } })),
+    {
+      variant: "seoManager",
+      face: "working",
+    },
+  );
 });
 
-void test("assistive technology hears the working state in words, once", () => {
-  const working = renderOne(translating({ count: 1, subject: hero, locale: "es" }));
+void test("assistive technology hears the working state in words as it changes, once", () => {
+  const working = renderOne(translating({ subject: hero, locales: [{ locale: "es", count: 1 }] }));
   assert.equal(working.announced, "Working: translating hero into Spanish");
   assert.ok(working.subtitleHidden);
+  // Focusing the patroller reads it too, as its description rather than a second time in its name.
+  assert.equal(working.description, "Working: translating hero into Spanish");
+  assert.doesNotMatch(working.buttonText, /Working/);
 
+  // An idle patroller's live region is there, empty, so that starting work is announced.
   const idle = renderOne(seoManager());
   assert.equal(idle.announced, "");
+  assert.equal(idle.description, "");
   assert.ok(!idle.subtitleHidden);
 });
 
@@ -349,7 +419,7 @@ void test("a patroller missing from the held order shows after the held ones, an
 });
 
 void test("an expanded patroller stays expanded when it moves", () => {
-  const expanded = ["translator"];
+  const expanded: PatrollerId[] = ["translator"];
   const before = render({ patrollers: [seoManager(), translator] }, { expanded });
   const after = render({ patrollers: [translator, seoManager()] }, { expanded });
 

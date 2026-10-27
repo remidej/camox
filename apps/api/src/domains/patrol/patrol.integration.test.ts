@@ -25,6 +25,7 @@ import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { files } from "../../schema";
+import { runOverviewJob } from "../drafts/overview-job";
 import { runGenerationJob } from "../generated-values/generation";
 
 // The Patrol (ADR 0024) as the studio reads it: edits go through the router, Camox's scheduled
@@ -282,6 +283,23 @@ describe("the SEO manager", () => {
     for (const patroller of await patrol()) expect(patroller.reports).toEqual([]);
   });
 
+  // A Draft Overview is the draft's review, not a patroller's work (ADR 0024).
+  it("leaves Draft Overviews out of the Patrol, written or failed", async () => {
+    const { db, draft, patrol } = await fixture();
+    const overview = (answer: { headline: string; bullets: string[] } | AiCallError) => {
+      answerNext("draftOverview", answer);
+      return runService(runOverviewJob(db, { kind: "overview", draftId: draft }));
+    };
+
+    await overview({ headline: "Renames Pricing", bullets: ["Pricing: renamed"] });
+    await overview(new AiCallError({ cause: "Model unavailable" }));
+
+    for (const patroller of await patrol()) {
+      expect(patroller.reports).toEqual([]);
+      expect(patroller.lastActivityAt).toBeNull();
+    }
+  });
+
   it("refreshes the Patrol of the scope it reported in", async () => {
     const { projectId, page, draft, writeSeo } = await fixture();
     forgetSent(projectId);
@@ -464,9 +482,8 @@ describe("a patroller at work", () => {
     const [first] = await f.patrol();
     expect(first!.id).toBe("seoManager");
     expect(first!.working).toEqual({
-      count: 1,
       subject: { entity: "page", id: f.page.id, name: "Pricing" },
-      locale: "en",
+      locales: [{ locale: "en", count: 1 }],
     });
     expect(first!.lastActivityAt).toBeGreaterThanOrEqual(before);
     expect(first!.reports).toEqual([]);
@@ -508,12 +525,45 @@ describe("a patroller at work", () => {
     const patroller = await translator(f);
     const subjects = new Set(translationJobs().map((job) => `${job.entity}:${job.entityId}`));
     expect(subjects.size).toBeGreaterThan(1);
-    expect(patroller.working).toEqual({ count: subjects.size, subject: null, locale: "de" });
+    expect(patroller.working).toEqual({
+      subject: null,
+      locales: [{ locale: "de", count: subjects.size }],
+    });
     expect(patroller.reports).toEqual([]);
     expect(patroller.lastActivityAt).not.toBeNull();
 
     await runTranslations(f);
     expect((await translator(f)).working).toBeNull();
+  });
+
+  it("counts a burst spanning locales in each locale, the most first", async () => {
+    const f = await fixture();
+    translateAsIs();
+    await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
+      f.member(f.inDraft),
+    );
+    await call(router.locales.add, { projectId: f.projectId, tag: "de" }, f.member(f.inDraft));
+    await runTranslations(f);
+
+    await call(router.locales.add, { projectId: f.projectId, tag: "fr" }, f.member(f.inDraft));
+    // German has one subject left to translate, French every one.
+    await call(router.pages.update, { id: f.page.id, nickname: "Plans" }, f.member(f.inDraft));
+
+    const frenchSubjects = new Set(
+      translationJobs()
+        .filter((job) => job.locale === "fr")
+        .map((job) => `${job.entity}:${job.entityId}`),
+    );
+    expect(frenchSubjects.size).toBeGreaterThan(1);
+    expect((await translator(f)).working).toEqual({
+      subject: null,
+      locales: [
+        { locale: "fr", count: frenchSubjects.size },
+        { locale: "de", count: 1 },
+      ],
+    });
   });
 
   it("names the one subject the Translator is on, and the locale it translates into", async () => {
@@ -523,9 +573,8 @@ describe("a patroller at work", () => {
     await call(router.pages.update, { id: f.page.id, nickname: "Plans" }, f.member(f.inDraft));
 
     expect((await translator(f)).working).toEqual({
-      count: 1,
       subject: { entity: "page", id: f.page.id, name: "Plans" },
-      locale: "de",
+      locales: [{ locale: "de", count: 1 }],
     });
   });
 
@@ -560,7 +609,7 @@ describe("a patroller at work", () => {
 
     const [first, second] = await f.patrol();
     expect(first!.id).toBe("translator");
-    expect(first!.working).toMatchObject({ count: 1, locale: "de" });
+    expect(first!.working!.locales).toEqual([{ locale: "de", count: 1 }]);
     expect(first!.lastActivityAt).toBeGreaterThan(second!.lastActivityAt!);
   });
 
@@ -570,9 +619,8 @@ describe("a patroller at work", () => {
     await catchingUp(f);
 
     expect((await translator(f, {})).working).toEqual({
-      count: 1,
       subject: { entity: "page", id: f.page.id, name: "Plans" },
-      locale: "de",
+      locales: [{ locale: "de", count: 1 }],
     });
     await runTranslations(f);
     expect((await translator(f, {})).working).toBeNull();
@@ -648,7 +696,7 @@ describe("a patroller at work", () => {
       f.member({ [DRAFT_HEADER]: next }),
     );
     await publishAnyway(f, { [DRAFT_HEADER]: next });
-    expect((await translator(f, {})).working).toMatchObject({ count: 2 });
+    expect((await translator(f, {})).working!.locales).toEqual([{ locale: "de", count: 2 }]);
     forgetSent(f.projectId);
 
     // The catch-up draft's job: the published draft's ended with it.
@@ -656,7 +704,7 @@ describe("a patroller at work", () => {
     forgetScheduled(block.id);
     await runService(runAiJob(f.db, job));
 
-    expect((await translator(f, {})).working).toMatchObject({ count: 1 });
+    expect((await translator(f, {})).working!.locales).toEqual([{ locale: "de", count: 1 }]);
     expect(refreshes(sentTo(f.projectId), null, patrolKey(f))).toBe(true);
   });
 });
