@@ -22,6 +22,7 @@ type ReleaseFakes = {
   /** Pushes `files` as `commit` to the repo's `main`, and returns the commit's tree. */
   push(repo: string, commit: string, files: Record<string, string>): Promise<string>;
   failCommand(repo: string, pattern: string, times: number): Promise<void>;
+  passCommand(repo: string, pattern: string): Promise<void>;
   hold(repo: string, pattern: string): Promise<void>;
   letGo(repo: string): Promise<void>;
   commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
@@ -304,38 +305,6 @@ describe("a push to a project's main branch", () => {
     expect(error?.message).toMatch(/^CiRunnerFailure: deploy failed/);
   });
 
-  it("names the project by its Project ID in an alert from an instance that recorded no name", async () => {
-    // Instances started before the release step recorded the project's name replay its old
-    // output, which has only the project's row id.
-    const { project: failing } = await createProjectFixture(
-      `release-workflow-${crypto.randomUUID()}`,
-    );
-    const commit = commitSha();
-    await fakes.push(failing.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.2") });
-    await fakes.failCommand(failing.uuid, "pnpm install", Infinity);
-
-    await receivePush(pushEvent(failing.uuid, "refs/heads/main", commit), "errored", (m) =>
-      m.mockStepResult({ name: "record the release" }, { projectId: failing.id }),
-    );
-
-    const [email] = await emailsAbout(failing.uuid);
-    expect(email?.subject).toContain(failing.uuid);
-    expect(email?.text).not.toContain("undefined");
-  });
-
-  it("sends no alert when a step fails and its retry passes", async () => {
-    const { project: flaky } = await createProjectFixture(
-      `release-workflow-${crypto.randomUUID()}`,
-    );
-    const commit = commitSha();
-    await fakes.push(flaky.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
-    await fakes.failCommand(flaky.uuid, "wrangler deploy", 1);
-
-    await receivePush(pushEvent(flaky.uuid, "refs/heads/main", commit));
-
-    expect(await emailsAbout(flaky.uuid)).toEqual([]);
-  });
-
   it("succeeds once when a step fails and its retry passes", async () => {
     const { db, project: flaky } = await createProjectFixture(
       `release-workflow-${crypto.randomUUID()}`,
@@ -350,6 +319,7 @@ describe("a push to a project's main branch", () => {
     expect(rows).toEqual([expect.objectContaining({ status: "succeeded", failedStep: null })]);
     const commands = (await fakes.commandsRun(flaky.uuid)).map(({ command }) => command);
     expect(commands.filter((command) => command === "pnpm exec camox release")).toHaveLength(2);
+    expect(await emailsAbout(flaky.uuid)).toEqual([]);
   });
 
   it("records a failed release that is re-run and passes as succeeded", async () => {
@@ -359,7 +329,7 @@ describe("a push to a project's main branch", () => {
     const commit = commitSha();
     await fakes.push(rerun.uuid, commit, { "pnpm-lock.yaml": lockfile("0.9.1") });
     // Fails every attempt of the first run, so that it gives up, then passes on the re-run.
-    await fakes.failCommand(rerun.uuid, "wrangler deploy", 3);
+    await fakes.failCommand(rerun.uuid, "wrangler deploy", Infinity);
     const instanceId = crypto.randomUUID();
     await using instance = await introspectWorkflowInstance(env.RELEASE_WORKFLOW, instanceId);
     await instance.modify(async (m) => {
@@ -370,6 +340,7 @@ describe("a push to a project's main branch", () => {
       params: pushEvent(rerun.uuid, "refs/heads/main", commit),
     });
     await instance.waitForStatus("errored");
+    await fakes.passCommand(rerun.uuid, "wrangler deploy");
 
     const before = Date.now();
     await run.restart();
@@ -420,15 +391,6 @@ describe("a push of the tree Live serves", () => {
     return rows.filter(({ status }) => status === "succeeded").map(({ commit }) => commit);
   }
 
-  it("releases a push whose tree differs", async () => {
-    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
-    const served = await pushAndRelease(project.uuid, files);
-
-    const changed = await pushAndRelease(project.uuid, { ...files, "src/blocks/cta.tsx": "" });
-
-    expect(await succeeded(db, project.id)).toEqual([served, changed]);
-  });
-
   it("releases a push of a tree Live served before, but no longer does", async () => {
     const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
     const first = await pushAndRelease(project.uuid, files);
@@ -444,8 +406,9 @@ describe("a push of the tree Live serves", () => {
     const commit = commitSha();
     await fakes.push(project.uuid, commit, files);
     // Fails every attempt of that release, then passes.
-    await fakes.failCommand(project.uuid, "wrangler deploy", 3);
+    await fakes.failCommand(project.uuid, "wrangler deploy", Infinity);
     await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+    await fakes.passCommand(project.uuid, "wrangler deploy");
 
     const again = await pushAndRelease(project.uuid, files);
 

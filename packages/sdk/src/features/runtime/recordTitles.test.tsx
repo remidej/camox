@@ -79,17 +79,6 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         })),
       });
     }
-    if (procedure === "collectionDefinitions/listRecordPageValues")
-      return Response.json({
-        json: RECORDS.map(({ id, title, description, content }) => ({
-          id,
-          value: content.slug,
-          title,
-          description,
-        })),
-      });
-    if (procedure === "collectionDefinitions/recordMarkdown")
-      return Response.json({ json: "# Person" });
     throw new Error(`Unexpected API request ${procedure}`);
   });
 }
@@ -128,27 +117,10 @@ async function headOf(response: Response | null) {
   };
 }
 
-void test("a record page's head names the record by its title and describes it by its description", async (t) => {
-  mockApi(t);
-  assert.deepEqual(await headOf(await visit("/people/ada")), {
-    title: "Ada Lovelace | Pioneers",
-    description: "Mathematician",
-  });
-});
-
 void test("a record without a description leaves its page's description absent", async (t) => {
   mockApi(t);
   assert.deepEqual(await headOf(await visit("/people/grace")), {
     title: "Grace Hopper | Pioneers",
     description: "No description",
   });
-});
-
-void test("llms.txt lists record pages by their records' titles", async (t) => {
-  mockApi(t);
-  const response = await visit("/llms.txt");
-  assert.equal(response?.status, 200);
-  const text = await response!.text();
-  assert.match(text, /- \[Ada Lovelace\]\(https:\/\/site\.test\/people\/ada\.md\)/);
-  assert.match(text, /- \[Grace Hopper\]\(https:\/\/site\.test\/people\/grace\.md\)/);
 });

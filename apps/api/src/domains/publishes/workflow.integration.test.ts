@@ -1021,9 +1021,15 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const draftId = await draftChangingCode(website, token);
     const first = await lastBuildOf(draftId);
-    await changeCodeAgain(website, token, draftId);
+    await changeCodeAgain(website, token, draftId, { uploaded: false });
+    const second = await lastBuildOf(draftId);
+    expect(second).not.toBe(first);
 
-    expect(await lastBuildOf(draftId)).not.toBe(first);
+    // Waits for the draft's Worker to hold the second revision's build.
+    await uploadedAhead(website, draftId);
+    const held = (await fakes.userWorker(scriptOf(website, draftId)))!.modules["index.js"]!.text;
+    expect(held).toContain(second);
+    expect(held).not.toContain(first);
     expect(await fakes.userWorkersOf(website.project.uuid)).toEqual([
       website.project.uuid,
       scriptOf(website, draftId),

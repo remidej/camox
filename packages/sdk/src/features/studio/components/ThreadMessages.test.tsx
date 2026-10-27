@@ -149,18 +149,6 @@ void test("a message sent while the agent works is appended last, so the scrolle
   assert.match(rows.at(-1)!.textContent, /Working…/);
 });
 
-void test("a thread says the agent's code is building, then that it fixes a build error, instead of working", () => {
-  const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
-  const shown = (status?: ThreadView["status"]) =>
-    renderToString(<ThreadMessages view={{ running: true, messages: [asked], status }} />);
-
-  assert.match(shown("building"), /Building…/);
-  assert.doesNotMatch(shown("building"), /Working…/);
-  assert.match(shown("fixing"), /Fixing a build error…/);
-  assert.doesNotMatch(shown("fixing"), /Working…/);
-  assert.match(shown(), /Working…/);
-});
-
 void test("the agent's squareling thinks, acts while it uses its tools or builds, and fixes; only building and fixing say it in words", () => {
   const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
   const { document } = new Window();
@@ -175,6 +163,8 @@ void test("the agent's squareling thinks, acts while it uses its tools or builds
         .filter((child) => child.tagName !== "svg" && !child.classList.contains("sr-only"))
         .map((child) => child.textContent)
         .join(""),
+      /** Everything the status says, screen-reader text included. */
+      said: working.textContent,
     };
   };
 
@@ -187,6 +177,10 @@ void test("the agent's squareling thinks, acts while it uses its tools or builds
   assert.equal(shown("fixing").squareling, "fixing");
   assert.equal(shown("fixing", true).squareling, "fixing");
   assert.equal(shown("fixing").visibleText, "Fixing a build error…");
+  // Building and fixing say so instead of working, even to a screen reader.
+  assert.match(shown().said, /Working…/);
+  assert.doesNotMatch(shown("building").said, /Working…/);
+  assert.doesNotMatch(shown("fixing").said, /Working…/);
 });
 
 /**

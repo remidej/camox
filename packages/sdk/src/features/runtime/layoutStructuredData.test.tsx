@@ -257,16 +257,6 @@ void test("a layout returning a main entity emits it as the page's main entity, 
   assert.deepEqual([page["@type"]].flat(), ["WebPage"]);
 });
 
-void test("a main entity states when its page was first and last published", async (t) => {
-  mockApi(t);
-  const notes = await readPage("/notes");
-  const entity = notes.byId(notes.pageNode().mainEntity)!;
-  assert.equal(entity["@type"], "BlogPosting");
-  assert.equal(entity.headline, "Launch notes | Real project");
-  assert.equal(entity.datePublished, "2026-01-02T09:30:00.000Z");
-  assert.equal(entity.dateModified, "2026-06-07T16:45:00.000Z");
-});
-
 void test("what the layout sets wins over what Camox fills", async (t) => {
   mockApi(t);
   const news = await readPage("/news");
@@ -276,6 +266,10 @@ void test("what the layout sets wins over what Camox fills", async (t) => {
   // What it leaves out is still filled.
   assert.equal(entity.dateModified, "2026-06-07T16:45:00.000Z");
   assert.equal(entity.description, "We raised");
+
+  // A main entity that leaves its publish times out states when its page was first published.
+  const notes = await readPage("/notes");
+  assert.equal(notes.byId(notes.pageNode().mainEntity)!.datePublished, "2026-01-02T09:30:00.000Z");
 });
 
 void test("an Article main entity makes the page an article in Open Graph, other main entities don't", async (t) => {

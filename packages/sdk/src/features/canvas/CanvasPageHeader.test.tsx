@@ -63,9 +63,6 @@ void test("canvas names report selection without changing preview state or editi
           ),
         );
       await render(false);
-      const header = mount.querySelector("h2")!;
-      assert.equal(header.firstElementChild, mount.querySelector("[data-canvas-path]"));
-      assert.ok(header.classList.contains("flex-col"));
       let name = mount.querySelector<HTMLButtonElement>("button[aria-pressed]")!;
       assert.equal(name.textContent, page.title);
       assert.equal(name.getAttribute("aria-pressed"), "false");

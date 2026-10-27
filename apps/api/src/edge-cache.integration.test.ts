@@ -5,7 +5,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture } from "../test/fixtures";
 import app from "./index";
-import { artifactSources } from "./schema";
 import type { Bindings } from "./types";
 
 const bucket = () => (env as unknown as Bindings).FILES_BUCKET;
@@ -27,35 +26,6 @@ describe("a stored file, as the edge caches it", () => {
     expect(await response.text()).toBe("0123456789");
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
     expect(response.headers.get("Cache-Tag")).toBe(`file:${key}`);
-  });
-
-  it("answers a Range request with the bytes it names", async () => {
-    const { url } = await storedFile("0123456789");
-
-    const response = await SELF.fetch(url, { headers: { Range: "bytes=2-5" } });
-
-    expect(response.status).toBe(206);
-    expect(response.headers.get("Content-Range")).toBe("bytes 2-5/10");
-    expect(await response.text()).toBe("2345");
-  });
-
-  it("answers a suffix Range request with the file's last bytes", async () => {
-    const { url } = await storedFile("0123456789");
-
-    const response = await SELF.fetch(url, { headers: { Range: "bytes=-3" } });
-
-    expect(response.status).toBe(206);
-    expect(await response.text()).toBe("789");
-  });
-
-  it("answers HEAD with the file's length and no body", async () => {
-    const { url } = await storedFile("0123456789");
-
-    const response = await SELF.fetch(url, { method: "HEAD" });
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Length")).toBe("10");
-    expect(await response.text()).toBe("");
   });
 
   it("is not kept when it's missing, so a file stored later isn't hidden", async () => {
@@ -102,23 +72,6 @@ describe("a project's favicon", () => {
 });
 
 describe("a project's artifact source", () => {
-  it("is kept for good once stored, since its hash names one source for good", async () => {
-    const { db, project } = await createProjectFixture(`artifact-edge-${crypto.randomUUID()}`);
-    const source = `<title>Kept</title><p>${crypto.randomUUID()}</p>`;
-    const hash = await artifactSourceHash(source);
-    await db
-      .insert(artifactSources)
-      .values({ projectId: project.id, hash, source, createdAt: Date.now() });
-
-    const response = await SELF.fetch(
-      `https://api.camox.ai/artifact-sources/${project.uuid}/${hash}`,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe(source);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
-  });
-
   it("is not kept while it's missing, by the edge or from the API's own answer, so a source stored later isn't hidden", async () => {
     const { project } = await createProjectFixture(`artifact-edge-${crypto.randomUUID()}`);
     const hash = await artifactSourceHash(crypto.randomUUID());

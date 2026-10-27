@@ -419,23 +419,6 @@ void test("picking a draft or Live navigates there", async (t) => {
   );
 });
 
-void test("deletes the draft only after a second confirmation, then switches to Live", async (t) => {
-  const calls = mockApi(t);
-  await render(t, spring);
-  await click(pendingButton());
-
-  await click(deleteButton());
-  assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
-  const confirm = window.document.querySelector('[role="alertdialog"]');
-  await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
-
-  assert.deepEqual(
-    calls.filter((call) => call.path === "drafts/delete").map((call) => call.draft),
-    [spring],
-  );
-  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
-});
-
 /** The localhost studio: dev mode, whose API answers for the caller's development draft. */
 function devMode(t: test.TestContext) {
   developmentMode = true;

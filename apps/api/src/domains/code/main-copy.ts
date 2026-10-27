@@ -91,14 +91,6 @@ const readOnly = (path: string) =>
 export const mainCopyFsEnv = (fs: MemoryFs, id?: string) =>
   codeEnv(fs, { cwd: CODE_ROOT, id, writable: readOnly });
 
-/** The agent's environment over `copy`, built on first use: see `mainCopyFs`. */
-export function mainCopyEnv(copy: MainCopy, skills: R2Bucket): ExecutionEnv {
-  return lazyEnv(async () => mainCopyFsEnv(await mainCopyFs(copy, skills)), {
-    id: `camox:main:${copy.commit}`,
-    cwd: CODE_ROOT,
-  });
-}
-
 /** Every operation of an `ExecutionEnv` a code environment has. */
 const OPERATIONS = Object.keys(codeEnv(new MemoryFs(), { cwd: "/", writable: readOnly })).filter(
   (key) => key !== "id" && key !== "cwd",

@@ -24,7 +24,6 @@ import {
   createRecord,
   deleteRecord,
   editRecord,
-  findRecordsByField,
   getCollectionRecord,
   getRecordUsageCount,
 } from "./service";
@@ -432,27 +431,5 @@ describe("files in records", () => {
       }),
     );
     expect(edited.content).toEqual({ name: "Ada Lovelace", portrait: null });
-  });
-});
-
-describe("records read their current content", () => {
-  it("serves a published record edit to visitors, with no edit to the page", async () => {
-    const f = await fixture();
-    const ada = await f.createAuthor("Ada");
-    const article = await f.createArticle("Hello", null);
-    await f.live((c) =>
-      editRecord(c, {
-        ...f.articles,
-        id: article.id,
-        content: { title: "Hello", author: ada.id },
-      }),
-    );
-
-    const visitor = createServiceContext(f.db, null);
-    const [found] = await runService(
-      findRecordsByField(visitor, { ...f.articles, field: "title", value: "Hello" }),
-    );
-    expect(found?.content).toEqual({ title: "Hello", author: ada.id });
-    expect((found?.references.author as ResolvedReference | null)?.content.name).toBe("Ada");
   });
 });

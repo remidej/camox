@@ -177,7 +177,7 @@ describe("a draft's new revision", () => {
     ]);
   });
 
-  it("is prewarmed through dispatch before it's announced", async () => {
+  it("is prewarmed through dispatch, as its draft's and project's revision", async () => {
     const { website, draftId, thread, result } = await draftWithPricing();
     thread.close();
 

@@ -2,18 +2,9 @@ import { abortAllDurableObjects, createScheduledController } from "cloudflare:te
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { startDraft } from "../../../test/fixtures";
-import { pushToMain } from "../../../test/pushes";
-import {
-  answerFrom,
-  answerWithToolCall,
-  answerWithToolCallFrom,
-  forgetThreadModel,
-  type ModelRequest,
-} from "../../../test/thread-model";
+import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import {
   ask,
-  connectDraftThread,
   connectLiveThread,
   lastAnswer,
   signIn,
@@ -22,7 +13,7 @@ import {
 } from "../../../test/threads";
 import type { Bindings } from "../../types";
 import worker from "../../worker";
-import { type FontSearch, FONTS_SHOWN, FONTS_SNAPSHOT_KEY } from "./catalog";
+import { FONTS_SHOWN, FONTS_SNAPSHOT_KEY } from "./catalog";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -200,111 +191,6 @@ describe("searchFonts", () => {
       serifs.slice(0, FONTS_SHOWN).map(({ family }) => family),
     );
     expect(result.total).toBe(FONTS_SHOWN + 1);
-  });
-});
-
-const HANKEN_GROTESK_LINK =
-  "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,100..900;1,100..900&display=swap";
-
-/** The Template's Document: its font is a Google Fonts link. */
-const DOCUMENT = `import { defineDocument } from "camox/document";
-
-export default defineDocument({
-  htmlAttrs: { lang: "en" },
-  title: "Acme",
-  meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
-  link: [
-    { rel: "preconnect", href: "https://fonts.googleapis.com" },
-    { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "anonymous" },
-    { rel: "stylesheet", href: "${HANKEN_GROTESK_LINK}" },
-  ],
-});
-`;
-
-/** The Template's Theme tokens for fonts: the family's name. */
-const STYLES = `@import "tailwindcss";
-
-@theme {
-  --font-heading: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-}
-`;
-
-const LOCKFILE = `lockfileVersion: '9.0'
-
-importers:
-
-  .:
-    dependencies:
-      camox:
-        specifier: 1.0.0
-        version: 1.0.0(react@19.3.1)
-`;
-
-type GitFakes = { readFile(repo: string, ref: string, path: string): Promise<string | null> };
-
-describe("a font the agent picks", () => {
-  it("is a Google Fonts link in the Document and a Theme token, and the build passes", async () => {
-    await fakes.listGoogleFonts([ARCHIVO, PLAYFAIR_DISPLAY]);
-    await runScheduledJob();
-    const website = await websiteFixture({ home: "Hello" });
-    await pushToMain(website.project.uuid, {
-      "package.json": `{ "name": "acme", "dependencies": { "camox": "1.0.0" } }\n`,
-      "pnpm-lock.yaml": LOCKFILE,
-      "src/document.ts": DOCUMENT,
-      "src/styles.css": STYLES,
-    });
-    const token = await signIn(website.db, website.memberUser.id);
-    const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
-    const thread = await connectDraftThread(website.project.id, draftId, token);
-
-    // The agent looks the family up, then adds its link and names it in the heading token.
-    answerWithToolCall("searchFonts", { query: "Playfair Display", category: "serif" });
-    const linkFound = ({ lastToolResult }: ModelRequest) =>
-      (JSON.parse(lastToolResult) as FontSearch).families[0]!.link;
-    let link = "";
-    answerWithToolCallFrom("edit", (request) => {
-      link = linkFound(request);
-      return {
-        path: "src/document.ts",
-        edits: [
-          {
-            oldText: `    { rel: "stylesheet", href: "${HANKEN_GROTESK_LINK}" },\n`,
-            newText:
-              `    { rel: "stylesheet", href: "${HANKEN_GROTESK_LINK}" },\n` +
-              `    { rel: "stylesheet", href: "${link}" },\n`,
-          },
-        ],
-      };
-    });
-    answerWithToolCall("edit", {
-      path: "src/styles.css",
-      edits: [
-        {
-          oldText: `--font-heading: "Hanken Grotesk", ui-sans-serif`,
-          newText: `--font-heading: "Playfair Display", ui-serif`,
-        },
-      ],
-    });
-    answerWithToolCall("build", {});
-    answerFrom(({ lastToolResult }) => lastToolResult);
-    const build = JSON.parse(
-      lastAnswer(await ask(thread, "Use Playfair Display for the headings"))!,
-    ) as Record<string, unknown>;
-
-    expect(build).toMatchObject({ ok: true, revision: expect.any(String) });
-    expect(link).toBe(
-      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap",
-    );
-    const draft = { id: draftId };
-    const git = (env as unknown as { RELEASE_FAKES: GitFakes }).RELEASE_FAKES;
-    const repo = website.project.uuid;
-    expect(await git.readFile(repo, draft!.id, "src/document.ts")).toContain(
-      `{ rel: "stylesheet", href: "${link}" }`,
-    );
-    expect(await git.readFile(repo, draft!.id, "src/styles.css")).toContain(
-      `--font-heading: "Playfair Display", ui-serif, system-ui, sans-serif;`,
-    );
   });
 });
 

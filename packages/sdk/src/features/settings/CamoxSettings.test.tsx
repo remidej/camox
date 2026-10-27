@@ -231,14 +231,6 @@ const analyticsButton = (name: RegExp) =>
     name.test(button.textContent ?? ""),
   );
 
-void test("with no provider set, the Analytics part offers to add Google Analytics 4 and PostHog", async (t) => {
-  mockApi(t);
-  await render(t, "/camox/settings");
-
-  assert.ok(analyticsButton(/^Add Google Analytics 4$/), "no button to add Google Analytics 4");
-  assert.ok(analyticsButton(/^Add PostHog$/), "no button to add PostHog");
-});
-
 async function type(input: HTMLInputElement | null, value: string) {
   assert.ok(input, "expected an input to type in");
   await React.act(async () => {

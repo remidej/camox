@@ -1,4 +1,4 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER, type DraftKind } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { and, eq, isNull } from "drizzle-orm";
@@ -9,7 +9,6 @@ import {
   createRpcContext,
   syncDefinitionSet,
   callSeedingLive,
-  openDevelopmentDraft,
   seedLive,
 } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
@@ -120,16 +119,13 @@ async function fixture() {
     await publish(other);
   };
 
-  /** A draft opened without any content, as the member. */
-  const openDraft = async (kind: DraftKind) => {
-    if (kind === "development") {
-      return openDevelopmentDraft(base.db, projectId, base.memberUser.id);
-    }
+  /** A regular draft opened without any content, as the member. */
+  const openDraft = async () => {
     const id = generateUuidv7();
     await base.db.insert(drafts).values({
       id,
       projectId,
-      kind,
+      kind: "regular",
       createdBy: base.memberUser.id,
       createdAt: Date.now(),
     });
@@ -499,26 +495,12 @@ describe("publishing a draft", () => {
   it("does nothing when publishing an empty draft, and says so", async () => {
     const { createBlock, openDraft, preview, publish, titleIn } = await fixture();
     const block = await createBlock("Live");
-    const draft = await openDraft("regular");
+    const draft = await openDraft();
 
     expect(await publish(draft)).toEqual({ empty: true, ended: null });
 
     expect((await preview(draft)).changes).toEqual([]);
     expect(await titleIn(block.id, inDraft(draft))).toBe("Live");
-  });
-
-  it("empties a development draft on publish and keeps it open", async () => {
-    const { createBlock, editTitle, openDraft, preview, publish, titleIn } = await fixture();
-    const block = await createBlock("Live");
-    const draft = await openDraft("development");
-    await editTitle(block.id, "From development", inDraft(draft));
-
-    await publish(draft);
-
-    expect(await titleIn(block.id)).toBe("From development");
-    expect((await preview(draft)).changes).toEqual([]);
-    await editTitle(block.id, "Next", inDraft(draft));
-    expect(await titleIn(block.id, inDraft(draft))).toBe("Next");
   });
 });
 

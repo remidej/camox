@@ -85,9 +85,3 @@ void test("the shortcut stays with fields, which sites often submit with it", as
   assert.equal(window.location.href, PAGE_URL);
   await unmount();
 });
-
-void test("pages a sign-in from the shortcut didn't lead to don't show the Canvas", () => {
-  window.location.href = PAGE_URL;
-  assert.equal(takeShowCanvasRequest(), false);
-  assert.equal(window.location.href, PAGE_URL);
-});

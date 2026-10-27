@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRAFT_SEARCH_PARAM, LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER, DRAFT_SEARCH_PARAM, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
@@ -105,7 +105,8 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-type Call = { path: string; input: unknown };
+/** A request to the API: its procedure, its input, and the draft it named, if any. */
+type Call = { path: string; input: unknown; draft: string | null };
 
 const draft = {
   id: draftId,
@@ -144,7 +145,7 @@ function mockApi(t: test.TestContext, respond: (path: string, calls: Call[]) => 
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const input = ((await request.json()) as { json: unknown }).json;
-    calls.push({ path, input });
+    calls.push({ path, input, draft: request.headers.get(DRAFT_HEADER) });
     if (path === "drafts/get") return json({ ...draft, name, ...drafted });
     if (path === "pages/listBySlug") {
       const locale = request.headers.get(LOCALE_HEADER) ?? "en";
@@ -328,6 +329,8 @@ void test("titles the review with the overview's headline, the draft's name and 
     assert.equal(sheetTitle(), "Retitles the homepage hero");
     assert.match(sheetDescription(), /Ada/);
     assert.deepEqual(bullets(), ["Home: the hero gets a new title", "Files: two images replaced"]);
+    // Only a stale overview says it's updating.
+    assert.doesNotMatch(dialogText(), /Updating…/);
   } finally {
     await close();
   }
@@ -366,21 +369,6 @@ void test("keeps showing a stale overview, saying it's updating", async (t) => {
     assert.equal(sheetTitle(), "Retitles the homepage hero");
     assert.deepEqual(bullets(), ["Home: the hero gets a new title"]);
     assert.match(dialogText(), /Updating…/);
-  } finally {
-    await close();
-  }
-});
-
-void test("doesn't say a current overview is updating", async (t) => {
-  mockApi(t, () =>
-    json({
-      ...emptyPreview,
-      overview: { status: "ready", headline: "Retitles", bullets: ["Home"], stale: false },
-    }),
-  );
-  const close = await openReview();
-  try {
-    assert.doesNotMatch(dialogText(), /Updating…/);
   } finally {
     await close();
   }
@@ -461,6 +449,8 @@ void test("says the draft is translated only on a multilingual website", async (
   const close = await openReview();
   try {
     assert.ok(statusLines().includes("Translated into German (de) and French (fr)"));
+    // No page's meta title is pending, so the status says nothing about SEO.
+    assert.doesNotMatch(dialogText(), /Writing SEO/);
   } finally {
     await close();
   }
@@ -497,16 +487,6 @@ void test("says SEO is being written while pages' meta titles are pending, inste
     assert.ok(statusLines().includes("Writing SEO for 2 pages…"));
     assert.doesNotMatch(dialogText(), /still being generated/);
     assert.deepEqual(cardTitles(), []);
-  } finally {
-    await close();
-  }
-});
-
-void test("says nothing about SEO when no meta title is pending", async (t) => {
-  mockApi(t, () => json(emptyPreview));
-  const close = await openReview();
-  try {
-    assert.doesNotMatch(dialogText(), /Writing SEO/);
   } finally {
     await close();
   }
@@ -1365,8 +1345,10 @@ void test("deletes only after a second confirmation, then switches to Live", asy
     await click(confirm.querySelector('[data-slot="alert-dialog-action"]'));
 
     assert.deepEqual(
-      calls.filter((call) => call.path === "drafts/delete").map((call) => call.input),
-      [{ projectId: 1 }],
+      calls
+        .filter((call) => call.path === "drafts/delete")
+        .map(({ input, draft }) => ({ input, draft })),
+      [{ input: { projectId: 1 }, draft: draftId }],
     );
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
   } finally {

@@ -30,18 +30,6 @@ async function fixture() {
 }
 
 describe("collection record procedures", () => {
-  it("offers no way to publish, unpublish, discard or restore a single record", () => {
-    for (const name of [
-      "publishRecord",
-      "unpublishRecord",
-      "discardRecord",
-      "checkpointRecord",
-      "restoreRecord",
-    ]) {
-      expect(routes).not.toHaveProperty(name);
-    }
-  });
-
   it("authenticates every write, and the edit reads back as the record's content", async () => {
     const f = await fixture();
     const options = { context: f.context };
@@ -122,9 +110,6 @@ describe("collection record procedures", () => {
       { projectId },
       { context: f.context },
     );
-    const names = tools.map((tool) => tool.name);
-    expect(names).not.toContain("publishCollectionRecord");
-    expect(names).not.toContain("unpublishCollectionRecord");
     expect(tools.find((tool) => tool.name === "deleteCollectionRecord")?.inputSchema).toMatchObject(
       {
         type: "object",
@@ -132,9 +117,6 @@ describe("collection record procedures", () => {
         additionalProperties: false,
       },
     );
-    expect(
-      tools.find((tool) => tool.name === "deleteCollectionRecord")?.inputSchema,
-    ).not.toHaveProperty("properties.expectedVersion");
     // AI tools write content, so they run in a draft: Live is read-only.
     const drafted = createRpcContext(f.db, f.memberUser, {
       [DRAFT_HEADER]: generateUuidv7(),

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
@@ -238,15 +237,6 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
   assert.ok(!logs.some((line) => line.includes("Created your development draft")));
 });
 
-void test("the dev server syncs the app's blocks without writing an app file", async (t) => {
-  const checkout = await devCheckout(t);
-  const { logs } = await startDevServer(checkout, () => {});
-
-  await waitFor(() => logs.some((line) => line.includes("Synced 1 Camox definition")), logs);
-  assert.deepEqual(checkout.syncedBlockIds, [["hero"]]);
-  assert.ok(!existsSync(join(checkout.root, "src/camox/app.ts")));
-});
-
 void test("the dev server says when its first sync created the development draft", async (t) => {
   const checkout = await devCheckout(t, { draftCreated: true });
   const { logs } = await startDevServer(checkout, () => {});
@@ -358,7 +348,7 @@ function requestLog(requests: { path: string; headers: IncomingHttpHeaders }[]) 
   return requests.map(({ path, headers }) => `${path} ${String(headers[DRAFT_HEADER] ?? "live")}`);
 }
 
-void test("on an empty Live, the dev server releases first and publishes what afterSync seeded", async (t) => {
+void test("on an empty Live, the dev server releases first and publishes what afterSync seeded, naming the project by its Project ID", async (t) => {
   const checkout = await devCheckout(t);
   const { logs } = await startDevServer(
     checkout,
@@ -378,34 +368,16 @@ void test("on an empty Live, the dev server releases first and publishes what af
     `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
     `drafts.publish ${DEVELOPMENT_DRAFT}`,
   ]);
-});
-
-void test("seeding an empty Live names the project by its Project ID, never its slug", async (t) => {
-  const checkout = await devCheckout(t);
-  const { logs } = await startDevServer(
-    checkout,
-    async (context) => {
-      await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
-    },
-    "deploy-token",
-  );
-
-  await waitFor(() => checkout.requests.some((r) => r.path === "drafts.publish"), logs);
-  // Drafts are named by the project's integer id, which the project load returned.
-  const namingProject = checkout.requests.filter(({ path }) => !path.startsWith("drafts."));
+  // Every request naming the project names it by its Project ID, never its slug. Drafts are
+  // named by the project's integer id, which the project load returned.
   assert.deepEqual(
-    namingProject.map(({ path, input }) => {
-      const { projectUuid, projectSlug, slug } = input as Record<string, unknown>;
-      return { path, projectUuid, projectSlug, slug };
-    }),
-    [
-      "pages.listBySlug",
-      "definitions.sync",
-      "definitions.sync",
-      "collectionDefinitions.list",
-      "projects.getByUuid",
-    ].map((path) => ({
-      path,
+    checkout.requests
+      .filter(({ path }) => !path.startsWith("drafts."))
+      .map(({ input }) => {
+        const { projectUuid, projectSlug, slug } = input as Record<string, unknown>;
+        return { projectUuid, projectSlug, slug };
+      }),
+    Array.from({ length: 5 }, () => ({
       projectUuid: CHECKOUT_PROJECT_ID,
       projectSlug: undefined,
       slug: undefined,

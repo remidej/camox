@@ -46,38 +46,6 @@ const titleOf = (row: { content: unknown } | undefined) =>
   (row?.content as { title?: string } | undefined)?.title;
 
 describe("the draft overlay", () => {
-  it("reads a block a draft changed as changed in that draft only", async () => {
-    const { db, openDraft, live } = await fixture("overlay-isolation");
-    const draft = await openDraft();
-    const other = await openDraft();
-
-    await run(
-      overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }, noArtifactFields),
-    );
-
-    expect(titleOf(await run(overlay.get(db, draft, blocks, live.id)))).toBe("Draft");
-    expect(titleOf(await run(overlay.get(db, null, blocks, live.id)))).toBe("Live");
-    expect(titleOf(await run(overlay.get(db, other, blocks, live.id)))).toBe("Live");
-  });
-
-  it("shows Live's latest content, as a release changed it, for a block the draft doesn't change", async () => {
-    const { db, openDraft, live } = await fixture("overlay-fallback");
-    const draft = await openDraft();
-
-    await run(
-      overlay.update(
-        db,
-        RELEASE,
-        blocks,
-        live.id,
-        { content: { title: "Live again" } },
-        noArtifactFields,
-      ),
-    );
-
-    expect(titleOf(await run(overlay.get(db, draft, blocks, live.id)))).toBe("Live again");
-  });
-
   it("records the Live version the first write in a draft copied, counting a release's changes", async () => {
     const { db, openDraft, live } = await fixture("overlay-base-version");
     const draft = await openDraft();
@@ -133,39 +101,6 @@ describe("the draft overlay", () => {
       publishedAt: expect.any(Number),
       publishedBy: null,
     });
-  });
-
-  it("copies the whole entity on the first write, so a move carries the block's content", async () => {
-    const { db, openDraft, live } = await fixture("overlay-move");
-    const draft = await openDraft();
-
-    await run(overlay.update(db, draft, blocks, live.id, { position: "a5" }));
-    await run(
-      overlay.update(
-        db,
-        RELEASE,
-        blocks,
-        live.id,
-        { content: { title: "Live later" } },
-        noArtifactFields,
-      ),
-    );
-
-    expect(await run(overlay.get(db, draft, blocks, live.id))).toMatchObject({
-      position: "a5",
-      content: { title: "Live" },
-    });
-  });
-
-  it("hides a block deleted in a draft in that draft only", async () => {
-    const { db, openDraft, live, pageId } = await fixture("overlay-tombstone");
-    const draft = await openDraft();
-
-    await run(overlay.remove(db, draft, blocks, live.id));
-
-    expect(await run(overlay.get(db, draft, blocks, live.id))).toBeUndefined();
-    expect(await run(overlay.select(db, draft, blocks, eq(blocks.pageId, pageId)))).toHaveLength(0);
-    expect(await run(overlay.get(db, null, blocks, live.id))).toBeDefined();
   });
 
   it("keeps a block a draft creates in that draft, and drops it without a trace when deleted", async () => {

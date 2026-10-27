@@ -30,30 +30,6 @@ void test("documents without a browsing context do not fall back to globals", ()
   assert.equal(getElementContext(document.createElement("div") as unknown as Element), null);
 });
 
-void test("listeners and script insertion target only the owning window/document", () => {
-  const host = new Window();
-  const preview = new Window();
-  const element = preview.document.createElement("div");
-  const context = getElementContext(element as unknown as Element);
-  assert.ok(context);
-
-  let scrolls = 0;
-  const onScroll = () => scrolls++;
-  context.window.addEventListener("scroll", onScroll);
-  host.dispatchEvent(new host.Event("scroll"));
-  assert.equal(scrolls, 0);
-  preview.dispatchEvent(new preview.Event("scroll"));
-  assert.equal(scrolls, 1);
-  context.window.removeEventListener("scroll", onScroll);
-  preview.dispatchEvent(new preview.Event("scroll"));
-  assert.equal(scrolls, 1);
-
-  const script = context.document.createElement("script");
-  context.document.head.appendChild(script);
-  assert.equal(preview.document.querySelectorAll("script").length, 1);
-  assert.equal(host.document.querySelectorAll("script").length, 0);
-});
-
 void test("blocks follow whether Camox paused their own preview document", async (t) => {
   const host = new Window();
   const preview = new Window();

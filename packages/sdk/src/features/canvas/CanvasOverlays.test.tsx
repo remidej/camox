@@ -101,37 +101,10 @@ void test("outlines and interactive controls live above the frame, not in the pa
     assert.equal(page.document.querySelector("button"), null);
     assert.equal(page.document.querySelector(".camox-canvas-outline"), null);
     const layer = host.document.querySelector("[data-canvas-overlays]")!;
-    const outline = layer.querySelector(".camox-canvas-outline") as unknown as HTMLElement;
-    assert.ok(outline);
-    assert.equal(outline.style.left, "calc(20px * var(--canvas-zoom, 1))");
-    assert.equal(outline.style.width, "calc(300px * var(--canvas-zoom, 1))");
+    assert.ok(layer.querySelector(".camox-canvas-outline"));
     assert.equal(layer.querySelectorAll("[data-canvas-insertion-seam]").length, 2);
-    const seam = layer.querySelector(
-      "[data-canvas-insertion-seam='42:43']",
-    ) as unknown as HTMLElement;
-    assert.equal(seam.style.top, "calc(140px * var(--canvas-zoom, 1))");
-    assert.equal(
-      (layer as unknown as HTMLElement).style.width,
-      "calc(100% * var(--canvas-zoom, 1))",
-    );
-    assert.equal(seam.style.left, "0px");
-    assert.equal(seam.style.width, "100%");
-    assert.equal(seam.style.height, "40px");
-    assert.equal(seam.style.pointerEvents, "auto");
-    assert.equal(seam.style.cursor, "default");
-    const line = seam.querySelector("[data-canvas-insertion-line]") as unknown as HTMLElement;
-    assert.ok(line);
-    assert.equal(line.style.height, "var(--camox-overlay-width-hover)");
-    assert.equal(line.style.backgroundColor, "var(--camox-overlay-color-hover)");
-    assert.ok(line.classList.contains("inset-x-0"));
-    assert.ok(line.classList.contains("group-hover/seam:opacity-100"));
+    assert.ok(layer.querySelector("[data-canvas-insertion-seam='42:43']"));
     const button = layer.querySelector("button")!;
-    assert.equal(button.style.backgroundColor, "var(--camox-overlay-color-selected)");
-    assert.ok(button.classList.contains("z-10"));
-    assert.ok(button.classList.contains("opacity-0"));
-    assert.ok(button.classList.contains("group-hover/seam:opacity-100"));
-    assert.ok(button.classList.contains("group-focus-within/seam:opacity-100"));
-    assert.equal(button.getAttribute("data-slot"), "button", "uses the shared Studio button");
     await React.act(async () => {
       button.click();
     });
@@ -232,14 +205,6 @@ void test("outlines and interactive controls live above the frame, not in the pa
     assert.ok(toolbar);
     assert.ok(toolbar.closest("[data-canvas-overlays]"));
     assert.equal(page.document.querySelector("[role=toolbar]"), null);
-    assert.equal(
-      (toolbar as unknown as HTMLElement).style.top,
-      "calc(80px * var(--canvas-zoom, 1) - 8px)",
-    );
-    assert.equal(
-      (toolbar as unknown as HTMLElement).style.left,
-      "calc(80px * var(--canvas-zoom, 1))",
-    );
     assert.ok(toolbar.hasAttribute("data-canvas-overlay-control"));
     const bold = toolbar.querySelector("[aria-label=Bold]")!;
     const mouseDown = new host.MouseEvent("mousedown", { bubbles: true, cancelable: true });

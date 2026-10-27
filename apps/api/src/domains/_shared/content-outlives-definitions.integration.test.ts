@@ -320,9 +320,10 @@ describe("write responses", () => {
       { pageId: f.page.id, type: "hero", content: { title: "Only" } },
       f.options,
     );
+    const filled = { content: { title: "Only", subtitle: "Hello" }, settings: { theme: "light" } };
+    expect({ content: created.content, settings: created.settings }).toEqual(filled);
     const read = await call(router.blocks.get, { id: created.id }, f.options);
-    expect(created.content).toEqual(read.block.content);
-    expect(created.settings).toEqual(read.block.settings);
+    expect({ content: read.block.content, settings: read.block.settings }).toEqual(filled);
   });
 
   it("conform a repeatable item's content after its repeater changed", async () => {

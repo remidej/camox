@@ -508,6 +508,10 @@ describe("a patroller at work", () => {
 
     await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
 
+    expect((await f.seoManager()).working).toEqual({
+      subject: { entity: "page", id: f.page.id, name: "Pricing" },
+      locales: [{ locale: "en", count: 1 }],
+    });
     expect((await f.seoManager({})).working).toBeNull();
   });
 

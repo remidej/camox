@@ -291,14 +291,23 @@ describe("media persistence", () => {
       alt: "Manual",
       aiMetadata: false,
     });
+    /** A rejection of the input for the reason `message` gives. */
+    const invalid = (message: string) => ({
+      code: "BAD_REQUEST",
+      data: { issues: expect.arrayContaining([expect.objectContaining({ message })]) },
+    });
     await expect(
       seedLiveThrough(ctx, project.id, (draft) =>
         updateFile(inScope(ctx, draft), { ...target, alt: "Conflict", aiMetadata: true }),
       ),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject(
+      invalid("Alt text cannot be combined with automatic metadata enabled."),
+    );
     await expect(
       seedLiveThrough(ctx, project.id, (draft) => updateFile(inScope(ctx, draft), target)),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject(
+      invalid("Provide a filename, alt text or an automatic metadata setting."),
+    );
     expect(await runService(getProjectFile(inScope(ctx, null), target))).toMatchObject({
       alt: "Manual",
       aiMetadata: false,

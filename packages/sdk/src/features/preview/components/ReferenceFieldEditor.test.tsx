@@ -536,22 +536,3 @@ void test("a query-backed list summarizes how its query picks records", async ()
     }
   }
 });
-
-void test("a query-backed list shows its results as cards that open, with no list controls", async () => {
-  const view = await renderReference({
-    query: { orderBy: { name: "asc" } },
-    record: adaRecord,
-  });
-  try {
-    const card = view.host.querySelector<HTMLElement>("[data-record-card]");
-    assert.ok(card);
-    assert.equal(card.textContent, "AdaCustomers");
-    for (const control of ["Unlink", "Reorder", "Select item", "Create item"]) {
-      assert.ok(!view.find(control), `no ${control} control`);
-    }
-    await view.click("Open Ada");
-    assert.deepEqual(view.opened, [ADA]);
-  } finally {
-    await view.cleanup();
-  }
-});

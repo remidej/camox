@@ -151,7 +151,7 @@ describe("upgrading every project to a new SDK", () => {
     }
   });
 
-  it("commits only the changed package.json and lockfile, on top of main, checking they are those it built", async () => {
+  it("pushes on top of main unless main changed its package.json or lockfile since, with a write token only that step gets", async () => {
     const { project, head } = await projectOn("0.9.1");
 
     await upgradeTo(NEW_VERSION);
@@ -161,7 +161,6 @@ describe("upgrading every project to a new SDK", () => {
     expect(push?.command).toContain(
       `git diff --quiet ${head} origin/main -- package.json pnpm-lock.yaml`,
     );
-    expect(push?.command).toContain("git add package.json pnpm-lock.yaml");
     // Pushed with a write token of the project's own repo, which only this step gets.
     expect(push?.env.UPGRADE_GIT_REMOTE).toMatch(new RegExp(`/projects/${project.uuid}\\.git$`));
     expect(push?.env.GIT_CONFIG_VALUE_0).toBe("Authorization: Bearer artifacts-write-token");

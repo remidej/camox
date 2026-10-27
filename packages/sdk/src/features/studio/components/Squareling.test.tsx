@@ -8,31 +8,18 @@ import { renderToString } from "react-dom/server";
 Object.assign(globalThis, { React });
 const { Squareling } = await import("./Squareling");
 
-const AGENT_BODY =
-  '<path d="M20 12H80Q88 12 88 20V64Q88 88 64 88H20Q12 88 12 80V20Q12 12 20 12Z" class="fill-emerald-500"></path>';
+void test("the agent's eyes are open while idle or thinking, both narrowed while acting, and only the right one while fixing", () => {
+  const [left, right] = drawn(<Squareling status="idle" />).eyes;
+  assert.ok(left !== undefined && right !== undefined);
 
-void test("the agent's squareling is drawn as it was before patrollers had their own", () => {
-  const svg = (status: string, eyes: string) =>
-    `<svg viewBox="0 0 100 100" aria-hidden="true" data-squareling="${status}" class="squareling shrink-0 overflow-visible"><g class="squareling-body">${AGENT_BODY}<g class="squareling-eyes fill-neutral-950">${eyes}</g></g></svg>`;
-  const open =
-    '<rect class="squareling-eye" x="50" y="36" width="11" height="17"></rect><rect class="squareling-eye" x="69" y="36" width="11" height="17"></rect>';
-
-  assert.equal(renderToString(<Squareling status="idle" />), svg("idle", open));
-  assert.equal(renderToString(<Squareling status="thinking" />), svg("thinking", open));
-  assert.equal(
-    renderToString(<Squareling status="acting" />),
-    svg(
-      "acting",
-      '<rect x="50" y="44" width="11" height="6"></rect><rect x="69" y="44" width="11" height="6"></rect>',
-    ),
-  );
-  assert.equal(
-    renderToString(<Squareling status="fixing" />),
-    svg(
-      "fixing",
-      '<rect x="50" y="36" width="11" height="17"></rect><rect x="69" y="44" width="11" height="6"></rect>',
-    ),
-  );
+  assert.deepEqual(drawn(<Squareling status="thinking" />).eyes, [left, right]);
+  const acting = drawn(<Squareling status="acting" />).eyes;
+  assert.equal(acting.length, 2);
+  assert.ok(acting[0]! < left && acting[1]! < right, "acting narrows both eyes");
+  const fixing = drawn(<Squareling status="fixing" />).eyes;
+  assert.equal(fixing.length, 2);
+  assert.equal(fixing[0], left, "fixing keeps the left eye open");
+  assert.ok(fixing[1]! < right, "fixing narrows the right eye");
 });
 
 /** Reads a squareling's body: its silhouette and its color, and its eyes' heights. */

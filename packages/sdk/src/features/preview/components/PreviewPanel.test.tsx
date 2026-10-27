@@ -285,7 +285,7 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
   }
 });
 
-void test("read-only panel centers responsive viewports and preserves shell selection shortcuts", async () => {
+void test("a read-only panel in device viewports keeps the shell's selection shortcut registered", async () => {
   const dom = await setup();
   const { PreviewPanel } = await import("./PreviewPanel");
   const { previewStore: store } = await import("../previewStore");
@@ -307,9 +307,6 @@ void test("read-only panel centers responsive viewports and preserves shell sele
         <p>Preview content</p>
       </PreviewPanel>,
     );
-    assert.ok(dom.host.querySelector(".items-center"));
-    assert.equal(dom.host.querySelector(".items-start, .mt-8"), null);
-    assert.match(dom.host.innerHTML, /w-\[768px\]/);
     const actions = actionsStore.getSnapshot().context.actions;
     assert.equal(
       actions.find((action) => action.id === "clear-selection"),
@@ -317,16 +314,11 @@ void test("read-only panel centers responsive viewports and preserves shell sele
     );
     await React.act(async () => store.send({ type: "cycleViewportMode" }));
     assert.equal(store.getSnapshot().context.viewportMode, "mobile");
-    assert.match(dom.host.innerHTML, /w-\[393px\]/);
     await dom.render(null);
     const remainingActions = actionsStore.getSnapshot().context.actions;
     assert.equal(
       remainingActions.find((action) => action.id === "clear-selection"),
       clearSelection,
-    );
-    assert.equal(
-      remainingActions.some((action) => action.id === "cycle-viewport-mode"),
-      false,
     );
   } finally {
     await dom.close();

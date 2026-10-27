@@ -568,6 +568,16 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     pan(6, 6, 6, 6); // Sustained low-amplitude diagonal input releases too.
     pan(1, 12, 1, 12);
     time += 200;
+    pan(-3, -0.5, -3, -0.5); // Upward startup noise is undecided too.
+    pan(2, -4, 2, -4);
+    pan(-4, -16, 0, -16); // Vertical intent is acquired scrolling up as well.
+    pan(15, -24, 0, -24);
+    time += 200;
+    pan(20, 60, 0, 60);
+    pan(12, 0, 0, 0); // One horizontal jitter while locked is only evidence...
+    time += 80;
+    pan(4, 0, 0, 0); // ...which expires, so later jitter cannot add up with it.
+    time += 200;
     pan(10, 90, 0, 90); // A new vertical gesture can acquire the rail.
     pan(0, 40, 40, 0, true); // Explicit Shift-scroll bypasses it.
     pan(10, 90, 10, 90); // Releasing Shift cannot lock the same gesture's tail.

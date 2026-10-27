@@ -39,7 +39,9 @@ before(async () => {
     const input = body ? JSON.parse(body).json : undefined;
     calls.push({ url: req.url, input });
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ json: { ok: true, result: { id: BLOCK_ID } } }));
+    // A tool call answers with the arguments it received, so a command's output shows what it sent.
+    const result = input?.arguments ?? { id: BLOCK_ID };
+    res.end(JSON.stringify({ json: { ok: true, result } }));
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -194,7 +196,7 @@ void test("takes and prints block and page ids as UUIDv7s", async () => {
     assert.equal(result.code, 0, result.stderr);
     assert.equal(calls.at(-1).input.name, name);
     assert.deepEqual(calls.at(-1).input.arguments, expected);
-    assert.deepEqual(JSON.parse(result.stdout), { id: BLOCK_ID });
+    assert.deepEqual(JSON.parse(result.stdout), expected);
   }
 });
 

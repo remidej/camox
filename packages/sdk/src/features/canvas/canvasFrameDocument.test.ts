@@ -198,12 +198,19 @@ void test("inaccessible sheets do not prevent later same-origin sheets being ada
       throw new Error("SecurityError");
     },
   };
-  assert.doesNotThrow(() =>
-    adaptCanvasStyleSheets({
-      styleSheets: [inaccessible],
-      adoptedStyleSheets: [],
-    } as unknown as Document),
+  const window = new Window();
+  const style = window.document.createElement("style");
+  style.textContent = ".screen { height: 100vh }";
+  window.document.head.append(style);
+  adaptCanvasStyleSheets({
+    styleSheets: [inaccessible, style.sheet],
+    adoptedStyleSheets: [],
+  } as unknown as Document);
+  assert.equal(
+    (style.sheet!.cssRules[0] as unknown as CSSStyleRule).style.height,
+    "var(--camox-viewport-height, 100vh)",
   );
+  void window.happyDOM.close();
 });
 
 void test("document retains site theme/styles, resolves relative URLs, and removes execution", (t) => {

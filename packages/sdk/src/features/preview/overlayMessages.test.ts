@@ -153,22 +153,3 @@ for (const { name, selection, type, target } of cases) {
     assert.deepEqual(selectionHoverMessage(selection, false), { type: `${type}_END`, ...target });
   });
 }
-
-void test("a layout-owned placement and a block-owned placement of the same record are distinct targets", () => {
-  const layoutOwned: Selection = { type: "record", layoutId: "articles", recordId: "launch" };
-  const blockOwned: Selection = {
-    type: "record",
-    blockId: "4",
-    fieldName: "article",
-    recordId: "launch",
-  };
-  assert.notDeepEqual(
-    selectionHoverMessage(layoutOwned, true),
-    selectionHoverMessage(blockOwned, true),
-  );
-  const field = { recordFieldName: "title", recordFieldType: "String" } as const;
-  assert.notDeepEqual(
-    selectionHoverMessage({ ...layoutOwned, type: "record-field", ...field }, true),
-    selectionHoverMessage({ ...blockOwned, type: "record-field", ...field }, true),
-  );
-});

@@ -14,7 +14,6 @@ import { isTranslationJob } from "../../lib/ai-job-queue";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { addLocalizationBack } from "./exclusions";
 
 // Localizations can differ from the default locale in structure on purpose (ADR 0015): content
 // added in a locale exists only there, a localization deleted from a locale stays deleted through
@@ -313,44 +312,6 @@ describe("deleting a localization", () => {
   });
 });
 
-describe("adding a deleted localization back", () => {
-  it("translates it again with everything beneath it, and no longer excludes it", async () => {
-    const f = await fixture();
-    await f.tool("deletePage", { id: f.page.id, locale: "de" });
-    await f.publish();
-
-    const later = f.newDraft();
-    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, later.starting);
-    await f.runTranslations();
-    const draft = { id: later.inDraft[DRAFT_HEADER]!, kind: "regular" as const };
-    await runService(
-      addLocalizationBack(
-        f.db,
-        { ...draft, projectId: f.projectId, locale: "de" },
-        "page",
-        f.page.id,
-      ),
-    );
-    await f.runTranslations();
-
-    expect(await f.pagesIn("de", later.inDraft)).toEqual([f.page.id]);
-    expect(await f.blocksOn(f.page.id, "de", later.inDraft)).toEqual([f.block.id]);
-    expect(await f.titleIn("de", later.inDraft)).toBe("Willkommen");
-    expect(
-      (await f.tool("getBlock", { id: f.block.id, locale: "de" }, later.inDraft)).repeatableItems,
-    ).toEqual([expect.objectContaining({ content: { label: "Eins" } })]);
-
-    // Published, the page follows its original again.
-    await f.publish(later.inDraft);
-    const next = f.newDraft();
-    await f.tool("updatePage", { id: f.page.id, pathSegment: "hello" }, next.starting);
-    await f.runTranslations();
-    expect(
-      (await f.tool("getPage", { id: f.page.id, locale: "de" }, next.inDraft)).page,
-    ).toMatchObject({ pathSegment: "hallo" });
-  });
-});
-
 describe("the content missing from a locale", () => {
   it("lists a page deleted from a locale, without what's beneath it, and adds it back translated", async () => {
     const f = await fixture();
@@ -379,12 +340,24 @@ describe("the content missing from a locale", () => {
     await f.tool("addBackToLocale", { entity: "page", id: f.page.id, locale: "de" }, later.inDraft);
     await f.runTranslations();
     expect(await f.titleIn("de", later.inDraft)).toBe("Willkommen");
+    expect(
+      (await f.tool("getBlock", { id: f.block.id, locale: "de" }, later.inDraft)).repeatableItems,
+    ).toEqual([expect.objectContaining({ content: { label: "Eins" } })]);
     // The child page was deleted from the locale on its own: it's missing now.
     expect(await f.pagesIn("de", later.inDraft)).toEqual([f.page.id]);
     expect(await f.tool("listMissingFromLocale", { locale: "de" }, later.inDraft)).toEqual({
       pages: [expect.objectContaining({ id: child.id })],
       records: [],
     });
+
+    // Published, the page follows its original again.
+    await f.publish(later.inDraft);
+    const next = f.newDraft();
+    await f.tool("updatePage", { id: f.page.id, pathSegment: "hello" }, next.starting);
+    await f.runTranslations();
+    expect(
+      (await f.tool("getPage", { id: f.page.id, locale: "de" }, next.inDraft)).page,
+    ).toMatchObject({ pathSegment: "hallo" });
   });
 
   it("adds back a page deleted from a locale in the same draft", async () => {

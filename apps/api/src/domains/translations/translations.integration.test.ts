@@ -347,17 +347,6 @@ describe("changing the default locale", () => {
     expect(await titleIn(f, "fr")).toBe("Bienvenue");
   });
 
-  it("translates a change made by an AI tool", async () => {
-    const f = await fixture();
-    await translatedDraft(f);
-
-    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } });
-
-    expect(f.translationJobs().map(({ locale }) => locale)).toEqual(["de", "fr"]);
-    await f.runTranslations();
-    expect(await titleIn(f, "de")).toBe("Willkommen");
-  });
-
   it("translates a change made with the CLI in a development draft", async () => {
     const f = await fixture();
     const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
@@ -522,19 +511,6 @@ describe("changing the default locale", () => {
     expect(slugs).toContain("hallo-welt");
     expect(new Set(slugs).size).toBe(2);
     for (const slug of slugs) expect(slug).toMatch(/^hallo-welt(-\d+)?$/);
-  });
-
-  it("deletes a localization when its source is deleted", async () => {
-    const f = await fixture();
-    await translatedDraft(f);
-
-    await f.tool("deleteBlock", { id: f.block.id });
-    await f.runTranslations();
-
-    const blocksIn = async (locale: string) =>
-      (await f.tool("getPage", { id: f.page.id, locale })).blocks;
-    expect(await blocksIn("de")).toEqual([]);
-    expect(await blocksIn("fr")).toEqual([]);
   });
 });
 

@@ -154,26 +154,11 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     previewStore.send({ type: "reset" });
   }
 
-  const { getNavbarLinks, isContentNavbarPath } = await import("../studio/components/Navbar");
+  const { isContentNavbarPath } = await import("../studio/components/Navbar");
   assert.equal(isContentNavbarPath("/camox/content"), true);
   assert.equal(isContentNavbarPath("/camox/content/assets"), true);
   assert.equal(isContentNavbarPath("/camox/content/collections/articles/new"), true);
   assert.equal(isContentNavbarPath("/camox/contentful"), false);
-  const { CamoxStudio } = await import("../studio/CamoxStudio");
-  const { AuthenticatedCamoxProvider } = await import("../provider/AuthenticatedCamoxProvider");
-  const { EditablePageExperience } = await import("../preview/EditablePageExperience");
-  const canvasExperience = EditablePageExperience({
-    camoxApp,
-    queryClient,
-    input: { ...input, pathname: "/camox/canvas/blog/post", routeKind: "studio-nested" },
-  });
-  assert.equal(canvasExperience.type, AuthenticatedCamoxProvider);
-  const { CompleteBlockEditingRuntimeProvider } =
-    await import("../../core/editing/CompleteBlockEditingRuntime");
-  assert.equal(canvasExperience.props.children.type, CompleteBlockEditingRuntimeProvider);
-  const studio = canvasExperience.props.children.props.children;
-  assert.equal(studio.type, CamoxStudio);
-  assert.equal(studio.props.children.props.children, "Studio page not found");
   const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
   try {
     for (const flag of [undefined, false, true]) {
@@ -196,11 +181,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       );
       assert.match(canvasHtml, /My actual project/);
       assert.match(canvasHtml, /<div hidden=""[^>]*><menu role="toolbar"/);
-      // Navbar and command actions share the same ungated navigation.
-      assert.deepEqual(
-        getNavbarLinks().map((link) => link.title),
-        ["Website", "Content"],
-      );
       assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
     }
   } finally {

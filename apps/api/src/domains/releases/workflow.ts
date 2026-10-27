@@ -128,7 +128,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
       // `projectId` is the project's row id, not its Project ID (`push.repo`).
       return {
         projectId: project.id,
-        projectName: project.name as string | undefined,
+        projectName: project.name,
         settingUp: settingUp as boolean | undefined,
       };
     });
@@ -218,8 +218,7 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
           await sendReleaseFailureAlert(this.env, {
             project: {
               projectId: push.repo,
-              // An instance started before the name was recorded replays an output without it.
-              name: started.projectName ?? push.repo,
+              name: started.projectName,
             },
             commit: push.sha,
             failedStep,

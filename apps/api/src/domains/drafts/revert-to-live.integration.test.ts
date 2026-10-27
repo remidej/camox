@@ -250,7 +250,10 @@ describe("using Live's version of a conflict", () => {
 
     await expect(
       f.revertToLive(mine.headers, { entity: "locale", id: german!.id }),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("can't use Live's version alone"),
+    });
   });
 
   it("is rejected for an entity the draft changed that isn't in conflict, and keeps the change", async () => {

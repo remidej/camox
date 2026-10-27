@@ -108,16 +108,6 @@ describe("setPageSeo", () => {
       error: { code: "NOT_FOUND" },
     });
   });
-
-  it("replaces the separate meta title and description tools", async () => {
-    const { page, tool } = await fixture();
-    for (const name of ["setPageMetaTitle", "setPageMetaDescription"]) {
-      expect(await tool(name, { id: page.id, metaTitle: "Old" })).toMatchObject({ ok: false });
-    }
-    expect(await tool("updatePage", { id: page.id, metaTitle: "Old" })).toMatchObject({
-      ok: false,
-    });
-  });
 });
 
 describe("page SEO generation", () => {

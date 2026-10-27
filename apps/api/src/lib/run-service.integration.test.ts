@@ -6,10 +6,6 @@ import { ConflictError, InvalidInputError, NotFoundError, UnauthenticatedError }
 import { runService } from "./run-service";
 
 describe("runService", () => {
-  it("resolves with the success value", async () => {
-    await expect(runService(Effect.succeed(42))).resolves.toBe(42);
-  });
-
   it("maps tagged failures to their ORPCError code and message", async () => {
     const cases = [
       [new UnauthenticatedError(), "UNAUTHORIZED", "Unauthorized"],

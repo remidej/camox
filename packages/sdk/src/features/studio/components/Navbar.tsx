@@ -59,7 +59,7 @@ const links: NavbarLink[] = [
   },
 ];
 
-export const getNavbarLinks = () => links;
+const getNavbarLinks = () => links;
 
 /**
  * Where a navbar link goes. The Website goes back where it was last, Canvas included. In another

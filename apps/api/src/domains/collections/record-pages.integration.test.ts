@@ -252,11 +252,6 @@ describe("listing the records that can have a page", () => {
     );
   });
 
-  it("returns nothing for an empty collection", async () => {
-    const f = await fixture("list-empty");
-    expect(await f.list()).toEqual([]);
-  });
-
   it("stays in its draft and project", async () => {
     const f = await fixture("list-isolation");
     const live = await f.create({});

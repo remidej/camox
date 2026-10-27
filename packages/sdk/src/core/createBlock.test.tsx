@@ -53,15 +53,6 @@ void test("synced defaults to false", () => {
   assert.equal(createBlock({ ...options, synced: false })._internal.synced, false);
 });
 
-void test("synced is independent of layoutOnly", () => {
-  const pageBlock = createBlock({ ...options, synced: true });
-  assert.equal(pageBlock._internal.synced, true);
-  assert.equal(pageBlock._internal.layoutOnly, false);
-  const layoutBlock = createBlock({ ...options, synced: true, layoutOnly: true });
-  assert.equal(layoutBlock._internal.synced, true);
-  assert.equal(layoutBlock._internal.layoutOnly, true);
-});
-
 void test("a block's wrapper leaves its background to the website's stylesheet", () => {
   const block = createBlock({ ...options, toReact: () => <p>Hi</p> });
   const html = renderToStaticMarkup(

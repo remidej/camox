@@ -78,7 +78,7 @@ describe("stable collection record identity", () => {
               arguments: { collectionId: f.scope.collectionId, id, content },
             }),
           ),
-        ).toMatchObject({ ok: false });
+        ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       }
     }
     expect(await callSeedingLive(routes.listRecords, f.scope, f.options)).toHaveLength(1);

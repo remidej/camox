@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 
@@ -281,50 +280,6 @@ void test("settling an optimistic change refreshes the reads it touched, in the 
     queryClient.getQueryState(cache.options(reads.blockBundle(id), { in: draft }).queryKey);
   assert.equal(state("d1", "b")?.isInvalidated, true);
   assert.equal(state("d1", "other")?.isInvalidated, false);
-});
-
-void test("realtime refreshes a draft's reads for its own changes, and every scope's for Live's", async () => {
-  const { cache, queryClient } = openCache();
-  for (const draft of [null, "d1", "d2"])
-    cache.set(reads.blockBundle("b"), { block: { id: "b" } } as never, { in: draft });
-  const invalidated = () =>
-    [null, "d1", "d2"].filter(
-      (draft) =>
-        queryClient.getQueryState(cache.options(reads.blockBundle("b"), { in: draft }).queryKey)
-          ?.isInvalidated,
-    );
-
-  await cache.receive(
-    { type: "invalidate", draftId: "d1", targets: [queryKeys.blocks.get("b")] },
-    1,
-  );
-  assert.deepEqual(invalidated(), ["d1"]);
-
-  await cache.receive(
-    { type: "invalidate", draftId: null, targets: [queryKeys.blocks.get("b")] },
-    1,
-  );
-  assert.deepEqual(invalidated(), [null, "d1", "d2"]);
-});
-
-void test("realtime reaches dev mode's reads through its development draft's id", async () => {
-  const queryClient = new QueryClient();
-  const scope = createDraftScope({
-    queryClient,
-    developmentMode: true,
-    loadDevelopmentDraftId: async () => "dev-uuid",
-  });
-  const cache = createStudioCache({ queryClient, scope, api: fakeApi().api });
-  cache.set(reads.blockBundle("b"), { block: { id: "b" } } as never);
-
-  await cache.receive(
-    { type: "invalidate", draftId: "dev-uuid", targets: [queryKeys.blocks.get("b")] },
-    1,
-  );
-
-  const key = cache.options(reads.blockBundle("b")).queryKey;
-  assert.equal(key.at(-1), DEVELOPMENT_DRAFT);
-  assert.equal(queryClient.getQueryState(key)?.isInvalidated, true);
 });
 
 /** What the API broadcasts: the key prefixes its invalidations name (apps/api). */

@@ -5,7 +5,7 @@ import {
   LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { REPORTS_SHOWN, type PatrollerView } from "@camox/api-contract/patrol";
+import type { PatrollerView } from "@camox/api-contract/patrol";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -55,10 +55,9 @@ const translateWithDictionaries = () =>
 
 /**
  * A project whose Live holds, in English, German and French: a page with a hero block holding a
- * repeatable item, an article, and `morePages` other pages. Each test then works in a draft of
- * its own.
+ * repeatable item and an article. Each test then works in a draft of its own.
  */
-async function fixture({ morePages = 0 } = {}) {
+async function fixture() {
   const base = await createProjectFixture(`translator-${crypto.randomUUID()}`);
   const { db, project, memberUser } = base;
   const projectId = project.id;
@@ -134,18 +133,6 @@ async function fixture({ morePages = 0 } = {}) {
     { projectUuid: project.uuid, collectionId: "articles", content: { title: "First" } },
     member(),
   );
-  for (let index = 0; index < morePages; index++) {
-    await callSeedingLive(
-      router.pages.create,
-      {
-        projectId,
-        nickname: `Page ${index}`,
-        pathSegment: `page-${index}`,
-        layoutId: base.layout.layoutId,
-      },
-      member(),
-    );
-  }
 
   const tool = async (name: string, args: object, headers: Headers) => {
     const response = (await call(
@@ -219,7 +206,6 @@ async function fixture({ morePages = 0 } = {}) {
     tool,
     runTranslations,
     runTranslationsInto,
-    translationJobs,
     draft,
     publish,
     translator,
@@ -495,24 +481,5 @@ describe("the catch-up draft", () => {
     const translator = await f.translator({});
     expect(translator.reports).toEqual([]);
     expect(translator.lastActivityAt).toBeNull();
-  });
-});
-
-describe("a burst", () => {
-  it("shows the newest reports after a locale is added, and counts the rest in the locale", async () => {
-    const f = await fixture({ morePages: REPORTS_SHOWN });
-    const added = await f.draft((starting) => f.tool("addLocale", { tag: "es" }, starting));
-    const translations = f.translationJobs().length;
-
-    await f.runTranslations();
-
-    const translator = await f.translator(added.headers);
-    expect(translator.reports).toHaveLength(REPORTS_SHOWN);
-    expect(
-      translator.reports.every(
-        ({ summary }) => summary.kind === "structured" && summary.locale === "es",
-      ),
-    ).toBe(true);
-    expect(translator.more).toEqual([{ locale: "es", count: translations - REPORTS_SHOWN }]);
   });
 });

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { QueryKey } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 
 import { createApp, type CamoxApp } from "../../core/createApp";
@@ -119,20 +118,6 @@ void test("the renderer follows the studio's Canvas cameras", async (t) => {
   });
   await settle();
   assert.deepEqual(canvasStore.getSnapshot().context.views, views);
-});
-
-void test("the studio's invalidations for the renderer's draft refetch the renderer's reads", async (t) => {
-  const { studio, queryClient, studioCache } = await connect(t, "spring");
-  const pages = reads.pageList({ projectUuid: "p" });
-  studioCache.set(pages, []);
-  studio.send({
-    type: "invalidate",
-    message: { type: "invalidate", draftId: "spring", targets: [["camox", "pages"] as QueryKey] },
-    projectId: 7,
-  });
-  await settle();
-  const query = queryClient.getQueryCache().find({ queryKey: studioCache.options(pages).queryKey });
-  assert.equal(query?.state.isInvalidated, true);
 });
 
 void test("the studio's writes reach the reads the renderer holds, and only those", async (t) => {

@@ -27,26 +27,6 @@ void test("a visitor's page sends one GA4 page view on first load, with its path
   ]);
 });
 
-void test("a visitor's page sends one GA4 page view even when React runs its effects twice", async (t) => {
-  const page = await openPage(t, "https://site.test/pricing", { analytics: GA4, strictMode: true });
-  await page.settle();
-  assert.equal(pageViews(page.gtagCalls).length, 1);
-});
-
-void test("the studio presentation sends no page view", async (t) => {
-  const page = await openPage(t, "https://site.test/pricing", { analytics: BOTH, studio: true });
-  await page.settle();
-  assert.deepEqual(page.gtagCalls, []);
-  assert.deepEqual(page.posthogCalls, []);
-});
-
-void test("a render input without providers sends no page view", async (t) => {
-  const page = await openPage(t, "https://site.test/pricing");
-  await page.settle();
-  assert.deepEqual(page.gtagCalls, []);
-  assert.deepEqual(page.posthogCalls, []);
-});
-
 void test("a visitor's navigation to another page sends one more GA4 page view, with the new page's path and title", async (t) => {
   const page = await openPage(t, "https://site.test/pricing", { analytics: GA4 });
   await page.settle();
@@ -126,7 +106,7 @@ void test("a search-only change on the same page sends no page view, even back f
   assert.equal(pageViews(page.gtagCalls).length, sentBefore);
 });
 
-void test("the studio presentation sends no page view on navigation", async (t) => {
+void test("the studio presentation sends no page view on load or navigation", async (t) => {
   const page = await openPage(t, "https://site.test/pricing", { analytics: BOTH, studio: true });
   const pricing = page.window.history.state;
   await page.click("to-about");
@@ -136,7 +116,7 @@ void test("the studio presentation sends no page view on navigation", async (t) 
   assert.deepEqual(page.posthogCalls, []);
 });
 
-void test("a render input without providers sends no page view on navigation", async (t) => {
+void test("a render input without providers sends no page view on load or navigation", async (t) => {
   const page = await openPage(t, "https://site.test/pricing");
   const pricing = page.window.history.state;
   await page.click("to-about");
@@ -188,20 +168,6 @@ void test("a visitor's navigations each send one PostHog page view, Back and For
     },
     { $current_url: "https://site.test/about", $pathname: "/about", title: titleOf("/about") },
   ]);
-});
-
-void test("a search-only change on the same page sends no PostHog page view, even back from it", async (t) => {
-  const page = await openPage(t, "https://site.test/pricing", { analytics: POSTHOG });
-  await page.settle();
-  const top = page.window.history.state;
-  const sentBefore = posthogPageViews(page.posthogCalls).length;
-
-  await page.click("to-pricing-plan");
-  assert.equal(page.window.location.href, "https://site.test/pricing?plan=pro");
-  await page.traverse("/pricing", top);
-
-  assert.equal(page.shownPage(), "/pricing");
-  assert.equal(posthogPageViews(page.posthogCalls).length, sentBefore);
 });
 
 void test("with GA4 and PostHog, each gets exactly one page view per page", async (t) => {

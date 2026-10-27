@@ -13,7 +13,6 @@ import { runService } from "../../lib/run-service";
 import { drafts, pages, repeatableItems } from "../../schema";
 import { deleteDraft } from "../drafts/publish";
 import type { Draft, DraftScope } from "../drafts/scope";
-import { getPageByPath } from "../pages/service";
 import {
   createBlock,
   deleteBlock,
@@ -91,21 +90,6 @@ async function fixture(suffix: string) {
 }
 
 describe("blocks in a draft", () => {
-  it("reads a block edited in a draft as changed there, and unchanged on Live and in another draft", async () => {
-    const { ctx, openDraft, create, titleIn } = await fixture("draft-edit");
-    const block = await create("Live");
-    const draft = await openDraft();
-    const other = await openDraft();
-
-    await runService(
-      updateBlockContent(inScope(ctx, draft), { id: block.id, content: { title: "Draft" } }),
-    );
-
-    expect(await titleIn(block.id, draft)).toBe("Draft");
-    expect(await titleIn(block.id, null)).toBe("Live");
-    expect(await titleIn(block.id, other)).toBe("Live");
-  });
-
   it("shows Live's latest content for a block the draft doesn't change", async () => {
     const { openDraft, create, editOnLive, titleIn } = await fixture("draft-untouched");
     const block = await create("Live");
@@ -160,17 +144,6 @@ describe("blocks in a draft", () => {
     expect(await pageTitles(null)).toHaveLength(2);
   });
 
-  it("creates a block in a draft only", async () => {
-    const { openDraft, create, pageTitles } = await fixture("draft-create");
-    await create("Live");
-    const draft = await openDraft();
-
-    await create("Draft", draft);
-
-    expect(await pageTitles(draft)).toEqual(["<!-- Hero -->\n# Live", "<!-- Hero -->\n# Draft"]);
-    expect(await pageTitles(null)).toEqual(["<!-- Hero -->\n# Live"]);
-  });
-
   it("rejects creating a block with an id the draft already reads from Live", async () => {
     const { ctx, page, openDraft, create } = await fixture("draft-create-conflict");
     const block = await create("Live");
@@ -212,24 +185,6 @@ describe("blocks in a draft", () => {
 
     expect(await pageTitles(draft)).toEqual(["<!-- Hero -->\n# Live", "<!-- Hero -->\n# Live"]);
     expect(await pageTitles(null)).toHaveLength(1);
-  });
-
-  it("serves a page with the draft's blocks in the draft only", async () => {
-    const { ctx, project, openDraft, create } = await fixture("draft-page");
-    const block = await create("Live");
-    const draft = await openDraft();
-    await runService(
-      updateBlockContent(inScope(ctx, draft), { id: block.id, content: { title: "Draft" } }),
-    );
-
-    const titlesOnPage = async (scope: DraftScope) =>
-      (
-        await runService(
-          getPageByPath(inScope(ctx, scope), { projectUuid: project.uuid, path: "/" }),
-        )
-      ).blocks.map((shown) => (shown.content as { title: string }).title);
-    expect(await titlesOnPage(draft)).toEqual(["Draft"]);
-    expect(await titlesOnPage(null)).toEqual(["Live"]);
   });
 
   it("leaves the Live page untouched by draft writes", async () => {

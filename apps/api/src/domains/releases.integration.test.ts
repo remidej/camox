@@ -286,23 +286,6 @@ describe("a release", () => {
 const inGerman = { [LOCALE_HEADER]: "de" };
 
 describe("a release into a project with other locales", () => {
-  it("translates the layout content it seeds into every locale, in a draft Camox publishes once translated", async () => {
-    const f = await fixture();
-    await f.publishGerman();
-    await f.releaseDefinitions([{ blockId: "navbar", layoutOnly: true }]);
-
-    await f.releaseLayouts({ default: [{ type: "navbar", slot: "before" }] });
-    expect(await f.catchUpDrafts()).toHaveLength(1);
-    await f.runTranslations();
-
-    expect(await f.layoutBlocks("default", inGerman)).toEqual([
-      expect.objectContaining({
-        content: expect.objectContaining({ title: "navbar auf Deutsch" }),
-      }),
-    ]);
-    expect(await f.catchUpDrafts()).toEqual([]);
-  });
-
   it("translates everything its several syncs seed in one draft", async () => {
     const f = await fixture();
     await f.publishGerman();

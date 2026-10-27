@@ -239,7 +239,7 @@ void test("links to the website's pages become absolute URLs in their locale", a
   assert.deepEqual(product!.isRelatedTo, { "@type": "Product", url: "https://site.test/pricing" });
 });
 
-void test("singleton and derived pages' layout blocks emit their nodes too", async (t) => {
+void test("a singleton page's layout blocks emit their nodes too", async (t) => {
   mockApi(t);
   const { ofType, page } = await graphOf("/store");
 
