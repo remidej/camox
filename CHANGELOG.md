@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.58.1](https://github.com/remidej/camox/compare/camox-v0.58.0...camox-v0.58.1) (2026-10-27)
+
+
+### Performance Improvements
+
+* faster revision previews and publishes ([#636](https://github.com/remidej/camox/issues/636)) ([#647](https://github.com/remidej/camox/issues/647)) ([c4fc113](https://github.com/remidej/camox/commit/c4fc1135eeb076cad4159728066a18dd01f0a8af))
+
+
+### Miscellaneous
+
+* **api:** drop the one-off artifact source backfill now that it ran ([cc18970](https://github.com/remidej/camox/commit/cc1897095b562d1fc94b2d996d9572d6de16bc21))
+
 ## [0.58.0](https://github.com/remidej/camox/compare/camox-v0.57.0...camox-v0.58.0) (2026-10-27)
 
 
