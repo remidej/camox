@@ -315,8 +315,20 @@ The Content Sidebar while a page is selected: that page's name and its content t
 _Avoid_: Item sidebar, page sidebar, properties panel
 
 **Agent Sidebar**:
-The sidebar on the Canvas's right side, where editors work with Camox's agent: the Workers widget over the Chat widget, which shows the current Thread.
+The sidebar on the Canvas's right side, where editors work with Camox's agent: the Patrol over the Chat widget, which shows the current Thread.
 _Avoid_: Chat sidebar, right sidebar
+
+**Patrol**:
+Every patroller of a project together: the work Camox does on the website without being asked, shown at the top of the Agent Sidebar.
+_Avoid_: Workers, jobs, automations, background tasks
+
+**Patroller**:
+One responsibility Camox carries out on its own, known by its role, such as the Translator or the SEO manager. Editors see whether it is working, when it last worked, and what it did. It works for editors unprompted, so it is not an Agent, even when an agent loop does its work.
+_Avoid_: Worker, bot, job
+
+**Report**:
+A patroller's account of the last thing it did to one subject in one locale, in a draft or on Live, or of one whole run for patrollers that have no subject. Redoing the work updates the report rather than adding one, and work that changed nothing leaves none.
+_Avoid_: Entry, log, activity, event
 
 **Dashboard**:
 The hosted interface for managing organizations and their members, and for creating, opening and deleting projects, outside any one website. A project's settings live in its studio, not here.
