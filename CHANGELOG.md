@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.57.0](https://github.com/remidej/camox/compare/camox-v0.56.0...camox-v0.57.0) (2026-10-27)
+
+
+### Features
+
+* Live threads hand requests off to drafts ([#632](https://github.com/remidej/camox/issues/632)) ([371d044](https://github.com/remidej/camox/commit/371d0442515f299744ab985f68ad01f2115feacb))
+* the Patrol shows the work Camox does without being asked ([#624](https://github.com/remidej/camox/issues/624)) ([6bc46f5](https://github.com/remidej/camox/commit/6bc46f5e01a8607f38321634710961feffb6a362))
+
+
+### Bug Fixes
+
+* a draft with code's preview uses its revision's stylesheet, and timing logs for builds, turns and publishes ([#635](https://github.com/remidej/camox/issues/635)) ([f557bf9](https://github.com/remidej/camox/commit/f557bf917b93664b01e94485e022d45c366f9da9))
+* **api:** read main's tip over git protocol v2, as Cloudflare Artifacts speaks it ([052ae62](https://github.com/remidej/camox/commit/052ae62f788bf8a897cc61fb2136dfd7d6f1f7ee))
+* **landing:** inline the footer's year at build time so it hydrates ([#633](https://github.com/remidej/camox/issues/633)) ([49f027a](https://github.com/remidej/camox/commit/49f027ac1e9dd25612f230362ec9d2817803aa64))
+
+
+### Performance Improvements
+
+* **sdk:** stop the sidebar stack and Canvas page paths from repainting as they move ([#634](https://github.com/remidej/camox/issues/634)) ([1a7f8ae](https://github.com/remidej/camox/commit/1a7f8aeab9c49874a76e291150faccbbb942ea7e))
+
+
+### Documentation
+
+* hand Live threads' requests off to drafts with a Brief, and record ADR 0025 ([f51e653](https://github.com/remidej/camox/commit/f51e653a8b4b3b95d0648bbccf69381e26d26ca4))
+* public pages load artifacts by URL, amending ADR 0002 ([3cdf646](https://github.com/remidej/camox/commit/3cdf64655dfb11b9489dad48a0937716aa0b9ce6))
+
 ## [0.56.0](https://github.com/remidej/camox/compare/camox-v0.55.0...camox-v0.56.0) (2026-10-27)
 
 

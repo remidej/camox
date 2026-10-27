@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.57.0](https://github.com/remidej/camox/compare/camox-v0.56.0...camox-sdk-v0.57.0) (2026-10-27)
+
+
+### Features
+
+* Live threads hand requests off to drafts ([#632](https://github.com/remidej/camox/issues/632)) ([371d044](https://github.com/remidej/camox/commit/371d0442515f299744ab985f68ad01f2115feacb))
+* the Patrol shows the work Camox does without being asked ([#624](https://github.com/remidej/camox/issues/624)) ([6bc46f5](https://github.com/remidej/camox/commit/6bc46f5e01a8607f38321634710961feffb6a362))
+
+
+### Bug Fixes
+
+* a draft with code's preview uses its revision's stylesheet, and timing logs for builds, turns and publishes ([#635](https://github.com/remidej/camox/issues/635)) ([f557bf9](https://github.com/remidej/camox/commit/f557bf917b93664b01e94485e022d45c366f9da9))
+
+
+### Performance Improvements
+
+* **sdk:** stop the sidebar stack and Canvas page paths from repainting as they move ([#634](https://github.com/remidej/camox/issues/634)) ([1a7f8ae](https://github.com/remidej/camox/commit/1a7f8aeab9c49874a76e291150faccbbb942ea7e))
+
 ## [0.56.0](https://github.com/remidej/camox/compare/camox-v0.55.0...camox-sdk-v0.56.0) (2026-10-27)
 
 
