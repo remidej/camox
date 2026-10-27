@@ -343,5 +343,9 @@ An AI that manages content alongside editors: Camox's own, through threads in th
 _Avoid_: Bot, assistant, AI
 
 **Thread**:
-A conversation between editors and Camox's agent in the studio. Each editor has one thread of their own while viewing Live, and each draft has at most one thread. When a thread on Live starts making changes, it becomes the thread of the draft that starts, shared with everyone in that draft.
+A conversation between editors and Camox's agent in the studio. Each editor has one thread of their own on Live, kept for good, and each draft has at most one, shared with everyone in it. The agent on Live changes nothing itself: for each request that would, it starts a draft, whose thread takes the request on from a brief.
 _Avoid_: Conversation, chat, session
+
+**Brief**:
+What Camox's agent writes when it starts a draft from a Live thread: the context the editor's request depends on, opening the draft's thread ahead of the request itself.
+_Avoid_: Summary, context note, handoff message
