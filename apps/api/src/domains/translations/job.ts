@@ -224,14 +224,19 @@ const localize = Effect.fn("translation.localize")(function* (
   // A localization the merge leaves as it is isn't written: only its bookkeeping changes,
   // which sits beside content and is never a change to it (ADR 0012).
   const localized = { ...copyOf(source), ...merged.values };
+  // The localization's artifact sources are translated: each is stored with the write.
+  const storing = { artifactSources: { schema: shape.contentSchema } };
   let written: Row | undefined;
   if (!held) {
-    written = (yield* overlay.insert(db, scope.target, table, {
-      ...localized,
-      id: job.entityId,
-    })) as Row | undefined;
+    written = (yield* overlay.insert(
+      db,
+      scope.target,
+      table,
+      { ...localized, id: job.entityId },
+      storing,
+    )) as Row | undefined;
   } else if (!sameValue(valuesOf(held), merged.values)) {
-    written = (yield* overlay.update(db, scope.target, table, job.entityId, localized)) as
+    written = (yield* overlay.update(db, scope.target, table, job.entityId, localized, storing)) as
       | Row
       | undefined;
   }

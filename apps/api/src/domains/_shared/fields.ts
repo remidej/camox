@@ -405,6 +405,37 @@ export function itemSchemas(
 }
 
 /**
+ * A repeatable item to create, by temporary ids: beneath the seed `parentTempId` names, or
+ * beneath what the seeds are created under when it names none.
+ */
+export type ItemSeed = {
+  tempId: string;
+  parentTempId: string | null;
+  fieldName: string;
+  content: unknown;
+  settings?: unknown;
+  position: string;
+};
+
+/**
+ * Each seed's schemas, by temporary id, from `rootSchema`: the content schema of what the seeds
+ * are created under, whose repeaters hold the seeds naming no parent.
+ */
+export function seedSchemas(
+  rootSchema: unknown,
+  seeds: readonly Pick<ItemSeed, "tempId" | "parentTempId" | "fieldName">[],
+): Map<string, ItemSchemas> {
+  return itemSchemas(
+    rootSchema,
+    seeds.map((seed) => ({
+      id: seed.tempId,
+      parentItemId: seed.parentTempId,
+      fieldName: seed.fieldName,
+    })),
+  );
+}
+
+/**
  * Whether a field takes a file. Image fields take images only. Then one of the field's `accept`
  * entries must match the file's MIME type (exactly, or `type/*`) or its extension (`.ext`),
  * ignoring case; a field naming no accepted types takes any file.

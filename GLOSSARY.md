@@ -85,8 +85,16 @@ A field whose content is a self-contained web page, usually written by an agent,
 _Avoid_: Snippet, custom code, HTML embed, widget
 
 **Artifact Source**:
-The web page an artifact holds, stored as content.
-_Avoid_: Artifact document, artifact code, artifact HTML
+The web page an artifact holds, stored as content: only what its author wrote, without the artifact shell.
+_Avoid_: Artifact code, artifact HTML
+
+**Artifact Shell**:
+What a website wraps around every artifact source: Camox's artifact runtime and the website's fonts. It's the same for every artifact of a release.
+_Avoid_: Wrapper, harness, template
+
+**Artifact Document**:
+The page an artifact's frame loads: its artifact source inside the artifact shell, inlined in the frame or loaded by URL.
+_Avoid_: Artifact page, artifact source (for the whole page)
 
 **Artifact Data**:
 The values of sibling fields and block settings that a block shares with its artifact, so editors can change what an artifact shows without changing its source.

@@ -14,6 +14,7 @@ import {
   markdownOf,
   propertiesOf,
 } from "../_shared/fields";
+import { artifactHashesOf } from "../artifact-sources/store";
 import {
   loadSharedContent,
   type SharedContentShown,
@@ -130,10 +131,21 @@ const loadSource = Effect.fn("content.loadSource")(function* (
  * A block as readers see it: its shared content if it's a synced placement, its summary, and its
  * title, which names it until it has a summary.
  */
-export type ShownBlock = Conformed<BlockRow> & { summary: string; title: string };
+export type ShownBlock = Conformed<BlockRow> & {
+  summary: string;
+  title: string;
+  /** The hash of each artifact source in its content, by field (`artifactHashesOf`). */
+  artifactHashes: Record<string, string>;
+};
 
 /** An item as readers see it, under the block showing it, with its summary and title. */
-export type ShownItem = Conformed<ItemRow> & { blockId: string; summary: string; title: string };
+export type ShownItem = Conformed<ItemRow> & {
+  blockId: string;
+  summary: string;
+  title: string;
+  /** The hash of each artifact source in its content, by field (`artifactHashesOf`). */
+  artifactHashes: Record<string, string>;
+};
 
 /**
  * Blocks and items as the scope shows them, synced placements showing their shared content and
@@ -150,8 +162,8 @@ const conformedSource = Effect.fn("content.conformedSource")(function* (
 type ConformedSource = Effect.Success<ReturnType<typeof conformedSource>>;
 
 /**
- * Conformed blocks and items as the scope's readers see them, each with its summary and title,
- * read at once. Items come in position order.
+ * Conformed blocks and items as the scope's readers see them, each with its summary, its title
+ * and its artifact sources' hashes, read at once. Items come in position order.
  */
 const named = Effect.fn("content.named")(function* (
   db: Database,
@@ -161,26 +173,59 @@ const named = Effect.fn("content.named")(function* (
   conformed: ConformedSource,
 ): Effect.fn.Return<{ blocks: ShownBlock[]; items: ShownItem[] }> {
   const blockDefinitions = yield* definitions.blocks();
-  const [summarized, titles] = yield* Effect.all(
-    [withSummaries(db, at.draft, shown), titlesOf(db, at, blockDefinitions, conformed, conformed)],
+  const [summarized, titles, hashes] = yield* Effect.all(
+    [
+      withSummaries(db, at.draft, shown),
+      titlesOf(db, at, blockDefinitions, conformed, conformed),
+      hashesOf(blockDefinitions, conformed),
+    ],
     { concurrency: "unbounded" },
   );
   const blockSummaries = new Map(summarized.blocks.map((block) => [block.id, block.summary]));
   const itemSummaries = new Map(summarized.items.map((item) => [item.id, item.summary]));
   return {
-    blocks: conformed.blocks.map(({ sharedContentId: _shared, ...block }) => ({
+    blocks: conformed.blocks.map(({ sharedContentId: _shared, ...block }, index) => ({
       ...block,
       summary: blockSummaries.get(block.id) ?? "",
       title: titles.block(block.id),
+      artifactHashes: hashes.blocks[index]!,
     })),
     items: overlay.sortByPosition(
-      conformed.items.map((item) => ({
+      conformed.items.map((item, index) => ({
         ...item,
         summary: itemSummaries.get(item.id) ?? "",
         title: titles.item(item.id),
+        artifactHashes: hashes.items[index]!,
       })),
     ),
   };
+});
+
+/**
+ * The hashes of the artifact sources conformed blocks and items hold, in their order. Schema
+ * defaults conformed in are hashed like any source, so the store must hold them too.
+ */
+const hashesOf = Effect.fn("content.artifactHashes")(function* (
+  blockDefinitions: ReadonlyMap<string, BlockDefinition>,
+  conformed: ConformedSource,
+) {
+  const schemas = itemContentSchemas(blockDefinitions, conformed.blocks, conformed.items);
+  const [blocks, items] = yield* Effect.all(
+    [
+      Effect.all(
+        conformed.blocks.map((block) =>
+          artifactHashesOf(blockDefinitions.get(block.type)?.contentSchema, block.content),
+        ),
+        { concurrency: "unbounded" },
+      ),
+      Effect.all(
+        conformed.items.map((item) => artifactHashesOf(schemas.get(item.id), item.content)),
+        { concurrency: "unbounded" },
+      ),
+    ],
+    { concurrency: "unbounded" },
+  );
+  return { blocks, items };
 });
 
 /** Blocks as readers see them, in the order given, without their items. */
@@ -525,6 +570,7 @@ export const itemBundle = Effect.fn("content.itemBundle")(function* (
       blockId: row.blockId,
       summary: summaries.get(row.id)?.value?.summary ?? "",
       title: titles.item(row.id),
+      artifactHashes: yield* artifactHashesOf(schemas.get(row.id), content),
       references: resolved.references[0]!,
     },
     files: [...files.values()],

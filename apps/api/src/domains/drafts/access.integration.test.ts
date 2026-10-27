@@ -8,6 +8,7 @@ import {
   createServiceContext,
   openDevelopmentDraft,
   seedLive,
+  noArtifactFields,
 } from "../../../test/fixtures";
 import { journaled, type Journal } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
@@ -278,15 +279,21 @@ describe("content access", () => {
     const f = await fixture("access-draft-only");
     const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
     const created = (await runService(
-      overlay.insert(f.db, scope, blocks, {
-        projectId: f.project.id,
-        pageId: f.page.id,
-        type: "hero",
-        content: {},
-        position: "a1",
-        createdAt: now,
-        updatedAt: now,
-      }),
+      overlay.insert(
+        f.db,
+        scope,
+        blocks,
+        {
+          projectId: f.project.id,
+          pageId: f.page.id,
+          type: "hero",
+          content: {},
+          position: "a1",
+          createdAt: now,
+          updatedAt: now,
+        },
+        noArtifactFields,
+      ),
     ))!;
     await runService(overlay.remove(f.db, scope, blocks, f.block.id));
     const inDraft = { id: f.draft, create: false };
@@ -332,7 +339,14 @@ describe("content access", () => {
     const f = await fixture("access-entity");
     const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
     await runService(
-      overlay.update(f.db, scope, repeatableItems, f.item.id, { content: { label: "Draft" } }),
+      overlay.update(
+        f.db,
+        scope,
+        repeatableItems,
+        f.item.id,
+        { content: { label: "Draft" } },
+        noArtifactFields,
+      ),
     );
     const ctx = {
       ...createServiceContext(f.db, f.memberUser),

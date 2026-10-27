@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
 
-import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { createProjectFixture, createRpcContext, noArtifactFields } from "../../../test/fixtures";
 import { InvalidInputError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
@@ -34,14 +34,20 @@ const storeThenFailProbe = pub
       Effect.scoped(
         Effect.flatMap(accessTo(context, { project: input.projectId }, "write"), ({ scope }) =>
           overlay
-            .insert(context.db, scope, blocks, {
-              projectId: input.projectId,
-              type: "hero",
-              content: {},
-              position: "a0",
-              createdAt: 1,
-              updatedAt: 1,
-            })
+            .insert(
+              context.db,
+              scope,
+              blocks,
+              {
+                projectId: input.projectId,
+                type: "hero",
+                content: {},
+                position: "a0",
+                createdAt: 1,
+                updatedAt: 1,
+              },
+              noArtifactFields,
+            )
             .pipe(Effect.andThen(new InvalidInputError({ message: "Failed after storing" }))),
         ),
       ),

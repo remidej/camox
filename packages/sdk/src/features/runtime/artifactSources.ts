@@ -1,4 +1,49 @@
-import { artifactSourceOf } from "../../core/lib/artifact";
+import {
+  artifactSourceOf,
+  artifactTitle,
+  type ArtifactSourceReference,
+} from "../../core/lib/artifact";
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isPlainObject(value) && Object.values(value).every((hash) => typeof hash === "string");
+}
+
+/** A copy of a JSON value with every object replaced, deepest first. */
+function mapObjects(
+  value: unknown,
+  replace: (value: Record<string, unknown>) => Record<string, unknown>,
+): unknown {
+  if (Array.isArray(value)) return value.map((item) => mapObjects(item, replace));
+  if (!isPlainObject(value)) return value;
+  return replace(
+    Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, mapObjects(item, replace)]),
+    ),
+  );
+}
+
+/**
+ * The page's dehydrated state with each artifact source replaced by a reference to the URL its
+ * document loads from, `<artifactsPath><sourceHash>`, and its title: public pages load their
+ * artifacts by URL, so neither their HTML nor their hydration data carries a source. Every block
+ * and repeatable item the API reads names its sources' hashes beside its content.
+ */
+export function referenceArtifactSources(dehydratedState: unknown, artifactsPath: string): unknown {
+  return mapObjects(dehydratedState, (owner) => {
+    const { artifactHashes, content } = owner;
+    if (!isStringRecord(artifactHashes) || !isPlainObject(content)) return owner;
+    const referenced = { ...content };
+    for (const [field, hash] of Object.entries(artifactHashes)) {
+      const source = content[field];
+      if (typeof source !== "string") continue;
+      referenced[field] = {
+        artifactUrl: `${artifactsPath}${hash}`,
+        title: artifactTitle(source),
+      } satisfies ArtifactSourceReference;
+    }
+    return { ...owner, content: referenced };
+  });
+}
 
 /**
  * A page's HTML holds each rendered artifact source in its frame's `srcdoc`, so the server leaves

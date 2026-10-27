@@ -12,6 +12,7 @@ import {
   openDevelopmentDraft,
   seedLive,
   syncDefinitionSet,
+  noArtifactFields,
 } from "../../test/fixtures";
 import { forgetSent, refreshes, sentTo } from "../../test/project-rooms";
 import * as overlay from "../domains/drafts/overlay";
@@ -250,7 +251,14 @@ describe("a unit of work that fails", () => {
     const sent = await sentBy(() =>
       runService(
         Effect.gen(function* () {
-          yield* overlay.update(db, draft, blocks, block.id, { content: { title: "Lost" } });
+          yield* overlay.update(
+            db,
+            draft,
+            blocks,
+            block.id,
+            { content: { title: "Lost" } },
+            noArtifactFields,
+          );
           return yield* new ConflictError({ message: "Failed after writing" });
         }),
       ).catch(() => undefined),

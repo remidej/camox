@@ -4,6 +4,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { blocks, repeatableItems, sharedContentId, sharedContents } from "../../schema";
+import type { ItemSeed } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import { readScopeOf, type ReadScope, type WriteTarget } from "../drafts/scope";
@@ -29,6 +30,13 @@ import { prepareBlockContent } from "./prepare-content";
  * reads its own copy over Live's, and every placement in the draft shows that copy. A release's
  * definition sync writes Live; dev mode's writes the development draft, as draft rows.
  */
+
+/**
+ * What every content write here sets holds artifact sources the store holds already (ADR 0002):
+ * it copies the project's own content, or a definition's default or declared content, whose
+ * sources the definition sync stores in its batch.
+ */
+const artifactSources = "stored";
 
 type BlockRow = typeof blocks.$inferSelect;
 type ItemRow = typeof repeatableItems.$inferSelect;
@@ -57,7 +65,7 @@ const planSharedContentInsert = (
 ) => {
   const now = Date.now();
   const row = { id: sharedContentId(key), ...key, ...data, createdAt: now, updatedAt: now };
-  return overlay.planInsert(db, target, sharedContents, row);
+  return overlay.planInsert(db, target, sharedContents, row, { artifactSources });
 };
 
 /**
@@ -259,7 +267,7 @@ const planItem = Effect.fn("planItem")(function* (
   now: number,
 ) {
   const row = { ...values, ...rootColumns(root), createdAt: now, updatedAt: now };
-  const planned = yield* overlay.planInsert(db, target, repeatableItems, row);
+  const planned = yield* overlay.planInsert(db, target, repeatableItems, row, { artifactSources });
   return { ...planned, result: planned.result!.id };
 });
 
@@ -470,7 +478,11 @@ const planBecomingSynced = Effect.fn("planBecomingSynced")(function* (
     ),
   );
   for (const placement of placements) {
-    plan.add(yield* overlay.planUpdate(db, target, blocks, placement.id, clearedPlacement));
+    plan.add(
+      yield* overlay.planUpdate(db, target, blocks, placement.id, clearedPlacement, {
+        artifactSources,
+      }),
+    );
   }
   return plan.done(undefined);
 });
@@ -494,7 +506,9 @@ const planStoppingBeingSynced = Effect.fn("planStoppingBeingSynced")(function* (
   const items = yield* overlay.select(db, scope, repeatableItems, itemsUnder(root));
   for (const placement of yield* placementsOf(db, scope, key)) {
     const copied = { content: shared.content, settings: shared.settings };
-    plan.add(yield* overlay.planUpdate(db, target, blocks, placement.id, copied));
+    plan.add(
+      yield* overlay.planUpdate(db, target, blocks, placement.id, copied, { artifactSources }),
+    );
     plan.add(yield* planItemTreeCopy(db, target, items, { blockId: placement.id }, now));
   }
   plan.add(yield* planItemsRemoval(db, target, items));
@@ -564,16 +578,6 @@ export const planNewDefinitionSyncedFlag = Effect.fn("blocks.planNewDefinitionSy
   },
 );
 
-/** A repeatable item a definition sync declares, under a placement, by temporary ids. */
-type DeclaredItem = {
-  tempId: string;
-  parentTempId: string | null;
-  fieldName: string;
-  content: unknown;
-  settings?: unknown;
-  position: string;
-};
-
 /**
  * Plans a new placement a definition sync declares (a layout's block, or the homepage's), with
  * its repeatable items, in the sync's target. The sync knows its definition as it will be once
@@ -589,7 +593,8 @@ export const planDeclaredPlacement = Effect.fn("blocks.planDeclaredPlacement")(f
     typeof blocks.$inferInsert,
     "projectId" | "pageId" | "layoutId" | "type" | "content" | "settings" | "slot" | "position"
   >,
-  items: readonly DeclaredItem[],
+  /** The repeatable items it declares under the placement. */
+  items: readonly ItemSeed[],
   definition: { synced: boolean; hasSharedContent: boolean },
 ) {
   const now = Date.now();
@@ -605,11 +610,13 @@ export const planDeclaredPlacement = Effect.fn("blocks.planDeclaredPlacement")(f
   if (adoption === "seeded") plan.add(yield* planSharedContentInsert(db, target, key, own));
   // A fresh id, so the target can't already hold the block or its items.
   const block = plan.add(
-    yield* overlay.planInsert(db, target, blocks, {
-      ...values,
-      ...(adoption === "own" ? own : clearedPlacement),
-      ...timestamps,
-    }),
+    yield* overlay.planInsert(
+      db,
+      target,
+      blocks,
+      { ...values, ...(adoption === "own" ? own : clearedPlacement), ...timestamps },
+      { artifactSources },
+    ),
   )!;
   const root: ItemRoot = adoption === "seeded" ? { sharedContent: key } : { blockId: block.id };
   const planned: ItemRow[] = [];
@@ -631,7 +638,7 @@ export const planDeclaredPlacement = Effect.fn("blocks.planDeclaredPlacement")(f
             ...timestamps,
           },
           // The block is created in the same batch, so its project can't be read from it.
-          { projectId: values.projectId },
+          { projectId: values.projectId, artifactSources },
         ),
       )!;
       ids.set(item.tempId, row.id);
@@ -658,7 +665,9 @@ const planSharedContentAdoption = Effect.fn("blocks.planSharedContentAdoption")(
   const plan = overlay.planner();
   const scope = readScopeOf(target);
   const key = definitionOf(block);
-  const clear = overlay.planUpdate(ctx.db, target, blocks, block.id, clearedPlacement);
+  const clear = overlay.planUpdate(ctx.db, target, blocks, block.id, clearedPlacement, {
+    artifactSources,
+  });
   if (yield* findSharedContent(ctx.db, scope, key)) {
     const items = yield* itemsOfPlacements(ctx.db, scope, [block.id]);
     plan.add(yield* planItemsRemoval(ctx.db, target, items));

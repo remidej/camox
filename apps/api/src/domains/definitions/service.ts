@@ -5,6 +5,13 @@ import { z } from "zod";
 import { assertSyncAccess, recordDefinitionsSynced, type SyncTarget } from "../../authorization";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
+import { contentArtifactSources } from "../artifact-sources/backfill";
+import {
+  declaredArtifactSources,
+  defaultArtifactSources,
+  hasArtifactFields,
+  storingSources,
+} from "../artifact-sources/store";
 import {
   blockDefinitionInput,
   planBlockDefinitions,
@@ -113,6 +120,31 @@ export const syncRevisionDefinitions = Effect.fn("definitions.syncRevisionDefini
 });
 
 /**
+ * Every artifact source a Definition Set can put in content: in the blocks its layouts and
+ * homepage declare, which it writes, in its definitions' default content, which new blocks
+ * start from, and in its artifact fields' defaults, which reads show for content holding no
+ * source. The sync stores them all, so content it writes or reads show never lacks a source.
+ */
+function declaredSources(set: z.output<typeof definitionSetInput>) {
+  const schemaOf = new Map(set.blocks.map((block) => [block.blockId, block.contentSchema]));
+  const sources = new Set<string>();
+  const add = (found: Iterable<string>) => {
+    for (const source of found) sources.add(source);
+  };
+  for (const block of [
+    ...set.layouts.flatMap((layout) => layout.blocks),
+    ...(set.homepage?.blocks ?? []),
+  ]) {
+    add(declaredArtifactSources(schemaOf.get(block.type), block.content, block.repeatableItems));
+  }
+  for (const block of set.blocks) {
+    add(declaredArtifactSources(block.contentSchema, block.defaultContent));
+    add(defaultArtifactSources(block.contentSchema));
+  }
+  return sources;
+}
+
+/**
  * Applies a Definition Set to a sync's target, with `alongside`'s writes in the same batch.
  */
 const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function* (
@@ -146,6 +178,21 @@ const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function*
       )
     : null;
 
+  // Content stored under a definition whose schema changes may now hold artifact sources.
+  const reshaped = new Map(
+    [...blocks.reshaped].filter(([, contentSchema]) => hasArtifactFields(contentSchema)),
+  );
+  const heldSources = yield* Effect.promise(() =>
+    contentArtifactSources(ctx.db, target.project.id, reshaped),
+  );
+  plan.add(
+    overlay.plannedStatements(
+      ...(yield* storingSources(ctx.db, target.project.id, [
+        ...declaredSources(set),
+        ...heldSources,
+      ])),
+    ),
+  );
   if (alongside) plan.add(alongside);
   yield* overlay.runPlanned(ctx.db, plan.done(undefined));
   yield* recordDefinitionsSynced(ctx.db, target);

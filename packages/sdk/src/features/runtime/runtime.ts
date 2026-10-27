@@ -77,7 +77,8 @@ import {
   type PageIdentity,
 } from "./alternates";
 import { type AnalyticsProviders, configuredProviders, renderAnalyticsScripts } from "./analytics";
-import { omitArtifactSources } from "./artifactSources";
+import { createArtifactDocumentResponse, readArtifactShell } from "./artifactDocuments";
+import { omitArtifactSources, referenceArtifactSources } from "./artifactSources";
 import { assetPrefix } from "./assetPrefix";
 import { type Crumb, readBreadcrumb } from "./breadcrumbs";
 import { type ListedPage, type LivePage, listLivePages, RouteDiscoveryError } from "./livePages";
@@ -92,6 +93,7 @@ import {
 } from "./pageGraph";
 import { createProjectLogoResponse, projectLogo } from "./projectLogo";
 import {
+  ARTIFACTS_PATH_PREFIX,
   matchRuntimeOwnedRoute,
   RUNTIME_ROUTE_PATHS,
   type RuntimeOwnedRouteKind,
@@ -825,12 +827,32 @@ function preparePreviewDocument(
 }
 
 /**
- * The render input a page's HTML embeds for hydration. Visitors load public pages, whose HTML
- * already holds each rendered artifact source in its frame, so their copy leaves those out.
+ * The render input a page's HTML embeds for hydration. Outside the studio, a page whose HTML
+ * inlines its artifacts (in dev mode) already holds each rendered source in its frame, so their
+ * copy leaves those out. Public pages load artifacts by URL and hold no source at all.
  */
 function hydrationInputFor(input: PageRenderInput, html: string): PageRenderInput {
   if (input.presentation === "studio") return input;
   return { ...input, dehydratedState: omitArtifactSources(input.dehydratedState, html) };
+}
+
+/**
+ * The render input with its artifacts loaded by URL, where a visitor reads Live: each artifact
+ * source becomes a reference to the document the website serves, so neither the page's HTML nor
+ * its data carries a source, and the client renders the frames the server did. The studio, drafts
+ * and dev mode keep inlined sources, so an agent's change shows at once.
+ */
+async function withArtifactsByUrl(
+  input: PageRenderInput,
+  options: RuntimeOptions,
+): Promise<PageRenderInput> {
+  if (input.presentation !== "public" || input.draftId || options.developmentDraft) return input;
+  const shell = await readArtifactShell(options);
+  const artifactsPath = `${input.runtimeBasePath}${ARTIFACTS_PATH_PREFIX}${shell.hash}/`;
+  return {
+    ...input,
+    dehydratedState: referenceArtifactSources(input.dehydratedState, artifactsPath),
+  };
 }
 
 function renderStudioThemeScript(enabled: boolean) {
@@ -1266,26 +1288,29 @@ async function createPageHtmlResponse({
       { studio, draftId: result.draftId },
       result.data.page.project,
     );
-    const pageRenderInput = {
-      alternates,
-      project,
-      presentation: studio ? "studio" : "public",
-      ...(analytics && { analytics }),
-      apiUrl: options.apiUrl,
-      authenticationUrl: options.authenticationUrl,
-      dehydratedState,
-      draftId: result.draftId,
-      refusedDraft: result.refusedDraft,
-      head,
-      href: renderedHref(request.url, result),
-      layoutIdentity: getLayoutIdentity(result.data.page.layout),
-      loaderData: result.data,
-      pathname,
-      projectUuid: options.projectUuid,
-      runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      locale: located.locale,
-      locales: located.locales,
-    } satisfies PageRenderInput;
+    const pageRenderInput = await withArtifactsByUrl(
+      {
+        alternates,
+        project,
+        presentation: studio ? "studio" : "public",
+        ...(analytics && { analytics }),
+        apiUrl: options.apiUrl,
+        authenticationUrl: options.authenticationUrl,
+        dehydratedState,
+        draftId: result.draftId,
+        refusedDraft: result.refusedDraft,
+        head,
+        href: renderedHref(request.url, result),
+        layoutIdentity: getLayoutIdentity(result.data.page.layout),
+        loaderData: result.data,
+        pathname,
+        projectUuid: options.projectUuid,
+        runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+        locale: located.locale,
+        locales: located.locales,
+      } satisfies PageRenderInput,
+      options,
+    );
     preparePreviewDocument(pageRenderInput, options, document);
     const appHtml = await options.renderPage(pageRenderInput);
     const renderedHead = renderHead(
@@ -1687,32 +1712,35 @@ async function createDerivedResponse(
     const analytics = dataOnly
       ? undefined
       : visitorAnalytics(options, { studio, draftId: read.draftId }, shared.project);
-    const input: PageRenderInput = {
-      alternates,
-      project,
-      presentation: studio ? "studio" : "public",
-      ...(analytics && { analytics }),
-      apiUrl: options.apiUrl!,
-      authenticationUrl: options.authenticationUrl!,
-      projectUuid: options.projectUuid!,
-      dehydratedState: dehydrate(queryClient),
-      draftId: read.draftId,
-      refusedDraft: read.refusedDraft,
-      head: pageHead,
-      href: renderedHref(request.url, read),
-      layoutIdentity: getLayoutIdentity(shared.layout),
-      loaderData: null,
-      pathname,
-      runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      locale: located.locale,
-      locales: located.locales,
-      derived: {
-        layoutId: match.layout._internal.id,
-        page: { params: match.params, path: pathname, projectName: shared.projectName },
-        result: serializedResult,
-        layout: shared.layout,
+    const input = await withArtifactsByUrl(
+      {
+        alternates,
+        project,
+        presentation: studio ? "studio" : "public",
+        ...(analytics && { analytics }),
+        apiUrl: options.apiUrl!,
+        authenticationUrl: options.authenticationUrl!,
+        projectUuid: options.projectUuid!,
+        dehydratedState: dehydrate(queryClient),
+        draftId: read.draftId,
+        refusedDraft: read.refusedDraft,
+        head: pageHead,
+        href: renderedHref(request.url, read),
+        layoutIdentity: getLayoutIdentity(shared.layout),
+        loaderData: null,
+        pathname,
+        runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+        locale: located.locale,
+        locales: located.locales,
+        derived: {
+          layoutId: match.layout._internal.id,
+          page: { params: match.params, path: pathname, projectName: shared.projectName },
+          result: serializedResult,
+          layout: shared.layout,
+        },
       },
-    };
+      options,
+    );
     const document = (await options.getDocument?.()) ?? {};
     preparePreviewDocument(input, options, document);
     if (dataOnly)
@@ -1984,8 +2012,9 @@ async function createPageDataResponse({
       head,
       dehydratedState,
     };
-    preparePreviewDocument(input, options, (await options.getDocument?.()) ?? {});
-    return Response.json(input, { headers });
+    const navigationInput = await withArtifactsByUrl(input, options);
+    preparePreviewDocument(navigationInput, options, (await options.getDocument?.()) ?? {});
+    return Response.json(navigationInput, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {
       const derived = await createDerivedResponse(options, pathname, located, request, {
@@ -2025,6 +2054,10 @@ export async function handleCamoxRequest(
       blocks: camoxApp.getBlocks().map((block) => block._internal.id),
       layouts: camoxApp.getLayouts().map((layout) => layout._internal.id),
     });
+  }
+
+  if (match.kind === "artifact") {
+    return createArtifactDocumentResponse(pathname, options);
   }
 
   if (match.kind === "og") {

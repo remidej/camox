@@ -46,6 +46,7 @@ import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { namingProject, projectRefOf } from "../projects/ref";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
+import { insertItemSeeds } from "../repeatable-items/seeds";
 import { deleteOnPurpose } from "../translations/exclusions";
 import { translatePlacedDefaults } from "../translations/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
@@ -539,11 +540,14 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
       }
 
       writes.push(
-        overlay.update(ctx.db, scope, repeatableItems, itemId, {
-          content: newContent,
-          position,
-          updatedAt: now,
-        }),
+        overlay.update(
+          ctx.db,
+          scope,
+          repeatableItems,
+          itemId,
+          { content: newContent, position, updatedAt: now },
+          { artifactSources: { schema: fieldSchema.items } },
+        ),
       );
       continue;
     }
@@ -564,37 +568,29 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     );
     writes.push(
       Effect.gen(function* () {
-        const inserted = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
-          ...rootColumns(root),
-          parentItemId,
-          fieldName,
-          content: itemContent,
-          settings: itemSettings,
-          position,
-          createdAt: now,
-          updatedAt: now,
-        }))!;
-
-        if (childSeeds.length > 0) {
-          const tempIdToRealId = new Map<string, string>();
-          for (const seed of childSeeds) {
-            // parentTempId === null → child of the just-inserted item; otherwise resolve.
-            const seedParent = seed.parentTempId
-              ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
-              : inserted.id;
-            const sub = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
-              ...rootColumns(root),
-              parentItemId: seedParent,
-              fieldName: seed.fieldName,
-              content: seed.content,
-              settings: seed.settings,
-              position: seed.position,
-              createdAt: now,
-              updatedAt: now,
-            }))!;
-            tempIdToRealId.set(seed.tempId, sub.id);
-          }
-        }
+        const inserted = (yield* overlay.insert(
+          ctx.db,
+          scope,
+          repeatableItems,
+          {
+            ...rootColumns(root),
+            parentItemId,
+            fieldName,
+            content: itemContent,
+            settings: itemSettings,
+            position,
+            createdAt: now,
+            updatedAt: now,
+          },
+          { artifactSources: { schema: fieldSchema.items } },
+        ))!;
+        yield* insertItemSeeds(ctx.db, scope, {
+          root,
+          parent: inserted.id,
+          schema: fieldSchema.items,
+          seeds: childSeeds,
+          now,
+        });
       }),
     );
   }
@@ -773,16 +769,18 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   shared: SharedContentRow | null,
   values: { content?: unknown; settings?: unknown; updatedAt: number },
   scope: Draft,
+  artifactSources: overlay.ArtifactSourcesOf,
 ) {
   const { block } = access;
+  const options = { artifactSources };
   if (!shared) {
-    const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values);
+    const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values, options);
     if (!result) return yield* new NotFoundError();
     return result;
   }
   // In a draft, the first write copies the shared content, which every placement in the draft
   // then shows.
-  const updated = yield* overlay.update(ctx.db, scope, sharedContents, shared.id, values);
+  const updated = yield* overlay.update(ctx.db, scope, sharedContents, shared.id, values, options);
   if (!updated) return yield* new NotFoundError();
   return {
     ...block,
@@ -852,7 +850,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     def?.contentSchema,
     def?.settingsSchema,
   );
-  const allSeeds = prepared.seeds;
   yield* validateReferenceValues(
     ctx,
     { ...page, draft: scope },
@@ -896,41 +893,31 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       nextBlock?.position ?? null,
     );
   }
-  const result = yield* overlay.insert(ctx.db, scope, blocks, {
-    id,
-    projectId: page.projectId,
-    pageId,
-    type,
-    content: prepared.content,
-    settings: prepared.settings,
-    position,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const result = yield* overlay.insert(
+    ctx.db,
+    scope,
+    blocks,
+    {
+      id,
+      projectId: page.projectId,
+      pageId,
+      type,
+      content: prepared.content,
+      settings: prepared.settings,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    },
+    { artifactSources: { schema: def?.contentSchema } },
+  );
   if (!result) return yield* new ConflictError({ message: `Block ${id} already exists` });
-
-  // Insert repeatable item seeds in topological order (parents before children).
-  if (allSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, string>();
-
-    for (const seed of allSeeds) {
-      const parentItemId = seed.parentTempId
-        ? (tempIdToRealId.get(seed.parentTempId) ?? null)
-        : null;
-      // A fresh id, so the scope can't already hold the item.
-      const inserted = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
-        blockId: result.id,
-        parentItemId,
-        fieldName: seed.fieldName,
-        content: seed.content,
-        settings: seed.settings,
-        position: seed.position,
-        createdAt: now,
-        updatedAt: now,
-      }))!;
-      tempIdToRealId.set(seed.tempId, inserted.id);
-    }
-  }
+  yield* insertItemSeeds(ctx.db, scope, {
+    root: { blockId: result.id },
+    parent: null,
+    schema: def?.contentSchema,
+    seeds: prepared.seeds,
+    now,
+  });
 
   yield* placeContent(ctx, scope, result);
 
@@ -1009,6 +996,7 @@ const writeBlockContent = Effect.fn("blocks.writeBlockContent")(function* (
     owner.shared,
     { content: merged, updatedAt: now },
     scope,
+    { schema: contentSchema },
   );
 
   yield* requestGeneration(ctx.db, homeOf(scope, project.id), {
@@ -1048,6 +1036,8 @@ const writeBlockSettings = Effect.fn("blocks.writeBlockSettings")(function* (
     owner.shared,
     { settings: merged, updatedAt: Date.now() },
     scope,
+    // Settings hold no artifact source.
+    "stored",
   );
   return yield* shownBlock(ctx, project.id, scope, result);
 });
@@ -1163,18 +1153,25 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   const nextBlock = siblings.find((b) => b.position > original.position);
   const position = generateKeyBetween(original.position, nextBlock?.position ?? null);
 
-  const result = yield* overlay.insert(ctx.db, scope, blocks, {
-    projectId: original.projectId,
-    pageId: original.pageId,
-    layoutId: original.layoutId,
-    type: original.type,
-    content: original.content,
-    settings: original.settings,
-    slot: original.slot,
-    position,
-    createdAt: now,
-    updatedAt: now,
-  });
+  // A copy of the original's content, whose artifact sources are stored.
+  const result = yield* overlay.insert(
+    ctx.db,
+    scope,
+    blocks,
+    {
+      projectId: original.projectId,
+      pageId: original.pageId,
+      layoutId: original.layoutId,
+      type: original.type,
+      content: original.content,
+      settings: original.settings,
+      slot: original.slot,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    },
+    { artifactSources: "stored" },
+  );
   if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
   // A copy made before the original's defaults were translated holds them untranslated.
   yield* placeContent(ctx, scope, result);

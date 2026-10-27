@@ -2,7 +2,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { createProjectFixture, noArtifactFields } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, drafts } from "../../schema";
 import * as overlay from "./overlay";
@@ -36,7 +36,9 @@ async function fixture(suffix: string) {
     createdAt: 1,
     updatedAt: 1,
   });
-  const live = (await run(overlay.insert(base.db, RELEASE, blocks, newBlock({ position: "a0" }))))!;
+  const live = (await run(
+    overlay.insert(base.db, RELEASE, blocks, newBlock({ position: "a0" }), noArtifactFields),
+  ))!;
   return { ...base, openDraft, pageId, newBlock, live };
 }
 
@@ -49,7 +51,9 @@ describe("the draft overlay", () => {
     const draft = await openDraft();
     const other = await openDraft();
 
-    await run(overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }));
+    await run(
+      overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }, noArtifactFields),
+    );
 
     expect(titleOf(await run(overlay.get(db, draft, blocks, live.id)))).toBe("Draft");
     expect(titleOf(await run(overlay.get(db, null, blocks, live.id)))).toBe("Live");
@@ -60,7 +64,16 @@ describe("the draft overlay", () => {
     const { db, openDraft, live } = await fixture("overlay-fallback");
     const draft = await openDraft();
 
-    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Live again" } }));
+    await run(
+      overlay.update(
+        db,
+        RELEASE,
+        blocks,
+        live.id,
+        { content: { title: "Live again" } },
+        noArtifactFields,
+      ),
+    );
 
     expect(titleOf(await run(overlay.get(db, draft, blocks, live.id)))).toBe("Live again");
   });
@@ -68,13 +81,49 @@ describe("the draft overlay", () => {
   it("records the Live version the first write in a draft copied, counting a release's changes", async () => {
     const { db, openDraft, live } = await fixture("overlay-base-version");
     const draft = await openDraft();
-    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Second" } }));
-    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Third" } }));
+    await run(
+      overlay.update(
+        db,
+        RELEASE,
+        blocks,
+        live.id,
+        { content: { title: "Second" } },
+        noArtifactFields,
+      ),
+    );
+    await run(
+      overlay.update(
+        db,
+        RELEASE,
+        blocks,
+        live.id,
+        { content: { title: "Third" } },
+        noArtifactFields,
+      ),
+    );
 
-    await run(overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }));
-    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Fourth" } }));
+    await run(
+      overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }, noArtifactFields),
+    );
+    await run(
+      overlay.update(
+        db,
+        RELEASE,
+        blocks,
+        live.id,
+        { content: { title: "Fourth" } },
+        noArtifactFields,
+      ),
+    );
     const copy = await run(
-      overlay.update(db, draft, blocks, live.id, { content: { title: "Draft 2" } }),
+      overlay.update(
+        db,
+        draft,
+        blocks,
+        live.id,
+        { content: { title: "Draft 2" } },
+        noArtifactFields,
+      ),
     );
 
     expect(copy).toMatchObject({ baseVersion: 3, content: { title: "Draft 2" } });
@@ -91,7 +140,16 @@ describe("the draft overlay", () => {
     const draft = await openDraft();
 
     await run(overlay.update(db, draft, blocks, live.id, { position: "a5" }));
-    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Live later" } }));
+    await run(
+      overlay.update(
+        db,
+        RELEASE,
+        blocks,
+        live.id,
+        { content: { title: "Live later" } },
+        noArtifactFields,
+      ),
+    );
 
     expect(await run(overlay.get(db, draft, blocks, live.id))).toMatchObject({
       position: "a5",
@@ -115,7 +173,13 @@ describe("the draft overlay", () => {
     const draft = await openDraft();
 
     const created = (await run(
-      overlay.insert(db, draft, blocks, newBlock({ position: "a1", content: { title: "New" } })),
+      overlay.insert(
+        db,
+        draft,
+        blocks,
+        newBlock({ position: "a1", content: { title: "New" } }),
+        noArtifactFields,
+      ),
     ))!;
 
     expect(titleOf(await run(overlay.get(db, draft, blocks, created.id)))).toBe("New");
@@ -131,10 +195,22 @@ describe("the draft overlay", () => {
     const draft = await openDraft();
 
     const inDraft = await run(
-      overlay.insert(db, draft, blocks, newBlock({ id: live.id, position: "a1" })),
+      overlay.insert(
+        db,
+        draft,
+        blocks,
+        newBlock({ id: live.id, position: "a1" }),
+        noArtifactFields,
+      ),
     );
     const inLive = await run(
-      overlay.insert(db, RELEASE, blocks, newBlock({ id: live.id, position: "a1" })),
+      overlay.insert(
+        db,
+        RELEASE,
+        blocks,
+        newBlock({ id: live.id, position: "a1" }),
+        noArtifactFields,
+      ),
     );
 
     expect(inDraft).toBeUndefined();
@@ -146,8 +222,12 @@ describe("the draft overlay", () => {
     const draft = await openDraft();
     const ids = [generateUuidv7(), generateUuidv7()];
     // Both drafts picked the same key between Live's blocks.
-    await run(overlay.insert(db, draft, blocks, newBlock({ id: ids[1], position: "a0" })));
-    await run(overlay.insert(db, draft, blocks, newBlock({ id: ids[0], position: "a0" })));
+    await run(
+      overlay.insert(db, draft, blocks, newBlock({ id: ids[1], position: "a0" }), noArtifactFields),
+    );
+    await run(
+      overlay.insert(db, draft, blocks, newBlock({ id: ids[0], position: "a0" }), noArtifactFields),
+    );
 
     const rows = overlay.sortByPosition(
       await run(overlay.select(db, draft, blocks, eq(blocks.pageId, pageId))),

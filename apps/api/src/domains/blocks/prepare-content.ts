@@ -1,14 +1,13 @@
 import { Effect } from "effect";
 
 import { InvalidInputError } from "../../lib/errors";
-import { fieldOf, fieldsOf, itemSchemas } from "../_shared/fields";
+import { fieldOf, fieldsOf, seedSchemas, type ItemSeed } from "../_shared/fields";
 import { validateReferenceSchema } from "../collections/references";
 import { initializeBlockContent } from "./initialize-content";
 import {
   normalizeBlockContent,
   sanitizeItemContent,
   validateItemSeeds,
-  type BlockItemSeed,
   type FieldSchema,
 } from "./normalize-content";
 import { validateContent } from "./validate-content";
@@ -23,7 +22,7 @@ function itemContentSchemaOf(schema: unknown, name: string) {
 /** Reconstruct the authored JSON for validation; persistence still owns separate item rows. */
 export const contentWithSeeds = Effect.fn("contentWithSeeds")(function* (
   content: Record<string, unknown>,
-  seeds: BlockItemSeed[],
+  seeds: ItemSeed[],
   schema: FieldSchema | null | undefined,
   parentTempId: string | null = null,
 ): Effect.fn.Return<Record<string, unknown>, InvalidInputError> {
@@ -56,7 +55,7 @@ export const contentWithSeeds = Effect.fn("contentWithSeeds")(function* (
 export const prepareBlockContent = Effect.fn("prepareBlockContent")(function* (
   rawContent: unknown,
   rawSettings: unknown,
-  explicitSeeds: BlockItemSeed[] | undefined,
+  explicitSeeds: ItemSeed[] | undefined,
   contentSchema: unknown,
   settingsSchema: unknown,
   context: { contentSchema?: unknown; settingsSchema?: unknown } = {},
@@ -74,14 +73,7 @@ export const prepareBlockContent = Effect.fn("prepareBlockContent")(function* (
   yield* validateItemSeeds(seeds, schema?.properties, "repeatableItems", rootSchema);
 
   // Seeds were validated above: each one sits in a repeater of its parent.
-  const schemas = itemSchemas(
-    schema,
-    seeds.map((seed) => ({
-      id: seed.tempId,
-      parentItemId: seed.parentTempId,
-      fieldName: seed.fieldName,
-    })),
-  );
+  const schemas = seedSchemas(schema, seeds);
   for (const seed of seeds) {
     const item = schemas.get(seed.tempId);
     const content = item?.content as FieldSchema | undefined;

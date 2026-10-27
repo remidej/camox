@@ -1,4 +1,4 @@
-import { artifactTitle } from "@camox/api-contract";
+import { artifactSourceHash, artifactTitle } from "@camox/api-contract";
 import type * as React from "react";
 
 import { escapeAttribute } from "../../lib/html";
@@ -6,14 +6,36 @@ import type { CamoxDocument } from "../defineDocument";
 import type { ArtifactData } from "./artifactData";
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
-/** The frame attributes of an artifact source. */
-export type ArtifactFrameProps = {
-  srcDoc: string;
+/** The frame attributes an artifact's frame has, whichever way it loads its document. */
+type ArtifactFrameAttributes = {
   sandbox: string;
   allow: string;
   title: string;
   loading: "lazy";
 };
+
+/** The frame attributes of an artifact whose document is inlined. */
+export type InlineArtifactFrameProps = ArtifactFrameAttributes & { srcDoc: string; src?: never };
+
+/** The frame attributes of an artifact: its document inlined, or loaded by URL. */
+export type ArtifactFrameProps =
+  | InlineArtifactFrameProps
+  | (ArtifactFrameAttributes & { src: string; srcDoc?: never });
+
+/**
+ * What a public page holds in place of an artifact source: the URL the website serves its
+ * document at, named by its shell and source hashes, and its title. Frames load it by URL, so
+ * neither the page's HTML nor its hydration data carries the source, and the client renders the
+ * same frames as the server.
+ */
+export type ArtifactSourceReference = { artifactUrl: string; title: string };
+
+/** Whether a stored artifact value was replaced by a reference to its source. */
+export function isArtifactSourceReference(value: unknown): value is ArtifactSourceReference {
+  if (typeof value !== "object" || value === null) return false;
+  const { artifactUrl, title } = value as Partial<ArtifactSourceReference>;
+  return typeof artifactUrl === "string" && typeof title === "string";
+}
 
 /** What `block.Artifact` passes to its render prop, to spread onto an `<iframe>`. */
 export type ArtifactRenderProps = ArtifactFrameProps & {
@@ -69,6 +91,16 @@ function artifactDataScript(data: ArtifactData) {
 }
 
 /**
+ * The fragment, `#` included, that carries the starting Artifact Data in the URL of a frame that
+ * loads its artifact by URL instead of `srcdoc`. The runtime decodes it as `camox.data`. Fragments
+ * never reach the server, so one cached document serves every placement. Empty data needs none.
+ */
+export function artifactDataFragment(data: ArtifactData) {
+  const json = JSON.stringify(data);
+  return json === "{}" ? "" : `#${encodeURIComponent(json)}`;
+}
+
+/**
  * The stylesheet and preconnect links of the project's document definition, as HTML, so artifacts
  * use the website's fonts from their first render. Nothing else from the document's head: its
  * title, meta, scripts and icons belong to the website, not to the artifact.
@@ -88,13 +120,38 @@ export function artifactFontLinks(document: CamoxDocument | undefined) {
 }
 
 /**
- * The document an artifact frame loads: the `camox` runtime, the website's font links, the initial
- * Artifact Data, then the stored source. The doctype comes first so the runtime's script never
- * puts the page in quirks mode; the source's own doctype, if any, is then ignored by the parser.
+ * What every artifact's document holds before its source: the `camox` runtime, then the website's
+ * font links. The doctype comes first so the runtime's script never puts the page in quirks mode;
+ * the source's own doctype, if any, is then ignored by the parser.
+ */
+function artifactShell(fontLinks: string) {
+  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${fontLinks}`;
+}
+
+/**
+ * The hash of the shell around every artifact source, which names it in the URLs public pages
+ * load artifacts from. It changes only with the runtime or the website's font links, so a release
+ * that changes neither keeps every artifact cached.
+ */
+export function artifactShellHash(fontLinks: string): Promise<string> {
+  return artifactSourceHash(artifactShell(fontLinks));
+}
+
+/**
+ * The document an inline (`srcdoc`) artifact frame loads: the shell, the initial Artifact Data,
+ * then the stored source.
  */
 function artifactDocument(source: string, { fontLinks = "", data = {} }: ArtifactDocumentOptions) {
-  const head = `<script>${ARTIFACT_RUNTIME}</script>${fontLinks}${artifactDataScript(data)}`;
-  return `<!doctype html>${head}${source}`;
+  return `${artifactShell(fontLinks)}${artifactDataScript(data)}${source}`;
+}
+
+/**
+ * The document served at an artifact's URL: the shell, then the stored source. No Artifact Data:
+ * the frame's URL fragment carries it (`artifactDataFragment`), so one cached document serves
+ * every placement, and an inline data script would win over the fragment.
+ */
+export function artifactUrlDocument(source: string, fontLinks: string) {
+  return `${artifactShell(fontLinks)}${source}`;
 }
 
 /**
@@ -103,7 +160,7 @@ function artifactDocument(source: string, { fontLinks = "", data = {} }: Artifac
  * JSON escapes it too, so the first `</script>` after the data's opening tag ends the data.
  */
 export function artifactSourceOf(document: string) {
-  const head = `<!doctype html><script>${ARTIFACT_RUNTIME}</script>`;
+  const head = artifactShell("");
   if (!document.startsWith(head)) return null;
   const data = document.indexOf(DATA_SCRIPT_OPEN, head.length);
   if (data < 0 || document.slice(head.length, data).includes("<script")) return null;
@@ -113,21 +170,40 @@ export function artifactSourceOf(document: string) {
 }
 
 /**
- * The frame props for an artifact source, with its initial Artifact Data and the website's font
- * links. This getter is the boundary that hides how the source reaches the frame (inline `srcdoc`
- * today), so blocks never depend on it.
+ * The frame props for an artifact, with its initial Artifact Data and the website's font links.
+ * This getter is the boundary that hides how the source reaches the frame, so blocks never
+ * depend on it: a source is inlined with `srcdoc`, while a reference to one loads by URL, its
+ * initial Artifact Data in the URL's fragment.
  */
 export function artifactFrameProps(
   source: string,
+  options?: ArtifactDocumentOptions,
+): InlineArtifactFrameProps;
+export function artifactFrameProps(
+  artifact: string | ArtifactSourceReference,
+  options?: ArtifactDocumentOptions,
+): ArtifactFrameProps;
+export function artifactFrameProps(
+  artifact: string | ArtifactSourceReference,
   options: ArtifactDocumentOptions = {},
 ): ArtifactFrameProps {
-  return {
-    srcDoc: artifactDocument(source, options),
+  const attributes = {
     // Never `allow-same-origin`: the opaque origin keeps the page away from the site and studio.
     sandbox: "allow-scripts",
     allow: "fullscreen; clipboard-write",
-    title: artifactTitle(source),
     loading: "lazy",
+  } as const;
+  if (typeof artifact === "string") {
+    return {
+      srcDoc: artifactDocument(artifact, options),
+      ...attributes,
+      title: artifactTitle(artifact),
+    };
+  }
+  return {
+    src: `${artifact.artifactUrl}${artifactDataFragment(options.data ?? {})}`,
+    ...attributes,
+    title: artifact.title,
   };
 }
 

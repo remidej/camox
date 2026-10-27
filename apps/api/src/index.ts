@@ -7,6 +7,7 @@ import { routePartykitRequest } from "partyserver";
 
 import { isProjectMember } from "./authorization";
 import { createDb } from "./db";
+import { artifactSourceRoutes } from "./domains/artifact-sources/routes";
 import { authRoutes, createAuth } from "./domains/auth/routes";
 import { fileHonoRoutes } from "./domains/files/routes";
 import { iconRoutes } from "./domains/icons/routes";
@@ -128,6 +129,7 @@ app.route("/api/auth", authRoutes);
 app.route("/files", fileHonoRoutes);
 app.route("/favicons", faviconHonoRoutes);
 app.route("/live-cache-keys", liveCacheKeyRoutes);
+app.route("/artifact-sources", artifactSourceRoutes);
 app.route("/pages", pageHonoRoutes);
 app.route("/threads", threadHonoRoutes);
 
