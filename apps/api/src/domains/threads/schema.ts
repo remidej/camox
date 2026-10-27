@@ -17,6 +17,9 @@ export const liveThreads = sqliteTable(
     // The owning editor's id. No foreign key, as for drafts' creators.
     userId: text("user_id").notNull(),
     createdAt: int("created_at").notNull(),
+    // Unused since Live threads stopped moving into drafts (ADR 0025): kept while the API before
+    // that still runs, and dropped by a later migration.
+    continuedIn: text("continued_in"),
   },
   (table) => [uniqueIndex("live_threads_owner_idx").on(table.projectId, table.userId)],
 );

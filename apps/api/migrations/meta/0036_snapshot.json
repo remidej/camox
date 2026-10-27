@@ -3272,6 +3272,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "continued_in": {
+          "name": "continued_in",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
