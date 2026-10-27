@@ -1,6 +1,6 @@
 # A Custom Domain replaces a project's camox.site address
 
-A website builds its canonical URLs, sitemap, hreflang links and structured data from the host a request came in on. Serving one at both a Custom Domain and its `camox.site` subdomain would publish two copies of it. So a project has at most one Custom Domain, and once it has one, dispatch serves it there and redirects every request for the `camox.site` subdomain to it with a 301. The studio works on the Custom Domain too, so editors work at the address they publish to. Operators set Custom Domains for now, starting with camox.ai.
+A website builds its canonical URLs, sitemap, hreflang links and structured data from the host a request came in on. Serving one at both a Custom Domain and its `camox.site` subdomain would publish two copies of it. So a project has at most one Custom Domain, and once it has one, dispatch serves it there and redirects every request for the `camox.site` subdomain to it with a 301. The studio works on the Custom Domain too, so editors work at the address they publish to. Operators set Custom Domains for now, starting with camox.ai ([Hosting camox.ai like any project](https://github.com/remidej/camox/issues/653)).
 
 ## Considered Options
 
