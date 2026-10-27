@@ -54,6 +54,12 @@ export const projects = sqliteTable(
      * deploy. Dispatch reads it through the API (apps/dispatch/src/live-script.ts).
      */
     liveScript: text("live_script"),
+    /**
+     * Whether the project's code can be worked on outside Camox: its organization's members can
+     * clone its repo and push commits to its drafts from their own checkout (ADR 0026). Off by
+     * default, and set by hand in the database.
+     */
+    codeOutsideCamox: int("code_outside_camox", { mode: "boolean" }).notNull().default(false),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

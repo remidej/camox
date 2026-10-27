@@ -10,6 +10,7 @@ import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
 import { projects } from "../../schema";
 import type { AppEnv } from "../../types";
+import * as codeAccess from "./code-access";
 import * as service from "./service";
 
 // Protected procedures
@@ -59,6 +60,10 @@ const updateSocialProfiles = authed
   .input(service.updateProjectSocialProfilesInput)
   .handler(({ context, input }) => runService(service.updateProjectSocialProfiles(context, input)));
 
+const createCodeReadToken = authed
+  .input(codeAccess.createCodeReadTokenInput)
+  .handler(({ context, input }) => runService(codeAccess.createCodeReadToken(context, input)));
+
 const deleteFn = authed
   .input(service.deleteProjectInput)
   .handler(({ context, input }) => runService(service.deleteProject(context, input)));
@@ -75,6 +80,7 @@ export const projectProcedures = {
   update,
   updateAnalytics,
   updateSocialProfiles,
+  createCodeReadToken,
   delete: deleteFn,
 };
 
