@@ -89,9 +89,6 @@ function Ridgeline() {
   );
 }
 
-// Read when the module loads: React components must not read the clock while rendering.
-const currentYear = new Date().getFullYear();
-
 function FooterComponent() {
   return (
     // The ridgeline is the separator, so the footer overlaps and hides the bottom
@@ -113,7 +110,7 @@ function FooterComponent() {
                 {(props) => <img {...props} className="h-6 w-auto" />}
               </footer.Image>
             </Link>
-            <div className="text-ink-muted text-sm">&copy; {currentYear}</div>
+            <div className="text-ink-muted text-sm">&copy; {__BUILD_YEAR__}</div>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:justify-end">
