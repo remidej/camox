@@ -5,7 +5,7 @@ import { z } from "zod";
 import { assertSyncAccess, recordDefinitionsSynced, type SyncTarget } from "../../authorization";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
-import { contentArtifactSources } from "../artifact-sources/backfill";
+import { contentArtifactSources } from "../artifact-sources/content-sources";
 import {
   declaredArtifactSources,
   defaultArtifactSources,

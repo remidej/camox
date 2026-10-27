@@ -1,5 +1,4 @@
 import { artifactSourceHash } from "@camox/api-contract";
-import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -22,7 +21,7 @@ import {
   type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { artifactSources, pages } from "../../schema";
+import { pages } from "../../schema";
 import { createBlock, getBlock, updateBlockContent } from "../blocks/service";
 import { draftOf } from "../drafts/scope";
 import {
@@ -30,7 +29,6 @@ import {
   getRepeatableItem,
   updateRepeatableItemContent,
 } from "../repeatable-items/service";
-import { backfillArtifactSources } from "./backfill";
 
 const scenesField = {
   type: "array",
@@ -563,52 +561,4 @@ describe("a definition change making existing content's fields artifacts", () =>
       }
     },
   );
-});
-
-describe("the artifact source backfill", () => {
-  it("stores every source content held before the store existed, in Live and in drafts, and can run again", async () => {
-    const fallback = unique("Default");
-    const { db, ctx, page, project } = await fixture("backfill", [
-      {
-        blockId: "defaulted",
-        title: "Defaulted",
-        description: "An artifact with a default source",
-        contentSchema: {
-          type: "object",
-          properties: { visual: field.artifact({ size: "fill", default: fallback }) },
-        },
-      },
-    ]);
-    const liveVisual = unique("Live visual");
-    const liveScene = unique("Live scene");
-    const liveLayer = unique("Live layer");
-    const draftShared = unique("Draft shared visual");
-    const draftSharedScene = unique("Draft shared scene");
-    await seedLiveThrough(ctx, project.id, (_, inDraft) =>
-      createBlock(inDraft, {
-        pageId: page.id,
-        type: "visual",
-        content: {
-          visual: liveVisual,
-          scenes: [{ scene: liveScene, layers: [{ layer: liveLayer }] }],
-        },
-      }),
-    );
-    await runService(
-      createBlock(ctx, {
-        pageId: page.id,
-        type: "sharedVisual",
-        content: { visual: draftShared, scenes: [{ scene: draftSharedScene }] },
-      }),
-    );
-    const sources = [fallback, liveVisual, liveScene, liveLayer, draftShared, draftSharedScene];
-    // Content written before the store existed: its sources aren't stored.
-    await db.delete(artifactSources).where(eq(artifactSources.projectId, project.id));
-    await expectNotStored(project, liveVisual);
-
-    await backfillArtifactSources(db);
-    await backfillArtifactSources(db);
-
-    for (const source of sources) await expectStored(project, source);
-  });
 });

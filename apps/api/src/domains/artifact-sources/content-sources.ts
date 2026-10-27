@@ -1,20 +1,14 @@
-import { artifactSourceHash } from "@camox/api-contract";
 import { and, eq, inArray, or } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import { itemSchemas } from "../_shared/fields";
-import { blockDefinitions } from "../block-definitions/schema";
 import { blocks, sharedContents } from "../blocks/schema";
 import { repeatableItems } from "../repeatable-items/schema";
-import { artifactSources } from "./schema";
-import { artifactSourcesOf, declaredArtifactSources, defaultArtifactSources } from "./store";
+import { artifactSourcesOf } from "./store";
 
 // Finds the artifact sources content holds in rows of every scope, Live and every draft, read
-// through their definitions' schemas: for the one-off migration (#640), which stores every source
-// content held before the store existed, and for definition syncs, whose schema changes can turn
-// what content holds into artifact sources. It reads through Drizzle only, so the migration runs
-// against the Worker's D1 binding in tests, and against production's D1 through its HTTP API
-// (`scripts/backfill-artifact-sources.ts`).
+// through their definitions' schemas: for definition syncs, whose schema changes can turn what
+// content holds into artifact sources.
 
 /** A database whose queries are awaited: D1, or a proxy to it. */
 type AsyncDatabase = BaseSQLiteDatabase<"async", unknown, Record<string, unknown>>;
@@ -126,48 +120,4 @@ export async function contentArtifactSources(
     );
   }
   return found.get(projectId) ?? new Set();
-}
-
-const definitionKey = (projectId: number | null, type: string | null) => `${projectId}:${type}`;
-
-/** Stores every artifact source the database's content holds. Returns how many it found. */
-export async function backfillArtifactSources(db: AsyncDatabase) {
-  const found: SourcesByProject = new Map();
-
-  // Every schema a definition had, in Live and in any draft: content is read through each.
-  const schemas = new Map<string, unknown[]>();
-  for (const definition of await db.select().from(blockDefinitions)) {
-    const key = definitionKey(definition.projectId, definition.blockId);
-    schemas.set(key, [...(schemas.get(key) ?? []), definition.contentSchema]);
-    add(found, definition.projectId, defaultArtifactSources(definition.contentSchema));
-    add(
-      found,
-      definition.projectId,
-      declaredArtifactSources(definition.contentSchema, definition.defaultContent),
-    );
-  }
-
-  sourcesOfRows(
-    {
-      blocks: await db.select().from(blocks),
-      sharedContents: await db.select().from(sharedContents),
-      items: await db.select().from(repeatableItems),
-    },
-    (projectId, type) => schemas.get(definitionKey(projectId, type)) ?? [],
-    found,
-  );
-
-  let count = 0;
-  const createdAt = Date.now();
-  for (const [projectId, sources] of found) {
-    for (const source of sources) {
-      const hash = await artifactSourceHash(source);
-      await db
-        .insert(artifactSources)
-        .values({ projectId, hash, source, createdAt })
-        .onConflictDoNothing();
-      count++;
-    }
-  }
-  return count;
 }
