@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -9,12 +9,9 @@ import { fileURLToPath } from "node:url";
 import {
   copyTemplateSource,
   makeStandalone,
-  personalize,
   readCatalog,
   readWorkspaceCatalog,
-  replaceProjectId,
 } from "../src/lib/template.ts";
-import { packageManagerVersions } from "../src/lib/utils.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -104,12 +101,12 @@ void test("a catalog range missing from the catalog fails the copy", () => {
 void test("a standalone project depends on the published camox and drops development-only lines", async () => {
   const dest = join(root, "standalone");
   copyTemplateSource(source, dest, catalog);
-  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
+  makeStandalone(dest, { camoxVersion: "1.2.3" });
 
   const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
   assert.equal(pkg.dependencies.camox, "^1.2.3");
   assert.equal(pkg.version, undefined);
-  assert.equal(pkg.packageManager, packageManagerVersions.pnpm);
+  assert.match(pkg.packageManager, /^pnpm@/);
 
   const viteConfig = await readFile(join(dest, "vite.config.ts"), "utf-8");
   assert.equal(
@@ -124,61 +121,31 @@ void test("a standalone project depends on the published camox and drops develop
   );
 });
 
-void test("a standalone project ignores what it installs and generates, and links Camox's agent skills", async () => {
+void test("a standalone project ignores what it installs and generates", async () => {
   const dest = join(root, "standalone-files");
   copyTemplateSource(source, dest, catalog);
-  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
+  makeStandalone(dest, { camoxVersion: "1.2.3" });
 
   const gitignore = (await readFile(join(dest, ".gitignore"), "utf-8")).split("\n");
   for (const ignored of ["node_modules", ".env", "src/routeTree.gen.ts", "src/routes/(camox)/"]) {
     assert.ok(gitignore.includes(ignored), `.gitignore misses ${ignored}`);
   }
-  for (const skill of ["camox", "camox-cli", "camoxify", "camox-expand"]) {
-    assert.equal(
-      await readlink(join(dest, `.agents/skills/${skill}`)),
-      `../../node_modules/camox/skills/${skill}`,
-    );
-    assert.equal(
-      await readlink(join(dest, `.claude/skills/${skill}`)),
-      `../../.agents/skills/${skill}`,
-    );
-  }
 });
 
-void test("a standalone pnpm project lets Camox's own packages install as soon as they're published", async () => {
+void test("a standalone project lets Camox's own packages install as soon as they're published", async () => {
   const dest = join(root, "standalone-pnpm");
   copyTemplateSource(source, dest, catalog);
-  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
+  makeStandalone(dest, { camoxVersion: "1.2.3" });
 
   const workspace = await readFile(join(dest, "pnpm-workspace.yaml"), "utf-8");
   assert.match(workspace, /minimumReleaseAgeExclude:\n {2}- camox\n {2}- "@camox\/\*"/);
   assert.match(workspace, /allowBuilds:\n(?: {2}.+\n)* {2}workerd: true/);
 });
 
-void test("a standalone npm project has no pnpm workspace", async () => {
-  const dest = join(root, "standalone-npm");
-  copyTemplateSource(source, dest, catalog);
-  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "npm" });
-
-  assert.equal(existsSync(join(dest, "pnpm-workspace.yaml")), false);
-  const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
-  assert.equal(pkg.packageManager, packageManagerVersions.npm);
-});
-
-void test("replacing the Project ID drops its marker", () => {
-  assert.equal(
-    replaceProjectId(
-      '  "name": "template-project-id", // camox-cli:replace-project-id\n',
-      "acme-id",
-    ),
-    '  "name": "acme-id",\n',
-  );
-});
-
 void test("the Template becomes a standalone project with no workspace or development-only leftovers", async () => {
   const dest = join(root, "real-template");
   copyTemplateSource(join(repoRoot, "apps/template-default"), dest, readWorkspaceCatalog(repoRoot));
-  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
+  makeStandalone(dest, { camoxVersion: "1.2.3" });
 
   const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
   for (const field of ["dependencies", "devDependencies"]) {
@@ -189,20 +156,5 @@ void test("the Template becomes a standalone project with no workspace or develo
   for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
     const content = await readFile(join(dest, file), "utf-8");
     assert.doesNotMatch(content, /camox-cli:dev-only|_internal|CAMOX_DEV_/, file);
-  }
-});
-
-void test("a project made from the Template is named after its slug and points at its Project ID", async () => {
-  const dest = join(root, "personalized");
-  copyTemplateSource(join(repoRoot, "apps/template-default"), dest, readWorkspaceCatalog(repoRoot));
-  makeStandalone(dest, { camoxVersion: "1.2.3", packageManager: "pnpm" });
-  personalize(dest, { slug: "acme", projectId: "0f8e1b2c-0000-7000-8000-000000000001" });
-
-  const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
-  assert.equal(pkg.name, "acme");
-  for (const file of ["vite.config.ts", "wrangler.jsonc"]) {
-    const content = await readFile(join(dest, file), "utf-8");
-    assert.match(content, /"0f8e1b2c-0000-7000-8000-000000000001"/, file);
-    assert.doesNotMatch(content, /camox-cli:replace-project-id/, file);
   }
 });

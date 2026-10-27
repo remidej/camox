@@ -246,12 +246,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish create-camox
-        run: pnpm publish --no-git-checks --access public
-        working-directory: packages/create-camox
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish camox
         run: pnpm publish --no-git-checks --access public
         working-directory: packages/sdk

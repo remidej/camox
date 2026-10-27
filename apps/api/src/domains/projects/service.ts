@@ -111,7 +111,7 @@ export const listProjects = Effect.fn("projects.listProjects")(function* (
   );
   return rows.map(({ project, customOgImageUrl }) => ({
     ...project,
-    homepageOgImageUrl: customOgImageUrl || generatedOgImageUrl(project.slug, "/"),
+    homepageOgImageUrl: customOgImageUrl || generatedOgImageUrl(project, "/"),
   }));
 });
 
@@ -130,11 +130,11 @@ const liveHomepageCustomOgImageUrl = sql<
 )} order by ${pages.rowId} limit 1)`;
 
 /**
- * The image `<slug>.camox.site` generates for the page at `path`, as the website's own `og:image`
- * names it (`pageImageUrl` in packages/sdk/src/features/og/pageImage.tsx).
+ * The image the project's website generates for the page at `path`, as the website's own
+ * `og:image` names it (`pageImageUrl` in packages/sdk/src/features/og/pageImage.tsx).
  */
-function generatedOgImageUrl(slug: string, path: string) {
-  return `${projectWebsiteUrl(slug)}/og?${new URLSearchParams({ path }).toString()}`;
+function generatedOgImageUrl(project: Parameters<typeof projectWebsiteUrl>[0], path: string) {
+  return `${projectWebsiteUrl(project)}/og?${new URLSearchParams({ path }).toString()}`;
 }
 
 export const getFirstProject = Effect.fn("projects.getFirstProject")(function* (
@@ -504,8 +504,10 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
     ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
   );
   yield* record(ctx.db, { kind: "project", projectId });
-  // `<slug>.camox.site` answers with the not-found page at once.
+  // `<slug>.camox.site` and its Custom Domain answer with the not-found page at once.
   yield* Effect.promise(() => ctx.env.PROJECT_SLUGS.delete(project.slug));
+  const { customDomain } = project;
+  if (customDomain) yield* Effect.promise(() => ctx.env.PROJECT_SLUGS.delete(customDomain));
   // Its Worker and repo are cleaned up in the background. Named after the Project ID, so a
   // project's cleanup is one instance. The project is gone either way: a cleanup that can't
   // start leaves them behind, for Rémi to delete.

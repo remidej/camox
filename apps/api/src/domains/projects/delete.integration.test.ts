@@ -14,7 +14,7 @@ const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
 type Fakes = { emailsSent(): Promise<{ subject: string; text: string }[]> };
 
 // Deleting a project from the dashboard: during the request, the API removes the project's rows
-// and its `<slug>.camox.site` host, so the site goes offline at once, then starts the deletion
+// and its hosts, `<slug>.camox.site` and any Custom Domain, so the site goes offline at once, then starts the deletion
 // Workflow, which cleans up its Worker and repo.
 
 /**
@@ -22,9 +22,17 @@ type Fakes = { emailsSent(): Promise<{ subject: string; text: string }[]> };
  * what they do is the deletion Workflow's tests' concern. Disposing of `deletions` forgets the
  * deletion Workflow's instances, so each test holds it until it ends.
  */
-async function deleteAsMember() {
+async function deleteAsMember({ customDomain }: { customDomain?: string } = {}) {
   const fixture = await createProjectFixture(crypto.randomUUID());
   await env.PROJECT_SLUGS.put(fixture.project.slug, fixture.project.uuid);
+  if (customDomain) {
+    // As an operator sets a Custom Domain (apps/dispatch/README.md).
+    await fixture.db
+      .update(projects)
+      .set({ customDomain })
+      .where(eq(projects.id, fixture.project.id));
+    await env.PROJECT_SLUGS.put(customDomain, fixture.project.uuid);
+  }
   const context = createRpcContext(fixture.db, fixture.memberUser);
   const deletions = await introspectWorkflow(env.PROJECT_DELETION_WORKFLOW);
   await deletions.modifyAll(async (m) => {
@@ -51,6 +59,14 @@ describe("deleting a project", () => {
     await using _ = deletions;
 
     expect(await env.PROJECT_SLUGS.get(project.slug)).toBeNull();
+  });
+
+  it("takes its Custom Domain offline at once", async () => {
+    const customDomain = `${crypto.randomUUID()}.example`;
+    const { deletions } = await deleteAsMember({ customDomain });
+    await using _ = deletions;
+
+    expect(await env.PROJECT_SLUGS.get(customDomain)).toBeNull();
   });
 
   it("starts cleaning up its Worker and repo, named after its Project ID", async () => {

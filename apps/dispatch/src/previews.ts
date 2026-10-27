@@ -12,8 +12,6 @@ const DRAFT_SEARCH_PARAM = "camox-draft";
 
 /** The SDK's cookie mirroring a cross-domain session on a website's host (`server-auth-cookie.ts`). */
 const MIRROR_COOKIE = "camox_auth_cookie";
-/** Better Auth's own session cookies, which a session made on the website's host is in. */
-const SESSION_COOKIES = ["better-auth.session_token=", "__Secure-better-auth.session_token="];
 
 /** How long an answer of the API is kept for the same session and draft. */
 export const PREVIEW_ANSWER_TTL_MS = 2_000;
@@ -33,22 +31,21 @@ export interface PreviewsApi {
 }
 
 /**
- * The session a request carries, as the SDK forwards it to the API: the mirror cookie's session
- * when there is one, else Better Auth's own cookies, else nothing. Mirrored from
+ * The session a request carries, as the SDK forwards it to the API: the mirror cookie's session,
+ * else nothing. Better Auth's own cookies don't count: on a Custom Domain like camox.ai they're the
+ * dashboard's session, set for every host (ADR 0028). Mirrored from
  * packages/sdk/src/lib/server-auth-cookie.ts: keep the two in sync.
  */
 export function sessionOf(headers: Headers): string {
   const cookies = (headers.get("cookie") ?? "").split(";").map((part) => part.trim());
   const mirror = cookies.find((part) => part.startsWith(`${MIRROR_COOKIE}=`));
-  if (mirror) {
-    try {
-      const value = decodeURIComponent(mirror.slice(MIRROR_COOKIE.length + 1));
-      if (value) return value;
-    } catch {
-      // A malformed mirror doesn't hide a native session.
-    }
+  if (!mirror) return "";
+  try {
+    return decodeURIComponent(mirror.slice(MIRROR_COOKIE.length + 1));
+  } catch {
+    // A malformed mirror is no session.
+    return "";
   }
-  return cookies.filter((part) => SESSION_COOKIES.some((name) => part.startsWith(name))).join("; ");
 }
 
 type Answer = { at: number; revision: Promise<RevisionToLoad | null> };

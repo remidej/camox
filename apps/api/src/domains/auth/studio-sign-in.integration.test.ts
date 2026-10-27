@@ -21,6 +21,17 @@ async function hostedProject() {
   return { ...fixture, host: `${fixture.project.slug}.camox.site` };
 }
 
+/** A project served at a Custom Domain, which the KV map records next to its slug. */
+async function projectOnCustomDomain() {
+  const fixture = await createProjectFixture(crypto.randomUUID());
+  const domain = `${fixture.project.slug}.example`;
+  await env.PROJECT_SLUGS.put(fixture.project.slug, fixture.project.uuid, {
+    metadata: { customDomain: domain },
+  });
+  await env.PROJECT_SLUGS.put(domain, fixture.project.uuid);
+  return { ...fixture, domain };
+}
+
 function request(path: string, init: { body?: unknown; headers?: Record<string, string> } = {}) {
   return testAuth().handler(
     new Request(`${API}/api/auth${path}`, {
@@ -149,6 +160,49 @@ describe("authorizing the studio on a host", () => {
 
     const response = await authorizeStudio(
       callback.replace("{slug}", project.slug),
+      await createSessionFixture(memberUser.id),
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it("sends a member back to their project's Custom Domain with a one-time token", async () => {
+    const { memberUser, domain } = await projectOnCustomDomain();
+
+    const url = await redirectTo(
+      await authorizeStudio(
+        `https://${domain}/pricing?camox=1`,
+        await createSessionFixture(memberUser.id),
+      ),
+    );
+
+    expect(url.origin).toBe(`https://${domain}`);
+    expect(url.pathname).toBe("/pricing");
+    expect(url.searchParams.get("ott")).toBeTruthy();
+  });
+
+  it("refuses a project's Custom Domain to a user who isn't a member of it", async () => {
+    const { outsiderUser, domain } = await projectOnCustomDomain();
+
+    const response = await authorizeStudio(
+      `https://${domain}/`,
+      await createSessionFixture(outsiderUser.id),
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it.each([
+    ["a subdomain of a project's Custom Domain", "https://www.{domain}/"],
+    ["a project's Custom Domain over plain http", "http://{domain}/"],
+    ["a project's Custom Domain on another port", "https://{domain}:8443/"],
+    ["a Custom Domain's entry under camox.site", "https://{domain}.camox.site/"],
+    ["the camox.site host it redirects to its Custom Domain", "https://{slug}.camox.site/"],
+  ])("refuses %s", async (_, callback) => {
+    const { memberUser, domain, project } = await projectOnCustomDomain();
+
+    const response = await authorizeStudio(
+      callback.replace("{domain}", domain).replace("{slug}", project.slug),
       await createSessionFixture(memberUser.id),
     );
 

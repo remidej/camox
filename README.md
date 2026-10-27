@@ -67,6 +67,6 @@ registering the chosen API callback URL.
 
 ## License
 
-The Camox framework is MIT-licensed: `camox`, `@camox/cli`, `create-camox`,
+The Camox framework is MIT-licensed: `camox`, `@camox/cli`,
 `@camox/ui`, `@camox/api-contract`, templates, and supporting packages. The
 hosted API implementation in `apps/api` is source-available under [FSL-1.1-MIT](https://fsl.software/).
