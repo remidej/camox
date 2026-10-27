@@ -589,10 +589,12 @@ void test("an item's Summary wins over its title in its repeater's list and the 
 void test("the path's headers narrow the further under the selection they are, by less each step", async (t) => {
   const item = await renderSidebar(t, { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID });
   const headers = [
-    ...item.host.querySelectorAll<HTMLElement>('nav[aria-label="Selection path"] li > div > div'),
+    ...item.host.querySelectorAll<HTMLElement>(
+      'nav[aria-label="Selection path"] li > div > div > [aria-hidden]',
+    ),
   ];
-  // Each header's inset on either side, from the top of the path down to the selection.
-  const insets = headers.map((header) => parseFloat(header.style.marginInline || "0"));
+  // Each header card's inset on either side, from the top of the path down to the selection.
+  const insets = headers.map((header) => parseFloat(header.style.insetInline || "0"));
   assert.equal(insets.length, 3);
   assert.equal(insets.at(-1), 0, "the selection's own header is full width");
   const steps = insets.slice(1).map((inset, index) => insets[index]! - inset);

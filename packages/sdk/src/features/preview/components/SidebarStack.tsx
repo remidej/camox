@@ -91,10 +91,15 @@ const SWAP_DURATION = 150;
 /** How long after each other cards laid at once land, front-most last. */
 const STAGGER = 25;
 
-const HEADER_TRANSITION = [
-  ...["transform", "margin", "height", "padding"].map((p) => `${p} ${DURATION}ms ${EASE}`),
-  ...["background-color", "box-shadow", "color"].map((p) => `${p} ${DURATION}ms ease-out`),
-].join(", ");
+/*
+ * Headers move with transforms and opacity alone, so the compositor moves them without
+ * repainting: a header's layout (its height and inset) snaps, and its card eases between the
+ * old box and the new one by scaling, and its content by sliding. Easing the layout instead
+ * would lay out and repaint every card under the header, and their content, on every frame.
+ */
+
+/** How far any card shades at most, `stepSeries`' limit: a header's shade is a part of it. */
+const MAX_SHADE = FIRST_STEP_SHADE / (1 - STEP_FALLOFF);
 
 /*
  * How a card moves, by how it comes or goes relative to the front: laid on top of it or
@@ -287,6 +292,61 @@ function useStackCard(
   }, []);
 }
 
+/** Where a header's card and content were laid out, relative to the header. */
+type HeaderBox = { width: number; height: number; center: number };
+
+/**
+ * Eases a header's card and content from where they were laid out before `shape` changed to
+ * where they are now, as its layout snaps: its card scales from its old size, and its content
+ * slides from its old height.
+ */
+function useHeaderReshape(
+  surfaceRef: React.RefObject<HTMLElement | null>,
+  contentRef: React.RefObject<HTMLElement | null>,
+  shape: string,
+) {
+  const last = React.useRef<HeaderBox | null>(null);
+  const moving = React.useRef<Animation[]>([]);
+  React.useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    const content = contentRef.current;
+    if (!surface || !content) return;
+    const box: HeaderBox = {
+      width: surface.offsetWidth,
+      height: surface.offsetHeight,
+      center: content.offsetTop + content.offsetHeight / 2,
+    };
+    const from = last.current;
+    last.current = box;
+    if (!from || !box.width || !box.height || !prefersMotion()) return;
+    // Changed again on its way: start from where it shows, not from where it was laid out.
+    let { width, height, center } = from;
+    if (moving.current.some((animation) => animation.playState === "running")) {
+      const shown = new DOMMatrixReadOnly(getComputedStyle(surface).transform);
+      width *= shown.a;
+      height *= shown.d;
+      center += new DOMMatrixReadOnly(getComputedStyle(content).transform).f;
+    }
+    for (const animation of moving.current) animation.cancel();
+    const timing = { duration: DURATION, easing: EASE };
+    moving.current = [
+      surface.animate(
+        [
+          { transform: `scale(${width / box.width}, ${height / box.height})` },
+          { transform: "none" },
+        ],
+        timing,
+      ),
+      content.animate(
+        [{ transform: `translateY(${center - box.center}px)` }, { transform: "none" }],
+        timing,
+      ),
+    ];
+    // Moves only as its shape changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape]);
+}
+
 /** How many of the selection's views are laid over the page's, in this stack. */
 export function useSelectionViewCount() {
   return React.useContext(SelectionViewsContext)?.count ?? 0;
@@ -398,26 +458,23 @@ export function SidebarStackHeader({
     </button>
   ) : null;
 
+  const surfaceRef = React.useRef<HTMLDivElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const inset = covered ? stackInset(distance) : 0;
+  useHeaderReshape(surfaceRef, contentRef, `${covered}:${inset}`);
+
   return (
     // The card's place in the stack, which moves it as it comes and goes; the card in it leans.
     <div ref={ref} className={cn("relative shrink-0 origin-top", !first && "-mt-1")}>
       <div
         className={cn(
           "relative flex min-w-0 items-center justify-center text-center text-sm",
-          !flat && !first && "rounded-t-sm",
           // Ancestors' names, between muted and full, so they read without competing with the front.
           "[--ancestor-foreground:color-mix(in_oklab,var(--color-muted-foreground),var(--color-foreground)_40%)]",
           "[--fade:var(--rest-fade)] [--lift:0px] [--shade:var(--rest-shade)] [--tilt:var(--rest-tilt)]",
           "[--shade-color:black] [--shade-strength:1] dark:[--shade-color:white] dark:[--shade-strength:var(--dark-shade-strength)]",
           "origin-bottom [backface-visibility:hidden] motion-reduce:transition-none!",
           covered ? "h-[38px] pb-1" : "h-11 px-3",
-          first && !flat && BOTTOM_CARD_EDGES,
-          covered &&
-            !first &&
-            `${CARD_TOP_EDGE} shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.08)] dark:shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.4)]`,
-          !covered &&
-            !first &&
-            `${CARD_TOP_EDGE} shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]`,
           liftable &&
             "hover:[--fade:1] hover:[--lift:var(--hover-lift)] hover:[--shade:var(--hover-shade)] hover:[--tilt:var(--hover-tilt)]",
           liftable &&
@@ -430,50 +487,81 @@ export function SidebarStackHeader({
           {
             "--rest-tilt": `${tilt}deg`,
             "--hover-tilt": `${tilt / 2}deg`,
-            "--rest-shade": `${shade}%`,
+            "--rest-shade": shade,
             "--dark-shade-strength": DARK_SHADE_STRENGTH,
-            "--hover-shade": `${stepSeries(FIRST_STEP_SHADE, Math.max(0, distance - 1))}%`,
+            "--hover-shade": stepSeries(FIRST_STEP_SHADE, Math.max(0, distance - 1)),
             // Lifted, the bottom card would rise past the top of the sidebar.
             "--hover-lift": `${first ? 0 : -HOVER_LIFT}px`,
             "--rest-fade": covered ? 1 - stepSeries(FIRST_STEP_FADE, distance - 1) : 1,
-            marginInline: covered ? stackInset(distance) : undefined,
             transform: `perspective(${PERSPECTIVE}px) translateY(var(--lift)) rotateX(var(--tilt))`,
-            backgroundColor:
-              "color-mix(in oklab, var(--color-background), var(--shade-color) calc(var(--shade) * var(--shade-strength)))",
-            transition: HEADER_TRANSITION,
+            transition: `transform ${DURATION}ms ${EASE}`,
           } as React.CSSProperties
         }
       >
-        {button && popover ? (
-          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-            <PopoverTrigger render={button} />
-            {/* Picking anything in it moves the selection, which leaves it. */}
-            <PopoverContent
-              side="bottom"
-              // Narrower than the header under it, and further down, so their edges don't
-              // nearly line up.
-              sideOffset={8}
-              className="w-48 gap-0 p-1"
-              onClick={() => setPopoverOpen(false)}
-            >
-              {popover}
-            </PopoverContent>
-          </Popover>
-        ) : button && tooltip ? (
-          <Tooltip.Tooltip>
-            <Tooltip.TooltipTrigger render={button} />
-            <Tooltip.TooltipContent side="bottom">{tooltip}</Tooltip.TooltipContent>
-          </Tooltip.Tooltip>
-        ) : (
-          (button ??
-          (covered ? (
-            <span className="truncate px-3 text-(--ancestor-foreground) opacity-(--fade)">
-              {children}
-            </span>
+        {/* The card itself, under the header's content. */}
+        <div
+          ref={surfaceRef}
+          aria-hidden
+          className={cn(
+            "bg-background absolute inset-y-0 isolate origin-top",
+            !flat && (first ? "rounded-t-lg" : "rounded-t-sm"),
+            covered &&
+              !first &&
+              "shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.08)] dark:shadow-[0_-2px_5px_-3px_rgb(0_0_0/0.4)]",
+            !covered &&
+              !first &&
+              "shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.08)] dark:shadow-[0_-3px_8px_-4px_rgb(0_0_0/0.4)]",
+          )}
+          style={{ insetInline: inset }}
+        >
+          {/* Shades the card by fading in a darker one over it, which needs no repaint. */}
+          <div
+            className="absolute inset-0 rounded-[inherit] motion-reduce:transition-none!"
+            style={{
+              backgroundColor: `color-mix(in oklab, var(--color-background), var(--shade-color) calc(${MAX_SHADE}% * var(--shade-strength)))`,
+              opacity: `calc(var(--shade) / ${MAX_SHADE})`,
+              transition: `opacity ${DURATION}ms ease-out`,
+            }}
+          />
+          {/* Its lit top edge, over its shade. */}
+          {!flat && <div className={cn("absolute inset-0 rounded-[inherit]", CARD_TOP_EDGE)} />}
+        </div>
+        <div
+          ref={contentRef}
+          className="relative flex min-w-0 flex-1 items-center justify-center self-stretch"
+          style={{ marginInline: inset || undefined }}
+        >
+          {button && popover ? (
+            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+              <PopoverTrigger render={button} />
+              {/* Picking anything in it moves the selection, which leaves it. */}
+              <PopoverContent
+                side="bottom"
+                // Narrower than the header under it, and further down, so their edges don't
+                // nearly line up.
+                sideOffset={8}
+                className="w-48 gap-0 p-1"
+                onClick={() => setPopoverOpen(false)}
+              >
+                {popover}
+              </PopoverContent>
+            </Popover>
+          ) : button && tooltip ? (
+            <Tooltip.Tooltip>
+              <Tooltip.TooltipTrigger render={button} />
+              <Tooltip.TooltipContent side="bottom">{tooltip}</Tooltip.TooltipContent>
+            </Tooltip.Tooltip>
           ) : (
-            children
-          )))
-        )}
+            (button ??
+            (covered ? (
+              <span className="truncate px-3 text-(--ancestor-foreground) opacity-(--fade)">
+                {children}
+              </span>
+            ) : (
+              children
+            )))
+          )}
+        </div>
       </div>
     </div>
   );
