@@ -3,7 +3,9 @@ import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
+import { expectStored } from "../../../test/artifact-sources";
+import { createProjectFixture, syncDefinitionSet } from "../../../test/fixtures";
 import { projects } from "../../schema";
 
 // A new project's setup: the creation Workflow forks `template-default` into the project's repo,
@@ -26,6 +28,9 @@ type Fakes = {
   failForks(repo: string): Promise<void>;
   losePushResponse(repo: string): Promise<void>;
   failCommand(repo: string, pattern: string, times: number): Promise<void>;
+  hold(repo: string, pattern: string): Promise<void>;
+  letGo(repo: string): Promise<void>;
+  commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
   emailsSent(): Promise<{ to: string; subject: string; text: string; html: string }[]>;
 };
 
@@ -101,6 +106,16 @@ async function releaseFirstPush(projectId: string, end: "complete" | "errored" =
   await instance.waitForStatus(end);
 }
 
+/** The release's `camox release` command, once it runs (held by `fakes.hold`). */
+async function releaseCommandOf(projectId: string) {
+  for (;;) {
+    const runs = await fakes.commandsRun(projectId);
+    const release = runs.find(({ command }) => command.includes("camox release"));
+    if (release) return release;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 async function statusOf(db: Awaited<ReturnType<typeof newProject>>["db"], id: number) {
   return db
     .select({ status: projects.status, setupStep: projects.setupStep })
@@ -168,6 +183,49 @@ describe("setting up a new project", () => {
 
     expect(await statusOf(db, project.id)).toEqual({ status: "live", setupStep: null });
     expect(await emailsAbout(project.uuid)).toEqual([]);
+  });
+
+  it("stores the artifact sources of the Template's content once its first release syncs it", async () => {
+    const { db, project } = await newProject();
+    await setUp(project.uuid);
+    const heroVisual = `<title>Hero</title><p>${crypto.randomUUID()}</p>`;
+    const defaultVisual = `<title>Default</title><p>${crypto.randomUUID()}</p>`;
+    const visual = (fallback?: string) => field.artifact({ size: "fill", default: fallback });
+    // The Template's code copies no content: its first release's `camox release` syncs the
+    // Definition Set built from it, which declares the content, with the release's Deploy Token.
+    await fakes.hold(project.uuid, "camox release");
+    const released = releaseFirstPush(project.uuid);
+    const release = await releaseCommandOf(project.uuid);
+    await syncDefinitionSet(
+      db,
+      { uuid: project.uuid, deployToken: release.env.CAMOX_DEPLOY_TOKEN! },
+      {
+        blocks: [
+          {
+            blockId: "hero",
+            title: "Hero",
+            description: "A hero",
+            contentSchema: { type: "object", properties: { visual: visual() } },
+          },
+          {
+            blockId: "banner",
+            title: "Banner",
+            description: "A banner",
+            contentSchema: { type: "object", properties: { visual: visual(defaultVisual) } },
+          },
+        ],
+        homepage: {
+          layoutId: "default",
+          blocks: [{ type: "hero", content: { visual: heroVisual } }],
+        },
+      },
+    );
+    await fakes.letGo(project.uuid);
+    await released;
+
+    expect(await statusOf(db, project.id)).toEqual({ status: "live", setupStep: null });
+    await expectStored(project, heroVisual);
+    await expectStored(project, defaultVisual);
   });
 
   it("doesn't fail when a retried fork finds the fork already made", async () => {
