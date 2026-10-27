@@ -275,6 +275,37 @@ void test("another studio on Live stays there, showing the draft's card", async 
   });
 });
 
+void test("the studio shows a card's draft as the thread looks it up: renamed, then ended", async (t) => {
+  const live = await enteringStudio(t);
+  await act(async () => live.socket().reply(handedOff("another-tab")));
+
+  await act(async () =>
+    live
+      .socket()
+      .reply({ type: "drafts", drafts: { [STARTED_DRAFT]: { name: "Prices for 2027" } } }),
+  );
+  assert.deepEqual(live.thread().view.messages.at(-1), {
+    id: "2",
+    from: "draft",
+    draftId: STARTED_DRAFT,
+    name: "Prices for 2027",
+  });
+
+  await act(async () =>
+    live.socket().reply({
+      type: "drafts",
+      drafts: { [STARTED_DRAFT]: { name: "Prices for 2027", ended: "deleted" } },
+    }),
+  );
+  assert.deepEqual(live.thread().view.messages.at(-1), {
+    id: "2",
+    from: "draft",
+    draftId: STARTED_DRAFT,
+    name: "Prices for 2027",
+    ended: "deleted",
+  });
+});
+
 void test("a studio no longer on Live isn't told to enter the draft", async (t) => {
   const inDraft = await enteringStudio(t, "019a0000-0000-7000-8000-000000000002");
   const operationId = await sendFrom(inDraft, "Raise the price");

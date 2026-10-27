@@ -2,6 +2,8 @@ import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
 import { z } from "zod";
 
+import type { DraftOutcome } from "./drafts.ts";
+
 // A thread with Camox's agent, as the studio shows it. The thread's Durable Object sends Pi's own
 // agent events over its socket, and this module is the one place that interprets them: the
 // studio and the API's tests fold them with the same code.
@@ -45,6 +47,17 @@ export const START_DRAFT_TOOL = "startDraft";
 /** The draft a `startDraft` call started, as its result's details name it for the card. */
 export const startedDraftCardSchema = z.object({ draftId: z.string(), name: z.string() });
 export type StartedDraftCard = z.infer<typeof startedDraftCardSchema>;
+
+/**
+ * Where a draft a Live thread's card names stands, as the thread looks it up whenever it's shown
+ * (ADR 0025): its current name, or its last once it ended, and how it ended. Never written into
+ * the transcript, so the model's cached prompt keeps up. A name cleared by a rename is null: the
+ * card keeps the name the agent gave it.
+ */
+export type DraftCardState = { name: string | null; ended?: DraftOutcome };
+
+/** The drafts a Live thread's cards name, by id, as the thread last looked them up. */
+export type DraftCardStates = Readonly<Record<string, DraftCardState>>;
 
 export const reconcileDataSchema = z.object({ message: z.string() });
 
@@ -139,9 +152,10 @@ export type ThreadMessage =
   | { id: string; from: "stopped"; sender: ThreadSender }
   /**
    * In place of the agent's message, for a Live turn handed off to a draft the agent started:
-   * the draft's card, which opens it. The turn is finished.
+   * the draft's card, with its current name, which opens it. Once the draft ended, it has its
+   * last name and how it ended, and opens nothing. The turn is finished.
    */
-  | ({ id: string; from: "draft" } & StartedDraftCard);
+  | ({ id: string; from: "draft"; ended?: DraftOutcome } & StartedDraftCard);
 
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
@@ -174,6 +188,8 @@ export type ThreadState = {
   toolCalls?: readonly string[];
   /** Whether the model's latest message makes tool calls: it writes them, then they run. */
   callingTools?: boolean;
+  /** The drafts the thread's cards name, as the thread last looked them up. */
+  drafts?: DraftCardStates;
 };
 
 export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
@@ -228,6 +244,11 @@ export type ThreadServerMessage =
    * run enters it, if it still shows Live. Live only: a snapshot never replays it.
    */
   | { type: "started-draft"; startedDraft: StartedDraft }
+  /**
+   * Where the drafts a Live thread's cards name stand, after each snapshot and whenever one of
+   * them is renamed or ends. It replaces what the studio knew of them.
+   */
+  | { type: "drafts"; drafts: DraftCardStates }
   /**
    * A code-mode script that wrote something ended, failed or not: what its successful writes
    * touched. Sent once per such script, live only: a snapshot never replays past touches.
@@ -314,6 +335,7 @@ export function threadViewOf({
   running,
   toolCalls = [],
   callingTools = false,
+  drafts = {},
 }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
   // The latest editor's message of a turn still waiting for the agent's message.
@@ -369,7 +391,16 @@ export function threadViewOf({
       case "draft":
         // The handoff answers the turn: the agent says nothing more.
         if (waiting === undefined && messages.at(-1)?.from === "stopped") break;
-        messages.push({ id: step.id, from: "draft", draftId: step.draftId, name: step.name });
+        {
+          const draft = drafts[step.draftId];
+          messages.push({
+            id: step.id,
+            from: "draft",
+            draftId: step.draftId,
+            name: draft?.name ?? step.name,
+            ...(draft?.ended && { ended: draft.ended }),
+          });
+        }
         endTurn();
         break;
       case "continued":
@@ -460,6 +491,8 @@ export function reduceThreadFrame(state: ThreadState, frame: ThreadServerMessage
   switch (frame.type) {
     case "events":
       return reduceThreadEvents(state, frame.events);
+    case "drafts":
+      return { ...state, drafts: frame.drafts };
     default:
       return state;
   }

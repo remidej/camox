@@ -172,6 +172,24 @@ function ThreadMessageRow({
 }) {
   if (message.from === "draft") {
     // The agent on Live handed the request off to this draft, where its agent does the work.
+    // Once the draft ended, there's nothing to open: the card says how it ended.
+    if (message.ended) {
+      return (
+        <Message>
+          <MessageContent>
+            <div
+              data-thread-draft-card
+              className="bg-muted/50 flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-sm"
+            >
+              <span className="text-muted-foreground text-xs">
+                {message.ended === "published" ? "Published" : "Deleted"}
+              </span>
+              <span className="font-medium">{message.name}</span>
+            </div>
+          </MessageContent>
+        </Message>
+      );
+    }
     return (
       <Message>
         <MessageContent>

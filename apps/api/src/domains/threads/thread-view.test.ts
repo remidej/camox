@@ -4,8 +4,11 @@ import {
   EDITOR_MESSAGE_ENTRY,
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
+  reduceThreadFrame,
   RUN_STOPPED_ENTRY,
   START_DRAFT_TOOL,
+  type ThreadServerMessage,
+  type ThreadState,
   threadViewOf,
 } from "@camox/api-contract/threads";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -249,6 +252,66 @@ describe("a thread's view", () => {
         false,
       ).said,
     ).toEqual(["editor", "failed"]);
+  });
+
+  it("shows a card's draft as the thread last looked it up, across snapshots", () => {
+    const entries = [
+      editorMessage("Raise the price"),
+      ...handOff({ draftId: "draft-1", name: "New prices" }),
+      editorMessage("Add a launch page"),
+      ...handOff({ draftId: "draft-2", name: "Launch page" }),
+    ];
+    const cards = (state: ThreadState) =>
+      threadViewOf(state).messages.filter((message) => message.from === "draft");
+    const renamed = [
+      { type: "events", events: [snapshot(entries)] },
+      { type: "drafts", drafts: { "draft-1": { name: "Prices for 2027" } } },
+    ] satisfies ThreadServerMessage[];
+    const state = renamed.reduce(reduceThreadFrame, EMPTY_THREAD_STATE);
+
+    expect(cards(state)).toEqual([
+      { id: expect.any(String), from: "draft", draftId: "draft-1", name: "Prices for 2027" },
+      { id: expect.any(String), from: "draft", draftId: "draft-2", name: "Launch page" },
+    ]);
+
+    const ended = [
+      { type: "drafts", drafts: { "draft-1": { name: "Prices for 2027", ended: "published" } } },
+      // A resync's snapshot comes before the thread looks the drafts up again.
+      { type: "events", events: [snapshot(entries)] },
+    ] satisfies ThreadServerMessage[];
+    const after = ended.reduce(reduceThreadFrame, state);
+
+    expect(cards(after)).toEqual([
+      {
+        id: expect.any(String),
+        from: "draft",
+        draftId: "draft-1",
+        name: "Prices for 2027",
+        ended: "published",
+      },
+      { id: expect.any(String), from: "draft", draftId: "draft-2", name: "Launch page" },
+    ]);
+  });
+
+  it("keeps the agent's name for a card whose draft's name was cleared", () => {
+    const state = [
+      {
+        type: "events",
+        events: [
+          snapshot([editorMessage("Raise the price"), ...handOff({ draftId: "d", name: "N" })]),
+        ],
+      },
+      { type: "drafts", drafts: { d: { name: null } } },
+    ] satisfies ThreadServerMessage[];
+
+    expect(
+      threadViewOf(state.reduce(reduceThreadFrame, EMPTY_THREAD_STATE)).messages.at(-1),
+    ).toEqual({
+      id: expect.any(String),
+      from: "draft",
+      draftId: "d",
+      name: "N",
+    });
   });
 
   it("keeps a card a Live turn ended on as the next turn starts", () => {

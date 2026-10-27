@@ -119,6 +119,9 @@ export function useThread(
           setShows((count) => count + 1);
         }
         return;
+      case "drafts":
+        setState((current) => reduceThreadFrame(current, frame));
+        return;
       case "touched":
         if (ours(frame.touched)) {
           const batch = frame.touched;

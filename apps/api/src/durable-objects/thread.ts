@@ -74,7 +74,7 @@ import { type MergeEnd, mergeMainIntoDraft } from "../domains/revisions/merge";
 import { reconcileTurn } from "../domains/revisions/reconcile";
 import type { BuildResult } from "../domains/revisions/result";
 import { buildTool, conflictsTool } from "../domains/revisions/tool";
-import { startDraftFromLive } from "../domains/threads/service";
+import { draftCardsOf, startDraftFromLive } from "../domains/threads/service";
 import { type DraftHandOff, startDraftTool } from "../domains/threads/start-draft";
 import {
   studioAgentTools,
@@ -1059,8 +1059,34 @@ export class Thread extends DurableObject<Bindings> {
    * without opening Pi, which would store.
    */
   async #show(connection: Connection, known: ThreadIdentity | undefined) {
-    if (known) await this.#watch(connection);
-    else send(connection, { type: "events", events: [NOT_STARTED] });
+    if (!known) {
+      send(connection, { type: "events", events: [NOT_STARTED] });
+      return;
+    }
+    await this.#watch(connection);
+    if (!known.draftId) await this.#showDrafts(known, [connection]);
+  }
+
+  /**
+   * Shows every socket on a Live thread where the drafts its cards name stand now, as the API
+   * asks once one of them is renamed or ends (ADR 0025). Nothing of it goes in the transcript.
+   */
+  async showDrafts(): Promise<void> {
+    const known = await this.#knownIdentity();
+    if (!known || known.draftId || (await this.#hasEnded())) return;
+    await this.#showDrafts(known, this.ctx.getWebSockets());
+  }
+
+  /** Looks up the drafts the Live thread's cards name, and sends where they stand to `sockets`. */
+  async #showDrafts(known: ThreadIdentity, sockets: readonly WebSocket[]) {
+    if (sockets.length === 0) return;
+    const started = await this.ctx.storage.list<{ draftId: string }>({
+      prefix: STARTED_DRAFT_PREFIX,
+    });
+    const draftIds = [...started.values()].map(({ draftId }) => draftId);
+    if (draftIds.length === 0) return;
+    const drafts = await runService(draftCardsOf(createDb(this.env.DB), known.projectId, draftIds));
+    for (const socket of sockets) send(socket, { type: "drafts", drafts });
   }
 
   /**

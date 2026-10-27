@@ -1693,6 +1693,7 @@ function endStatements(
       outcome,
       endedBy,
       endedAt: now,
+      name: sql`(select ${drafts.name} from ${drafts} where ${drafts.id} = ${scope.id})`,
     }),
     db.delete(drafts).where(eq(drafts.id, scope.id)),
   ];

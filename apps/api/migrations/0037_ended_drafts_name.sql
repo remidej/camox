@@ -1,0 +1,1 @@
+ALTER TABLE `ended_drafts` ADD `name` text;

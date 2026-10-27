@@ -1,4 +1,5 @@
 import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import type { ThreadView } from "@camox/api-contract/threads";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
@@ -8,6 +9,7 @@ import { createRpcContext } from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
+  answerWithMessages,
   answerWithScript,
   answerWithToolCall,
   forgetThreadModel,
@@ -256,6 +258,143 @@ describe("a Live thread handing a request off to a draft", () => {
     live.close();
   });
 });
+
+describe("a Live thread's card for a draft it started", () => {
+  it("shows the draft's new name once it's renamed, on the Live thread already open and on the next", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const live = await connectLiveThread(website.project.id, token);
+    handOff("New prices");
+    answerNext("Raised the price.");
+    await ask(live, "Raise the price to $12", { keepOpen: true });
+    const [draft] = await draftsOf(website);
+
+    await renameDraft(website, draft!.id, "Prices for 2027");
+
+    await live.until(() => cardOf(live.view())?.name === "Prices for 2027");
+    expect(live.view().messages.at(-1)).toEqual({
+      id: expect.any(String),
+      from: "draft",
+      draftId: draft!.id,
+      name: "Prices for 2027",
+    });
+    live.close();
+    const next = await connectLiveThread(website.project.id, token);
+    await next.until(() => cardOf(next.view())?.name === "Prices for 2027");
+    next.close();
+  });
+
+  it("says the draft was published, with its last name, and opens nothing", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const live = await connectLiveThread(website.project.id, token);
+    handOff("New prices");
+    answerWithScript(RAISE_PRICE);
+    answerNext("Raised the price to $12.");
+    await ask(live, "Raise the price to $12", { keepOpen: true });
+    const [draft] = await draftsOf(website);
+    await until(async () => (await pagesOf(website, draft!.id))["/pricing"]![0]!.includes("$12"));
+    await renameDraft(website, draft!.id, "Prices for 2027");
+
+    await publishDraft(website, draft!.id);
+
+    await live.until(() => cardOf(live.view())?.ended !== undefined);
+    expect(cardOf(live.view())).toEqual({
+      id: expect.any(String),
+      from: "draft",
+      draftId: draft!.id,
+      name: "Prices for 2027",
+      ended: "published",
+    });
+    live.close();
+    const next = await connectLiveThread(website.project.id, token);
+    await next.until(() => cardOf(next.view())?.ended === "published");
+    expect(cardOf(next.view())?.name).toBe("Prices for 2027");
+    next.close();
+  });
+
+  it("says the draft was deleted, with its last name, and opens nothing", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    const live = await connectLiveThread(website.project.id, token);
+    handOff("New prices");
+    answerNext("Raised the price.");
+    await ask(live, "Raise the price to $12", { keepOpen: true });
+    const [draft] = await draftsOf(website);
+    await renameDraft(website, draft!.id, "Prices for 2027");
+
+    await deleteDraft(website, draft!.id);
+
+    await live.until(() => cardOf(live.view())?.ended !== undefined);
+    expect(cardOf(live.view())).toEqual({
+      id: expect.any(String),
+      from: "draft",
+      draftId: draft!.id,
+      name: "Prices for 2027",
+      ended: "deleted",
+    });
+    live.close();
+    const next = await connectLiveThread(website.project.id, token);
+    await next.until(() => cardOf(next.view())?.ended === "deleted");
+    expect(cardOf(next.view())?.name).toBe("Prices for 2027");
+    next.close();
+  });
+
+  it("changes nothing the Live model already read once its draft is renamed and ends", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    handOff("New prices");
+    answerNext("Raised the price.");
+    await ask(await connectLiveThread(website.project.id, token), "Raise the price to $12");
+    const [draft] = await draftsOf(website);
+    await until(async () => {
+      const inDraft = await connectDraftThread(website.project.id, draft!.id, token);
+      const done = !inDraft.view().running && inDraft.view().messages.length === 3;
+      inDraft.close();
+      return done;
+    });
+    const read: (readonly unknown[])[] = [];
+    answerWithMessages((messages) => {
+      read.push(messages);
+      return "Plans start at $9.";
+    });
+    await ask(await connectLiveThread(website.project.id, token), "What do plans cost?");
+    await renameDraft(website, draft!.id, "Prices for 2027");
+    await deleteDraft(website, draft!.id);
+    answerWithMessages((messages) => {
+      read.push(messages);
+      return "Still $9.";
+    });
+
+    await ask(await connectLiveThread(website.project.id, token), "And now?");
+
+    const [before, after] = read;
+    expect(after!.slice(0, before!.length)).toEqual(before);
+  });
+});
+
+/** The last message of a Live thread's view, when it's a draft's card. */
+const cardOf = (view: ThreadView) => {
+  const message = view.messages.at(-1);
+  return message?.from === "draft" ? message : undefined;
+};
+
+/** Publishes a draft whole, as a member does from its review. */
+async function publishDraft({ db, memberUser, project }: Website, draftId: string) {
+  const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
+  const { token } = await call(
+    draftProcedures.previewPublish,
+    { projectId: project.id },
+    { context },
+  );
+  await call(draftProcedures.publish, { projectId: project.id, token }, { context });
+}
+
+/** Renames a draft as a member does from the studio. */
+async function renameDraft({ db, memberUser, project }: Website, draftId: string, name: string) {
+  const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
+  await call(draftProcedures.rename, { projectId: project.id, name }, { context });
+}
 
 /** Deletes a draft as a member does from the studio. */
 async function deleteDraft({ db, memberUser, project }: Website, draftId: string) {

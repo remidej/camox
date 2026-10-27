@@ -189,14 +189,11 @@ void test("the agent's squareling thinks, acts while it uses its tools or builds
   assert.equal(shown("fixing").visibleText, "Fixing a build error…");
 });
 
-void test("a Live turn handed off to a draft ends on the draft's card, which opens it", async () => {
-  const view: ThreadView = {
-    running: false,
-    messages: [
-      { id: "1", from: "editor", sender: editor, text: "Raise the price" },
-      { id: "2", from: "draft", draftId: "draft-1", name: "New prices" },
-    ],
-  };
+/**
+ * Renders `view` in a happy-dom document, clicks the draft's card, then unmounts: what the card
+ * says, what the whole thread says, and the drafts the click opened.
+ */
+async function clickingTheCard(view: ThreadView) {
   const window = new Window();
   const globals = {
     window,
@@ -228,13 +225,45 @@ void test("a Live turn handed off to a draft ends on the draft's card, which ope
     );
 
     const card = container.querySelector("[data-thread-draft-card]")!;
-    assert.match(card.textContent, /New prices/);
-    // The handoff answers the turn: nothing says Camox couldn't finish it.
-    assert.doesNotMatch(container.textContent, /couldn’t finish/);
+    const shown = { card: card.textContent, thread: container.textContent };
     await act(async () => (card as unknown as HTMLElement).click());
-    assert.deepEqual(opened, ["draft-1"]);
     await act(async () => root.unmount());
+    return { ...shown, opened };
   } finally {
     Object.assign(globalThis, before);
   }
+}
+
+void test("a Live turn handed off to a draft ends on the draft's card, which opens it", async () => {
+  const { card, thread, opened } = await clickingTheCard({
+    running: false,
+    messages: [
+      { id: "1", from: "editor", sender: editor, text: "Raise the price" },
+      { id: "2", from: "draft", draftId: "draft-1", name: "New prices" },
+    ],
+  });
+
+  assert.match(card, /New prices/);
+  // The handoff answers the turn: nothing says Camox couldn't finish it.
+  assert.doesNotMatch(thread, /couldn’t finish/);
+  assert.deepEqual(opened, ["draft-1"]);
 });
+
+for (const [ended, said] of [
+  ["published", /Published/],
+  ["deleted", /Deleted/],
+] as const) {
+  void test(`the card of a draft ${ended} says so with its last name, and opens nothing`, async () => {
+    const { card, opened } = await clickingTheCard({
+      running: false,
+      messages: [
+        { id: "1", from: "editor", sender: editor, text: "Raise the price" },
+        { id: "2", from: "draft", draftId: "draft-1", name: "Prices for 2027", ended },
+      ],
+    });
+
+    assert.match(card, /Prices for 2027/);
+    assert.match(card, said);
+    assert.deepEqual(opened, []);
+  });
+}

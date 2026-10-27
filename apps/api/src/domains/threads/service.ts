@@ -1,12 +1,13 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { and, eq, isNull } from "drizzle-orm";
+import type { DraftCardState } from "@camox/api-contract/threads";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { isProjectMember } from "../../authorization";
 import type { Database } from "../../db";
 import type { ServiceContext } from "../_shared/service-context";
 import { writeAccessWhilePublishing } from "../drafts/access";
-import { drafts } from "../drafts/schema";
+import { drafts, endedDrafts } from "../drafts/schema";
 import type { DraftRequest } from "../drafts/scope";
 import { startDraft } from "../drafts/service";
 import { liveThreads } from "./schema";
@@ -77,6 +78,51 @@ export const startDraftFromLive = Effect.fn("startDraftFromLive")(function* (
   return draft?.projectId === projectId && draft.threadId === threadId;
 });
 
+/**
+ * Where the drafts a Live thread's cards name stand in a project: an open draft's current name,
+ * an ended one's last name and how it ended. A draft that isn't there yet is left out.
+ */
+export const draftCardsOf = Effect.fn("draftCardsOf")(function* (
+  db: Database,
+  projectId: number,
+  draftIds: readonly string[],
+) {
+  const cards: Record<string, DraftCardState> = {};
+  if (draftIds.length === 0) return cards;
+  const [open, ended] = yield* Effect.promise(() =>
+    Promise.all([
+      db
+        .select({ id: drafts.id, name: drafts.name })
+        .from(drafts)
+        .where(and(eq(drafts.projectId, projectId), inArray(drafts.id, [...draftIds]))),
+      db
+        .select({ id: endedDrafts.id, name: endedDrafts.name, outcome: endedDrafts.outcome })
+        .from(endedDrafts)
+        .where(and(eq(endedDrafts.projectId, projectId), inArray(endedDrafts.id, [...draftIds]))),
+    ]),
+  );
+  for (const { id, name } of open) cards[id] = { name };
+  for (const { id, name, outcome } of ended) cards[id] = { name, ended: outcome };
+  return cards;
+});
+
+/**
+ * Tells the Live thread that started a draft, if any, to show its card's draft as it stands now,
+ * once it's renamed or ended. A Live thread that can't be reached shows it when next opened.
+ */
+export const showDraftOnLive = (
+  ctx: Pick<ServiceContext, "env">,
+  liveThreadId: string | null | undefined,
+) =>
+  Effect.promise(async () => {
+    if (!liveThreadId) return;
+    try {
+      await ctx.env.THREAD.getByName(liveThreadId).showDrafts();
+    } catch (error) {
+      console.error("A Live thread didn't show where its card's draft stands", error);
+    }
+  }).pipe(Effect.withSpan("showDraftOnLive"));
+
 /** The id of a draft's thread, once someone opened it: null before. */
 const threadOfDraft = Effect.fn("threadOfDraft")(function* (db: Database, draftId: string) {
   const row = yield* Effect.promise(() =>
@@ -116,7 +162,7 @@ export const draftThread = Effect.fn("draftThread")(function* (
  * open, so the next one to open its thread starts a new one, and a regular draft lets go of it
  * with its row. Once the batch applied, `end` deletes the thread, which wipes what it stored
  * and turns away whatever reaches it after. A Live thread that started the draft is never
- * touched: it's the editor's for good.
+ * ended: it's the editor's for good, and only shows its card's draft as ended.
  *
  * The draft ended either way, so `end` never fails: a thread it couldn't reach is only reported.
  */
@@ -124,8 +170,16 @@ export const endingThread = Effect.fn("endingThread")(function* (
   ctx: Pick<ServiceContext, "db" | "env">,
   draftId: string,
 ) {
+  const liveThreadId = yield* Effect.promise(() =>
+    ctx.db
+      .select({ liveThreadId: drafts.liveThreadId })
+      .from(drafts)
+      .where(eq(drafts.id, draftId))
+      .get(),
+  ).pipe(Effect.map((row) => row?.liveThreadId));
+  const showOnLive = showDraftOnLive(ctx, liveThreadId);
   const threadId = yield* threadOfDraft(ctx.db, draftId);
-  if (!threadId) return { statements: [], end: Effect.void };
+  if (!threadId) return { statements: [], end: showOnLive };
   return {
     statements: [
       ctx.db
@@ -139,6 +193,6 @@ export const endingThread = Effect.fn("endingThread")(function* (
       } catch (error) {
         console.error("A thread didn't end with its draft", error);
       }
-    }).pipe(Effect.withSpan("endThread")),
+    }).pipe(Effect.withSpan("endThread"), Effect.andThen(showOnLive)),
   };
 });

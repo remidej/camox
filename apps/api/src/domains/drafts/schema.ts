@@ -91,6 +91,8 @@ export const endedDrafts = sqliteTable(
     // The ending user's id. No foreign key, so the record outlives the member.
     endedBy: text("ended_by").notNull(),
     endedAt: int("ended_at").notNull(),
+    // The draft's last name, which a Live thread's card for it keeps showing (ADR 0025).
+    name: text(),
   },
   (table) => [index("ended_drafts_project_idx").on(table.projectId)],
 );
