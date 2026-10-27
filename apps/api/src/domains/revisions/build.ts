@@ -18,7 +18,12 @@ import { deleteRevisionBuild, revisionArchiveKey } from "./archive";
 import { buildErrorsOf } from "./build-log";
 import type { RevisionToLoad } from "./dispatch";
 import { type BuildResult, ERRORS_SHOWN } from "./result";
-import { buildInSandbox, checkTypesInSandbox, type SandboxTypeCheck } from "./sandbox";
+import {
+  buildInSandbox,
+  checkTypesInSandbox,
+  type SandboxBuild,
+  type SandboxTypeCheck,
+} from "./sandbox";
 import { revisions, type RevisionSource, type RevisionTypeErrors } from "./schema";
 import { typeErrorsOf } from "./type-check-log";
 
@@ -131,9 +136,15 @@ export type RevisionOrigin = {
   run?: { threadId: string; runId: string };
   /**
    * The commit to build, made beside the working copy's files, such as a merge of `main`
-   * (`DraftCode.mergeMain`). Without it, the build is of the files.
+   * (`DraftCode.mergeMain`) or a member's pushed head (`DraftCode.receive`). Without it, the
+   * build is of the files.
    */
   prepared?: PreparedCommit;
+  /**
+   * The build of `prepared` made already, which a push's checks make before anything is
+   * written: it's committed as it is rather than built again.
+   */
+  built?: Extract<SandboxBuild, { ok: true }>;
 };
 
 /** The draft a build is of, with what announcing its revisions needs. */
@@ -267,6 +278,18 @@ async function pruneBuilds(env: Bindings, draft: BuiltDraft, kept: (string | nul
   }
 }
 
+/** What a build that failed with the log `log` returns: its errors. */
+export function failedBuild(log: string): BuildResult {
+  const { shown, total } = capped(buildErrorsOf(log));
+  return {
+    ok: false,
+    build: shown,
+    types: [],
+    lint: [],
+    ...(total === undefined ? {} : { truncated: { build: total } }),
+  };
+}
+
 /** What a build of files that still have conflict markers returns: nothing is built or committed. */
 function markersLeft(files: string[]): BuildResult {
   const { shown, total } = capped(
@@ -293,6 +316,7 @@ export const MESSAGES: Record<RevisionSource, string> = {
   build: "Camox's agent built its changes",
   turn: "Camox's agent ended its turn",
   merge: "Merge Live's code",
+  push: "A member pushed their commits",
 };
 
 /**
@@ -337,7 +361,7 @@ export async function buildRevision(
 async function buildAndPreview(
   env: Bindings,
   draftId: string,
-  { leftBy, run, prepared: given }: RevisionOrigin,
+  { leftBy, run, prepared: given, built: prebuilt }: RevisionOrigin,
   buildSpan: SpanFields,
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
@@ -368,6 +392,8 @@ async function buildAndPreview(
       fields: span,
       after: ({ files }) => ({ bytes: files.byteLength }),
     }));
+  // A pushed head lands as it is, its files taking its tree.
+  const landing = { commit: prepared.commit, checkout: leftBy === "push" };
   const reuseCheckStartedAt = Date.now();
   const existing = await db
     .select({
@@ -399,7 +425,7 @@ async function buildAndPreview(
     // Code back to an earlier revision's tree, such as a reverted change, is that revision
     // again, committed on top of the branch. A merge of `main` changing no file is committed too.
     if (draft.headRevisionId !== existing.id || given) {
-      const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }), {
+      const { commit, parents } = await retried(() => code.commit(landing), {
         name: "revision.build.push",
         fields: { ...span, revisionId: existing.id },
       });
@@ -423,21 +449,14 @@ async function buildAndPreview(
     return withTypeErrors(previewed, existing.typeErrors);
   }
 
-  const outcome = await retried(() => buildInSandbox(env, draftId, prepared, span), {
-    name: "revision.build.sandbox",
-    fields: span,
-    after: (built) => ({ built: built.ok }),
-  });
-  if (!outcome.ok) {
-    const { shown, total } = capped(buildErrorsOf(outcome.log));
-    return {
-      ok: false,
-      build: shown,
-      types: [],
-      lint: [],
-      ...(total === undefined ? {} : { truncated: { build: total } }),
-    };
-  }
+  const outcome =
+    prebuilt ??
+    (await retried(() => buildInSandbox(env, draftId, prepared, span), {
+      name: "revision.build.sandbox",
+      fields: span,
+      after: (built) => ({ built: built.ok }),
+    }));
+  if (!outcome.ok) return failedBuild(outcome.log);
 
   const revisionId = existing?.id ?? generateUuidv7();
   const archiveKey = revisionArchiveKey({
@@ -453,7 +472,7 @@ async function buildAndPreview(
       name: "revision.build.r2Put",
       fields: { ...span, revisionId, bytes: outcome.archive.byteLength },
     }),
-    retried(() => code.commit({ commit: prepared.commit }), {
+    retried(() => code.commit(landing), {
       name: "revision.build.push",
       fields: { ...span, revisionId },
     }),

@@ -101,6 +101,16 @@ export class TranslationsPendingError extends Data.TaggedError("TranslationsPend
   readonly translating: readonly string[];
 }> {}
 
+/**
+ * A member's push was refused, writing nothing (ADR 0026): `reason` is its stable code, and a
+ * push that doesn't build has its build's errors.
+ */
+export class PushRefusedError extends Data.TaggedError("PushRefusedError")<{
+  readonly reason: string;
+  readonly message: string;
+  readonly data?: Record<string, unknown>;
+}> {}
+
 export type ServiceError =
   | UnauthenticatedError
   | ForbiddenError
@@ -113,7 +123,8 @@ export type ServiceError =
   | ConflictsChangedError
   | PublishBlockedError
   | RevisionChangedError
-  | TranslationsPendingError;
+  | TranslationsPendingError
+  | PushRefusedError;
 
 // --- Helpers ---
 

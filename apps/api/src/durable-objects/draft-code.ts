@@ -583,11 +583,54 @@ export class DraftCode extends DurableObject<Bindings> {
   }
 
   /**
-   * Moves the draft's branch to `commit`, which `prepareCommit` made, and pushes it. A commit of
-   * the tree the branch's head already has, such as one prepared again after the push of the
-   * first, leaves the head as it is. Returns the branch's head and its parents.
+   * Adds a member's pushed commits to the working copy, without moving the branch: the objects of
+   * `pack`, a bundle's packfile, which may build on the objects of `prerequisites`, commits of
+   * `main` fetched for it when the working copy doesn't hold them. A build then commits the
+   * pushed head (`commit`, with `checkout`).
    */
-  commit({ commit }: { commit: string }): Promise<{ commit: string; parents: string[] }> {
+  receive({ pack, prerequisites }: { pack: Uint8Array; prerequisites: string[] }): Promise<void> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const at = { fs, dir: CODE_ROOT };
+      using artifacts = await this.env.ARTIFACTS.get(this.ctx.storage.kv.get<string>(REPO_KEY)!);
+      const { remote } = await artifacts.info();
+      const headers = { Authorization: `Bearer ${await this.#token(artifacts)}` };
+      for (const prerequisite of prerequisites) {
+        if (await holds(fs, prerequisite)) continue;
+        await git.fetch({
+          ...at,
+          http,
+          url: remote,
+          headers,
+          remoteRef: prerequisite,
+          singleBranch: true,
+          depth: 1,
+          tags: false,
+        });
+      }
+      const digest = await crypto.subtle.digest("SHA-1", pack);
+      const name = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const filepath = `.git/objects/pack/pack-${name}.pack`;
+      await fs.promises.writeFile(`/${filepath}`, pack);
+      await git.indexPack({ ...at, filepath });
+      this.#save(fs);
+    });
+  }
+
+  /**
+   * Moves the draft's branch to `commit`, which `prepareCommit` made, or a member pushed on top
+   * of the branch's head, and pushes it. A commit of the tree the branch's head already has, such
+   * as one prepared again after the push of the first, leaves the head as it is. With
+   * `checkout`, for a commit made beside the files, the files take its tree. Returns the
+   * branch's head and its parents.
+   */
+  commit({
+    commit,
+    checkout = false,
+  }: {
+    commit: string;
+    checkout?: boolean;
+  }): Promise<{ commit: string; parents: string[] }> {
     return this.#serially(async () => {
       const fs = await this.#workingCopy();
       const at = { fs, dir: CODE_ROOT };
@@ -601,7 +644,13 @@ export class DraftCode extends DurableObject<Bindings> {
       if (head !== commit) {
         const { commit: current } = await git.readCommit({ ...at, oid: head });
         if (current.tree === made.tree && !(merge && made.parent[0] === head)) landed = head;
-        else if (made.parent.includes(head)) {
+        else if (
+          made.parent.includes(head) ||
+          (checkout &&
+            (await git
+              .isDescendent({ ...at, oid: commit, ancestor: head, depth: -1 })
+              .catch(() => false)))
+        ) {
           await git.writeRef({ ...at, ref, value: commit, force: true });
         } else {
           throw new Error("The draft's branch moved since this commit was prepared");
@@ -613,6 +662,9 @@ export class DraftCode extends DurableObject<Bindings> {
       await timed("draftCode.push", { draftId: this.ctx.id.name }, () =>
         git.push({ ...at, http, url: remote, headers, ref: branch, remoteRef: branch }),
       );
+      if (checkout && !merge && landed === commit) {
+        await git.checkout({ ...at, ref: branch, force: true });
+      }
       if (merge && landed === commit) {
         // A merge made beside the files, which nothing wrote to since, or from them, as Camox's
         // reconcile turn fixed it: the files take its tree either way.
@@ -1021,7 +1073,7 @@ async function holds(fs: MemoryFs, oid: string) {
 }
 
 /** The files of a commit's tree, as a build streams them. */
-async function treeEntries(fs: MemoryFs, commit: string) {
+export async function treeEntries(fs: MemoryFs, commit: string) {
   const entries: TarEntry[] = [];
   await git.walk({
     fs,

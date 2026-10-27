@@ -1,6 +1,7 @@
 import { agentProcedures } from "./domains/agent/routes";
 import { blockDefinitionProcedures } from "./domains/block-definitions/routes";
 import { blockProcedures } from "./domains/blocks/routes";
+import { codeProcedures } from "./domains/code-pushes/routes";
 import { collectionDefinitionProcedures } from "./domains/collections/routes";
 import { definitionProcedures } from "./domains/definitions/routes";
 import { draftProcedures } from "./domains/drafts/routes";
@@ -26,6 +27,7 @@ export const router = {
   drafts: draftProcedures,
   agent: agentProcedures,
   patrol: patrolProcedures,
+  code: codeProcedures,
 };
 
 export type Router = typeof router;
