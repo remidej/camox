@@ -59,9 +59,13 @@ export function createArtifactPage() {
       page.document.body.append(frame);
       return frame as unknown as HTMLIFrameElement;
     },
-    /** Loads `srcDoc` into the frame as a new artifact document, running its scripts. */
-    load(frame: HTMLIFrameElement, srcDoc: string) {
+    /**
+     * Loads `srcDoc` into the frame as a new artifact document, running its scripts. With `url`,
+     * the document is the one the frame fetched from that URL instead of an inline `srcdoc`.
+     */
+    load(frame: HTMLIFrameElement, srcDoc: string, { url }: { url?: string } = {}) {
       const artifact = new Window({
+        ...(url === undefined ? {} : { url }),
         settings: {
           enableJavaScriptEvaluation: true,
           suppressInsecureJavaScriptEnvironmentWarning: true,

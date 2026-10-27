@@ -69,6 +69,16 @@ function artifactDataScript(data: ArtifactData) {
 }
 
 /**
+ * The fragment, `#` included, that carries the starting Artifact Data in the URL of a frame that
+ * loads its artifact by URL instead of `srcdoc`. The runtime decodes it as `camox.data`. Fragments
+ * never reach the server, so one cached document serves every placement. Empty data needs none.
+ */
+export function artifactDataFragment(data: ArtifactData) {
+  const json = JSON.stringify(data);
+  return json === "{}" ? "" : `#${encodeURIComponent(json)}`;
+}
+
+/**
  * The stylesheet and preconnect links of the project's document definition, as HTML, so artifacts
  * use the website's fonts from their first render. Nothing else from the document's head: its
  * title, meta, scripts and icons belong to the website, not to the artifact.

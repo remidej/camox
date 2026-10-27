@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createArtifactPage, type ArtifactWindow } from "./artifactProtocol.fixtures";
-import { artifactFrameProps } from "./lib/artifact";
+import { artifactDataFragment, artifactFrameProps } from "./lib/artifact";
 import { connectArtifactHost } from "./lib/artifactHost";
+import { ARTIFACT_RUNTIME } from "./lib/artifactRuntime";
 
 const srcDoc = artifactFrameProps("<!doctype html><title>Orbit</title><svg></svg>").srcDoc;
 const editing = { editing: true, canvas: false };
@@ -144,3 +145,63 @@ void test("Artifact Data that changed before the frame connected reaches the art
   await harness.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(artifact.camox.data)), { label: "New" });
 });
+
+/** What a frame loaded by URL fetches: the runtime and the source, without any inline data. */
+const urlDocument = `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${source}`;
+const artifactUrl = "https://site.test/_camox/artifacts/shell/source";
+
+/** `camox.data` as seen by the artifact, copied out of its realm for comparison. */
+function dataOf(artifact: ArtifactWindow) {
+  return JSON.parse(JSON.stringify(artifact.camox.data)) as unknown;
+}
+
+/** Loads the artifact by URL, with `fragment` after its `#`, and connects its host. */
+async function loadByUrl(fragment: string, data?: Record<string, unknown>) {
+  const harness = createArtifactPage();
+  const frame = harness.addFrame();
+  const host = connectArtifactHost(frame, { studio: null, data });
+  const artifact = harness.load(frame, urlDocument, { url: `${artifactUrl}${fragment}` });
+  const seen: unknown[] = [];
+  artifact.camox.onData((next) => seen.push(JSON.parse(JSON.stringify(next))));
+  return { harness, host, artifact, seen };
+}
+
+void test("an artifact loaded by URL reads its starting Artifact Data from the fragment", async () => {
+  const data = { label: "Débit <max> & 100%", link: { href: "/a#b?c=d", newTab: true } };
+  const { artifact } = await loadByUrl(artifactDataFragment(data));
+  assert.deepEqual(dataOf(artifact), {
+    label: "Débit <max> & 100%",
+    link: { href: "/a#b?c=d", newTab: true },
+  });
+});
+
+void test("an artifact loaded by URL keeps its fragment's data after its source changes the fragment", () => {
+  const harness = createArtifactPage();
+  const frame = harness.addFrame();
+  const routing = `<!doctype html><script>${ARTIFACT_RUNTIME}</script><script>location.hash = "#/settings"</script>`;
+  const fragment = artifactDataFragment({ label: "Speed" });
+  const artifact = harness.load(frame, routing, { url: `${artifactUrl}${fragment}` });
+  assert.deepEqual(dataOf(artifact), { label: "Speed" });
+});
+
+void test("new Artifact Data reaches an artifact loaded by URL and its onData callbacks", async () => {
+  const fragment = artifactDataFragment({ label: "Speed", value: 3 });
+  const { harness, host, artifact, seen } = await loadByUrl(fragment, { label: "Speed", value: 3 });
+  await harness.settle();
+  host.update({ studio: null, data: { label: "Speed", value: 7 } });
+  await harness.settle();
+  assert.deepEqual(seen, [{ label: "Speed", value: 7 }]);
+  assert.deepEqual(dataOf(artifact), { label: "Speed", value: 7 });
+});
+
+for (const [name, fragment] of [
+  ["no fragment", ""],
+  ["a fragment that isn't encoded JSON", "#%E0%A4%A"],
+  ["a fragment that isn't JSON", "#/settings"],
+  ["a fragment that isn't an object", `#${encodeURIComponent('"Speed"')}`],
+]) {
+  void test(`an artifact loaded by URL with ${name} sees empty Artifact Data`, async () => {
+    const { artifact } = await loadByUrl(fragment);
+    assert.deepEqual(dataOf(artifact), {});
+  });
+}

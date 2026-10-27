@@ -12,7 +12,9 @@
  *   change. The host converts the colors, so the runtime that every frame inlines stays small.
  * - host → frame: `data` with the latest Artifact Data. The initial data is inlined in the
  *   `srcDoc` as a `<script type="application/json" data-camox-data>` after the runtime and the
- *   font links, so it is read lazily, on first access.
+ *   font links, or, for a frame loaded by URL, encoded in the URL's fragment (see
+ *   `artifactDataFragment`). It is read lazily, on first access, but the fragment is captured as
+ *   the runtime starts, before the artifact source can change it.
  * - runtime → page: `observe-viewport` with `observe`, when the artifact's first `onViewport`
  *   subscription starts or its last one ends. While observed, the host sends `viewport` with
  *   `progress` and `visibleRatio` whenever they change.
@@ -37,11 +39,13 @@ export const ARTIFACT_RUNTIME = `(() => {
   let data;
   let dataJson;
   const dataListeners = new Set();
+  const fragment = location.hash.slice(1);
   const readData = () => {
     if (dataJson !== undefined) return data;
     const script = document.querySelector("script[data-camox-data]");
     try {
-      data = script ? JSON.parse(script.textContent) : {};
+      data = script ? JSON.parse(script.textContent) : JSON.parse(decodeURIComponent(fragment));
+      if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
     } catch {
       data = {};
     }
