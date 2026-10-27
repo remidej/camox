@@ -1,4 +1,4 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER, type DraftKind } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
@@ -8,12 +8,11 @@ import {
   createProjectFixture,
   createRpcContext,
   callSeedingLive,
-  openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { refreshes, sentTo } from "../../../test/project-rooms";
 import { router } from "../../router";
-import { drafts, member, pages, user } from "../../schema";
+import { member, pages, user } from "../../schema";
 
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
@@ -87,16 +86,6 @@ async function fixture() {
   const deleteDraft = (draftId: string) =>
     call(router.drafts.delete, { projectId }, as(me, inDraft(draftId)));
 
-  /** A draft opened without content, created by `who`. */
-  const openDraft = async (kind: DraftKind, who: typeof ada = me) => {
-    if (kind === "development") return openDevelopmentDraft(base.db, projectId, who.id);
-    const id = generateUuidv7();
-    await base.db
-      .insert(drafts)
-      .values({ id, projectId, kind, createdBy: who.id, createdAt: Date.now() });
-    return id;
-  };
-
   return {
     ...base,
     ada,
@@ -110,7 +99,6 @@ async function fixture() {
     preview,
     publish,
     deleteDraft,
-    openDraft,
   };
 }
 
@@ -129,7 +117,6 @@ describe("listing drafts", () => {
 
     const byId = new Map(listed.map((draft) => [draft.id, draft]));
     expect(byId.get(mine)).toMatchObject({
-      kind: "regular",
       name: null,
       createdBy: { id: me.id, name: "Member" },
       changeCount: (await preview(mine)).changes.length,
@@ -157,19 +144,6 @@ describe("listing drafts", () => {
     expect(after).not.toContain(deleted);
   });
 
-  it("never lists development drafts, the caller's included", async () => {
-    const { ada, list, openDraft } = await fixture();
-    const regular = await openDraft("regular");
-    const mine = await openDraft("development");
-    const adas = await openDraft("development", ada);
-
-    const ids = (await list()).drafts.map((draft) => draft.id);
-
-    expect(ids).toContain(regular);
-    expect(ids).not.toContain(mine);
-    expect(ids).not.toContain(adas);
-  });
-
   it("says who published Live last and when, from the most recently published Live content", async () => {
     const { ada, me, createBlock, list, publish } = await fixture();
     expect((await list()).live).toEqual({ publishedBy: null, publishedAt: null, release: false });
@@ -185,16 +159,6 @@ describe("listing drafts", () => {
     const { live } = await list();
     expect(live.publishedBy).toEqual({ id: ada.id, name: "Ada" });
     expect(live.publishedAt).toBeGreaterThanOrEqual(before);
-  });
-
-  it("counts a development draft's publish as Live's latest publish", async () => {
-    const { me, createBlock, list, publish, openDraft } = await fixture();
-    const development = await openDraft("development");
-    await createBlock(me, inDraft(development));
-
-    await publish(development);
-
-    expect((await list()).live.publishedBy).toEqual({ id: me.id, name: "Member" });
   });
 
   it("counts a release writing Live as Live's latest publish, by a release", async () => {
@@ -244,7 +208,6 @@ describe("getting a draft", () => {
 
     expect(await get(draft, me)).toMatchObject({
       id: draft,
-      kind: "regular",
       name: null,
       createdBy: { id: ada.id, name: "Ada" },
       changeCount: 2,
@@ -289,13 +252,6 @@ describe("renaming a draft", () => {
 
     expect((await get(draft)).name).toBeNull();
   });
-
-  it("refuses to rename a development draft", async () => {
-    const { rename, openDraft } = await fixture();
-    const development = await openDraft("development");
-
-    await expect(rename(development, "Mine")).rejects.toMatchObject({ status: 400 });
-  });
 });
 
 describe("creating a draft", () => {
@@ -311,7 +267,6 @@ describe("creating a draft", () => {
     const unnamed = await call(router.drafts.create, { projectId: project.id }, as(ada));
 
     expect(named).toMatchObject({
-      kind: "regular",
       name: "Spring campaign",
       createdBy: { id: ada.id, name: "Ada" },
       changeCount: 0,

@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   createProjectFixture,
   createServiceContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
   type TestDefinitionSet,
 } from "../../../test/fixtures";
@@ -60,31 +59,25 @@ async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
 }
 
 describe("bootstrap schema validation", () => {
-  it("validates a development draft's layouts against its own definitions, not Live's", async () => {
-    const { db, ctx, project } = await fixture("development-draft");
-    await openDevelopmentDraft(db, project.id, ctx.user!.id);
+  it("validates a release's layouts against the definitions it releases, not Live's", async () => {
+    const { db, release } = await fixture("released-definitions");
     const before = await snapshot(db);
-    // Live's card accepts any count from 0; the development draft's code now asks for 10 or more.
-    const local = {
+    // Live's card accepts any count from 0; the released code now asks for 10 or more.
+    const released = {
       ...card,
       contentSchema: { type: "object", properties: { count: { type: "integer", minimum: 10 } } },
     };
     await expect(
-      syncDefinitionSet(
-        db,
-        project,
-        {
-          blocks: [local],
-          layouts: [
-            {
-              layoutId: "default",
-              description: "",
-              blocks: [{ type: "card", content: { count: 1 } }],
-            },
-          ],
-        },
-        { as: ctx.user },
-      ),
+      release({
+        blocks: [released],
+        layouts: [
+          {
+            layoutId: "default",
+            description: "",
+            blocks: [{ type: "card", content: { count: 1 } }],
+          },
+        ],
+      }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await snapshot(db)).toEqual(before);
   });

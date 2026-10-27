@@ -1,6 +1,5 @@
 /** What a draft shows as its name: computed for the viewer when unnamed, and never stored. */
 type Labelled = {
-  kind: "regular" | "development";
   name: string | null;
   createdBy: { name: string };
   createdAt: number;
@@ -10,10 +9,9 @@ const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "num
 
 /**
  * A draft's name, or for an unnamed draft its creator and creation date formatted for the
- * viewer, e.g. "Rémi, Oct 13". A development draft is the development draft.
+ * viewer, e.g. "Rémi, Oct 13".
  */
 export function draftLabel(draft: Labelled): string {
-  if (draft.kind === "development") return "Development draft";
   if (draft.name) return draft.name;
   return `${draft.createdBy.name}, ${dayFormat.format(draft.createdAt)}`;
 }

@@ -1,9 +1,4 @@
-import {
-  DEVELOPMENT_DRAFT,
-  DRAFT_CREATE_HEADER,
-  DRAFT_HEADER,
-  LOCALE_HEADER,
-} from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -12,20 +7,17 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
 
-// Adding and removing locales (ADR 0015), as an agent does through the AI tools in its
-// development draft (ADR 0010), and as the studio does through the API.
+// Adding and removing locales (ADR 0015), as an agent does through the AI tools in a draft, and
+// as the studio does through the API.
 
 type Headers = Record<string, string>;
 type ToolResponse =
   | { ok: true; result: any }
   | { ok: false; error: { code: string; message: string } };
-
-const development: Headers = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
 
 /**
  * A project with, on Live in the default locale: a page with a block holding a repeatable item,
@@ -128,39 +120,46 @@ async function fixture() {
     { projectUuid, collectionId: "articles", content: { title: "First" } },
     member(),
   );
-  await openDevelopmentDraft(db, projectId, memberUser.id);
+  // The draft the AI tools work in, which the first request starts: a new one once it's published.
+  const newDraft = (): Headers => ({
+    [DRAFT_HEADER]: generateUuidv7(),
+    [DRAFT_CREATE_HEADER]: "1",
+  });
+  let current = newDraft();
+  const inDraft = () => current;
 
-  const callTool = async (name: string, args: object = {}, headers = development) =>
+  const callTool = async (name: string, args: object = {}, headers = inDraft()) =>
     (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
       member(headers),
     )) as ToolResponse;
-  const tool = async (name: string, args: object = {}, headers = development) => {
+  const tool = async (name: string, args: object = {}, headers = inDraft()) => {
     const response = await callTool(name, args, headers);
     if (!response.ok) throw new Error(`${name} failed: ${JSON.stringify(response.error)}`);
     return response.result;
   };
-  const errorOf = async (name: string, args: object = {}, headers = development) => {
+  const errorOf = async (name: string, args: object = {}, headers = inDraft()) => {
     const response = await callTool(name, args, headers);
     if (response.ok) throw new Error(`${name} succeeded`);
     return response.error.code;
   };
-  const tags = async (headers = development) =>
+  const tags = async (headers = inDraft()) =>
     ((await tool("listLocales", {}, headers)) as { tag: string }[]).map(({ tag }) => tag);
-  const title = async (locale?: string, headers = development) =>
+  const title = async (locale?: string, headers = inDraft()) =>
     (await tool("getBlock", { id: block.id, locale }, headers)).block.content.title;
-  const blocksOn = async (locale?: string, headers = development) =>
+  const blocksOn = async (locale?: string, headers = inDraft()) =>
     ((await tool("getPage", { id: page.id, locale }, headers)).blocks as { id: string }[]).map(
       ({ id }) => id,
     );
-  const preview = (headers = development) => tool("previewPublish", {}, headers);
-  const publish = async (headers = development) => {
+  const preview = (headers = inDraft()) => tool("previewPublish", {}, headers);
+  const publish = async (headers = inDraft()) => {
     const { token } = await preview(headers);
     // These tests don't run the translations adding a locale queues.
     expect(await tool("publishDraft", { token, publishAnyway: true }, headers)).toMatchObject({
       published: true,
     });
+    if (headers === current) current = newDraft();
   };
   const layoutIn = async (locale?: string) =>
     tool("getLayout", { layoutId: base.layout.layoutId, locale });
@@ -171,6 +170,7 @@ async function fixture() {
     projectId,
     projectUuid,
     member,
+    inDraft,
     createPage,
     page,
     block,
@@ -286,7 +286,7 @@ describe("locales", () => {
     const { block } = await call(
       router.blocks.get,
       { id: f.block.id },
-      f.member({ ...development, [LOCALE_HEADER]: "de" }),
+      f.member({ ...f.inDraft(), [LOCALE_HEADER]: "de" }),
     );
     expect(block.content).toMatchObject({ title: "Hallo" });
 
@@ -438,7 +438,7 @@ describe("locales", () => {
 
   it("serves Live's content in any of Live's locales to visitors, and nothing in a locale only a draft has", async () => {
     const f = await fixture();
-    const inGerman = { ...development, [LOCALE_HEADER]: "de" };
+    const inGerman = { ...f.inDraft(), [LOCALE_HEADER]: "de" };
     await f.tool("addLocale", { tag: "de" });
     await call(router.pages.update, { id: f.page.id, pathSegment: "preise" }, f.member(inGerman));
     await f.tool("editBlock", { id: f.block.id, content: { title: "Hallo" }, locale: "de" });
@@ -501,7 +501,7 @@ describe("locales", () => {
       { tag: "de", isDefault: false },
     ]);
     expect(
-      await call(router.locales.list, { projectUuid: f.projectUuid }, f.member(development)),
+      await call(router.locales.list, { projectUuid: f.projectUuid }, f.member(f.inDraft())),
     ).toEqual([
       { tag: "en", isDefault: true },
       { tag: "de", isDefault: false },

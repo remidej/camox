@@ -469,22 +469,6 @@ void test("a synced block placed twice loads each artifact by one URL, each fram
   for (const marker of SOURCE_MARKERS) assert.ok(!html.includes(marker), `${marker} isn't shipped`);
 });
 
-void test("in dev mode, a page inlines its artifacts' sources, so a change shows at once", async (t) => {
-  mockApi(t);
-  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
-  const response = await handleCamoxRequest(new Request("https://site.test/"), {
-    ...options,
-    developmentDraft: true,
-  });
-  const rendered = frames(await response!.text());
-
-  assert.equal(rendered.length, 4);
-  for (const [index, source] of [orbit, bar, dot, bar].entries()) {
-    assert.equal(rendered[index]!.src, undefined);
-    assert.ok(rendered[index]!.srcdoc?.endsWith(source));
-  }
-});
-
 void test("the studio's documents of Live and of a draft, and a preview link's sign-in page, load no artifact by URL, and the studio's hold each source for its frames to inline", async (t) => {
   mockApi(t);
   const member = { headers: { Cookie: "camox_auth_cookie=valid" } };

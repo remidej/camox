@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test, type TestContext } from "node:test";
 
-import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
@@ -54,11 +54,9 @@ async function renderSheet(
   t: TestContext,
   definitions: Record<string, ReturnType<typeof definition>[]>,
   {
-    developmentMode = false,
     renderer = false,
     thumbnailsInView = false,
   }: {
-    developmentMode?: boolean;
     /** Whether the studio renders through a renderer frame, and which renderer connects to it. */
     renderer?: boolean | "otherVersion" | "neverConnects";
     thumbnailsInView?: boolean;
@@ -139,7 +137,7 @@ async function renderSheet(
     root.render(
       <StudioQueryClientProvider
         client={client}
-        draftScope={createDraftScope({ queryClient: client, developmentMode })}
+        draftScope={createDraftScope({ queryClient: client })}
       >
         <AuthContext.Provider
           value={{
@@ -205,19 +203,6 @@ void test("the add-block sheet lists the draft's block definitions from the API,
   });
 
   assert.deepEqual(sheet.listed(), ["HeroSynced", "FAQ"]);
-});
-
-void test("in a development draft, the add-block sheet lists that draft's block definitions", async (t) => {
-  const sheet = await renderSheet(
-    t,
-    {
-      live: [definition("hero", "Hero")],
-      [DEVELOPMENT_DRAFT]: [definition("hero", "Hero"), definition("pricing", "Pricing")],
-    },
-    { developmentMode: true },
-  );
-
-  assert.deepEqual(sheet.listed(), ["Hero", "Pricing"]);
 });
 
 void test("through the renderer frame, each listed block's thumbnail is the renderer's to render, in its own frame", async (t) => {

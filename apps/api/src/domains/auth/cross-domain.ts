@@ -255,7 +255,7 @@ export function crossDomain({
     },
     endpoints: {
       /**
-       * What the dashboard's /studio-authorize page and `camox preview` call: the studio's callback
+       * What the dashboard's /studio-authorize page calls: the studio's callback
        * URL with a one-time token, when the signed-in user may use the studio on its host. The
        * token exchanges for a studio session.
        */

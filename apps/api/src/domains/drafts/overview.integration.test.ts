@@ -9,7 +9,6 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, modelCalls, scheduledFor, scheduledOverviews } from "../../../test/generation";
@@ -314,20 +313,5 @@ describe("the overview isn't content", () => {
     await call(router.drafts.publish, { projectId, token: after.token }, member(inDraft(draft)));
     const live = await call(router.blocks.get, { id: block.id }, member());
     expect(live.block.content).toEqual({ title: "Mine" });
-  });
-
-  it("is cleared when a development draft is emptied by publishing", async () => {
-    const { db, projectId, memberUser, member, createBlock, editTitle, preview, runOverview } =
-      await fixture();
-    const block = await createBlock("Live");
-    const development = await openDevelopmentDraft(db, projectId, memberUser.id);
-    await editTitle(block.id, "Mine", inDraft(development));
-    await runOverview(development, { headline: "Retitles the hero", bullets: ["Hero retitled"] });
-    const { token } = await preview(development);
-    await call(router.drafts.publish, { projectId, token }, member(inDraft(development)));
-
-    await editTitle(block.id, "Mine again", inDraft(development));
-
-    expect((await preview(development)).overview).toEqual({ status: "pending" });
   });
 });

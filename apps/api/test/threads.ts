@@ -66,7 +66,7 @@ export const requestLiveThread = (projectId: number, token: string | null) =>
 
 /**
  * Opens the socket to a draft's thread, as the studio does in that draft: `draft` is the draft's
- * id, or `development` for the signed-in editor's development draft.
+ * id.
  */
 export const requestDraftThread = (projectId: number, draft: string, token: string | null) =>
   requestThread(`/threads/draft/${projectId}/${draft}`, token);

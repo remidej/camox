@@ -1255,7 +1255,7 @@ function parentRowMatches(
       { alias, table: registeredTableOf(column) },
     ),
   );
-  // A layout lives in Live and in development drafts (ADR 0006), like content: a draft holds
+  // A layout lives in Live and in drafts with code (ADR 0006), like content: a draft holds
   // Live's layouts and its own.
   const draftColumn = parentTable?.draftId ?? getTableColumns(key.table).draftId;
   if (draftColumn && holder !== "anywhere") {
@@ -1467,7 +1467,7 @@ export const activityOf = Effect.fn("overlay.activityOf")(function* (
 
 /**
  * Who published Live's most recently published content in a project, and when: the latest
- * publish of any draft, development drafts included, or a release, which has no publisher.
+ * publish of any draft, or a release, which has no publisher.
  * Null when nothing was ever published.
  */
 export const latestLivePublish = Effect.fn("overlay.latestLivePublish")(function* (
@@ -1745,14 +1745,9 @@ function descendantsStatement(table: ContentTable): BatchItem | undefined {
     ) select ${doomedKey} from "doomed")`;
 }
 
-/** Statements deleting every row a draft stores, keeping the draft. */
-function emptyStatements(db: Database, draftId: string): BatchItem[] {
-  return tables().map((table) => db.delete(table as SQLiteTable).where(eq(table.draftId, draftId)));
-}
-
 /**
- * Statements ending a draft: a regular draft is deleted, its rows with it, and leaves its
- * ended-drafts record; a development draft is emptied and stays (ADR 0006).
+ * Statements ending a draft: it's deleted, its rows with it, and leaves its ended-drafts record
+ * (ADR 0009).
  */
 function endStatements(
   db: Database,
@@ -1761,7 +1756,6 @@ function endStatements(
   endedBy: string,
   now: number,
 ): BatchItem[] {
-  if (scope.kind === "development") return emptyStatements(db, scope.id);
   return [
     // The primary key fails the batch when a concurrent publish or delete ended it first.
     db.insert(endedDrafts).values({
@@ -1812,26 +1806,24 @@ export const publish = (
     ...after,
     ...endStatements(db, scope, "published", publishedBy, now),
   ];
-  return endingBatch(db, scope, statements, "live");
+  return endingBatch(db, scope, statements, { published: true });
 };
 
 /**
- * Runs a batch ending what a draft stores, then records each entity it stored as changed where
- * the batch changed it: Live for a publish, or for a deletion the draft itself, when it stays as
- * a development draft does. A regular draft that ended has no readers left to refresh: they are
- * told it ended. Fails when the batch aborted, recording nothing.
+ * Runs a batch ending a draft, then, for a publish, records each entity it stored as changed on
+ * Live. The draft's own readers have nothing left to refresh: they are told it ended. Fails when
+ * the batch aborted, recording nothing.
  */
 const endingBatch = Effect.fnUntraced(function* (
   db: Database,
   scope: Draft,
   statements: BatchItem[],
-  changed: "live" | "draft",
+  { published }: { published: boolean },
 ) {
-  const readersLeft = changed === "live" || scope.kind === "development";
   // Read before the batch drops the draft's rows.
-  const stored = readersLeft ? yield* changesOf(db, scope) : [];
+  const stored = published ? yield* changesOf(db, scope) : [];
   yield* Effect.tryPromise(() => runBatch(db, statements));
-  // The draft is gone from the drafts list, or listed empty.
+  // The draft is gone from the drafts list.
   yield* record(db, { kind: "drafts", projectId: scope.projectId });
   for (const { table, row, change } of stored) {
     yield* record(db, {
@@ -1839,20 +1831,20 @@ const endingBatch = Effect.fnUntraced(function* (
       entity: registrationOf(table).entity,
       id: row.id,
       projectId: scope.projectId,
-      draftId: changed === "live" ? null : scope.id,
+      draftId: null,
       change,
-      // As the draft had it: what Live holds now, or what the draft no longer shows.
+      // As the draft had it: what Live holds now.
       row,
     });
   }
 });
 
-/** Deletes a draft in one batch: one cascading delete, or emptying a development draft. */
+/** Deletes a draft in one batch: one cascading delete. */
 export const deleteDraft = (
   db: Database,
   scope: Draft,
   { deletedBy, now, alongside = [] }: { deletedBy: string; now: number; alongside?: BatchItem[] },
 ) => {
   const statements = [...alongside, ...endStatements(db, scope, "deleted", deletedBy, now)];
-  return endingBatch(db, scope, statements, "draft");
+  return endingBatch(db, scope, statements, { published: false });
 };

@@ -1,5 +1,4 @@
 import {
-  DEVELOPMENT_DRAFT,
   DRAFT_CREATE_HEADER,
   DRAFT_HEADER,
   DRAFT_SEARCH_PARAM,
@@ -11,7 +10,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { DraftNotice, DraftRead } from "../features/routes/pageRuntime";
-import { getApiClient } from "./api-client";
 import { localeHeaders, type LocaleView, UNNAMED_DEFAULT_LOCALE } from "./locale-path";
 
 /**
@@ -24,20 +22,15 @@ import { localeHeaders, type LocaleView, UNNAMED_DEFAULT_LOCALE } from "./locale
  * mints an id and asks the API to create it, and the param lands in the URL once a write
  * succeeds. Edits fired before it settles share the pending id, so they land in one draft.
  *
- * Dev mode works only in the caller's development draft and ignores the URL (ADR 0006): every
- * request and key names `development`, and no draft is ever started.
- *
  * The scope also follows the locale each render shows, named by its path's prefix, so every
  * request reads and writes in it: localizations share their original's id (ADR 0015), so a write
  * naming no locale would change the default locale's.
  */
 export interface DraftScope {
-  /** The draft viewed: a draft's id, `development` in dev mode, or null for Live. */
+  /** The draft viewed: a draft's id, or null for Live. */
   current: () => string | null;
   /** The locale the studio views: the one the last render showed. */
   locale: () => LocaleView;
-  /** Whether this is dev mode, which works only in the development draft (ADR 0006). */
-  readonly developmentMode: boolean;
   /** Calls `listener` after every move to another scope, or after leaving one. */
   subscribe: (listener: (change: DraftScopeChange) => void) => () => void;
 
@@ -55,7 +48,7 @@ export interface DraftScope {
   /**
    * Where a link or navigation to `to` goes, naming the draft the way the URL does. A target on
    * this site keeps the viewed draft unless it names one itself, or `draft` switches to another
-   * (`null` for Live). Other sites' URLs, and every URL in dev mode, are left alone. The result
+   * (`null` for Live). Other sites' URLs are left alone. The result
    * keeps the target's form: a path stays a path. `from` resolves relative targets.
    */
   hrefFor: (to: string, options?: { from?: string; draft?: string | null }) => string;
@@ -68,17 +61,11 @@ export interface DraftScope {
   adopt: (rendered: DraftRead & { locale?: LocaleView }) => void;
   /**
    * Switches to Live once the viewed draft was published or deleted, here or by someone else,
-   * replacing its URL entry. A development draft never ends: it is emptied and dev mode stays in
-   * it. With `notice`, a member is told who ended the draft. Returns whether it switched to Live.
+   * replacing its URL entry. With `notice`, a member is told who ended the draft.
    */
-  leave: (ended: EndedDraft | null, options?: { notice?: boolean }) => boolean;
+  leave: (ended: EndedDraft | null, options?: { notice?: boolean }) => void;
   /** Tells `listener` why the page shows Live; notices raised before any listener wait for one. */
   onNotice: (listener: (notice: DraftNotice) => void) => () => void;
-  /**
-   * The scope of the queries a realtime invalidation from `draftId` reaches. Dev mode keys its
-   * queries `development`, so it resolves its development draft's id the first time it's asked.
-   */
-  keyScopeOfDraft: (draftId: string, projectId: number) => Promise<string>;
 }
 
 export type DraftScopeChange = {
@@ -102,10 +89,6 @@ export interface DraftScopeOptions {
   queryClient: QueryClient;
   /** The window whose URL names the draft. Absent on the server. */
   browser?: DraftScopeBrowser;
-  /** Defaults to whether the build is dev mode's. */
-  developmentMode?: boolean;
-  /** Reads the caller's development draft's id in a project, for realtime. */
-  loadDevelopmentDraftId?: (projectId: number) => Promise<string | undefined>;
 }
 
 /** The draft a URL names, if any. */
@@ -120,34 +103,18 @@ export function withoutDraft(href: string): string {
   return url.href;
 }
 
-function buildIsDevelopmentMode(): boolean {
-  return typeof __CAMOX_DEVELOPMENT_DRAFT__ !== "undefined" && __CAMOX_DEVELOPMENT_DRAFT__;
-}
-
-export function createDraftScope({
-  queryClient,
-  browser,
-  developmentMode = buildIsDevelopmentMode(),
-  loadDevelopmentDraftId = async (projectId) =>
-    (await getApiClient().drafts.get({ projectId }))?.id,
-}: DraftScopeOptions): DraftScope {
-  let current: string | null = developmentMode ? DEVELOPMENT_DRAFT : null;
+export function createDraftScope({ queryClient, browser }: DraftScopeOptions): DraftScope {
+  let current: string | null = null;
   // Before any render says which locale it shows, the default one.
   let locale = UNNAMED_DEFAULT_LOCALE;
   /** The id the first content writes on Live share, and how many of them are still in flight. */
   let pending: { id: string; inFlight: number } | null = null;
-  let developmentDraftId: Promise<string | undefined> | undefined;
   /** Whether a render was adopted yet: the first shows what its own request read. */
   let adoptedRender = false;
   const listeners = new Set<(change: DraftScopeChange) => void>();
   const noticeListeners = new Set<(notice: DraftNotice) => void>();
   const pendingNotices: DraftNotice[] = [];
 
-  /** The draft a render read. Dev mode follows it too: its development draft, or Live. */
-  const draftOfRender = (rendered: DraftRead): string | null => {
-    if (!developmentMode) return rendered.draftId ?? null;
-    return rendered.refusedDraft ? null : DEVELOPMENT_DRAFT;
-  };
   const notify = (move: DraftScopeChange["move"]) => {
     for (const listener of listeners) listener({ draftId: current, move });
   };
@@ -189,8 +156,7 @@ export function createDraftScope({
     const noop = () => {};
     const inLocale = localeHeaders(locale);
     if (current) return { headers: { [DRAFT_HEADER]: current, ...inLocale }, settle: noop };
-    // Dev mode never starts a draft: without the development draft, it can't write.
-    if (!contentWrite || developmentMode) return { headers: inLocale, settle: noop };
+    if (!contentWrite) return { headers: inLocale, settle: noop };
 
     pending ??= { id: generateUuidv7(), inFlight: 0 };
     const started = pending;
@@ -210,7 +176,6 @@ export function createDraftScope({
   return {
     current: () => current,
     locale: () => locale,
-    developmentMode,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -223,7 +188,6 @@ export function createDraftScope({
       return true;
     },
     hrefFor(to, { from, draft } = {}) {
-      if (developmentMode) return to;
       const base = new URL(from ?? browser?.location.href ?? "http://camox.local");
       const target = new URL(to, base);
       if (target.origin !== base.origin) return to;
@@ -244,7 +208,7 @@ export function createDraftScope({
         replaceUrl(null);
         if (rendered.refusedDraft.notice) report(rendered.refusedDraft.notice);
       }
-      const next = draftOfRender(rendered);
+      const next = rendered.draftId ?? null;
       // A first write still in flight on Live started a draft only if the studio stays on Live.
       if (next !== null) pending = null;
       const firstRender = !adoptedRender;
@@ -265,26 +229,16 @@ export function createDraftScope({
     },
     leave(ended, { notice = false } = {}) {
       void queryClient.invalidateQueries({ queryKey: ["camox"] });
-      if (developmentMode) return false;
       pending = null;
       current = null;
       replaceUrl(null);
       if (notice && ended) report({ reason: "ended", ...ended });
       notify("left");
-      return true;
     },
     onNotice(listener) {
       noticeListeners.add(listener);
       for (const notice of pendingNotices.splice(0)) listener(notice);
       return () => noticeListeners.delete(listener);
-    },
-    async keyScopeOfDraft(draftId, projectId) {
-      if (current !== DEVELOPMENT_DRAFT) return draftId;
-      developmentDraftId ??= loadDevelopmentDraftId(projectId).catch(() => {
-        developmentDraftId = undefined;
-        return undefined;
-      });
-      return draftId === (await developmentDraftId) ? DEVELOPMENT_DRAFT : draftId;
     },
   };
 }

@@ -105,7 +105,6 @@ void test("navigation keeps the draft param across SDK links, and switching draf
     const draftScope = createDraftScope({
       queryClient: new QueryClient(),
       browser: dom as never,
-      developmentMode: false,
     });
     draftScope.adopt({ draftId: "d1" });
     await React.act(async () => {

@@ -77,7 +77,7 @@ export const writeReport = Effect.fn("patrol.writeReport")(function* (
   });
 });
 
-/** Publishing or deleting a draft ends its reports, also when a development draft stays. */
+/** Publishing or deleting a draft ends its reports. */
 export function endStatements(db: Database, draftId: string): overlay.BatchItem[] {
   return [db.delete(reports).where(eq(reports.draftId, draftId))];
 }

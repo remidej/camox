@@ -1,8 +1,8 @@
-import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { env } from "cloudflare:workers";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Effect } from "effect";
 import type { z } from "zod";
 
@@ -17,17 +17,7 @@ import type { ServiceError } from "../src/lib/errors";
 import { runService, type ServiceRequirements } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
 import { router } from "../src/router";
-import {
-  blockDefinitions,
-  collectionDefinitions,
-  drafts,
-  layouts,
-  member,
-  organizationTable,
-  projects,
-  session,
-  user,
-} from "../src/schema";
+import { drafts, layouts, member, organizationTable, projects, session, user } from "../src/schema";
 import type { Bindings } from "../src/types";
 
 const now = 1_700_000_000_000;
@@ -225,7 +215,7 @@ export async function seedLiveThrough<A>(
   ) => Effect.Effect<A, ServiceError, ServiceRequirements>,
 ): Promise<A> {
   const id = await startDraft(ctx.db, projectId, ctx.user!.id);
-  const scope = draftOf({ id, kind: "regular", projectId });
+  const scope = draftOf({ id, projectId });
   const result = await runService(run(scope, { ...ctx, draft: { id, create: false } }));
   await publishThrowaway(ctx.db, id);
   return result;
@@ -239,7 +229,7 @@ export async function startDraft(
 ) {
   const draft = await db
     .insert(drafts)
-    .values({ projectId, kind: "regular", createdBy: userId, createdAt: Date.now() })
+    .values({ projectId, createdBy: userId, createdAt: Date.now() })
     .returning({ id: drafts.id })
     .get();
   return draft.id;
@@ -268,73 +258,28 @@ export async function seedLive<T extends ContentTable>(
   return row;
 }
 
-/**
- * A member's development draft holding a copy of Live's definitions, as if dev mode had synced
- * local code identical to the last release (ADR 0006). Returns the draft's id.
- */
-export async function openDevelopmentDraft(
-  db: ReturnType<typeof createDb>,
-  projectId: number,
-  userId: string,
-) {
-  const id = generateUuidv7();
-  await db.insert(drafts).values({
-    id,
-    projectId,
-    kind: "development",
-    createdBy: userId,
-    createdAt: now,
-  });
-  for (const table of [blockDefinitions, layouts, collectionDefinitions]) {
-    const live = await db
-      .select()
-      .from(table)
-      .where(and(eq(table.projectId, projectId), isNull(table.draftId)));
-    for (const { rowId: _rowId, ...row } of live) {
-      await db.insert(table).values({ ...row, draftId: id } as never);
-    }
-  }
-  return id;
-}
-
 /** A Definition Set as a test writes it: each part it leaves out holds nothing. */
 export type TestDefinitionSet = Partial<z.input<typeof definitionSetInput>>;
 
 /**
  * Syncs a whole Definition Set through `definitions.sync`, the way the website's code reaches the
- * API: a release to Live with the project's deploy token, or, signed in `as` a member, dev mode
- * into their development draft, which the sync creates when missing (ADR 0006). A set declaring
- * no layouts leaves the target's layouts, like the fixture's `default` one, as they are.
+ * API: a release to Live with the project's deploy token (ADR 0006). A set declaring no layouts
+ * leaves Live's layouts, like the fixture's `default` one, as they are.
  */
 export function syncDefinitionSet(
   db: ReturnType<typeof createDb>,
   project: { uuid: string; deployToken: string | null },
   set: TestDefinitionSet,
-  options: { as?: ServiceContext["user"] } = {},
 ) {
-  const named = { projectUuid: project.uuid };
   const definitionSet = {
     blocks: set.blocks ?? [],
     layouts: set.layouts ?? [],
     collections: set.collections ?? [],
     homepage: set.homepage ?? null,
   };
-  if (options.as) {
-    const context = createRpcContext(db, options.as, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
-    return call(
-      router.definitions.sync,
-      { ...named, autoCreate: true, definitionSet },
-      { context },
-    );
-  }
   return call(
     router.definitions.sync,
-    {
-      ...named,
-      deployToken: project.deployToken ?? undefined,
-      autoCreate: false,
-      definitionSet,
-    },
+    { projectUuid: project.uuid, deployToken: project.deployToken ?? "", definitionSet },
     { context: createRpcContext(db, null) },
   );
 }

@@ -100,12 +100,6 @@ void test("in a draft, the studio follows the draft's thread", async (t) => {
   assert.equal(new URL(socket().url).pathname, `/threads/draft/1/${draftId}`);
 });
 
-void test("in dev mode, the studio follows the development draft's thread", async (t) => {
-  const { socket } = await studio(t, "development");
-
-  assert.equal(new URL(socket().url).pathname, "/threads/draft/1/development");
-});
-
 void test("a message the thread turns down stops the wait and says so; only the others are resent", async (t) => {
   const { thread, socket } = await studio(t);
   assert.equal(new URL(socket().url).pathname, "/threads/live/1");
@@ -336,16 +330,6 @@ void test("the studio doesn't reconnect to a draft's thread that ended with the 
   });
 
   assert.ok(socket() === ended, "the studio left the ended thread closed");
-});
-
-void test("in dev mode, the studio moves on to the development draft's new thread", async (t) => {
-  const { socket } = await studio(t, "development");
-  const ended = socket();
-
-  await act(async () => ended.end());
-
-  await waitFor(() => socket() !== ended && socket().readyState === 1, "the studio reconnects");
-  assert.equal(new URL(socket().url).pathname, "/threads/draft/1/development");
 });
 
 /** What a script adding a hero block to a page touched. */

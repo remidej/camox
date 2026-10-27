@@ -10,8 +10,7 @@ export function runtimePath(pathname: string, basePath: string) {
 
 /**
  * Requests one of the runtime's JSON endpoints (`/_camox/data`, `/_camox/routes`) as the editor,
- * reading `draft` (null for Live) in `locale` (the default locale without it). Dev mode's runtime
- * always reads the development draft. A path the endpoint takes names its own locale by its
+ * reading `draft` (null for Live) in `locale` (the default locale without it). A path the endpoint takes names its own locale by its
  * prefix; route discovery, which takes none, reads the locale the request names.
  */
 export function fetchRuntimeJson(

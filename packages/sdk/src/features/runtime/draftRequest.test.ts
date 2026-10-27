@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  DEVELOPMENT_DRAFT,
-  DRAFT_ENDED_ERROR_CODE,
-  DRAFT_HEADER,
-  NO_DEVELOPMENT_DRAFT_ERROR,
-  type EndedDraft,
-} from "@camox/api-contract/drafts";
+import { DRAFT_ENDED_ERROR_CODE, DRAFT_HEADER, type EndedDraft } from "@camox/api-contract/drafts";
 
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
 import {
@@ -37,8 +31,6 @@ const ended: EndedDraft = {
 };
 const refused = (status: number, code: string, data: unknown) =>
   Response.json({ json: { defined: false, code, status, message: "Refused", data } }, { status });
-/** Whether the member's development draft exists: the dev server's first sync creates it. */
-let developmentDraftExists = true;
 const unauthorized = () =>
   Response.json(
     { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Sign in" } },
@@ -60,8 +52,6 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     if (draft && !session) return unauthorized();
     if (draft === MISSING_DRAFT) return refused(404, "NOT_FOUND", { draftId: draft });
     if (draft === ENDED_DRAFT) return refused(410, DRAFT_ENDED_ERROR_CODE, ended);
-    if (draft === DEVELOPMENT_DRAFT && !developmentDraftExists)
-      return refused(404, NO_DEVELOPMENT_DRAFT_ERROR, undefined);
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
     const source = draft ? `draft ${draft}` : "Live";
     if (url.pathname.endsWith("/getByUuid")) {
@@ -171,17 +161,11 @@ const runtimeOptions: RuntimeOptions = {
 /** What the last render received, which the browser hydrates from. */
 let lastRender: PageRenderInput | undefined;
 
-function request(
-  path: string,
-  init: { cookie?: string; accept?: string; developmentDraft?: boolean } = {},
-) {
+function request(path: string, init: { cookie?: string; accept?: string } = {}) {
   const headers: Record<string, string> = {};
   if (init.cookie) headers.Cookie = init.cookie;
   if (init.accept) headers.Accept = init.accept;
-  return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), {
-    ...runtimeOptions,
-    developmentDraft: init.developmentDraft,
-  });
+  return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), runtimeOptions);
 }
 
 async function renderedHtml(response: Response | null) {
@@ -282,9 +266,9 @@ void test("the studio reads a layout page's Markdown in the draft its URL names,
 });
 
 /** What a page renders for a request, and the input the browser hydrates from. */
-async function render(path: string, cookie?: string, developmentDraft?: boolean) {
+async function render(path: string, cookie?: string) {
   lastRender = undefined;
-  const response = await request(path, { cookie, developmentDraft });
+  const response = await request(path, { cookie });
   const input = path.startsWith("/_camox/data")
     ? ((await response!.json()) as PageRenderInput)
     : lastRender!;
@@ -365,45 +349,5 @@ void test("a visitor's Live page and its navigation data may be shared, a member
     assert.doesNotMatch(visitor!.headers.get("Cache-Control") ?? "", /private|no-store/, path);
     const member = await request(path, { cookie: MEMBER_SESSION });
     assert.equal(member!.headers.get("Cache-Control"), "private, no-store", path);
-  }
-});
-
-void test("in dev mode, a member reads their development draft whatever draft the URL names", async (t) => {
-  const requests = mockApi(t);
-  for (const path of PATHS) {
-    for (const url of [path, withDraft(path, "d1")]) {
-      const { source, input } = await render(url, MEMBER_SESSION, true);
-      assert.equal(source, `draft ${DEVELOPMENT_DRAFT}`, url);
-      assert.equal(input.draftId, DEVELOPMENT_DRAFT, url);
-      assert.equal(input.refusedDraft, undefined, url);
-    }
-  }
-  const named = new Set(requests.map((entry) => entry.draft).filter((draft) => draft !== null));
-  assert.deepEqual([...named], [DEVELOPMENT_DRAFT]);
-});
-
-void test("in dev mode, a visitor without a session sees Live and never names the development draft", async (t) => {
-  const requests = mockApi(t);
-  for (const path of PATHS) {
-    const { source, input } = await render(path, undefined, true);
-    assert.equal(source, "Live", path);
-    assert.deepEqual(input.refusedDraft, { notice: null }, path);
-  }
-  assert.deepEqual(
-    requests.filter((entry) => entry.draft),
-    [],
-  );
-});
-
-void test("in dev mode before the first sync, a member sees Live and is told their development draft doesn't exist yet", async (t) => {
-  mockApi(t);
-  developmentDraftExists = false;
-  t.after(() => {
-    developmentDraftExists = true;
-  });
-  for (const path of PATHS) {
-    const { source, input } = await render(path, MEMBER_SESSION, true);
-    assert.equal(source, "Live", path);
-    assert.deepEqual(input.refusedDraft, { notice: { reason: "noDevelopmentDraft" } }, path);
   }
 });

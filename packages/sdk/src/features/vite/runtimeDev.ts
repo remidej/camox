@@ -252,7 +252,6 @@ const options = {
   pageClientEntryUrl,
   studioClientEntryUrl,
   rendererClientEntryUrl,
-  developmentDraft: __CAMOX_DEVELOPMENT_DRAFT__,
   getCamoxApp: async () => camoxApp,
   getDocument: async () => camoxDocument,
   // Loaded by the first page image, so the stylesheet stays out of the Worker's main chunk.

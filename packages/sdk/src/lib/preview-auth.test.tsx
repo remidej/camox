@@ -179,7 +179,7 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
       { ...target, apiUrl: "https://wrong.example.test" },
       { initialAuthenticated: true },
     );
-    assert.match(mismatch.host.textContent ?? "", /does not match/);
+    assert.match(mismatch.host.textContent ?? "", /another project or backend/);
     assert.equal(exchanges, before);
     assert.equal(new URL(window.location.href).searchParams.has("ott"), false);
     assert.equal(new URL(window.location.href).searchParams.has("camox-preview"), true);

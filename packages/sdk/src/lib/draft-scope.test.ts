@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEVELOPMENT_DRAFT,
   DRAFT_CREATE_HEADER,
   DRAFT_HEADER,
   type EndedDraft,
@@ -31,10 +30,10 @@ function fakeBrowser(href: string) {
   return browser;
 }
 
-function openScope(href: string, { developmentMode = false } = {}) {
+function openScope(href: string) {
   const queryClient = new QueryClient();
   const browser = fakeBrowser(href);
-  const draftScope = createDraftScope({ queryClient, browser, developmentMode });
+  const draftScope = createDraftScope({ queryClient, browser });
   draftScope.adopt({ draftId: draftNamedBy(href) ?? undefined });
   const changes: DraftScopeChange[] = [];
   draftScope.subscribe((change) => changes.push(change));
@@ -50,8 +49,8 @@ const ended: EndedDraft = {
 };
 
 void test("each scope keeps its own draft, so concurrent server renders read their own keys", () => {
-  const first = createDraftScope({ queryClient: new QueryClient(), developmentMode: false });
-  const second = createDraftScope({ queryClient: new QueryClient(), developmentMode: false });
+  const first = createDraftScope({ queryClient: new QueryClient() });
+  const second = createDraftScope({ queryClient: new QueryClient() });
 
   first.adopt({ draftId: "d1" });
 
@@ -114,17 +113,6 @@ void test("links keep the viewed draft unless they name one or switch drafts", (
   assert.equal(draftScope.hrefFor("https://other.test/"), "https://other.test/");
 });
 
-void test("dev mode views the development draft, names it in every request, and leaves URLs alone", () => {
-  const { draftScope, browser } = openScope("https://site.test/about?camox-draft=d1", {
-    developmentMode: true,
-  });
-
-  assert.equal(draftScope.current(), DEVELOPMENT_DRAFT);
-  assert.deepEqual(draftScope.requestHeaders(true).headers, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
-  assert.equal(draftScope.hrefFor("/contact"), "/contact");
-  assert.equal(browser.location.href, "https://site.test/about?camox-draft=d1");
-});
-
 void test("a render that couldn't read its draft drops the param in place and tells the member why", () => {
   const { draftScope, browser } = openScope("https://site.test/about?camox-draft=d1");
   const notice: DraftNotice = { reason: "ended", ...ended };
@@ -162,42 +150,6 @@ void test("leaving an ended draft switches to Live in place, and says who ended 
   assert.deepEqual(notices, [{ reason: "ended", ...ended }]);
 });
 
-void test("dev mode stays in its development draft after publishing or deleting it", () => {
-  const { draftScope, changes } = openScope("https://site.test/about", { developmentMode: true });
-
-  draftScope.leave(null);
-
-  assert.equal(draftScope.current(), DEVELOPMENT_DRAFT);
-  assert.deepEqual(changes, []);
-});
-
-void test("realtime reaches dev mode's queries by its development draft's id, looked up once", async () => {
-  const queryClient = new QueryClient();
-  let lookups = 0;
-  const draftScope = createDraftScope({
-    queryClient,
-    developmentMode: true,
-    loadDevelopmentDraftId: async () => {
-      lookups++;
-      return "dev-uuid";
-    },
-  });
-
-  assert.equal(await draftScope.keyScopeOfDraft("dev-uuid", 1), DEVELOPMENT_DRAFT);
-  assert.equal(await draftScope.keyScopeOfDraft("other", 1), "other");
-  assert.equal(lookups, 1);
-});
-
-void test("a regular studio reaches a draft's queries by its id, without any lookup", async () => {
-  const draftScope = createDraftScope({
-    queryClient: new QueryClient(),
-    developmentMode: false,
-    loadDevelopmentDraftId: () => assert.fail("no development draft outside dev mode"),
-  });
-
-  assert.equal(await draftScope.keyScopeOfDraft("d1", 1), "d1");
-});
-
 void test("a URL's draft param is read, and removed keeping the rest of the URL", () => {
   assert.equal(draftNamedBy("https://site.test/?camox-draft=d1"), "d1");
   assert.equal(draftNamedBy("/about"), null);
@@ -217,7 +169,7 @@ void test("a navigation on Live while the first write is in flight keeps the dra
 void test("the first render shows what its own request read, without marking it outdated", () => {
   const queryClient = new QueryClient();
   queryClient.setQueryData(inScope(block, "d1"), { title: "Rendered in the draft" });
-  const draftScope = createDraftScope({ queryClient, developmentMode: false });
+  const draftScope = createDraftScope({ queryClient });
 
   draftScope.adopt({ draftId: "d1" });
 

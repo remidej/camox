@@ -17,13 +17,12 @@ async function fixture(suffix: string) {
       .insert(drafts)
       .values({
         projectId: base.project.id,
-        kind: "regular",
         createdBy: base.memberUser.id,
         createdAt: Date.now(),
       })
       .returning()
       .get();
-    return { id: draft.id, kind: draft.kind, projectId: draft.projectId };
+    return { id: draft.id, projectId: draft.projectId };
   };
   const pageId = generateUuidv7();
   const newBlock = (values: { position: string; content?: unknown; id?: string }) => ({

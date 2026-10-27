@@ -76,7 +76,6 @@ describe("The project list's homepage OG image", () => {
       .insert(drafts)
       .values({
         projectId: f.project.id,
-        kind: "regular",
         createdBy: f.memberUser.id,
         createdAt: now,
       })

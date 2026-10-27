@@ -9,7 +9,6 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   seedLive,
   syncDefinitionSet,
   noArtifactFields,
@@ -180,71 +179,12 @@ describe("publishing a renamed page", () => {
   });
 });
 
-describe("deleting a development draft", () => {
-  it("refreshes what its readers saw, since it stays open, emptied", async () => {
-    const { db, block, memberUser, projectId, sentBy } = await fixture();
-    const development = await openDevelopmentDraft(db, projectId, memberUser.id);
-    const inDevelopment = {
-      context: createRpcContext(db, memberUser, { [DRAFT_HEADER]: "development" }),
-    };
-    await call(
-      router.blocks.updateContent,
-      { id: block.id, content: { title: "Local" } },
-      inDevelopment,
-    );
-
-    const sent = await sentBy(() => call(router.drafts.delete, { projectId }, inDevelopment));
-
-    expect(
-      refreshesAll(sent, development, [
-        queryKeys.blocks.get(block.id),
-        [...queryKeys.drafts.get, development],
-      ]),
-    ).toBe(true);
-  });
-});
-
-describe("a definitions sync in a development draft", () => {
-  it("refreshes everything the draft reads", async () => {
-    const { db, memberUser, project, projectId, sentBy } = await fixture();
-    const development = await openDevelopmentDraft(db, projectId, memberUser.id);
-    const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: "development" });
-
-    const sent = await sentBy(() =>
-      call(
-        router.definitions.sync,
-        {
-          projectUuid: project.uuid,
-          autoCreate: false,
-          definitionSet: {
-            blocks: [
-              {
-                blockId: "hero",
-                title: "Hero",
-                description: "A new description",
-                contentSchema: { type: "object", properties: {} },
-              },
-            ],
-            layouts: [],
-            collections: [],
-            homepage: null,
-          },
-        },
-        { context },
-      ),
-    );
-
-    expect(refreshes(sent, development, queryKeys.layouts.all)).toBe(true);
-    expect(refreshes(sent, development, queryKeys.blocks.getUsageCounts)).toBe(true);
-  });
-});
-
 describe("a unit of work that fails", () => {
   it("sends nothing, even for what it wrote before failing", async () => {
     const { db, block, memberUser, projectId, sentBy } = await fixture();
     const draft = await db
       .insert(drafts)
-      .values({ projectId, kind: "regular", createdBy: memberUser.id, createdAt: now })
+      .values({ projectId, createdBy: memberUser.id, createdAt: now })
       .returning()
       .get();
 

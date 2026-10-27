@@ -326,7 +326,7 @@ export function useProcessOtt(
         return;
       } catch {
         setError(
-          "Preview sign-in failed. The link may have expired or already been used. Run camox preview again for a fresh link.",
+          "Preview sign-in failed. The link may have expired or already been used. Restart the dev server for a fresh link.",
         );
       }
       setReady(true);

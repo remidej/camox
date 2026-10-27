@@ -1,9 +1,4 @@
-import {
-  DEVELOPMENT_DRAFT,
-  DRAFT_CREATE_HEADER,
-  DRAFT_HEADER,
-  LOCALE_HEADER,
-} from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
@@ -16,7 +11,6 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
   type TestDefinitionSet,
 } from "../../../test/fixtures";
@@ -183,7 +177,6 @@ async function fixture() {
     { projectUuid, collectionId: "articles", content: { title: "First", slug: "first" } },
     member(),
   );
-  await openDevelopmentDraft(db, projectId, memberUser.id);
 
   const draft = generateUuidv7();
   const starting: Headers = { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" };
@@ -345,22 +338,6 @@ describe("changing the default locale", () => {
     await f.runTranslations();
     expect(await titleIn(f, "de")).toBe("Willkommen");
     expect(await titleIn(f, "fr")).toBe("Bienvenue");
-  });
-
-  it("translates a change made with the CLI in a development draft", async () => {
-    const f = await fixture();
-    const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
-    translateWithDictionaries();
-    await f.tool("addLocale", { tag: "de" }, development);
-    await f.runTranslations();
-
-    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, development);
-
-    expect(f.translationJobs()).toEqual([
-      expect.objectContaining({ entity: "block", entityId: f.block.id, locale: "de" }),
-    ]);
-    await f.runTranslations();
-    expect((await f.blockIn("de", development)).block.content.title).toBe("Willkommen");
   });
 
   it("requests each locale's page SEO once its translation is written, so it's generated from translated content", async () => {
@@ -580,24 +557,6 @@ describe("a translation job", () => {
       expect(modelCalls()).toHaveLength(asked);
     },
   );
-
-  it("does nothing once its development draft was published, which stays open", async () => {
-    const f = await fixture();
-    const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
-    translateWithDictionaries();
-    await f.tool("addLocale", { tag: "de" }, development);
-    await f.runTranslations();
-    await f.tool("editBlock", { id: f.block.id, content: { title: "Welcome" } }, development);
-
-    const jobs = f.translationJobs();
-    const { token } = await f.tool("previewPublish", {}, development);
-    await f.tool("publishDraft", { token, publishAnyway: true }, development);
-    for (const job of jobs) await runService(runAiJob(f.db, job));
-
-    // The development draft stays empty: it reads Live's German, as published.
-    expect((await f.tool("previewPublish", {}, development)).changes).toEqual([]);
-    expect((await f.blockIn("de", development)).block.content.title).toBe("Hallo");
-  });
 });
 
 describe("hand edits to a localization", () => {

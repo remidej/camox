@@ -146,13 +146,12 @@ async function fixture() {
       .insert(drafts)
       .values({
         projectId: base.project.id,
-        kind: "regular",
         createdBy: base.memberUser.id,
         createdAt: Date.now(),
       })
       .returning()
       .get();
-    const scope = { id: draft.id, kind: draft.kind, projectId: draft.projectId };
+    const scope = { id: draft.id, projectId: draft.projectId };
     return { scope, ctx: { ...ctx, draft: { id: draft.id, create: false } } };
   };
   const authors = { projectUuid: base.project.uuid, collectionId: "authors" };

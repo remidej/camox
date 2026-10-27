@@ -11,14 +11,14 @@ export type RecordPages = { collectionId: string; field: string };
 export const LAYOUT_KINDS = ["curated", "derived", "singleton"] as const;
 
 /**
- * A layout definition, stored like block definitions: Live's have no draft, a development
- * draft's carry its id (ADR 0006). Read them through `definitionsIn`.
+ * A layout definition, stored like block definitions: Live's have no draft, a draft with
+ * code's carry its id (ADR 0006). Read them through `definitionsIn`.
  */
 export const layouts = sqliteTable(
   "layouts",
   {
     rowId: int("row_id").primaryKey(),
-    // The development draft holding this layout, or null for Live's.
+    // The draft with code holding this layout, or null for Live's.
     draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
     projectId: int("project_id")
       .notNull()
@@ -32,8 +32,7 @@ export const layouts = sqliteTable(
     // A derived layout's record pages: each renders a record of the collection, found by the
     // plain text of its `field`. Code declares it; publishing checks values stay unique.
     recordPages: text("record_pages", { mode: "json" }).$type<RecordPages>(),
-    // What shapes content, hashed (`_shared/schema-hash.ts`): a development draft publishes only
-    // while its definitions' names and hashes equal Live's (ADR 0006).
+    // What shapes content, hashed (`_shared/schema-hash.ts`).
     schemaHash: text("schema_hash").notNull().default(""),
     contentUpdatedAt: int("content_updated_at").notNull(),
     createdAt: int("created_at").notNull(),

@@ -16,14 +16,20 @@ Camox owns page routing, SSR, hydration, client navigation, Studio, sitemap, mar
 ## Demo content
 
 No manual step is needed. On a fresh clone or worktree, `scripts/prepare.sh` migrates and
-seeds the local database, and the first `pnpm dev` creates your development draft. Once the
-definitions are synced, `demoArticles.ts` fills the **Articles** collection: five
-articles with distinct titles, slugs, excerpts and bodies, no cover, four published one
-after another and the last one, "Notes on our next release (draft)", left as a draft.
+seeds the local database. `pnpm dev` runs against this checkout's local API with the dev seed's
+deploy token, and every save releases the playground's definitions to local Live, as a release
+does: the content they declare, such as the homepage and layout blocks, lands on Live directly.
+Content you edit in the local studio starts regular drafts, which you publish to local Live.
 
-Seeding runs only when your development draft has no articles, so restarting dev never duplicates
-them, and articles you create or delete are left alone. To start over, run `pnpm seed` at
-the repository root, which resets the whole local database, then `pnpm dev` again.
+Once the definitions are released, `demoArticles.ts` fills the **Articles** collection in a new
+regular draft: five articles with distinct titles, slugs, excerpts and bodies, no cover, four
+published one after another and the last one, "Notes on our next release (draft)", left as a
+draft. Publish that draft from the studio to put them on Live.
+
+Seeding runs only when there are no articles yet, so restarting dev after publishing never
+duplicates them, and articles you create or delete are left alone. Until the seeded draft is
+published, each restart seeds another one. To start over, run `pnpm seed` at the repository root,
+which resets the whole local database, then `pnpm dev` again.
 
 The seeder runs as the dev user through the camox plugin's dev-only `_internal.afterSync`
 hook in `vite.config.ts`. If it fails, dev logs a warning and keeps running.
@@ -174,7 +180,7 @@ links nothing further.
 4. Deleting an author that any article or block links is rejected.
 
 Authors used to link their articles instead. A schema change is rejected while records exist,
-so if your development draft still has authors from before, run `pnpm seed` at the repository root
+so if your local database still has authors from before, run `pnpm seed` at the repository root
 to start over.
 
 ## Recent articles and article list (slice 6, query-backed reference lists)

@@ -168,18 +168,13 @@ export function createRendererHost({
   const shownScope = () => draftScope?.current() ?? LIVE_KEY_SCOPE;
   const shown = (queryKey: QueryKey) => scopeOfKey(queryKey) === shownScope();
   /** Whether a project room invalidation reaches the reads of the draft the renderer shows. */
-  const reaches = async (message: InvalidationMessage, projectId: number) => {
-    if (message.draftId === null) return true;
-    if (!draftScope) return false;
-    return (await draftScope.keyScopeOfDraft(message.draftId, projectId)) === shownScope();
-  };
+  const reaches = (message: InvalidationMessage) =>
+    message.draftId === null || (!!draftScope && message.draftId === shownScope());
   const relayChange = (change: StudioCacheChange) => {
     switch (change.type) {
       case "received": {
         const { message, projectId } = change;
-        void reaches(message, projectId).then(
-          (reached) => reached && post({ type: "invalidate", message, projectId }),
-        );
+        if (reaches(message)) post({ type: "invalidate", message, projectId });
         return;
       }
       case "wrote":

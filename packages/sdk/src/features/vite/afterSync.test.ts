@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { setTimeout } from "node:timers/promises";
 
-import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/node";
 import { createLogger, createServer, resolveConfig } from "vite-plus";
@@ -48,13 +49,7 @@ export const block = createBlock({
  */
 async function devCheckout(
   t: TestContext,
-  {
-    failSync = false,
-    draftCreated = false,
-    livePages = 0,
-    blockers = [] as string[],
-    syncResult = {} as Record<string, unknown>,
-  } = {},
+  { failSync = false, syncResult = {} as Record<string, unknown> } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "camox-after-sync-"));
   await mkdir(join(root, ".git"));
@@ -90,7 +85,7 @@ async function devCheckout(
           ),
         );
         return {
-          draftCreated,
+          draftCreated: false,
           blocks: { count: blocks.length, deletedDefinitionTypes: [] },
           collections: { count: 0, retired: [] },
           layouts: null,
@@ -104,34 +99,13 @@ async function devCheckout(
         requests.push({ path: "collectionDefinitions.list", headers: context.headers, input });
         return [];
       }),
-    },
-    pages: {
-      listBySlug: base.handler(({ context, input }) => {
-        requests.push({ path: "pages.listBySlug", headers: context.headers, input });
-        return {
-          projectName: "Test project",
-          pages: Array.from({ length: livePages }, (_, id) => ({ id })),
-        };
-      }),
-    },
-    projects: {
-      getByUuid: base.handler(({ context, input }) => {
-        requests.push({ path: "projects.getByUuid", headers: context.headers, input });
-        return { id: 1 };
-      }),
-    },
-    drafts: {
-      previewPublish: base.handler(({ context }) => {
-        requests.push({ path: "drafts.previewPublish", headers: context.headers });
-        return {
-          blockers: blockers.map((message) => ({ message })),
-          changes: [{ id: "seeded" }],
-          token: "preview-token",
-        };
-      }),
-      publish: base.handler(({ context }) => {
-        requests.push({ path: "drafts.publish", headers: context.headers });
-        return { empty: false, ended: null };
+      createRecord: base.handler(({ context, input }) => {
+        requests.push({
+          path: "collectionDefinitions.createRecord",
+          headers: context.headers,
+          input,
+        });
+        return { id: "record-1" };
       }),
     },
   };
@@ -170,18 +144,16 @@ async function devCheckout(
   };
 }
 
-async function startDevServer(
-  checkout: { root: string; apiUrl: string; cleanups: (() => Promise<void>)[] },
-  afterSync: AfterSync,
-  seedLiveDeployToken?: string,
+/** The deploy token apps/api's dev seed gives every project, which dev mode releases with. */
+const LOCAL_DEPLOY_TOKEN = "local-deploy-token";
+
+function devServerConfig(
+  checkout: { root: string; apiUrl: string },
+  internal: NonNullable<CamoxPluginOptions["_internal"]>,
+  logger = createLogger("silent"),
 ) {
-  const logs: string[] = [];
-  const logger = createLogger("silent");
-  logger.info = (message) => logs.push(message);
-  logger.warn = (message) => logs.push(message);
-  logger.error = (message) => logs.push(message);
-  const server = await createServer({
-    configFile: false,
+  return {
+    configFile: false as const,
     root: checkout.root,
     customLogger: logger,
     server: { host: "127.0.0.1", port: 0 },
@@ -193,12 +165,25 @@ async function startDevServer(
         _internal: {
           apiUrl: checkout.apiUrl,
           authenticationUrl: AUTHENTICATION_URL,
-          afterSync,
-          seedLiveDeployToken,
+          ...internal,
         },
       }),
     ],
-  });
+  };
+}
+
+async function startDevServer(
+  checkout: { root: string; apiUrl: string; cleanups: (() => Promise<void>)[] },
+  afterSync: AfterSync,
+) {
+  const logs: string[] = [];
+  const logger = createLogger("silent");
+  logger.info = (message) => logs.push(message);
+  logger.warn = (message) => logs.push(message);
+  logger.error = (message) => logs.push(message);
+  const server = await createServer(
+    devServerConfig(checkout, { afterSync, localDeployToken: LOCAL_DEPLOY_TOKEN }, logger),
+  );
   checkout.cleanups.push(() => server.close());
   await server.listen();
   return { logs };
@@ -209,41 +194,56 @@ async function waitFor(condition: () => boolean, logs: string[]): Promise<void> 
   assert.ok(condition(), logs.join("\n"));
 }
 
-void test("the dev server syncs definitions and runs afterSync in the dev user's development draft", async (t) => {
+void test("dev mode releases the app's definitions to Live with the deploy token, as a release does", async (t) => {
+  const checkout = await devCheckout(t);
+  const { logs } = await startDevServer(checkout, () => {});
+
+  await waitFor(() => syncCount(logs) === 1, logs);
+  assert.deepEqual(
+    checkout.requests.map(({ path, headers, input }) => ({
+      path,
+      draft: headers[DRAFT_HEADER],
+      deployToken: (input as { deployToken?: unknown }).deployToken,
+    })),
+    [{ path: "definitions.sync", draft: undefined, deployToken: LOCAL_DEPLOY_TOKEN }],
+  );
+  assert.ok(logs.some((line) => line.includes("Running Camox app (local Live)")));
+});
+
+void test("afterSync seeds as the dev user in a regular draft, which its first content write starts", async (t) => {
   const checkout = await devCheckout(t);
   const calls: Parameters<AfterSync>[0][] = [];
   const { logs } = await startDevServer(checkout, async (context) => {
     calls.push(context);
+    const scope = { projectUuid: context.projectUuid, collectionId: "articles" };
+    await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
+    await context.client.collectionDefinitions.createRecord({ ...scope, content: {} });
+    await context.client.collectionDefinitions.createRecord({ ...scope, content: {} });
     await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
   });
 
-  const afterSync = () => checkout.requests.find((r) => r.path === "collectionDefinitions.list");
-  await waitFor(() => !!afterSync(), logs);
+  const seeding = () => checkout.requests.filter((r) => r.path !== "definitions.sync");
+  await waitFor(() => seeding().length === 4, logs);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.projectUuid, CHECKOUT_PROJECT_ID);
-  assert.ok(logs.some((line) => line.includes("Synced 1 Camox definition")));
-  assert.deepEqual(
-    checkout.requests.map(({ path, headers }) => ({
-      path,
-      session: headers.authorization,
-      draft: headers[DRAFT_HEADER],
-    })),
-    ["definitions.sync", "collectionDefinitions.list"].map((path) => ({
-      path,
-      session: "Bearer dev-session",
-      draft: DEVELOPMENT_DRAFT,
-    })),
-  );
-  assert.ok(!logs.some((line) => line.includes("Created your development draft")));
-});
-
-void test("the dev server says when its first sync created the development draft", async (t) => {
-  const checkout = await devCheckout(t, { draftCreated: true });
-  const { logs } = await startDevServer(checkout, () => {});
-
-  await waitFor(() => logs.some((line) => line.includes("Synced 1 Camox definition")), logs);
-  assert.ok(logs.some((line) => line.includes("Created your development draft")));
-  assert.ok(logs.some((line) => line.includes("Running Camox app (your development draft)")));
+  const sent = seeding().map(({ path, headers }) => ({
+    path,
+    session: headers.authorization,
+    draft: headers[DRAFT_HEADER],
+    create: headers[DRAFT_CREATE_HEADER],
+  }));
+  const draft = sent[1]!.draft;
+  assert.ok(uuidv7Schema.safeParse(draft).success, String(draft));
+  const session = "Bearer dev-session";
+  assert.deepEqual(sent, [
+    // Before any write, the draft doesn't exist, so reads see Live and seeding that finds its
+    // content starts nothing.
+    { path: "collectionDefinitions.list", session, draft: undefined, create: undefined },
+    { path: "collectionDefinitions.createRecord", session, draft, create: "1" },
+    { path: "collectionDefinitions.createRecord", session, draft, create: "1" },
+    // Once a write started it, reads see the draft.
+    { path: "collectionDefinitions.list", session, draft, create: undefined },
+  ]);
 });
 
 void test("a release syncs the app's blocks to Live: its requests name no draft", async (t) => {
@@ -283,7 +283,7 @@ void test("a release syncs the app's blocks to Live: its requests name no draft"
   );
 });
 
-void test("a dry-run release builds for Live without a login or a Deploy Token, and syncs nothing", async (t) => {
+void test("a dry-run release builds without a login or a Deploy Token, and syncs nothing", async (t) => {
   const checkout = await devCheckout(t);
   // Nobody is logged in where the upgrade job builds a project.
   await rm(join(checkout.root, ".camox"), { recursive: true });
@@ -304,7 +304,7 @@ void test("a dry-run release builds for Live without a login or a Deploy Token, 
     _internal: { apiUrl: checkout.apiUrl, authenticationUrl: AUTHENTICATION_URL },
   });
 
-  const config = await resolveConfig(
+  await resolveConfig(
     {
       configFile: false,
       root: checkout.root,
@@ -315,8 +315,6 @@ void test("a dry-run release builds for Live without a login or a Deploy Token, 
   );
   await (plugin.closeBundle as () => Promise<void>)();
 
-  // Built as a release would be: for Live, not a development draft.
-  assert.equal(config.define?.__CAMOX_DEVELOPMENT_DRAFT__, "false");
   assert.deepEqual(checkout.requests, []);
 });
 
@@ -348,69 +346,32 @@ function requestLog(requests: { path: string; headers: IncomingHttpHeaders }[]) 
   return requests.map(({ path, headers }) => `${path} ${String(headers[DRAFT_HEADER] ?? "live")}`);
 }
 
-void test("on an empty Live, the dev server releases first and publishes what afterSync seeded, naming the project by its Project ID", async (t) => {
+/** Starts a dev server and expects it refused; one that wrongly starts is closed again. */
+async function assertDevModeRefused(config: Parameters<typeof createServer>[0]) {
+  await assert.rejects(
+    createServer(config).then(async (server) => {
+      await server.close();
+    }),
+    /code reaches Camox through drafts and Upgrades/,
+  );
+}
+
+void test("dev mode refuses to start without the deploy token", async (t) => {
   const checkout = await devCheckout(t);
-  const { logs } = await startDevServer(
-    checkout,
-    async (context) => {
-      await context.client.collectionDefinitions.list({ projectUuid: context.projectUuid });
-    },
-    "deploy-token",
-  );
 
-  await waitFor(() => checkout.requests.some((r) => r.path === "drafts.publish"), logs);
-  assert.deepEqual(requestLog(checkout.requests), [
-    "pages.listBySlug live",
-    "definitions.sync live",
-    `definitions.sync ${DEVELOPMENT_DRAFT}`,
-    `collectionDefinitions.list ${DEVELOPMENT_DRAFT}`,
-    `projects.getByUuid ${DEVELOPMENT_DRAFT}`,
-    `drafts.previewPublish ${DEVELOPMENT_DRAFT}`,
-    `drafts.publish ${DEVELOPMENT_DRAFT}`,
-  ]);
-  // Every request naming the project names it by its Project ID, never its slug. Drafts are
-  // named by the project's integer id, which the project load returned.
-  assert.deepEqual(
-    checkout.requests
-      .filter(({ path }) => !path.startsWith("drafts."))
-      .map(({ input }) => {
-        const { projectUuid, projectSlug, slug } = input as Record<string, unknown>;
-        return { projectUuid, projectSlug, slug };
-      }),
-    Array.from({ length: 5 }, () => ({
-      projectUuid: CHECKOUT_PROJECT_ID,
-      projectSlug: undefined,
-      slug: undefined,
-    })),
-  );
+  await assertDevModeRefused(devServerConfig(checkout, {}));
+  assert.deepEqual(checkout.requests, []);
 });
 
-void test("when Live has pages, the dev server neither releases nor publishes", async (t) => {
-  const checkout = await devCheckout(t, { livePages: 1 });
-  let ran = false;
-  const { logs } = await startDevServer(
-    checkout,
-    () => {
-      ran = true;
-    },
-    "deploy-token",
+void test("dev mode refuses to start against an API that isn't local, even with the deploy token", async (t) => {
+  const checkout = await devCheckout(t);
+
+  await assertDevModeRefused(
+    devServerConfig(
+      { ...checkout, apiUrl: "https://api.camox.ai" },
+      { localDeployToken: LOCAL_DEPLOY_TOKEN },
+    ),
   );
-
-  await waitFor(() => ran, logs);
-  await setTimeout(100);
-  assert.deepEqual(requestLog(checkout.requests), [
-    "pages.listBySlug live",
-    `definitions.sync ${DEVELOPMENT_DRAFT}`,
-  ]);
-});
-
-void test("seeded content stays in the development draft when publishing it is blocked", async (t) => {
-  const checkout = await devCheckout(t, { blockers: ["The page needs a meta title"] });
-  const { logs } = await startDevServer(checkout, () => {}, "deploy-token");
-
-  await waitFor(() => logs.some((line) => line.includes("publishing is blocked")), logs);
-  assert.ok(logs.some((line) => line.includes("The page needs a meta title")));
-  assert.ok(!checkout.requests.some((r) => r.path === "drafts.publish"));
 });
 
 /** How many whole-set syncs reached the API's block definitions, judging by the dev logs. */
@@ -468,7 +429,7 @@ void test("adding or deleting a block file leads to one whole-set sync each", as
   assert.deepEqual(checkout.syncedBlockIds, [["hero"], ["cta", "hero"], ["hero"]]);
   assert.deepEqual(
     requestLog(checkout.requests),
-    Array.from({ length: 3 }, () => `definitions.sync ${DEVELOPMENT_DRAFT}`),
+    Array.from({ length: 3 }, () => "definitions.sync live"),
   );
 });
 

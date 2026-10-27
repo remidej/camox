@@ -62,8 +62,8 @@ export const validateCollectionDefinitions = Effect.fn("collections.validateDefi
 );
 
 /**
- * Plans replacing the code-defined collection schemas of a sync's target: Live for a release, the
- * development draft for dev mode (ADR 0006). Tells which collections it retires.
+ * Plans replacing the code-defined collection schemas of a sync's target: Live for a release, a
+ * draft with code for a revision's sync (ADR 0006). Tells which collections it retires.
  */
 export const planCollectionDefinitions = Effect.fn("collections.planDefinitions")(function* (
   ctx: ServiceContext,

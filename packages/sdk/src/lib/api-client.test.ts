@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEVELOPMENT_DRAFT,
   DRAFT_CREATE_HEADER,
   DRAFT_HEADER,
   DRAFT_SEARCH_PARAM,
@@ -53,13 +52,12 @@ function okJson(json: unknown) {
   });
 }
 
-/** Opens the studio at `url`, viewing the draft it names, or in dev mode its development draft. */
-function openStudio(url: string, { developmentMode = false } = {}) {
+/** Opens the studio at `url`, viewing the draft it names. */
+function openStudio(url: string) {
   window.history.replaceState(null, "", url);
   const draftScope = createDraftScope({
     queryClient: new QueryClient(),
     browser: window as never,
-    developmentMode,
   });
   draftScope.adopt({
     draftId: new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM) ?? undefined,
@@ -282,59 +280,4 @@ void test("a record edit on Live starts a draft, while reading records doesn't",
     create: null,
   });
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), sent[1].draft);
-});
-
-void test("dev mode reads and writes the development draft and ignores the URL's draft", async (t) => {
-  const draftId = "01890a5d-ac96-774b-bcce-b302099a8057";
-  openStudio(`/about?${DRAFT_SEARCH_PARAM}=${draftId}`, { developmentMode: true });
-  const sent = mockApi(t);
-
-  await getApiClient().pages.get({ id: "page-1" } as never);
-  await blockEdit();
-  await getApiClient().files.setAlt({ id: "file-1", alt: "A mountain" } as never);
-
-  assert.deepEqual(
-    sent.map(({ draft, create }) => ({ draft, create })),
-    sent.map(() => ({ draft: DEVELOPMENT_DRAFT, create: null })),
-  );
-  assert.deepEqual(getContentWriteHeaders().headers, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
-  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
-});
-
-void test("dev mode never starts a draft or writes one to the URL", async (t) => {
-  openStudio("/about", { developmentMode: true });
-  const historyLength = window.history.length;
-  const sent = mockApi(t);
-
-  await blockEdit();
-
-  assert.deepEqual(sent[0], {
-    path: "blocks/updateContent",
-    draft: DEVELOPMENT_DRAFT,
-    create: null,
-  });
-  assert.equal(window.location.href, "http://localhost:3000/about");
-  assert.equal(window.history.length, historyLength);
-});
-
-void test("dev mode shows Live where the page couldn't read the development draft, and starts no draft there", async (t) => {
-  const draftScope = openStudio("/about", { developmentMode: true });
-  draftScope.adopt({ refusedDraft: { notice: null } });
-  const sent = mockApi(t);
-
-  await getApiClient().pages.get({ id: "page-1" } as never);
-  await blockEdit();
-  assert.deepEqual(
-    sent.map(({ draft, create }) => ({ draft, create })),
-    [
-      { draft: null, create: null },
-      { draft: null, create: null },
-    ],
-  );
-  assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
-
-  // Once a page reads the development draft again, so does the studio.
-  draftScope.adopt({ draftId: DEVELOPMENT_DRAFT });
-  await getApiClient().pages.get({ id: "page-1" } as never);
-  assert.equal(sent[2].draft, DEVELOPMENT_DRAFT);
 });

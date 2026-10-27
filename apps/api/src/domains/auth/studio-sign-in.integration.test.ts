@@ -259,7 +259,7 @@ describe("authorizing a local callback", () => {
     expect(response.status).toBe(401);
   });
 
-  it("gives the CLI a session that can create preview sign-in links, as camox preview does", async () => {
+  it("gives the CLI a session that can create preview sign-in links", async () => {
     const { memberUser } = await hostedProject();
     const cli = await exchanged(
       await authorizeLocal(
@@ -373,7 +373,7 @@ describe("a studio session, which the site's scripts can read", () => {
     expect(await response.text()).not.toContain(dashboard);
   });
 
-  it("is a studio session even when camox preview signs it in on localhost", async () => {
+  it("is a studio session even when signed in on localhost", async () => {
     const { memberUser } = await hostedProject();
     const preview = await exchanged(
       await authorizeStudio("http://localhost:5173/", await createSessionFixture(memberUser.id)),

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { detectPlatform } from "@tanstack/react-hotkeys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
@@ -39,7 +39,6 @@ const { createDraftScope } = await import("@/lib/draft-scope");
 const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
 /** The draft scope of the rendered control, and whether it runs in dev mode. */
 let draftScope: import("@/lib/draft-scope").DraftScope;
-let developmentMode = false;
 const { CommandPalette, useCommandPaletteActions } =
   await import("@/features/provider/components/CommandPalette");
 const { useAdminShortcuts } = await import("@/features/provider/useAdminShortcuts");
@@ -55,7 +54,6 @@ const DAY = 24 * 60 * 60 * 1000;
 const project = { id: 1, slug: "site", name: "Site" };
 const spring = "019a0000-0000-7000-8000-00000000000a";
 const adas = "019a0000-0000-7000-8000-00000000000b";
-const development = "019a0000-0000-7000-8000-00000000000c";
 const ada = { id: "user-ada", name: "Ada" };
 const remi = { id: "user-remi", name: "Rémi" };
 
@@ -63,7 +61,6 @@ const createdOct13 = new Date(2026, 9, 13, 12).getTime();
 const drafts = [
   {
     id: spring,
-    kind: "regular",
     name: "Spring campaign",
     createdBy: remi,
     createdAt: Date.now() - 3 * DAY,
@@ -73,22 +70,11 @@ const drafts = [
   },
   {
     id: adas,
-    kind: "regular",
     name: null,
     createdBy: ada,
     createdAt: createdOct13,
     lastChangedAt: createdOct13,
     changeCount: 1,
-    translatingLocales: [],
-  },
-  {
-    id: development,
-    kind: "development",
-    name: null,
-    createdBy: remi,
-    createdAt: Date.now(),
-    lastChangedAt: null,
-    changeCount: 2,
     translatingLocales: [],
   },
 ];
@@ -228,11 +214,6 @@ async function search(text: string) {
   });
 }
 
-const deleteButton = () =>
-  [...window.document.querySelectorAll('[role="dialog"] button')].find(
-    (button) => button.textContent === "Delete draft",
-  );
-
 const sheetTitle = () =>
   window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
@@ -245,7 +226,7 @@ async function render(t: test.TestContext, at: string | null) {
   window.history.replaceState(null, "", at ? `/?${DRAFT_SEARCH_PARAM}=${at}` : "/");
   const navigations: { to: string; draft?: string | null }[] = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  draftScope = createDraftScope({ queryClient: client, browser: window as never, developmentMode });
+  draftScope = createDraftScope({ queryClient: client, browser: window as never });
   draftScope.adopt({ draftId: at ?? undefined });
   initApiClient("http://api.test", draftScope);
   const host = window.document.createElement("div");
@@ -311,17 +292,6 @@ void test("in a regular draft, shows nothing until the draft loads rather than a
   assert.equal(trigger()?.textContent, undefined);
 });
 
-void test("the localhost studio reads Development draft before anything loads", async (t) => {
-  developmentMode = true;
-  t.after(() => {
-    developmentMode = false;
-  });
-  stallingApi(t, ["projects/getByUuid", "drafts/get"]);
-  await render(t, development);
-
-  assert.equal(trigger()?.textContent, "Development draft");
-});
-
 void test("on Live, reads Live, says the first edit starts a draft, and shows no pending changes", async (t) => {
   mockApi(t);
   await render(t, null);
@@ -380,16 +350,14 @@ void test("the pending changes button opens the draft's review", async (t) => {
   assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Delete draft/);
 });
 
-void test("lists Live with its last publisher and every open regular draft with its creator, age and change count", async (t) => {
+void test("lists Live with its last publisher and every open draft with its creator, age and change count", async (t) => {
   mockApi(t);
   await render(t, null);
   await click(trigger());
 
-  const switchTo = (menu()?.textContent ?? "").split("Switch to")[1] ?? "";
   assert.match(itemNamed(/^Live/)?.textContent ?? "", /Published 2 days ago by Ada/);
   assert.match(itemNamed(/Spring campaign/)?.textContent ?? "", /Rémi · 3 days ago · 4 changes/);
   assert.match(itemNamed(/Ada, Oct 13/)?.textContent ?? "", /Ada · .* · 1 change/);
-  assert.doesNotMatch(switchTo, /Development draft/);
 });
 
 void test("says a release published Live when a release wrote it last", async (t) => {
@@ -417,54 +385,6 @@ void test("picking a draft or Live navigates there", async (t) => {
     navigations.map((navigation) => navigation.draft),
     [adas, null],
   );
-});
-
-/** The localhost studio: dev mode, whose API answers for the caller's development draft. */
-function devMode(t: test.TestContext) {
-  developmentMode = true;
-  t.after(() => {
-    developmentMode = false;
-  });
-  const developmentDraft = drafts.find((draft) => draft.kind === "development");
-  return mockApi(t, (path) => {
-    if (path === "drafts/get") return json(developmentDraft);
-    if (path === "drafts/delete") return json({ ended: null });
-    return undefined;
-  });
-}
-
-void test("the localhost studio shows only its development draft, with nothing to switch to", async (t) => {
-  const calls = devMode(t);
-  await render(t, spring);
-
-  assert.equal(trigger().textContent, "Development draft");
-  assert.equal(pendingButton()?.getAttribute("aria-label"), "Review 2 changes");
-  await click(trigger());
-
-  assert.deepEqual(menuItems(), []);
-  assert.match(menu()?.textContent ?? "", /works in your development draft/);
-  assert.doesNotMatch(menu()?.textContent ?? "", /Switch to|Live|Spring campaign/);
-  assert.equal(calls.filter((call) => call.path === "drafts/list").length, 0);
-  assert.deepEqual([...new Set(calls.map((call) => call.draft))], [DEVELOPMENT_DRAFT]);
-});
-
-void test("the localhost studio stays in its development draft after deleting it", async (t) => {
-  const shown = t.mock.method(toast, "success", () => "toast");
-  const calls = devMode(t);
-  await render(t, null);
-  await click(pendingButton());
-
-  await click(deleteButton());
-  const confirm = window.document.querySelector('[role="alertdialog"]');
-  await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
-
-  assert.deepEqual(
-    calls.filter((call) => call.path === "drafts/delete").map((call) => call.draft),
-    [DEVELOPMENT_DRAFT],
-  );
-  assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
-  assert.match(trigger().textContent ?? "", /^Development draft/);
-  assert.equal(shown.mock.callCount(), 0);
 });
 
 void test("says Started a new draft when the first edit starts one, without asking for a name", async (t) => {
@@ -566,7 +486,7 @@ void test("in a draft, the palette offers the draft's actions and switching", as
   ]);
 });
 
-void test("on Live, the palette's Switch to draft… lists every regular draft, not the development draft", async (t) => {
+void test("on Live, the palette's Switch to draft… lists every open draft", async (t) => {
   mockApi(t);
   await render(t, null);
 
@@ -577,7 +497,7 @@ void test("on Live, the palette's Switch to draft… lists every regular draft, 
 
 void test("the palette hides Switch to draft… when no other draft is open", async (t) => {
   mockApi(t, (path) =>
-    path === "drafts/list" ? json({ ...list, drafts: [drafts[0], drafts[2]] }) : undefined,
+    path === "drafts/list" ? json({ ...list, drafts: [drafts[0]] }) : undefined,
   );
   await render(t, spring);
   await openPalette();
@@ -594,12 +514,4 @@ void test("searching the palette for a creator's name finds their draft", async 
   await search("Rémi");
 
   assert.deepEqual(draftsCommands(), ['Switch to "Spring campaign"']);
-});
-
-void test("the localhost studio's palette offers its development draft's review and delete, without switching", async (t) => {
-  devMode(t);
-  await render(t, null);
-  await openPalette();
-
-  assert.deepEqual(draftsCommands(), ["Review and publish", "Delete draft…"]);
 });

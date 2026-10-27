@@ -91,7 +91,7 @@ export function installDevSignInLink(
     }
     if (controller.signal.aborted) return;
     server.config.logger.warn(
-      "Camox sign-in link unavailable. Use the normal local URL to sign in, or run camox preview for a fresh link.",
+      "Camox sign-in link unavailable. Use the normal local URL to sign in, or restart the dev server for a fresh link.",
     );
   }
 

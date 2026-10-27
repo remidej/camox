@@ -184,8 +184,7 @@ const isShownWarning = (problem: Problem) => problem.code === "removedInUse";
 
 /**
  * One card per problem, saying what's wrong and where. Problems sharing a message fold into one
- * card naming each: a development draft can hold dozens of definitions to release, and a removed
- * block can sit on dozens of pages, with the same message for each. A problem on a page has an
+ * card naming each: a removed block can sit on dozens of pages, with the same message for each. A problem on a page has an
  * action that shows it in the Canvas; a blocker in the draft's code, which only the agent fixes,
  * one that opens the draft's thread.
  */
@@ -624,15 +623,12 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
   );
 }
 
-/**
- * Switches the studio to Live once its draft ended here, replacing the draft's URL entry. A
- * development draft never ends: publishing or deleting empties it, and dev mode stays in it.
- */
+/** Switches the studio to Live once its draft ended here, replacing the draft's URL entry. */
 export function useLeaveDraft() {
   const draftScope = useDraftScope();
   return (ended: EndedDraft | null) => {
-    const left = draftScope.leave(ended);
-    if (left && ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
+    draftScope.leave(ended);
+    if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
   };
 }
 
@@ -851,15 +847,13 @@ export function ReviewDraftSheet({
               // The overview's headline titles the review, under the draft's name and author.
               <>
                 <SheetDescription className="flex min-w-0 items-center gap-1">
-                  {draft.data?.kind === "regular" ? (
+                  {draft.data && (
                     <DraftNameInput
                       ref={nameInput}
                       projectId={projectId}
                       draft={draft.data}
                       className="placeholder:text-muted-foreground text-muted-foreground field-sizing-content h-6 w-auto max-w-full text-sm font-normal"
                     />
-                  ) : (
-                    draft.data && <span className="truncate">{draftLabel(draft.data)}</span>
                   )}
                   {draft.data && (
                     <span className="shrink-0">
@@ -871,15 +865,13 @@ export function ReviewDraftSheet({
               </>
             ) : (
               <>
-                {draft.data?.kind === "regular" ? (
+                {draft.data ? (
                   <>
                     <SheetTitle className="sr-only">{draftLabel(draft.data)}</SheetTitle>
                     <DraftNameInput ref={nameInput} projectId={projectId} draft={draft.data} />
                   </>
                 ) : (
-                  <SheetTitle className="text-base">
-                    {draft.data ? draftLabel(draft.data) : "Draft"}
-                  </SheetTitle>
+                  <SheetTitle className="text-base">Draft</SheetTitle>
                 )}
                 <SheetDescription>
                   {draft.data

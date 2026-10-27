@@ -1,9 +1,4 @@
-import {
-  DEVELOPMENT_DRAFT,
-  DRAFT_CREATE_HEADER,
-  DRAFT_HEADER,
-  LOCALE_HEADER,
-} from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { REPORTS_SHOWN, type PatrollerView } from "@camox/api-contract/patrol";
 import { queryKeys } from "@camox/api-contract/query-keys";
@@ -14,7 +9,6 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerEvery, answerNext, forgetScheduled, scheduled } from "../../../test/generation";
@@ -323,41 +317,18 @@ describe("drafts and Live", () => {
     expect(sentences(await seoManager({}))).toEqual(["done wroteSeo Pricing en live"]);
   });
 
-  // A development draft stays when it's published or deleted, so it shows what ended with it.
-  it("ends a draft's reports when it's published", async () => {
-    const { db, projectId, memberUser, member, createPage, writeSeo, seoManager } = await fixture();
-    const development = await openDevelopmentDraft(db, projectId, memberUser.id);
-    const inDevelopment = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
-    const about = await createPage("About", inDevelopment);
-    await writeSeo(about.id, { draftId: development });
-    expect((await seoManager(inDevelopment)).reports).toHaveLength(1);
+  it("doesn't hand a draft's reports to Live when it's published", async () => {
+    const { projectId, member, createPage, writeSeo, seoManager } = await fixture();
+    const draftId = generateUuidv7();
+    const inDraft = { [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" };
+    const about = await createPage("About", inDraft);
+    await writeSeo(about.id, { draftId });
+    expect((await seoManager(inDraft)).reports).toHaveLength(1);
 
-    const { token } = await call(
-      router.drafts.previewPublish,
-      { projectId },
-      member(inDevelopment),
-    );
-    await call(
-      router.drafts.publish,
-      { projectId, token, publishAnyway: true },
-      member(inDevelopment),
-    );
+    const { token } = await call(router.drafts.previewPublish, { projectId }, member(inDraft));
+    await call(router.drafts.publish, { projectId, token, publishAnyway: true }, member(inDraft));
 
-    expect((await seoManager(inDevelopment)).reports).toEqual([]);
     expect((await seoManager({})).reports).toEqual([]);
-  });
-
-  it("ends a draft's reports when it's deleted", async () => {
-    const { db, projectId, memberUser, page, member, writeSeo, seoManager } = await fixture();
-    const development = await openDevelopmentDraft(db, projectId, memberUser.id);
-    const inDevelopment = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
-    await call(router.pages.update, { id: page.id, nickname: "Plans" }, member(inDevelopment));
-    await writeSeo(page.id, { draftId: development });
-    expect((await seoManager(inDevelopment)).reports).toHaveLength(1);
-
-    await call(router.drafts.delete, { projectId }, member(inDevelopment));
-
-    expect((await seoManager(inDevelopment)).reports).toEqual([]);
   });
 });
 

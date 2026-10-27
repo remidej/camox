@@ -37,9 +37,9 @@ function fakeApi(answers: Record<string, (input: any) => unknown> = {}) {
   };
 }
 
-function openCache(answers?: Record<string, (input: any) => unknown>, developmentMode = false) {
+function openCache(answers?: Record<string, (input: any) => unknown>) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const scope = createDraftScope({ queryClient, developmentMode });
+  const scope = createDraftScope({ queryClient });
   const { api, calls, locales } = fakeApi(answers);
   return {
     queryClient,
@@ -169,7 +169,7 @@ void test("a read fetches in the locale its key names, even once the studio move
 
 void test("route discovery reads the locale its key names, which only a non-default locale names", async () => {
   const queryClient = new QueryClient();
-  const scope = createDraftScope({ queryClient, developmentMode: false });
+  const scope = createDraftScope({ queryClient });
   const named: Array<string | undefined> = [];
   const cache = createStudioCache({
     queryClient,

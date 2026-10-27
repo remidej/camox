@@ -36,13 +36,12 @@ function useDrafts() {
   const draftScope = useDraftScope();
   const draftId = useCurrentDraftId();
   const authCtx = React.useContext(AuthContext);
-  const developmentMode = draftScope.developmentMode;
   const project = useReadQuery(reads.project({ projectUuid: authCtx?.projectUuid ?? "" }), {
     enabled: !!authCtx?.projectUuid,
   });
   const projectId = project.data?.id;
   const list = useReadQuery(reads.draftList({ projectId: projectId ?? 0 }), {
-    enabled: !!projectId && !developmentMode,
+    enabled: !!projectId,
   });
   const draft = useReadQuery(reads.draft({ projectId: projectId ?? 0, draftId: draftId ?? "" }), {
     enabled: !!projectId && !!draftId,
@@ -50,7 +49,6 @@ function useDrafts() {
   return {
     draftScope,
     draftId,
-    developmentMode,
     projectId,
     list: list.data,
     current: draftId ? draft.data : undefined,
@@ -59,13 +57,12 @@ function useDrafts() {
 
 /**
  * Picks what the studio is viewing, Live or a draft (#203). Live is read-only; the first edit
- * starts a draft. The localhost studio works only in the development draft, so it shows that
- * draft alone, with nothing to switch to (ADR 0006). The command palette offers the same actions,
+ * starts a draft. The command palette offers the same actions,
  * and the picker hosts the draft's review and delete confirmation they open. A `disabled` picker
  * still names what the studio is viewing.
  */
 export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
-  const { draftScope, draftId, developmentMode, projectId, list, current } = useDrafts();
+  const { draftScope, draftId, projectId, list, current } = useDrafts();
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
   const review = useSelector(studioStore, (state) => state.context.reviewDraftSheet);
@@ -87,12 +84,8 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
     [draftId],
   );
 
-  const drafts = list?.drafts;
-  // The hosted studio never lists development drafts (ADR 0011).
-  const regular = React.useMemo(
-    () => (drafts ?? []).filter((listed) => listed.kind === "regular"),
-    [drafts],
-  );
+  const listed = list?.drafts;
+  const drafts = React.useMemo(() => listed ?? [], [listed]);
 
   /** Views the same page in another draft, or in Live when `next` is null. */
   const switchTo = React.useCallback(
@@ -103,13 +96,11 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
     [draftId, navigate],
   );
 
-  useDraftsActions({ enabled: !!projectId, draftId, developmentMode, regular, switchTo });
+  useDraftsActions({ enabled: !!projectId, draftId, drafts, switchTo });
 
-  // Without its development draft, the localhost studio has nothing to show or switch to.
-  if (developmentMode && !draftId) return null;
-  // Live and the development draft read the same however their data loads, so they show at
-  // once. A regular draft's label needs its name, so it waits rather than flash a placeholder.
-  if (draftId && !developmentMode && !current) return null;
+  // Live shows at once. A draft's label needs its name, so it waits rather than flash a
+  // placeholder.
+  if (draftId && !current) return null;
 
   return (
     <>
@@ -123,51 +114,41 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
               draftId ? "bg-blue-500" : "bg-emerald-500",
             )}
           />
-          <span className="max-w-48 truncate">
-            {!draftId ? "Live" : developmentMode ? "Development draft" : draftLabel(current!)}
-          </span>
+          <span className="max-w-48 truncate">{draftId ? draftLabel(current!) : "Live"}</span>
           <ChevronsUpDown aria-hidden className="size-4 opacity-50" />
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-80" align="start">
-          {developmentMode ? (
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-muted-foreground font-normal">
-                The localhost studio works in your development draft.
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-          ) : (
-            <>
-              {!draftId && (
-                <>
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-muted-foreground font-normal">
-                      Live is read-only. Your first edit starts a new draft.
-                    </DropdownMenuLabel>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              <DropdownMenuRadioGroup
-                value={draftId ?? LIVE}
-                onValueChange={(value) => switchTo(value === LIVE ? null : String(value))}
-              >
+          <>
+            {!draftId && (
+              <>
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Switch to</DropdownMenuLabel>
-                  <DropdownMenuRadioItem value={LIVE} closeOnClick>
-                    <div className="flex flex-col">
-                      <span>Live</span>
-                      {list && (
-                        <span className="text-muted-foreground text-xs">{liveLine(list.live)}</span>
-                      )}
-                    </div>
-                  </DropdownMenuRadioItem>
-                  {regular.map((listed) => (
-                    <DraftItem key={listed.id} draft={listed} />
-                  ))}
+                  <DropdownMenuLabel className="text-muted-foreground font-normal">
+                    Live is read-only. Your first edit starts a new draft.
+                  </DropdownMenuLabel>
                 </DropdownMenuGroup>
-              </DropdownMenuRadioGroup>
-            </>
-          )}
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuRadioGroup
+              value={draftId ?? LIVE}
+              onValueChange={(value) => switchTo(value === LIVE ? null : String(value))}
+            >
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Switch to</DropdownMenuLabel>
+                <DropdownMenuRadioItem value={LIVE} closeOnClick>
+                  <div className="flex flex-col">
+                    <span>Live</span>
+                    {list && (
+                      <span className="text-muted-foreground text-xs">{liveLine(list.live)}</span>
+                    )}
+                  </div>
+                </DropdownMenuRadioItem>
+                {drafts.map((draft) => (
+                  <DraftItem key={draft.id} draft={draft} />
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuRadioGroup>
+          </>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -225,19 +206,17 @@ export function PendingChanges() {
 function useDraftsActions({
   enabled,
   draftId,
-  developmentMode,
-  regular,
+  drafts,
   switchTo,
 }: {
   enabled: boolean;
   draftId: string | null;
-  developmentMode: boolean;
-  regular: DraftSummary[];
+  drafts: DraftSummary[];
   switchTo: (next: string | null) => void;
 }) {
   React.useEffect(() => {
     const inDraft = enabled && !!draftId;
-    const others = regular.filter((listed) => listed.id !== draftId);
+    const others = drafts.filter((listed) => listed.id !== draftId);
     const actions = [
       {
         id: "review-draft",
@@ -260,8 +239,7 @@ function useDraftsActions({
         label: "Rename draft…",
         aliases: ["Name draft"],
         groupLabel: "Drafts",
-        // Only a regular draft has a name.
-        checkIfAvailable: () => inDraft && !developmentMode,
+        checkIfAvailable: () => inDraft,
         execute: () => studioStore.send({ type: "openReviewDraftSheet", startRenaming: true }),
       },
       {
@@ -269,7 +247,7 @@ function useDraftsActions({
         label: "Switch to Live",
         aliases: ["Leave draft", "Exit draft", "Production", "Public website"],
         groupLabel: "Drafts",
-        checkIfAvailable: () => inDraft && !developmentMode,
+        checkIfAvailable: () => inDraft,
         execute: () => switchTo(null),
       },
       {
@@ -296,7 +274,7 @@ function useDraftsActions({
     return () => {
       actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
     };
-  }, [enabled, draftId, developmentMode, regular, switchTo]);
+  }, [enabled, draftId, drafts, switchTo]);
 }
 
 /** Who published Live last and when: a member, a release, or nobody yet. */

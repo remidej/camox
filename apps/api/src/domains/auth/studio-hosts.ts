@@ -23,7 +23,7 @@ async function projectServedAt(projectSlugs: KVNamespace, hostname: string) {
 
 /**
  * Whether `callback` is on this computer: an http(s) loopback URL without credentials, like the
- * CLI's callback server, a dev server, or a site `camox preview` opens.
+ * CLI's callback server or a dev server.
  */
 export function isLocalCallback(callback: URL): boolean {
   if (callback.username || callback.password) return false;

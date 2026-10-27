@@ -31,9 +31,9 @@ interface WorkerContext {
 }
 
 /**
- * Answers a request, from the edge cache when every visitor sees the same. Dev renders the
- * developer's development draft, which nothing shares, and a Worker calling this one without
- * its context can't keep anything past the response.
+ * Answers a request, from the edge cache when every visitor sees the same. Dev serves code that
+ * changes on every save, and a Worker calling this one without its context can't keep anything
+ * past the response.
  */
 function respond(request: Request, context?: WorkerContext): Promise<Response | null> {
   const caches = globalThis.caches as CacheStorage | undefined;

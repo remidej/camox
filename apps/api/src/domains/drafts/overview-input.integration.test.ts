@@ -317,15 +317,7 @@ describe("the overview's input size", () => {
       change,
     }));
     const input = (defaultLocale: string) =>
-      runService(
-        overviewInput(
-          camoxContext(db),
-          { id, kind: "regular", projectId },
-          "Big",
-          changes,
-          defaultLocale,
-        ),
-      );
+      runService(overviewInput(camoxContext(db), { id, projectId }, "Big", changes, defaultLocale));
     return { count, input };
   }
 
