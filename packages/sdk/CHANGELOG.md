@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.58.0](https://github.com/remidej/camox/compare/camox-v0.57.0...camox-sdk-v0.58.0) (2026-10-27)
+
+
+### Features
+
+* public pages load artifacts by URL ([#643](https://github.com/remidej/camox/issues/643)) ([8cb2fa5](https://github.com/remidej/camox/commit/8cb2fa57176d9407604f1df8f0c19422e935baff))
+
+
+### Refactoring
+
+* **sdk:** drop renaming drafts from the draft picker ([#644](https://github.com/remidej/camox/issues/644)) ([b01a77f](https://github.com/remidej/camox/commit/b01a77f0e600f659b3feff5749e523d17a5dbeaf))
+
 ## [0.57.0](https://github.com/remidej/camox/compare/camox-v0.56.0...camox-sdk-v0.57.0) (2026-10-27)
 
 
