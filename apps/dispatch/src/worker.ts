@@ -22,6 +22,10 @@ export interface Env extends RevisionBindings {
    * user Worker serves a website.
    */
   API: PreviewsApi & LiveScriptApi;
+  /**
+   * The hosts dispatch serves: each Project Slug and each Custom Domain maps to its Project ID. A
+   * slug's entry names its project's Custom Domain, if any, in its metadata (`SlugMetadata`).
+   */
   PROJECT_SLUGS: KVNamespace;
   DISPATCHER: DispatchNamespace;
   /** The Camox API's origin, which only a revision's gateway lets it reach in its draft. */
@@ -86,12 +90,21 @@ export class CamoxRevisions extends WorkerEntrypoint<Env> {
 
 const PROJECTS_DOMAIN = ".camox.site";
 
+/** What a Project Slug's KV entry holds beside its Project ID (ADR 0028). */
+type SlugMetadata = { customDomain?: string } | null;
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const slug = projectSlug(url.hostname);
-    const uuid = slug && (await env.PROJECT_SLUGS.get(slug));
-    if (!uuid) return statusPage(404, "Site not found", "There's no site at this address.");
+    const host = await resolveHost(env, url.hostname);
+    if (!host) return statusPage(404, "Site not found", "There's no site at this address.");
+    // A project with a Custom Domain is served there only, so its website names one origin.
+    if (host.customDomain) {
+      const target = new URL(url);
+      target.hostname = host.customDomain;
+      return Response.redirect(target.toString(), 301);
+    }
+    const { uuid } = host;
     // A draft with code's revision (ADR 0023): its client assets, to anyone, and its renderer
     // document and runtime reads, to the members who can see the draft.
     if (isRevisionAssetPath(url.pathname)) return serveRevisionAsset(env, uuid, url.pathname);
@@ -121,6 +134,26 @@ export default {
     );
   },
 } satisfies ExportedHandler<Env>;
+
+/**
+ * The project a hostname serves: a Custom Domain's, or a `camox.site` slug's, with the Custom
+ * Domain that slug redirects to, if any. Null for any other host.
+ */
+async function resolveHost(
+  env: Env,
+  hostname: string,
+): Promise<{ uuid: string; customDomain?: string } | null> {
+  if (!hostname.endsWith(PROJECTS_DOMAIN)) {
+    const uuid = await env.PROJECT_SLUGS.get(hostname);
+    return uuid ? { uuid } : null;
+  }
+  const slug = projectSlug(hostname);
+  // Slugs are one label, so a deeper subdomain names none, nor a Custom Domain's entry.
+  if (!slug || slug.includes(".")) return null;
+  const { value: uuid, metadata } = await env.PROJECT_SLUGS.getWithMetadata<SlugMetadata>(slug);
+  if (!uuid) return null;
+  return { uuid, customDomain: metadata?.customDomain };
+}
 
 /** The user Worker `script`'s answer to `request`, or null when there's no such Worker. */
 async function dispatchTo(env: Env, script: string, request: Request) {

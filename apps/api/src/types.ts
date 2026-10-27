@@ -31,7 +31,10 @@ export type Bindings = {
     import("@earendil-works/pi-codemode/cloudflare").CodemodeSandboxDurableObject
   >;
   FILES_BUCKET: R2Bucket;
-  /** Project Slug → Project ID: which project each `<slug>.camox.site` host serves. */
+  /**
+   * Project Slug or Custom Domain → Project ID: which project each `<slug>.camox.site` host and
+   * Custom Domain serves (apps/dispatch/README.md).
+   */
   PROJECT_SLUGS: KVNamespace;
   MEDIA?: MediaBinding;
   /** The `projects` Cloudflare Artifacts namespace: every project's repo, and the Template's. */

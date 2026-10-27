@@ -9,7 +9,8 @@
   "preview_urls": false,
   "routes": [{ "pattern": "*.camox.site/*", "zone_name": "camox.site" }],
   "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }],
-  // slug → project UUID; the UUID names the project's user Worker.
+  // slug or Custom Domain → project UUID; the UUID names the project's user Worker. A slug's entry
+  // names its project's Custom Domain in its metadata, which it then redirects to (README.md).
   "kv_namespaces": [{ "binding": "PROJECT_SLUGS", "id": "0f6abd3321cf43938cf0f9a59b2c555f" }],
   // Loads drafts' revisions as Dynamic Workers, from their builds in `REVISION_BUILDS`, which the
   // API's revision sandboxes write (src/revisions.ts).
