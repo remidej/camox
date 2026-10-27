@@ -20,6 +20,12 @@ export const RUNTIME_ROUTE_PATHS = {
 
 export type RuntimeOwnedRouteKind = keyof typeof RUNTIME_ROUTE_PATHS;
 
+/**
+ * Where public pages load artifacts from: `<prefix><shellHash>/<sourceHash>`. Each document is
+ * cached by its own URL, never as a page.
+ */
+export const ARTIFACTS_PATH_PREFIX = "/_camox/artifacts/";
+
 /** Which runtime-owned route a path inside the runtime (base path removed) is, if any. */
 export function matchRuntimeOwnedRoute(pathname: string): RuntimeOwnedRouteKind | null {
   for (const [kind, path] of Object.entries(RUNTIME_ROUTE_PATHS))

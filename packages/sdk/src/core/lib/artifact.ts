@@ -1,4 +1,4 @@
-import { artifactTitle } from "@camox/api-contract";
+import { artifactSourceHash, artifactTitle } from "@camox/api-contract";
 import type * as React from "react";
 
 import { escapeAttribute } from "../../lib/html";
@@ -98,13 +98,38 @@ export function artifactFontLinks(document: CamoxDocument | undefined) {
 }
 
 /**
- * The document an artifact frame loads: the `camox` runtime, the website's font links, the initial
- * Artifact Data, then the stored source. The doctype comes first so the runtime's script never
- * puts the page in quirks mode; the source's own doctype, if any, is then ignored by the parser.
+ * What every artifact's document holds before its source: the `camox` runtime, then the website's
+ * font links. The doctype comes first so the runtime's script never puts the page in quirks mode;
+ * the source's own doctype, if any, is then ignored by the parser.
+ */
+function artifactShell(fontLinks: string) {
+  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${fontLinks}`;
+}
+
+/**
+ * The hash of the shell around every artifact source, which names it in the URLs public pages
+ * load artifacts from. It changes only with the runtime or the website's font links, so a release
+ * that changes neither keeps every artifact cached.
+ */
+export function artifactShellHash(fontLinks: string): Promise<string> {
+  return artifactSourceHash(artifactShell(fontLinks));
+}
+
+/**
+ * The document an inline (`srcdoc`) artifact frame loads: the shell, the initial Artifact Data,
+ * then the stored source.
  */
 function artifactDocument(source: string, { fontLinks = "", data = {} }: ArtifactDocumentOptions) {
-  const head = `<script>${ARTIFACT_RUNTIME}</script>${fontLinks}${artifactDataScript(data)}`;
-  return `<!doctype html>${head}${source}`;
+  return `${artifactShell(fontLinks)}${artifactDataScript(data)}${source}`;
+}
+
+/**
+ * The document served at an artifact's URL: the shell, then the stored source. No Artifact Data:
+ * the frame's URL fragment carries it (`artifactDataFragment`), so one cached document serves
+ * every placement, and an inline data script would win over the fragment.
+ */
+export function artifactUrlDocument(source: string, fontLinks: string) {
+  return `${artifactShell(fontLinks)}${source}`;
 }
 
 /**
@@ -113,7 +138,7 @@ function artifactDocument(source: string, { fontLinks = "", data = {} }: Artifac
  * JSON escapes it too, so the first `</script>` after the data's opening tag ends the data.
  */
 export function artifactSourceOf(document: string) {
-  const head = `<!doctype html><script>${ARTIFACT_RUNTIME}</script>`;
+  const head = artifactShell("");
   if (!document.startsWith(head)) return null;
   const data = document.indexOf(DATA_SCRIPT_OPEN, head.length);
   if (data < 0 || document.slice(head.length, data).includes("<script")) return null;
