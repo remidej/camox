@@ -10,6 +10,8 @@ import {
   storedInLiveOrDraft,
   type EntityKind,
 } from "../domains/drafts/overlay";
+import { SEO_MANAGER_TYPES } from "../domains/patrol/patrollers";
+import { type CountsAsLive, countsAsLiveIn } from "../domains/patrol/scopes";
 import type { Change } from "./journal";
 
 type ContentChange = Extract<Change, { kind: "content" }>;
@@ -188,6 +190,7 @@ function withoutCovered(keys: readonly QueryKey[]): QueryKey[] {
 /** The messages a project's room is sent for its changes, Live's after the drafts'. */
 const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
   rowOf: RowOf,
+  countsAsLive: CountsAsLive,
   changes: readonly Change[],
 ) {
   const targets = new Map<string | null, QueryKey[]>();
@@ -233,6 +236,11 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         add(draftId, ...(yield* readsOf(rowOf, entity, id, draftId)));
         // A page's pending or missing meta title is a publish warning or blocker.
         if (entity === "page") add(draftId, queryKeys.drafts.all);
+        // Whether it's pending says whether the SEO manager works on it.
+        if (SEO_MANAGER_TYPES.includes(change.type)) {
+          add(draftId, queryKeys.patrol.get);
+          if (draftId !== null && (yield* countsAsLive(draftId))) add(null, queryKeys.patrol.get);
+        }
         break;
       }
       case "translations":
@@ -240,6 +248,13 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         // translating, and so does its publish preview, which waits for them.
         add(change.draftId, queryKeys.drafts.all);
         add(null, queryKeys.drafts.list);
+        // The Translator works on them: the catch-up draft's work is Live's (ADR 0024).
+        add(change.draftId, queryKeys.patrol.get);
+        if (yield* countsAsLive(change.draftId)) add(null, queryKeys.patrol.get);
+        break;
+      case "report":
+        // A Live report shows in every draft's Patrol too: a Live invalidation reaches them.
+        add(change.draftId, queryKeys.patrol.get);
         break;
       case "overview":
         // Its draft's publish preview carries it.
@@ -257,6 +272,8 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         break;
       case "ended":
         ended.push({ type: "draftEnded", ...change.ended });
+        // Its reports and pending work ended with it: the catch-up draft's were Live's.
+        if (yield* countsAsLive(change.ended.draftId)) add(null, queryKeys.patrol.get);
         break;
       case "project":
         add(null, prefixes.projects);
@@ -285,6 +302,7 @@ function changesLive(change: Change): boolean {
     case "project":
       return true;
     case "translations":
+    case "report":
     case "overview":
     case "drafts":
     case "ended":
@@ -300,6 +318,7 @@ function changesLive(change: Change): boolean {
 export const announce = Effect.fn("invalidation.announce")(
   function* (db: Database, changes: readonly Change[]) {
     const rowOf = rowsIn(db, changes);
+    const countsAsLive = countsAsLiveIn(db);
     const byProject = new Map<number, Change[]>();
     for (const change of changes) {
       byProject.set(change.projectId, [...(byProject.get(change.projectId) ?? []), change]);
@@ -310,7 +329,7 @@ export const announce = Effect.fn("invalidation.announce")(
         .map(([projectId]) => edgeCacheTags.live(projectId)),
     );
     for (const [projectId, projectChanges] of byProject) {
-      for (const message of yield* messagesFor(rowOf, projectChanges)) {
+      for (const message of yield* messagesFor(rowOf, countsAsLive, projectChanges)) {
         projectRooms.send(projectId, message);
       }
     }

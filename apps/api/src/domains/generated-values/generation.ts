@@ -18,6 +18,7 @@ import { executeFileMetadata } from "../files/service";
 import { otherLocale } from "../locales/default-locale";
 import { executePageSeo } from "../pages/ai";
 import { seoGenerated } from "../pages/generated-seo";
+import { reportGeneration } from "../patrol/seo-manager";
 import { executeRepeatableItemSummary } from "../repeatable-items/service";
 import { type GeneratedType, LOCALIZED } from "./schema";
 import {
@@ -240,19 +241,16 @@ export const runGenerationJob = Effect.fn("generation.run")(function* (
   if (drafted === undefined) return;
   const scope = job.locale === undefined ? drafted : inLocale(drafted, job.locale);
   const startedAt = Date.now();
-  yield* generateNow(db, scope, job.entity, job.entityId, startedAt).pipe(
+  const key = keyOf(job.entity, job.entityId);
+  const outcome = yield* generateNow(db, scope, job.entity, job.entityId, startedAt).pipe(
+    Effect.as("done" as const),
     Effect.catchCause((cause) =>
       Effect.logError(`[generation] ${jobName(job)} failed`, cause).pipe(
-        Effect.andThen(
-          settleFailedRequest(
-            db,
-            job.draftId,
-            job.locale,
-            keyOf(job.entity, job.entityId),
-            startedAt,
-          ),
-        ),
+        Effect.andThen(settleFailedRequest(db, job.draftId, job.locale, key, startedAt)),
+        Effect.as("failed" as const),
       ),
     ),
   );
+  // The SEO manager reports what it wrote, or that it failed, once the job settled (ADR 0024).
+  yield* reportGeneration(db, job, key, outcome, startedAt);
 });

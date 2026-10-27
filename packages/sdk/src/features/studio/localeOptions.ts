@@ -4,9 +4,14 @@ const localeNames = new Intl.DisplayNames(["en"], { type: "language" });
 
 /** A locale's name as the studio shows it, "German (de)", or its tag alone when unnamed. */
 export function localeLabel(tag: string): string {
+  const name = localeName(tag);
+  return name !== tag ? `${name} (${tag})` : tag;
+}
+
+/** A locale's name in the studio's language, "German", or its tag alone when unnamed. */
+export function localeName(tag: string): string {
   try {
-    const name = localeNames.of(tag);
-    return name && name !== tag ? `${name} (${tag})` : tag;
+    return localeNames.of(tag) ?? tag;
   } catch {
     return tag;
   }

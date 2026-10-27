@@ -8,6 +8,7 @@ import { fileProcedures } from "./domains/files/routes";
 import { layoutProcedures } from "./domains/layouts/routes";
 import { localeProcedures } from "./domains/locales/routes";
 import { pageProcedures } from "./domains/pages/routes";
+import { patrolProcedures } from "./domains/patrol/routes";
 import { projectProcedures } from "./domains/projects/routes";
 import { repeatableItemProcedures } from "./domains/repeatable-items/routes";
 
@@ -24,6 +25,7 @@ export const router = {
   definitions: definitionProcedures,
   drafts: draftProcedures,
   agent: agentProcedures,
+  patrol: patrolProcedures,
 };
 
 export type Router = typeof router;
