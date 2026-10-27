@@ -112,15 +112,23 @@ const camoxApp = createApp({
 });
 const bannerId = "0199f0a0-0000-7000-8000-000000000003";
 
+const syncedPageId = "0199f0a0-0000-7000-8000-000000000004";
+/** Two placements of a synced showcase on one page. */
+const placementIds = [
+  "0199f0a0-0000-7000-8000-000000000005",
+  "0199f0a0-0000-7000-8000-000000000006",
+];
+
 function item(
   id: string,
   parentItemId: string | null,
   content: Record<string, unknown>,
   artifactHashes: Record<string, string>,
+  underBlock = blockId,
 ) {
   return {
     id,
-    blockId,
+    blockId: underBlock,
     parentItemId,
     fieldName: parentItemId === null ? "bars" : "dots",
     content,
@@ -139,7 +147,9 @@ function item(
 /**
  * An API holding a page with one showcase block: a top-level artifact, artifacts in two items,
  * and in a nested item. Each read returns its artifact sources' hashes, and the artifact source
- * store serves every source by its hash. A read naming a draft reads the draft.
+ * store serves every source by its hash. A read naming a draft reads the draft. At `/synced`, a
+ * page places a synced showcase twice: the API shows each placement with the shared content's
+ * items, under the same ids.
  */
 function mockApi(t: TestContext) {
   t.mock.method(globalThis, "fetch", async (input: Request | string, init?: RequestInit) => {
@@ -168,7 +178,54 @@ function mockApi(t: TestContext) {
     if (url.pathname.endsWith("/listBySlug"))
       return pageListResponse([
         { id: pageId, fullPath: "/", pathSegment: "", updatedAt: 1, layoutId: null },
+        {
+          id: syncedPageId,
+          fullPath: "/synced",
+          pathSegment: "synced",
+          updatedAt: 1,
+          layoutId: null,
+        },
       ]);
+    const read = url.pathname.endsWith("/getByPath")
+      ? ((await request.clone().json()) as { json: { path: string } }).json.path
+      : null;
+    if (read === "/synced")
+      return Response.json({
+        json: {
+          page: {
+            id: syncedPageId,
+            fullPath: "/synced",
+            pathSegment: "synced",
+            layoutId: null,
+            blockIds: placementIds,
+          },
+          layout: null,
+          project,
+          projectName: project.name,
+          blocks: placementIds.map((id, index) => ({
+            id,
+            pageId: syncedPageId,
+            type: "showcase",
+            content: { headline, visual: orbit, bars: [{ _itemId: "1" }] },
+            settings: {},
+            position: `a${index}`,
+            summary: "",
+            title: "Showcase",
+            artifactHashes: { visual: orbitHash },
+          })),
+          files: [],
+          repeatableItems: placementIds.flatMap((id) => [
+            item(
+              "1",
+              null,
+              { label: "Shared", bar, dots: [{ _itemId: "3" }] },
+              { bar: barHash },
+              id,
+            ),
+            item("3", "1", { tone: "cool", dot }, { dot: dotHash }, id),
+          ]),
+        },
+      });
     if (url.pathname.endsWith("/getByPath"))
       return Response.json({
         json: {
@@ -391,6 +448,27 @@ void test("a code-owned page's layout blocks load their artifacts by URL, in its
   for (const shipped of [html, data]) assert.ok(!shipped.includes("dot-scene"), "no source ships");
 });
 
+void test("a synced block placed twice loads each artifact by one URL, each frame with its placement's Artifact Data", async (t) => {
+  mockApi(t);
+  const html = await (await request("/synced")).text();
+
+  const loaded = frames(html).map(({ src }) => {
+    const url = new URL(src!, "https://site.test/");
+    return { path: url.pathname, data: JSON.parse(decodeURIComponent(url.hash.slice(1))) };
+  });
+  const shell = loaded[0]!.path.split("/").slice(0, -1).join("/");
+  const [orbitHash, barHash, dotHash] = await Promise.all(
+    [orbit, bar, dot].map(artifactSourceHash),
+  );
+  const placement = [
+    { path: `${shell}/${orbitHash}`, data: { headline: "Launch" } },
+    { path: `${shell}/${barHash}`, data: { label: "Shared" } },
+    { path: `${shell}/${dotHash}`, data: { tone: "cool" } },
+  ];
+  assert.deepEqual(loaded, [...placement, ...placement]);
+  for (const marker of SOURCE_MARKERS) assert.ok(!html.includes(marker), `${marker} isn't shipped`);
+});
+
 void test("in dev mode, a page inlines its artifacts' sources, so a change shows at once", async (t) => {
   mockApi(t);
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
@@ -405,6 +483,24 @@ void test("in dev mode, a page inlines its artifacts' sources, so a change shows
     assert.equal(rendered[index]!.src, undefined);
     assert.ok(rendered[index]!.srcdoc?.endsWith(source));
   }
+});
+
+void test("the studio's documents of Live and of a draft, and a preview link's sign-in page, load no artifact by URL, and the studio's hold each source for its frames to inline", async (t) => {
+  mockApi(t);
+  const member = { headers: { Cookie: "camox_auth_cookie=valid" } };
+  const { loadRuntimeChrome } = await import("./runtimeChromeLoader");
+  await loadRuntimeChrome();
+
+  for (const path of ["/", "/?camox-draft=d1"]) {
+    const html = await (await request(path, member)).text();
+    // The studio chrome is there, so this is the member's document.
+    assert.match(html, /Real project/, path);
+    assert.ok(!html.includes("/_camox/artifacts/"), `${path} names no artifact URL`);
+    for (const marker of SOURCE_MARKERS) assert.ok(html.includes(marker), `${path}: ${marker}`);
+  }
+  const handoff = await (await request("/?camox-preview=target&ott=token")).text();
+  assert.ok(!handoff.includes("/_camox/artifacts/"), "the sign-in page names no artifact URL");
+  assert.deepEqual(frames(handoff), []);
 });
 
 void test("a member's navigation data in a draft holds the artifacts' sources, for the studio to inline", async (t) => {
