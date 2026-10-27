@@ -1,4 +1,4 @@
-import type { PatrollerId } from "@camox/api-contract/patrol";
+import type { PatrollerId, ReportVerb } from "@camox/api-contract/patrol";
 
 import type { GeneratedType } from "../generated-values/schema";
 import { pendingGeneratedValues, pendingTranslations, type PendingWorkOf } from "./working";
@@ -22,8 +22,17 @@ export const translator: Patroller = {
   pending: pendingTranslations,
 };
 
-/** The generated values the SEO manager covers: what search engines read. */
-export const SEO_MANAGER_TYPES: readonly GeneratedType[] = ["seo", "fileMetadata"];
+/**
+ * The generated values the SEO manager covers, what search engines read, and what it reports of
+ * each.
+ */
+export const SEO_MANAGER_VERBS = {
+  seo: "wroteSeo",
+  fileMetadata: "describedFile",
+} as const satisfies Partial<Record<GeneratedType, ReportVerb>>;
+
+/** The generated values the SEO manager covers. */
+export const SEO_MANAGER_TYPES = Object.keys(SEO_MANAGER_VERBS) as readonly GeneratedType[];
 
 /** Writes what search engines read: pages' SEO, and files' alt text and filenames. */
 export const seoManager: Patroller = {

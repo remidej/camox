@@ -5,17 +5,14 @@ import type { Database } from "../../db";
 import type { GenerationJob } from "../../lib/ai-job-queue";
 import type { GeneratedType } from "../generated-values/schema";
 import { storedValue, type ValueKey } from "../generated-values/service";
-import { seoManager } from "./patrollers";
+import { SEO_MANAGER_VERBS, seoManager } from "./patrollers";
 import { subjectKey, writeReport } from "./reports";
 
 // The SEO manager (ADR 0024) runs as generation jobs (ADR 0012): it covers the generated values
 // search engines read, pages' SEO and files' alt text and filenames. Summaries aren't its own.
 
-/** What the SEO manager reports of each type of value it covers. */
-const VERBS: Partial<Record<GeneratedType, ReportVerb>> = {
-  seo: "wroteSeo",
-  fileMetadata: "describedFile",
-};
+/** What the SEO manager reports of each type of value, none for those it doesn't cover. */
+const VERBS: Partial<Record<GeneratedType, ReportVerb>> = SEO_MANAGER_VERBS;
 
 /**
  * Reports a generation job that settled, about its subject in its locale: done when it wrote the

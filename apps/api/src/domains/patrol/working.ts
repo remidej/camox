@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { generatedValues, type GeneratedType } from "../generated-values/schema";
 import { translationRequests } from "../translations/schema";
+import { subjectKey } from "./reports";
 
 // What each patroller is working on, read from its own pending records rather than from a shared
 // table (ADR 0024): pending work settles with the job that does it, so a job that crashes can't
@@ -24,10 +25,10 @@ export type PendingWorkOf = (
 ) => Effect.Effect<PendingWork[]>;
 
 /** Each subject and locale once, pending since it was first requested. */
-const once = (work: readonly PendingWork[]) => {
+const firstRequestedPerSubject = (work: readonly PendingWork[]) => {
   const byKey = new Map<string, PendingWork>();
   for (const item of work) {
-    const key = `${item.entity}:${item.id}:${item.locale}`;
+    const key = subjectKey(item.entity, item.id, item.locale);
     const known = byKey.get(key);
     if (!known || item.requestedAt < known.requestedAt) byKey.set(key, item);
   }
@@ -55,7 +56,7 @@ export const pendingTranslations: PendingWorkOf = (db, projectId, scopes) => {
           ),
         ),
     ),
-    once,
+    firstRequestedPerSubject,
   );
 };
 
@@ -87,6 +88,7 @@ export const pendingGeneratedValues =
             ),
           ),
       ),
-      (rows) => once(rows.map((row) => ({ ...row, requestedAt: row.requestedAt! }))),
+      (rows) =>
+        firstRequestedPerSubject(rows.map((row) => ({ ...row, requestedAt: row.requestedAt! }))),
     );
   };

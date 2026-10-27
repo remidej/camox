@@ -4,11 +4,10 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
-import { isCatchUpDraft } from "../drafts/catch-up";
 import type * as overlay from "../drafts/overlay";
-import { drafts } from "../drafts/schema";
 import type { Patroller } from "./patrollers";
 import { reports, type StoredSummary } from "./schema";
+import { patrolDraftRow, patrolScopeOf } from "./scopes";
 
 // The one write of reports (ADR 0024): every patroller reports through it when its work settles.
 
@@ -49,15 +48,7 @@ export const writeReport = Effect.fn("patrol.writeReport")(function* (
 ) {
   const { projectId, draftId, key, summary, outcome } = report;
   const draftOf = () =>
-    draftId === null
-      ? Effect.succeed(null)
-      : Effect.promise(() =>
-          db
-            .select({ kind: drafts.kind, createdBy: drafts.createdBy })
-            .from(drafts)
-            .where(eq(drafts.id, draftId))
-            .get(),
-        );
+    draftId === null ? Effect.succeed(null) : Effect.orDie(patrolDraftRow(db, draftId));
   const draft = yield* draftOf();
   if (draft === undefined) return;
   const at = Date.now();
@@ -82,7 +73,7 @@ export const writeReport = Effect.fn("patrol.writeReport")(function* (
   yield* record(db, {
     kind: "report",
     projectId,
-    draftId: draft === null || isCatchUpDraft(draft) ? null : draftId,
+    draftId: draft === null ? null : patrolScopeOf(draft),
   });
 });
 

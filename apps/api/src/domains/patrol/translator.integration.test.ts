@@ -465,6 +465,26 @@ describe("the catch-up draft", () => {
     expect(live.publishedBy).toEqual({ id: CAMOX_ACTOR, name: "Camox" });
   });
 
+  it("refreshes Live's Patrol when an editor deletes the catch-up draft, its reports ending", async () => {
+    const f = await fixture();
+    await publishedAnyway(f);
+    // French still translating keeps the catch-up draft open, with a German report Live shows.
+    await f.runTranslationsInto("de");
+    const { drafts } = await call(router.drafts.list, { projectId: f.projectId }, f.member());
+    const catchUp = drafts.find((draft) => draft.createdBy.id === CAMOX_ACTOR)!;
+    expect((await f.translator({})).reports).toHaveLength(1);
+    forgetSent(f.projectId);
+
+    await call(
+      router.drafts.delete,
+      { projectId: f.projectId },
+      f.member({ [DRAFT_HEADER]: catchUp.id }),
+    );
+
+    expect(refreshes(sentTo(f.projectId), null, [...queryKeys.patrol.get, f.projectId])).toBe(true);
+    expect((await f.translator({})).reports).toEqual([]);
+  });
+
   it("leaves no report when it's dropped because its translations changed nothing", async () => {
     const f = await fixture();
     await publishedAnyway(f);

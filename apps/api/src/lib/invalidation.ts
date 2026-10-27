@@ -1,4 +1,3 @@
-import { CAMOX_ACTOR } from "@camox/api-contract/drafts";
 import { queryKeys, type ProjectRoomMessage, type QueryKey } from "@camox/api-contract/query-keys";
 import { and, eq, type SQL } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
@@ -11,8 +10,8 @@ import {
   storedInLiveOrDraft,
   type EntityKind,
 } from "../domains/drafts/overlay";
-import { drafts } from "../domains/drafts/schema";
 import { SEO_MANAGER_TYPES } from "../domains/patrol/patrollers";
+import { type CountsAsLive, countsAsLiveIn } from "../domains/patrol/scopes";
 import type { Change } from "./journal";
 
 type ContentChange = Extract<Change, { kind: "content" }>;
@@ -92,32 +91,6 @@ function rowsIn(db: Database, changes: readonly Change[]) {
 }
 
 type RowOf = ReturnType<typeof rowsIn>;
-
-/**
- * Whether a draft's pending work shows in Live's Patrol: Camox's catch-up draft's does (ADR
- * 0024). A draft that ended since, as a catch-up draft Camox just published, may have been one.
- * Asks the database once per draft.
- */
-function patrolScopesIn(db: Database) {
-  const known = new Map<string, boolean>();
-  return (draftId: string) =>
-    Effect.gen(function* () {
-      const cached = known.get(draftId);
-      if (cached !== undefined) return cached;
-      const row = yield* Effect.tryPromise(() =>
-        db
-          .select({ kind: drafts.kind, createdBy: drafts.createdBy })
-          .from(drafts)
-          .where(eq(drafts.id, draftId))
-          .get(),
-      ).pipe(Effect.orElseSucceed(() => undefined));
-      const lives = row === undefined || (row.kind === "regular" && row.createdBy === CAMOX_ACTOR);
-      known.set(draftId, lives);
-      return lives;
-    });
-}
-
-type WorkIsLives = ReturnType<typeof patrolScopesIn>;
 
 /** The reads showing an entity, in its scope. */
 const readsOf = Effect.fn("invalidation.readsOf")(function* (
@@ -217,7 +190,7 @@ function withoutCovered(keys: readonly QueryKey[]): QueryKey[] {
 /** The messages a project's room is sent for its changes, Live's after the drafts'. */
 const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
   rowOf: RowOf,
-  workIsLives: WorkIsLives,
+  countsAsLive: CountsAsLive,
   changes: readonly Change[],
 ) {
   const targets = new Map<string | null, QueryKey[]>();
@@ -266,7 +239,7 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         // Whether it's pending says whether the SEO manager works on it.
         if (SEO_MANAGER_TYPES.includes(change.type)) {
           add(draftId, queryKeys.patrol.get);
-          if (draftId !== null && (yield* workIsLives(draftId))) add(null, queryKeys.patrol.get);
+          if (draftId !== null && (yield* countsAsLive(draftId))) add(null, queryKeys.patrol.get);
         }
         break;
       }
@@ -277,7 +250,7 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         add(null, queryKeys.drafts.list);
         // The Translator works on them: the catch-up draft's work is Live's (ADR 0024).
         add(change.draftId, queryKeys.patrol.get);
-        if (yield* workIsLives(change.draftId)) add(null, queryKeys.patrol.get);
+        if (yield* countsAsLive(change.draftId)) add(null, queryKeys.patrol.get);
         break;
       case "report":
         // A Live report shows in every draft's Patrol too: a Live invalidation reaches them.
@@ -299,6 +272,8 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         break;
       case "ended":
         ended.push({ type: "draftEnded", ...change.ended });
+        // Its reports and pending work ended with it: the catch-up draft's were Live's.
+        if (yield* countsAsLive(change.ended.draftId)) add(null, queryKeys.patrol.get);
         break;
       case "project":
         add(null, prefixes.projects);
@@ -343,7 +318,7 @@ function changesLive(change: Change): boolean {
 export const announce = Effect.fn("invalidation.announce")(
   function* (db: Database, changes: readonly Change[]) {
     const rowOf = rowsIn(db, changes);
-    const workIsLives = patrolScopesIn(db);
+    const countsAsLive = countsAsLiveIn(db);
     const byProject = new Map<number, Change[]>();
     for (const change of changes) {
       byProject.set(change.projectId, [...(byProject.get(change.projectId) ?? []), change]);
@@ -354,7 +329,7 @@ export const announce = Effect.fn("invalidation.announce")(
         .map(([projectId]) => edgeCacheTags.live(projectId)),
     );
     for (const [projectId, projectChanges] of byProject) {
-      for (const message of yield* messagesFor(rowOf, workIsLives, projectChanges)) {
+      for (const message of yield* messagesFor(rowOf, countsAsLive, projectChanges)) {
         projectRooms.send(projectId, message);
       }
     }
