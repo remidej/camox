@@ -22,13 +22,7 @@ import { releases } from "../releases/schema";
 import { revisions } from "../revisions/schema";
 import { DRAFT_MERGED_EVENT, PUBLISH_TURN_EVENT } from "./events";
 import { leavePublishPush, turnOf, wakeNextPublish } from "./queue";
-import {
-  deletePublishScript,
-  LIVE_SCRIPT_SETTLES,
-  liveScriptOf,
-  pointLiveAt,
-  uploadPublishScript,
-} from "./scripts";
+import { deletePublishScript, LIVE_SCRIPT_SETTLES, liveScriptOf, pointLiveAt } from "./scripts";
 
 // Publishing a draft with code (ADR 0020, spec #560 section 13): its publish Workflow puts the
 // build of the revision members previewed on Live, then the draft's content and definitions in
@@ -154,20 +148,6 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       // Requests dispatch sent to this publish's script end before it's deleted.
       await step.sleep("let dispatch serve the previous script", LIVE_SCRIPT_SETTLES);
     };
-    // The publish's script, once uploaded: deleted when the publish doesn't land.
-    let uploaded: string | undefined;
-    const discardScript = async () => {
-      const script = uploaded;
-      uploaded = undefined;
-      if (!script) return;
-      // Any publish script left behind is deleted by the project's next release.
-      await step
-        .do("delete the publish's script", INFRASTRUCTURE_RETRIES, () =>
-          deletePublishScript(this.env, script),
-        )
-        .catch((error: unknown) => console.error("A publish's script wasn't deleted", error));
-    };
-
     try {
       if (!(await this.waitForTurn(step, db, params, instanceId, timedStep))) return;
 
@@ -178,25 +158,28 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       if ("aborted" in checked) return await abort(checked.aborted);
       const { ship } = checked;
 
-      // 2. Upload without serving: the build as a user Worker of its own, which nothing sends
-      // requests to yet.
-      uploaded = await step.do(
+      // 2. Upload without serving: the build as the draft's own user Worker, which nothing sends
+      // requests to yet. The draft uploaded it ahead as it previewed the revision, unless that
+      // failed or a release deleted it: the publish then uploads it. A publish that doesn't land
+      // leaves it to the draft, whose end deletes it.
+      const { script } = await step.do(
         "upload the publish's script",
         INFRASTRUCTURE_RETRIES,
-        timedStep("publish.upload", () =>
-          uploadPublishScript(
-            this.env,
-            {
-              project: ship.projectUuid,
-              draft: params.draftId,
+        timedStep(
+          "publish.upload",
+          async (): Promise<{ script: string; uploaded: boolean }> => {
+            const { script, uploaded } = await this.env.DRAFT_CODE.getByName(
+              params.draftId,
+            ).uploadForPublish(
+              { project: ship.projectUuid, revision: ship.revision, archiveKey: ship.archiveKey },
               instanceId,
-              archiveKey: ship.archiveKey,
-            },
-            { ...span, revisionId: ship.revision },
-          ),
+              { ...span, revisionId: ship.revision },
+            );
+            return { script, uploaded };
+          },
+          ({ uploaded }) => ({ uploaded }),
         ),
       );
-      const script = uploaded;
 
       // 3. Re-check conflicts, and blockers, against the review.
       const recheck = await step.do(
@@ -207,10 +190,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
           (reason) => ({ reason }),
         ),
       );
-      if (recheck) {
-        await discardScript();
-        return await abort(recheck);
-      }
+      if (recheck) return await abort(recheck);
 
       // 4. Promote: point Live at the script. From here until the batch commits, its reads see
       // Live overlaid with the publishing draft.
@@ -266,7 +246,6 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       });
       if (!batch.applied && batch.ended?.outcome !== "published") {
         await rollBack();
-        await discardScript();
         // A draft deleted while it published has no review to go back to.
         if (!batch.ended) {
           await abort(
@@ -282,7 +261,6 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       // Live has the draft's code and content: what's left can't be given up on, or `main`
       // would stay behind Live, and its next push release old code over it.
       rollBackTo = undefined;
-      uploaded = undefined;
 
       // 6. Live serves the revision's tree: the push to `main` releases nothing.
       await step.do(
@@ -325,7 +303,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
 
       // 9. The script Live served before, which nothing rolls back to anymore: dispatch stopped
       // serving it before the batch.
-      if (previous) {
+      if (previous && previous !== script) {
         await step
           .do(
             "delete the previous publish's script",
@@ -342,7 +320,6 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       await rollBack().catch((rolled: unknown) =>
         console.error("A failed publish didn't point Live back at its previous script", rolled),
       );
-      await discardScript().catch(() => undefined);
       await step
         .do("go back to the review after a failure", () =>
           endPublishing(db, params, instanceId, "failed"),

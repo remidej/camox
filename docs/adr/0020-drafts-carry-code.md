@@ -94,3 +94,19 @@ The publish Workflow uploads the Worker through the Cloudflare API itself, with 
 - A publish's Worker serves until the project's next real release: a publish's own push to `main` releases nothing.
 - Bindings are given in full on every upload, as a namespaced Worker can't inherit another's. Websites' Workers have none today.
 - The publish sandbox is gone.
+
+## Amendment: a draft uploads its Worker ahead of its publish
+
+Uploading the publish's Worker took most of a publish: 17 of its 30 seconds in production ([Quick wins for the speed of a draft with code's previews and publishes](https://github.com/remidej/camox/issues/636)). So a draft with code has a Worker of its own, named after the draft, and uploads the build of each revision it previews to it right away, and again as its review opens if that failed. Its publish takes that Worker, checks it's still there and holds the revision it ships, and uploads only when it doesn't. Live still serves the bytes members previewed: the Worker holds the pinned revision's build. The upload is still made from trusted inputs only, with Camox's Cloudflare token, beside no code of the build.
+
+### Considered Options
+
+- **A Worker per revision**, uploaded as it's previewed. Each revision would leave a Worker behind to delete, and a publish would need to find which ones are left.
+- **Upload only as the review opens.** A member who publishes right away would still wait for most of the upload.
+- **Keep a Worker per publish, and upload faster.** Uploading the assets at once helps, but the upload stays on the publish's path.
+
+### Consequences
+
+- Each revision a draft previews replaces its Worker, one upload at a time, until a publish takes it. Nothing replaces it from then until that publish ends.
+- A publish that doesn't land leaves the Worker to its draft, for its next publish. The draft's end deletes it, unless the draft published and Live serves it. A release still deletes every publish Worker of its project, its open drafts' included: their next publish uploads again.
+- A draft that never publishes still uploads each revision it previews, costing Cloudflare API calls and the upload of its build's new assets.

@@ -46,6 +46,7 @@ import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-imag
 import * as patrolReports from "../patrol/reports";
 import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
+import { uploadAhead } from "../publishes/upload-ahead";
 import { rootOfItem } from "../repeatable-items/roots";
 import { codeOfDraft, type PreviewCode } from "../revisions/preview";
 import { endingThread } from "../threads/service";
@@ -682,6 +683,12 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
   const { fingerprint: _, ...preview } = yield* computePreview(ctx, scope);
   // Someone is reviewing the draft: an outdated overview is written now, not after the debounce.
   yield* requestIfOutdated(ctx.db, scope.id, preview.overview);
+  // Publishing it is near: its publish script goes up now, unless it already did.
+  if (preview.code?.revision && !preview.code.publishing) {
+    ctx.waitUntil(
+      uploadAhead(ctx.env, ctx.db, { draftId: scope.id, revisionId: preview.code.revision }),
+    );
+  }
   return preview;
 });
 

@@ -38,7 +38,7 @@ import { blocks } from "../../schema";
 import { drafts } from "../drafts/schema";
 import { revisions } from "../revisions/schema";
 import { PUBLISHES_CHECKED_EVERY } from "../upgrades/project-workflow";
-import { publishScriptsTag } from "./scripts";
+import { deletePublishScript, publishScriptName, publishScriptsTag } from "./scripts";
 import { INFRASTRUCTURE_RETRIES } from "./workflow";
 
 /** How many times a publish's step that fails on Camox's side runs before it gives up. */
@@ -166,6 +166,7 @@ async function draftAddingPricing(website: Website, token: string) {
   `);
   answerFrom(() => "Added it.");
   await ask(thread, "Add a pricing section saying plans start at $9");
+  await uploadedAhead(website, draftId);
   return { draftId, file: pricingFile(marker) };
 }
 
@@ -290,8 +291,36 @@ async function publicPagesOf({ db, project }: Website, headers: Record<string, s
   return shown;
 }
 
-/** A publish's upload of its user Worker, as its call to the Cloudflare API names it. */
+/** An upload of a draft's publish Worker, ahead or in its publish, as its call names it. */
 const UPLOAD = (project: string) => `PUT ${project}-publish-`;
+
+/**
+ * A publish's check that its draft's Worker, uploaded ahead, is still there: the call a test
+ * holds to keep a publish at its upload step.
+ */
+const CHECK = (project: string) => `GET ${project}-publish-`;
+
+/** A draft's publish Worker. */
+const scriptOf = ({ project }: Website, draftId: string) =>
+  publishScriptName(project.uuid, draftId);
+
+/** Waits until the draft's publish Worker holds the build of its last revision. */
+async function uploadedAhead(website: Website, draftId: string) {
+  await vi.waitFor(
+    async () => {
+      const worker = await fakes.userWorker(scriptOf(website, draftId));
+      expect(worker?.modules["index.js"]?.text).toContain(await lastBuildOf(draftId));
+    },
+    { timeout: 10_000, interval: 20 },
+  );
+}
+
+/** How many times a publish of the draft checked its Worker, as it took it to ship. */
+async function checksOf(website: Website, draftId: string) {
+  return (await fakes.cloudflareCalls(website.project.uuid)).filter(
+    ({ call }) => call === `GET ${scriptOf(website, draftId)}`,
+  ).length;
+}
 
 /** Waits until a project called the Cloudflare API with a call containing `pattern`. */
 async function called(project: string, pattern: string) {
@@ -323,11 +352,20 @@ async function draftChangingCode(website: Website, token: string) {
   answerWithToolCall("build", {});
   answerFrom(() => "Changed it.");
   await ask(thread, "Change the text block's code");
+  await uploadedAhead(website, draftId);
   return draftId;
 }
 
-/** Has the draft's agent change its code again and build it: a newer revision. */
-async function changeCodeAgain(website: Website, token: string, draftId: string) {
+/**
+ * Has the draft's agent change its code again and build it: a newer revision, which its publish
+ * Worker holds once uploaded ahead, unless `uploaded` is false.
+ */
+async function changeCodeAgain(
+  website: Website,
+  token: string,
+  draftId: string,
+  { uploaded = true }: { uploaded?: boolean } = {},
+) {
   const thread = await connectDraftThread(website.project.id, draftId, token);
   answerWithToolCall("write", {
     path: "src/blocks/text.tsx",
@@ -336,6 +374,7 @@ async function changeCodeAgain(website: Website, token: string, draftId: string)
   answerWithToolCall("build", {});
   answerFrom(() => "Changed it again.");
   await ask(thread, "Change it again");
+  if (uploaded) await uploadedAhead(website, draftId);
 }
 
 /** The Live home page's text block. */
@@ -534,14 +573,14 @@ describe("publishing a draft with code", () => {
     const { draftId } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
     const publishing = { [PUBLISHING_DRAFT_HEADER]: draftId };
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
 
     // Publishing, but nothing reads the draft yet.
     expect(await publicPagesOf(website, publishing)).toEqual({ "/home": [HELLO] });
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     await publishesEnd(publishes);
   });
 
@@ -549,15 +588,15 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
 
     await expect(writeHello(website, "Hello there", draftId)).rejects.toMatchObject({
       message: expect.stringContaining("being published"),
     });
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     await publishesEnd(publishes);
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO, PRICING] });
   });
@@ -567,12 +606,14 @@ describe("publishing a draft with code", () => {
     const { draftId } = await draftAddingPricing(website, token);
     const reviewed = await previewOf(website, draftId);
     await changeCodeAgain(website, token, draftId);
+    const uploads = await uploadsOf(website.project.uuid);
 
     await expect(publish(website, draftId, reviewed)).rejects.toMatchObject({
       code: REVISION_CHANGED_ERROR,
     });
     expect((await previewOf(website, draftId)).code).toMatchObject({ publishing: false });
-    expect(await uploadsOf(website.project.uuid)).toBe(0);
+    expect(await uploadsOf(website.project.uuid)).toBe(uploads);
+    expect(await checksOf(website, draftId)).toBe(0);
   });
 
   it("goes back to the review when the agent leaves a revision while it waits", async () => {
@@ -580,23 +621,24 @@ describe("publishing a draft with code", () => {
     const { draftId: first } = await draftAddingPricing(website, token);
     const second = await draftChangingCode(website, token);
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
     await publish(website, second, await previewOf(website, second));
     expect((await previewOf(website, second)).code).toMatchObject({ publishing: true });
 
     await changeCodeAgain(website, token, second);
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     await publishesEnd(publishes);
 
     expect((await previewOf(website, second)).code).toMatchObject({
       publishing: false,
       publishAborted: "revisionChanged",
     });
-    // Only the first uploaded.
-    expect(await uploadsOf(repo)).toBe(1);
+    // Only the first took its Worker.
+    expect(await checksOf(website, first)).toBe(1);
+    expect(await checksOf(website, second)).toBe(0);
   });
 
   it("runs a project's publishes one after the other, the second shipping its merge of the first", async () => {
@@ -605,13 +647,13 @@ describe("publishing a draft with code", () => {
     const second = await draftChangingCode(website, token);
     const changed = await fakes.readFile(website.project.uuid, second, "src/blocks/text.tsx");
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
     await publish(website, second, await previewOf(website, second));
     const mainBefore = await fakes.log(repo);
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
 
     // The first lands, moving `main`: the second waits for the draft to merge it.
     await vi.waitFor(
@@ -621,7 +663,7 @@ describe("publishing a draft with code", () => {
         interval: 50,
       },
     );
-    expect(await uploadsOf(repo)).toBe(1);
+    expect(await checksOf(website, second)).toBe(0);
     await deliverPushes(repo);
     await publishesEnd(publishes);
 
@@ -645,15 +687,15 @@ describe("publishing a draft with code", () => {
     const first = await draftChangingCode(website, token);
     const second = await draftChangingCode(website, token);
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
     await publish(website, second, await previewOf(website, second));
     const mainBefore = await fakes.log(repo);
     // Camox's reconcile turn starts, and is still working when the publish ends.
     holdNextAnswer("Reconciled.");
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     await vi.waitFor(
       async () => expect(await fakes.log(repo)).toHaveLength(mainBefore.length + 1),
       { timeout: 10_000, interval: 50 },
@@ -667,7 +709,7 @@ describe("publishing a draft with code", () => {
     expect(preview.blockers).toEqual([
       expect.objectContaining({ entity: "code", code: "codeDoesNotMerge" }),
     ]);
-    expect(await uploadsOf(repo)).toBe(1);
+    expect(await checksOf(website, second)).toBe(0);
     expect((await draftsOf(website)).map(({ id }) => id)).toEqual([second]);
   });
 
@@ -679,18 +721,18 @@ describe("publishing a draft with code", () => {
     const before = await served(website);
     const reviewed = await previewOf(website, draftId);
     expect(reviewed.conflicts).toEqual([]);
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, reviewed);
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
 
     await writeHello(website, "Hi");
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     await publishesEnd(publishes);
 
     expect(await served(website)).toEqual(before);
-    // The publish's Worker, which never served, is deleted.
-    expect(await fakes.userWorkersOf(repo)).toEqual([repo]);
+    // The draft keeps its Worker, which never served, for its next publish.
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo, scriptOf(website, draftId)]);
     const preview = await previewOf(website, draftId);
     expect(preview.code).toMatchObject({ publishing: false, publishAborted: "conflictsChanged" });
     expect(preview.conflicts).toEqual([expect.objectContaining({ entity: "block" })]);
@@ -712,7 +754,7 @@ describe("publishing a draft with code", () => {
     await publishesEnd(publishes);
 
     expect(await served(website)).toEqual(before);
-    expect(await fakes.userWorkersOf(repo)).toEqual([repo]);
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo, scriptOf(website, draftId)]);
     expect(await fakes.log(repo)).toEqual(mainBefore);
     const preview = await previewOf(website, draftId);
     expect(preview.code).toMatchObject({ publishing: false, publishAborted: "conflictsChanged" });
@@ -735,7 +777,7 @@ describe("publishing a draft with code", () => {
     await publishesEnd(publishes, "errored");
 
     expect(await served(website)).toEqual(before);
-    expect(await fakes.userWorkersOf(repo)).toEqual([repo]);
+    expect(await fakes.userWorkersOf(repo)).toEqual([repo, scriptOf(website, draftId)]);
     expect(await fakes.log(repo)).toEqual(mainBefore);
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO] });
     expect((await previewOf(website, draftId)).code).toMatchObject({
@@ -771,17 +813,21 @@ describe("publishing a draft with code", () => {
     });
   });
 
-  it("publishes once when the upload's answer is lost", async () => {
+  it("uploads the draft's Worker when it's gone, and again when the upload's answer is lost", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    // The upload lands, but its answer is lost: the step uploads again.
+    // Gone, as a release deletes its project's publish Workers.
+    await deletePublishScript(env, scriptOf(website, draftId));
+    // The upload lands, but its answer is lost: what the Worker holds is unknown, so the step
+    // uploads again.
     await fakes.failCloudflareCalls(repo, UPLOAD(repo), 1, true);
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
     await publishesEnd(publishes);
 
-    expect(await uploadsOf(repo)).toBe(2);
+    // The upload ahead, then the publish's two.
+    expect(await uploadsOf(repo)).toBe(3);
     expect(await served(website)).toMatchObject({ build: await lastBuildOf(draftId) });
     expect(await fakes.userWorkersOf(repo)).toEqual([repo, (await served(website))!.name]);
   });
@@ -805,14 +851,14 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const { draftId, file } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
 
     await using upgrading = await startUpgrade(repo);
     await readyToPush(repo);
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     await publishesEnd(publishes);
     await upgrading.waitForStatus("complete");
 
@@ -832,15 +878,15 @@ describe("publishing a draft with code", () => {
     const { website, token } = await websiteWithCode();
     const { draftId, file } = await draftAddingPricing(website, token);
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await fakes.holdPushes(repo, "main");
     await using publishes = await watchPublishes();
     await publish(website, draftId, await previewOf(website, draftId));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
     await using upgrading = await startUpgrade(repo);
     await readyToPush(repo);
 
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     // The batch committed, and the publish's push to `main` waits: the Upgrade checks its turn
     // meanwhile.
     await vi.waitFor(async () => expect(await fakes.pushesWaiting(repo)).toBe(1), {
@@ -868,18 +914,18 @@ describe("publishing a draft with code", () => {
     const second = await draftChangingCode(website, token);
     const changed = await fakes.readFile(website.project.uuid, second, "src/blocks/text.tsx");
     const repo = website.project.uuid;
-    await fakes.holdCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.holdCloudflareCalls(repo, CHECK(repo));
     await using publishes = await watchPublishes();
     await publish(website, first, await previewOf(website, first));
-    await called(repo, UPLOAD(repo));
+    await called(repo, CHECK(repo));
     await using upgrading = await startUpgrade(repo);
     await readyToPush(repo);
     await publish(website, second, await previewOf(website, second));
 
-    await fakes.letGoCloudflareCalls(repo, UPLOAD(repo));
+    await fakes.letGoCloudflareCalls(repo, CHECK(repo));
     // The Upgrade pushes before the second publish does anything.
     await upgrading.waitForStatus("complete");
-    expect(await uploadsOf(repo)).toBe(1);
+    expect(await checksOf(website, second)).toBe(0);
     expect(await camoxOnMain(repo)).toBe("^1.1.0");
 
     // The second ships its merge of the upgraded `main`, once that released.
@@ -931,6 +977,130 @@ describe("publishing a draft with code", () => {
     await publishesEnd(publishes);
 
     expect(await fakes.mostBuildsAtOnce(draftId)).toBe(1);
+  });
+
+  it("ships the draft's Worker, uploaded as it previewed the revision, without uploading it", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    const repo = website.project.uuid;
+    const uploads = await uploadsOf(repo);
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes);
+
+    expect(await uploadsOf(repo)).toBe(uploads);
+    expect(await served(website)).toMatchObject({
+      name: scriptOf(website, draftId),
+      build: await lastBuildOf(draftId),
+    });
+  });
+
+  it("uploads each revision the draft previews over its Worker", async () => {
+    const { website, token } = await websiteWithCode();
+    const draftId = await draftChangingCode(website, token);
+    const first = await lastBuildOf(draftId);
+    await changeCodeAgain(website, token, draftId);
+
+    expect(await lastBuildOf(draftId)).not.toBe(first);
+    expect(await fakes.userWorkersOf(website.project.uuid)).toEqual([
+      website.project.uuid,
+      scriptOf(website, draftId),
+    ]);
+  });
+
+  it("doesn't replace the draft's Worker a publish took until it ends", async () => {
+    const { website, token } = await websiteWithCode();
+    const draftId = await draftChangingCode(website, token);
+    const shipped = await lastBuildOf(draftId);
+    const head = async () =>
+      (await website.db
+        .select({ id: revisions.id, archiveKey: revisions.archiveKey })
+        .from(revisions)
+        .innerJoin(drafts, eq(drafts.headRevisionId, revisions.id))
+        .where(eq(drafts.id, draftId))
+        .get())!;
+    const code = env.DRAFT_CODE.getByName(draftId);
+    const upload = async () => {
+      const { id, archiveKey } = await head();
+      return { project: website.project.uuid, revision: id, archiveKey: archiveKey! };
+    };
+    // A publish of the draft took its Worker.
+    const instanceId = crypto.randomUUID();
+    await website.db
+      .update(drafts)
+      .set({ publishInstanceId: instanceId })
+      .where(eq(drafts.id, draftId));
+    await code.uploadForPublish(await upload(), instanceId);
+
+    await changeCodeAgain(website, token, draftId, { uploaded: false });
+    await code.prepareUpload(await upload());
+
+    const holding = async () =>
+      (await fakes.userWorker(scriptOf(website, draftId)))!.modules["index.js"]!.text;
+    expect(await holding()).toContain(shipped);
+    // Once the publish ended, the newer revision goes up.
+    await website.db.update(drafts).set({ publishInstanceId: null }).where(eq(drafts.id, draftId));
+    await code.prepareUpload(await upload());
+    expect(await holding()).toContain(await lastBuildOf(draftId));
+  });
+
+  it("uploads the revision a publish ships again after an upload whose answer was lost", async () => {
+    const { website, token } = await websiteWithCode();
+    const draftId = await draftChangingCode(website, token);
+    const repo = website.project.uuid;
+    const shipped = await lastBuildOf(draftId);
+    const { id, archiveKey } = (await website.db
+      .select({ id: revisions.id, archiveKey: revisions.archiveKey })
+      .from(revisions)
+      .innerJoin(drafts, eq(drafts.headRevisionId, revisions.id))
+      .where(eq(drafts.id, draftId))
+      .get())!;
+    // The newer revision's upload ahead lands, but its answer is lost.
+    await fakes.failCloudflareCalls(repo, UPLOAD(repo), 1, true);
+    await changeCodeAgain(website, token, draftId, { uploaded: false });
+    await uploadedAhead(website, draftId);
+
+    const { uploaded } = await env.DRAFT_CODE.getByName(draftId).uploadForPublish(
+      { project: repo, revision: id, archiveKey: archiveKey! },
+      crypto.randomUUID(),
+    );
+
+    expect(uploaded).toBe(true);
+    const worker = await fakes.userWorker(scriptOf(website, draftId));
+    expect(worker!.modules["index.js"]!.text).toContain(shipped);
+  });
+
+  it("uploads the draft's Worker as its review opens, when the upload ahead failed", async () => {
+    const { website, token } = await websiteWithCode();
+    const repo = website.project.uuid;
+    await fakes.failCloudflareCalls(repo, UPLOAD(repo), 1);
+    const { draftId, thread } = await draftWithThread(website, token);
+    answerWithToolCall("write", { path: "src/blocks/text.tsx", content: `// ${draftId}\n` });
+    answerWithToolCall("build", {});
+    answerFrom(() => "Changed it.");
+    await ask(thread, "Change the text block's code");
+    await vi.waitFor(async () => expect(await uploadsOf(repo)).toBe(1), {
+      timeout: 10_000,
+      interval: 20,
+    });
+    expect(await fakes.userWorker(scriptOf(website, draftId))).toBeNull();
+
+    await previewOf(website, draftId);
+
+    await uploadedAhead(website, draftId);
+  });
+
+  it("deletes the draft's Worker when the draft is deleted", async () => {
+    const { website, token } = await websiteWithCode();
+    const draftId = await draftChangingCode(website, token);
+
+    await call(
+      router.drafts.delete,
+      { projectId: website.project.id },
+      { context: memberContext(website, draftId) },
+    );
+
+    expect(await fakes.userWorkersOf(website.project.uuid)).toEqual([website.project.uuid]);
   });
 
   it("deletes the draft's branch, builds, working copy and sandbox once it lands", async () => {

@@ -3,12 +3,13 @@ import { Effect } from "effect";
 
 import type { ServiceContext } from "../_shared/service-context";
 import { projects } from "../projects/schema";
+import { deletePublishScript, publishScriptName } from "../publishes/scripts";
 import { deleteDraftBuilds } from "../revisions/archive";
 import { destroySandbox } from "../revisions/sandbox";
 
 /**
  * Deletes a draft's code as the draft ends, when it has code: its branch and working copy, its
- * builds and its sandbox. The draft ended either way, so this never fails: code it couldn't
+ * builds, its publish script unless Live serves it, and its sandbox. The draft ended either way, so this never fails: code it couldn't
  * delete is only reported. Its revisions went with its row.
  */
 export const deleteDraftCode = Effect.fn("deleteDraftCode")(function* (
@@ -26,7 +27,7 @@ export const deleteDraftCode = Effect.fn("deleteDraftCode")(function* (
       return;
     await ctx.env.DRAFT_CODE.getByName(draftId).delete().catch(report("code"));
     const project = await ctx.db
-      .select({ uuid: projects.uuid })
+      .select({ uuid: projects.uuid, liveScript: projects.liveScript })
       .from(projects)
       .where(eq(projects.id, projectId))
       .get()
@@ -35,6 +36,11 @@ export const deleteDraftCode = Effect.fn("deleteDraftCode")(function* (
       await deleteDraftBuilds(ctx.env, { project: project.uuid, draft: draftId }).catch(
         report("builds"),
       );
+      // Its publish script, uploaded ahead, unless the draft published and Live serves it.
+      const script = publishScriptName(project.uuid, draftId);
+      if (project.liveScript !== script) {
+        await deletePublishScript(ctx.env, script).catch(report("publish script"));
+      }
     }
     await destroySandbox(ctx.env, draftId).catch(report("sandbox"));
   });

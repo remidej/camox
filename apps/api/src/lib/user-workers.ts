@@ -231,6 +231,21 @@ export async function uploadUserWorker(
   };
 }
 
+/** Whether the user Worker `name` exists. */
+export async function userWorkerExists(env: CloudflareEnv, name: string) {
+  try {
+    await cloudflare(
+      scriptUrl(env, name),
+      { method: "GET", token: env.CF_TOKEN },
+      `Reading the user Worker ${name}`,
+    );
+    return true;
+  } catch (error) {
+    if (error instanceof CloudflareApiError && error.status === 404) return false;
+    throw error;
+  }
+}
+
 /** Deletes the user Worker `name`, if there is one. */
 export async function deleteUserWorker(env: CloudflareEnv, name: string) {
   try {

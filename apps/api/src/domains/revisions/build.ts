@@ -12,6 +12,7 @@ import { agentServiceContext } from "../_shared/service-context";
 import { syncRevisionDefinitions } from "../definitions/service";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
+import { notUploadedAhead } from "../publishes/upload-ahead";
 import { camoxVersionInLockfile } from "../releases/lockfile";
 import { deleteRevisionBuild, revisionArchiveKey } from "./archive";
 import { buildErrorsOf } from "./build-log";
@@ -228,6 +229,14 @@ async function previewNewRevision(
     name: "revision.preview.prune",
     fields,
   });
+  // Its publish script goes up now, so publishing it doesn't wait for the upload.
+  void env.DRAFT_CODE.getByName(draft.id)
+    .prepareUpload({
+      project: draft.projectUuid,
+      revision: revision.id,
+      archiveKey: revision.archiveKey,
+    })
+    .catch(notUploadedAhead);
   return passed(revision.id);
 }
 

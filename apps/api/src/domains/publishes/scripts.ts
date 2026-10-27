@@ -21,11 +21,12 @@ import { projects } from "../projects/schema";
 // it. Workers for Platforms user Workers have no versions to upload without serving (README.md).
 
 /**
- * A publish's script: named after its project's Project ID and its publish's Workflow instance,
- * 81 characters of the 255 a Worker's name can have.
+ * A draft's publish script: named after its project's Project ID and the draft's ID, 81
+ * characters of the 255 a Worker's name can have. The draft uploads the build of each revision it
+ * previews to it ahead of its publish (`DraftCode.prepareUpload`), and its publish points Live at
+ * it.
  */
-export const publishScriptName = (project: string, instanceId: string) =>
-  `${project}-publish-${instanceId}`;
+export const publishScriptName = (project: string, draft: string) => `${project}-publish-${draft}`;
 
 /** The tag of every publish script of a project, which releases and deletion delete them by. */
 export const publishScriptsTag = (project: string) => `camox-publish-${project}`;
@@ -183,18 +184,13 @@ export function workerOfBuild(
 }
 
 /**
- * Uploads the revision's build as the publish's script. It carries the publishing draft's ID, so
- * its public reads see Live overlaid with the draft while the draft publishes
+ * Uploads the build of a draft's revision as the draft's publish script. It carries the draft's
+ * ID, so its public reads see Live overlaid with the draft while the draft publishes
  * (`PUBLISHING_DRAFT_HEADER`). Uploading again replaces it. Returns its name.
  */
 export async function uploadPublishScript(
   env: Pick<Bindings, "REVISION_BUILDS" | "CF_TOKEN" | "CLOUDFLARE_ACCOUNT_ID">,
-  {
-    project,
-    draft,
-    instanceId,
-    archiveKey,
-  }: { project: string; draft: string; instanceId: string; archiveKey: string },
+  { project, draft, archiveKey }: { project: string; draft: string; archiveKey: string },
   span: SpanFields = {},
 ): Promise<string> {
   const worker = await timed("publish.upload.readBuild", span, async () => {
@@ -206,7 +202,7 @@ export async function uploadPublishScript(
       tags: [publishScriptsTag(project)],
     });
   });
-  const name = publishScriptName(project, instanceId);
+  const name = publishScriptName(project, draft);
   await timed(
     "publish.upload.worker",
     span,

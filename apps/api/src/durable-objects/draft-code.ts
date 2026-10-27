@@ -1,18 +1,28 @@
 import { DurableObject } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 
+import { createDb } from "../db";
 import { hasConflictMarkers } from "../domains/code/conflict-markers";
 import { codeEnv } from "../domains/code/env";
 import { CODE_ROOT, lockedCamoxVersion, mountSkills, writeFiles } from "../domains/code/main-copy";
 import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/remote-env";
 import { SKILLS_ROOT } from "../domains/code/skills";
 import { writeLine } from "../domains/code/write-line";
+import { drafts } from "../domains/drafts/schema";
+import {
+  deletePublishScript,
+  liveScriptOfProject,
+  publishScriptName,
+  uploadPublishScript,
+} from "../domains/publishes/scripts";
 import type { BuildResult } from "../domains/revisions/result";
 import { MemoryFs, type MemoryFsEntry } from "../lib/memory-fs";
 import { serialQueue } from "../lib/serial-queue";
 import { tar, type TarEntry } from "../lib/tar";
-import { logSpan, timed } from "../lib/timing";
+import { logSpan, type SpanFields, timed } from "../lib/timing";
+import { userWorkerExists } from "../lib/user-workers";
 import type { Bindings } from "../types";
 
 const MAIN = "main";
@@ -82,9 +92,22 @@ const COMMIT_AUTHOR = { name: "Camox", email: "agent@camox.ai" };
 
 /** The lockfile, whose changes a build installs. */
 const LOCKFILE = "pnpm-lock.yaml";
+/** The revision whose build the draft's publish script holds, once uploaded. */
+const UPLOADED_KEY = "publish-script-revision";
+/** The publish, by its Workflow instance, that took the publish script to point Live at. */
+const CLAIMED_KEY = "publish-script-claimed-by";
 /** The files `pnpm install` reads: the manifest, the lockfile, pnpm's settings and patches. */
 const INSTALL_FILES =
   /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|\.pnpmfile\.cjs|patches\/.+)$/;
+
+/** A revision of the draft whose build goes up as its publish script. */
+export type PublishUpload = {
+  /** The project's Project ID. */
+  project: string;
+  revision: string;
+  /** Its build in `REVISION_BUILDS`. */
+  archiveKey: string;
+};
 
 /** A commit `prepareCommit` made, not on the branch yet. */
 export type PreparedCommit = {
@@ -257,6 +280,93 @@ export class DraftCode extends DurableObject<Bindings> {
           .catch(() => false));
       if (holds) this.ctx.storage.kv.delete(CLASH_KEY);
     });
+  }
+
+  /** Uploads of the draft's publish script, one at a time, as each replaces the last. */
+  readonly #uploads = serialQueue();
+
+  /**
+   * Uploads the build of the draft's revision `revision` as the draft's publish script, ahead of
+   * its publish, unless the script holds it already: its publish then only checks it's there
+   * (`uploadForPublish`). Nothing once a publish took the script, until that publish ends, nor
+   * once the draft ended. A draft that ended during the upload, deleted, loses the script.
+   */
+  prepareUpload(toUpload: PublishUpload): Promise<void> {
+    return this.#uploads.run(async () => {
+      if (this.ctx.storage.kv.get<string>(UPLOADED_KEY) === toUpload.revision) return;
+      const draft = await this.#publishingState();
+      if (!draft || (draft.publishInstanceId && draft.publishInstanceId === this.#claimedBy())) {
+        return;
+      }
+      const span: SpanFields = {
+        draftId: this.#draftId(),
+        revisionId: toUpload.revision,
+        uploadedAhead: true,
+      };
+      // An upload whose answer is lost may have landed: until one is answered, the script holds
+      // no revision anyone can count on.
+      this.ctx.storage.kv.delete(UPLOADED_KEY);
+      const script = await timed("publish.uploadAhead", span, () =>
+        uploadPublishScript(
+          this.env,
+          { project: toUpload.project, draft: this.#draftId(), archiveKey: toUpload.archiveKey },
+          span,
+        ),
+      );
+      if (await this.#publishingState()) {
+        this.ctx.storage.kv.put(UPLOADED_KEY, toUpload.revision);
+        return;
+      }
+      // Deleted meanwhile, after its code was: a publish can't have landed without this upload.
+      if ((await liveScriptOfProject(createDb(this.env.DB), toUpload.project)) !== script) {
+        await deletePublishScript(this.env, script);
+      }
+    });
+  }
+
+  /**
+   * The draft's publish script holding the build of `revision`, which the publish `instanceId`
+   * ships, taking it: no upload ahead replaces it until that publish ends. Uploads it unless the
+   * script holds it already, as the upload ahead left it. Returns its name, and whether this
+   * uploaded it.
+   */
+  uploadForPublish(
+    toUpload: PublishUpload,
+    instanceId: string,
+    span: SpanFields = {},
+  ): Promise<{ script: string; uploaded: boolean }> {
+    return this.#uploads.run(async () => {
+      this.ctx.storage.kv.put(CLAIMED_KEY, instanceId);
+      const script = publishScriptName(toUpload.project, this.#draftId());
+      // A release deletes every publish script of its project, its drafts' too.
+      if (
+        this.ctx.storage.kv.get<string>(UPLOADED_KEY) === toUpload.revision &&
+        (await userWorkerExists(this.env, script))
+      ) {
+        return { script, uploaded: false };
+      }
+      this.ctx.storage.kv.delete(UPLOADED_KEY);
+      await uploadPublishScript(
+        this.env,
+        { project: toUpload.project, draft: this.#draftId(), archiveKey: toUpload.archiveKey },
+        span,
+      );
+      this.ctx.storage.kv.put(UPLOADED_KEY, toUpload.revision);
+      return { script, uploaded: true };
+    });
+  }
+
+  #claimedBy() {
+    return this.ctx.storage.kv.get<string>(CLAIMED_KEY);
+  }
+
+  /** The draft's row, saying which publish it's in, if any, while the draft is open. */
+  async #publishingState() {
+    return createDb(this.env.DB)
+      .select({ publishInstanceId: drafts.publishInstanceId })
+      .from(drafts)
+      .where(eq(drafts.id, this.#draftId()))
+      .get();
   }
 
   /** Records that a build of the draft's code started, or ended. */
