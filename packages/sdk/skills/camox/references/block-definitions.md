@@ -156,7 +156,7 @@ icon: field.icon({ default: "lucide:zap", title: "Icon" })
 
 Icons are decorative unless given `aria-label` or `aria-labelledby`. Clicking an icon in preview opens the searchable collection picker. Values remain namespaced strings; editors cannot select another collection or an empty value.
 
-Run `pnpm exec camox typegen` **before TypeScript checking in CI**, for example `camox typegen && tsc --noEmit`. This resolves Vite config without starting a server or requiring Camox login. It generates `src/camox/icons.gen.d.ts`; ensure your tsconfig includes it. Dev and build regenerate it automatically. Generation requires network access to the pinned Iconify snapshot.
+Run `pnpm exec camox typegen` **before TypeScript checking in CI**, for example `camox typegen && tsc --noEmit`. This resolves Vite config without starting a server. It generates `src/camox/icons.gen.d.ts`; ensure your tsconfig includes it. Dev and build regenerate it automatically. Generation requires network access to the pinned Iconify snapshot.
 
 Camox resolves selected SVGs from that same versioned snapshot and serves them through its API. Server rendering preloads selected/default SVGs into hydration data; no visitor requests to Iconify and no rebuild is needed when content changes. Only the editor fetches collection metadata and picker previews, not a whole SVG catalog.
 

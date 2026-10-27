@@ -1,6 +1,6 @@
 # Creating a project
 
-A member creates a project from the dashboard, with a name and a slug. There's no other way: `camox init` (and `npm create camox`) no longer creates projects.
+A member creates a project from the dashboard, with a name and a slug. There's no other way.
 
 ## During the request
 
@@ -17,7 +17,7 @@ If the KV write or the Workflow's start fails, the setup fails as a creation ste
 `workflow.ts`. Each step is retried, and a step whose work landed may have failed after it, so each first checks whether its work is done:
 
 1. **Fork the Template.** Forks `template-default` into a repo named after the Project ID. A fork that fails where the repo can be got was made by an earlier attempt, whose response was lost: the binding's errors lose their code on the way to the Worker, so the step checks the repo instead of the error.
-2. **Commit the project's code.** Cloudflare Artifacts forks in the background, so getting the repo throws `FORK_IN_PROGRESS` until it's done, which retries the step. Without a Container, it clones the repo in memory with isomorphic-git (`copy.ts`, on `src/lib/memory-fs.ts`), writes the Project ID into `vite.config.ts` and `wrangler.jsonc`, the name into the Template's `{{projectName}}` placeholders and the slug into `package.json`, as `camox init` did, commits "Create <name>" and pushes to `main` with a short-lived write token. A `wrangler.jsonc` on `main` that already holds the Project ID means an earlier attempt pushed.
+2. **Commit the project's code.** Cloudflare Artifacts forks in the background, so getting the repo throws `FORK_IN_PROGRESS` until it's done, which retries the step. Without a Container, it clones the repo in memory with isomorphic-git (`copy.ts`, on `src/lib/memory-fs.ts`), writes the Project ID into `vite.config.ts` and `wrangler.jsonc`, the name into the Template's `{{projectName}}` placeholders and the slug into `package.json`, commits "Create <name>" and pushes to `main` with a short-lived write token. A `wrangler.jsonc` on `main` that already holds the Project ID means an earlier attempt pushed.
 3. **Follow the setup to building.** The push starts the project's first release (`../releases/`).
 
 The release Workflow carries the setup on while the project isn't live: it moves the setup step to `build`, then to `serve` before deploying, and makes the project `live` once the release succeeds. A first release that gives up marks the project `setupFailed` at its step, and its release alert reaches the alerts address.
