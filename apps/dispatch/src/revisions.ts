@@ -140,12 +140,27 @@ async function buildFiles(env: RevisionBindings, { archiveKey }: RevisionToLoad)
 const CLIENT_DIR = "dist/client/";
 
 /**
- * Where a revision's client asset at `path` (within `dist/client/`) is stored once it's
- * prewarmed. Keyed by project, so a host only serves its own project's revisions. Mirrored in
- * apps/api/src/domains/revisions/archive.ts, which deletes them: keep the two in sync.
+ * Where a revision's client asset at `path` (within `dist/client/`) was stored, one object each,
+ * by revisions prewarmed before their assets were packed: still served while such a revision is
+ * previewed. Keyed by project, so a host only serves its own project's revisions. Its prefix is
+ * mirrored in apps/api/src/domains/revisions/archive.ts, which deletes what's under it: keep the
+ * two in sync.
  */
 export const revisionAssetKey = (project: string, revision: string, path: string) =>
   `${project}/revisions/${revision}/${path}`;
+
+/**
+ * Where a prepared revision's client assets are stored, one after the other in one object, and
+ * where the index saying where each one is. Under the revision's asset key prefix, so deleting
+ * its assets deletes them; `#` never starts an asset's path, which a URL can't hold.
+ */
+export const revisionAssetsPackKey = (project: string, revision: string) =>
+  revisionAssetKey(project, revision, "#assets");
+export const revisionAssetsIndexKey = (project: string, revision: string) =>
+  revisionAssetKey(project, revision, "#index");
+
+/** Where each client asset is in its revision's pack: its offset, length and content type. */
+type AssetIndex = Record<string, [offset: number, length: number, contentType: string]>;
 
 /** Content types of the files a client build holds, by extension. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -177,42 +192,90 @@ const contentTypeOf = (path: string) =>
   CONTENT_TYPES[path.slice(path.lastIndexOf(".") + 1).toLowerCase()] ?? "application/octet-stream";
 
 /**
- * Readies a revision before anyone is told of it, as the API asks once its build passed: stores
- * its client assets where its asset prefix serves them from, then loads it and renders its
- * renderer document once, so the first member to reload doesn't wait for either.
+ * Stores a revision's client assets where its asset prefix serves them from: in one object, with
+ * its index beside it, since a Worker writes only a few objects at once, and a build's client
+ * assets are dozens. Returns how many it stored.
  */
-export async function prewarmRevision(
+async function storeClientAssets(
   env: RevisionBindings,
-  toLoad: RevisionToLoad,
-  gateway: (props: GatewayProps) => Fetcher,
-): Promise<PrewarmTimings> {
-  const startedAt = Date.now();
-  const files = await buildFiles(env, toLoad);
+  { project, revision }: RevisionToLoad,
+  files: Map<string, Uint8Array>,
+) {
   const assets = [...files].filter(([path]) => path.startsWith(CLIENT_DIR));
-  await Promise.all(
-    assets.map(([path, content]) =>
-      env.REVISION_BUILDS.put(
-        revisionAssetKey(toLoad.project, toLoad.revision, path.slice(CLIENT_DIR.length)),
-        content,
-        { httpMetadata: { contentType: contentTypeOf(path) } },
-      ),
-    ),
-  );
-  const storedAt = Date.now();
-  const rendered = await loadRevision(env, toLoad, gateway)
-    .getEntrypoint()
-    .fetch(new Request("https://prewarm.camox.invalid" + RENDERER_DOCUMENT_PATH));
-  // Its body is drained so the render runs to its end; how it went isn't the prewarm's to judge.
-  await rendered.arrayBuffer();
-  return { assets: assets.length, assetsMs: storedAt - startedAt, renderMs: Date.now() - storedAt };
+  const pack = new Uint8Array(assets.reduce((size, [, content]) => size + content.byteLength, 0));
+  const index: AssetIndex = {};
+  let offset = 0;
+  for (const [path, content] of assets) {
+    pack.set(content, offset);
+    index[path.slice(CLIENT_DIR.length)] = [offset, content.byteLength, contentTypeOf(path)];
+    offset += content.byteLength;
+  }
+  // Both at once: no one asks for the revision's assets before the API is told it's prepared.
+  await Promise.all([
+    env.REVISION_BUILDS.put(revisionAssetsPackKey(project, revision), pack),
+    env.REVISION_BUILDS.put(revisionAssetsIndexKey(project, revision), JSON.stringify(index)),
+  ]);
+  return assets.length;
 }
 
 /**
- * What a prewarm took, for the API's timing logs: how many client assets it stored, how long
- * reading the build and storing them took, then the first render. Mirrored in
- * apps/api/src/domains/revisions/dispatch.ts: keep the two in sync.
+ * Readies a revision before anyone is told of it, as the API asks once its build passed, reading
+ * its build once: stores its client assets where its asset prefix serves them from, and loads it
+ * to read its Definition Set and render its renderer document once, so the first member to
+ * reload waits for neither. Returns the Definition Set (JSON-shaped, not yet checked), with what
+ * each part took.
  */
-export type PrewarmTimings = { assets: number; assetsMs: number; renderMs: number };
+export async function prepareRevision(
+  env: RevisionBindings,
+  toLoad: RevisionToLoad,
+  gateway: (props: GatewayProps) => Fetcher,
+): Promise<PreparedRevision> {
+  const startedAt = Date.now();
+  const files = await buildFiles(env, toLoad);
+  const readAt = Date.now();
+  const revision = env.LOADER.get(toLoad.revision, async () =>
+    revisionCode(files, toLoad, gateway({ project: toLoad.project, draft: toLoad.draft })),
+  );
+  const timed = async <T>(run: () => Promise<T>) => {
+    const at = Date.now();
+    return { result: await run(), ms: Date.now() - at };
+  };
+  const [stored, read] = await Promise.all([
+    timed(() => storeClientAssets(env, toLoad, files)),
+    timed(() => readDefinitionSet(revision)),
+  ]);
+  const rendered = await timed(async () => {
+    const response = await revision
+      .getEntrypoint()
+      .fetch(new Request("https://prewarm.camox.invalid" + RENDERER_DOCUMENT_PATH));
+    // Its body is drained so the render runs to its end; how it went isn't the prewarm's to judge.
+    await response.arrayBuffer();
+  });
+  return {
+    definitionSet: read.result,
+    assets: stored.result,
+    readMs: readAt - startedAt,
+    assetsMs: stored.ms,
+    definitionSetMs: read.ms,
+    renderMs: rendered.ms,
+  };
+}
+
+/**
+ * What preparing a revision took, for the API's timing logs: reading its build, then, at once,
+ * storing its client assets (how many) and reading its Definition Set, then the first render.
+ * Mirrored in apps/api/src/domains/revisions/dispatch.ts: keep the two in sync.
+ */
+export type PrepareTimings = {
+  assets: number;
+  readMs: number;
+  assetsMs: number;
+  definitionSetMs: number;
+  renderMs: number;
+};
+
+/** A prepared revision's Definition Set, with what preparing it took. */
+export type PreparedRevision = PrepareTimings & { definitionSet: unknown };
 
 /** The renderer document's path (`RUNTIME_ROUTE_PATHS.renderer` in `camox`). */
 export const RENDERER_DOCUMENT_PATH = "/_camox/renderer";
@@ -223,8 +286,52 @@ const ASSET_PATH = /^\/_camox\/r\/([^/]+)\/(.+)$/;
 /** Whether a request's path is under some revision's asset prefix. */
 export const isRevisionAssetPath = (pathname: string) => pathname.startsWith("/_camox/r/");
 
+/** The indexes of revisions' asset packs this isolate read, by bucket and key: they never change. */
+const assetIndexesOf = new WeakMap<R2Bucket, Map<string, Promise<AssetIndex | null>>>();
+/** How many indexes an isolate keeps, dropping the oldest. A tuning value. */
+const ASSET_INDEXES_KEPT = 100;
+
+/** The index of a revision's asset pack, or null when the revision wasn't prepared. */
+function assetIndexOf(env: RevisionBindings, project: string, revision: string) {
+  const key = revisionAssetsIndexKey(project, revision);
+  let assetIndexes = assetIndexesOf.get(env.REVISION_BUILDS);
+  if (!assetIndexes) {
+    assetIndexes = new Map();
+    assetIndexesOf.set(env.REVISION_BUILDS, assetIndexes);
+  }
+  const kept = assetIndexes.get(key);
+  if (kept) return kept;
+  const read = env.REVISION_BUILDS.get(key).then(async (object) =>
+    object ? ((await object.json()) as AssetIndex) : null,
+  );
+  // A revision not prepared yet may be soon: only an index found is kept.
+  const forget = () => {
+    if (assetIndexes.get(key) === read) assetIndexes.delete(key);
+  };
+  void read.then((index) => index || forget(), forget);
+  assetIndexes.set(key, read);
+  if (assetIndexes.size > ASSET_INDEXES_KEPT) {
+    assetIndexes.delete(assetIndexes.keys().next().value!);
+  }
+  return read;
+}
+
+/** A client asset's answer: its build's, which nothing rewrites, so its revision's for good. */
+function assetResponse(body: BodyInit | null, contentType: string, etag: string) {
+  return new Response(body, {
+    headers: {
+      "content-type": contentType,
+      "cache-control": "public, max-age=31536000, immutable",
+      etag,
+    },
+  });
+}
+
+const notFound = () =>
+  new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+
 /**
- * A prewarmed revision's client asset of `project`, at a path under its asset prefix, to anyone:
+ * A prepared revision's client asset of `project`, at a path under its asset prefix, to anyone:
  * its names are hashed, and its revision's ID unguessable. Not found otherwise.
  */
 export async function serveRevisionAsset(
@@ -233,19 +340,28 @@ export async function serveRevisionAsset(
   pathname: string,
 ): Promise<Response> {
   const match = ASSET_PATH.exec(pathname);
-  const asset =
-    match && (await env.REVISION_BUILDS.get(revisionAssetKey(project, match[1]!, match[2]!)));
-  if (!asset) {
-    return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+  if (!match) return notFound();
+  const [, revision, path] = match as unknown as [string, string, string];
+  const index = await assetIndexOf(env, project, revision);
+  if (index) {
+    const entry = Object.hasOwn(index, path) ? index[path] : undefined;
+    if (!entry) return notFound();
+    const [offset, length, contentType] = entry;
+    const etag = `"${revision}-${offset}"`;
+    if (length === 0) return assetResponse(null, contentType, etag);
+    const asset = await env.REVISION_BUILDS.get(revisionAssetsPackKey(project, revision), {
+      range: { offset, length },
+    });
+    return asset ? assetResponse(asset.body, contentType, etag) : notFound();
   }
-  return new Response(asset.body, {
-    headers: {
-      "content-type": asset.httpMetadata?.contentType ?? contentTypeOf(pathname),
-      // A revision's assets never change: they're its build's, which nothing rewrites.
-      "cache-control": "public, max-age=31536000, immutable",
-      etag: asset.httpEtag,
-    },
-  });
+  // A revision prewarmed before assets were packed has an object for each.
+  const asset = await env.REVISION_BUILDS.get(revisionAssetKey(project, revision, path));
+  if (!asset) return notFound();
+  return assetResponse(
+    asset.body,
+    asset.httpMetadata?.contentType ?? contentTypeOf(pathname),
+    asset.httpEtag,
+  );
 }
 
 /** A revision's Definition Set, as its build's entrypoint gives it (JSON-shaped). */

@@ -750,21 +750,20 @@ export class FakeDispatch extends WorkerEntrypoint {
   }
 
   /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
-  async prewarm(revision) {
+  async prepare(revision) {
     const failures = prewarmFailures.get(revision.project) ?? 0;
     if (failures > 0) {
       prewarmFailures.set(revision.project, failures - 1);
       throw new Error("Network connection lost.");
     }
-    if (!(await this.env.REVISION_BUILDS.head(revision.archiveKey))) {
-      throw new Error(`The build ${revision.archiveKey} isn't stored`);
-    }
+    const definitionSet = await this.readDefinitionSet(revision);
     // Dispatch stores the revision's client assets where its asset prefix serves them from.
     await this.env.REVISION_BUILDS.put(
-      `${revision.project}/revisions/${revision.revision}/assets/index.css`,
+      `${revision.project}/revisions/${revision.revision}/#assets`,
       "body {}",
     );
     prewarmed.push(revision);
+    return { definitionSet, assets: 1, readMs: 0, assetsMs: 0, definitionSetMs: 0, renderMs: 0 };
   }
 }
 
