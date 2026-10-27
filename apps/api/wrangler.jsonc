@@ -4,8 +4,6 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-03-28",
   "compatibility_flags": ["nodejs_compat"],
-  // Markdown imports as its text: the SDK's code references the agent reads (src/domains/code).
-  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "routes": [{ "pattern": "api.camox.ai", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.ai",
@@ -51,6 +49,12 @@
     {
       "binding": "REVISION_BUILDS",
       "bucket_name": "camox-revision-builds",
+    },
+    // The skills each `camox` version ships, which the SDK's publish uploads and the agent reads
+    // (src/domains/code/skills.ts).
+    {
+      "binding": "SKILLS",
+      "bucket_name": "camox-skills",
     },
   ],
   // Workers AI, for the agent's web tools: Cloudflare's Web Search API, and converting the pages

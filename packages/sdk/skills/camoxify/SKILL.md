@@ -79,7 +79,7 @@ Use inline formatting and `textStyle`, including highlights, instead of fields s
 
 ## Populate and verify
 
-Follow the [Camox CLI workflow](../camox/SKILL.md#content-and-cli) to assign layouts, place blocks, and populate content, including shared navigation/footer content. Don't publish unless asked.
+Follow the [Camox CLI workflow](../camox-cli/SKILL.md) to assign layouts, place blocks, and populate content, including shared navigation/footer content. Don't publish unless asked.
 
 Compare the rendered site with the reference at desktop and mobile sizes. Verify that fields remain editable and that longer text and different repeater counts still work. Fix the reusable implementation, not just the one captured arrangement.
 

@@ -13,7 +13,9 @@ import {
   revisionFakes as fakes,
   websiteWithCode,
 } from "../../../test/revision-builds";
+import { publishSkills, skillsOf } from "../../../test/skills";
 import {
+  answerFrom,
   answerNext,
   answerWithToolCall,
   forgetThreadModel,
@@ -137,6 +139,27 @@ describe("merging Live's code into a draft", () => {
     expect(await fakes.readFile(repo, draftId, HERO_FILE)).toBe(NEW_HERO);
     expect(await fakes.readFile(repo, draftId, FAQ_FILE)).toBe(FAQ);
     expect(lastAnswer(thread.view())).toBe("I added an FAQ.");
+  });
+
+  it("gives the draft's agent the skills of the camox version an Upgrade's merge moved it to", async () => {
+    const { website, token, draftId } = await draftWithPricing();
+    const thread = await connectDraftThread(website.project.id, draftId, token);
+    const read = async () => {
+      answerWithToolCall("read", { path: ".camox/skills/camox/SKILL.md" });
+      answerFrom(({ lastToolResult }) => lastToolResult);
+      return lastAnswer(await ask(thread, "Read the camox skill", { keepOpen: true }));
+    };
+    expect(await read()).toBe(skillsOf("1.0.0")["camox/SKILL.md"].trimEnd());
+
+    const version = `1.0.0-${crypto.randomUUID()}`;
+    await publishSkills(version);
+    await pushToMain(
+      website.project.uuid,
+      mainWith({ "pnpm-lock.yaml": LOCKFILE.replaceAll("1.0.0", version) }),
+    );
+
+    expect(await read()).toBe(skillsOf(version)["camox/SKILL.md"].trimEnd());
+    thread.close();
   });
 
   it("says the draft doesn't include everything published to Live until it merged it", async () => {

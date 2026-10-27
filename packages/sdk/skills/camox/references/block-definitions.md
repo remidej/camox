@@ -2,7 +2,7 @@
 
 A block definition specifies a reusable section's schema and rendering, not an instance's content.
 
-When asked to add a section, also place an instance after dev-server discovery using the [CLI workflow](../SKILL.md#content-and-cli). For shared chrome, use [Layout Definitions](layout-definitions.md) instead. Defining a type alone does not place it on a Page.
+When asked to add a section, also place an instance as a [content change](../SKILL.md#content) once Camox has discovered the definition. For shared chrome, use [Layout Definitions](layout-definitions.md) instead. Defining a type alone does not place it on a Page.
 
 ## Quick Start
 

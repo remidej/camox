@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRpcContext, openDevelopmentDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
+import { LOCKFILE } from "../../../test/revision-builds";
 import {
   answerFrom,
   answerNext,
@@ -46,11 +47,12 @@ afterEach(async () => {
 const HERO = `export const hero = "Welcome to Acme";\n`;
 const PRICING = `export const pricing = "Plans start at $9";\n`;
 
-/** A website whose `main` holds a block and the platform's `package.json`. */
+/** A website whose `main` holds a block, the platform's `package.json` and its lockfile. */
 async function websiteWithCode() {
   const website = await websiteFixture({ home: "Hello" });
   await pushToMain(website.project.uuid, {
     "package.json": `{ "name": "acme", "dependencies": { "camox": "1.0.0" } }\n`,
+    "pnpm-lock.yaml": LOCKFILE,
     "src/blocks/hero.tsx": HERO,
   });
   return website;
@@ -192,12 +194,18 @@ describe("the agent writing the website's code", () => {
       ["mv", { from: "src/blocks/hero.tsx", to: "hero.tsx" }, platformOwned("hero.tsx")],
       ["rm", { path: "package.json" }, platformOwned("package.json")],
       ["rm", { path: "src/camox/app.ts" }, platformOwned("src/camox/app.ts")],
+      // Camox's skills are mounted beside the code, never part of it.
+      [
+        "write",
+        { path: ".camox/skills/camox/SKILL.md", content: "" },
+        platformOwned(".camox/skills/camox/SKILL.md"),
+      ],
     ];
     for (const [tool, args, refusal] of refusals) {
       expect(await toolResult(thread, tool, args)).toContain(`[error] ${refusal}`);
     }
 
-    expect(await toolResult(thread, "ls", {})).toBe(".camox/\npackage.json\nsrc/");
+    expect(await toolResult(thread, "ls", {})).toBe(".camox/\npackage.json\npnpm-lock.yaml\nsrc/");
     expect(await toolResult(thread, "ls", { path: "src" })).toBe("blocks/");
     expect(await toolResult(thread, "ls", { path: "src/blocks" })).toBe("hero.tsx\npricing.tsx");
     expect(await toolResult(thread, "read", { path: "package.json" })).toContain(`"acme"`);

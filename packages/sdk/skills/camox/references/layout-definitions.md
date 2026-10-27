@@ -4,7 +4,7 @@ A curated layout (`kind: "curated"`, the default) is a reusable shell for editor
 
 All editable content lives in blocks; layouts have no editable `content` schema or `.Field` helpers.
 
-Defining a layout does not assign it to existing Pages. When assignment is requested, wait for dev-server discovery, then follow the [CLI workflow](../SKILL.md#content-and-cli).
+Defining a layout does not assign it to existing Pages. When assignment is requested, make it as a [content change](../SKILL.md#content) once Camox has discovered the layout.
 
 ## Quick Start
 

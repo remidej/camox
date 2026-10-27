@@ -1,8 +1,9 @@
 # On every push to main, release-please only updates its release PR. Merging that PR cuts a
 # release, which runs the checks and tests, deploys Camox, then publishes the SDK. Publishing
 # waits for the deploy of the same commit, so no published SDK is ahead of the deployed API
-# (ADR 0019). Each publish refreshes the Template that new projects fork, then upgrades every
-# project to it. Running the workflow by hand deploys main without a release.
+# (ADR 0019). Each publish uploads its skills for the agent, refreshes the Template that new
+# projects fork, then upgrades every project to it. Running the workflow by hand deploys main
+# without a release.
 name: Deploy
 
 on:
@@ -256,10 +257,37 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  # Uploads the skills of the version just published to the API's `camox-skills` bucket, which the
+  # agent mounts at the version a project's lockfile installs (apps/api/src/domains/code/skills.ts).
+  # The Template refresh and the Upgrades wait for it, so no project installs a version the bucket
+  # lacks.
+  upload-skills:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Upload the skills
+        run: pnpm --filter @camox/api skills:upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
   # Pushes the Template at the version just published to template-default on Cloudflare Artifacts;
   # packages/cli/scripts/README.md has its setup.
   refresh-template:
-    needs: publish
+    needs: upload-skills
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

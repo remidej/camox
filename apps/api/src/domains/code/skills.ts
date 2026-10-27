@@ -1,63 +1,42 @@
-// The `camox` skill's references for code, from the SDK this API ships with: what the agent reads
-// to write code the way Camox expects. The CLI's references stay out, since the agent works
-// through its tools, not the CLI.
-import artifacts from "../../../../../packages/sdk/skills/camox/references/artifacts.md";
-import blockDefinitions from "../../../../../packages/sdk/skills/camox/references/block-definitions.md";
-import domIntegrations from "../../../../../packages/sdk/skills/camox/references/dom-integrations.md";
-import fieldStyling from "../../../../../packages/sdk/skills/camox/references/field-styling.md";
-import layoutDefinitions from "../../../../../packages/sdk/skills/camox/references/layout-definitions.md";
-import localization from "../../../../../packages/sdk/skills/camox/references/localization.md";
-import routedLayouts from "../../../../../packages/sdk/skills/camox/references/routed-layouts.md";
-import skill from "../../../../../packages/sdk/skills/camox/SKILL.md";
+// Camox's skills, as the `camox` version a project installs ships them: each SDK publish uploads
+// its `skills/` to `SKILLS` under its version (apps/api/scripts/upload-skills.mjs), and the
+// agent reads the version the project's lockfile installs, as a local agent reads them through
+// `node_modules`. The API never holds a copy of its own, so it can't drift from the SDK's.
+
+/** The skills the agent reads: the others drive the CLI, which it works without. */
+export const HOSTED_SKILLS = ["camox"] as const;
+
+/** Where the skills are mounted in the agent's environment, read-only, beside the code. */
+export const SKILLS_ROOT = "/.camox/skills";
+
+/** A version's skills: each file's path under `skills/`, such as `camox/SKILL.md`, to its text. */
+export type SkillFiles = Record<string, string>;
+
+/** The object of `SKILLS` holding the skills `camox` `version` ships. */
+export const skillsKey = (version: string) => `${version}.json`;
+
+/** The skills of each version read so far: a published version's never change. */
+const read = new Map<string, Promise<SkillFiles>>();
 
 /**
- * The `camox` skill's paragraph on interactive blocks (spec #560, section 15), which the agent's
- * instructions carry: the skill itself isn't mounted.
+ * The hosted skills `camox` `version` ships, or null when `bucket` has none for it, as for a
+ * version published before they were uploaded.
  */
-export const INTERACTIVE_BLOCKS = (() => {
-  const section = /^## Interactive blocks\n+([\s\S]+?)(?=\n## |$)/m.exec(skill)?.[1]?.trim();
-  if (!section) throw new Error("The camox skill has no Interactive blocks section");
-  return section;
-})();
-
-/** Where the references are mounted in the agent's environment, read-only. */
-export const SKILL_REFERENCES_DIR = "/.camox/skills/camox/references";
-
-/** Each reference's file name, with its text and when to read it, as `SKILL.md` routes to it. */
-export const SKILL_REFERENCES = [
-  {
-    file: "block-definitions.md",
-    text: blockDefinitions,
-    when: "creating a block in `src/blocks/`, or changing its schema or field rendering",
-  },
-  {
-    file: "layout-definitions.md",
-    text: layoutDefinitions,
-    when: "creating or changing a layout, a shell for editor-created pages, with its navbar and footer slots",
-  },
-  {
-    file: "routed-layouts.md",
-    text: routedLayouts,
-    when: "creating or changing a singleton page or a derived route in `src/layouts/`",
-  },
-  {
-    file: "localization.md",
-    text: localization,
-    when: "anything every locale must render: visible text, internal links, a locale switcher, a loader's localized data",
-  },
-  {
-    file: "field-styling.md",
-    text: fieldStyling,
-    when: "customizing inline text and link formatting, or highlights",
-  },
-  {
-    file: "artifacts.md",
-    text: artifacts,
-    when: "bespoke visuals or widgets as code: animations, 3D scenes, interactive widgets",
-  },
-  {
-    file: "dom-integrations.md",
-    text: domIntegrations,
-    when: "DOM listeners, scrolling, browser scripts or third-party widgets",
-  },
-] as const;
+export async function skillsAt(bucket: R2Bucket, version: string): Promise<SkillFiles | null> {
+  const known = read.get(version);
+  if (known) return known;
+  const object = await bucket.get(skillsKey(version));
+  if (!object) return null;
+  const files = object
+    .json<SkillFiles>()
+    .then((all) =>
+      Object.fromEntries(
+        Object.entries(all).filter(([path]) =>
+          HOSTED_SKILLS.some((skill) => path.startsWith(`${skill}/`)),
+        ),
+      ),
+    );
+  read.set(version, files);
+  files.catch(() => read.delete(version));
+  return files;
+}

@@ -18,6 +18,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx scripts/dev-seed.ts",
+    "skills:upload": "node scripts/upload-skills.mjs",
     "test": "vp test --run"
   },
   "dependencies": {

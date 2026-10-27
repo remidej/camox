@@ -807,7 +807,10 @@ export class Thread extends DurableObject<Bindings> {
     const held = this.#heldMainCopy;
     const { commit, files } = await this.env.PROJECT_CODE.getByName(uuid).snapshot(held?.commit);
     if (held && !files) return held;
-    this.#heldMainCopy = { commit, fs: await mainCopyFs({ commit, files: files ?? [] }) };
+    this.#heldMainCopy = {
+      commit,
+      fs: await mainCopyFs({ commit, files: files ?? [] }, this.env.SKILLS),
+    };
     return this.#heldMainCopy;
   }
 

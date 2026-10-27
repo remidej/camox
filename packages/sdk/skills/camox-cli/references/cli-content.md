@@ -2,7 +2,7 @@
 
 Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and the dev-first workflow.
 
-Use these commands for Pages, metadata, Layout assignments, Blocks and their Content, and review. To change Block schemas or rendering, read [Block Definitions](block-definitions.md); to create or change Layout Definitions, follow the code-definition routing in [the Camox skill](../SKILL.md).
+Use these commands for Pages, metadata, Layout assignments, Blocks and their Content, and review. To create or change Block or Layout Definitions, follow the [`camox` skill](../../camox/SKILL.md).
 
 ## Pages
 
@@ -111,7 +111,7 @@ Content patches merge ordinary fields, so send only fields that should change:
 
 ### Set string fields from files
 
-Use `--field-file <NAME>=<PATH>` on `blocks create` and `blocks edit` to set a top-level string field to a file's raw contents, without escaping it into JSON. It suits long Markdown and [Artifact](artifacts.md) sources. Repeat the flag to set several fields. It merges with `--content`; when both set the same field, the file wins. On `blocks create`, pass `--content`, `--field-file`, or both.
+Use `--field-file <NAME>=<PATH>` on `blocks create` and `blocks edit` to set a top-level string field to a file's raw contents, without escaping it into JSON. It suits long Markdown and [Artifact](../../camox/references/artifacts.md) sources. Repeat the flag to set several fields. It merges with `--content`; when both set the same field, the file wins. On `blocks create`, pass `--content`, `--field-file`, or both.
 
 ```sh
 {{CAMOX_CMD}} blocks edit --id <BLOCK_UUID> --content '{"title": "Orbit"}' --field-file source=./orbit.html

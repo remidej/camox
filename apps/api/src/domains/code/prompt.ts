@@ -1,10 +1,10 @@
-import { INTERACTIVE_BLOCKS, SKILL_REFERENCES, SKILL_REFERENCES_DIR } from "./skills";
+import { SKILLS_ROOT } from "./skills";
 import { WRITABLE } from "./write-line";
 
 /**
- * The agent's instructions for the website's code: where it is, how changing it works, which of
- * Camox's references to read for what, the way the `camox` skill's `SKILL.md` routes to them,
- * and the rules of a hosted project.
+ * The agent's instructions for the website's code: where it is, how changing it works, where the
+ * `camox` skill is, and the rules of a hosted project. How to write Camox code is the skill's
+ * alone, at the website's own `camox` version, so these name none of its references.
  */
 export const codeInstructions = `You can read the website's code with read, ls, find and grep, \
 and change it with write, edit, mv and rm, all of which you can also call from scripts. The code \
@@ -26,9 +26,10 @@ When merging Live's code into the draft conflicts, the files keep both versions 
 markers: call conflicts to list the files that still have them. build commits only files without \
 markers.
 
-Camox's references for its code are in \`${SKILL_REFERENCES_DIR}/\`. Read only the ones the task \
-needs:
-${SKILL_REFERENCES.map(({ file, when }) => `- \`${file}\`: ${when}.`).join("\n")}
+Camox's skill for its code is in \`${SKILLS_ROOT}/camox/\`, as the website's version of Camox \
+ships it. Read its \`SKILL.md\` before planning a change to the code, and follow it to only the \
+references the task needs. A definition a build adds is discovered once the build passes: place \
+or assign it with the content tools then.
 
 Rules of this website, which Camox hosts:
 - SEO links belong to Camox, which writes each page's meta tags, \`hreflang\` alternates and \
@@ -45,5 +46,4 @@ lint rules say. You can't add a dependency: build with the ones listed.
 Write the id as a string literal, \`createBlock({ id: "pricing-table", … })\`: the build reads it \
 there, and fails when it isn't one or doesn't match the file name.
 - Images and other media are files, managed as content, never code: upload one from a URL with \
-uploadFile, and use it through an image or file field.
-- Interactive blocks: ${INTERACTIVE_BLOCKS}`;
+uploadFile, and use it through an image or file field.`;

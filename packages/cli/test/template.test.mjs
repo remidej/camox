@@ -132,11 +132,16 @@ void test("a standalone project ignores what it installs and generates, and link
   for (const ignored of ["node_modules", ".env", "src/routeTree.gen.ts", "src/routes/(camox)/"]) {
     assert.ok(gitignore.includes(ignored), `.gitignore misses ${ignored}`);
   }
-  assert.equal(
-    await readlink(join(dest, ".agents/skills/camox")),
-    "../../node_modules/camox/skills/camox",
-  );
-  assert.equal(await readlink(join(dest, ".claude/skills/camox")), "../../.agents/skills/camox");
+  for (const skill of ["camox", "camox-cli", "camoxify", "camox-expand"]) {
+    assert.equal(
+      await readlink(join(dest, `.agents/skills/${skill}`)),
+      `../../node_modules/camox/skills/${skill}`,
+    );
+    assert.equal(
+      await readlink(join(dest, `.claude/skills/${skill}`)),
+      `../../.agents/skills/${skill}`,
+    );
+  }
 });
 
 void test("a standalone pnpm project lets Camox's own packages install as soon as they're published", async () => {

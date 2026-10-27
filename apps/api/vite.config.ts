@@ -181,6 +181,7 @@ export default defineConfig({
             "./test/record-edge-cache-purges.ts",
             "./test/record-generation.ts",
             "./test/import-worker.ts",
+            "./test/publish-skills.ts",
           ],
         },
       },
