@@ -231,7 +231,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
             atMs: Date.now() - createdAt,
           });
         }
-        const applied = await timedStep(
+        const { followUps, ...applied } = await timedStep(
           "publish.batch",
           () => runService(publishWithCode(db, { ...params, revision: ship.revision, instanceId })),
           (result) => ({ applied: result.applied }),
@@ -241,6 +241,13 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
             ...span,
             atMs: Date.now() - createdAt,
           });
+        }
+        // Once the batch's unit told the draft's viewers it ended. The draft ended whatever
+        // they do: a retry of this step wouldn't run them, so a failure is only reported.
+        if (followUps) {
+          await timedStep("publish.followUps", () => runService(followUps))().catch(
+            (error: unknown) => console.error("A publish's follow-ups failed", error),
+          );
         }
         return applied;
       });

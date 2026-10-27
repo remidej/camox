@@ -86,6 +86,8 @@ const jobs: ScheduledJob[] = [];
 // Every write in a draft requests its overview: kept apart, so entity jobs read alone.
 const overviewJobs: (OverviewJob & { delayMs: number })[] = [];
 let failures = 0;
+/** Told of each entity job as it's scheduled, when a test watches them. */
+let watcher: ((job: ScheduledJob) => void) | undefined;
 
 const recordingScheduler = AiJobQueue.of({
   schedule: (job, delayMs) =>
@@ -95,7 +97,10 @@ const recordingScheduler = AiJobQueue.of({
         return Effect.fail(new ScheduleError({ cause: "Scheduling failed in a test" }));
       }
       if (isOverviewJob(job)) overviewJobs.push({ ...job, delayMs });
-      else jobs.push({ ...job, delayMs });
+      else {
+        jobs.push({ ...job, delayMs });
+        watcher?.({ ...job, delayMs });
+      }
       return Effect.void;
     }),
 });
@@ -122,6 +127,12 @@ export const forgetAllScheduled = () => {
   jobs.length = 0;
   overviewJobs.length = 0;
   failures = 0;
+  watcher = undefined;
+};
+
+/** Tells `watch` of each entity job as it's scheduled, until the test ends. */
+export const watchScheduling = (watch: (job: ScheduledJob) => void) => {
+  watcher = watch;
 };
 
 /** Makes the next scheduling fail, as an unreachable Durable Object would. */

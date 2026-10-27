@@ -14,6 +14,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { callSeedingLive, createRpcContext, startDraft } from "../../../test/fixtures";
+import { watchScheduling } from "../../../test/generation";
 import { sentTo } from "../../../test/project-rooms";
 import { deliverPushes, pushToMain } from "../../../test/pushes";
 import {
@@ -977,6 +978,27 @@ describe("publishing a draft with code", () => {
     await publishesEnd(publishes);
 
     expect(await fakes.mostBuildsAtOnce(draftId)).toBe(1);
+  });
+
+  it("tells the draft's viewers it ended before its follow-ups, such as Live's generated values", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId } = await draftAddingPricing(website, token);
+    // Whether the draft's viewers heard it ended as each of Live's values was requested.
+    const heardByThen: boolean[] = [];
+    watchScheduling((job) => {
+      if (job.draftId !== null) return;
+      heardByThen.push(
+        sentTo(website.project.id).some(
+          (message) => message.type === "draftEnded" && message.draftId === draftId,
+        ),
+      );
+    });
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes);
+
+    expect(heardByThen).not.toEqual([]);
+    expect(heardByThen.every(Boolean)).toBe(true);
   });
 
   it("ships the draft's Worker, uploaded as it previewed the revision, without uploading it", async () => {
