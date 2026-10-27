@@ -27,8 +27,12 @@ A project's permanent identifier, given when it is created and never changed. A 
 _Avoid_: UUID, project key
 
 **Project Slug**:
-A project's address: its `camox.site` subdomain. Unique across Camox, and unlike the Project ID, it can change.
+A project's `camox.site` subdomain: its address, unless it has a Custom Domain, which it then redirects to. Unique across Camox, and unlike the Project ID, it can change.
 _Avoid_: Handle, project name
+
+**Custom Domain**:
+A domain a project is served at instead of its `camox.site` subdomain. A project has at most one.
+_Avoid_: Hostname, vanity URL
 
 **Template**:
 The starter website a new project's code begins as, before it is given the project's name and slug.
@@ -53,11 +57,11 @@ _Avoid_: Sync secret, API key
 ### Definitions (code-owned)
 
 **Definition**:
-A code-owned description of a kind of content (a block, layout, or collection), synced into Live by a release and into a development draft by running the website locally.
+A code-owned description of a kind of content (a block, layout, or collection), synced into Live by a release and into a draft that changes code by each of its revisions.
 _Avoid_: Model, type, template
 
 **Definition Set**:
-All of a website's definitions taken together, with the content they declare. A release syncs one to Live, and running the website locally syncs one to a development draft.
+All of a website's definitions taken together, with the content they declare. A release syncs one to Live, and each revision syncs one to its draft.
 _Avoid_: Manifest, schema
 
 **Block Definition**:
@@ -248,17 +252,13 @@ _Avoid_: Production, production environment, main
 A named set of changes to the website's content and code, kept apart from Live until it is published or deleted, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or delete any of them. Editing while viewing Live always starts a new draft.
 _Avoid_: Branch, environment, changeset, working copy
 
-**Development Draft**:
-A member's personal draft in a project whose code is on their machine rather than in Camox, so its definitions come from running the website locally. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or deleted.
-_Avoid_: Development environment, code draft, local draft
-
 **Revision**:
-One state of a draft's code, left each time the agent builds its changes, at the end of an agent turn that changed code, or by a merge of Live's code. A turn can leave several. Each is built once, the draft's preview shows the last one that built, and its definitions are what the draft's content uses from then on. Publishing serves the last revision's build on Live. A contributors' term: editors only ever see the draft.
+One state of a draft's code, left each time the agent builds its changes, at the end of an agent turn that changed code, by a merge of Live's code, or by a member pushing commits from their own checkout. A turn can leave several. Each is built once, the draft's preview shows the last one that built, and its definitions are what the draft's content uses from then on. Publishing serves the last revision's build on Live. A contributors' term: editors only ever see the draft.
 _Avoid_: Version, build, snapshot
 
 **Publish**:
 Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
-_Avoid_: Deploy, release, push, merge
+_Avoid_: Deploy, release, merge
 
 **Publish Anyway**:
 Publishing a draft while Camox is still translating it, rather than waiting for every locale to be translated. The translations left carry on in a catch-up draft.
@@ -273,7 +273,7 @@ A headline and bullets AI writes about a draft's changes, shown at the top of it
 _Avoid_: Draft summary, changelog, description
 
 **Delete**:
-Ending a draft without publishing it, so its changes are lost. A development draft is emptied instead, and stays open.
+Ending a draft without publishing it, so its changes are lost.
 _Avoid_: Discard, revert, undo
 
 **Blocker**:
@@ -347,7 +347,7 @@ A human who changes content through the studio.
 _Avoid_: Author, admin, content manager
 
 **Agent**:
-An AI that manages content alongside editors: Camox's own, through threads in the studio, or a developer's coding agent, through the CLI.
+An AI that manages content alongside editors: Camox's own, through threads in the studio.
 _Avoid_: Bot, assistant, AI
 
 **Thread**:

@@ -37,3 +37,7 @@ Agent-written code may make outbound requests, from the server and the browser. 
 - The Document has no check. The agent's instructions say to add a font as a Google Fonts link and to leave SEO links to Camox; nothing enforces either. Third-party scripts can now come from the agent, not only from integrations Camox owns.
 - Lint is for code quality only. `vp lint` runs in the revision's Container after the build, its errors go back to the agent in the same turn, and they never block publishing. Its config ships in the Template's `vite.config.ts`, without type-aware linting, since tsrs type checks.
 - The build checks and the lint step run only in hosted projects' builds, revisions and releases alike, turned on by a Camox-internal flag. `apps/landing` and self-hosters never see them. An Upgrade whose new rule breaks existing code fails like any other that doesn't build.
+
+## Amendment: the line applies to pushed code
+
+`apps/landing` becomes a hosted project (ADR 0026), so the build checks apply to it. Code a member pushes from their own checkout follows the same line as the agent's: the API refuses a push that changes a platform-owned file, so only Upgrades change them, whoever writes the website's code.

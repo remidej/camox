@@ -1,5 +1,7 @@
 # The CLI works only in development drafts
 
+Superseded by [Development drafts are gone](0027-development-drafts-are-gone.md): the CLI no longer reaches content, and its remaining commands clone and push a project's code (ADR 0026).
+
 The drafts plan first had the CLI pick or start any draft, so agents could manage Live from a repository. But the people who run a CLI are developers, in a checkout next to local code, and the only draft that renders with local definitions is their development draft (ADR 0006). The people who manage Live are editors. So the surface decides what content an agent can reach: the CLI and its agents work only in the caller's development draft, and editors' drafts are left to an in-app chat and an MCP server, neither of which v1 builds. The CLI still reaches Live: the development draft shows Live wherever it changes nothing, and publishing it lands on Live.
 
 ## Considered Options

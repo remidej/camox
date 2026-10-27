@@ -110,3 +110,7 @@ Uploading the publish's Worker took most of a publish: 17 of its 30 seconds in p
 - Each revision a draft previews replaces its Worker, one upload at a time, until a publish takes it. Nothing replaces it from then until that publish ends.
 - A publish that doesn't land leaves the Worker to its draft, for its next publish. The draft's end deletes it, unless the draft published and Live serves it. A release still deletes every publish Worker of its project, its open drafts' included: their next publish uploads again.
 - A draft that never publishes still uploads each revision it previews, costing Cloudflare API calls and the upload of its build's new assets.
+
+## Amendment: development drafts are gone
+
+Development drafts are removed (ADR 0027), and `apps/landing` becomes a hosted project, built from a checkout through pushes (ADR 0026). The consequence above that development drafts stay no longer holds. A revision can also be left by a member's push, which follows this ADR's rules for revisions: it waits for the agent's turn, aborts a publish confirmation, and is reconciled by Camox's agent when `main` moves under it.
