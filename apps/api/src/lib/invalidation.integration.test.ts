@@ -179,7 +179,7 @@ describe("publishing a renamed page", () => {
   });
 });
 
-describe("discarding a development draft", () => {
+describe("deleting a development draft", () => {
   it("refreshes what its readers saw, since it stays open, emptied", async () => {
     const { db, block, memberUser, projectId, sentBy } = await fixture();
     const development = await openDevelopmentDraft(db, projectId, memberUser.id);
@@ -192,7 +192,7 @@ describe("discarding a development draft", () => {
       inDevelopment,
     );
 
-    const sent = await sentBy(() => call(router.drafts.discard, { projectId }, inDevelopment));
+    const sent = await sentBy(() => call(router.drafts.delete, { projectId }, inDevelopment));
 
     expect(
       refreshesAll(sent, development, [

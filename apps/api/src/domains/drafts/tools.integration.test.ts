@@ -12,7 +12,7 @@ import {
 } from "../../../test/fixtures";
 import { router } from "../../router";
 
-// The AI tools that publish and discard the session's draft (ADR 0009), as the CLI calls them
+// The AI tools that publish and delete the session's draft (ADR 0009), as the CLI calls them
 // through the agent procedures in the caller's development draft (ADR 0010).
 
 const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
@@ -132,28 +132,28 @@ describe("draft AI tools", () => {
     expect(await f.titleIn()).toBe("Live");
   });
 
-  it("publishDraft on a draft an earlier attempt discarded says it was discarded, not published", async () => {
+  it("publishDraft on a draft an earlier attempt deleted says it was deleted, not published", async () => {
     const f = await fixture();
     const draft = generateUuidv7();
-    await f.editTitle("Discarded", { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" });
+    await f.editTitle("Deleted", { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" });
     const inDraft = { [DRAFT_HEADER]: draft };
     const { token } = await f.result("previewPublish", {}, inDraft);
-    await f.result("discardDraft", {}, inDraft);
+    await f.result("deleteDraft", {}, inDraft);
 
     expect(await f.result("publishDraft", { token }, inDraft)).toMatchObject({
       published: false,
-      reason: "discarded",
-      ended: { outcome: "discarded" },
+      reason: "deleted",
+      ended: { outcome: "deleted" },
     });
     expect(await f.titleIn()).toBe("Live");
   });
 
-  it("discardDraft empties the development draft and leaves Live untouched", async () => {
+  it("deleteDraft empties the development draft and leaves Live untouched", async () => {
     const f = await fixture();
-    await f.editTitle("Discarded", development);
-    expect(await f.titleIn(development)).toBe("Discarded");
+    await f.editTitle("Deleted", development);
+    expect(await f.titleIn(development)).toBe("Deleted");
 
-    await f.result("discardDraft");
+    await f.result("deleteDraft");
 
     expect((await f.result("previewPublish")).changes).toEqual([]);
     expect(await f.titleIn(development)).toBe("Live");

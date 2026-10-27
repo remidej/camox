@@ -145,7 +145,7 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
 /**
  * Deletes the blobs among `blobIds` that no file row names any more, in Live or any draft,
  * tombstones included. Called after anything that drops or repoints rows: a publish, a
- * discard, a replace, a delete, a failed upload. There is no scheduled cleanup.
+ * draft's deletion, a replace, a delete, a failed upload. There is no scheduled cleanup.
  */
 export const deleteUnreferencedBlobs = Effect.fn("files.deleteUnreferencedBlobs")(function* (
   ctx: Pick<ServiceContext, "db" | "env">,
@@ -193,7 +193,7 @@ const deleteFileBlob = Effect.fn("deleteFileBlob")(function* (
 
 /**
  * The blobs a draft's rows name, and those of the Live rows it copies or deletes: what may lose
- * its last reference when the draft is published or discarded. Collect them before the batch,
+ * its last reference when the draft is published or deleted. Collect them before the batch,
  * which drops the draft's rows.
  */
 export const blobsOfDraft = Effect.fn("files.blobsOfDraft")(function* (

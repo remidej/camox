@@ -4,7 +4,7 @@ import { defineProgram } from "@optique/core/program";
 import { runSync } from "@optique/run";
 
 import * as blocks from "./commands/blocks";
-import * as discard from "./commands/discard";
+import * as deleteCommand from "./commands/delete";
 import * as files from "./commands/files";
 import * as init from "./commands/init";
 import * as layouts from "./commands/layouts";
@@ -34,7 +34,7 @@ type Result =
   | Parameters<typeof layouts.handler>[0]
   | Parameters<typeof locales.handler>[0]
   | Parameters<typeof publish.handler>[0]
-  | Parameters<typeof discard.handler>[0]
+  | Parameters<typeof deleteCommand.handler>[0]
   | Parameters<typeof files.handler>[0];
 
 const program = defineProgram({
@@ -50,7 +50,7 @@ const program = defineProgram({
     layouts.parser,
     locales.parser,
     publish.parser,
-    discard.parser,
+    deleteCommand.parser,
     files.parser,
   ),
   metadata: {
@@ -118,7 +118,7 @@ switch (result.command) {
   case "publish":
     await publish.handler(result);
     break;
-  case "discard":
-    await discard.handler(result);
+  case "delete":
+    await deleteCommand.handler(result);
     break;
 }

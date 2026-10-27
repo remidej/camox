@@ -11,7 +11,7 @@ import {
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages, repeatableItems } from "../../schema";
-import { discardDraft } from "../drafts/publish";
+import { deleteDraft } from "../drafts/publish";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { getPageByPath } from "../pages/service";
 import {
@@ -248,7 +248,7 @@ describe("blocks in a draft", () => {
     expect(after?.contentUpdatedAt).toBe(before?.contentUpdatedAt);
   });
 
-  it("seeds a block's default repeatable items in the draft only, leaving none on Live once discarded", async () => {
+  it("seeds a block's default repeatable items in the draft only, leaving none on Live once deleted", async () => {
     const { ctx, db, page, project, openDraft } = await fixture("draft-create-items");
     await syncDefinitionSet(db, project, {
       blocks: [
@@ -290,7 +290,7 @@ describe("blocks in a draft", () => {
     expect(await itemsOf(null)).toEqual([]);
 
     await runService(
-      discardDraft(
+      deleteDraft(
         { ...ctx, draft: { id: draft.id, create: false } },
         {
           projectId: project.id,

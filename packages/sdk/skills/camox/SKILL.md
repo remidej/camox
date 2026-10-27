@@ -49,7 +49,7 @@ For any CLI operation, first read [CLI common guidance](references/cli-common.md
 
 - Pages, metadata, layout assignments, Blocks, content, or ordering:
   [CLI Content](references/cli-content.md).
-- Where the CLI writes, publishing or discarding the development draft, or its status:
+- Where the CLI writes, publishing or deleting the development draft, or its status:
   [CLI Publishing](references/cli-publishing.md).
 
 Code definitions do not place blocks on existing Pages or assign their layouts; `blocks.initial` only seeds the initial homepage. When the request includes placement or assignment on existing Pages, follow with the relevant CLI workflow. Singleton pages and derived routes are declared in code, not created through the pages CLI.

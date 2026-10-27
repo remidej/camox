@@ -375,7 +375,7 @@ RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is
     );
   });
 
-  it("deletes the draft's builds and its sandbox when the draft is discarded", async () => {
+  it("deletes the draft's builds and its sandbox when the draft is deleted", async () => {
     const { website, draft, thread } = await draftWithChanges({
       "src/blocks/pricing.tsx": PRICING,
     });
@@ -383,7 +383,7 @@ RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is
     thread.close();
 
     await call(
-      router.drafts.discard,
+      router.drafts.delete,
       { projectId: website.project.id },
       { context: createRpcContext(website.db, website.memberUser, { [DRAFT_HEADER]: draft.id }) },
     );

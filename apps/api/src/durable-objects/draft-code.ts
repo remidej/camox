@@ -134,7 +134,7 @@ type NodeRow = {
  * directory included, so an eviction restores it without cloning again. The SDK's code
  * references are mounted beside the files and never saved, nor committed.
  *
- * It stores nothing until `start` made it, and nothing once `discard` deleted it.
+ * It stores nothing until `start` made it, and nothing once `delete` deleted it.
  */
 export class DraftCode extends DurableObject<Bindings> {
   /** The working copy, once loaded from storage or cloned. */
@@ -643,7 +643,7 @@ export class DraftCode extends DurableObject<Bindings> {
   }
 
   /** Deletes the draft's branch and everything the working copy stored, as the draft ends. */
-  discard(): Promise<void> {
+  delete(): Promise<void> {
     return this.#serially(async () => {
       const repo = this.ctx.storage.kv.get<string>(REPO_KEY);
       const branch = this.ctx.storage.kv.get<string>(BRANCH_KEY);

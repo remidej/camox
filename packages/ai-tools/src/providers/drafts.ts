@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import {
-  discardDraft,
+  deleteDraft,
   previewPublish as studioPreview,
   type Problem,
   publishDraft,
@@ -13,7 +13,7 @@ import { runService } from "../../../../apps/api/src/lib/run-service";
 import { endedDraftSchema, publishPreviewSchema } from "../lib/outputs";
 import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 
-// Publishing and discarding the session's draft (ADR 0009). The draft always comes from the
+// Publishing and deleting the session's draft (ADR 0009). The draft always comes from the
 // request context, never from a parameter, so other surfaces can reuse these tools for other
 // drafts (ADR 0010).
 
@@ -35,7 +35,7 @@ const publishToolInput = z.object({
         "the build publishing ships.",
     ),
 });
-const discardInput = z.object({});
+const deleteInput = z.object({});
 
 /** A blocker or warning as agents see it: without where the studio shows it in the Canvas. */
 const withoutCanvasPlace = ({ fieldKind: _fieldKind, blockId: _blockId, ...problem }: Problem) =>
@@ -64,7 +64,7 @@ const publishResultSchema = z.union([
   z.strictObject({ published: z.literal(false), reason: z.literal("empty"), message: z.string() }),
   z.strictObject({
     published: z.literal(false),
-    reason: z.literal("discarded"),
+    reason: z.literal("deleted"),
     message: z.string(),
     ended: endedDraftSchema,
   }),
@@ -130,8 +130,8 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "`publishAnyway: true` if the user wants to publish now, and Camox finishes the " +
       "translations in a draft of its own that it publishes once they're done. When the draft " +
       "has no changes, nothing is published and it returns " +
-      "`{ published: false, reason: 'empty', message }`. When the draft was already discarded, " +
-      "nothing is published and it returns `{ published: false, reason: 'discarded', message, " +
+      "`{ published: false, reason: 'empty', message }`. When the draft was already deleted, " +
+      "nothing is published and it returns `{ published: false, reason: 'deleted', message, " +
       "ended }`.",
     inputSchema: publishToolInput,
     outputSchema: publishResultSchema,
@@ -147,9 +147,9 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
           Effect.map(({ empty, ended }) => {
             if (empty)
               return { published: false as const, reason: "empty" as const, message: EMPTY };
-            if (ended?.outcome === "discarded") {
-              const message = `${ended.endedBy.name} discarded the draft.`;
-              return { published: false as const, reason: "discarded" as const, message, ended };
+            if (ended?.outcome === "deleted") {
+              const message = `${ended.endedBy.name} deleted the draft.`;
+              return { published: false as const, reason: "deleted" as const, message, ended };
             }
             return { published: true as const, ended };
           }),
@@ -164,14 +164,14 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     },
   }),
   defineTool({
-    name: "discardDraft",
+    name: "deleteDraft",
     description:
-      "Discard every change in the current draft without publishing it. A development draft " +
+      "Delete every change in the current draft without publishing it. A development draft " +
       "stays open, emptied; any other draft ends. Live is untouched. This can't be undone, so " +
-      "only discard when the user asks to. Returns `{ ended }`, null for a development draft.",
-    inputSchema: discardInput,
+      "only delete when the user asks to. Returns `{ ended }`, null for a development draft.",
+    inputSchema: deleteInput,
     outputSchema: z.strictObject({ ended: endedDraftSchema.nullable() }),
     meta: { kind: "write", surfaces: ["cli"] },
-    handler: async () => runService(discardDraft(ctx, { projectId: ctx.projectId })),
+    handler: async () => runService(deleteDraft(ctx, { projectId: ctx.projectId })),
   }),
 ];

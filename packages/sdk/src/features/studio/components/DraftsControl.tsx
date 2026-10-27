@@ -27,7 +27,7 @@ import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
 import { RenameDraftDialog } from "./RenameDraftDialog";
-import { DiscardDraftDialog, ReviewDraftSheet, useLeaveDraft } from "./ReviewDraftSheet";
+import { DeleteDraftDialog, ReviewDraftSheet, useLeaveDraft } from "./ReviewDraftSheet";
 
 const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
@@ -62,7 +62,7 @@ function useDrafts() {
  * Picks what the studio is viewing, Live or a draft (#203). Live is read-only; the first edit
  * starts a draft. The localhost studio works only in the development draft, so it shows that
  * draft alone, with nothing to switch to (ADR 0006). The command palette offers the same actions,
- * and the picker hosts the draft's review and discard confirmation they open. A `disabled` picker
+ * and the picker hosts the draft's review and delete confirmation they open. A `disabled` picker
  * still names what the studio is viewing.
  */
 export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
@@ -70,7 +70,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
   const review = useSelector(studioStore, (state) => state.context.reviewDraftSheet);
-  const discarding = useSelector(studioStore, (state) => state.context.isDiscardDraftDialogOpen);
+  const deleting = useSelector(studioStore, (state) => state.context.isDeleteDraftDialogOpen);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [renaming, setRenaming] = React.useState<DraftSummary | null>(null);
 
@@ -85,7 +85,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   React.useEffect(
     () => () => {
       studioStore.send({ type: "closeReviewDraftSheet" });
-      studioStore.send({ type: "closeDiscardDraftDialog" });
+      studioStore.send({ type: "closeDeleteDraftDialog" });
     },
     [draftId],
   );
@@ -201,13 +201,13 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
               if (!open) studioStore.send({ type: "closeReviewDraftSheet" });
             }}
           />
-          <DiscardDraftDialog
+          <DeleteDraftDialog
             projectId={projectId}
-            open={discarding}
+            open={deleting}
             onOpenChange={(open) => {
-              if (!open) studioStore.send({ type: "closeDiscardDraftDialog" });
+              if (!open) studioStore.send({ type: "closeDeleteDraftDialog" });
             }}
-            onDiscarded={leaveDraft}
+            onDeleted={leaveDraft}
           />
         </>
       )}
@@ -216,7 +216,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
 }
 
 /**
- * The current draft's pending changes, which open its review to publish or discard them. Live
+ * The current draft's pending changes, which open its review to publish or delete them. Live
  * has none, so it shows nothing there.
  */
 export function PendingChanges() {
@@ -238,8 +238,8 @@ export function PendingChanges() {
 }
 
 /**
- * The drafts controls' actions in the command palette, offered where the controls offer them. The palette only opens the review and the discard confirmation; it never publishes or
- * discards by itself.
+ * The drafts controls' actions in the command palette, offered where the controls offer them. The palette only opens the review and the delete confirmation; it never publishes or
+ * deletes by itself.
  */
 function useDraftsActions({
   enabled,
@@ -267,12 +267,12 @@ function useDraftsActions({
         execute: () => studioStore.send({ type: "openReviewDraftSheet" }),
       },
       {
-        id: "discard-draft",
-        label: "Discard draft…",
+        id: "delete-draft",
+        label: "Delete draft…",
         aliases: ["Delete draft", "Throw away changes", "Revert changes"],
         groupLabel: "Drafts",
         checkIfAvailable: () => inDraft,
-        execute: () => studioStore.send({ type: "openDiscardDraftDialog" }),
+        execute: () => studioStore.send({ type: "openDeleteDraftDialog" }),
       },
       {
         id: "rename-draft",

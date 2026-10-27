@@ -7,7 +7,7 @@ import { beforeAll } from "vite-plus/test";
 const IMPORT_TIMEOUT_MS = 120_000;
 
 // The pool runs the Worker's Durable Objects from its entry, which it imports on the first call
-// to any of them in a test file, inside that call: the first test reaching one (a discard asking
+// to any of them in a test file, inside that call: the first test reaching one (a draft deletion asking
 // `DraftCode` whether the draft has code) paid for importing every module the API has, and timed
 // out under load. Each file imports it before its tests instead, after its collection, so its
 // `vi.mock`s are in place as they would be for the pool's own import.

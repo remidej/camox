@@ -15,7 +15,7 @@ A project's publishes with code run one at a time, in the order they were asked 
 5. **The publish batch** (`publishWithCode`): the draft's content as any publish applies it, with the draft's definitions, which its previewed revision synced, replacing Live's. It aborts when the conflicts changed, or when the draft previews another revision. Then the pointer goes back to the previous Worker and the draft goes back to its review.
 6. **Record the tree Live serves**: a succeeded `releases` row for this publish, so the next step's push releases nothing (`../releases/README.md`).
 7. **Push one squashed commit to `main`**: the revision's tree, with the current `main` as its parent (`DraftCode.publishToMain`).
-8. **Delete the draft's code**: its branch, R2 builds, working copy and sandbox (`discardCode`).
+8. **Delete the draft's code**: its branch, R2 builds, working copy and sandbox (`deleteDraftCode`).
 9. **Delete the previous publish's Worker**, if a publish's Worker served before: nothing rolls back to it anymore, and dispatch stopped sending requests to it before the batch.
 
 A step that gives up puts the draft back to its review (`failed`). From the promotion until the batch commits, any failure, the promotion's own included, first points Live back at the previous Worker, retried until it lands (`UNTIL_DONE`), and waits `LIVE_SCRIPT_SETTLES`. A publish that doesn't land deletes its Worker; one it couldn't delete goes with the next release. The steps after the batch are retried until they land too: Live already has the draft's code and content, and a `main` left behind it would release old code over Live at its next push.

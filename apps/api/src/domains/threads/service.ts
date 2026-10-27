@@ -57,7 +57,7 @@ export const moveLiveThreadIntoDraft = Effect.fn("moveLiveThreadIntoDraft")(func
 
 /**
  * Where the draft a Live thread's write set out to start stands: `started` with the thread as
- * its own, `ended` (published or discarded) since, or `unstarted` while no write created it.
+ * its own, `ended` (published or deleted) since, or `unstarted` while no write created it.
  */
 export const reservedDraftState = Effect.fn("reservedDraftState")(function* (
   db: Database,
@@ -113,7 +113,7 @@ export const draftThread = Effect.fn("draftThread")(function* (
 });
 
 /**
- * A draft's thread, as a publish or discard ends the draft, read before it does. Its `statements`
+ * A draft's thread, as a publish or delete ends the draft, read before it does. Its `statements`
  * join the batch ending the draft, letting go of the thread there: a development draft stays
  * open, so the next one to open its thread starts a new one, and a regular draft lets go of it
  * with its row. An editor whose Live thread it still is gets a fresh one. Once the batch applied, `end` deletes the thread, which wipes what it stored

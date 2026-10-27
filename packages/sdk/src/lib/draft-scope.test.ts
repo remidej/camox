@@ -177,7 +177,7 @@ void test("leaving an ended draft switches to Live in place, and says who ended 
   assert.deepEqual(notices, [{ reason: "ended", ...ended }]);
 });
 
-void test("dev mode stays in its development draft after publishing or discarding it", () => {
+void test("dev mode stays in its development draft after publishing or deleting it", () => {
   const { draftScope, changes } = openScope("https://site.test/about", { developmentMode: true });
 
   draftScope.leave(null);

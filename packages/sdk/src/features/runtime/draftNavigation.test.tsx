@@ -22,7 +22,7 @@ const EN: LocaleView = { tag: "en", isDefault: true };
 const DE: LocaleView = { tag: "de", isDefault: false };
 const ended: EndedDraft = {
   draftId: ENDED_DRAFT,
-  outcome: "discarded",
+  outcome: "deleted",
   endedBy: { id: "user-2", name: "Ada" },
   endedAt: 1,
 };

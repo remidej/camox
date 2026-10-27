@@ -12,6 +12,6 @@ Pages and layouts have checkpoints and collection records have revisions, but on
 ## Consequences
 
 - A Live row's first publish time doesn't move on later publishes; query-backed reference lists sort by it, so fixing a typo in an old post doesn't reorder the list. An entity created in a draft is first published when that draft is.
-- Whole-draft discard is the only undo. Reverting one page, layout, or record to Live inside a draft isn't offered: a page rename copies its descendants into the draft too (ADR 0005), so reverting one entity would mean tracking why each row was copied.
+- Deleting the whole draft is the only undo. Reverting one page, layout, or record to Live inside a draft isn't offered: a page rename copies its descendants into the draft too (ADR 0005), so reverting one entity would mean tracking why each row was copied.
 - Deleting a page in a draft and publishing is the only way to take it off Live, and its content is then gone. There is no hidden or unpublished state.
 - Files are no longer kept alive by revisions, only by Live and drafts referencing them.

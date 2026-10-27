@@ -89,7 +89,7 @@ export type InvalidationMessage = {
   targets: QueryKey[];
 };
 
-/** A draft was published or discarded: its viewers go back to Live. */
+/** A draft was published or deleted: its viewers go back to Live. */
 export type DraftEndedMessage = { type: "draftEnded" } & EndedDraft;
 
 /** A draft with code has a new revision, built with Camox's `sdkVersion`. */

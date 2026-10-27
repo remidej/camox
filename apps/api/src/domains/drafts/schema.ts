@@ -73,7 +73,7 @@ export const drafts = sqliteTable(
 );
 
 /**
- * The record a regular draft leaves when it's published or discarded, written in the batch
+ * The record a regular draft leaves when it's published or deleted, written in the batch
  * that deletes it (ADR 0009). It answers later requests naming the draft with who ended it and
  * how, makes retries safe, and keeps the create header from bringing the draft back.
  */

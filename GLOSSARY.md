@@ -237,11 +237,11 @@ The published state of the website, served to the public. Live only changes when
 _Avoid_: Production, production environment, main
 
 **Draft**:
-A named set of changes to the website's content and code, kept apart from Live until it is published or discarded, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or discard any of them. Editing while viewing Live always starts a new draft.
+A named set of changes to the website's content and code, kept apart from Live until it is published or deleted, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or delete any of them. Editing while viewing Live always starts a new draft.
 _Avoid_: Branch, environment, changeset, working copy
 
 **Development Draft**:
-A member's personal draft in a project whose code is on their machine rather than in Camox, so its definitions come from running the website locally. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or discarded.
+A member's personal draft in a project whose code is on their machine rather than in Camox, so its definitions come from running the website locally. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or deleted.
 _Avoid_: Development environment, code draft, local draft
 
 **Revision**:
@@ -264,9 +264,9 @@ _Avoid_: Translation draft, system draft, bot draft
 A headline and bullets AI writes about a draft's changes, shown at the top of its review. It describes the draft rather than its content, so it is not a Summary or a Generated Value: it is never published to Live, never a change or a conflict, and has no hand-written override.
 _Avoid_: Draft summary, changelog, description
 
-**Discard**:
-Deleting a draft without publishing it.
-_Avoid_: Revert, undo, discard changes
+**Delete**:
+Ending a draft without publishing it, so its changes are lost. A development draft is emptied instead, and stays open.
+_Avoid_: Discard, revert, undo
 
 **Blocker**:
 A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path, an empty required reference, code that doesn't build or type check, or code that doesn't merge with Live's.

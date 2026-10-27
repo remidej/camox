@@ -169,7 +169,7 @@ const jsonSchemaOf = (schema: z.ZodType, io: "input" | "output") => {
 
 /**
  * The tools the studio agent's scripts call: every tool its surface offers, which leaves out
- * publishing and discarding.
+ * publishing and deleting.
  */
 export async function studioAgentTools(dispatch: ToolDispatch): Promise<ToolRegistration[]> {
   // Only the declarations are read here: providers close over their context in handlers alone,

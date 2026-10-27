@@ -261,7 +261,7 @@ describe("the agent writing the website's code", () => {
     live.close();
   });
 
-  it("deletes the draft's branch and working copy when the draft is discarded", async () => {
+  it("deletes the draft's branch and working copy when the draft is deleted", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
     const live = await connectLiveThread(website.project.id, token);
@@ -270,7 +270,7 @@ describe("the agent writing the website's code", () => {
     const [draft] = await draftsOf(website);
 
     await call(
-      router.drafts.discard,
+      router.drafts.delete,
       { projectId: website.project.id },
       { context: createRpcContext(website.db, website.memberUser, { [DRAFT_HEADER]: draft!.id }) },
     );

@@ -29,7 +29,7 @@ import {
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { sharedPlacementId } from "../blocks/shared-content";
-import { discardCode } from "../code/drafts";
+import { deleteDraftCode } from "../code/drafts";
 import {
   publishStatements as filePublishStatements,
   withFileMetadata,
@@ -75,7 +75,7 @@ import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
 export type { Owner, Subject, SubjectKind } from "./subjects";
 
-// Publishing a draft and discarding it (ADR 0009). The preview lists what publishing will do;
+// Publishing a draft and deleting it (ADR 0009). The preview lists what publishing will do;
 // its token records the conflicts it showed, and publishing aborts when they've changed since.
 
 type Scope = NonNullable<DraftScope>;
@@ -179,7 +179,7 @@ export const publishInput = z.object({
    */
   revision: z.string().optional(),
 });
-export const discardInput = z.object({ projectId: z.number() });
+export const deleteInput = z.object({ projectId: z.number() });
 export const revertToLiveInput = z.object({
   projectId: z.number(),
   entity: z.enum(overlay.ENTITY_KINDS),
@@ -652,7 +652,7 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
 });
 
 /**
- * The draft a request names, which publishing and discarding need. They act on every locale,
+ * The draft a request names, which publishing and deleting need. They act on every locale,
  * whichever one the request names.
  */
 export const requireDraft = Effect.fn("drafts.requireDraft")(function* (
@@ -722,8 +722,8 @@ export const revertToLive = Effect.fn("drafts.revertToLive")(function* (
 });
 
 /**
- * The draft a request names, or how it ended when an earlier attempt published or discarded
- * it, so a retried publish or discard reports that instead of applying anything again.
+ * The draft a request names, or how it ended when an earlier attempt published or deleted
+ * it, so a retried publish or delete reports that instead of applying anything again.
  */
 const draftOrEnded = (ctx: ServiceContext, projectId: number) =>
   requireDraft(ctx, projectId).pipe(
@@ -752,7 +752,7 @@ const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, en
 /**
  * Publishes a draft whose preview was checked, by `publishedBy`, if Live's conflicts are still
  * those `shown`, and, when `translated`, while it still has nothing left to translate. Whether it
- * applied, and how the draft ended: when it didn't apply, a concurrent publish or discard may have
+ * applied, and how the draft ended: when it didn't apply, a concurrent publish or delete may have
  * ended it; otherwise Live changed, or a translation was requested.
  */
 const publishChecked = Effect.fn("drafts.publishChecked")(function* (
@@ -1087,15 +1087,15 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
 });
 
 /**
- * Discards the request's draft: a regular draft is deleted with every row it stores, a
+ * Deletes the request's draft: a regular draft is deleted with every row it stores, a
  * development draft is emptied. Returns how the draft ended, also when an earlier attempt
  * ended it.
  */
-export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
+export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof discardInput>,
+  rawInput: z.input<typeof deleteInput>,
 ) {
-  const { projectId } = yield* decodeInput(discardInput, rawInput);
+  const { projectId } = yield* decodeInput(deleteInput, rawInput);
   const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
   if (!scope) return { ended: earlier as EndedDraft | null };
   const user = yield* requireUser(ctx);
@@ -1104,11 +1104,11 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
   const thread = yield* endingThread(ctx, scope.id);
   const result = yield* Effect.result(
-    overlay.discard(ctx.db, scope, {
-      discardedBy: user.id,
+    overlay.deleteDraft(ctx.db, scope, {
+      deletedBy: user.id,
       now: Date.now(),
       alongside: [
-        ...generatedValueStatements.discardStatements(ctx.db, scope.id),
+        ...generatedValueStatements.deleteStatements(ctx.db, scope.id),
         ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
         ...thread.statements,
@@ -1119,7 +1119,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
     yield* thread.end;
-    yield* discardCode(ctx, { projectId, draftId: scope.id });
+    yield* deleteDraftCode(ctx, { projectId, draftId: scope.id });
     yield* deleteUnreferencedBlobs(ctx, blobs);
     yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
     yield* recordEnded(ctx, projectId, ended);

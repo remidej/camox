@@ -3,7 +3,7 @@
 ## Runtime lookup and monorepos
 
 Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `locales`, `files`,
-`publish`, `discard`, `preview`, and `logout`) accept `--cwd PATH`:
+`publish`, `delete`, `preview`, and `logout`) accept `--cwd PATH`:
 
 ```sh
 camox pages list --cwd apps/site
@@ -30,15 +30,15 @@ your site locally once (e.g. `pnpm dev`) before using the CLI; until then,
 commands fail with `NO_DEVELOPMENT_DRAFT`.
 
 Agents in parallel worktrees share their developer's development draft, and
-publish or discard it together.
+publish or delete it together.
 
-## Publishing and discarding
+## Publishing and deleting
 
 ```sh
 camox status                    # whether your development draft exists, and how many changes it holds
 camox publish                   # what publishing would do, with a token
 camox publish --confirm TOKEN   # publish to Live
-camox discard                   # empty your development draft (asks first; --yes skips the question)
+camox delete                   # empty your development draft (asks first; --yes skips the question)
 ```
 
 `camox publish` lists, in order:
@@ -57,7 +57,7 @@ publishes the whole draft, which then stays open, emptied. If Live changed since
 the list was printed, nothing is published: the command prints the new list and
 token, fails with `CONFLICTS_CHANGED`, and you review it before confirming again.
 
-`camox discard` empties your development draft without touching Live. It asks
+`camox delete` empties your development draft without touching Live. It asks
 for confirmation in a terminal; elsewhere it fails with `CONFIRMATION_REQUIRED`
 unless you pass `--yes`.
 

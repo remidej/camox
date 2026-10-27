@@ -626,7 +626,7 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
 
 /**
  * Switches the studio to Live once its draft ended here, replacing the draft's URL entry. A
- * development draft never ends: publishing or discarding empties it, and dev mode stays in it.
+ * development draft never ends: publishing or deleting empties it, and dev mode stays in it.
  */
 export function useLeaveDraft() {
   const draftScope = useDraftScope();
@@ -697,7 +697,7 @@ function DraftNameInput({
 }
 
 /**
- * Reviews a draft before publishing it whole, or discards it (ADR 0009). Publishing sends back
+ * Reviews a draft before publishing it whole, or deletes it (ADR 0009). Publishing sends back
  * the token of the preview shown; when Live changed since, nothing is published and the new
  * preview is shown. Once the draft ends, the studio switches to Live.
  */
@@ -715,7 +715,7 @@ export function ReviewDraftSheet({
   startRenaming?: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const preview = useReadQuery(reads.publishPreview({ projectId, draftId }), { enabled: open });
   const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
   const locales = useReadQuery(reads.localeList({ projectId }), { enabled: open });
@@ -902,10 +902,10 @@ export function ReviewDraftSheet({
                 variant="ghost"
                 className="text-destructive"
                 disabled={busy}
-                onClick={() => setConfirmingDiscard(true)}
+                onClick={() => setConfirmingDelete(true)}
               >
                 <Trash2 />
-                Discard draft
+                Delete draft
               </Button>
               {translating.length > 0 && (
                 <Button
@@ -930,63 +930,63 @@ export function ReviewDraftSheet({
         </SheetContent>
       </Sheet>
 
-      <DiscardDraftDialog
+      <DeleteDraftDialog
         projectId={projectId}
-        open={confirmingDiscard}
-        onOpenChange={setConfirmingDiscard}
-        onDiscarded={leave}
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        onDeleted={leave}
       />
     </>
   );
 }
 
-/** Asks before discarding the draft the studio is in, then discards it. */
-export function DiscardDraftDialog({
+/** Asks before deleting the draft the studio is in, then deletes it. */
+export function DeleteDraftDialog({
   projectId,
   open,
   onOpenChange,
-  onDiscarded,
+  onDeleted,
 }: {
   projectId: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDiscarded: (ended: EndedDraft | null) => void;
+  onDeleted: (ended: EndedDraft | null) => void;
 }) {
-  const discard = useMutation({
-    ...draftMutations.discard(),
+  const deleteDraft = useMutation({
+    ...draftMutations.delete(),
     onSuccess: ({ ended }) => {
       onOpenChange(false);
-      onDiscarded(ended);
+      onDeleted(ended);
     },
-    onError: (error) => toast.error(error.message || "Could not discard the draft"),
+    onError: (error) => toast.error(error.message || "Could not delete the draft"),
   });
 
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        if (!discard.isPending) onOpenChange(next);
+        if (!deleteDraft.isPending) onOpenChange(next);
       }}
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Discard this draft?</AlertDialogTitle>
+          <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
           <AlertDialogDescription>
             Every change in this draft is deleted for everyone. Live stays as it is. This can't be
             undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel variant="outline" size="default" disabled={discard.isPending}>
+          <AlertDialogCancel variant="outline" size="default" disabled={deleteDraft.isPending}>
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={discard.isPending}
-            onClick={() => discard.mutate({ projectId })}
+            disabled={deleteDraft.isPending}
+            onClick={() => deleteDraft.mutate({ projectId })}
           >
-            {discard.isPending ? <Spinner /> : null}
-            Discard draft
+            {deleteDraft.isPending ? <Spinner /> : null}
+            Delete draft
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

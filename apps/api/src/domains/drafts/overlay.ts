@@ -62,7 +62,7 @@ import {
 // Localized tables, every content table but files and locales, store each entity once per
 // locale (ADR 0015): an entity is its id and its locale on Live, and its draft, id and locale in
 // a draft. The overlay matches on the locale wherever it matches on the id. Reads and writes act
-// in the locale their scope names, or in the project's default locale; publishing, discarding,
+// in the locale their scope names, or in the project's default locale; publishing, deleting,
 // changes, conflicts and lost changes span every locale.
 
 /** The columns every content table has for living beside Live. */
@@ -1102,7 +1102,7 @@ export function sortByPosition<T extends { position: string; id: string }>(rows:
   return rows.sort(compareByPosition);
 }
 
-// --- Publishing and discarding (ADR 0009) ---
+// --- Publishing and deleting (ADR 0009) ---
 //
 // A draft's rows are applied to Live with a fixed number of set-based statements per registered
 // table, so one D1 `batch()` publishes a draft of any size atomically.
@@ -1118,7 +1118,7 @@ export type ConflictKey = [
   locale: string | null,
 ];
 
-/** A statement of a publish or discard batch: raw SQL or a query builder. */
+/** A statement of a publish or delete batch: raw SQL or a query builder. */
 export type BatchItem = SQL | { toSQL(): { sql: string; params: unknown[] } };
 
 const dialect = new SQLiteAsyncDialect();
@@ -1686,7 +1686,7 @@ function endStatements(
 ): BatchItem[] {
   if (scope.kind === "development") return emptyStatements(db, scope.id);
   return [
-    // The primary key fails the batch when a concurrent publish or discard ended it first.
+    // The primary key fails the batch when a concurrent publish or delete ended it first.
     db.insert(endedDrafts).values({
       id: scope.id,
       projectId: scope.projectId,
@@ -1739,7 +1739,7 @@ export const publish = (
 
 /**
  * Runs a batch ending what a draft stores, then records each entity it stored as changed where
- * the batch changed it: Live for a publish, or for a discard the draft itself, when it stays as
+ * the batch changed it: Live for a publish, or for a deletion the draft itself, when it stays as
  * a development draft does. A regular draft that ended has no readers left to refresh: they are
  * told it ended. Fails when the batch aborted, recording nothing.
  */
@@ -1769,16 +1769,12 @@ const endingBatch = Effect.fnUntraced(function* (
   }
 });
 
-/** Discards a draft in one batch: one cascading delete, or emptying a development draft. */
-export const discard = (
+/** Deletes a draft in one batch: one cascading delete, or emptying a development draft. */
+export const deleteDraft = (
   db: Database,
   scope: Draft,
-  {
-    discardedBy,
-    now,
-    alongside = [],
-  }: { discardedBy: string; now: number; alongside?: BatchItem[] },
+  { deletedBy, now, alongside = [] }: { deletedBy: string; now: number; alongside?: BatchItem[] },
 ) => {
-  const statements = [...alongside, ...endStatements(db, scope, "discarded", discardedBy, now)];
+  const statements = [...alongside, ...endStatements(db, scope, "deleted", deletedBy, now)];
   return endingBatch(db, scope, statements, "draft");
 };

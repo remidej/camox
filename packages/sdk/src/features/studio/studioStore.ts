@@ -5,7 +5,7 @@ interface StudioContext {
   commandPalettePages: string[];
   /** The current draft's review, opened by the pending changes button or the command palette. */
   reviewDraftSheet: { open: boolean; startRenaming: boolean };
-  isDiscardDraftDialogOpen: boolean;
+  isDeleteDraftDialogOpen: boolean;
   /** The locale picker's dialog open: adding a locale, or removing the one viewed. */
   localeDialog: "add" | "remove" | null;
   /** Where the Website Section was last, so going back to it lands there. */
@@ -28,7 +28,7 @@ export const studioStore = createStore({
     isCommandPaletteOpen: false,
     commandPalettePages: [],
     reviewDraftSheet: { open: false, startRenaming: false },
-    isDiscardDraftDialogOpen: false,
+    isDeleteDraftDialogOpen: false,
     localeDialog: null,
     websiteLocation: null,
   } as StudioContext,
@@ -74,11 +74,11 @@ export const studioStore = createStore({
     closeReviewDraftSheet: (context) => {
       return { ...context, reviewDraftSheet: { open: false, startRenaming: false } };
     },
-    openDiscardDraftDialog: (context) => {
-      return { ...context, isDiscardDraftDialogOpen: true };
+    openDeleteDraftDialog: (context) => {
+      return { ...context, isDeleteDraftDialogOpen: true };
     },
-    closeDiscardDraftDialog: (context) => {
-      return { ...context, isDiscardDraftDialogOpen: false };
+    closeDeleteDraftDialog: (context) => {
+      return { ...context, isDeleteDraftDialogOpen: false };
     },
     openLocaleDialog: (context, event: { dialog: "add" | "remove" }) => {
       return { ...context, localeDialog: event.dialog };

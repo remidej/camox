@@ -35,9 +35,9 @@ const retryOverview = authed
   .input(overviewJob.retryOverviewInput)
   .handler(({ context, input }) => runService(overviewJob.retryOverview(context, input)));
 
-const discard = authed
-  .input(publish.discardInput)
-  .handler(({ context, input }) => runService(publish.discardDraft(context, input)));
+const deleteDraft = authed
+  .input(publish.deleteInput)
+  .handler(({ context, input }) => runService(publish.deleteDraft(context, input)));
 
 const revertToLive = authed
   .input(publish.revertToLiveInput)
@@ -51,6 +51,6 @@ export const draftProcedures = {
   previewPublish,
   retryOverview,
   publish: publishDraft,
-  discard,
+  delete: deleteDraft,
   revertToLive,
 };

@@ -11,7 +11,7 @@ import { pages } from "./schema";
 
 /**
  * The custom OG image blobs a project's pages name, Live or in any draft: what may lose its last
- * reference when a draft is published or discarded. Collect them before the batch.
+ * reference when a draft is published or deleted. Collect them before the batch.
  */
 export const ogImageBlobsOf = Effect.fn("pages.ogImageBlobsOf")(function* (
   db: Database,

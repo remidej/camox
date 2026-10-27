@@ -28,7 +28,7 @@ Publishing applies a whole draft to Live in one D1 `batch()`, with a fixed numbe
 - The client sends back the conflicts it showed, as entity ids and Live versions. The server recomputes blockers, and the batch's first statement aborts it if the current conflicts differ; the dialog then shows the new ones. Releases bump versions too, so a release between confirming and publishing is caught the same way.
 - An entity Live deleted after the draft copied it comes back with its id and the draft's content. A changed entity whose parent exists neither in Live nor in the draft is dropped and listed as lost: Live keeps no copy of the parent to restore (ADR 0008).
 - Deleting a parent also deletes Live descendants published after the deletion was drafted; they are listed as lost.
-- A publish whose outcome is unknown, such as after a lost connection, can be retried: a draft that is gone, or a development draft that is empty, means it was already published or discarded. Publishing an empty draft does nothing.
+- A publish whose outcome is unknown, such as after a lost connection, can be retried: a draft that is gone, or a development draft that is empty, means it was already published or deleted. Publishing an empty draft does nothing.
 - Other open drafts are untouched: their untouched content shows the new Live, and what they share with the published draft becomes a conflict when they publish. Editors inside the published draft are switched to Live.
 
 ## Amendment: the studio's review

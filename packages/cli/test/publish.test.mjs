@@ -9,7 +9,7 @@ import { after, before, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-// `camox publish`, `camox discard` and `camox status` against a fake API holding one
+// `camox publish`, `camox delete` and `camox status` against a fake API holding one
 // development draft (ADR 0009, ADR 0010).
 
 const exec = promisify(execFile);
@@ -31,7 +31,7 @@ function freshApi() {
       { ...subject("block-2", "Quote"), change: "created" },
     ],
     published: 0,
-    discarded: 0,
+    deleted: 0,
     toolCalls: [],
     translating: [],
     publishArgs: null,
@@ -92,15 +92,15 @@ function tool(name, args) {
           },
         };
       }
-      if (api.discardedBy) {
-        const endedBy = { id: "ada", name: api.discardedBy };
+      if (api.deletedBy) {
+        const endedBy = { id: "ada", name: api.deletedBy };
         return {
           ok: true,
           result: {
             published: false,
-            reason: "discarded",
-            message: `${api.discardedBy} discarded the draft.`,
-            ended: { draftId: "draft-1", outcome: "discarded", endedBy, endedAt: 1 },
+            reason: "deleted",
+            message: `${api.deletedBy} deleted the draft.`,
+            ended: { draftId: "draft-1", outcome: "deleted", endedBy, endedAt: 1 },
           },
         };
       }
@@ -125,8 +125,8 @@ function tool(name, args) {
       api.published += 1;
       api.changes = [];
       return { ok: true, result: { published: true, ended: null } };
-    case "discardDraft":
-      api.discarded += 1;
+    case "deleteDraft":
+      api.deleted += 1;
       api.changes = [];
       return { ok: true, result: { ended: null } };
     default:
@@ -290,9 +290,9 @@ void test("publish --confirm on a draft without changes says nothing was publish
   assert.equal(api.published, 0);
 });
 
-void test("publish --confirm on a discarded draft fails and says nothing was published", async () => {
+void test("publish --confirm on a deleted draft fails and says nothing was published", async () => {
   const { token } = JSON.parse((await cli("publish", "--json")).stdout);
-  api.discardedBy = "Ada";
+  api.deletedBy = "Ada";
 
   const result = await cli("publish", "--confirm", token, "--json");
 
@@ -300,25 +300,25 @@ void test("publish --confirm on a discarded draft fails and says nothing was pub
   assert.equal(api.published, 0);
   const error = JSON.parse(result.stderr);
   assert.equal(error.code, "DRAFT_ENDED");
-  assert.match(error.message, /Ada discarded/);
+  assert.match(error.message, /Ada deleted/);
   assert.match(error.message, /Nothing was published/);
 });
 
-void test("discard --yes empties the development draft", async () => {
-  const result = await cli("discard", "--yes", "--json");
+void test("delete --yes empties the development draft", async () => {
+  const result = await cli("delete", "--yes", "--json");
 
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(api.discarded, 1);
+  assert.equal(api.deleted, 1);
   assert.deepEqual(api.changes, []);
 });
 
-void test("discard without --yes asks for confirmation, and outside a terminal refuses", async () => {
-  const result = await cli("discard", "--json");
+void test("delete without --yes asks for confirmation, and outside a terminal refuses", async () => {
+  const result = await cli("delete", "--json");
 
   assert.notEqual(result.code, 0);
   assert.equal(JSON.parse(result.stderr).code, "CONFIRMATION_REQUIRED");
   assert.deepEqual(api.toolCalls, []);
-  assert.equal(api.discarded, 0);
+  assert.equal(api.deleted, 0);
 });
 
 void test("status reports that the development draft exists and how many changes it holds", async () => {
@@ -330,7 +330,7 @@ void test("status reports that the development draft exists and how many changes
     changeCount: 2,
   });
 
-  await cli("discard", "--yes");
+  await cli("delete", "--yes");
   const emptied = JSON.parse((await cli("status", "--json")).stdout);
   assert.deepEqual(emptied.developmentDraft, { exists: true, changeCount: 0 });
 });

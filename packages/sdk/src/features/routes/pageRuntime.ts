@@ -72,7 +72,7 @@ interface LoadPageForRequestOptions {
 
 /**
  * Why a member can't see the draft a URL names: it doesn't exist, it's someone else's
- * development draft, or it was published or discarded (ADR 0011). In dev mode, the caller's
+ * development draft, or it was published or deleted (ADR 0011). In dev mode, the caller's
  * own development draft doesn't exist until the dev server's first sync creates it.
  */
 export type DraftNotice =
