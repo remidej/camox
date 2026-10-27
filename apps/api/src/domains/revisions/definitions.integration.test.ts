@@ -4,7 +4,7 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import {
   answerFrom,
@@ -17,8 +17,6 @@ import {
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
-  draftsOf,
   lastAnswer,
   pagesOf,
   signIn,
@@ -91,6 +89,13 @@ async function websiteWithCode() {
   return { website, token };
 }
 
+/** A new draft of the website, started by its member, with its thread open as `token`'s. */
+async function newDraftThread(website: Website, token: string) {
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
+  return { draft: { id: draftId }, thread };
+}
+
 /** A script placing a pricing block saying `headline` on the home page. */
 const placePricing = (headline: string) => `
   const [home] = await tools.listPages({});
@@ -129,7 +134,7 @@ describe("a revision's definitions", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
-    const thread = await connectLiveThread(website.project.id, token);
+    const { draft, thread } = await newDraftThread(website, token);
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(marker) });
     answerWithToolCall("build", {});
     answerWithScript(placePricing("Plans start at $9"));
@@ -138,9 +143,8 @@ describe("a revision's definitions", () => {
     const view = await ask(thread, "Add a pricing section saying plans start at $9");
 
     expect(lastAnswer(view)).toBe("Done: placed");
-    const [draft] = await draftsOf(website);
-    expect(await pagesOf(website, draft!.id)).toEqual({ "/home": [HELLO, PRICING] });
-    expect(await blockTypesOf(website, draft!.id)).toEqual(["pricing", "text"]);
+    expect(await pagesOf(website, draft.id)).toEqual({ "/home": [HELLO, PRICING] });
+    expect(await blockTypesOf(website, draft.id)).toEqual(["pricing", "text"]);
     expect(await blockTypesOf(website)).toEqual(["text"]);
     expect(await pagesOf(website)).toEqual({ "/home": [HELLO] });
   });
@@ -149,18 +153,17 @@ describe("a revision's definitions", () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.failBuildsOf(marker, "error during build:\nBuild failed with 1 error\n");
-    const live = await connectLiveThread(website.project.id, token);
+    const { draft, thread: first } = await newDraftThread(website, token);
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(marker) });
     answerFrom(() => "Wrote it.");
-    await ask(live, "Add a pricing section");
-    const [draft] = await draftsOf(website);
-    const thread = await connectDraftThread(website.project.id, draft!.id, token);
+    await ask(first, "Add a pricing section");
+    const thread = await connectDraftThread(website.project.id, draft.id, token);
 
-    expect(await blockTypesOf(website, draft!.id)).toEqual(["text"]);
+    expect(await blockTypesOf(website, draft.id)).toEqual(["text"]);
     expect(await build(thread)).toMatchObject({ ok: false });
     thread.close();
 
-    expect(await blockTypesOf(website, draft!.id)).toEqual(["text"]);
+    expect(await blockTypesOf(website, draft.id)).toEqual(["text"]);
   });
 
   it("drop a block a later revision removes, its content coming back with it", async () => {
@@ -169,7 +172,7 @@ describe("a revision's definitions", () => {
     const withoutPricing = crypto.randomUUID();
     await fakes.defineBuildsOf(withPricing, definitionSetWith(website, [pricingDefinition]));
     await fakes.defineBuildsOf(withoutPricing, definitionSetWith(website, []));
-    const live = await connectLiveThread(website.project.id, token);
+    const { draft, thread: first } = await newDraftThread(website, token);
     answerWithToolCall("write", {
       path: "src/blocks/pricing.tsx",
       content: blockFile(withPricing),
@@ -177,9 +180,8 @@ describe("a revision's definitions", () => {
     answerWithToolCall("build", {});
     answerWithScript(placePricing("Plans start at $9"));
     answerFrom(() => "Added it.");
-    await ask(live, "Add a pricing section");
-    const [draft] = await draftsOf(website);
-    const thread = await connectDraftThread(website.project.id, draft!.id, token);
+    await ask(first, "Add a pricing section");
+    const thread = await connectDraftThread(website.project.id, draft.id, token);
     answerWithToolCall("rm", { path: "src/blocks/pricing.tsx" });
     answerWithToolCall("write", {
       path: "src/blocks/text.tsx",
@@ -190,8 +192,8 @@ describe("a revision's definitions", () => {
 
     expect(await build(thread)).toMatchObject({ ok: true });
 
-    expect(await blockTypesOf(website, draft!.id)).toEqual(["text"]);
-    expect(await pagesOf(website, draft!.id)).toEqual({ "/home": [HELLO] });
+    expect(await blockTypesOf(website, draft.id)).toEqual(["text"]);
+    expect(await pagesOf(website, draft.id)).toEqual({ "/home": [HELLO] });
 
     // Back to the first revision's code, which brings the block and its content back.
     answerWithToolCall("write", {
@@ -205,22 +207,21 @@ describe("a revision's definitions", () => {
     expect(await build(thread)).toMatchObject({ ok: true });
     thread.close();
 
-    expect(await blockTypesOf(website, draft!.id)).toEqual(["pricing", "text"]);
-    expect(await pagesOf(website, draft!.id)).toEqual({ "/home": [HELLO, PRICING] });
+    expect(await blockTypesOf(website, draft.id)).toEqual(["pricing", "text"]);
+    expect(await pagesOf(website, draft.id)).toEqual({ "/home": [HELLO, PRICING] });
   });
 
   it("that can't be used, once the end of the turn gave up, block publishing the draft", async () => {
     const { website, token } = await websiteWithCode();
     const unusable = crypto.randomUUID();
     await fakes.defineBuildsOf(unusable, { ...definitionSetWith(website, []), blocks: "none" });
-    const live = await connectLiveThread(website.project.id, token);
+    const { draft, thread: first } = await newDraftThread(website, token);
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(unusable) });
     for (let failed = 0; failed < END_OF_TURN_BUILD_FAILURES; failed++) answerNext("Done.");
     answerNext("The pricing section can't be shown yet.");
-    await ask(live, "Add a pricing section");
-    const [draft] = await draftsOf(website);
+    await ask(first, "Add a pricing section");
     const context = createRpcContext(website.db, website.memberUser, {
-      [DRAFT_HEADER]: draft!.id,
+      [DRAFT_HEADER]: draft.id,
     });
 
     const preview = await call(
@@ -251,7 +252,7 @@ describe("a revision's definitions", () => {
     const fixed = crypto.randomUUID();
     await fakes.defineBuildsOf(unusable, { ...definitionSetWith(website, []), blocks: "none" });
     await fakes.defineBuildsOf(fixed, definitionSetWith(website, [pricingDefinition]));
-    const live = await connectLiveThread(website.project.id, token);
+    const { draft, thread: first } = await newDraftThread(website, token);
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(unusable) });
     answerWithToolCall("build", {});
     answerFrom(() => "Added it.");
@@ -262,11 +263,10 @@ describe("a revision's definitions", () => {
     });
     answerFrom(() => "Added it, and fixed it.");
 
-    const view = await ask(live, "Add a pricing section");
+    const view = await ask(first, "Add a pricing section");
 
     expect(told).toContain("definitions can't be used");
     expect(lastAnswer(view)).toBe("Added it, and fixed it.");
-    const [draft] = await draftsOf(website);
-    expect(await blockTypesOf(website, draft!.id)).toEqual(["pricing", "text"]);
+    expect(await blockTypesOf(website, draft.id)).toEqual(["pricing", "text"]);
   });
 });

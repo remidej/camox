@@ -52,7 +52,7 @@ export type ServiceContext = {
 
 /**
  * The context Camox's agent acts in, outside any request: as `user`, an editor or no one, in the
- * draft `draftId`, or else in `starting`, the draft its first write starts, or else on Live.
+ * draft `draftId`, or else on Live.
  */
 export function agentServiceContext({
   db,
@@ -60,11 +60,9 @@ export function agentServiceContext({
   user,
   waitUntil,
   draftId = null,
-  starting,
   apiOrigin,
 }: Pick<ServiceContext, "db" | "env" | "user" | "waitUntil" | "apiOrigin"> & {
   draftId?: string | null;
-  starting?: { id: string; threadId: string };
 }): ServiceContext {
   return {
     db,
@@ -74,10 +72,6 @@ export function agentServiceContext({
     client: "camox-agent",
     telemetryDisabled: false,
     apiOrigin,
-    draft: draftId
-      ? { id: draftId, create: false }
-      : starting
-        ? { id: starting.id, create: true, threadId: starting.threadId }
-        : null,
+    draft: draftId ? { id: draftId, create: false } : null,
   };
 }

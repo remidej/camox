@@ -123,11 +123,16 @@ export async function socketsOnThreadOf(db: ReturnType<typeof createDb>, draftId
   );
 }
 
-/** Who each message in `view` is from, and its text for an editor's or the agent's. */
+/**
+ * Who each message in `view` is from, and its text for an editor's or the agent's, or the draft's
+ * name for a draft the agent on Live started.
+ */
 export const said = (view: ThreadView) =>
-  view.messages.map((message) =>
-    "text" in message ? { from: message.from, text: message.text } : { from: message.from },
-  );
+  view.messages.map((message) => {
+    if ("text" in message) return { from: message.from, text: message.text };
+    if (message.from === "draft") return { from: message.from, name: message.name };
+    return { from: message.from };
+  });
 
 /** The text of the last message in `view`, when it's the agent's. */
 export const lastAnswer = (view: ThreadView) => {

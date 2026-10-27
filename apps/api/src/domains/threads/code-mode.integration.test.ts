@@ -4,7 +4,12 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { callSeedingLive, createRpcContext, syncDefinitionSet } from "../../../test/fixtures";
+import {
+  callSeedingLive,
+  createRpcContext,
+  startDraft,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -13,8 +18,8 @@ import {
 } from "../../../test/thread-model";
 import {
   ask,
+  connectDraftThread,
   connectLiveThread,
-  draftsOf,
   lastAnswer,
   said,
   signIn,
@@ -37,9 +42,15 @@ afterEach(async () => {
   forgetThreadModel();
 });
 
-/** Opens the fixture member's Live thread, as their studio does. */
-const openThread = async ({ db, memberUser, project }: Website) =>
-  connectLiveThread(project.id, await signIn(db, memberUser.id));
+/** Opens the thread of a draft the fixture member started, as their studio does in it. */
+const openThread = async (website: Website) => (await openDraft(website)).thread;
+
+/** Starts a draft as the fixture member, and opens its thread. */
+async function openDraft({ db, memberUser, project }: Website) {
+  const draftId = await startDraft(db, project.id, memberUser.id);
+  const thread = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+  return { draftId, thread };
+}
 
 /** A script printing the paths of the pages whose blocks mention `needle`, in order. */
 const pagesMentioning = (needle: string) => `
@@ -72,7 +83,38 @@ describe("the agent reading the website through code mode", () => {
     });
   });
 
-  it("offers the model code mode, the web and code tools, its scripts reaching the content tools", async () => {
+  it("offers the model on Live code mode, the web and code reading tools, and startDraft, its scripts only reading", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { db, memberUser, project } = website;
+    answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
+    let offered: string[] = [];
+    answerFrom(({ offeredTools, scriptOutput }) => {
+      offered = offeredTools;
+      return scriptOutput;
+    });
+
+    const live = await connectLiveThread(project.id, await signIn(db, memberUser.id));
+    const view = await ask(live, "What can you read?");
+
+    expect(offered.toSorted()).toEqual([
+      "codemode",
+      "find",
+      "grep",
+      "ls",
+      "read",
+      "searchFonts",
+      "startDraft",
+      "web_fetch",
+      "web_search",
+    ]);
+    const scriptTools = lastAnswer(view)?.split(", ");
+    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage", "read", "grep"]));
+    for (const write of ["editBlock", "createPage", "uploadFile", "write", "mv", "startDraft"]) {
+      expect(scriptTools).not.toContain(write);
+    }
+  });
+
+  it("offers the model in a draft code mode, the web and code tools, its scripts reaching the content tools", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
     let offered: string[] = [];
@@ -306,7 +348,7 @@ describe("the agent reading the website through code mode", () => {
     thread.close();
   });
 
-  it("uploads a file from a URL into the draft its write starts, served by the API", async () => {
+  it("uploads a file from a URL into the draft, served by the API", async () => {
     const website = await websiteFixture({ about: "We build websites." });
     answerWithScript(`
       const file = await tools.uploadFile({
@@ -317,10 +359,9 @@ describe("the agent reading the website through code mode", () => {
     `);
     answerFrom(({ scriptOutput }) => scriptOutput);
 
-    const view = await ask(await openThread(website), "Add our team photo to the files");
+    const { draftId, thread } = await openDraft(website);
+    const view = await ask(thread, "Add our team photo to the files");
 
-    const [draft, ...others] = await draftsOf(website);
-    expect(others).toEqual([]);
     const file = JSON.parse(lastAnswer(view)!);
     expect(file).toMatchObject({ filename: "team.png", alt: "The team", mimeType: "image/png" });
     // The thread has no request of its own: its files are served by the API its studio reached.
@@ -328,7 +369,7 @@ describe("the agent reading the website through code mode", () => {
     const inDraft = await call(
       router.files.list,
       { projectId: website.project.id },
-      { context: createRpcContext(website.db, website.memberUser, { [DRAFT_HEADER]: draft!.id }) },
+      { context: createRpcContext(website.db, website.memberUser, { [DRAFT_HEADER]: draftId }) },
     );
     expect(inDraft.map(({ id }) => id)).toEqual([file.id]);
   });

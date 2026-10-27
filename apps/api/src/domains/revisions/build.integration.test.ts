@@ -4,14 +4,12 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
-  draftsOf,
   signIn,
   type ThreadClient,
   websiteFixture,
@@ -99,8 +97,10 @@ async function toolResult(
  */
 async function buildInFirstTurn(files: Record<string, string>) {
   const website = await websiteWithCode();
-  const live = await connectLiveThread(
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(
     website.project.id,
+    draftId,
     await signIn(website.db, website.memberUser.id),
   );
   for (const [path, content] of Object.entries(files)) {
@@ -112,23 +112,20 @@ async function buildInFirstTurn(files: Record<string, string>) {
     result = lastToolResult;
     return "Built.";
   });
-  await ask(live, "Write and build");
-  const [draft] = await draftsOf(website);
-  return { website, draft: draft!, result };
+  await ask(thread, "Write and build");
+  return { website, draft: { id: draftId }, result };
 }
 
 /** A draft whose agent wrote `files`, with its thread open. */
 async function draftWithChanges(files: Record<string, string>) {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
-  const live = await connectLiveThread(website.project.id, token);
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
   for (const [path, content] of Object.entries(files)) {
-    await toolResult(live, "write", { path, content });
+    await toolResult(thread, "write", { path, content });
   }
-  live.close();
-  const [draft] = await draftsOf(website);
-  const thread = await connectDraftThread(website.project.id, draft!.id, token);
-  return { website, token, draft: draft!, thread };
+  return { website, token, draft: { id: draftId }, thread };
 }
 
 /** A file that doesn't build, marked so the fake sandbox fails the build of any tree holding it. */

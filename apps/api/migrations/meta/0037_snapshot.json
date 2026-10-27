@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c6b8fea8-dc02-4ece-a0ad-fd4e6319ce32",
+  "id": "3037f737-9a06-418e-acdc-87cdba4005d9",
   "prevId": "4b0ab582-7fd1-4092-83a2-99361a63ffac",
   "tables": {
     "account": {
@@ -2347,6 +2347,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "live_thread_id": {
+          "name": "live_thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "overview_headline": {
           "name": "overview_headline",
           "type": "text",
@@ -2517,6 +2524,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -3634,59 +3648,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "artifact_sources": {
-      "name": "artifact_sources",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "hash": {
-          "name": "hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "artifact_sources_project_id_projects_id_fk": {
-          "name": "artifact_sources_project_id_projects_id_fk",
-          "tableFrom": "artifact_sources",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "artifact_sources_project_id_hash_pk": {
-          "columns": ["project_id", "hash"],
-          "name": "artifact_sources_project_id_hash_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     }

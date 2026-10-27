@@ -136,6 +136,15 @@ export type ModelRequest = {
   scriptOutput: string;
 };
 
+/**
+ * Scripts the model's next answer from the whole conversation it receives, as the provider gets
+ * it: what a cached prompt is matched on.
+ */
+export const answerWithMessages = (answer: (messages: readonly Message[]) => string) =>
+  faux.appendResponses([
+    (context) => fauxAssistantMessage([fauxText(answer(structuredClone(context.messages)))]),
+  ]);
+
 /** Scripts the model's next answer from what it sees when it's called. */
 export const answerFrom = (answer: (request: ModelRequest) => string) =>
   faux.appendResponses([(context) => fauxAssistantMessage([fauxText(answer(requestOf(context)))])]);

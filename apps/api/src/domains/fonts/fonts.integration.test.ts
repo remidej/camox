@@ -2,6 +2,7 @@ import { abortAllDurableObjects, createScheduledController } from "cloudflare:te
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import {
   answerFrom,
@@ -12,8 +13,8 @@ import {
 } from "../../../test/thread-model";
 import {
   ask,
+  connectDraftThread,
   connectLiveThread,
-  draftsOf,
   lastAnswer,
   signIn,
   type ThreadClient,
@@ -254,7 +255,8 @@ describe("a font the agent picks", () => {
       "src/styles.css": STYLES,
     });
     const token = await signIn(website.db, website.memberUser.id);
-    const thread = await connectLiveThread(website.project.id, token);
+    const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+    const thread = await connectDraftThread(website.project.id, draftId, token);
 
     // The agent looks the family up, then adds its link and names it in the heading token.
     answerWithToolCall("searchFonts", { query: "Playfair Display", category: "serif" });
@@ -294,7 +296,7 @@ describe("a font the agent picks", () => {
     expect(link).toBe(
       "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap",
     );
-    const [draft] = await draftsOf(website);
+    const draft = { id: draftId };
     const git = (env as unknown as { RELEASE_FAKES: GitFakes }).RELEASE_FAKES;
     const repo = website.project.uuid;
     expect(await git.readFile(repo, draft!.id, "src/document.ts")).toContain(

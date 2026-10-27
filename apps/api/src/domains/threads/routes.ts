@@ -1,13 +1,9 @@
-import type { StartedDraft, ThreadSender } from "@camox/api-contract/threads";
+import type { ThreadSender } from "@camox/api-contract/threads";
 import { Effect } from "effect";
 import { type Context, Hono } from "hono";
 
 import { isProjectMember } from "../../authorization";
-import {
-  THREAD_CONTINUED_HEADER,
-  THREAD_IDENTITY_HEADER,
-  THREAD_SENDER_HEADER,
-} from "../../durable-objects/thread";
+import { THREAD_IDENTITY_HEADER, THREAD_SENDER_HEADER } from "../../durable-objects/thread";
 import { draftRequestNamed } from "../../lib/draft-request";
 import { getRelayedSessionHeaders } from "../../lib/relayed-session";
 import { respondToService, routeServiceContext } from "../../lib/route-service";
@@ -30,29 +26,18 @@ async function signedInEditor(c: Context<AppEnv>): Promise<User | null> {
   return session?.user ?? null;
 }
 
-/**
- * Forwards the upgrade to thread `threadId`, naming its sender and what the API authorized, and
- * for a fresh Live thread, the draft the editor's previous one continued in.
- */
-function forward(
-  c: Context<AppEnv>,
-  threadId: string,
-  user: User,
-  identity: ThreadIdentity,
-  continuedIn: StartedDraft | null = null,
-) {
+/** Forwards the upgrade to thread `threadId`, naming its sender and what the API authorized. */
+function forward(c: Context<AppEnv>, threadId: string, user: User, identity: ThreadIdentity) {
   const sender: ThreadSender = { id: user.id, name: user.name, image: user.image ?? null };
   const headers = new Headers(c.req.raw.headers);
   headers.set(THREAD_SENDER_HEADER, JSON.stringify(sender));
+  // Every header the thread trusts is the API's: one the studio sent is replaced.
   headers.set(THREAD_IDENTITY_HEADER, JSON.stringify(identity));
-  // Every header the thread trusts is the API's: one the studio sent is replaced or dropped.
-  headers.delete(THREAD_CONTINUED_HEADER);
-  if (continuedIn) headers.set(THREAD_CONTINUED_HEADER, JSON.stringify(continuedIn));
   return c.env.THREAD.getByName(threadId).fetch(new Request(c.req.raw, { headers }));
 }
 
 /**
- * The socket to the signed-in editor's current Live thread in a project. Only project members
+ * The socket to the signed-in editor's Live thread in a project. Only project members
  * connect, and each only ever reaches their own Live thread.
  */
 threadHonoRoutes.get("/live/:projectId", async (c) => {
@@ -66,10 +51,8 @@ threadHonoRoutes.get("/live/:projectId", async (c) => {
     return c.text("Forbidden", 403);
   }
 
-  const { threadId, continuedIn } = await Effect.runPromise(
-    currentLiveThread(c.var.db, projectId, user.id),
-  );
-  return forward(c, threadId, user, { projectId, draftId: null, ownerId: user.id }, continuedIn);
+  const { threadId } = await Effect.runPromise(currentLiveThread(c.var.db, projectId, user.id));
+  return forward(c, threadId, user, { projectId, draftId: null, ownerId: user.id });
 });
 
 /**

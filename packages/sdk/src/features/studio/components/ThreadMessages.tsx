@@ -12,6 +12,7 @@ import {
 } from "@camox/ui/message-scroller";
 import * as React from "react";
 
+import { cn } from "../../../lib/utils";
 import { Squareling, type SquarelingStatus } from "./Squareling";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
@@ -22,9 +23,18 @@ import { ThreadMarkdown } from "./ThreadMarkdown";
  * way to the thread, which hasn't accepted it yet), its face says whether the agent thinks or
  * acts (uses its tools, or builds its code). While the end of a turn builds the agent's code, or
  * the agent fixes a build error, it says so in words too. Each editor's message shows its
- * sender's avatar, without their name.
+ * sender's avatar, without their name. A Live turn handed off to a draft ends on the draft's
+ * card, which `onOpenDraft` opens.
  */
-export function ThreadMessages({ view, sending = false }: { view: ThreadView; sending?: boolean }) {
+export function ThreadMessages({
+  view,
+  sending = false,
+  onOpenDraft,
+}: {
+  view: ThreadView;
+  sending?: boolean;
+  onOpenDraft?: (draftId: string) => void;
+}) {
   const working = view.running || sending;
   const empty = view.messages.length === 0 && !working;
   const squareling = useSquarelingMorph(empty);
@@ -53,7 +63,7 @@ export function ThreadMessages({ view, sending = false }: { view: ThreadView; se
                 scrollAnchor={message.from === "editor"}
                 className="flex flex-col gap-4"
               >
-                <ThreadMessageRow message={message} />
+                <ThreadMessageRow message={message} onOpenDraft={onOpenDraft} />
                 {index === view.messages.length - 1 && (
                   <AgentPresence view={view} working={working} squareling={squareling} />
                 )}
@@ -154,7 +164,22 @@ const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
   fixing: "Fixing a build error…",
 };
 
-function ThreadMessageRow({ message }: { message: ThreadMessage }) {
+function ThreadMessageRow({
+  message,
+  onOpenDraft,
+}: {
+  message: ThreadMessage;
+  onOpenDraft?: (draftId: string) => void;
+}) {
+  if (message.from === "draft") {
+    return (
+      <Message>
+        <MessageContent>
+          <DraftCard message={message} onOpenDraft={onOpenDraft} />
+        </MessageContent>
+      </Message>
+    );
+  }
   if (message.from === "stopped" || message.from === "failed") {
     return (
       <Message>
@@ -211,6 +236,47 @@ const initials = (name: string) =>
     .join("")
     .toUpperCase()
     .slice(0, 2);
+
+const DRAFT_CARD_CLASSES =
+  "bg-muted/50 flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left text-sm";
+
+/**
+ * The card of the draft the agent on Live handed the request off to, where its agent does the
+ * work: it opens the draft. Once the draft ended, there's nothing to open: it says how it ended.
+ */
+function DraftCard({
+  message,
+  onOpenDraft,
+}: {
+  message: Extract<ThreadMessage, { from: "draft" }>;
+  onOpenDraft?: (draftId: string) => void;
+}) {
+  const name = <span className="font-medium">{message.name}</span>;
+  if (message.ended) {
+    return (
+      <div data-thread-draft-card className={DRAFT_CARD_CLASSES}>
+        <span className="text-muted-foreground text-xs">
+          {message.ended === "published" ? "Published" : "Deleted"}
+        </span>
+        {name}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-thread-draft-card
+      onClick={() => onOpenDraft?.(message.draftId)}
+      className={cn(
+        DRAFT_CARD_CLASSES,
+        "hover:bg-muted focus-visible:ring-ring transition-colors focus-visible:ring-2 focus-visible:outline-none",
+      )}
+    >
+      <span className="text-muted-foreground text-xs">Started a draft</span>
+      {name}
+    </button>
+  );
+}
 
 function SenderAvatar({ sender }: { sender: ThreadSender }) {
   return (

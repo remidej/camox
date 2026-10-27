@@ -40,12 +40,10 @@ export type ThreadIdentity = z.infer<typeof threadIdentitySchema>;
 
 /**
  * Who a tool call acts as, and where: the editor whose message started the run, in the thread's
- * draft, or on Live. On Live, a write names `draftToStart`: the draft the thread's first write
- * creates, recording the thread as its own.
+ * draft, or on Live, which only reads.
  */
 export type ThreadActor = Pick<ThreadIdentity, "projectId" | "draftId"> & {
   userId: string;
-  draftToStart?: { id: string; threadId: string };
   /** The API's public origin, which files the agent uploads are served from. */
   apiOrigin?: string;
 };
@@ -72,26 +70,16 @@ export type ToolDispatch = (
  * project can't act through a run, and a write lands in the thread's draft, never on Live.
  * Analytics attribute the calls to the agent.
  *
- * On Live, a write starts the draft `actor` names, as an editor's first write does: the write
- * creates it. Once a write went through, `started` moves the thread into the draft before the
- * call returns, so its next calls act in it. The write stands even if that fails: the thread
- * moves on its next call instead.
- *
  * A write that went through hands `touched` what it touched, for the studio to follow.
  */
 export function threadToolDispatch(
   env: Bindings,
   waitUntil: (promise: Promise<unknown>) => void,
   actor: (invocation: ToolInvocation, kind: ToolKind) => Promise<ThreadActor>,
-  started: (invocation: ToolInvocation) => Promise<void>,
   touched: (invocation: ToolInvocation, touches: Touch[]) => Promise<void>,
 ): ToolDispatch {
   return async ({ name, meta }, args, invocation) => {
-    const { projectId, draftId, userId, draftToStart, apiOrigin } = await actor(
-      invocation,
-      meta.kind,
-    );
-    const starting = draftId ? undefined : draftToStart;
+    const { projectId, draftId, userId, apiOrigin } = await actor(invocation, meta.kind);
     const db = createDb(env.DB);
     const acting = await db.select().from(user).where(eq(user.id, userId)).get();
     const ctx = agentServiceContext({
@@ -100,7 +88,6 @@ export function threadToolDispatch(
       user: acting ?? null,
       waitUntil,
       draftId,
-      starting,
       apiOrigin,
     });
     const response = await Effect.runPromise(
@@ -113,15 +100,9 @@ export function threadToolDispatch(
         ),
       ),
     );
-    if (starting && response.ok) {
-      await started(invocation).catch((error: unknown) =>
-        console.error("A thread couldn't move into the draft its write started", error),
-      );
-    }
-    const landedIn = draftId ?? starting?.id;
-    if (meta.kind === "write" && response.ok && landedIn) {
+    if (meta.kind === "write" && response.ok && draftId) {
       await Effect.runPromise(
-        touchesOf(db, { projectId, draftId: landedIn, name, args, result: response.result }),
+        touchesOf(db, { projectId, draftId, name, args, result: response.result }),
       )
         .then((touches) => (touches.length > 0 ? touched(invocation, touches) : undefined))
         .catch((error: unknown) =>
@@ -169,12 +150,17 @@ const jsonSchemaOf = (schema: z.ZodType, io: "input" | "output") => {
 
 /**
  * The tools the studio agent's scripts call: every tool its surface offers, which leaves out
- * publishing and deleting.
+ * publishing and deleting, or with `readOnly`, as on Live, its reads alone.
  */
-export async function studioAgentTools(dispatch: ToolDispatch): Promise<ToolRegistration[]> {
+export async function studioAgentTools(
+  dispatch: ToolDispatch,
+  { readOnly = false }: { readOnly?: boolean } = {},
+): Promise<ToolRegistration[]> {
   // Only the declarations are read here: providers close over their context in handlers alone,
   // and these handlers never run, as `dispatch` resolves the tools again with the real context.
   const declarationsOnly = {} as ToolContext;
   const tools = await resolveTools(toolProviders, declarationsOnly, SURFACE);
-  return tools.map((tool) => toPiTool(tool, dispatch));
+  return tools
+    .filter((tool) => !readOnly || tool.meta.kind === "read")
+    .map((tool) => toPiTool(tool, dispatch));
 }

@@ -1,19 +1,22 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import type { StartedDraft } from "@camox/api-contract/threads";
-import { and, eq, isNull } from "drizzle-orm";
+import type { DraftCardState } from "@camox/api-contract/threads";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { isProjectMember } from "../../authorization";
 import type { Database } from "../../db";
+import type { Bindings } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import { writeAccessWhilePublishing } from "../drafts/access";
-import { drafts } from "../drafts/schema";
+import { peopleNamed, personOf } from "../drafts/people";
+import { drafts, endedDrafts } from "../drafts/schema";
 import type { DraftRequest } from "../drafts/scope";
-import { findEndedDraft } from "../drafts/service";
+import { startDraft } from "../drafts/service";
 import { liveThreads } from "./schema";
 
 /**
- * An editor's current Live thread in a project, starting one the first time: its id, and the
- * draft their previous Live thread continued in, if any.
+ * An editor's Live thread in a project, starting it the first time: its id, which it keeps for
+ * good (ADR 0025).
  */
 export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
   db: Database,
@@ -28,7 +31,7 @@ export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
   );
   const thread = yield* Effect.promise(() =>
     db
-      .select({ threadId: liveThreads.threadId, continuedIn: liveThreads.continuedIn })
+      .select({ threadId: liveThreads.threadId })
       .from(liveThreads)
       .where(and(eq(liveThreads.projectId, projectId), eq(liveThreads.userId, userId)))
       .get(),
@@ -38,46 +41,110 @@ export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
 });
 
 /**
- * Gives the editor a fresh Live thread once their current one became the thread of the draft its
- * first write started, linking to that draft. The draft recorded the thread as it was created,
- * and nothing is copied. Repeating it changes nothing.
+ * Starts the regular draft the agent on Live hands a request off to (`startDraft`), named
+ * `name` and created by `editorId`, the editor whose message started the run, while they're
+ * still a member. It records its own thread's id, set aside here, and the Live thread that
+ * started it, which ending the draft tells. Repeating it with the same ids changes nothing, and
+ * an id that belonged to a draft that ended starts nothing: whether the draft is open.
  */
-export const moveLiveThreadIntoDraft = Effect.fn("moveLiveThreadIntoDraft")(function* (
+export const startDraftFromLive = Effect.fn("startDraftFromLive")(function* (
   db: Database,
-  move: { threadId: string; startedDraft: StartedDraft },
+  start: {
+    projectId: number;
+    editorId: string;
+    draftId: string;
+    threadId: string;
+    liveThreadId: string;
+    name: string;
+  },
 ) {
-  const { threadId, startedDraft } = move;
-  yield* Effect.promise(() =>
+  const { projectId, editorId, draftId, threadId, liveThreadId, name } = start;
+  if (!(yield* isProjectMember(db, projectId, editorId))) {
+    return yield* Effect.die(new Error("The editor who asked is no longer a member"));
+  }
+  yield* startDraft(db, {
+    id: draftId,
+    projectId,
+    createdBy: editorId,
+    name,
+    threadId,
+    liveThreadId,
+  });
+  const draft = yield* Effect.promise(() =>
     db
-      .update(liveThreads)
-      .set({ threadId: generateUuidv7(), createdAt: Date.now(), continuedIn: startedDraft })
-      .where(eq(liveThreads.threadId, threadId)),
+      .select({ projectId: drafts.projectId, threadId: drafts.threadId })
+      .from(drafts)
+      .where(eq(drafts.id, draftId))
+      .get(),
   );
+  return draft?.projectId === projectId && draft.threadId === threadId;
 });
 
 /**
- * Where the draft a Live thread's write set out to start stands: `started` with the thread as
- * its own, `ended` (published or deleted) since, or `unstarted` while no write created it.
+ * Where the drafts a Live thread's cards name stand in a project: an open draft's current name,
+ * an ended one's last name and how it ended. A draft that isn't there yet is left out.
  */
-export const reservedDraftState = Effect.fn("reservedDraftState")(function* (
+export const draftCardsOf = Effect.fn("draftCardsOf")(function* (
   db: Database,
-  reserved: { projectId: number; draftId: string; threadId: string },
+  projectId: number,
+  draftIds: readonly string[],
 ) {
-  const { projectId, draftId, threadId } = reserved;
-  const draft = yield* Effect.promise(() =>
-    db.select({ threadId: drafts.threadId }).from(drafts).where(eq(drafts.id, draftId)).get(),
+  const cards: Record<string, DraftCardState> = {};
+  if (draftIds.length === 0) return cards;
+  const [open, ended] = yield* Effect.promise(() =>
+    Promise.all([
+      db
+        .select({ id: drafts.id, name: drafts.name })
+        .from(drafts)
+        .where(and(eq(drafts.projectId, projectId), inArray(drafts.id, [...draftIds]))),
+      db
+        .select({ id: endedDrafts.id, name: endedDrafts.name, outcome: endedDrafts.outcome })
+        .from(endedDrafts)
+        .where(and(eq(endedDrafts.projectId, projectId), inArray(endedDrafts.id, [...draftIds]))),
+    ]),
   );
-  if (draft) {
-    // Only the thread's own writes create the draft, recording it as they do.
-    if (draft.threadId !== threadId) {
-      return yield* Effect.die(new Error("A draft set aside for a thread belongs to another"));
-    }
-    return "started" as const;
-  }
-  return (yield* findEndedDraft(db, projectId, draftId))
-    ? ("ended" as const)
-    : ("unstarted" as const);
+  for (const { id, name } of open) cards[id] = { name };
+  for (const { id, name, outcome } of ended) cards[id] = { name, ended: outcome };
+  return cards;
 });
+
+type ThreadStub = ReturnType<Bindings["THREAD"]["getByName"]>;
+
+/**
+ * Calls the thread `threadId`, if any, on a best-effort basis: a thread it can't reach is only
+ * reported, as `failure`, and never fails the caller.
+ */
+const tellThread = (
+  ctx: Pick<ServiceContext, "env">,
+  threadId: string | null | undefined,
+  {
+    span,
+    failure,
+    tell,
+  }: { span: string; failure: string; tell: (thread: ThreadStub) => Promise<void> },
+) =>
+  Effect.promise(async () => {
+    if (!threadId) return;
+    try {
+      await tell(ctx.env.THREAD.getByName(threadId));
+    } catch (error) {
+      console.error(failure, error);
+    }
+  }).pipe(Effect.withSpan(span));
+
+/**
+ * Tells the Live thread that started a draft, if any, to show its card's draft as it stands now,
+ * once it's renamed or ended. A Live thread that can't be reached shows it when next opened.
+ */
+export const showDraftOnLive = (
+  ctx: Pick<ServiceContext, "env">,
+  liveThreadId: string | null | undefined,
+) =>
+  tellThread(ctx, liveThreadId, {
+    span: "showDraftOnLive",
+    failure: "A Live thread didn't show where its card's draft stands",
+    tell: (thread) => thread.showDrafts(),
+  });
 
 /** The id of a draft's thread, once someone opened it: null before. */
 const threadOfDraft = Effect.fn("threadOfDraft")(function* (db: Database, draftId: string) {
@@ -112,40 +179,96 @@ export const draftThread = Effect.fn("draftThread")(function* (
   return { draft, threadId };
 });
 
+/** How a draft ends, and the id of the user who ends it, which the draft's record stores. */
+export type DraftEnding = { outcome: "published" | "deleted"; byUserId: string };
+
 /**
- * A draft's thread, as a publish or delete ends the draft, read before it does. Its `statements`
- * join the batch ending the draft, letting go of the thread there: a development draft stays
- * open, so the next one to open its thread starts a new one, and a regular draft lets go of it
- * with its row. An editor whose Live thread it still is gets a fresh one. Once the batch applied, `end` deletes the thread, which wipes what it stored
- * and turns away whatever reaches it after.
+ * The note Camox adds at the end of the Live thread that started a draft once it ended, which
+ * only the model reads: the draft's name, the name of who ended it, and for a publish, its Draft
+ * Overview.
+ */
+function draftEndedNote(ended: {
+  name: string | null;
+  outcome: DraftEnding["outcome"];
+  byName: string;
+  overview?: { headline: string; bullets: readonly string[] };
+}) {
+  const draft = ended.name ? `the draft "${ended.name}"` : "a draft";
+  const note = `Note from Camox: ${draft} you started was ${ended.outcome} by ${ended.byName}`;
+  if (ended.outcome === "deleted") return `${note}, so none of its changes reached Live.`;
+  const published = `${note}, so its changes are on Live now.`;
+  if (!ended.overview) return published;
+  const bullets = ended.overview.bullets.map((bullet) => `\n- ${bullet}`).join("");
+  return `${published} Its Draft Overview:\n\n${ended.overview.headline}${bullets}`;
+}
+
+/**
+ * A draft's threads, as a publish or delete ends the draft, read before it does. Its
+ * `statements` join the batch ending the draft, letting go of its own thread there: a
+ * development draft stays open, so the next one to open its thread starts a new one, and a
+ * regular draft lets go of it with its row. Once the batch applied, `end` deletes that thread,
+ * which wipes what it stored and turns away whatever reaches it after. The Live thread that
+ * started the draft, if any, is the editor's for good: `end` only adds Camox's note at its end,
+ * saying how the draft ended, and shows the draft's card as ended (ADR 0025).
  *
  * The draft ended either way, so `end` never fails: a thread it couldn't reach is only reported.
  */
 export const endingThread = Effect.fn("endingThread")(function* (
   ctx: Pick<ServiceContext, "db" | "env">,
   draftId: string,
+  ending: DraftEnding,
 ) {
-  const threadId = yield* threadOfDraft(ctx.db, draftId);
-  if (!threadId) return { statements: [], end: Effect.void };
+  const draft = yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        threadId: drafts.threadId,
+        liveThreadId: drafts.liveThreadId,
+        name: drafts.name,
+        overviewHeadline: drafts.overviewHeadline,
+        overviewBullets: drafts.overviewBullets,
+      })
+      .from(drafts)
+      .where(eq(drafts.id, draftId))
+      .get(),
+  );
+  const threadId = draft?.threadId ?? null;
+  const liveThreadId = draft?.liveThreadId ?? null;
+  const note =
+    draft && liveThreadId
+      ? draftEndedNote({
+          name: draft.name,
+          outcome: ending.outcome,
+          byName: personOf(yield* peopleNamed(ctx.db, [ending.byUserId]), ending.byUserId).name,
+          overview:
+            ending.outcome === "published" && draft.overviewHeadline
+              ? { headline: draft.overviewHeadline, bullets: draft.overviewBullets ?? [] }
+              : undefined,
+        })
+      : undefined;
+  const endThread = tellThread(ctx, threadId, {
+    span: "endThread",
+    failure: "A thread didn't end with its draft",
+    tell: (thread) => thread.end(),
+  });
+  const tellLive = note
+    ? tellThread(ctx, liveThreadId, {
+        span: "noteDraftEnded",
+        failure: "The Live thread that started a draft didn't hear it ended",
+        tell: (thread) => thread.noteDraftEnded({ draftId, note }),
+      })
+    : Effect.void;
   return {
-    statements: [
-      ctx.db
-        .update(drafts)
-        .set({ threadId: null })
-        .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
-      // A Live thread whose write started the draft is the draft's from then on, even if it
-      // hadn't moved into it yet: its editor's Live thread starts fresh.
-      ctx.db
-        .update(liveThreads)
-        .set({ threadId: generateUuidv7(), createdAt: Date.now(), continuedIn: null })
-        .where(eq(liveThreads.threadId, threadId)),
-    ],
-    end: Effect.promise(async () => {
-      try {
-        await ctx.env.THREAD.getByName(threadId).end();
-      } catch (error) {
-        console.error("A thread didn't end with its draft", error);
-      }
-    }).pipe(Effect.withSpan("endThread")),
+    statements: threadId
+      ? [
+          ctx.db
+            .update(drafts)
+            .set({ threadId: null })
+            .where(and(eq(drafts.id, draftId), eq(drafts.threadId, threadId))),
+        ]
+      : [],
+    end: endThread.pipe(
+      Effect.andThen(tellLive),
+      Effect.andThen(showDraftOnLive(ctx, liveThreadId)),
+    ),
   };
 });
