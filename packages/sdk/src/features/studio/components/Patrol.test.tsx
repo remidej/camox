@@ -7,7 +7,7 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { PatrolRoster } = await import("./Patrol");
+const { PatrolRoster, inHeldOrder } = await import("./Patrol");
 
 const now = Date.UTC(2026, 9, 27, 12);
 const minutes = (count: number) => now - count * 60_000;
@@ -89,6 +89,9 @@ function render(
       [...document.querySelectorAll(`[data-patroller="${id}"] [data-report]`)].map((row) =>
         [...row.children].map(text).join(" "),
       ),
+    expandedRole: text(
+      document.querySelector('[aria-expanded="true"]')?.querySelector("[data-patroller-role]"),
+    ),
     more: (id: string) => text(document.querySelector(`[data-patroller="${id}"] [data-more]`)),
   };
 }
@@ -199,4 +202,46 @@ void test("the reports not shown are counted by locale", () => {
   );
 
   assert.equal(shown.more("seoManager"), "…and 212 more in German, 3 in French");
+});
+
+void test("without a held order, the Patrol shows the order it's given", () => {
+  const view = { patrollers: [translator, seoManager()] };
+
+  assert.deepEqual(
+    inHeldOrder(view, null).patrollers.map(({ id }) => id),
+    ["translator", "seoManager"],
+  );
+});
+
+void test("a held order keeps patrollers in place but shows their latest content", () => {
+  const working = seoManager({ lastActivityAt: minutes(0) });
+
+  const shown = inHeldOrder({ patrollers: [working, translator] }, ["translator", "seoManager"]);
+
+  assert.deepEqual(
+    shown.patrollers.map(({ id }) => id),
+    ["translator", "seoManager"],
+  );
+  assert.equal(shown.patrollers[1], working);
+});
+
+void test("a patroller missing from the held order shows after the held ones, and a gone one is dropped", () => {
+  const shown = inHeldOrder({ patrollers: [seoManager(), translator] }, [
+    "translator",
+    "gone" as PatrollerView["id"],
+  ]);
+
+  assert.deepEqual(
+    shown.patrollers.map(({ id }) => id),
+    ["translator", "seoManager"],
+  );
+});
+
+void test("an expanded patroller stays expanded when it moves", () => {
+  const expanded = ["translator"];
+  const before = render({ patrollers: [seoManager(), translator] }, { expanded });
+  const after = render({ patrollers: [translator, seoManager()] }, { expanded });
+
+  assert.equal(before.expandedRole, "Translator");
+  assert.equal(after.expandedRole, "Translator");
 });
