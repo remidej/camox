@@ -1,0 +1,89 @@
+/**
+ * The Patrol (ADR 0024): every patroller of a project, the work each did as reports, as the
+ * studio shows it at the top of the Agent Sidebar. The API reads it for one scope, a draft or
+ * Live, and names each report's subject, so the studio needs no entity loaded to show it.
+ */
+
+/** A patroller's stable id. The registry in the API lists them all. */
+export type PatrollerId = "translator" | "seoManager";
+
+/**
+ * What a structured report says was done. Each has a failed form, by the report's outcome. A
+ * merge with Live's localization reads as a translation.
+ */
+export type ReportVerb =
+  | "translated"
+  | "mergedWithLive"
+  | "wroteSeo"
+  | "describedFile"
+  | "publishedCatchUp";
+
+/** What a report can be about. */
+export type ReportEntity =
+  | "page"
+  | "block"
+  | "sharedContent"
+  | "repeatableItem"
+  | "record"
+  | "file";
+
+/** A report's subject, named as the Canvas names it, read when the Patrol is. */
+export type ReportSubject = { entity: ReportEntity; id: string; name: string };
+
+/**
+ * What a report says: structured facts the studio turns into a sentence, in the studio's
+ * language, or text an AI wrote, shown as is. `locale` is a locale's tag.
+ */
+export type ReportSummary =
+  | {
+      kind: "structured";
+      verb: ReportVerb;
+      subject: ReportSubject | null;
+      locale: string | null;
+    }
+  | { kind: "text"; text: string };
+
+/** Whether the work was done, or failed. A failure shows in its report only. */
+export type ReportOutcome = "done" | "failed";
+
+/** Whether a report needs a human. Nothing raises one yet. */
+export type AttentionLevel = "none" | "needed";
+
+export type ReportView = {
+  /** Unique among the patroller's reports in the view. */
+  id: string;
+  summary: ReportSummary;
+  outcome: ReportOutcome;
+  attention: AttentionLevel;
+  /** When the work last settled, in milliseconds since the epoch. */
+  at: number;
+  /** Whether the report is Live's, seen from a draft or from Live. */
+  live: boolean;
+};
+
+/** What a patroller is on: how many subjects, and the one subject and locale when there's one. */
+export type PatrollerWorking = {
+  count: number;
+  subject: ReportSubject | null;
+  locale: string | null;
+};
+
+export type PatrollerView = {
+  id: PatrollerId;
+  /** Its role, as editors know it: "Translator", "SEO manager". */
+  role: string;
+  /** Null when it isn't working in the scope. */
+  working: PatrollerWorking | null;
+  /** Its latest activity in the scope, or null when it never worked there. */
+  lastActivityAt: number | null;
+  /** Its newest reports, newest first. */
+  reports: ReportView[];
+  /** How many more reports it has than `reports` shows, per locale, the most first. */
+  more: { locale: string | null; count: number }[];
+};
+
+/** Every patroller of the registry, the latest activity first; never-worked ones last. */
+export type PatrolView = { patrollers: PatrollerView[] };
+
+/** How many reports the Patrol shows of each patroller; the rest are counted. */
+export const REPORTS_SHOWN = 5;

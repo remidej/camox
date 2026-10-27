@@ -59,6 +59,10 @@ export const queryKeys = {
     // The draft a viewer is in, scoped to it like content.
     get: ["camox", "drafts", "get"],
   },
+  // The Patrol of a scope: its reports and its patrollers' pending work.
+  patrol: {
+    get: ["camox", "patrol"],
+  },
 } satisfies Record<string, QueryKeyGroup>;
 
 /** The last segment of a query key: what the query reads, Live or a draft (ADR 0011). */

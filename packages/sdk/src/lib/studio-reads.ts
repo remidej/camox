@@ -1,3 +1,4 @@
+import type { PatrolView } from "@camox/api-contract/patrol";
 import {
   inScope,
   queryKeys,
@@ -349,6 +350,16 @@ export const reads = {
     fetch: ({ apiIn, signal }, { projectId, draftId }) =>
       apiIn(draftId).drafts.get({ projectId }, { signal }),
     staleTime: Infinity,
+  }),
+
+  /**
+   * The Patrol of the draft viewed, or Live's: what Camox did there without being asked. The
+   * same in every locale.
+   */
+  patrol: entry<{ projectId: number }, PatrolView>({
+    key: ({ projectId }) => [...queryKeys.patrol.get, projectId],
+    everyLocale: true,
+    fetch: ({ api, signal }, { projectId }) => api.patrol.get({ projectId }, { signal }),
   }),
 
   /** What publishing a draft will do; refetched whenever asked, since it depends on Live. */

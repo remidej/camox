@@ -12,6 +12,15 @@ export function localeLabel(tag: string): string {
   }
 }
 
+/** A locale's name in the studio's language, "German", or its tag alone when unnamed. */
+export function localeName(tag: string): string {
+  try {
+    return localeNames.of(tag) ?? tag;
+  } catch {
+    return tag;
+  }
+}
+
 /** The BCP 47 tags the studio offers to add: widely used languages and their main regions. */
 const OFFERED_TAGS = [
   "af",

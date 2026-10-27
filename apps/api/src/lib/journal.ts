@@ -46,6 +46,11 @@ export type Change =
   | { kind: "translations"; projectId: number; draftId: string }
   /** A generated value of an entity (ADR 0012): it shows with the entity, but never changes a draft. */
   | { kind: "generated"; entity: EntityKind; id: string; projectId: number; draftId: string | null }
+  /**
+   * A patroller's report, in a draft or on Live (`draftId` null), where the catch-up draft's are
+   * Live's: it shows in the Patrol only (ADR 0024).
+   */
+  | { kind: "report"; projectId: number; draftId: string | null }
   /** A draft's overview: requested, written, or failed. It shows in the draft's review only. */
   | { kind: "overview"; projectId: number; draftId: string }
   /** Definitions synced into Live by a release, or into a development draft by dev mode. */

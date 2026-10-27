@@ -13,6 +13,7 @@ export default defineConfig({
       "src/threads.ts",
       "src/projects.ts",
       "src/locales.ts",
+      "src/patrol.ts",
     ],
     format: "esm",
     platform: "neutral",

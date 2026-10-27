@@ -241,6 +241,10 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         add(change.draftId, queryKeys.drafts.all);
         add(null, queryKeys.drafts.list);
         break;
+      case "report":
+        // A Live report shows in every draft's Patrol too: a Live invalidation reaches them.
+        add(change.draftId, queryKeys.patrol.get);
+        break;
       case "overview":
         // Its draft's publish preview carries it.
         add(change.draftId, queryKeys.drafts.all);
@@ -285,6 +289,7 @@ function changesLive(change: Change): boolean {
     case "project":
       return true;
     case "translations":
+    case "report":
     case "overview":
     case "drafts":
     case "ended":

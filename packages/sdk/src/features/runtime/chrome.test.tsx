@@ -148,7 +148,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
       createElement(PageApp, { input, queryClient, camoxApp, draftScope: testDraftScope() }),
     );
     assert.match(canvasPageHtml, /data-chat-widget/);
-    assert.match(canvasPageHtml, /data-workers-widget/);
+    assert.match(canvasPageHtml, /data-patrol/);
     assert.doesNotMatch(canvasPageHtml, HIDDEN_AGENT_SIDEBAR);
   } finally {
     previewStore.send({ type: "reset" });

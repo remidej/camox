@@ -189,7 +189,11 @@ const upsert = (
   db: Database,
   home: ValueHome,
   key: ValueKey,
-  insert: { value?: GeneratedValues[GeneratedType] | null; requestedAt?: number | null },
+  insert: {
+    value?: GeneratedValues[GeneratedType] | null;
+    requestedAt?: number | null;
+    generatedAt?: number;
+  },
   set: Record<string, unknown>,
 ) =>
   Effect.tryPromise(() =>
@@ -240,7 +244,7 @@ export const saveValue = <T extends GeneratedType>(
     db,
     home,
     key,
-    { value, requestedAt: null },
+    { value, requestedAt: null, generatedAt: now },
     { value, generatedAt: now, requestedAt: settled(startedAt) },
   );
 };
@@ -252,6 +256,28 @@ const keyIn = (draftId: string | null, locale: string | undefined, key: ValueKey
     eq(generatedValues.type, key.type),
     draftId === null ? isNull(generatedValues.draftId) : eq(generatedValues.draftId, draftId),
     sql`${generatedValues.locale} = ${valueLocale(key.type, locale, generatedValues.projectId)}`,
+  );
+
+/**
+ * Where a job's value is stored: its project, the tag of its locale, and when it was last
+ * generated. Undefined when the value has no row, as when its draft ended.
+ */
+export const storedValue = (
+  db: Database,
+  draftId: string | null,
+  locale: string | undefined,
+  key: ValueKey,
+) =>
+  Effect.promise(() =>
+    db
+      .select({
+        projectId: generatedValues.projectId,
+        locale: generatedValues.locale,
+        generatedAt: generatedValues.generatedAt,
+      })
+      .from(generatedValues)
+      .where(keyIn(draftId, locale, key))
+      .get(),
   );
 
 /** Settles a job that generated nothing, e.g. because its group is manual. */
