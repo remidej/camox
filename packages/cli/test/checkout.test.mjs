@@ -9,15 +9,20 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 // `camox clone` checks out a flagged project's repo, which Git then reads with short-lived read
-// tokens that `camox git-credential` gets from the API. Here the repo is a local bare repo, served
-// over Git's smart HTTP behind Basic auth as Cloudflare Artifacts serves it, and the API is a stub
-// that mints a new read token on each request, expiring every one minted before.
+// tokens that `camox git-credential` gets from the API, and `camox push` sends a branch's commits
+// from that checkout to the API as a Git bundle. Here the repo is a local bare repo, served over
+// Git's smart HTTP behind Basic auth as Cloudflare Artifacts serves it, and the API is a stub
+// that mints a new read token on each request, expiring every one minted before, and lands a
+// push's bundle on a draft's branch.
 
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
 // Project IDs, as the API mints them: lowercase UUIDv7s.
 const FLAGGED = { uuid: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a70", slug: "acme" };
 const UNFLAGGED = { uuid: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a71", slug: "globex" };
 const SESSION = "session-token";
+/** The draft a push opens, whose id names its branch. */
+const DRAFT_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a99";
+const STUDIO_URL = `https://acme.camox.site/?camox-draft=${DRAFT_ID}`;
 
 let root;
 let home;
@@ -27,6 +32,10 @@ let server;
 const tokens = [];
 /** The bare repos the Git remote serves, under `<root>/git/projects/<Project ID>.git`. */
 let gitRoot;
+/** The pushes the API stub received: each one's input, and its bundle's path. */
+const pushes = [];
+/** The refusal the API stub answers the next push with, if any. */
+let refusal;
 
 const repoOf = (project) => join(gitRoot, "projects", `${project.uuid}.git`);
 
@@ -34,6 +43,21 @@ const rpcError = (res, status, code, message) => {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ json: { defined: false, code, status, message } }));
 };
+
+/**
+ * An oRPC request's input. One with a file comes as a form: its JSON, with each file in a part
+ * of its own, saved here, its path standing for it in the input.
+ */
+async function rpcInput(req, body) {
+  if (!body.length) return undefined;
+  const type = req.headers["content-type"] ?? "";
+  if (!type.startsWith("multipart/form-data")) return JSON.parse(body).json;
+  const form = await new Response(body, { headers: { "content-type": type } }).formData();
+  const { json } = JSON.parse(form.get("data"));
+  const file = join(await mkdtemp(join(root, "bundle-")), "push.bundle");
+  await writeFile(file, Buffer.from(await form.get("0").arrayBuffer()));
+  return { ...json, bundlePath: file };
+}
 
 async function serveRpc(req, res, procedure, input) {
   if (req.headers.authorization !== `Bearer ${SESSION}`) {
@@ -57,6 +81,31 @@ async function serveRpc(req, res, procedure, input) {
       token,
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
       projectSlug: project.slug,
+    };
+  } else if (procedure === "code/push") {
+    pushes.push(input);
+    if (refusal) {
+      res.writeHead(422, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ json: { defined: false, status: 422, ...refusal } }));
+    }
+    // The bundle's branch lands on the draft's, as the API lands it.
+    try {
+      await git(root, [
+        "--git-dir",
+        repoOf(project),
+        "fetch",
+        "--quiet",
+        input.bundlePath,
+        `refs/heads/${input.branch}:refs/heads/${DRAFT_ID}`,
+      ]);
+    } catch (error) {
+      return rpcError(res, 500, "INTERNAL_SERVER_ERROR", error.stderr);
+    }
+    output = {
+      draftId: DRAFT_ID,
+      branch: DRAFT_ID,
+      result: { ok: true, revision: "rev", build: [], types: [], lint: [] },
+      studioUrl: STUDIO_URL,
     };
   } else {
     return rpcError(res, 404, "NOT_FOUND", "Not found");
@@ -200,7 +249,7 @@ require("node:fs").appendFileSync(${JSON.stringify(join(root, "pnpm-runs"))}, JS
     const body = Buffer.concat(chunks);
     if (req.url.startsWith("/rpc/")) {
       const procedure = req.url.slice("/rpc/".length).split("?")[0];
-      return serveRpc(req, res, procedure, body.length ? JSON.parse(body).json : undefined);
+      return serveRpc(req, res, procedure, await rpcInput(req, body));
     }
     if (req.url.startsWith("/api/auth/get-session")) {
       res.writeHead(req.headers.authorization === `Bearer ${SESSION}` ? 200 : 401);
@@ -220,7 +269,15 @@ require("node:fs").appendFileSync(${JSON.stringify(join(root, "pnpm-runs"))}, JS
   );
   for (const project of [FLAGGED, UNFLAGGED]) {
     await git(root, ["init", "--quiet", "--bare", "--initial-branch", "main", repoOf(project)]);
-    await commitTo(repoOf(project), "main", { "package.json": "{}\n" }, "Create the website");
+    await commitTo(
+      repoOf(project),
+      "main",
+      {
+        "package.json": "{}\n",
+        "vite.config.ts": `camox({ projectId: "${project.uuid}" });\n`,
+      },
+      "Create the website",
+    );
   }
 });
 
@@ -320,4 +377,73 @@ void test("git-credential ignores Git asking it to store or erase a credential",
     assert.equal(code, 0);
     assert.equal(stdout, "");
   }
+});
+
+/** A clone of the flagged project, which its Vite config names, with a commit on a new branch. */
+async function checkoutOnBranch(branch) {
+  const clone = await cloneFlagged();
+  await git(clone, ["checkout", "--quiet", "-b", branch]);
+  await writeFile(join(clone, "pricing.tsx"), "export const pricing = 9;\n");
+  await git(clone, ["add", "."]);
+  await git(clone, [
+    "-c",
+    "user.name=Ada",
+    "-c",
+    "user.email=ada@acme.test",
+    "commit",
+    "--quiet",
+    "-m",
+    "Add pricing",
+  ]);
+  return clone;
+}
+
+void test("push sends the branch's new commits as a bundle, tracks the draft's branch, and prints its studio URL", async () => {
+  refusal = undefined;
+  const clone = await checkoutOnBranch("pricing");
+
+  const result = await cli(["push"], { cwd: clone });
+
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+  const sent = pushes.at(-1);
+  assert.equal(sent.projectUuid, FLAGGED.uuid);
+  assert.equal(sent.branch, "pricing");
+  const head = await git(clone, ["rev-parse", "HEAD"]);
+  assert.match(
+    await git(clone, ["bundle", "list-heads", sent.bundlePath]),
+    new RegExp(`^${head} refs/heads/pricing$`),
+  );
+  assert.equal(
+    await git(clone, ["rev-parse", "--abbrev-ref", "pricing@{upstream}"]),
+    `origin/${DRAFT_ID}`,
+  );
+  assert.equal(await git(clone, ["rev-parse", "pricing@{upstream}"]), head);
+  assert.match(result.stdout, new RegExp(STUDIO_URL.replaceAll("?", "\\?")));
+});
+
+void test("push prints a refusal and the build's errors, and exits non-zero", async () => {
+  refusal = {
+    code: "PUSH_REFUSED",
+    message: "Your branch's code doesn't build: fix its build errors, then push again.",
+    data: {
+      reason: "doesNotBuild",
+      build: [
+        {
+          file: "pricing.tsx",
+          line: 1,
+          column: 26,
+          message: "Could not resolve './missing'",
+          frame: "",
+        },
+      ],
+    },
+  };
+  const clone = await checkoutOnBranch("broken");
+
+  const result = await cli(["push"], { cwd: clone });
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stdout + result.stderr, /doesn't build/);
+  assert.match(result.stdout + result.stderr, /pricing\.tsx:1:26 Could not resolve '\.\/missing'/);
+  await assert.rejects(git(clone, ["rev-parse", "--abbrev-ref", "broken@{upstream}"]));
 });
