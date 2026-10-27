@@ -1,5 +1,5 @@
 import { artifactSourceHash } from "@camox/api-contract";
-import { SELF } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -7,14 +7,22 @@ import {
   contentFieldBuilder as field,
 } from "../../../../../packages/sdk/src/core/lib/contentType";
 import {
+  expectNotStored,
+  expectStored,
+  storedSource,
+  uniqueSource as unique,
+} from "../../../test/artifact-sources";
+import {
   createProjectFixture,
   createServiceContext,
   inScope,
+  seedLiveThrough,
   startDraft,
   syncDefinitionSet,
+  type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { pages } from "../../schema";
+import { artifactSources, pages } from "../../schema";
 import { createBlock, getBlock, updateBlockContent } from "../blocks/service";
 import { draftOf } from "../drafts/scope";
 import {
@@ -22,6 +30,7 @@ import {
   getRepeatableItem,
   updateRepeatableItemContent,
 } from "../repeatable-items/service";
+import { backfillArtifactSources } from "./backfill";
 
 const scenesField = {
   type: "array",
@@ -39,7 +48,7 @@ const scenesField = {
   },
 };
 
-async function fixture(suffix: string) {
+async function fixture(suffix: string, extraBlocks: TestDefinitionSet["blocks"] = []) {
   const base = await createProjectFixture(`artifact-sources-${suffix}-${crypto.randomUUID()}`);
   const ctx = createServiceContext(base.db, base.memberUser);
   const contentSchema = {
@@ -60,6 +69,7 @@ async function fixture(suffix: string) {
         synced: true,
         contentSchema,
       },
+      ...extraBlocks,
     ],
   });
   const now = 1_700_000_000_000;
@@ -82,24 +92,6 @@ async function fixture(suffix: string) {
   const draft = draftOf({ id: draftId, kind: "regular", projectId: base.project.id });
   return { ...base, ctx: inScope(ctx, draft), page };
 }
-
-/** An artifact source as the store serves it, by project and hash. */
-function storedSource(project: { uuid: string }, hash: string) {
-  return SELF.fetch(`https://api.camox.ai/artifact-sources/${project.uuid}/${hash}`);
-}
-
-async function expectStored(project: { uuid: string }, source: string) {
-  const response = await storedSource(project, await artifactSourceHash(source));
-  expect(response.status).toBe(200);
-  expect(await response.text()).toBe(source);
-}
-
-async function expectNotStored(project: { uuid: string }, source: string) {
-  const response = await storedSource(project, await artifactSourceHash(source));
-  expect(response.status).toBe(404);
-}
-
-const unique = (name: string) => `<title>${name}</title><p>${crypto.randomUUID()}</p>`;
 
 describe("an artifact source's hash", () => {
   it("is the URL-safe base64 SHA-256 of the source, without padding", async () => {
@@ -361,5 +353,198 @@ describe("a content read", () => {
     const { block } = await runService(getBlock(ctx, { id: created.id }));
 
     expect(block.artifactHashes).toEqual({});
+  });
+});
+
+describe("a definition sync", () => {
+  /** A block definition whose artifacts sit on the block and in nested repeatable items. */
+  const visualDefinition = (blockId: string, extra: Record<string, unknown> = {}) => ({
+    blockId,
+    title: blockId,
+    description: blockId,
+    contentSchema: {
+      type: "object",
+      properties: { visual: field.artifact({ size: "fill" }), scenes: scenesField },
+    },
+    ...extra,
+  });
+
+  it("stores the sources of the content a project's first release creates: its homepage and layouts, items at any depth included", async () => {
+    // A project created from a template gets its content from its first release: the template
+    // copy copies code only.
+    const { db, project } = await createProjectFixture(
+      `artifact-sources-release-${crypto.randomUUID()}`,
+    );
+    const homepageVisual = unique("Homepage visual");
+    const homepageScene = unique("Homepage scene");
+    const homepageLayer = unique("Homepage layer");
+    const layoutVisual = unique("Layout visual");
+    const layoutScene = unique("Layout scene");
+    const layoutLayer = unique("Layout layer");
+
+    await syncDefinitionSet(db, project, {
+      blocks: [visualDefinition("visual"), visualDefinition("navbar", { layoutOnly: true })],
+      layouts: [
+        {
+          layoutId: "default",
+          description: "Default",
+          blocks: [
+            {
+              type: "navbar",
+              slot: "before",
+              content: { visual: layoutVisual },
+              repeatableItems: [
+                {
+                  tempId: "scene",
+                  parentTempId: null,
+                  fieldName: "scenes",
+                  content: { scene: layoutScene },
+                  position: "a0",
+                },
+                {
+                  tempId: "layer",
+                  parentTempId: "scene",
+                  fieldName: "layers",
+                  content: { layer: layoutLayer },
+                  position: "a0",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      homepage: {
+        layoutId: "default",
+        blocks: [
+          {
+            type: "visual",
+            content: {
+              visual: homepageVisual,
+              scenes: [{ scene: homepageScene, layers: [{ layer: homepageLayer }] }],
+            },
+          },
+        ],
+      },
+    });
+
+    for (const source of [
+      homepageVisual,
+      homepageScene,
+      homepageLayer,
+      layoutVisual,
+      layoutScene,
+      layoutLayer,
+    ]) {
+      await expectStored(project, source);
+    }
+  });
+
+  it.each(["a release", "dev mode"] as const)(
+    "in %s, stores the artifact fields' default sources, nested items' included, and the sources of definitions' default content",
+    async (target) => {
+      const { db, project, memberUser } = await createProjectFixture(
+        `artifact-sources-defaults-${crypto.randomUUID()}`,
+      );
+      const visualDefault = unique("Visual default");
+      const layerDefault = unique("Layer default");
+      const defaultVisual = unique("Default content visual");
+      const defaultScene = unique("Default content scene");
+
+      await syncDefinitionSet(
+        db,
+        project,
+        {
+          blocks: [
+            {
+              blockId: "defaulted",
+              title: "Defaulted",
+              description: "Artifacts with defaults",
+              contentSchema: {
+                type: "object",
+                properties: {
+                  visual: field.artifact({ size: "fill", default: visualDefault }),
+                  scenes: {
+                    ...scenesField,
+                    items: {
+                      type: "object",
+                      properties: {
+                        scene: field.artifact({ size: "content" }),
+                        layers: {
+                          type: "array",
+                          fieldType: "Repeater",
+                          items: {
+                            type: "object",
+                            properties: {
+                              layer: field.artifact({ size: "content", default: layerDefault }),
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            visualDefinition("withDefaultContent", {
+              synced: true,
+              defaultContent: { visual: defaultVisual, scenes: [{ scene: defaultScene }] },
+            }),
+          ],
+        },
+        target === "dev mode" ? { as: memberUser } : {},
+      );
+
+      for (const source of [visualDefault, layerDefault, defaultVisual, defaultScene]) {
+        await expectStored(project, source);
+      }
+    },
+  );
+});
+
+describe("the artifact source backfill", () => {
+  it("stores every source content held before the store existed, in Live and in drafts, and can run again", async () => {
+    const fallback = unique("Default");
+    const { db, ctx, page, project } = await fixture("backfill", [
+      {
+        blockId: "defaulted",
+        title: "Defaulted",
+        description: "An artifact with a default source",
+        contentSchema: {
+          type: "object",
+          properties: { visual: field.artifact({ size: "fill", default: fallback }) },
+        },
+      },
+    ]);
+    const liveVisual = unique("Live visual");
+    const liveScene = unique("Live scene");
+    const liveLayer = unique("Live layer");
+    const draftShared = unique("Draft shared visual");
+    const draftSharedScene = unique("Draft shared scene");
+    await seedLiveThrough(ctx, project.id, (_, inDraft) =>
+      createBlock(inDraft, {
+        pageId: page.id,
+        type: "visual",
+        content: {
+          visual: liveVisual,
+          scenes: [{ scene: liveScene, layers: [{ layer: liveLayer }] }],
+        },
+      }),
+    );
+    await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "sharedVisual",
+        content: { visual: draftShared, scenes: [{ scene: draftSharedScene }] },
+      }),
+    );
+    const sources = [fallback, liveVisual, liveScene, liveLayer, draftShared, draftSharedScene];
+    // Content written before the store existed: its sources aren't stored.
+    await db.delete(artifactSources).where(eq(artifactSources.projectId, project.id));
+    await expectNotStored(project, liveVisual);
+
+    await backfillArtifactSources(db);
+    await backfillArtifactSources(db);
+
+    for (const source of sources) await expectStored(project, source);
   });
 });

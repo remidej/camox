@@ -10,6 +10,8 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
+import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
+import { expectStored, uniqueSource } from "../../../test/artifact-sources";
 import {
   callSeedingLive,
   createProjectFixture,
@@ -1676,5 +1678,71 @@ describe("the order of blocks and items in a localization", () => {
 
     expect(await itemsIn()).toEqual([two, three, one]);
     expect(await itemsIn("de")).toEqual([two, three, one]);
+  });
+});
+
+describe("a translated artifact", () => {
+  /**
+   * `f`'s draft in German, with a visual definition holding an artifact whose default is
+   * `fallback`, and a model translating each source of `german` into its German source.
+   */
+  async function germanDraft(
+    f: Awaited<ReturnType<typeof fixture>>,
+    fallback: string,
+    german: Record<string, string>,
+  ) {
+    await syncDefinitionSet(f.db, f.project, {
+      ...f.definitionSet,
+      blocks: [
+        ...f.definitionSet.blocks,
+        {
+          blockId: "visual",
+          title: "Visual",
+          description: "An artifact",
+          contentSchema: {
+            type: "object",
+            properties: { visual: field.artifact({ size: "fill", default: fallback }) },
+            toMarkdown: ["{{visual}}"],
+          },
+        },
+      ],
+    });
+    answerEvery("translate", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key, text }) => [key, german[text] ?? text])),
+    );
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    await f.runTranslations();
+  }
+
+  it("stores the source its translation writes into the locale", async () => {
+    const f = await fixture();
+    const english = uniqueSource("Visual");
+    const german = uniqueSource("Bild");
+    await germanDraft(f, uniqueSource("Default"), { [english]: german });
+
+    await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "visual", content: { visual: english } },
+      f.member(f.inDraft),
+    );
+    await f.runTranslations();
+
+    await expectStored(f.project, german);
+  });
+
+  it("stores the source translated from its default, in a block placed in the locale", async () => {
+    const f = await fixture();
+    const fallback = uniqueSource("Default");
+    const german = uniqueSource("Standard");
+    await germanDraft(f, fallback, { [fallback]: german });
+
+    await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "visual", content: {} },
+      f.member({ ...f.inDraft, [LOCALE_HEADER]: "de" }),
+    );
+    await f.runTranslations();
+
+    await expectStored(f.project, german);
   });
 });
