@@ -99,8 +99,8 @@ async function assetHash(path: string, base64: string) {
 }
 
 /**
- * Uploads a user Worker's static assets through an upload session: the manifest, then each bucket
- * of files Cloudflare doesn't have yet. Returns the completion token its upload is given, with
+ * Uploads a user Worker's static assets through an upload session: the manifest, then the buckets
+ * of files Cloudflare doesn't have yet, all at once. Returns the completion token its upload is given, with
  * how many buckets and bytes it uploaded, for the publish's timing logs.
  * https://developers.cloudflare.com/workers/static-assets/direct-upload/
  */
@@ -128,22 +128,30 @@ async function uploadAssets(env: CloudflareEnv, name: string, assets: WorkerAsse
   let completion = session.jwt;
   let uploadedFiles = 0;
   let uploadedBytes = 0;
-  for (const bucket of session.buckets ?? []) {
+  const byHash = new Map(files.map((file) => [file.hash, file]));
+  const forms = (session.buckets ?? []).map((bucket) => {
     const form = new FormData();
     for (const hash of bucket) {
-      const file = files.find((candidate) => candidate.hash === hash);
+      const file = byHash.get(hash);
       if (!file) throw new CloudflareApiError(`The assets upload asked for an unknown ${hash}`, 0);
       form.append(hash, new File([file.base64], hash, { type: file.contentType }));
       uploadedFiles++;
       uploadedBytes += file.content.byteLength;
     }
-    const uploaded = await cloudflare<{ jwt?: string }>(
-      `${ACCOUNTS}/${env.CLOUDFLARE_ACCOUNT_ID}/workers/assets/upload?base64=true`,
-      { method: "POST", token: session.jwt, body: form },
-      "Uploading assets",
-    );
-    if (uploaded?.jwt) completion = uploaded.jwt;
-  }
+    return form;
+  });
+  // All buckets at once: the upload that completes the set, whichever it is, answers the
+  // completion token.
+  await Promise.all(
+    forms.map(async (form) => {
+      const uploaded = await cloudflare<{ jwt?: string }>(
+        `${ACCOUNTS}/${env.CLOUDFLARE_ACCOUNT_ID}/workers/assets/upload?base64=true`,
+        { method: "POST", token: session.jwt, body: form },
+        "Uploading assets",
+      );
+      if (uploaded?.jwt) completion = uploaded.jwt;
+    }),
+  );
   return {
     jwt: completion,
     buckets: session.buckets?.length ?? 0,
