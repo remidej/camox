@@ -138,6 +138,9 @@ export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function*
   );
   const sharedTypes = new Set(shared.map((row) => row.type));
   const synced: SyncedDefinitions = new Map();
+  // The content schemas of the definitions it creates or whose content schema it changes, by
+  // name: content stored under their names is read through a new schema from then on.
+  const reshaped = new Map<string, unknown>();
   const keep = (
     type: string,
     columns: Pick<SyncedDefinition, "contentSchema" | "settingsSchema" | "synced"> & {
@@ -159,6 +162,12 @@ export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function*
     const flag = { target: writes, projectId, key, synced: fields.synced, defaults: def };
     const stored = existingByType.get(def.blockId);
     let hasSharedContent = sharedTypes.has(def.blockId);
+    if (
+      !stored ||
+      stableStringify(stored.contentSchema) !== stableStringify(fields.contentSchema)
+    ) {
+      reshaped.set(def.blockId, fields.contentSchema);
+    }
     if (!stored) {
       plan.add(
         overlay.plannedStatements(
@@ -211,5 +220,5 @@ export const planBlockDefinitions = Effect.fn("blockDefinitions.plan")(function*
     );
   }
 
-  return plan.done({ definitions: synced, deletedDefinitionTypes });
+  return plan.done({ definitions: synced, deletedDefinitionTypes, reshaped });
 });

@@ -501,6 +501,70 @@ describe("a definition sync", () => {
   );
 });
 
+describe("a definition change making existing content's fields artifacts", () => {
+  /** A block whose `visual`, and its items' `scene`, are `kind` fields. */
+  const promo = (kind: "string" | "artifact") => {
+    const of = () =>
+      kind === "artifact"
+        ? field.artifact({ size: "content" })
+        : { type: "string", fieldType: "String" };
+    return {
+      blockId: "promo",
+      title: "Promo",
+      description: "A promo",
+      contentSchema: {
+        type: "object",
+        properties: {
+          visual: of(),
+          scenes: {
+            type: "array",
+            fieldType: "Repeater",
+            items: { type: "object", properties: { scene: of() } },
+          },
+        },
+      },
+    };
+  };
+
+  it.each(["a release", "dev mode"] as const)(
+    "in %s, stores the sources the content already held, in Live and in drafts, items included",
+    async (target) => {
+      const { db, ctx, page, project, memberUser } = await fixture("reshaped", [promo("string")]);
+      const liveVisual = unique("Live visual");
+      const liveScene = unique("Live scene");
+      const draftVisual = unique("Draft visual");
+      const draftScene = unique("Draft scene");
+      await seedLiveThrough(ctx, project.id, (_, inDraft) =>
+        createBlock(inDraft, {
+          pageId: page.id,
+          type: "promo",
+          content: { visual: liveVisual, scenes: [{ scene: liveScene }] },
+        }),
+      );
+      await runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "promo",
+          content: { visual: draftVisual, scenes: [{ scene: draftScene }] },
+        }),
+      );
+      // Held as text, the content has no source to store yet.
+      await expectNotStored(project, liveVisual);
+
+      await syncDefinitionSet(
+        db,
+        project,
+        { blocks: [promo("artifact")] },
+        target === "dev mode" ? { as: memberUser } : {},
+      );
+
+      for (const source of [liveVisual, liveScene, draftVisual, draftScene]) {
+        await expectStored(project, source);
+      }
+    },
+  );
+});
+
 describe("the artifact source backfill", () => {
   it("stores every source content held before the store existed, in Live and in drafts, and can run again", async () => {
     const fallback = unique("Default");

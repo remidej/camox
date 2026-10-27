@@ -1,4 +1,5 @@
 import { artifactSourceHash } from "@camox/api-contract";
+import { and, eq, inArray, or } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import { itemSchemas } from "../_shared/fields";
@@ -8,52 +9,55 @@ import { repeatableItems } from "../repeatable-items/schema";
 import { artifactSources } from "./schema";
 import { artifactSourcesOf, declaredArtifactSources, defaultArtifactSources } from "./store";
 
-// A one-off migration (#640): it stores every artifact source content held before the store
-// existed, in Live and in every draft, and the default sources reads fill in, so every artifact
-// URL a website names has a document. Storing a source again does nothing, so it can run again.
-// It reads and writes through Drizzle only, so it runs against the Worker's D1 binding in tests,
-// and against production's D1 through its HTTP API (`scripts/backfill-artifact-sources.ts`).
+// Finds the artifact sources content holds in rows of every scope, Live and every draft, read
+// through their definitions' schemas: for the one-off migration (#640), which stores every source
+// content held before the store existed, and for definition syncs, whose schema changes can turn
+// what content holds into artifact sources. It reads through Drizzle only, so the migration runs
+// against the Worker's D1 binding in tests, and against production's D1 through its HTTP API
+// (`scripts/backfill-artifact-sources.ts`).
 
 /** A database whose queries are awaited: D1, or a proxy to it. */
 type AsyncDatabase = BaseSQLiteDatabase<"async", unknown, Record<string, unknown>>;
 
-const definitionKey = (projectId: number | null, type: string | null) => `${projectId}:${type}`;
+type ItemRow = typeof repeatableItems.$inferSelect;
 
-/** Stores every artifact source the database's content holds. Returns how many it found. */
-export async function backfillArtifactSources(db: AsyncDatabase) {
-  const found = new Map<number, Set<string>>();
-  const add = (projectId: number, sources: Iterable<string>) => {
-    const into = found.get(projectId) ?? new Set();
-    for (const source of sources) into.add(source);
-    found.set(projectId, into);
-  };
+/** Content rows, in any scope: blocks, shared contents, and the items under them. */
+type ContentRows = {
+  blocks: (typeof blocks.$inferSelect)[];
+  sharedContents: (typeof sharedContents.$inferSelect)[];
+  items: ItemRow[];
+};
 
-  // Every schema a definition had, in Live and in any draft: content is read through each.
-  const schemas = new Map<string, unknown[]>();
-  for (const definition of await db.select().from(blockDefinitions)) {
-    const key = definitionKey(definition.projectId, definition.blockId);
-    schemas.set(key, [...(schemas.get(key) ?? []), definition.contentSchema]);
-    add(definition.projectId, defaultArtifactSources(definition.contentSchema));
-    add(
-      definition.projectId,
-      declaredArtifactSources(definition.contentSchema, definition.defaultContent),
-    );
-  }
-  const schemasOf = (key: string) => schemas.get(key) ?? [];
+/** Artifact sources, by project. */
+type SourcesByProject = Map<number, Set<string>>;
 
-  const blockRows = await db.select().from(blocks);
-  const typeOfBlock = new Map(
-    blockRows.map((row) => [row.id, { projectId: row.projectId, type: row.type }]),
-  );
-  for (const row of [...blockRows, ...(await db.select().from(sharedContents))]) {
-    for (const schema of schemasOf(definitionKey(row.projectId, row.type))) {
-      add(row.projectId, artifactSourcesOf(schema, row.content).values());
+const add = (found: SourcesByProject, projectId: number, sources: Iterable<string>) => {
+  const into = found.get(projectId) ?? new Set();
+  for (const source of sources) into.add(source);
+  found.set(projectId, into);
+};
+
+/**
+ * The artifact sources `rows` hold, each read through every content schema `schemasOf` gives its
+ * definition. Items are read through their tree's root, skipping those whose root isn't in `rows`.
+ */
+function sourcesOfRows(
+  rows: ContentRows,
+  schemasOf: (projectId: number, type: string) => readonly unknown[],
+  found: SourcesByProject = new Map(),
+) {
+  for (const row of [...rows.blocks, ...rows.sharedContents]) {
+    for (const schema of schemasOf(row.projectId, row.type)) {
+      add(found, row.projectId, artifactSourcesOf(schema, row.content).values());
     }
   }
 
   // Items by the root of their tree, whose definition's schemas find each item's own.
+  const typeOfBlock = new Map(
+    rows.blocks.map((row) => [row.id, { projectId: row.projectId, type: row.type }]),
+  );
   const trees = new Map<string, { projectId: number; type: string; items: ItemRow[] }>();
-  for (const item of await db.select().from(repeatableItems)) {
+  for (const item of rows.items) {
     const root =
       item.sharedContentType !== null && item.projectId !== null
         ? { projectId: item.projectId, type: item.sharedContentType }
@@ -66,13 +70,92 @@ export async function backfillArtifactSources(db: AsyncDatabase) {
     trees.set(treeKey, tree);
   }
   for (const tree of trees.values()) {
-    for (const schema of schemasOf(definitionKey(tree.projectId, tree.type))) {
+    for (const schema of schemasOf(tree.projectId, tree.type)) {
       const ofItem = itemSchemas(schema, tree.items);
       for (const item of tree.items) {
-        add(tree.projectId, artifactSourcesOf(ofItem.get(item.id)?.content, item.content).values());
+        add(
+          found,
+          tree.projectId,
+          artifactSourcesOf(ofItem.get(item.id)?.content, item.content).values(),
+        );
       }
     }
   }
+  return found;
+}
+
+// D1 binds at most 100 parameters per statement.
+const TYPES_PER_QUERY = 50;
+
+/**
+ * The artifact sources a project's content of the given definitions holds, in Live and in every
+ * draft, read through each definition's content schema in `schemas`, by type.
+ */
+export async function contentArtifactSources(
+  db: AsyncDatabase,
+  projectId: number,
+  schemas: ReadonlyMap<string, unknown>,
+): Promise<Set<string>> {
+  const found: SourcesByProject = new Map();
+  const types = [...schemas.keys()];
+  for (let start = 0; start < types.length; start += TYPES_PER_QUERY) {
+    const chunk = types.slice(start, start + TYPES_PER_QUERY);
+    const ofTypes = <T extends typeof blocks | typeof sharedContents>(table: T) =>
+      and(eq(table.projectId, projectId), inArray(table.type, chunk));
+    const blockRows = await db.select().from(blocks).where(ofTypes(blocks));
+    const sharedRows = await db.select().from(sharedContents).where(ofTypes(sharedContents));
+    const items = await db
+      .select()
+      .from(repeatableItems)
+      .where(
+        or(
+          inArray(
+            repeatableItems.blockId,
+            db.select({ id: blocks.id }).from(blocks).where(ofTypes(blocks)),
+          ),
+          and(
+            eq(repeatableItems.projectId, projectId),
+            inArray(repeatableItems.sharedContentType, chunk),
+          ),
+        ),
+      );
+    sourcesOfRows(
+      { blocks: blockRows, sharedContents: sharedRows, items },
+      (_, type) => (schemas.has(type) ? [schemas.get(type)] : []),
+      found,
+    );
+  }
+  return found.get(projectId) ?? new Set();
+}
+
+const definitionKey = (projectId: number | null, type: string | null) => `${projectId}:${type}`;
+
+/** Stores every artifact source the database's content holds. Returns how many it found. */
+export async function backfillArtifactSources(db: AsyncDatabase) {
+  const found: SourcesByProject = new Map();
+
+  // Every schema a definition had, in Live and in any draft: content is read through each.
+  const schemas = new Map<string, unknown[]>();
+  for (const definition of await db.select().from(blockDefinitions)) {
+    const key = definitionKey(definition.projectId, definition.blockId);
+    schemas.set(key, [...(schemas.get(key) ?? []), definition.contentSchema]);
+    add(found, definition.projectId, defaultArtifactSources(definition.contentSchema));
+    add(
+      found,
+      definition.projectId,
+      declaredArtifactSources(definition.contentSchema, definition.defaultContent),
+    );
+  }
+
+  sourcesOfRows(
+    {
+      blocks: await db.select().from(blocks),
+      sharedContents: await db.select().from(sharedContents),
+      items: await db.select().from(repeatableItems),
+    },
+    (projectId, type) => schemas.get(definitionKey(projectId, type)) ?? [],
+    found,
+  );
 
   let count = 0;
   const createdAt = Date.now();
@@ -88,5 +171,3 @@ export async function backfillArtifactSources(db: AsyncDatabase) {
   }
   return count;
 }
-
-type ItemRow = typeof repeatableItems.$inferSelect;

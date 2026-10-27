@@ -80,6 +80,15 @@ export function defaultArtifactSources(schema: unknown): Set<string> {
   return sources;
 }
 
+/** Whether `schema`, or any of its repeaters' item schemas at any depth, has an artifact field. */
+export function hasArtifactFields(schema: unknown): boolean {
+  let found = false;
+  eachNested(schema, undefined, (schema) => {
+    found ||= fieldsOf(schema).some((field) => field.kind === "Artifact");
+  });
+  return found;
+}
+
 /**
  * The hash of each artifact source a block's or an item's own content holds, by field name, as
  * reads return them alongside the content. Hashes what the content holds, including schema

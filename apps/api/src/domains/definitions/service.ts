@@ -5,9 +5,11 @@ import { z } from "zod";
 import { assertSyncAccess, recordDefinitionsSynced, type SyncTarget } from "../../authorization";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
+import { contentArtifactSources } from "../artifact-sources/backfill";
 import {
   declaredArtifactSources,
   defaultArtifactSources,
+  hasArtifactFields,
   storingSources,
 } from "../artifact-sources/store";
 import {
@@ -176,9 +178,19 @@ const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function*
       )
     : null;
 
+  // Content stored under a definition whose schema changes may now hold artifact sources.
+  const reshaped = new Map(
+    [...blocks.reshaped].filter(([, contentSchema]) => hasArtifactFields(contentSchema)),
+  );
+  const heldSources = yield* Effect.promise(() =>
+    contentArtifactSources(ctx.db, target.project.id, reshaped),
+  );
   plan.add(
     overlay.plannedStatements(
-      ...(yield* storingSources(ctx.db, target.project.id, declaredSources(set))),
+      ...(yield* storingSources(ctx.db, target.project.id, [
+        ...declaredSources(set),
+        ...heldSources,
+      ])),
     ),
   );
   if (alongside) plan.add(alongside);
