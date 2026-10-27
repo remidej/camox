@@ -9,6 +9,7 @@ import { cn } from "../../../lib/utils";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { timeAgo } from "../draftLabel";
 import { moreSentence, reportSentence, shortTimeAgo } from "../reportSentence";
+import { workingSentence } from "../workingSentence";
 import { Squareling } from "./Squareling";
 
 /**
@@ -99,6 +100,33 @@ export function PatrolRoster({
   );
 }
 
+/**
+ * A thin, low-contrast arc travelling around a working patroller's avatar circle, or the whole
+ * circle pulsing slowly under reduced motion. The motion lives in `studio.css`.
+ */
+function WorkingArc() {
+  return (
+    <svg
+      data-working-indicator
+      aria-hidden
+      viewBox="0 0 32 32"
+      className="patrol-working text-foreground/30 pointer-events-none absolute inset-0 size-full"
+    >
+      <circle
+        cx="16"
+        cy="16"
+        r="15.25"
+        pathLength="100"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        className="patrol-working-arc"
+      />
+    </svg>
+  );
+}
+
 function PatrollerRow({
   patroller,
   now,
@@ -113,7 +141,9 @@ function PatrollerRow({
   onToggle: () => void;
 }) {
   const reportsId = React.useId();
-  const subtitle = patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now);
+  const working = patroller.working && workingSentence(patroller.id, patroller.working);
+  const subtitle =
+    working ?? (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
   return (
     <li data-patroller={patroller.id} className="flex flex-col">
       <button
@@ -123,16 +153,26 @@ function PatrollerRow({
         onClick={onToggle}
         className="hover:bg-muted/60 focus-visible:ring-ring/50 flex items-center gap-2.5 px-3 py-1.5 text-left outline-none focus-visible:ring-[3px]"
       >
-        <span className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-full">
+        <span className="bg-muted relative flex size-8 shrink-0 items-center justify-center rounded-full">
           <Squareling status="idle" className="size-5" />
+          {working && <WorkingArc />}
         </span>
         <span className="flex min-w-0 flex-col">
           <span data-patroller-role className="truncate text-sm font-medium">
             {patroller.role}
           </span>
-          <span data-patroller-subtitle className="text-muted-foreground truncate text-xs">
+          <span
+            data-patroller-subtitle
+            aria-hidden={working ? true : undefined}
+            className="text-muted-foreground truncate text-xs"
+          >
             {subtitle}
           </span>
+          {working && (
+            <span data-working-status className="sr-only">
+              Working: {working.charAt(0).toLowerCase() + working.slice(1)}
+            </span>
+          )}
         </span>
       </button>
       {expanded && (

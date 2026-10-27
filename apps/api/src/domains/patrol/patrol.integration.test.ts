@@ -17,9 +17,10 @@ import {
   openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
-import { answerNext } from "../../../test/generation";
+import { answerEvery, answerNext, forgetScheduled, scheduled } from "../../../test/generation";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
-import type { GenerationJob } from "../../lib/ai-job-queue";
+import { type GenerationJob, isTranslationJob } from "../../lib/ai-job-queue";
+import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -379,5 +380,267 @@ describe("a burst", () => {
       { locale: "de", count: 2 },
       { locale: "en", count: 1 },
     ]);
+  });
+});
+
+// A patroller is working from the moment an edit requests its work until the work settles, as
+// its own pending records say (ADR 0024).
+describe("a patroller at work", () => {
+  type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+  /** The model translates by keeping every text as it is. */
+  const translateAsIs = () =>
+    answerEvery("translate", ({ texts }) =>
+      Object.fromEntries(texts.map(({ key, text }) => [key, text])),
+    );
+  /** The translation jobs scheduled so far, each key once. */
+  const translationJobs = () => {
+    const jobs = scheduled().filter(isTranslationJob);
+    return [...new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job])).values()];
+  };
+  /** Runs every translation job scheduled so far, as their alarms would, and forgets them. */
+  const runTranslations = async (f: Fixture) => {
+    const jobs = translationJobs();
+    forgetScheduled(...jobs.map((job) => job.entityId));
+    for (const job of jobs) await runService(runAiJob(f.db, job));
+  };
+  const translator = async (f: Fixture, headers?: Headers) =>
+    (await f.patrol(headers)).find((patroller) => patroller.id === "translator")!;
+  /** `f` with German added in its draft and translated. */
+  const withGerman = async (f: Fixture) => {
+    translateAsIs();
+    await call(router.locales.add, { projectId: f.projectId, tag: "de" }, f.member(f.inDraft));
+    await runTranslations(f);
+  };
+  const publishAnyway = async (f: Fixture, headers: Headers) => {
+    const { token } = await call(
+      router.drafts.previewPublish,
+      { projectId: f.projectId },
+      f.member(headers),
+    );
+    await call(
+      router.drafts.publish,
+      { projectId: f.projectId, token, publishAnyway: true },
+      f.member(headers),
+    );
+  };
+  /** `f` with German on Live, and the page renamed in a draft published before its translation. */
+  const catchingUp = async (f: Fixture, before?: () => void) => {
+    await withGerman(f);
+    await publishAnyway(f, f.inDraft);
+    const next = generateUuidv7();
+    await call(
+      router.pages.update,
+      { id: f.page.id, nickname: "Plans" },
+      f.member({ [DRAFT_HEADER]: next, [DRAFT_CREATE_HEADER]: "1" }),
+    );
+    before?.();
+    await publishAnyway(f, { [DRAFT_HEADER]: next });
+  };
+  const patrolKey = (f: Fixture) => [...queryKeys.patrol.get, f.projectId];
+
+  it("shows the SEO manager working on a page from when an edit requests its SEO, and moves it first", async () => {
+    const f = await fixture();
+    const before = Date.now();
+
+    await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
+
+    const [first] = await f.patrol();
+    expect(first!.id).toBe("seoManager");
+    expect(first!.working).toEqual({
+      count: 1,
+      subject: { entity: "page", id: f.page.id, name: "Pricing" },
+      locale: "en",
+    });
+    expect(first!.lastActivityAt).toBeGreaterThanOrEqual(before);
+    expect(first!.reports).toEqual([]);
+  });
+
+  it("shows the SEO manager idle again once its job settled, done or failed", async () => {
+    const f = await fixture();
+    await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
+    await f.writeSeo(f.page.id);
+    expect((await f.seoManager()).working).toBeNull();
+
+    await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
+    await f.writeSeo(f.page.id, { answer: new AiCallError({ cause: "OpenRouter 503" }) });
+    expect((await f.seoManager()).working).toBeNull();
+  });
+
+  it("shows the SEO manager's work in the draft it was requested in only", async () => {
+    const f = await fixture();
+    // Live's own SEO, written.
+    await f.writeSeo(f.page.id, { draftId: null });
+    expect((await f.seoManager({})).working).toBeNull();
+
+    await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
+
+    expect((await f.seoManager({})).working).toBeNull();
+  });
+
+  it("counts a burst of translations into a locale, before the Translator reported anything", async () => {
+    const f = await fixture();
+    translateAsIs();
+    await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
+      f.member(f.inDraft),
+    );
+
+    await call(router.locales.add, { projectId: f.projectId, tag: "de" }, f.member(f.inDraft));
+
+    const patroller = await translator(f);
+    const subjects = new Set(translationJobs().map((job) => `${job.entity}:${job.entityId}`));
+    expect(subjects.size).toBeGreaterThan(1);
+    expect(patroller.working).toEqual({ count: subjects.size, subject: null, locale: "de" });
+    expect(patroller.reports).toEqual([]);
+    expect(patroller.lastActivityAt).not.toBeNull();
+
+    await runTranslations(f);
+    expect((await translator(f)).working).toBeNull();
+  });
+
+  it("names the one subject the Translator is on, and the locale it translates into", async () => {
+    const f = await fixture();
+    await withGerman(f);
+
+    await call(router.pages.update, { id: f.page.id, nickname: "Plans" }, f.member(f.inDraft));
+
+    expect((await translator(f)).working).toEqual({
+      count: 1,
+      subject: { entity: "page", id: f.page.id, name: "Plans" },
+      locale: "de",
+    });
+  });
+
+  it("moves a patroller that starts working ahead of one that reported since its last work", async () => {
+    const f = await fixture();
+    await withGerman(f);
+    const block = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
+      f.member(f.inDraft),
+    );
+    await runTranslations(f);
+    // Everything the SEO manager has to do, done.
+    answerEvery("pageSeo", () => seo);
+    answerEvery("summarize", () => "Plans hero");
+    answerEvery("imageMetadata", () => ({ alt: "The team", filename: "team.png" }));
+    for (const job of scheduled().filter((job) => !isTranslationJob(job))) {
+      await runService(runAiJob(f.db, job));
+    }
+    await f.writeSeo(f.page.id);
+    expect((await f.patrol()).map(({ id, working }) => ({ id, working }))).toEqual([
+      { id: "seoManager", working: null },
+      { id: "translator", working: null },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await call(
+      router.blocks.updateContent,
+      { id: block.id, content: { title: "Our plans" } },
+      f.member(f.inDraft),
+    );
+
+    const [first, second] = await f.patrol();
+    expect(first!.id).toBe("translator");
+    expect(first!.working).toMatchObject({ count: 1, locale: "de" });
+    expect(first!.lastActivityAt).toBeGreaterThan(second!.lastActivityAt!);
+  });
+
+  it("shows the Translator working on Live while the catch-up draft translates", async () => {
+    const f = await fixture();
+
+    await catchingUp(f);
+
+    expect((await translator(f, {})).working).toEqual({
+      count: 1,
+      subject: { entity: "page", id: f.page.id, name: "Plans" },
+      locale: "de",
+    });
+    await runTranslations(f);
+    expect((await translator(f, {})).working).toBeNull();
+  });
+
+  it("refreshes the Patrol of the draft whose SEO is requested", async () => {
+    const f = await fixture();
+    forgetSent(f.projectId);
+
+    await call(router.pages.setSeo, { id: f.page.id, aiSeo: true }, f.member(f.inDraft));
+
+    expect(refreshes(sentTo(f.projectId), f.draft, patrolKey(f))).toBe(true);
+  });
+
+  it("refreshes the Patrol of the draft whose translations are requested", async () => {
+    const f = await fixture();
+    await withGerman(f);
+    const block = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
+      f.member(f.inDraft),
+    );
+    await runTranslations(f);
+    forgetSent(f.projectId);
+
+    await call(
+      router.blocks.updateContent,
+      { id: block.id, content: { title: "Our plans" } },
+      f.member(f.inDraft),
+    );
+
+    expect(refreshes(sentTo(f.projectId), f.draft, patrolKey(f))).toBe(true);
+  });
+
+  it("leaves the Patrol alone when only a summary is requested", async () => {
+    const f = await fixture();
+    const block = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
+      f.member(f.inDraft),
+    );
+    forgetSent(f.projectId);
+
+    await call(
+      router.blocks.updateContent,
+      { id: block.id, content: { title: "Our plans" } },
+      f.member(f.inDraft),
+    );
+
+    expect(refreshes(sentTo(f.projectId), f.draft, patrolKey(f))).toBe(false);
+  });
+
+  it("refreshes Live's Patrol when one of the catch-up draft's translations settles", async () => {
+    const f = await fixture();
+    await withGerman(f);
+    const block = await call(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
+      f.member(f.inDraft),
+    );
+    await runTranslations(f);
+    await publishAnyway(f, f.inDraft);
+    // A draft publishing anyway leaves the block and the page to translate in the catch-up draft.
+    const next = generateUuidv7();
+    await call(
+      router.blocks.updateContent,
+      { id: block.id, content: { title: "Our plans" } },
+      f.member({ [DRAFT_HEADER]: next, [DRAFT_CREATE_HEADER]: "1" }),
+    );
+    await call(
+      router.pages.update,
+      { id: f.page.id, nickname: "Plans" },
+      f.member({ [DRAFT_HEADER]: next }),
+    );
+    await publishAnyway(f, { [DRAFT_HEADER]: next });
+    expect((await translator(f, {})).working).toMatchObject({ count: 2 });
+    forgetSent(f.projectId);
+
+    // The catch-up draft's job: the published draft's ended with it.
+    const job = translationJobs().find((job) => job.entityId === block.id && job.draftId !== next)!;
+    forgetScheduled(block.id);
+    await runService(runAiJob(f.db, job));
+
+    expect((await translator(f, {})).working).toMatchObject({ count: 1 });
+    expect(refreshes(sentTo(f.projectId), null, patrolKey(f))).toBe(true);
   });
 });

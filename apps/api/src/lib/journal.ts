@@ -3,6 +3,7 @@ import { Context, Effect } from "effect";
 
 import type { Database } from "../db";
 import type { EntityKind } from "../domains/drafts/overlay";
+import type { GeneratedType } from "../domains/generated-values/schema";
 
 // The journal of a unit of work: one request, upload, or AI job. Every write says what it
 // changed by recording it here; nothing else decides what realtime messages a write sends. The
@@ -45,7 +46,14 @@ export type Change =
   /** A draft's pending translations, which its locales show as translating (ADR 0015). */
   | { kind: "translations"; projectId: number; draftId: string }
   /** A generated value of an entity (ADR 0012): it shows with the entity, but never changes a draft. */
-  | { kind: "generated"; entity: EntityKind; id: string; projectId: number; draftId: string | null }
+  | {
+      kind: "generated";
+      entity: EntityKind;
+      id: string;
+      type: GeneratedType;
+      projectId: number;
+      draftId: string | null;
+    }
   /**
    * A patroller's report, in a draft or on Live (`draftId` null), where the catch-up draft's are
    * Live's: it shows in the Patrol only (ADR 0024).

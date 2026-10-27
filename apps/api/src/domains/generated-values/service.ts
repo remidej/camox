@@ -177,6 +177,7 @@ const recordValue = (db: Database, home: ValueHome, key: ValueKey) =>
     kind: "generated",
     entity: key.entity,
     id: key.entityId,
+    type: key.type,
     projectId: home.projectId,
     draftId: home.draftId,
   });
