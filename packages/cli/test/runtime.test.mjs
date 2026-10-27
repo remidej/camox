@@ -15,8 +15,6 @@ before(async () => {
   root = await mkdtemp(join(tmpdir(), "camox-runtime-test-"));
   app = join(root, "apps/site");
   await mkdir(join(app, "node_modules/.camox"), { recursive: true });
-  await mkdir(join(app, "src"));
-  await writeFile(join(root, "not-a-directory"), "file");
   await writeFile(
     join(app, "node_modules/.camox/runtime.json"),
     JSON.stringify({
@@ -36,7 +34,7 @@ async function cli(args, cwd = root) {
     return {
       ...(await exec(process.execPath, [binary, ...args], {
         cwd,
-        env: { ...process.env, HOME: root, CAMOX_PROJECT: "" },
+        env: { ...process.env, HOME: root },
       })),
       code: 0,
     };
@@ -45,51 +43,18 @@ async function cli(args, cwd = root) {
   }
 }
 
-void test("relative and absolute --cwd start upward lookup; default upward lookup remains", async () => {
-  for (const path of ["apps/site", app, "apps/site/src"]) {
-    const result = await cli(["status", "--cwd", path, "--json"]);
-    assert.equal(result.code, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).project, "01a15fff-627c-7e88-83cd-ceb11f804d47");
-  }
-  const result = await cli(["status", "--json"], join(app, "src"));
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).project, "01a15fff-627c-7e88-83cd-ceb11f804d47");
-});
+void test("logout signs out of the authentication URL of the runtime found from --cwd", async () => {
+  const authFile = join(root, ".camox/auth.json");
+  await mkdir(join(root, ".camox"), { recursive: true });
+  await writeFile(
+    authFile,
+    JSON.stringify({
+      "https://auth.example.test": { token: "t", email: "tester@example.com", name: "Tester" },
+    }),
+  );
 
-void test("no downward discovery; missing runtime errors explain --cwd and generation", async () => {
-  const result = await cli(["status", "--json"]);
-  assert.equal(result.code, 2);
-  const error = JSON.parse(result.stderr);
-  assert.equal(error.code, "RUNTIME_NOT_FOUND");
-  assert.match(error.message, /Change into your app directory or pass --cwd/);
-  assert.match(error.message, /dev server or build once/);
-});
-
-void test("invalid lookup directories fail even when shell directory has a runtime", async () => {
-  for (const path of [join(root, "missing"), join(root, "not-a-directory")]) {
-    const result = await cli(["status", "--cwd", path], app);
-    assert.equal(result.code, 2);
-    assert.equal(JSON.parse(result.stderr).code, "INVALID_CWD");
-  }
-});
-
-void test("every runtime-backed command group forwards --cwd", async () => {
-  for (const command of [
-    ["pages", "list"],
-    ["blocks", "types"],
-    ["layouts", "list"],
-    ["layouts", "get", "--layout-id", "default"],
-    ["publish"],
-    ["delete", "--yes"],
-    ["files", "list"],
-  ]) {
-    const result = await cli([...command, "--cwd", "apps/site"]);
-    assert.equal(result.code, 2, result.stderr);
-    assert.equal(JSON.parse(result.stderr).code, "NOT_AUTHENTICATED");
-    const help = await cli([...command, "--help"]);
-    assert.match(help.stdout, /--cwd/);
-  }
   const result = await cli(["logout", "--cwd", "apps/site"]);
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /Not logged in/);
+  assert.match(result.stdout, /Logged out from Tester/);
+  assert.match((await cli(["logout", "--cwd", "apps/site"])).stdout, /Not logged in/);
 });

@@ -49,8 +49,8 @@ export async function copyTemplate(repo: ArtifactsRepo, project: NewProject) {
 }
 
 /**
- * One of the Template's files, given the project's values: what the CLI's `camox init` did to its
- * copy (`personalize()` and the `{{projectName}}` placeholders, packages/cli/src/lib/template.ts).
+ * One of the Template's files, given the project's values: its slug as the package's name, its
+ * Project ID, and its name in the `{{projectName}}` placeholders.
  */
 export function personalize(filepath: string, source: string, project: NewProject) {
   if (filepath === "package.json") {
@@ -62,10 +62,7 @@ export function personalize(filepath: string, source: string, project: NewProjec
   return replaceProjectId(source, project.projectId).replaceAll("{{projectName}}", quotedName);
 }
 
-/**
- * Replaces the Template's placeholder Project ID, marked by a comment this drops. Mirrors
- * `replaceProjectId()` in packages/cli/src/lib/template.ts, which the API can't import.
- */
+/** Replaces the Template's placeholder Project ID, marked by a comment this drops. */
 function replaceProjectId(source: string, projectId: string) {
   return source.replace(
     /"[^"]*"(,?)[ \t]*\/\/[ \t]*camox-cli:replace-project-id.*$/gm,

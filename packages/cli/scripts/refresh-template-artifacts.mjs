@@ -100,7 +100,7 @@ async function main() {
       copy,
       readWorkspaceCatalog(REPO_ROOT),
     );
-    makeStandalone(copy, { camoxVersion, packageManager: "pnpm" });
+    makeStandalone(copy, { camoxVersion });
     renameSync(path.join(clone, ".git"), path.join(copy, ".git"));
     // Starting from the previous lockfile keeps every dependency that didn't change where it was.
     const previousLockfile = path.join(clone, "pnpm-lock.yaml");
