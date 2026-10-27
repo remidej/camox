@@ -11,7 +11,7 @@
     "dev": "node scripts/dev.mjs",
     "deploy": "pnpm run db:migrate:remote && pnpm run deploy:sandbox && pnpm run deploy:release-sandbox && wrangler deploy --minify",
     "deploy:sandbox": "wrangler deploy --config sandbox/wrangler.jsonc --minify",
-    "deploy:release-sandbox": "wrangler deploy --config release-sandbox/wrangler.jsonc --minify",
+    "deploy:release-sandbox": "node release-sandbox/fetch-template.mjs && wrangler deploy --config release-sandbox/wrangler.jsonc --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",

@@ -19,7 +19,7 @@ import type { BuildError } from "./result";
 //
 // or, for an error at a place in a file, that place after the plugin, and its code frame:
 //
-//   [plugin camox] /workspace/website/src/blocks/faq.tsx:5:6
+//   [plugin camox] /opt/camox/website/src/blocks/faq.tsx:5:6
 //   RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is named …
 //   5:   id: "questions",
 //            ^

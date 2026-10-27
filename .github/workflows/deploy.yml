@@ -152,7 +152,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # Deploys the code mode and release sandbox Workers first, as the API binds their Durable
-      # Objects. Building the release sandbox's Container image needs Docker, which the runner has.
+      # Objects. Building the release sandbox's Container image needs Docker, which the runner has,
+      # and installs the Template of `template-default`, which the token's Artifacts access reads.
       - name: Migrate database and deploy API
         run: pnpm --filter @camox/api deploy
         env:
@@ -302,6 +303,36 @@ jobs:
 
       - name: Refresh template-default
         run: node packages/cli/scripts/refresh-template-artifacts.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # Deploys the release sandbox again, so its image installs the Template just refreshed: a new
+  # revision sandbox then skips `pnpm install` for projects on it, as the Upgrades below move
+  # them there (apps/api/release-sandbox/Dockerfile). The deploy job's image holds the Template it
+  # found then, a version behind.
+  refresh-sandbox-install:
+    needs: refresh-template
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Deploy the release sandbox
+        run: pnpm --filter @camox/api run deploy:release-sandbox
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

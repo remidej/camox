@@ -54,7 +54,7 @@ Each secret reaches only the step that needs it:
 ## Where it runs
 
 - **The Workflow** runs in the API Worker, beside the database it records releases in.
-- **The sandboxes** are the `CiSandbox` Durable Object of the `camox-release-sandbox` Worker (`release-sandbox/`), which the API binds by script name, like the code mode sandbox. Only that Worker carries the Container image: `cloudflare/sandbox` with pnpm.
+- **The sandboxes** are the `CiSandbox` Durable Object of the `camox-release-sandbox` Worker (`release-sandbox/`), which the API binds by script name, like the code mode sandbox. Only that Worker carries the Container image: `cloudflare/sandbox` with pnpm, tsrs, and the Template's install for revision builds, outside `/workspace` (its `Dockerfile`).
 - **The `camox-release-cache` R2 bucket** keeps each step's workspace snapshot, which the next step restores and which caches installs.
 
 The container size is `standard-2` (1 vCPU, 6 GiB). It hasn't been measured yet: one release of the Template, cold and warm, should pick between it and `standard-4` (#447).
