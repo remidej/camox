@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.56.0](https://github.com/remidej/camox/compare/camox-v0.55.0...@camox/api-contract-v0.56.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* the API's `drafts.discard` procedure is now `drafts.delete`, an ended draft's outcome is `deleted` instead of `discarded`, and the CLI's `discard` command is now `delete`. A migration rewrites stored outcomes.
+
+### Refactoring
+
+* delete drafts instead of discarding them ([#615](https://github.com/remidej/camox/issues/615)) ([bc5ccce](https://github.com/remidej/camox/commit/bc5ccce7a2a61389cbd8d834ec1cf7aeea60663f))
+
 ## [0.55.0](https://github.com/remidej/camox/compare/camox-v0.54.0...@camox/api-contract-v0.55.0) (2026-10-26)
 
 
