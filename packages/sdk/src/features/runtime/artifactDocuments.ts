@@ -27,11 +27,6 @@ export function readArtifactShell(options: RuntimeOptions): Promise<ArtifactShel
   return shell;
 }
 
-/** Whether a path inside the runtime (base path removed) names an artifact's document. */
-export function isArtifactPath(pathname: string) {
-  return pathname.startsWith(ARTIFACTS_PATH_PREFIX);
-}
-
 const YEAR = 365 * 24 * 60 * 60;
 
 /**

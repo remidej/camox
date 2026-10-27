@@ -39,6 +39,16 @@ void test("the Worker answers /llms.txt, with or without a base path, but no oth
     assert.equal(shouldHandleRequest(request(path), ""), false, path);
 });
 
+void test("the Worker answers artifact documents whatever they accept, under its base path", () => {
+  const path = "/_camox/artifacts/shell/source";
+  assert.equal(shouldHandleRequest(request(path, { accept: "image/webp" }), ""), true);
+  assert.equal(
+    shouldHandleRequest(request(`/site${path}`, { accept: "image/webp" }), "/site"),
+    true,
+  );
+  assert.equal(shouldHandleRequest(request(path), "/site"), false);
+});
+
 void test("dev HTML lands inside the page's head and body", async () => {
   const page = new Response(
     '<html><head lang="en"><title>A</title></head><body><p>B</p></body></html>',
