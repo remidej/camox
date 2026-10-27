@@ -1,8 +1,9 @@
 import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
 
 import { MemoryFs } from "../../lib/memory-fs";
+import { camoxVersionInLockfile } from "../releases/lockfile";
 import { codeEnv } from "./env";
-import { SKILL_REFERENCES, SKILL_REFERENCES_DIR } from "./skills";
+import { type SkillFiles, SKILLS_ROOT, skillsAt } from "./skills";
 
 /** A file of a project's code: its content, or where a symlink points. */
 export type CodeFile = { path: string; content: Uint8Array } | { path: string; symlink: string };
@@ -32,24 +33,51 @@ export async function writeFiles(fs: MemoryFs, files: CodeFile[]) {
 
 /**
  * The tree the agent reads on Live, and in a draft without code: `main` as `copy` holds it, with
- * the SDK's code references mounted under `SKILL_REFERENCES_DIR`. Nothing in it can be written.
+ * the skills of its `camox` version mounted from `skills` (`mountSkills`). Nothing in it can be
+ * written.
  */
-export async function mainCopyFs(copy: MainCopy) {
+export async function mainCopyFs(copy: MainCopy, skills: R2Bucket) {
   const fs = new MemoryFs();
   await writeFiles(fs, copy.files);
-  await mountSkills(fs);
+  await mountSkills(fs, skills);
   return fs;
 }
 
-/** Where the SDK's code references are, which no write line lets the agent change. */
-export const SKILLS_ROOT = SKILL_REFERENCES_DIR.split("/").slice(0, 2).join("/");
+/** The `camox` version the lockfile in `fs` installs, or null if it installs none. */
+export async function lockedCamoxVersion(fs: MemoryFs) {
+  const lockfile = await fs.promises.readFile("/pnpm-lock.yaml", "utf8").catch(() => null);
+  return typeof lockfile === "string" ? camoxVersionInLockfile(lockfile) : null;
+}
 
-/** Writes the SDK's code references into `fs`, under `SKILL_REFERENCES_DIR`. */
-export async function mountSkills(fs: MemoryFs) {
-  await createDirs(fs, SKILL_REFERENCES_DIR);
-  for (const { file, text } of SKILL_REFERENCES) {
-    await fs.promises.writeFile(`${SKILL_REFERENCES_DIR}/${file}`, text);
+/**
+ * Mounts under `SKILLS_ROOT` the skills of the `camox` version the lockfile in `fs` installs, from
+ * `skills`, in place of any mounted before. Returns the version mounted, which is the lockfile's
+ * even when `skills` has none for it, or undefined when they couldn't be read, to try again.
+ */
+export async function mountSkills(fs: MemoryFs, skills: R2Bucket) {
+  const version = await lockedCamoxVersion(fs);
+  const mounted = fs
+    .entries()
+    .filter(({ path }) => path === SKILLS_ROOT || path.startsWith(`${SKILLS_ROOT}/`))
+    .sort((a, b) => b.path.length - a.path.length);
+  for (const { path, kind } of mounted) {
+    await (kind === "dir" ? fs.promises.rmdir(path) : fs.promises.unlink(path));
   }
+  if (!version) return version;
+  let files: SkillFiles | null;
+  try {
+    files = await skillsAt(skills, version);
+  } catch (error) {
+    console.error(`Camox couldn't read the skills of camox ${version}`, error);
+    return undefined;
+  }
+  if (!files) console.error(`Camox has no skills for camox ${version}`);
+  for (const [path, text] of Object.entries(files ?? {})) {
+    const at = `${SKILLS_ROOT}/${path}`;
+    await createDirs(fs, at.slice(0, at.lastIndexOf("/")));
+    await fs.promises.writeFile(at, text);
+  }
+  return version;
 }
 
 const readOnly = (path: string) =>
@@ -64,8 +92,8 @@ export const mainCopyFsEnv = (fs: MemoryFs, id?: string) =>
   codeEnv(fs, { cwd: CODE_ROOT, id, writable: readOnly });
 
 /** The agent's environment over `copy`, built on first use: see `mainCopyFs`. */
-export function mainCopyEnv(copy: MainCopy): ExecutionEnv {
-  return lazyEnv(async () => mainCopyFsEnv(await mainCopyFs(copy)), {
+export function mainCopyEnv(copy: MainCopy, skills: R2Bucket): ExecutionEnv {
+  return lazyEnv(async () => mainCopyFsEnv(await mainCopyFs(copy, skills)), {
     id: `camox:main:${copy.commit}`,
     cwd: CODE_ROOT,
   });

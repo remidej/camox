@@ -4,8 +4,9 @@ import http from "isomorphic-git/http/web";
 
 import { hasConflictMarkers } from "../domains/code/conflict-markers";
 import { codeEnv } from "../domains/code/env";
-import { CODE_ROOT, mountSkills, SKILLS_ROOT, writeFiles } from "../domains/code/main-copy";
+import { CODE_ROOT, lockedCamoxVersion, mountSkills, writeFiles } from "../domains/code/main-copy";
 import { answerEnvCall, type EnvAnswer, type EnvCall } from "../domains/code/remote-env";
+import { SKILLS_ROOT } from "../domains/code/skills";
 import { writeLine } from "../domains/code/write-line";
 import type { BuildResult } from "../domains/revisions/result";
 import { MemoryFs, type MemoryFsEntry } from "../lib/memory-fs";
@@ -131,14 +132,16 @@ type NodeRow = {
  * The working copy of one draft with code, addressed by the draft's ID (`getByName`): a depth-1
  * clone of the draft's branch, held in memory, which the agent's code tools read and write over
  * RPC, through the write line. Every change is saved to its SQLite as it's made, Git's own
- * directory included, so an eviction restores it without cloning again. The SDK's code
- * references are mounted beside the files and never saved, nor committed.
+ * directory included, so an eviction restores it without cloning again. The skills of its `camox`
+ * version are mounted beside the files and never saved, nor committed.
  *
  * It stores nothing until `start` made it, and nothing once `delete` deleted it.
  */
 export class DraftCode extends DurableObject<Bindings> {
   /** The working copy, once loaded from storage or cloned. */
   #fs: MemoryFs | undefined;
+  /** The `camox` version whose skills the working copy has mounted (`mountSkills`). */
+  #skillsVersion: string | null | undefined;
   /** The working copy's operations, one at a time. */
   readonly #queue = serialQueue();
 
@@ -340,7 +343,7 @@ export class DraftCode extends DurableObject<Bindings> {
         this.ctx.storage.kv.put(FORKED_FROM_KEY, commit);
         this.ctx.storage.kv.put(BRANCH_KEY, branch);
       });
-      await mountSkills(fs);
+      this.#skillsVersion = await mountSkills(fs, this.env.SKILLS);
       fs.takeChanges();
       this.#fs = fs;
       return commit;
@@ -685,9 +688,17 @@ export class DraftCode extends DurableObject<Bindings> {
     return plaintext;
   }
 
-  /** The working copy, restored from storage after an eviction. */
+  /**
+   * The working copy, restored from storage after an eviction, with the skills of the `camox`
+   * version its lockfile installs: a merge or an Upgrade that moved it mounts that version's.
+   */
   async #workingCopy() {
-    if (this.#fs) return this.#fs;
+    if (this.#fs) {
+      if ((await lockedCamoxVersion(this.#fs)) !== this.#skillsVersion) {
+        this.#skillsVersion = await mountSkills(this.#fs, this.env.SKILLS);
+      }
+      return this.#fs;
+    }
     if (this.ctx.storage.kv.get(BRANCH_KEY) === undefined) {
       throw new Error("This draft has no working copy: its first code write makes it");
     }
@@ -718,7 +729,7 @@ export class DraftCode extends DurableObject<Bindings> {
       if (entry?.kind === "file") entry.data = joined(chunks);
     }
     const fs = MemoryFs.from(entries.values());
-    await mountSkills(fs);
+    this.#skillsVersion = await mountSkills(fs, this.env.SKILLS);
     fs.takeChanges();
     this.#fs = fs;
     return fs;

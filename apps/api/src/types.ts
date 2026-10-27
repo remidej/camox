@@ -61,6 +61,8 @@ export type Bindings = {
   PUBLISH_WORKFLOW: Workflow<import("./domains/publishes/workflow").PublishParams>;
   /** Each revision's build, one archive per revision (`revisionArchiveKey`). */
   REVISION_BUILDS: R2Bucket;
+  /** The skills each `camox` version ships, one object per version (`domains/code/skills.ts`). */
+  SKILLS: R2Bucket;
   /** The dispatch Worker, which loads revisions (`domains/revisions/dispatch.ts`). */
   DISPATCH: import("./domains/revisions/dispatch").Dispatch;
   /** Camox's Cloudflare account, which serves every project's Worker. */

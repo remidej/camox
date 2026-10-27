@@ -1,6 +1,6 @@
 ---
 name: camox
-description: Use when working in a Camox codebase with Block Definitions, Layout Definitions, Pages, Block content, the Camox CLI, or publishing. Applies to code-defined site structure and agent-driven content changes.
+description: Use when writing or changing a Camox website's code: Block Definitions, Layout Definitions, singleton pages and derived routes, localized code, field styling, artifacts, or DOM integrations.
 ---
 
 # Camox
@@ -43,15 +43,8 @@ For specialized changes to an existing block, read the specialist reference dire
 
 Use the platform. Build tabs, dialogs, carousels, menus and disclosures from native HTML and CSS (`<details name>`, `<dialog>` with `command`/`commandfor`, `popover`, scroll snap), and reach for JS only where modern HTML can't do the behaviour. Compose the project's own Components in `src/components/ui/` when it has them (Camox's Template ships accordion, tabs, dialog, carousel and mobile menu). Target Baseline Newly available, with a fallback that keeps the content reachable in browsers lacking the feature, and keep every tab, dialog and slide in the page's markup, opened or not, and reachable with the keyboard. Editors edit hidden content by turning the Canvas off, opening it, and turning the Canvas back on.
 
-## Content and CLI
+## Content
 
-For any CLI operation, first read [CLI common guidance](references/cli-common.md), then only the relevant command reference:
-
-- Pages, metadata, layout assignments, Blocks, content, or ordering:
-  [CLI Content](references/cli-content.md).
-- Where the CLI writes, publishing or deleting the development draft, or its status:
-  [CLI Publishing](references/cli-publishing.md).
-
-Code definitions do not place blocks on existing Pages or assign their layouts; `blocks.initial` only seeds the initial homepage. When the request includes placement or assignment on existing Pages, follow with the relevant CLI workflow. Singleton pages and derived routes are declared in code, not created through the pages CLI.
+Code definitions do not place blocks on existing Pages or assign their layouts; `blocks.initial` only seeds the initial homepage. When the request includes placement or assignment on existing Pages, make it as a content change once Camox has discovered the new definition. Singleton pages and derived routes are declared in code, never created as Pages.
 
 A request can cross boundaries. Load an additional reference only once that need is established.

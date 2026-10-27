@@ -44,7 +44,7 @@ Spread the props onto your own `<iframe>`: they carry `srcDoc`, `sandbox="allow-
 
 ## Write a source
 
-Write the source to a local file and push it with `blocks edit --id <ID> --field-file <NAME>=<PATH>` (or `blocks create`), then check it with `camox preview`; see [Set string fields from files](cli-content.md#set-string-fields-from-files). `blocks describe` lists artifact fields with `fieldType: "Artifact"` and their `size`. Artifacts that share Artifact Data also list the sibling names in `data`, and the exact shape of `camox.data` as JSON Schema in `dataSchema`: write the source against it.
+The source is content, not code: set it as the artifact field's value, like any string field, then check the rendered page and iterate. The block type's description lists artifact fields with `fieldType: "Artifact"` and their `size`. Artifacts that share Artifact Data also list the sibling names in `data`, and the exact shape of `camox.data` as JSON Schema in `dataSchema`: write the source against it.
 
 - **Under 256 KB.** Larger writes are rejected. Load libraries from a CDN instead of inlining them.
 - **Import from esm.sh with exact pinned versions**, so the artifact never changes under the website:
@@ -67,7 +67,7 @@ Never implement your own `postMessage` protocol with the page. The website and t
 
 ### `camox.data`
 
-The artifact's Artifact Data: an object with one entry per name in the field's `data`, matching the `dataSchema` that `blocks describe` shows. It's `{}` for artifacts that share no data. It's available from the first render, so the first paint can already show the right labels and values.
+The artifact's Artifact Data: an object with one entry per name in the field's `data`, matching the `dataSchema` that the block type's description shows. It's `{}` for artifacts that share no data. It's available from the first render, so the first paint can already show the right labels and values.
 
 Values are normalized:
 

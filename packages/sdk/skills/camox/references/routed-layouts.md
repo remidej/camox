@@ -54,10 +54,10 @@ function PokedexPage() {
 - Before/after blocks must be `layoutOnly: true`. Put editable headings, introductions, and other bespoke content in these blocks; keep structural application UI in the component. See [Block Definitions](block-definitions.md).
 - For a navbar or footer whose content must stay identical across different layouts, also set `synced: true` in its `createBlock` options. `layoutOnly: true` alone only restricts placement. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional) for sharing behavior.
 - No `children` slot or `blocks.initial`: editors do not compose or create these pages.
-- No curated page record is created. Do not use the pages CLI to create, duplicate, move, or assign a singleton.
+- No curated page record is created. Never create, duplicate, move, or assign a singleton as a Page.
 - Studio lists singletons as directly navigable pages with block editing, without deletion or URL/layout controls. They also appear in link destination pickers (including inline text links), “Go to page” actions, and the runtime sitemap. Derived pages appear in the sitemap only when their layout declares `routes` (see [Route discovery](#route-discovery)).
 - Singleton links are saved as fixed internal URLs, not synthetic database page IDs: link fields use `{ type: "external", href: "/pokedex", text: "Pokédex", newTab: false }` (the existing URL representation), while inline text uses `[Pokédex](/pokedex)`. Renaming a code-owned URL requires updating links or adding a redirect. Curated-page links retain their page-ID references.
-- Curated-only mutation surfaces, such as page-parent selectors and the pages record API/CLI, remain separate from the navigable destination list.
+- Curated-only mutation surfaces, such as page-parent selectors and the Pages record API, remain separate from the navigable destination list.
 - The route renders the current editable blocks.
 - Code deployment controls route existence. Removing the definition and syncing releases its reserved URL. Existing curated URL collisions or layouts still assigned to curated pages must be resolved explicitly before sync can succeed.
 - Curated pages cannot claim singleton URLs or use singleton/derived layouts. Literal singleton routes take precedence over parameterized derived routes.
