@@ -13,7 +13,7 @@ Requests used to say what they read twice: an `x-environment-name` header naming
 - Without the param, a logged-in member sees the same Live as any visitor; the session no longer decides what a page shows.
 - Writes always name a draft. The first edit on Live sends a "create if missing" flag with the studio's new id; without it, writing to a draft that has ended is rejected, so an ended draft never comes back.
 - `x-camox-draft: development` means the caller's development draft. Dev mode and the CLI always send it, and dev mode ignores the URL (ADR 0006, ADR 0010).
-- Live is public. Regular drafts are readable by the organization's members, and a development draft only by its owner. A draft that ended answers with a distinct error that says whether it was published or discarded, and by whom.
+- Live is public. Regular drafts are readable by the organization's members, and a development draft only by its owner. A draft that ended answers with a distinct error that says whether it was published or deleted, and by whom.
 - A URL naming a draft the visitor can't see renders Live in the same response. The client removes the param without a history entry, and only members get a toast explaining why.
 - Switching drafts in the studio is a navigation, with its own history entry. An auto-started draft reaches the URL only after its first write succeeds, replacing the current entry.
-- One realtime room per project stays. Each invalidation names the draft it came from, Live's reach every viewer, and query keys end in `live | <draftId>`. Publishing or discarding broadcasts that the draft ended.
+- One realtime room per project stays. Each invalidation names the draft it came from, Live's reach every viewer, and query keys end in `live | <draftId>`. Publishing or deleting broadcasts that the draft ended.

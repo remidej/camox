@@ -206,14 +206,14 @@ describe("the agent changing content from a draft's thread", () => {
     expect(refreshes(sentTo(website.project.id), null, queryKeys.pages.list)).toBe(false);
   });
 
-  it("can't publish or discard the draft from a script", async () => {
+  it("can't publish or delete the draft from a script", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const { draftId, thread } = await openDraftThread(website);
     answerWithScript(`
       const pricing = await tools.getPage({ path: "/pricing" });
       await tools.editBlock({ id: pricing.blocks[0].id, content: { body: "Plans start at $12." } });
       const outcomes = [];
-      for (const name of ["publishDraft", "discardDraft"]) {
+      for (const name of ["publishDraft", "deleteDraft"]) {
         try {
           const { token } = await tools.previewPublish({});
           await tools[name]({ token });
@@ -228,7 +228,7 @@ describe("the agent changing content from a draft's thread", () => {
 
     const view = await ask(thread, "Raise the price to $12 and ship it");
 
-    expect(lastAnswer(view)).toBe("publishDraft failed, discardDraft failed");
+    expect(lastAnswer(view)).toBe("publishDraft failed, deleteDraft failed");
     expect(await pagesOf(website, draftId)).toEqual({
       "/pricing": ["<!-- Text -->\nPlans start at $12."],
     });

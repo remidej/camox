@@ -67,7 +67,7 @@ export interface DraftScope {
    */
   adopt: (rendered: DraftRead & { locale?: LocaleView }) => void;
   /**
-   * Switches to Live once the viewed draft was published or discarded, here or by someone else,
+   * Switches to Live once the viewed draft was published or deleted, here or by someone else,
    * replacing its URL entry. A development draft never ends: it is emptied and dev mode stays in
    * it. With `notice`, a member is told who ended the draft. Returns whether it switched to Live.
    */

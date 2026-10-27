@@ -313,7 +313,7 @@ export const copyValue = Effect.fn("generatedValues.copy")(function* (
   yield* upsert(db, home, key, { value: shown.value }, { value: shown.value });
 });
 
-// --- Publishing and discarding (ADR 0012) ---
+// --- Publishing and deleting (ADR 0012) ---
 
 /**
  * Run once Live holds what the publish leaves: copies the draft's values over Live's, then drops
@@ -367,7 +367,7 @@ export function retagStatements(
   ];
 }
 
-/** Discarding deletes the draft's values, also when a development draft stays. */
-export function discardStatements(db: Database, draftId: string): overlay.BatchItem[] {
+/** Deleting deletes the draft's values, also when a development draft stays. */
+export function deleteStatements(db: Database, draftId: string): overlay.BatchItem[] {
   return [db.delete(generatedValues).where(eq(generatedValues.draftId, draftId))];
 }

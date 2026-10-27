@@ -34,7 +34,7 @@ import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 // 4. The named draft:
 //    - `development`: the caller's development draft in the project, or NoDevelopmentDraftError.
 //    - an id: created with the create header when missing; 404 when it isn't this project's, or
-//      DraftEndedError when it was published or discarded. Someone else's development draft is
+//      DraftEndedError when it was published or deleted. Someone else's development draft is
 //      403.
 // 5. 404: the request names a locale the scope doesn't have.
 // 6. 404: the scope deleted the entity, or doesn't have it in the locale.

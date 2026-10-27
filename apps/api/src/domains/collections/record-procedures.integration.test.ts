@@ -88,16 +88,16 @@ describe("collection record procedures", () => {
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([]);
   });
 
-  it("offers the studio agent content tools and the publish preview, never publishing, discarding or retagging Live", async () => {
+  it("offers the studio agent content tools and the publish preview, never publishing, deleting or retagging Live", async () => {
     const f = await fixture();
     const context = { ...f.context, draft: null, projectId: f.project.id };
     const names = async (surface: ToolSurface) =>
       (await resolveTools(toolProviders, context, surface)).map((tool) => tool.name);
     const cli = await names("cli");
     const studioAgent = await names("studio-agent");
-    expect(cli).toEqual(expect.arrayContaining(["publishDraft", "discardDraft"]));
+    expect(cli).toEqual(expect.arrayContaining(["publishDraft", "deleteDraft"]));
     expect(studioAgent).not.toContain("publishDraft");
-    expect(studioAgent).not.toContain("discardDraft");
+    expect(studioAgent).not.toContain("deleteDraft");
     expect(studioAgent).not.toContain("setDefaultLocaleTag");
     expect(studioAgent).toEqual(
       expect.arrayContaining([

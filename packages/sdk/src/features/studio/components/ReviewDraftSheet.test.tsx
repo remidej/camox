@@ -1343,13 +1343,13 @@ void test("explains in plain words why each lost change can't be published", asy
   }
 });
 
-void test("discards only after a second confirmation, then switches to Live", async (t) => {
+void test("deletes only after a second confirmation, then switches to Live", async (t) => {
   const calls = mockApi(t, (path) => {
     if (path === "drafts/previewPublish") return json(emptyPreview);
     return json({
       ended: {
         draftId,
-        outcome: "discarded",
+        outcome: "deleted",
         endedBy: { id: "user-1", name: "Me" },
         endedAt: 1,
       },
@@ -1357,15 +1357,15 @@ void test("discards only after a second confirmation, then switches to Live", as
   });
   const close = await openReview();
   try {
-    await click(buttonNamed(/Discard draft/));
-    assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
+    await click(buttonNamed(/Delete draft/));
+    assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
     const confirm = window.document.querySelector('[role="alertdialog"]');
     assert.ok(confirm);
 
     await click(confirm.querySelector('[data-slot="alert-dialog-action"]'));
 
     assert.deepEqual(
-      calls.filter((call) => call.path === "drafts/discard").map((call) => call.input),
+      calls.filter((call) => call.path === "drafts/delete").map((call) => call.input),
       [{ projectId: 1 }],
     );
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);

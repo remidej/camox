@@ -581,7 +581,7 @@ describe("a translation job", () => {
     expect(refreshes(sent, null, [...queryKeys.drafts.list, f.projectId])).toBe(true);
   });
 
-  it.each(["published", "discarded"] as const)(
+  it.each(["published", "deleted"] as const)(
     "does nothing once its draft was %s",
     async (outcome) => {
       const f = await fixture();
@@ -593,7 +593,7 @@ describe("a translation job", () => {
         const { token } = await f.tool("previewPublish");
         await f.tool("publishDraft", { token, publishAnyway: true });
       } else {
-        await call(router.drafts.discard, { projectId: f.projectId }, f.member(f.inDraft));
+        await call(router.drafts.delete, { projectId: f.projectId }, f.member(f.inDraft));
       }
       const asked = modelCalls().length;
       for (const job of jobs) await runService(runAiJob(f.db, job));

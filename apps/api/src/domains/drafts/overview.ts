@@ -145,7 +145,7 @@ export const failOverview = (db: Database, projectId: number, draftId: string, s
   });
 
 /**
- * Clears a draft's overview in the batch that publishes or discards it: a regular draft goes with
+ * Clears a draft's overview in the batch that publishes or deletes it: a regular draft goes with
  * its overview, and a development draft, emptied, describes nothing until it changes again.
  */
 export function clearStatements(db: Database, draftId: string): overlay.BatchItem[] {

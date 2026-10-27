@@ -51,7 +51,7 @@ type Args = {
 type PublishResult =
   | { published: true }
   | { published: false; reason: "empty"; message: string }
-  | { published: false; reason: "discarded"; message: string }
+  | { published: false; reason: "deleted"; message: string }
   | {
       published: false;
       reason: NotPublishedReason;
@@ -92,7 +92,7 @@ export async function handler(args: Args): Promise<never> {
     process.exit(0);
   }
 
-  if (result.reason === "discarded") {
+  if (result.reason === "deleted") {
     printError({
       code: DRAFT_ENDED_ERROR_CODE,
       message: `${result.message} Nothing was published.`,

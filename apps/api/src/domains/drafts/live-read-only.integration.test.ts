@@ -96,7 +96,7 @@ describe("Live is read-only", () => {
         "setPageSeo",
         "deletePage",
         "publishDraft",
-        "discardDraft",
+        "deleteDraft",
         "addLocale",
         "removeLocale",
         "setDefaultLocaleTag",

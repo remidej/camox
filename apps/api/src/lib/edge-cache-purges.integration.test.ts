@@ -98,17 +98,17 @@ describe("the Live cache key", () => {
     ).toBe(false);
   });
 
-  it("is kept when a draft is discarded", async () => {
+  it("is kept when a draft is deleted", async () => {
     const { block, inDraft, projectId, purgesLive } = await fixture();
     const draftId = generateUuidv7();
     await call(
       router.blocks.updateContent,
-      { id: block.id, content: { title: "Discarded" } },
+      { id: block.id, content: { title: "Deleted" } },
       inDraft(draftId),
     );
 
     expect(
-      await purgesLive(() => call(router.drafts.discard, { projectId }, inDraft(draftId))),
+      await purgesLive(() => call(router.drafts.delete, { projectId }, inDraft(draftId))),
     ).toBe(false);
   });
 

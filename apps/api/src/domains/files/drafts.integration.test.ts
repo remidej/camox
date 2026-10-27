@@ -182,8 +182,8 @@ async function fixture() {
       { projectId, token: (await preview(draftId)).token },
       member(inDraft(draftId)),
     );
-  const discard = (draftId: string) =>
-    call(router.drafts.discard, { projectId }, member(inDraft(draftId)));
+  const deleteDraft = (draftId: string) =>
+    call(router.drafts.delete, { projectId }, member(inDraft(draftId)));
   const codes = (problems: { code: string; id: string }[]) =>
     problems.map(({ code, id }) => [code, id]);
 
@@ -203,7 +203,7 @@ async function fixture() {
     editBlock,
     preview,
     publish,
-    discard,
+    deleteDraft,
     codes,
   };
 }
@@ -291,14 +291,14 @@ describe("files in drafts", () => {
     ]);
   });
 
-  it("discarding deletes the blobs only the draft named, and keeps Live's", async () => {
+  it("deleting deletes the blobs only the draft named, and keeps Live's", async () => {
     const f = await fixture();
     const live = await f.upload({}, { bytes: "live bytes" });
     const draftId = generateUuidv7();
     const added = await f.upload(startingDraft(draftId));
     const replaced = await f.replace(live.id, inDraft(draftId), { bytes: "draft bytes" });
 
-    await f.discard(draftId);
+    await f.deleteDraft(draftId);
 
     expect(await f.blobExists(added.blobId)).toBe(false);
     expect(await f.blobExists(replaced.blobId)).toBe(false);
@@ -326,7 +326,7 @@ describe("files in drafts", () => {
     await f.publish(first);
     // Live now serves the second replacement; the other draft's copy still names the old blob.
     expect(await f.blobExists(live.blobId)).toBe(true);
-    await f.discard(second);
+    await f.deleteDraft(second);
     expect(await f.blobExists(live.blobId)).toBe(false);
     expect(await f.blobExists(twice.blobId)).toBe(true);
   });

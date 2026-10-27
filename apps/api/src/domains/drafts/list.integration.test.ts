@@ -84,8 +84,8 @@ async function fixture() {
       { projectId, token: (await preview(draftId)).token },
       as(who, inDraft(draftId)),
     );
-  const discard = (draftId: string) =>
-    call(router.drafts.discard, { projectId }, as(me, inDraft(draftId)));
+  const deleteDraft = (draftId: string) =>
+    call(router.drafts.delete, { projectId }, as(me, inDraft(draftId)));
 
   /** A draft opened without content, created by `who`. */
   const openDraft = async (kind: DraftKind, who: typeof ada = me) => {
@@ -109,7 +109,7 @@ async function fixture() {
     rename,
     preview,
     publish,
-    discard,
+    deleteDraft,
     openDraft,
   };
 }
@@ -140,18 +140,18 @@ describe("listing drafts", () => {
     expect(byId.get(theirs)).toMatchObject({ createdBy: { name: "Ada" }, changeCount: 1 });
   });
 
-  it("drops a draft once it's published or discarded", async () => {
-    const { me, createBlock, list, publish, discard } = await fixture();
+  it("drops a draft once it's published or deleted", async () => {
+    const { me, createBlock, list, publish, deleteDraft } = await fixture();
     const published = generateUuidv7();
-    const discarded = generateUuidv7();
+    const deleted = generateUuidv7();
     await createBlock(me, startingDraft(published));
-    await createBlock(me, startingDraft(discarded));
+    await createBlock(me, startingDraft(deleted));
 
     await publish(published);
-    await discard(discarded);
+    await deleteDraft(deleted);
 
     expect((await list()).drafts.map((draft) => draft.id)).not.toContain(published);
-    expect((await list()).drafts.map((draft) => draft.id)).not.toContain(discarded);
+    expect((await list()).drafts.map((draft) => draft.id)).not.toContain(deleted);
   });
 
   it("never lists development drafts, the caller's included", async () => {
@@ -249,14 +249,14 @@ describe("getting a draft", () => {
   });
 
   it("fails with the draft's outcome once it ended", async () => {
-    const { me, createBlock, get, discard } = await fixture();
+    const { me, createBlock, get, deleteDraft } = await fixture();
     const draft = generateUuidv7();
     await createBlock(me, startingDraft(draft));
-    await discard(draft);
+    await deleteDraft(draft);
 
     await expect(get(draft)).rejects.toMatchObject({
       status: 410,
-      data: { outcome: "discarded" },
+      data: { outcome: "deleted" },
     });
   });
 });

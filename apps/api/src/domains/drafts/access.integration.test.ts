@@ -75,7 +75,7 @@ async function fixture(suffix: string) {
   await db.insert(endedDrafts).values({
     id: endedDraft,
     projectId: project.id,
-    outcome: "discarded",
+    outcome: "deleted",
     endedBy: memberUser.id,
     endedAt: now,
   });

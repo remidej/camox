@@ -52,7 +52,7 @@ export type Change =
   | { kind: "definitions"; projectId: number; draftId: string | null }
   /** A draft was started, renamed, or emptied: what the drafts list shows changed. */
   | { kind: "drafts"; projectId: number }
-  /** A draft was published or discarded, by someone. */
+  /** A draft was published or deleted, by someone. */
   | { kind: "ended"; projectId: number; ended: EndedDraft }
   /** The project's own settings, the same in every draft. */
   | { kind: "project"; projectId: number };

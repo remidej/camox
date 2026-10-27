@@ -11,7 +11,7 @@ import { destroySandbox } from "../revisions/sandbox";
  * builds and its sandbox. The draft ended either way, so this never fails: code it couldn't
  * delete is only reported. Its revisions went with its row.
  */
-export const discardCode = Effect.fn("discardCode")(function* (
+export const deleteDraftCode = Effect.fn("deleteDraftCode")(function* (
   ctx: Pick<ServiceContext, "env" | "db">,
   { projectId, draftId }: { projectId: number; draftId: string },
 ) {
@@ -24,7 +24,7 @@ export const discardCode = Effect.fn("discardCode")(function* (
         .catch(() => true))
     )
       return;
-    await ctx.env.DRAFT_CODE.getByName(draftId).discard().catch(report("code"));
+    await ctx.env.DRAFT_CODE.getByName(draftId).delete().catch(report("code"));
     const project = await ctx.db
       .select({ uuid: projects.uuid })
       .from(projects)

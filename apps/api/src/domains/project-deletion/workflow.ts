@@ -120,7 +120,7 @@ export class ProjectDeletionWorkflow extends WorkflowEntrypoint<Bindings, Projec
    */
   private async deleteCode(projectId: string, drafts: string[]) {
     for (const draftId of drafts) {
-      await this.env.DRAFT_CODE.getByName(draftId).discard();
+      await this.env.DRAFT_CODE.getByName(draftId).delete();
       await destroySandbox(this.env, draftId);
     }
     await this.env.PROJECT_CODE.getByName(projectId).discard();

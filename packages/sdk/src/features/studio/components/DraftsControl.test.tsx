@@ -136,9 +136,9 @@ function mockApi(
       });
     }
     if (path === "locales/list") return json([{ tag: "en", isDefault: true }]);
-    if (path === "drafts/discard") {
+    if (path === "drafts/delete") {
       return json({
-        ended: { draftId: spring, outcome: "discarded", endedBy: remi, endedAt: Date.now() },
+        ended: { draftId: spring, outcome: "deleted", endedBy: remi, endedAt: Date.now() },
       });
     }
     return json({});
@@ -228,9 +228,9 @@ async function search(text: string) {
   });
 }
 
-const discardButton = () =>
+const deleteButton = () =>
   [...window.document.querySelectorAll('[role="dialog"] button')].find(
-    (button) => button.textContent === "Discard draft",
+    (button) => button.textContent === "Delete draft",
   );
 
 const sheetTitle = () =>
@@ -367,7 +367,7 @@ void test("in a draft, the picker offers only switching, not the draft's actions
   await render(t, spring);
   await click(trigger());
 
-  assert.doesNotMatch(menu()?.textContent ?? "", /Review|Discard|read-only/);
+  assert.doesNotMatch(menu()?.textContent ?? "", /Review|Delete|read-only/);
 });
 
 void test("the pending changes button opens the draft's review", async (t) => {
@@ -377,10 +377,7 @@ void test("the pending changes button opens the draft's review", async (t) => {
   await click(pendingButton());
 
   assert.equal(sheetTitle(), "Spring campaign");
-  assert.match(
-    window.document.querySelector('[role="dialog"]')?.textContent ?? "",
-    /Discard draft/,
-  );
+  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Delete draft/);
 });
 
 void test("lists Live with its last publisher and every open regular draft with its creator, age and change count", async (t) => {
@@ -499,18 +496,18 @@ void test("the picker offers no rename for Live", async (t) => {
   assert.equal(itemNamed(/^Live/)?.querySelector("button"), null);
 });
 
-void test("discards the draft only after a second confirmation, then switches to Live", async (t) => {
+void test("deletes the draft only after a second confirmation, then switches to Live", async (t) => {
   const calls = mockApi(t);
   await render(t, spring);
   await click(pendingButton());
 
-  await click(discardButton());
-  assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
+  await click(deleteButton());
+  assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
   const confirm = window.document.querySelector('[role="alertdialog"]');
   await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
 
   assert.deepEqual(
-    calls.filter((call) => call.path === "drafts/discard").map((call) => call.draft),
+    calls.filter((call) => call.path === "drafts/delete").map((call) => call.draft),
     [spring],
   );
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
@@ -525,7 +522,7 @@ function devMode(t: test.TestContext) {
   const developmentDraft = drafts.find((draft) => draft.kind === "development");
   return mockApi(t, (path) => {
     if (path === "drafts/get") return json(developmentDraft);
-    if (path === "drafts/discard") return json({ ended: null });
+    if (path === "drafts/delete") return json({ ended: null });
     return undefined;
   });
 }
@@ -545,18 +542,18 @@ void test("the localhost studio shows only its development draft, with nothing t
   assert.deepEqual([...new Set(calls.map((call) => call.draft))], [DEVELOPMENT_DRAFT]);
 });
 
-void test("the localhost studio stays in its development draft after discarding it", async (t) => {
+void test("the localhost studio stays in its development draft after deleting it", async (t) => {
   const shown = t.mock.method(toast, "success", () => "toast");
   const calls = devMode(t);
   await render(t, null);
   await click(pendingButton());
 
-  await click(discardButton());
+  await click(deleteButton());
   const confirm = window.document.querySelector('[role="alertdialog"]');
   await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
 
   assert.deepEqual(
-    calls.filter((call) => call.path === "drafts/discard").map((call) => call.draft),
+    calls.filter((call) => call.path === "drafts/delete").map((call) => call.draft),
     [DEVELOPMENT_DRAFT],
   );
   assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
@@ -588,22 +585,19 @@ void test("the palette's Review and publish opens the draft's review", async (t)
 
   assert.equal(palette(), null);
   assert.equal(sheetTitle(), "Spring campaign");
-  assert.match(
-    window.document.querySelector('[role="dialog"]')?.textContent ?? "",
-    /Discard draft/,
-  );
+  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Delete draft/);
   assert.notEqual(window.document.activeElement, nameInput());
 });
 
-void test("the palette's Discard draft… asks for confirmation without discarding", async (t) => {
+void test("the palette's Delete draft… asks for confirmation without deleting", async (t) => {
   const calls = mockApi(t);
   await render(t, spring);
 
-  await runCommand("Discard draft…");
+  await runCommand("Delete draft…");
 
   const confirm = window.document.querySelector('[role="alertdialog"]');
-  assert.match(confirm?.textContent ?? "", /Discard this draft\?/);
-  assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
+  assert.match(confirm?.textContent ?? "", /Delete this draft\?/);
+  assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
 });
 
 void test("the palette's Rename draft… opens the review with the draft's name focused and selected", async (t) => {
@@ -659,7 +653,7 @@ void test("in a draft, the palette offers the draft's actions and switching", as
 
   assert.deepEqual(draftsCommands(), [
     "Review and publish",
-    "Discard draft…",
+    "Delete draft…",
     "Rename draft…",
     "Switch to Live",
     "Switch to draft…",
@@ -696,10 +690,10 @@ void test("searching the palette for a creator's name finds their draft", async 
   assert.deepEqual(draftsCommands(), ['Switch to "Spring campaign"']);
 });
 
-void test("the localhost studio's palette offers its development draft's review and discard, without switching", async (t) => {
+void test("the localhost studio's palette offers its development draft's review and delete, without switching", async (t) => {
   devMode(t);
   await render(t, null);
   await openPalette();
 
-  assert.deepEqual(draftsCommands(), ["Review and publish", "Discard draft…"]);
+  assert.deepEqual(draftsCommands(), ["Review and publish", "Delete draft…"]);
 });

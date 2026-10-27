@@ -3,7 +3,7 @@ import type { DraftKind } from "@camox/api-contract/drafts";
 /**
  * A draft a request or job resolved to, checked against its project. As a scope, it reads and
  * writes content in `locale`, a locale's tag, or without one in the project's default locale
- * (ADR 0015). Publishing and discarding act on every locale.
+ * (ADR 0015). Publishing and deleting act on every locale.
  */
 export type Draft = {
   id: string;

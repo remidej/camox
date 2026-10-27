@@ -154,7 +154,7 @@ async function fixture() {
   const preview = () => call(router.drafts.previewPublish, { projectId }, as(me, development));
   const publish = async () =>
     call(router.drafts.publish, { projectId, token: (await preview()).token }, as(me, development));
-  const discard = () => call(router.drafts.discard, { projectId }, as(me, development));
+  const deleteDraft = () => call(router.drafts.delete, { projectId }, as(me, development));
 
   return {
     ...base,
@@ -171,7 +171,7 @@ async function fixture() {
     developmentDrafts,
     preview,
     publish,
-    discard,
+    deleteDraft,
   };
 }
 
@@ -311,7 +311,7 @@ describe("development drafts", () => {
     expect((await f.contentOf(block.id)).title).toBe("From development");
   });
 
-  it("are emptied by publishing or discarding, and keep their definitions", async () => {
+  it("are emptied by publishing or deleting, and keep their definitions", async () => {
     const f = await fixture();
     const local: Definition[] = [{ blockId: "hero" }];
     await f.release(local);
@@ -326,8 +326,8 @@ describe("development drafts", () => {
     // A retry finds the draft empty and does nothing.
     expect(await f.publish()).toEqual({ empty: true, ended: null });
 
-    await f.editTitle(block.id, "Discarded", development);
-    expect(await f.discard()).toEqual({ ended: null });
+    await f.editTitle(block.id, "Deleted", development);
+    expect(await f.deleteDraft()).toEqual({ ended: null });
     expect((await f.contentOf(block.id)).title).toBe("Published");
     expect((await f.contentOf(block.id, development)).title).toBe("Published");
 

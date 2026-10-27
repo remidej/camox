@@ -49,7 +49,7 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly message: string;
 }> {}
 
-/** The request names a draft that was published or discarded (ADR 0009). */
+/** The request names a draft that was published or deleted (ADR 0009). */
 export class DraftEndedError extends Data.TaggedError("DraftEndedError")<{
   readonly ended: EndedDraft;
 }> {}

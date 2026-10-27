@@ -110,8 +110,8 @@ async function fixture() {
   const publishWith = (draftId: string, token: string) =>
     call(router.drafts.publish, { projectId, token }, member(inDraft(draftId)));
   const publish = async (draftId: string) => publishWith(draftId, (await preview(draftId)).token);
-  const discard = (draftId: string) =>
-    call(router.drafts.discard, { projectId }, member(inDraft(draftId)));
+  const deleteDraft = (draftId: string) =>
+    call(router.drafts.delete, { projectId }, member(inDraft(draftId)));
 
   /** Changes Live the way it changes in v1: by publishing another draft. */
   const publishedOnLive = async (change: (headers: Record<string, string>) => Promise<unknown>) => {
@@ -166,7 +166,7 @@ async function fixture() {
     preview,
     publish,
     publishWith,
-    discard,
+    deleteDraft,
     publishedOnLive,
   };
 }
@@ -522,37 +522,38 @@ describe("publishing a draft", () => {
   });
 });
 
-describe("discarding a draft", () => {
-  it("removes every draft row, and later writes fail with the outcome and who discarded it", async () => {
-    const { createBlock, db, discard, editTitle, pageTitles, project, titleIn } = await fixture();
+describe("deleting a draft", () => {
+  it("removes every draft row, and later writes fail with the outcome and who deleted it", async () => {
+    const { createBlock, db, deleteDraft, editTitle, pageTitles, project, titleIn } =
+      await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     await editTitle(block.id, "Mine", startingDraft(draft));
     await createBlock("Created", inDraft(draft));
 
-    const { ended } = await discard(draft);
+    const { ended } = await deleteDraft(draft);
 
-    expect(ended).toMatchObject({ outcome: "discarded", endedBy: { name: "Member" } });
+    expect(ended).toMatchObject({ outcome: "deleted", endedBy: { name: "Member" } });
     expect(sentTo(project.id).at(-1)).toEqual({ type: "draftEnded", ...ended });
     expect(await db.select().from(blocks).where(eq(blocks.draftId, draft))).toEqual([]);
     expect(await pageTitles()).toEqual(["Live"]);
     await expect(editTitle(block.id, "Again", inDraft(draft))).rejects.toMatchObject({
       status: 410,
-      data: { outcome: "discarded", endedBy: { name: "Member" } },
+      data: { outcome: "deleted", endedBy: { name: "Member" } },
     });
     expect(await titleIn(block.id)).toBe("Live");
   });
 
   it("never brings an ended draft back through the create header", async () => {
-    const { createBlock, discard, editTitle, titleIn } = await fixture();
+    const { createBlock, deleteDraft, editTitle, titleIn } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     await editTitle(block.id, "Mine", startingDraft(draft));
-    await discard(draft);
+    await deleteDraft(draft);
 
     await expect(editTitle(block.id, "Back", startingDraft(draft))).rejects.toMatchObject({
       status: 410,
-      data: { outcome: "discarded" },
+      data: { outcome: "deleted" },
     });
     await expect(titleIn(block.id, inDraft(draft))).rejects.toMatchObject({ status: 410 });
   });

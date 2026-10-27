@@ -47,7 +47,7 @@ const COMMANDS = [
   ["files", "update", "--id", ID, "--file", "hero.png"],
   ["publish"],
   ["publish", "--confirm", "token"],
-  ["discard", "--yes"],
+  ["delete", "--yes"],
   ["status"],
 ];
 

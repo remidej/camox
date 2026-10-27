@@ -208,7 +208,7 @@ const memberSchema = z.strictObject({ id: z.string(), name: z.string() });
 /** Who ended a draft, how and when. */
 export const endedDraftSchema = z.strictObject({
   draftId: z.string(),
-  outcome: z.enum(["published", "discarded"]),
+  outcome: z.enum(["published", "deleted"]),
   endedBy: memberSchema,
   endedAt: z.number(),
 });

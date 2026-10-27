@@ -50,7 +50,7 @@ export const DRAFT_SEARCH_PARAM = "camox-draft";
 export type DraftKind = "regular" | "development";
 
 /** How a regular draft ended. */
-export type DraftOutcome = "published" | "discarded";
+export type DraftOutcome = "published" | "deleted";
 
 /** Who ended a draft, how and when, from its ended-drafts record (ADR 0009, ADR 0011). */
 export type EndedDraft = {
@@ -62,7 +62,7 @@ export type EndedDraft = {
 
 /**
  * The oRPC error code a request naming an ended draft fails with. Its `data` is an `EndedDraft`,
- * so a page can render Live and say who published or discarded the draft.
+ * so a page can render Live and say who published or deleted the draft.
  */
 export const DRAFT_ENDED_ERROR_CODE = "DRAFT_ENDED";
 

@@ -289,7 +289,7 @@ describe("drafts no one reviews get no overview", () => {
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     await editTitle(block.id, "Mine", startingDraft(draft));
-    await call(router.drafts.discard, { projectId }, member(inDraft(draft)));
+    await call(router.drafts.delete, { projectId }, member(inDraft(draft)));
 
     await runOverview(draft, { headline: "Too late", bullets: [] });
 

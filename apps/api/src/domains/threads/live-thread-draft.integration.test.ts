@@ -323,9 +323,9 @@ describe("a Live thread starting a draft", () => {
     answerWithScript(RAISE_PRICE);
     answerNext("Raised the price.");
     await ask(thread, "Raise the price", { keepOpen: true });
-    const [discarded] = await draftsOf(website);
+    const [deleted] = await draftsOf(website);
     // The draft took the thread as its own when the write created it: it ends with the draft.
-    await discard(website, discarded!.id);
+    await deleteDraft(website, deleted!.id);
     thread.close();
     answerWithScript(`
       await tools.createPage({ pathSegment: "launch", layoutId: "default" });
@@ -340,14 +340,14 @@ describe("a Live thread starting a draft", () => {
     expect(lastAnswer(view)).toBe("The script added a launch page.");
     const [draft, ...others] = await draftsOf(website);
     expect(others).toEqual([]);
-    expect(draft?.id).not.toBe(discarded?.id);
+    expect(draft?.id).not.toBe(deleted?.id);
     expect(view.startedDraft?.draftId).toBe(draft?.id);
     expect(Object.keys(await pagesOf(website, draft!.id))).toEqual(["/pricing", "/launch"]);
   });
 });
 
-/** Discards a draft as a member does from the studio. */
-async function discard({ db, memberUser, project }: Website, draftId: string) {
+/** Deletes a draft as a member does from the studio. */
+async function deleteDraft({ db, memberUser, project }: Website, draftId: string) {
   const context = createRpcContext(db, memberUser, { [DRAFT_HEADER]: draftId });
-  await call(draftProcedures.discard, { projectId: project.id }, { context });
+  await call(draftProcedures.delete, { projectId: project.id }, { context });
 }

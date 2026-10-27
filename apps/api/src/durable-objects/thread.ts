@@ -222,10 +222,10 @@ End every turn with a short summary: what you changed, and what's left for the e
 const workplace = (identity: ThreadIdentity | undefined) =>
   identity?.draftId
     ? `You work in a draft: every change you make lands in it, never on Live, and editors see \
-it as you make it. You can't publish or discard the draft: an editor reviews it and decides.`
+it as you make it. You can't publish or delete the draft: an editor reviews it and decides.`
     : `The editor is viewing Live, which is read-only. Your first change starts a draft, where it \
 and every later change lands, never on Live; the editor's studio enters it. You can't publish or \
-discard the draft: an editor reviews it and decides.`;
+delete the draft: an editor reviews it and decides.`;
 
 const parseJson = (raw: string | null): unknown => {
   if (raw === null) return undefined;

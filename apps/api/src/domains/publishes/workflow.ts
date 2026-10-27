@@ -12,7 +12,7 @@ import { createDb, type Database } from "../../db";
 import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
 import type { Bindings } from "../../types";
-import { discardCode } from "../code/drafts";
+import { deleteDraftCode } from "../code/drafts";
 import { camoxContext, computePreview, publishWithCode } from "../drafts/publish";
 import { drafts } from "../drafts/schema";
 import { draftOf } from "../drafts/scope";
@@ -190,7 +190,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       if (!batch.applied && batch.ended?.outcome !== "published") {
         await rollBack();
         await discardScript();
-        // A draft discarded while it published has no review to go back to.
+        // A draft deleted while it published has no review to go back to.
         if (!batch.ended) {
           await abort(
             await step.do("tell why the batch aborted", () => this.whyAborted(db, params)),
@@ -226,7 +226,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       // 8. The draft's branch, builds, working copy and sandbox.
       await step.do("delete the draft's code", UNTIL_DONE, () =>
         Effect.runPromise(
-          discardCode(
+          deleteDraftCode(
             { env: this.env, db },
             { projectId: params.projectId, draftId: params.draftId },
           ),
@@ -266,7 +266,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
 
   /**
    * Waits until the draft's publish is the first in its project's queue. False when it's no
-   * longer queued, as when the draft was discarded meanwhile.
+   * longer queued, as when the draft was deleted meanwhile.
    */
   private async waitForTurn(
     step: WorkflowStep,

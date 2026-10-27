@@ -99,12 +99,12 @@ async function publish(website: Website, draft: string) {
   return call(router.drafts.publish, { projectId, token }, inDraft(website, draft));
 }
 
-const discard = (website: Website, draft: string) =>
-  call(router.drafts.discard, { projectId: website.project.id }, inDraft(website, draft));
+const deleteDraft = (website: Website, draft: string) =>
+  call(router.drafts.delete, { projectId: website.project.id }, inDraft(website, draft));
 
 const endings = [
   ["published", publish],
-  ["discarded", discard],
+  ["deleted", deleteDraft],
 ] as const;
 
 describe("a draft's thread ending with its draft", () => {

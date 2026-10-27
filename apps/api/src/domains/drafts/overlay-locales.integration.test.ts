@@ -153,8 +153,9 @@ describe("content keyed by locale", () => {
     expect(await titleIn(inLocale(null, "de"), id)).toBeUndefined();
   });
 
-  it("discards a draft's changes in every locale", async () => {
-    const { db, openDraft, localizedBlock, titleIn, memberUser } = await fixture("locales-discard");
+  it("deletes a draft's changes in every locale", async () => {
+    const { db, openDraft, localizedBlock, titleIn, memberUser } =
+      await fixture("locales-delete-draft");
     const id = await localizedBlock();
     const draft = await openDraft();
     await run(overlay.update(db, draft, blocks, id, { content: { title: "Hi" } }));
@@ -164,7 +165,7 @@ describe("content keyed by locale", () => {
 
     await run(
       overlay
-        .discard(db, draft, { discardedBy: memberUser.id, now: Date.now() })
+        .deleteDraft(db, draft, { deletedBy: memberUser.id, now: Date.now() })
         .pipe(Effect.orDie),
     );
 

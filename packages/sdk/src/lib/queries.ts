@@ -81,7 +81,7 @@ export const projectMutations = {
 
 export const draftMutations = {
   publish: () => getOrpc().drafts.publish.mutationOptions(),
-  discard: () => getOrpc().drafts.discard.mutationOptions(),
+  delete: () => getOrpc().drafts.delete.mutationOptions(),
   /** Requests the draft's overview again right away, once it failed. */
   retryOverview: () => getOrpc().drafts.retryOverview.mutationOptions(),
   /** Drops the draft's copy of an entity it conflicts on, to use Live's version instead. */
