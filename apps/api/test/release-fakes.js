@@ -412,7 +412,7 @@ const heldTypeChecks = new Set();
 
 /** The build command the revision sandbox runs, and the command that archives its output. */
 const BUILD_COMMAND = /\bvp build\b/;
-const ARCHIVE_COMMAND = /^tar -czf (\S+) /;
+const ARCHIVE_COMMAND = /^tar .*-cf (\S+) /;
 const EXTRACT_COMMAND = /\btar -xf (\S+) /;
 const LINT_COMMAND = /\bvp lint\b/;
 /**
@@ -661,6 +661,20 @@ export class FakeRevisionSandbox extends DurableObject {
       return result(0);
     }
     return result(0);
+  }
+
+  /**
+   * A process started in the background, as the revision builder is, recorded among the
+   * sandbox's commands. It runs nothing: builds run as their command does.
+   * @param {string} command
+   * @param {{ env?: Record<string, string>, cwd?: string }} options
+   */
+  async startProcess(command, options = {}) {
+    this.#crash();
+    const commands = revisionCommands.get(this.name) ?? [];
+    commands.push({ command, env: options.env, cwd: options.cwd, background: true });
+    revisionCommands.set(this.name, commands);
+    return { id: crypto.randomUUID(), command, status: "running" };
   }
 
   async destroy() {
@@ -956,7 +970,10 @@ export class ReleaseFakes extends WorkerEntrypoint {
     return revisionBuilds.get(sandbox) ?? [];
   }
 
-  /** @param {string} sandbox The commands a revision sandbox ran, oldest first. */
+  /**
+   * @param {string} sandbox The commands a revision sandbox ran, oldest first, with the processes
+   * it started in the background (`background`).
+   */
   async revisionCommands(sandbox) {
     return revisionCommands.get(sandbox) ?? [];
   }
