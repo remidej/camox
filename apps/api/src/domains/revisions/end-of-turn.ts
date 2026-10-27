@@ -2,6 +2,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 
 import { createDb } from "../../db";
+import { type SpanFields, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { drafts } from "../drafts/schema";
 import { camoxVersionInLockfile } from "../releases/lockfile";
@@ -47,9 +48,14 @@ export type TurnBuild =
   | { outcome: "uncommitted"; result: BuildResult; merging: boolean };
 
 /** The working copy's tree as it is now, and the revision the draft holds for it, if any. */
-async function revisionOfTree(env: Bindings, draftId: string) {
-  const prepared = await retried(() =>
-    env.DRAFT_CODE.getByName(draftId).prepareCommit({ message: MESSAGES.turn }),
+async function revisionOfTree(env: Bindings, draftId: string, span: SpanFields) {
+  const prepared = await retried(
+    () => env.DRAFT_CODE.getByName(draftId).prepareCommit({ message: MESSAGES.turn }),
+    {
+      name: "agent.turnEnd.prepareCommit",
+      fields: span,
+      after: ({ files }) => ({ bytes: files.byteLength }),
+    },
   );
   const revision = await createDb(env.DB)
     .select({
@@ -92,10 +98,15 @@ async function lintTurn(
   draftId: string,
   tree: Parameters<typeof lintInSandbox>[2],
   result: BuildResult,
+  span: SpanFields,
 ): Promise<TurnBuild> {
   let found;
   try {
-    found = await retried(() => lintInSandbox(env, draftId, tree));
+    found = await retried(() => lintInSandbox(env, draftId, tree, span), {
+      name: "agent.turnEnd.lint",
+      fields: span,
+      after: (errors) => ({ lintErrors: errors.length }),
+    });
   } catch (error) {
     if (!(error instanceof BuildInfrastructureError)) throw error;
     console.error("A turn ended without linting its code", error);
@@ -143,18 +154,33 @@ export async function buildAtEndOfTurn(
     lint?: { covered: boolean };
   },
 ): Promise<TurnBuild> {
-  const { prepared, revision } = await revisionOfTree(env, draftId);
+  const span = { draftId, threadId: run?.threadId, runId: run?.runId, failedInARow };
+  return timed(
+    "agent.turnEnd",
+    { ...span, linting: !!lint },
+    () => turnBuild(env, draftId, { run, failedInARow, building, lint }, span),
+    ({ outcome }) => ({ outcome }),
+  );
+}
+
+async function turnBuild(
+  env: Bindings,
+  draftId: string,
+  { run, failedInARow, building, lint }: Parameters<typeof buildAtEndOfTurn>[2],
+  span: SpanFields,
+): Promise<TurnBuild> {
+  const { prepared, revision } = await revisionOfTree(env, draftId, span);
   if (revision && settled(revision)) {
     // The agent's own build in this turn covered its changes: they're still to lint.
     if (!lint?.covered || revision.buildStatus !== "built") return { outcome: "unchanged" };
     const result = { ok: true, revision: revision.id, build: [], types: [], lint: [] };
-    const linted = await lintTurn(env, draftId, prepared, result);
+    const linted = await lintTurn(env, draftId, prepared, result, span);
     return linted.outcome === "linted" ? linted : { outcome: "unchanged" };
   }
   await building();
   const result = await buildRevision(env, draftId, { leftBy: "turn", run });
   if (result.ok)
-    return lint ? lintTurn(env, draftId, prepared, result) : { outcome: "built", result };
+    return lint ? lintTurn(env, draftId, prepared, result, span) : { outcome: "built", result };
   if (failedInARow + 1 < END_OF_TURN_BUILD_FAILURES) return { outcome: "failed", result };
   if (result.revision) return { outcome: "keptErrors", result };
   const code = env.DRAFT_CODE.getByName(draftId);

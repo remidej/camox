@@ -43,11 +43,15 @@ function target(overrides: Partial<RendererFrameTarget> = {}): RendererFrameTarg
   };
 }
 
-function pageInput(pathname: string, derived?: PageRenderInput["derived"]) {
+function pageInput(
+  pathname: string,
+  derived?: PageRenderInput["derived"],
+  previewDocument = "<html><body><div data-camox-preview-root></div></body></html>",
+) {
   return {
     pathname,
     href: `http://localhost${pathname}`,
-    previewDocument: "<html><body><div data-camox-preview-root></div></body></html>",
+    previewDocument,
     dehydratedState: { queries: [], mutations: [] },
     ...(derived && { derived }),
   } as unknown as PageRenderInput;
@@ -134,7 +138,7 @@ async function setup(
   // The studio shows the Canvas, where pages are selected.
   previewStore.send({ type: "showCanvas" });
   const connection = connectToStudio(studio.handle, { queryClient, studioCache, draftScope });
-  const show = (pathname: string, derived?: PageRenderInput["derived"]) =>
+  const show = (pathname: string, derived?: PageRenderInput["derived"], previewDocument?: string) =>
     studioCache.set(
       reads.canvasFrame({
         projectUuid: "p",
@@ -142,13 +146,18 @@ async function setup(
         pathname,
         ...(derived && { derivedLayoutId: derived.layoutId }),
       }),
-      pageInput(pathname, derived),
+      pageInput(pathname, derived, previewDocument),
     );
-  /** A visible frame of the studio: a document of its own, with a slot for the page. */
-  const visibleFrame = (url: string) => {
+  /**
+   * A visible frame of the studio: a document of its own, with a slot for the page. With `html`,
+   * the frame's document is that site document, its root the slot.
+   */
+  const visibleFrame = (url: string, html?: string) => {
     const frame = new Window({ url });
-    const slot = frame.document.createElement("div");
-    frame.document.body.append(slot);
+    if (html) frame.document.write(html);
+    const slot =
+      frame.document.querySelector("[data-camox-preview-root]") ??
+      frame.document.body.appendChild(frame.document.createElement("div"));
     return { frame, slot: slot as unknown as HTMLElement };
   };
 
@@ -234,6 +243,50 @@ void test("the renderer renders each frame's page into the slot the studio gave 
   await act(() => studio.send({ type: "frameEnd", frameId: "card" }));
   assert.equal(card.slot.childElementCount, 0);
   assert.ok(preview.slot.querySelector("[data-probe]"), "the other frame keeps its page");
+});
+
+void test("a draft with code's frames take its revision's stylesheets, not Live's the studio loaded them with", async (t) => {
+  const { studio, show, visibleFrame, act } = await setup(t);
+  const { createCanvasDocument } = await import("../canvas/canvasFrameDocument");
+  /** A site document whose head holds `stylesheet`, as the runtime builds one. */
+  const siteDocument = (stylesheet: string) =>
+    `<!doctype html><html><head><link rel="stylesheet" href="${stylesheet}"></head>` +
+    '<body><div id="root" data-camox-preview-root></div></body></html>';
+  // The studio page is Live's Worker's: its frames start with Live's stylesheet. The renderer
+  // reads the page from the revision, whose build has the draft's classes.
+  const live = siteDocument("/assets/site-live.css");
+  show("/", undefined, siteDocument("/_camox/r/rev-2/assets/site-draft.css"));
+  show("/pricing", undefined, siteDocument("/_camox/r/rev-2/assets/site-draft.css"));
+  const preview = visibleFrame("http://localhost/", live);
+  // A Canvas card's document is built in the studio, with the studio's own styles beside the site's.
+  Object.assign(globalThis, { DOMParser: preview.frame.DOMParser });
+  t.after(() => Reflect.deleteProperty(globalThis, "DOMParser"));
+  const card = visibleFrame(
+    "http://localhost/pricing",
+    createCanvasDocument(live, "http://localhost/pricing"),
+  );
+  const studioStyles = (frame: Window) =>
+    [...frame.document.head.querySelectorAll("style")].map((style) => style.textContent);
+  const cardStudioStyles = studioStyles(card.frame);
+  assert.ok(cardStudioStyles.length > 0, "the card's document holds the studio's styles");
+
+  await act(() => {
+    studio.send({ type: "frame", frameId: "preview", slot: preview.slot, target: target() });
+    studio.send({
+      type: "frame",
+      frameId: "card",
+      slot: card.slot,
+      target: target({ pathname: "/pricing", href: "http://localhost/pricing" }),
+    });
+  });
+
+  for (const { frame } of [preview, card]) {
+    const stylesheets = [...frame.document.head.querySelectorAll('link[rel="stylesheet"]')].map(
+      (link) => link.getAttribute("href"),
+    );
+    assert.deepEqual(stylesheets, ["/_camox/r/rev-2/assets/site-draft.css"]);
+  }
+  assert.deepEqual(studioStyles(card.frame), cardStudioStyles, "the studio's styles stay");
 });
 
 void test("a page that throws fails in its own frame, and the studio hears it", async (t) => {

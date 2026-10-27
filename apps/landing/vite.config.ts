@@ -11,6 +11,12 @@ import { checkoutHostname } from "../../scripts/dev-hostname";
 const isTest = Boolean(process.env.VITEST);
 
 const config = defineConfig({
+  // The footer's copyright year. Inlined at build time so the Worker and the browser render
+  // the same text: Workers freeze the clock at the epoch outside a request, so reading it
+  // when a module loads gives 1970 on the server.
+  define: {
+    __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),
+  },
   server: {
     port: Number(process.env.CAMOX_DEV_LANDING_PORT ?? 3001),
     strictPort: Boolean(process.env.CAMOX_DEV_LANDING_PORT),

@@ -94,6 +94,7 @@ import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
 import { serialQueue } from "../lib/serial-queue";
 import { threadModel } from "../lib/thread-model";
+import { logSpan } from "../lib/timing";
 import { user } from "../schema";
 import type { Bindings } from "../types";
 
@@ -156,6 +157,17 @@ const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
 const TURN_LINTED_PREFIX = "camox.turn-linted:";
 /** The prefix of the keys recording that a run's agent called `build`, as above. */
 const TURN_BUILT_PREFIX = "camox.turn-built:";
+
+/**
+ * The key timing the turn going, for its timing logs: when the editor's message that started it
+ * was taken, and how many revisions it left so far.
+ */
+const TURN_TIMING_KEY = "camox.turn-timing";
+const turnTimingSchema = z.object({
+  startedAt: z.number(),
+  operationId: z.string(),
+  revisions: z.number(),
+});
 
 /** Code mode's tool, which runs the model's scripts: wrapped by its name. */
 const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
@@ -419,7 +431,13 @@ export class Thread extends DurableObject<Bindings> {
         // ending on startDraft's card hands the messages sent meanwhile off with it.
         hooks: [
           hook(GenerationTask, {
-            onYield: (_answer, api, context) => this.#onYield(api, context),
+            onYield: async (_answer, api, context) => {
+              const next = await this.#onYield(api, context);
+              if (!next && api.conversationId === ROOT_CONVERSATION_ID) {
+                await this.#endTurnTiming(api, context);
+              }
+              return next;
+            },
             afterTools: (_assistant, _results, api, context) =>
               this.#handOffLateMessages({ api, context }),
           }),
@@ -608,9 +626,11 @@ export class Thread extends DurableObject<Bindings> {
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
     // The end of the turn lints what the agent built, even when its build covered the changes.
     await this.ctx.storage.put(`${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`, true);
-    return this.#buildingSerially(draftId, () =>
+    const result = await this.#buildingSerially(draftId, () =>
       buildRevision(this.env, draftId, { leftBy: "build", run }),
     );
+    await this.#timeTurnRevision(result, { draftId, runId: run?.runId });
+    return result;
   }
 
   /**
@@ -749,6 +769,7 @@ export class Thread extends DurableObject<Bindings> {
       return undefined;
     }
     await this.env.DRAFT_CODE.getByName(draftId).settleOwedBuild();
+    if ("result" in turn) await this.#timeTurnRevision(turn.result, { draftId, runId: run?.runId });
     if (turn.outcome === "failed") {
       await this.ctx.storage.put(failures, failedInARow + 1);
       await this.#showBuildStatus("fixing");
@@ -809,6 +830,73 @@ export class Thread extends DurableObject<Bindings> {
     await this.#mergeMain(draftId).catch((error: unknown) =>
       console.error("A draft couldn't merge Live's code after a turn", error),
     );
+  }
+
+  /**
+   * Notes when an editor's message starts a turn, for the turn's timing logs. A message joining
+   * the run going doesn't: its turn started earlier. Timing never stops a message.
+   */
+  async #startTurnTiming(operationId: string) {
+    try {
+      if (await this.harness.session().busy()) return;
+      await this.ctx.storage.put(TURN_TIMING_KEY, {
+        startedAt: Date.now(),
+        operationId,
+        revisions: 0,
+      });
+    } catch (error) {
+      console.warn("A thread couldn't time a turn", error);
+    }
+  }
+
+  /** The turn going's timing, if an editor's message started it. */
+  async #turnTiming() {
+    return turnTimingSchema.safeParse(await this.ctx.storage.get(TURN_TIMING_KEY)).data;
+  }
+
+  /**
+   * Counts a revision a build in the turn going left, logging how long the turn took to its
+   * first: from the editor's message to the revision announced, which the preview then loads.
+   */
+  async #timeTurnRevision(result: BuildResult, ids: { draftId: string; runId?: string }) {
+    if (!result.revision) return;
+    try {
+      const timing = await this.#turnTiming();
+      if (!timing) return;
+      if (timing.revisions === 0) {
+        logSpan("agent.turn.firstRevision", Date.now() - timing.startedAt, {
+          ...ids,
+          projectId: (await this.#knownIdentity())?.projectId,
+          threadId: this.#threadId(),
+          operationId: timing.operationId,
+          revisionId: result.revision,
+        });
+      }
+      await this.ctx.storage.put(TURN_TIMING_KEY, { ...timing, revisions: timing.revisions + 1 });
+    } catch (error) {
+      console.warn("A thread couldn't time a turn", error);
+    }
+  }
+
+  /** Logs how long the turn ending took, from the editor's message that started it. */
+  async #endTurnTiming(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
+    try {
+      const timing = await this.#turnTiming();
+      if (!timing) return;
+      await this.ctx.storage.delete(TURN_TIMING_KEY);
+      const live = await api.snapshot(LiveDoc, api.conversationId, context);
+      const identity = await this.#knownIdentity();
+      logSpan("agent.turn", Date.now() - timing.startedAt, {
+        projectId: identity?.projectId,
+        draftId: identity?.draftId,
+        threadId: this.#threadId(),
+        runId: live?.run ? String(live.run.taskId) : undefined,
+        operationId: timing.operationId,
+        revisions: timing.revisions,
+      });
+    } catch (error) {
+      console.warn("A thread couldn't time a turn", error);
+    }
   }
 
   /** Records in the transcript where the end of the turn's build stands, for editors to see. */
@@ -1331,6 +1419,7 @@ export class Thread extends DurableObject<Bindings> {
           return;
         }
         await this.#recordApiOrigin(participant.data.apiOrigin);
+        await this.#startTurnTiming(message.operationId);
         try {
           // A message sent while the agent works joins its run after the current round of tool
           // calls, instead of waiting for a run of its own.

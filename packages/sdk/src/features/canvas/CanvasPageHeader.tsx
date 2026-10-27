@@ -55,8 +55,10 @@ export function CanvasPageHeader({
     }
   };
   const path = pathname ?? (page.kind === "derived" ? page.pattern : undefined);
+  // As wide as the path, not the header: the header follows the zoom, and a path as wide as it
+  // would repaint on every frame of a zoom, as its box resizes.
   const pathClassName =
-    "text-muted-foreground w-full min-w-0 truncate text-left text-xs font-normal";
+    "text-muted-foreground max-w-full min-w-0 truncate text-left text-xs font-normal";
   const focusClassName = "focus-visible:ring-ring outline-none focus-visible:ring-2";
   const name =
     draft !== null ? (

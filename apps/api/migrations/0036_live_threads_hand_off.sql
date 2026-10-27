@@ -1,1 +1,0 @@
-ALTER TABLE `drafts` ADD `live_thread_id` text;

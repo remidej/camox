@@ -44,6 +44,10 @@
       "types": "./src/locales.ts",
       "default": "./src/locales.ts"
     },
+    "./patrol": {
+      "types": "./src/patrol.ts",
+      "default": "./src/patrol.ts"
+    },
     "./router": {
       "types": "./src/router.ts",
       "default": "./src/router.ts"
@@ -86,6 +90,10 @@
       "./locales": {
         "types": "./dist/locales.d.ts",
         "default": "./dist/locales.js"
+      },
+      "./patrol": {
+        "types": "./dist/patrol.d.ts",
+        "default": "./dist/patrol.js"
       },
       "./router": {
         "types": "./dist/router.d.ts",

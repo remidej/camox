@@ -4,6 +4,17 @@ import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "../preview/components/previ
 /** Freezes CSS animations, including ones that start while the frame is paused. */
 const PAUSED_ANIMATIONS_STYLE = `html[${PREVIEW_PAUSED_ATTRIBUTE}] *, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::before, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::after { animation-play-state: paused !important; }`;
 
+/**
+ * A style of the studio's own for a frame's document, marked so that giving the frame a site
+ * document's stylesheets (`restyle`) leaves it.
+ */
+function studioStyle(doc: Document, css: string) {
+  const style = doc.createElement("style");
+  style.setAttribute("data-camox-studio", "");
+  style.textContent = css;
+  return style;
+}
+
 /** Set by the camera on elements that hold Canvas frames: see `canvasBlockOverlap`. */
 const BLOCK_OVERLAP_ATTRIBUTE = "data-canvas-block-overlap";
 const BLOCK = "[data-camox-viewport-block]";
@@ -117,8 +128,7 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   // its own root must refuse trackpad swipes as browser Back/Forward gestures.
   doc.documentElement.style.setProperty("overscroll-behavior", "none");
   doc.body.style.setProperty("overscroll-behavior", "none");
-  const paused = doc.createElement("style");
-  paused.textContent = PAUSED_ANIMATIONS_STYLE;
+  const paused = studioStyle(doc, PAUSED_ANIMATIONS_STYLE);
   doc.head.appendChild(paused);
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
@@ -135,8 +145,7 @@ export function adoptCanvasDocument(
   viewportHeight: number,
 ) {
   const doc = root.ownerDocument;
-  const paused = doc.createElement("style");
-  paused.textContent = PAUSED_ANIMATIONS_STYLE;
+  const paused = studioStyle(doc, PAUSED_ANIMATIONS_STYLE);
   doc.head.appendChild(paused);
   const restored = [doc.documentElement, doc.body].map((element) => ({
     element,
@@ -254,8 +263,7 @@ export function observeCanvasDocument(
   doc.documentElement.style.setProperty("--camox-viewport-height", `${baseline}px`);
   doc.documentElement.style.setProperty("overflow", "hidden", "important");
   doc.body.style.setProperty("overflow", "hidden", "important");
-  const overlapStyle = doc.createElement("style");
-  overlapStyle.textContent = BLOCK_OVERLAP_STYLE;
+  const overlapStyle = studioStyle(doc, BLOCK_OVERLAP_STYLE);
   doc.head.appendChild(overlapStyle);
   // The camera sets the overlap on an ancestor of the frame, in the host document.
   const followOverlap = () => {

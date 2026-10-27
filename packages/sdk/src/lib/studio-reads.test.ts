@@ -339,6 +339,7 @@ const BROADCAST_PREFIXES = [
   queryKeys.files.get(""),
   queryKeys.layouts.all,
   queryKeys.drafts.all,
+  queryKeys.patrol.get,
   queryKeys.collections.records("", ""),
   queryKeys.collections.record("", "", ""),
 ].map((prefix) => prefix.filter((segment) => segment !== ""));

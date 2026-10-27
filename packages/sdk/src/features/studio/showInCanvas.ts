@@ -29,6 +29,8 @@ export interface CanvasTarget {
   blockId?: string | null;
   itemId?: string | null;
   field?: { name: string; kind: string | null } | null;
+  /** The draft to show it in, or null for Live. Left out, the draft viewed. */
+  draft?: string | null;
 }
 
 const isFieldType = (kind: string | null | undefined): kind is FieldType =>
@@ -96,14 +98,21 @@ export function useShowInCanvas() {
   return React.useCallback(
     async (target: CanvasTarget) => {
       const locale = view.locales.find((each) => each.tag === target.locale) ?? view.locale;
-      const pages = await cache.ensure(reads.pageList({ projectUuid }), { locale }).catch(() => []);
+      // The page's path as the draft shown has it.
+      const inDraft = target.draft === undefined ? {} : { in: target.draft };
+      const pages = await cache
+        .ensure(reads.pageList({ projectUuid }), { locale, ...inDraft })
+        .catch(() => []);
       const page = pages.find((each) => each.id === target.pageId);
       if (!page) return;
       const selection = selectionOf(target);
       if (selection) selectOnceShown({ kind: "page", pageId: page.id }, selection);
       else stopSelecting?.();
       previewStore.send({ type: "showCanvas" });
-      await navigate({ to: `${localizedPath(page.fullPath, locale)}${search}` });
+      await navigate({
+        to: `${localizedPath(page.fullPath, locale)}${search}`,
+        ...(target.draft === undefined ? {} : { draft: target.draft }),
+      });
     },
     [cache, navigate, projectUuid, search, view.locale, view.locales],
   );

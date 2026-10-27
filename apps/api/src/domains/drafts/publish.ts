@@ -15,6 +15,7 @@ import {
   TranslationsPendingError,
 } from "../../lib/errors";
 import { record } from "../../lib/journal";
+import { logSpan } from "../../lib/timing";
 import {
   blockDefinitions,
   blocks,
@@ -42,6 +43,8 @@ import { homeOf } from "../generated-values/service";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
+import * as patrolReports from "../patrol/reports";
+import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
 import { rootOfItem } from "../repeatable-items/roots";
 import { codeOfDraft, type PreviewCode } from "../revisions/preview";
@@ -788,6 +791,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
         ...filePublishStatements(scope.projectId),
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
+        ...patrolReports.endStatements(ctx.db, scope.id),
         ...thread.statements,
         ...(options.after ?? []),
       ],
@@ -823,11 +827,18 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   rawInput: z.input<typeof publishInput>,
 ) {
   const { projectId, token, publishAnyway, revision } = yield* decodeInput(publishInput, rawInput);
+  const startedAt = Date.now();
   const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
   if (!scope) return endedAs(earlier);
+  const span = { projectId, draftId: scope.id, revisionId: revision };
   const shown = yield* decodeToken(token);
   const stored = yield* overlay.changesOf(ctx.db, scope);
+  const previewStartedAt = Date.now();
   const preview = yield* computePreview(ctx, scope);
+  logSpan("publish.request.computePreview", Date.now() - previewStartedAt, {
+    ...span,
+    withCode: !!preview.code,
+  });
   // A draft with code publishes its code even when it changed no content.
   if (stored.length === 0 && !preview.code) return nothingToPublish;
 
@@ -868,11 +879,15 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
           : "The agent changed the draft's code since the review. Review it again before publishing.",
       });
     }
-    yield* startPublish(ctx, scope, {
+    const startPublishAt = Date.now();
+    const instanceId = yield* startPublish(ctx, scope, {
       revision: preview.code.revision,
       token,
       publishedBy: user.id,
     });
+    logSpan("publish.request.startPublish", Date.now() - startPublishAt, { ...span, instanceId });
+    // Only the request: its publish Workflow's spans go on from there.
+    logSpan("publish.request", Date.now() - startedAt, { ...span, instanceId, withCode: true });
     return publishingStarted;
   }
 
@@ -881,6 +896,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     publishedBy: user.id,
     stored,
   });
+  logSpan("publish.request", Date.now() - startedAt, { ...span, withCode: false, applied });
   if (!applied) {
     if (ended) return endedAs(ended);
     return yield* new ConflictsChangedError({
@@ -960,6 +976,7 @@ const startPublish = Effect.fn("drafts.startPublish")(function* (
   }
   // The draft's viewers see it publishing.
   yield* record(ctx.db, { kind: "drafts", projectId: scope.projectId });
+  return instanceId;
 });
 
 /**
@@ -1081,12 +1098,14 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
   }
   const preview = yield* computePreview(ctx, scope);
   if (preview.blockers.length > 0 || preview.conflicts.length > 0) return;
-  yield* publishChecked(ctx, scope, {
+  const { applied } = yield* publishChecked(ctx, scope, {
     shown: [],
     publishedBy: CAMOX_ACTOR,
     stored,
     translated: true,
   });
+  // The Translator reports on Live that Live's translations caught up (ADR 0024).
+  if (applied) yield* reportCatchUpPublished(db, scope);
 });
 
 /**
@@ -1114,6 +1133,7 @@ export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
         ...generatedValueStatements.deleteStatements(ctx.db, scope.id),
         ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
+        ...patrolReports.endStatements(ctx.db, scope.id),
         ...thread.statements,
       ],
     }),

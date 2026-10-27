@@ -31,6 +31,22 @@ export const CATCH_UP_DRAFT_NAME = "Translations";
 export const isCatchUpDraft = (row: { kind: string; createdBy: string }) =>
   row.kind === "regular" && row.createdBy === CAMOX_ACTOR;
 
+/** The project's open catch-up draft's row, if any. */
+export const catchUpDraftOf = (db: Database, projectId: number) =>
+  Effect.promise(() =>
+    db
+      .select()
+      .from(drafts)
+      .where(
+        and(
+          eq(drafts.projectId, projectId),
+          eq(drafts.kind, "regular"),
+          eq(drafts.createdBy, CAMOX_ACTOR),
+        ),
+      )
+      .get(),
+  );
+
 /**
  * The project's open catch-up draft, opened now when there's none. Requests racing to open one
  * get the same: the database keeps one open per project.
@@ -39,20 +55,7 @@ export const openCatchUpDraft = Effect.fn("drafts.openCatchUpDraft")(function* (
   db: Database,
   projectId: number,
 ) {
-  const open = () =>
-    Effect.promise(() =>
-      db
-        .select()
-        .from(drafts)
-        .where(
-          and(
-            eq(drafts.projectId, projectId),
-            eq(drafts.kind, "regular"),
-            eq(drafts.createdBy, CAMOX_ACTOR),
-          ),
-        )
-        .get(),
-    );
+  const open = () => catchUpDraftOf(db, projectId);
   const existing = yield* open();
   if (existing) return draftOf(existing);
   yield* startDraft(db, {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "95f7e03c-5268-4efa-acf9-68be5de0e2b3",
+  "id": "4b0ab582-7fd1-4092-83a2-99361a63ffac",
   "prevId": "173514f0-e302-4dbc-9024-168df25a57e1",
   "tables": {
     "account": {
@@ -2347,13 +2347,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "live_thread_id": {
-          "name": "live_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "overview_headline": {
           "name": "overview_headline",
           "type": "text",
@@ -3522,6 +3515,117 @@
         "revisions_draft_id_drafts_id_fk": {
           "name": "revisions_draft_id_drafts_id_fk",
           "tableFrom": "revisions",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "reports": {
+      "name": "reports",
+      "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "patroller": {
+          "name": "patroller",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attention": {
+          "name": "attention",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'none'"
+        },
+        "at": {
+          "name": "at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "reports_live_idx": {
+          "name": "reports_live_idx",
+          "columns": ["project_id", "patroller", "key"],
+          "isUnique": true,
+          "where": "\"reports\".\"draft_id\" is null"
+        },
+        "reports_draft_idx": {
+          "name": "reports_draft_idx",
+          "columns": ["draft_id", "patroller", "key"],
+          "isUnique": true,
+          "where": "\"reports\".\"draft_id\" is not null"
+        },
+        "reports_project_idx": {
+          "name": "reports_project_idx",
+          "columns": ["project_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "reports_project_id_projects_id_fk": {
+          "name": "reports_project_id_projects_id_fk",
+          "tableFrom": "reports",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reports_draft_id_drafts_id_fk": {
+          "name": "reports_draft_id_drafts_id_fk",
+          "tableFrom": "reports",
           "tableTo": "drafts",
           "columnsFrom": ["draft_id"],
           "columnsTo": ["id"],
