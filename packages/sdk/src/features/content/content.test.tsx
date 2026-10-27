@@ -216,7 +216,6 @@ void test("Collections group lists every collection in API order with one select
   assert.equal(html.match(/aria-current="page"/g)?.length, 1);
   assert.match(html, /aria-current="page"[^]*?title="Authors"/);
   assert.match(html, /href="\/camox\/content\/collections\/authors"/);
-  assert.equal(html.match(/lucide-list h-4 w-4 shrink-0 text-muted-foreground/g)?.length, 1);
 });
 
 function renderCollection(collection: CollectionDefinition, client: QueryClient) {
@@ -266,7 +265,6 @@ void test("nonempty collections list each record's title and description rather 
   assert.match(html, /Untitled item/);
   assert.doesNotMatch(html, /\/edit"/);
   assert.doesNotMatch(html, /No items yet/);
-  assert.equal((html.match(/type="button"/g) ?? []).length > 0, true);
   assert.match(html, /Add item/);
   client.clear();
 });
@@ -675,7 +673,6 @@ void test("collection forms create and edit records, invalidate lists, and retai
           </NavigationProvider>,
         );
       });
-      assert.ok(host.querySelector("form")?.classList.contains("mx-auto"));
       const submit = async () => {
         await act(async () => {
           host

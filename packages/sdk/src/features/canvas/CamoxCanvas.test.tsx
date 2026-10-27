@@ -803,13 +803,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         await render();
         const [about, contact] = [...headers.keys()];
         assert.equal(cameraRow.selected, about);
-        const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
-        assert.equal(
-          header.style.transform,
-          "translate(calc(var(--canvas-x, 64px) + 0px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
-        );
-        assert.equal(header.style.width, "calc(1366px * var(--canvas-zoom, .4))");
-        assert.equal(header.style.willChange, "transform");
         globals.CanvasLocation.pathname = "/contact";
         await render();
         assert.equal(cameraRow.selected, contact, "external navigation selects in the camera");

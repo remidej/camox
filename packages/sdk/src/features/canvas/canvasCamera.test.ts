@@ -21,6 +21,7 @@ import {
   isCanvasCameraSnapped,
   isCanvasPageScale,
   isInCanvasSnapWindow,
+  placeCanvasPageAnchor,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
   snapCanvasZoom,
@@ -29,7 +30,6 @@ import {
   ZOOM_SNAP_CAPTURE,
   ZOOM_SNAP_RELEASE,
   zoomCanvasAt,
-  type CanvasVerticalRail,
 } from "./canvasCamera";
 
 void test("snap candidates require 80% horizontal visibility and choose the nearest center stably", () => {
@@ -42,10 +42,15 @@ void test("snap candidates require 80% horizontal visibility and choose the near
   assert.equal(findCanvasSnapTarget({ x: 0, y: -90000, scale: 1 }, viewport, pages), pages[1]);
   assert.equal(findCanvasSnapTarget({ x: 0, y: 90000, scale: 1 }, viewport, pages), pages[1]);
   assert.equal(findCanvasSnapTarget({ x: 100, y: 0, scale: 1 }, viewport, pages), pages[0]);
-  assert.equal(findCanvasSnapTarget({ x: -61, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
-  assert.equal(findCanvasSnapTarget({ x: -60, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
-  assert.equal(findCanvasSnapTarget({ x: 661, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
-  assert.equal(findCanvasSnapTarget({ x: 660, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
+  // The documented rule: a page may hide at most a fifth of its width past either edge.
+  const page = pages[0]!;
+  const hidden = page.width * (1 - 0.8);
+  const atLeft = (x: number) => findCanvasSnapTarget({ x, y: 0, scale: 1 }, viewport, [page]);
+  assert.equal(atLeft(-hidden), page);
+  assert.equal(atLeft(-hidden - 1), undefined);
+  const rightEdge = viewport.width - page.width + hidden;
+  assert.equal(atLeft(rightEdge), page);
+  assert.equal(atLeft(rightEdge + 1), undefined);
   assert.equal(findCanvasSnapTarget({ x: 0, y: 0, scale: 4 }, viewport, pages), undefined);
 });
 
@@ -155,53 +160,12 @@ void test("the rail assists vertical intent only and releases to free two-axis m
     assert.equal(canvasVerticalRail(delta, 16, locked).mode, "free");
     assert.equal(canvasVerticalRail({ x: 1, y: 30 }, 32, free).mode, "free");
   }
+});
+
+void test("a scale is the page's scale only at its exact page fit", () => {
   assert.equal(isCanvasPageScale(0.6, 0.6), true);
   assert.equal(isCanvasPageScale(0.6001, 0.6), false);
   assert.equal(isCanvasPageScale(0.6, undefined), false);
-});
-
-void test("noisy trackpad startup can acquire vertical intent in either direction", () => {
-  for (const direction of [-1, 1]) {
-    let rail: CanvasVerticalRail | undefined;
-    let time = 0;
-    for (const [x, y, expected] of [
-      [3, 0.5, "pending"],
-      [-2, 4, "pending"],
-      [4, 16, "vertical"],
-      [-15, 24, "vertical"],
-      [1, 0, "vertical"],
-      [0.2, 2, "vertical"],
-    ] as const) {
-      rail = canvasVerticalRail({ x: direction * x, y: direction * y }, time, rail);
-      assert.equal(rail.mode, expected);
-      time += 8;
-    }
-  }
-});
-
-void test("rail release ignores tiny jitter but responds to sustained diagonal or horizontal intent", () => {
-  const locked = canvasVerticalRail({ x: 20, y: 60 }, 0);
-  const jitter = canvasVerticalRail({ x: 4, y: 1 }, 8, locked);
-  assert.equal(jitter.mode, "vertical");
-  const recovered = canvasVerticalRail({ x: 20, y: 40 }, 16, jitter);
-  assert.equal(recovered.mode, "vertical");
-  for (const y of [0, 6]) {
-    let rail = recovered;
-    for (let step = 1; step <= 3; step++) {
-      rail = canvasVerticalRail({ x: 6, y }, 16 + step * 8, rail);
-      assert.equal(rail.mode, step < 3 ? "vertical" : "free");
-    }
-    for (const [x, tailY] of [
-      [3, 12],
-      [1, 6],
-      [0.1, 2],
-    ]) {
-      rail = canvasVerticalRail({ x, y: tailY }, 64, rail);
-      assert.equal(rail.mode, "free", "released momentum cannot reacquire");
-    }
-  }
-  const staleJitter = canvasVerticalRail({ x: 12, y: 0 }, 8, locked);
-  assert.equal(canvasVerticalRail({ x: 4, y: 0 }, 96, staleJitter).mode, "vertical");
 });
 
 void test("pending evidence expires and alternating horizontal deltas cannot cancel", () => {
@@ -427,4 +391,14 @@ void test("zoom past a limit stretches with growing resistance, never beyond the
       previousGain = gain;
     }
   }
+});
+
+void test("camera placement preserves zoom and accounts for the iframe offset and header at page top", () => {
+  const viewport = { width: 900, height: 700 };
+  const page = { left: 1600, width: 1366 };
+  const camera = placeCanvasPageAnchor(viewport, page, 1250, 0.6, 12);
+  assert.equal(camera.scale, 0.6);
+  assert.equal(camera.y + (1250 + 12) * camera.scale, 0);
+  assert.equal(camera.x + (page.left + page.width / 2) * camera.scale, viewport.width / 2);
+  assert.equal(placeCanvasPageAnchor(viewport, page, 0, 0.6).y, fitCanvasPage(viewport, page).y);
 });

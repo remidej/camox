@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import { Window } from "happy-dom";
 
-import { fitCanvasPage, placeCanvasPageAnchor } from "../canvas/canvasCamera";
 import {
   capturePreviewAnchor,
   captureViewportAnchor,
@@ -122,14 +121,4 @@ void test("an unchanged preview returns the exact camera, while scrolling or nav
   continuity.transition(true, "/b");
   continuity.restoreCanvas();
   assert.deepEqual(restored.pop(), [anchor, camera], "navigation invalidates exact return");
-});
-
-void test("camera placement preserves zoom and accounts for the iframe offset and header at page top", () => {
-  const viewport = { width: 900, height: 700 };
-  const page = { left: 1600, width: 1366 };
-  const camera = placeCanvasPageAnchor(viewport, page, 1250, 0.6, 12);
-  assert.equal(camera.scale, 0.6);
-  assert.equal(camera.y + (1250 + 12) * camera.scale, 0);
-  assert.equal(camera.x + (page.left + page.width / 2) * camera.scale, viewport.width / 2);
-  assert.equal(placeCanvasPageAnchor(viewport, page, 0, 0.6).y, fitCanvasPage(viewport, page).y);
 });

@@ -14,6 +14,7 @@ import {
   readWorkspaceCatalog,
   replaceProjectId,
 } from "../src/lib/template.ts";
+import { packageManagerVersions } from "../src/lib/utils.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -108,7 +109,7 @@ void test("a standalone project depends on the published camox and drops develop
   const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
   assert.equal(pkg.dependencies.camox, "^1.2.3");
   assert.equal(pkg.version, undefined);
-  assert.equal(pkg.packageManager, "pnpm@11.1.3");
+  assert.equal(pkg.packageManager, packageManagerVersions.pnpm);
 
   const viteConfig = await readFile(join(dest, "vite.config.ts"), "utf-8");
   assert.equal(
@@ -161,7 +162,7 @@ void test("a standalone npm project has no pnpm workspace", async () => {
 
   assert.equal(existsSync(join(dest, "pnpm-workspace.yaml")), false);
   const pkg = JSON.parse(await readFile(join(dest, "package.json"), "utf-8"));
-  assert.equal(pkg.packageManager, "npm@11.6.2");
+  assert.equal(pkg.packageManager, packageManagerVersions.npm);
 });
 
 void test("replacing the Project ID drops its marker", () => {

@@ -807,6 +807,18 @@ export class ReleaseFakes extends WorkerEntrypoint {
   }
 
   /**
+   * Lets runs of a command containing `pattern` pass again, ending `failCommand`'s failures.
+   * @param {string} repo
+   * @param {string} pattern
+   */
+  async passCommand(repo, pattern) {
+    failures.set(
+      repo,
+      (failures.get(repo) ?? []).filter((failure) => failure.pattern !== pattern),
+    );
+  }
+
+  /**
    * Makes runs of a command containing `pattern` wait to exit until `letGo` is called.
    * @param {string} repo
    * @param {string} pattern

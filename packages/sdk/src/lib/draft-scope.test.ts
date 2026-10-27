@@ -198,7 +198,7 @@ void test("a regular studio reaches a draft's queries by its id, without any loo
   assert.equal(await draftScope.keyScopeOfDraft("d1", 1), "d1");
 });
 
-void test("the draft param is read and removed only through the scope's helpers", () => {
+void test("a URL's draft param is read, and removed keeping the rest of the URL", () => {
   assert.equal(draftNamedBy("https://site.test/?camox-draft=d1"), "d1");
   assert.equal(draftNamedBy("/about"), null);
   assert.equal(withoutDraft("https://site.test/?a=1&camox-draft=d1"), "https://site.test/?a=1");

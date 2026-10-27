@@ -4,15 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { ICON_CATALOG_VERSION } from "@camox/api-contract";
+
 import { generateIconTypes } from "./iconGeneration";
 
 void test("type generation uses the pinned catalog and requires prefixed IDs", async () => {
   const root = mkdtempSync(join(tmpdir(), "camox-icons-"));
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
-    assert.match(
-      input instanceof Request ? input.url : String(input),
-      /@iconify\/json@2\.2\.532\/json\/generation-test.json$/,
+    // The version the API resolves icons from, so types and rendered icons agree.
+    assert.ok(
+      (input instanceof Request ? input.url : String(input)).endsWith(
+        `/@iconify/json@${ICON_CATALOG_VERSION}/json/generation-test.json`,
+      ),
     );
     return Response.json({
       prefix: "generation-test",

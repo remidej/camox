@@ -257,7 +257,7 @@ void test("preview views have only valid edit combinations across every transiti
       previewStore.send({ type });
       const snapshot = previewStore.getSnapshot();
       assert.equal(snapshot.context.view, expected[index], `${view} → ${type}`);
-      assert.equal(selectIsCanvasShown(snapshot), snapshot.context.view === "canvas");
+      assert.equal(selectIsCanvasShown(snapshot), type === "showCanvas");
       if (type === "showCanvas") assert.equal(snapshot.context.isToolbarHidden, false);
     }
   }

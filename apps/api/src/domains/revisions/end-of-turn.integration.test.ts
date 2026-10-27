@@ -14,7 +14,6 @@ import { createRpcContext, startDraft } from "../../../test/fixtures";
 import {
   broken,
   debuggerStatement,
-  failedBuild,
   failingMarker,
   lintedMarker,
   lintRuns,
@@ -112,53 +111,22 @@ describe("the end of a turn", () => {
 
     const view = await ask(thread, "Add a pricing section");
 
-    expect(toldAfterAnswering).toContain("Could not resolve './missing'");
+    // The agent is told the build's result as JSON, its errors located in their file.
+    const told = JSON.parse(toldAfterAnswering.slice(toldAfterAnswering.indexOf("{"))) as {
+      build: unknown[];
+    };
+    expect(told.build).toEqual([
+      expect.objectContaining({
+        file: PRICING_FILE,
+        line: 1,
+        message: "Could not resolve './missing' in src/blocks/pricing.tsx",
+      }),
+    ]);
     expect(said(view)).toEqual([
       { from: "editor", text: "Add a pricing section" },
       { from: "agent", text: "I added a pricing section, and fixed its import." },
     ]);
     expect(await fakes.readFile(website.project.uuid, draftId, PRICING_FILE)).toBe(PRICING);
-  });
-
-  it("hands the agent a hosted check's error naming an import it can't make, and it fixes it", async () => {
-    const marker = crypto.randomUUID();
-    // As the SDK's hosted checks fail the build (packages/sdk/src/features/vite/hostedChecks.ts).
-    await fakes.failBuildsOf(
-      marker,
-      failedBuild([
-        `[plugin camox]
-RolldownError: ${PRICING_FILE} imports "lodash-es", which a hosted project can't import. It can import files in src/, camox's public entry points and the packages package.json lists in dependencies.
-    at error (file:///workspace/website/node_modules/rolldown/dist/logs.mjs:166:24)`,
-      ]),
-    );
-    const website = await websiteWithCode();
-    const { draftId, thread } = await newDraftThread(website);
-    let told = "";
-    answerWithToolCall("write", {
-      path: PRICING_FILE,
-      content: `import { sortBy } from "lodash-es"; // ${marker}\n${PRICING}`,
-    });
-    answerNext("I added a pricing section.");
-    answerWithToolCallFrom("write", ({ editorMessages }) => {
-      told = editorMessages.at(-1)!;
-      return { path: PRICING_FILE, content: PRICING };
-    });
-    answerNext("I added a pricing section, without lodash.");
-
-    const view = await ask(thread, "Add a pricing section sorted by price");
-
-    const { build } = JSON.parse(told.slice(told.indexOf("{"))) as { build: unknown[] };
-    expect(build).toEqual([
-      expect.objectContaining({
-        file: PRICING_FILE,
-        message: expect.stringContaining(`imports "lodash-es"`),
-      }),
-    ]);
-    expect(said(view).at(-1)).toEqual({
-      from: "agent",
-      text: "I added a pricing section, without lodash.",
-    });
-    expect((await previewOf(website, draftId)).blockers).toEqual([]);
   });
 
   it("commits changes that keep failing to build once the limit is reached, and the agent explains", async () => {

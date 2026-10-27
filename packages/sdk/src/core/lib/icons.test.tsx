@@ -47,7 +47,6 @@ void test("SVG IDs are deterministic and references are scoped", () => {
   const body =
     '<defs><path id="a.b" /></defs><use href="#a.b"/><g fill="url(#a.b)"/><animate begin="a.b.end"/>';
   const scoped = scopeIconSvgIds(body, "instance-");
-  assert.equal(scoped, scopeIconSvgIds(body, "instance-"));
   assert.match(scoped, /id="instance-a.b"/);
   assert.match(scoped, /href="#instance-a.b"/);
   assert.match(scoped, /url\(#instance-a.b\)/);

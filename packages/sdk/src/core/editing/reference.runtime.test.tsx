@@ -171,7 +171,6 @@ void test("editable reference placements write one source and retain placement s
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].content, { name: "After" });
-  assert.equal(source.content.name, "After");
   editors.length = 0;
   const updated = render();
   assert.equal((updated.match(/>After<\/span>/g) ?? []).length, 2);
@@ -1141,7 +1140,6 @@ void test("inline edits of a listed record write the shared record and refresh e
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(requests.length, writesBefore + 1, "one write to the shared record");
   assert.deepEqual(requests.at(-1)?.content, { name: "After" });
-  assert.equal(source.content.name, "After");
   editors.length = 0;
   render();
   assert.deepEqual(

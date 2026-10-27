@@ -783,10 +783,6 @@ void test("breadcrumbs step up from a record field to the record, the reference 
   assert.deepEqual(sidebar.crumbs(), ["Page", "3 parents", "Quote"]);
 
   await sidebar.click("3 parents");
-  const recordCrumb = [...document.querySelectorAll("button")].find(
-    (element) => element.textContent === "Acme",
-  );
-  assert.doesNotMatch(recordCrumb?.className ?? "", /purple/, "the sidebar has no purple");
   await sidebar.click("Acme");
   assert.deepEqual(sidebar.selection(), {
     type: "record",

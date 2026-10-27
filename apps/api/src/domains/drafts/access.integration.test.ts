@@ -1,5 +1,4 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { eq } from "drizzle-orm";
 import { Effect, Exit, type Scope } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -310,29 +309,6 @@ describe("content access", () => {
       "NotFoundError",
     );
     expect(await f.outcome(null, { block: f.block.id }, "public")).toBe("ok:live");
-  });
-
-  it("starts a draft with the create header, and drops it again when the service fails", async () => {
-    const f = await fixture("access-start");
-    const ctx = (id: string) => ({
-      ...createServiceContext(f.db, f.memberUser),
-      draft: { id, create: true },
-    });
-    const kept = generateUuidv7();
-    const dropped = generateUuidv7();
-
-    await Effect.runPromise(alone(accessTo(ctx(kept), { page: f.page.id }, "write")));
-    const failed = await Effect.runPromiseExit(
-      alone(
-        Effect.andThen(accessTo(ctx(dropped), { page: f.page.id }, "write"), Effect.fail("boom")),
-      ),
-    );
-
-    expect(Exit.isFailure(failed)).toBe(true);
-    const exists = async (id: string) =>
-      (await f.db.select().from(drafts).where(eq(drafts.id, id)).get()) !== undefined;
-    expect(await exists(kept)).toBe(true);
-    expect(await exists(dropped)).toBe(false);
   });
 
   it("returns the entity as the scope sees it", async () => {

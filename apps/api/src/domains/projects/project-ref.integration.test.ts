@@ -260,9 +260,10 @@ describe("A project's name in an input", () => {
     "collectionDefinitions.list": (f, names) =>
       call(router.collectionDefinitions.list, names as ProjectRef, f.member()),
   };
-  const cases = Object.keys(invalidNames).flatMap((names) =>
-    Object.keys(procedures).map((procedure) => [names, procedure] as const),
-  );
+  // A read named by its slug is covered above, with the other reads.
+  const cases = Object.keys(invalidNames)
+    .flatMap((names) => Object.keys(procedures).map((procedure) => [names, procedure] as const))
+    .filter(([names, procedure]) => names !== "its slug" || procedure === "definitions.sync");
 
   it.each(cases)("is rejected when it's %s (%s)", async (names, procedure) => {
     const f = await fixtureWithContent();

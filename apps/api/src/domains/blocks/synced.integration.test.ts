@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -216,7 +216,7 @@ describe("a synced block's shared content", () => {
     ).toMatchObject(expected);
   });
 
-  it("stores nothing but identity, position and slot in placements, and no sync key", async () => {
+  it("stores nothing but identity, position and slot in placements", async () => {
     const { db, ctx, page, first, second, project } = await fixture("shared-storage", true);
     const onPage = await seedLiveThrough(ctx, project.id, (draft) =>
       createBlock(inScope(ctx, draft), {
@@ -245,11 +245,6 @@ describe("a synced block's shared content", () => {
     ).toMatchObject({
       title: "Shared",
     });
-
-    const columns = await db.all<{ name: string }>(
-      sql`select name from pragma_table_info('repeatable_items')`,
-    );
-    expect(columns.map(({ name }) => name)).not.toContain("sync_key");
   });
 });
 
@@ -463,7 +458,7 @@ describe("reading a synced placement", () => {
 });
 
 describe("getSyncedBlockContent", () => {
-  it("returns a Synced Block's shared draft content", async () => {
+  it("returns a Synced Block's shared content with its settings and items", async () => {
     const { ctx, project, second } = await fixture("synced-content", true);
     await seedLiveThrough(ctx, project.id, (draft) =>
       updateBlockContent(inScope(ctx, draft), {

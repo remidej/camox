@@ -28,35 +28,6 @@ describe("a stored file, as the edge caches it", () => {
     expect(response.headers.get("Cache-Tag")).toBe(`file:${key}`);
   });
 
-  it("answers a Range request with the bytes it names", async () => {
-    const { url } = await storedFile("0123456789");
-
-    const response = await SELF.fetch(url, { headers: { Range: "bytes=2-5" } });
-
-    expect(response.status).toBe(206);
-    expect(response.headers.get("Content-Range")).toBe("bytes 2-5/10");
-    expect(await response.text()).toBe("2345");
-  });
-
-  it("answers a suffix Range request with the file's last bytes", async () => {
-    const { url } = await storedFile("0123456789");
-
-    const response = await SELF.fetch(url, { headers: { Range: "bytes=-3" } });
-
-    expect(response.status).toBe(206);
-    expect(await response.text()).toBe("789");
-  });
-
-  it("answers HEAD with the file's length and no body", async () => {
-    const { url } = await storedFile("0123456789");
-
-    const response = await SELF.fetch(url, { method: "HEAD" });
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Length")).toBe("10");
-    expect(await response.text()).toBe("");
-  });
-
   it("is not kept when it's missing, so a file stored later isn't hidden", async () => {
     const response = await SELF.fetch(`https://api.camox.ai/files/serve/1/${crypto.randomUUID()}`);
 

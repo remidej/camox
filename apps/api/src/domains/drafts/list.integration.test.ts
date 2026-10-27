@@ -146,12 +146,15 @@ describe("listing drafts", () => {
     const deleted = generateUuidv7();
     await createBlock(me, startingDraft(published));
     await createBlock(me, startingDraft(deleted));
+    const listed = async () => (await list()).drafts.map((draft) => draft.id);
+    expect(await listed()).toEqual(expect.arrayContaining([published, deleted]));
 
     await publish(published);
     await deleteDraft(deleted);
 
-    expect((await list()).drafts.map((draft) => draft.id)).not.toContain(published);
-    expect((await list()).drafts.map((draft) => draft.id)).not.toContain(deleted);
+    const after = await listed();
+    expect(after).not.toContain(published);
+    expect(after).not.toContain(deleted);
   });
 
   it("never lists development drafts, the caller's included", async () => {

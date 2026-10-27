@@ -143,10 +143,12 @@ void test("all adjacent format combinations preserve whitespace and punctuation"
 
 void test("legacy Lexical objects and strings retain formatting", () => {
   const state = markdownToLexicalState("<highlight>***nimble***</highlight>");
-  assert.equal(
-    renderToStaticMarkup(markdownToReactNodes(state)),
-    renderToStaticMarkup(markdownToReactNodes(JSON.stringify(state))),
-  );
+  for (const legacy of [state, JSON.stringify(state)]) {
+    assert.match(
+      renderToStaticMarkup(markdownToReactNodes(legacy)),
+      /<span data-camox-highlight[^>]*><strong style="font-style:italic">nimble<\/strong><\/span>/,
+    );
+  }
   assert.equal(
     parseInlineMarkdown("***both***")[0].format,
     FORMAT_FLAGS.bold | FORMAT_FLAGS.italic,

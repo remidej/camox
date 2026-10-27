@@ -96,7 +96,7 @@ describe("deleting a project", () => {
         { id: project.id },
         { context: createRpcContext(db, outsiderUser) },
       ),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     expect(await env.PROJECT_SLUGS.get(project.slug)).toBe(project.uuid);
   });

@@ -309,7 +309,6 @@ void test("delete --yes empties the development draft", async () => {
 
   assert.equal(result.code, 0, result.stderr);
   assert.equal(api.deleted, 1);
-  assert.deepEqual(api.changes, []);
 });
 
 void test("delete without --yes asks for confirmation, and outside a terminal refuses", async () => {

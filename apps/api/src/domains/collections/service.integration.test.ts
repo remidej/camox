@@ -130,7 +130,7 @@ describe("authenticated collection browsing", () => {
     });
     await expect(
       runService(getCollectionRecord(createServiceContext(f.db, f.outsiderUser), input)),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(
       runService(getCollectionRecord(f.ctx, { ...input, collectionId: "other" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -329,7 +329,7 @@ describe("collection record lifecycle", () => {
     });
     await expect(
       runService(deleteRecord(createServiceContext(f.db, f.outsiderUser), input)),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     await f.sync([definition, { ...definition, collectionId: "other" }]);
     await expect(
       f.live((c) => deleteRecord(c, { ...input, collectionId: "other" })),
@@ -406,7 +406,7 @@ describe("collection record lifecycle", () => {
     ])
       await expect(
         f.live((c) => createRecord(c, { ...f.scope, content: invalid })),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     for (const fieldType of ["Repeater", "Link", "Icon", "Reference", "ReferenceList"]) {
       const malformed = {
         ...definition,
@@ -495,7 +495,9 @@ describe("collection record lifecycle", () => {
       },
       { ...article, body: markdownToLexicalState("[Integer page id](camox:page:1)") },
     ])
-      await expect(f.live((c) => createRecord(c, { ...f.scope, content: bad }))).rejects.toThrow();
+      await expect(
+        f.live((c) => createRecord(c, { ...f.scope, content: bad })),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("stores a text link to a page by the page's UUIDv7", async () => {
@@ -544,17 +546,20 @@ describe("collection record lifecycle", () => {
     const input = { ...f.scope, id: record.id };
     const outsider = createServiceContext(f.db, f.outsiderUser);
     for (const ctx of [f.publicCtx, outsider]) {
+      const denied = { code: ctx.user ? "FORBIDDEN" : "UNAUTHORIZED" };
       await expect(
         runService(createRecord(ctx, { ...f.scope, content: article })),
-      ).rejects.toThrow();
-      await expect(runService(editRecord(ctx, { ...input, content: article }))).rejects.toThrow();
-      await expect(runService(deleteRecord(ctx, input))).rejects.toThrow();
-      await expect(runService(getCollectionRecord(ctx, input))).rejects.toThrow();
+      ).rejects.toMatchObject(denied);
+      await expect(
+        runService(editRecord(ctx, { ...input, content: article })),
+      ).rejects.toMatchObject(denied);
+      await expect(runService(deleteRecord(ctx, input))).rejects.toMatchObject(denied);
+      await expect(runService(getCollectionRecord(ctx, input))).rejects.toMatchObject(denied);
     }
     const anotherProject = await fixture("another-project");
     await expect(
       runService(getCollectionRecord(anotherProject.ctx, { ...input, ...anotherProject.scope })),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
       anotherProject.live((c) =>
         editRecord(c, { ...input, ...anotherProject.scope, content: article }),
@@ -580,7 +585,7 @@ describe("collection record lifecycle", () => {
     await f.sync([definition, { ...definition, collectionId: "customers" }]);
     await expect(
       f.live((c) => editRecord(c, { ...input, collectionId: "customers", content: article })),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("rejects malformed content and validates file ownership", async () => {
@@ -593,7 +598,9 @@ describe("collection record lifecycle", () => {
       { ...article, cover: placeholder },
       { ...article, cover: { _fileId: (await f.insertFile("doc.pdf", "application/pdf")).id } },
     ]) {
-      await expect(f.live((c) => createRecord(c, { ...f.scope, content }))).rejects.toThrow();
+      await expect(f.live((c) => createRecord(c, { ...f.scope, content }))).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
     }
     const file = await f.insertFile("real.png");
     const record = await f.live((c) =>
@@ -626,10 +633,15 @@ describe("collection record lifecycle", () => {
         { context: createRpcContext(f.db, user) },
       );
     // Neither anonymous without the deploy token, nor a member naming no development draft.
-    await expect(unauthorizedSync(null)).rejects.toThrow();
-    await expect(unauthorizedSync(f.memberUser)).rejects.toThrow();
-    await expect(f.sync([{ ...definition, toTitle: "{{cover}}" }])).rejects.toThrow();
-    await expect(f.sync([definition, definition])).rejects.toThrow();
+    await expect(unauthorizedSync(null)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(unauthorizedSync(f.memberUser)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(f.sync([{ ...definition, toTitle: "{{cover}}" }])).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(f.sync([definition, definition])).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Duplicate collection IDs",
+    });
     const record = await f.live((c) => createRecord(c, { ...f.scope, content: article }));
     await f.sync([{ ...definition, title: "Renamed articles", toTitle: "{{slug}}" }]);
     await f.sync();

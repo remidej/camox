@@ -201,7 +201,11 @@ describe("stable page tree identity", () => {
         ["moveBlock", { id, position: "first" }],
         ["deleteBlock", { id }],
       ] as const) {
-        expect(await tool(f, name, args)).toMatchObject({ ok: false });
+        // Rejected by the tool's input schema, not by a lookup that finds nothing.
+        expect(await tool(f, name, args), `${name} ${JSON.stringify(args)}`).toMatchObject({
+          ok: false,
+          error: { code: "INVALID_INPUT" },
+        });
       }
     }
     expect(await callSeedingLive(blockRoutes.get, { id: block.id }, f.options)).toMatchObject({

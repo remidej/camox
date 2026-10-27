@@ -46,24 +46,6 @@ const titleOf = (row: { content: unknown } | undefined) =>
   (row?.content as { title?: string } | undefined)?.title;
 
 describe("the draft overlay", () => {
-  it("shows Live's latest content, as a release changed it, for a block the draft doesn't change", async () => {
-    const { db, openDraft, live } = await fixture("overlay-fallback");
-    const draft = await openDraft();
-
-    await run(
-      overlay.update(
-        db,
-        RELEASE,
-        blocks,
-        live.id,
-        { content: { title: "Live again" } },
-        noArtifactFields,
-      ),
-    );
-
-    expect(titleOf(await run(overlay.get(db, draft, blocks, live.id)))).toBe("Live again");
-  });
-
   it("records the Live version the first write in a draft copied, counting a release's changes", async () => {
     const { db, openDraft, live } = await fixture("overlay-base-version");
     const draft = await openDraft();

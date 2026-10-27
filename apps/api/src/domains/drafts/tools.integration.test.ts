@@ -160,13 +160,16 @@ describe("draft AI tools", () => {
     expect(await f.titleIn()).toBe("Live");
   });
 
-  it("no longer offers the environment tools", async () => {
+  it("answers a tool it doesn't offer as unknown, naming the ones it does", async () => {
     const f = await fixture();
-    for (const name of ["checkEnvironmentCompatibility", "replicateEnvironment"]) {
-      expect(await f.callTool(name, { direction: "push" })).toMatchObject({
-        ok: false,
-        error: { code: "UNKNOWN_TOOL" },
-      });
-    }
+
+    expect(await f.callTool("notATool")).toMatchObject({
+      ok: false,
+      error: {
+        code: "UNKNOWN_TOOL",
+        message: expect.stringContaining("notATool"),
+        details: { available: expect.arrayContaining(["previewPublish", "deleteDraft"]) },
+      },
+    });
   });
 });

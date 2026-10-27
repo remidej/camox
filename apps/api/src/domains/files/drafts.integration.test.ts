@@ -377,8 +377,8 @@ describe("files in drafts", () => {
     const f = await fixture();
     const image = await f.upload();
     const missing = generateUuidv7();
-    const onLive = await f.createBlock({ title: "Live", image: { _fileId: image.id } });
-    await f.seedBlock({
+    await f.createBlock({ title: "Live", image: { _fileId: image.id } });
+    const brokenOnLive = await f.seedBlock({
       title: "Broken on Live",
       image: { _fileId: image.id },
       datasheet: { _fileId: missing },
@@ -391,8 +391,7 @@ describe("files in drafts", () => {
 
     const { blockers, warnings } = await f.preview(draftId);
     expect(f.codes(blockers)).toEqual([["missingFile", changed.id]]);
-    expect(f.codes(warnings).map(([code]) => code)).toEqual(["missingFile"]);
-    expect(f.codes(warnings)).not.toContainEqual(["missingFile", onLive.id]);
+    expect(f.codes(warnings)).toEqual([["missingFile", brokenOnLive.id]]);
   });
 
   it("a file the draft adds whose bytes are missing blocks publishing", async () => {

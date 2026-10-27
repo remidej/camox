@@ -135,17 +135,6 @@ void test("path targeting, project override and reads", async () => {
   assert.equal(calls.at(-1).input.name, "getPage");
 });
 
-void test("no longer publishes, unpublishes or discards a single page", async () => {
-  for (const subcommand of ["publish", "unpublish", "discard-changes"]) {
-    const count = calls.length;
-    const result = await cli(subcommand, "--path", "/about");
-    assert.notEqual(result.code, 0, subcommand);
-    assert.equal(calls.length, count, subcommand);
-  }
-  const read = await cli("get", "--path", "/about", "--live");
-  assert.notEqual(read.code, 0);
-});
-
 void test("rejects invalid combinations before any request", async () => {
   for (const args of [
     ["set-seo"],
@@ -165,19 +154,6 @@ void test("rejects invalid combinations before any request", async () => {
     assert.equal(JSON.parse(result.stderr).code, "INVALID_ARGS", args.join(" "));
     assert.equal(result.stdout, "");
     assert.equal(calls.length, count, args.join(" "));
-  }
-});
-
-void test("update no longer accepts SEO fields", async () => {
-  for (const flags of [
-    ["--meta-title", "About"],
-    ["--meta-description", "Team"],
-    ["--ai-seo", "on"],
-  ]) {
-    const count = calls.length;
-    const result = await cli("update", "--id", PAGE_ID, "--nickname", "About", ...flags);
-    assert.notEqual(result.code, 0, flags.join(" "));
-    assert.equal(calls.length, count, flags.join(" "));
   }
 });
 

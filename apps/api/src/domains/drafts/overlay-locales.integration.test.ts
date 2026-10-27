@@ -273,7 +273,7 @@ describe("content keyed by locale", () => {
   });
 
   it("refuses to publish over a conflict shown in another locale", async () => {
-    const { db, openDraft, publish, localizedBlock } = await fixture("locales-guard");
+    const { db, openDraft, publish, localizedBlock, titleIn } = await fixture("locales-guard");
     const id = await localizedBlock();
     const draft = await openDraft();
     await run(
@@ -301,6 +301,11 @@ describe("content keyed by locale", () => {
     const [conflict] = await run(overlay.conflictsOf(db, draft));
 
     await expect(publish(draft, [["block", id, conflict!.liveVersion, "en"]])).rejects.toThrow();
+    expect(await titleIn(inLocale(null, "de"), id)).toBe("Moin");
+
+    // Shown in its own locale, the same conflict publishes: only the locale was wrong.
+    await publish(draft, [["block", id, conflict!.liveVersion, "de"]]);
+    expect(await titleIn(inLocale(null, "de"), id)).toBe("Servus");
   });
 
   it("loses a change whose parent is missing from its locale", async () => {

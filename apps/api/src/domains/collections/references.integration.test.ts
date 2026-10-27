@@ -39,6 +39,12 @@ const deleteFromLive = (db: Database, id: string) =>
 const customer = (owner: { references: ResolvedReferences }) =>
   owner.references.customer as ResolvedReference | null;
 
+/** The message `validateReferenceSchema` rejects `schema` with. */
+const rejectionOf = (schema: unknown, allow = true) =>
+  Effect.runSync(Effect.flip(validateReferenceSchema(schema, allow))).message;
+const OUTSIDE_CONTENT =
+  "References and reference lists are only supported in block and item content";
+
 async function fixture(assets = false) {
   const f = await createProjectFixture(`references-${crypto.randomUUID()}`);
   const ctx = createServiceContext(f.db, f.memberUser);
@@ -265,16 +271,12 @@ describe("single collection references", () => {
 
   it("rejects nested references and references without a collection; an empty reference saves", async () => {
     const f = await fixture();
-    expect(() =>
-      Effect.runSync(
-        validateReferenceSchema({ properties: { nested: { properties: f.schema.properties } } }),
-      ),
-    ).toThrow();
-    expect(() =>
-      Effect.runSync(
-        validateReferenceSchema({ properties: { list: { fieldType: "ReferenceList" } } }),
-      ),
-    ).toThrow();
+    expect(rejectionOf({ properties: { nested: { properties: f.schema.properties } } })).toBe(
+      OUTSIDE_CONTENT,
+    );
+    expect(rejectionOf({ properties: { list: { fieldType: "ReferenceList" } } })).toBe(
+      "Reference requires collectionId",
+    );
     await f.live((draft) =>
       updateBlockContent(inScope(f.ctx, draft), { id: f.block.id, content: { customer: null } }),
     );
@@ -373,13 +375,21 @@ describe("reference lists", () => {
   it("accepts reference lists at the top level of block and item content only", async () => {
     const accepted = { properties: { customers: referenceList() } };
     expect(() => Effect.runSync(validateReferenceSchema(accepted))).not.toThrow();
-    for (const [schema, allow] of [
-      [{ properties: { nested: accepted } }, true],
-      [{ properties: { items: { fieldType: "Repeater", itemSettingsSchema: accepted } } }, true],
-      [accepted, false],
-      [{ properties: { customers: { ...referenceList(), collectionId: undefined } } }, true],
+    for (const [schema, allow, message] of [
+      [{ properties: { nested: accepted } }, true, OUTSIDE_CONTENT],
+      [
+        { properties: { items: { fieldType: "Repeater", itemSettingsSchema: accepted } } },
+        true,
+        OUTSIDE_CONTENT,
+      ],
+      [accepted, false, OUTSIDE_CONTENT],
+      [
+        { properties: { customers: { ...referenceList(), collectionId: undefined } } },
+        true,
+        "Reference requires collectionId",
+      ],
     ] as const) {
-      expect(() => Effect.runSync(validateReferenceSchema(schema, allow))).toThrow();
+      expect(rejectionOf(schema, allow)).toBe(message);
     }
     const f = await fixture();
     await expect(
@@ -599,19 +609,17 @@ describe("references in repeatable items", () => {
     ]) {
       expect(() => Effect.runSync(validateReferenceSchema(schema))).not.toThrow();
     }
-    expect(() =>
-      Effect.runSync(
-        validateReferenceSchema({
-          properties: {
-            items: {
-              fieldType: "Repeater",
-              items: { properties: {} },
-              itemSettingsSchema: { properties: { customer: reference } },
-            },
+    expect(
+      rejectionOf({
+        properties: {
+          items: {
+            fieldType: "Repeater",
+            items: { properties: {} },
+            itemSettingsSchema: { properties: { customer: reference } },
           },
-        }),
-      ),
-    ).toThrow();
+        },
+      }),
+    ).toBe(OUTSIDE_CONTENT);
   });
 
   it("stores item references, resolves them per item and keeps settings local to the placement", async () => {

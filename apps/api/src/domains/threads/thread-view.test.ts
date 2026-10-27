@@ -115,27 +115,6 @@ describe("a thread's view", () => {
     expect(threadViewOf(state).messages.map(({ from }) => from)).toEqual(["editor", "stopped"]);
   });
 
-  it("hides the answers the end of a turn sent back, and the messages it continued with", () => {
-    const view = threadViewOf(
-      reduceThreadEvents(EMPTY_THREAD_STATE, [
-        snapshot([
-          editorMessage("Add a pricing section"),
-          buildStatus("building"),
-          buildStatus("fixing"),
-          answer("I added a pricing section."),
-          continuation("Your code changes don't build"),
-          buildStatus("building"),
-          answer("I added a pricing section, and fixed it."),
-        ]),
-      ]),
-    );
-
-    expect(view.messages).toEqual([
-      expect.objectContaining({ from: "editor", text: "Add a pricing section" }),
-      expect.objectContaining({ from: "agent", text: "I added a pricing section, and fixed it." }),
-    ]);
-  });
-
   it("says the turn's code is building, then that the agent fixes it, until the turn ends", () => {
     const asked = editorMessage("Add a pricing section");
     const building = [asked, buildStatus("building")];

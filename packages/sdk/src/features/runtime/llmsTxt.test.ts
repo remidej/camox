@@ -278,9 +278,16 @@ void test("llms.txt fails visibly when Route Discovery fails", async (t) => {
   assert.match(((await response!.json()) as { message: string }).message, /PokéAPI is down/);
 });
 
-void test("llms.txt fails when the API isn't configured", async () => {
+void test("llms.txt fails when the API isn't configured, reading nothing", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("An unconfigured runtime has no API to read");
+  });
   const response = await llmsTxt([defaultLayout], { apiUrl: undefined });
   assert.equal(response?.status, 500);
+  assert.match(
+    ((await response!.json()) as { message: string }).message,
+    /llms\.txt is not configured/,
+  );
 });
 
 void test("llms.txt is plain text that clients can revalidate", async (t) => {

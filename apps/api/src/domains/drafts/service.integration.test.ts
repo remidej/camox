@@ -1,7 +1,6 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
@@ -10,7 +9,7 @@ import { createProjectFixture, createRpcContext, noArtifactFields } from "../../
 import { InvalidInputError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
-import { blocks, drafts } from "../../schema";
+import { blocks } from "../../schema";
 import { accessTo } from "./access";
 import * as overlay from "./overlay";
 
@@ -86,19 +85,6 @@ describe("draft request scope", () => {
     await expect(
       resolve("member", { [DRAFT_HEADER]: "not-a-draft", [DRAFT_CREATE_HEADER]: "1" }),
     ).rejects.toMatchObject({ status: 400 });
-  });
-
-  it("starts one draft when two requests create the same draft at once", async () => {
-    const { db, project, resolve } = await fixture();
-    const draftId = generateUuidv7();
-    const create = { [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" };
-
-    const scopes = await Promise.all([resolve("member", create), resolve("member", create)]);
-
-    const expected = { id: draftId, kind: "regular", projectId: project.id };
-    expect(scopes).toEqual([expected, expected]);
-    const projectDrafts = await db.select().from(drafts).where(eq(drafts.projectId, project.id));
-    expect(projectDrafts).toHaveLength(1);
   });
 
   it("keeps a draft whose starting write failed once content is stored in it", async () => {

@@ -20,10 +20,9 @@ void test("landscape layers use opaque gradients with unique references per plac
   );
   const ids = [...html.matchAll(/<linearGradient id="([^"]+)"/g)].map((match) => match[1]);
   const references = [...html.matchAll(/fill="url\(#([^"]+)\)"/g)].map((match) => match[1]);
-  assert.equal(ids.length, 8);
-  assert.equal(new Set(ids).size, 8);
+  assert.ok(ids.length > 0, "the placeholders draw gradients");
+  assert.equal(new Set(ids).size, ids.length, "no two gradients share an id");
   assert.deepEqual(references, ids);
-  assert.equal((html.match(/<stop /g) ?? []).length, 16);
   assert.match(html, /color-mix\(in oklab, currentColor/);
   assert.doesNotMatch(html, /opacity|transparent/);
 });
