@@ -1,6 +1,7 @@
 import { getSandbox } from "@cloudflare/sandbox";
 
 import { HOSTED_BUILD } from "../../lib/hosted-build";
+import { type SpanFields, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { lintErrorsOf } from "./lint-log";
 import type { LintError } from "./result";
@@ -100,10 +101,16 @@ type Tree = { files: Uint8Array; lockfile: string | null };
 export async function checkTypesInSandbox(
   env: Pick<Bindings, "REVISION_SANDBOX">,
   draftId: string,
+  span: SpanFields = { draftId },
 ): Promise<SandboxTypeCheck> {
   const sandbox = sessionlessSandboxOf(env, draftId);
   await sandbox.writeFile(`${WORKSPACE}/${TYPE_CHECK_CONFIG}`, TYPE_CHECK_CONFIG_CONTENT);
-  const checked = await sandbox.exec(TYPE_CHECK_COMMAND, { cwd: WORKSPACE, env: { CI: "1" } });
+  const checked = await timed(
+    "revision.sandbox.typeCheck",
+    span,
+    () => sandbox.exec(TYPE_CHECK_COMMAND, { cwd: WORKSPACE, env: { CI: "1" } }),
+    ({ exitCode }) => ({ exitCode }),
+  );
   const output = `${checked.stdout}\n${checked.stderr}`;
   if (checked.exitCode === 0) return { ok: true, output };
   // Any other exit, such as tsrs missing or crashing, isn't a verdict on the code.
@@ -124,6 +131,7 @@ async function workspaceWith(
   env: Pick<Bindings, "REVISION_SANDBOX">,
   draftId: string,
   { files, lockfile }: Tree,
+  span: SpanFields,
 ) {
   const sandbox = sandboxOf(env, draftId);
   const run = async (command: string, options: { env?: Record<string, string> } = {}) => {
@@ -136,21 +144,31 @@ async function workspaceWith(
     return result;
   };
 
-  await sandbox.writeFile(TREE_ARCHIVE, new Blob([files]).stream());
-  await sandbox.exec(`mkdir -p ${WORKSPACE}`);
-  await run(
-    `find . -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} + && tar -xf ${TREE_ARCHIVE} -C .`,
-  );
+  await timed("revision.sandbox.writeTree", { ...span, bytes: files.byteLength }, async () => {
+    await sandbox.writeFile(TREE_ARCHIVE, new Blob([files]).stream());
+    await sandbox.exec(`mkdir -p ${WORKSPACE}`);
+    await run(
+      `find . -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} + && tar -xf ${TREE_ARCHIVE} -C .`,
+    );
+  });
 
-  // The lockfile is platform-owned: an install that fails is the sandbox's failure.
-  const installed = (await sandbox.exists(INSTALLED_LOCKFILE)).exists
-    ? (await sandbox.readFile(INSTALLED_LOCKFILE)).content
-    : null;
-  const wanted = await digest(lockfile ?? "");
-  if (installed !== wanted) {
-    await run("pnpm install --frozen-lockfile", { env: { CI: "1" } });
-    await sandbox.writeFile(INSTALLED_LOCKFILE, wanted);
-  }
+  // The lockfile is platform-owned: an install that fails is the sandbox's failure. A sandbox
+  // that kept its install for this lockfile skips it: `installed` says whether it ran.
+  await timed(
+    "revision.sandbox.install",
+    span,
+    async () => {
+      const installed = (await sandbox.exists(INSTALLED_LOCKFILE)).exists
+        ? (await sandbox.readFile(INSTALLED_LOCKFILE)).content
+        : null;
+      const wanted = await digest(lockfile ?? "");
+      if (installed === wanted) return false;
+      await run("pnpm install --frozen-lockfile", { env: { CI: "1" } });
+      await sandbox.writeFile(INSTALLED_LOCKFILE, wanted);
+      return true;
+    },
+    (installed) => ({ installed }),
+  );
   return { sandbox, run };
 }
 
@@ -163,25 +181,32 @@ export async function buildInSandbox(
   env: Pick<Bindings, "REVISION_SANDBOX">,
   draftId: string,
   tree: Tree,
+  span: SpanFields = { draftId },
 ): Promise<SandboxBuild> {
-  const { sandbox, run } = await workspaceWith(env, draftId, tree);
+  const { sandbox, run } = await workspaceWith(env, draftId, tree, span);
 
-  const typeCheck = checkTypesInSandbox(env, draftId);
+  const typeCheck = checkTypesInSandbox(env, draftId, span);
   // A build that fails drops its check: nothing waits on it then.
   typeCheck.catch(() => undefined);
-  const built = await sandbox.exec("pnpm exec vp build", {
-    cwd: WORKSPACE,
-    env: VITE_ENV,
-  });
+  const built = await timed(
+    "revision.sandbox.viteBuild",
+    span,
+    () => sandbox.exec("pnpm exec vp build", { cwd: WORKSPACE, env: VITE_ENV }),
+    ({ success }) => ({ built: success }),
+  );
   if (!built.success) return { ok: false, log: `${built.stdout}\n${built.stderr}` };
 
-  await run(`tar -czf ${BUILD_ARCHIVE} -C . dist`);
-  const { content } = await sandbox.readFile(BUILD_ARCHIVE, { encoding: "base64" });
-  return {
-    ok: true,
-    archive: Uint8Array.from(atob(content), (char) => char.charCodeAt(0)),
-    typeCheck,
-  };
+  const archive = await timed(
+    "revision.sandbox.archive",
+    span,
+    async () => {
+      await run(`tar -czf ${BUILD_ARCHIVE} -C . dist`);
+      const { content } = await sandbox.readFile(BUILD_ARCHIVE, { encoding: "base64" });
+      return Uint8Array.from(atob(content), (char) => char.charCodeAt(0));
+    },
+    ({ byteLength }) => ({ bytes: byteLength }),
+  );
+  return { ok: true, archive, typeCheck };
 }
 
 /**
@@ -193,11 +218,14 @@ export async function lintInSandbox(
   env: Pick<Bindings, "REVISION_SANDBOX">,
   draftId: string,
   tree: Tree,
+  span: SpanFields = { draftId },
 ): Promise<LintError[]> {
-  const { sandbox } = await workspaceWith(env, draftId, tree);
+  const { sandbox } = await workspaceWith(env, draftId, tree, span);
   const command = "pnpm exec vp lint --format json src";
   // Exits non-zero when it finds an error, which its report then lists.
-  const linted = await sandbox.exec(command, { cwd: WORKSPACE, env: VITE_ENV });
+  const linted = await timed("revision.sandbox.lint", span, () =>
+    sandbox.exec(command, { cwd: WORKSPACE, env: VITE_ENV }),
+  );
   const errors = lintErrorsOf(linted.stdout);
   if (!errors) {
     throw new SandboxError(

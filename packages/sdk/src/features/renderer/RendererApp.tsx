@@ -13,6 +13,7 @@ import { type LocationState, NavigationProvider } from "../navigation/navigation
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { BlockPeek } from "../preview/components/BlockPeek";
 import { FrameContext } from "../preview/components/Frame";
+import { restyle } from "../preview/components/previewStyles";
 import { EditablePageContent } from "../preview/EditablePageContent";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import { StudioNoticeContext } from "../preview/studioNotice";
@@ -262,6 +263,13 @@ function FramePage({
     }),
   );
   if (codeLoaded) React.use(codeLoaded);
+  // The studio's page loaded its frames with the site document Live's Worker rendered, so a
+  // draft with code's frames start with Live's stylesheets, which lack its new classes. The page
+  // read here is the draft's own: its stylesheets are the ones its blocks need.
+  const frameWindow = React.use(FrameContext).window;
+  React.useLayoutEffect(() => {
+    if (frameWindow && input.previewDocument) restyle(frameWindow, input.previewDocument);
+  }, [frameWindow, input.previewDocument]);
   const rendered = React.useEffectEvent(onRendered);
   React.useEffect(() => rendered(), [input]);
   return (

@@ -13,7 +13,7 @@ import {
   ViewportContinuityContext,
 } from "../viewportContinuity";
 import { PreviewActivationContext } from "./PreviewActivation";
-import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
+import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle, restyle } from "./previewStyles";
 
 interface FrameContextValue {
   window: Window | null;
@@ -50,30 +50,6 @@ interface FrameProps {
    * its links never navigate, so it neither scrolls nor follows them.
    */
   inCanvas?: boolean;
-}
-
-/** The stylesheets of a document's head that are the site's: not the studio's. */
-const SITE_STYLESHEETS = 'link[rel~="stylesheet"], style';
-const siteStylesheetsOf = (head: HTMLHeadElement) =>
-  Array.from(head.querySelectorAll<HTMLElement>(SITE_STYLESHEETS)).filter(
-    (element) => element.parentElement === head && isSiteStyle(element),
-  );
-
-/**
- * Gives the frame's document the site stylesheets of `html`, a site document: the ones it no
- * longer has go, and its new ones are added, the rest of the frame left as it is.
- */
-function restyle(frame: Window, html: string) {
-  const doc = frame.document;
-  const { DOMParser } = frame as Window & typeof globalThis;
-  const wanted = siteStylesheetsOf(new DOMParser().parseFromString(html, "text/html").head);
-  const held = siteStylesheetsOf(doc.head);
-  const wantedMarkup = new Set(wanted.map((element) => element.outerHTML));
-  const heldMarkup = new Set(held.map((element) => element.outerHTML));
-  for (const element of held) if (!wantedMarkup.has(element.outerHTML)) element.remove();
-  for (const element of wanted) {
-    if (!heldMarkup.has(element.outerHTML)) doc.head.appendChild(doc.importNode(element, true));
-  }
 }
 
 function ClearServerMarkup({ nodes }: { nodes: ChildNode[] }) {
@@ -197,8 +173,9 @@ export const Frame = ({
     };
   }, [copyStyles, onIframeReady, srcDoc]);
 
-  // A new revision's document, its Theme's stylesheets with it, restyles the frame in place:
-  // the frame keeps its page and its position (spec #560, section 1).
+  // A new page document, its Theme's stylesheets with it, restyles the frame in place: the frame
+  // keeps its page and its position (spec #560, section 1). The renderer does the same with the
+  // page it reads, which for a draft with code is the revision's, not this server-rendered one.
   React.useLayoutEffect(() => {
     if (!iframeWindow || !previewDocument || srcDoc === EMPTY_PREVIEW_DOCUMENT) return;
     restyle(iframeWindow, previewDocument);
