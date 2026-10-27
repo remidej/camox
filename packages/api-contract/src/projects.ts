@@ -42,8 +42,12 @@ export const projectSlugSchema = /* @__PURE__ */ z
     "Use lowercase letters, digits and hyphens, without a hyphen at either end",
   );
 
-/** The address a project's website is served at: its Project Slug's `camox.site` subdomain. */
-export const projectWebsiteUrl = (slug: string) => `https://${slug}.camox.site`;
+/**
+ * The address a project's website is served at: its Custom Domain when it has one, else its
+ * Project Slug's `camox.site` subdomain, which then redirects to it (ADR 0028).
+ */
+export const projectWebsiteUrl = (project: { slug: string; customDomain: string | null }) =>
+  `https://${project.customDomain ?? `${project.slug}.camox.site`}`;
 
 /** Why a slug can't be given to a new project. */
 export type UnavailableSlugReason = "invalid" | "reserved" | "taken";

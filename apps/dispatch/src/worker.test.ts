@@ -24,15 +24,44 @@ const OTHER_PROJECT = "0b8e6a4f-0000-4000-8000-000000000000";
 type UserWorker = (request: Request) => Response | Promise<Response>;
 
 /**
- * The bindings as Cloudflare gives them, backed by a plain slug map, the user Workers deployed so
- * far, and the API naming the publish's Worker that serves a project, if any (`liveScripts`).
+ * The `camox-project-slugs` KV namespace holding `slugs` and `customDomains`, written as the
+ * operator doc in README.md says: each Custom Domain maps to its Project ID, and its project's
+ * slug entry names it in its metadata.
+ */
+function fakeProjectHosts(
+  slugs: Record<string, string>,
+  customDomains: Record<string, string> = {},
+) {
+  const entries = new Map<string, { value: string; metadata: unknown }>();
+  for (const [slug, uuid] of Object.entries(slugs)) {
+    const customDomain = Object.keys(customDomains).find(
+      (domain) => customDomains[domain] === uuid,
+    );
+    entries.set(slug, { value: uuid, metadata: customDomain ? { customDomain } : null });
+  }
+  for (const [domain, uuid] of Object.entries(customDomains)) {
+    entries.set(domain, { value: uuid, metadata: null });
+  }
+  return {
+    get: async (key: string) => entries.get(key)?.value ?? null,
+    getWithMetadata: async (key: string) =>
+      entries.get(key) ?? { value: null, metadata: null, cacheStatus: null },
+  } as unknown as KVNamespace;
+}
+
+/**
+ * The bindings as Cloudflare gives them, backed by a plain slug map and Custom Domain map, the
+ * user Workers deployed so far, and the API naming the publish's Worker that serves a project, if
+ * any (`liveScripts`).
  */
 function fakeEnv({
   slugs = {},
+  customDomains = {},
   workers = {},
   liveScripts = {},
 }: {
   slugs?: Record<string, string>;
+  customDomains?: Record<string, string>;
   workers?: Record<string, UserWorker>;
   liveScripts?: Record<string, string>;
 }) {
@@ -45,9 +74,7 @@ function fakeEnv({
       },
     },
     liveScriptsAsked: asked,
-    PROJECT_SLUGS: {
-      get: async (key: string) => slugs[key] ?? null,
-    },
+    PROJECT_SLUGS: fakeProjectHosts(slugs, customDomains),
     DISPATCHER: {
       get: (name: string) => {
         const userWorker = workers[name];
@@ -241,6 +268,60 @@ describe("dispatch Worker", () => {
     expect(await response.text()).toBe("the release's code");
   });
 
+  it("serves a project's website at its Custom Domain", async () => {
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID, globex: OTHER_PROJECT },
+      customDomains: { "acme.example": ACME_UUID },
+      workers: {
+        [ACME_UUID]: (request) => new Response(`acme website at ${new URL(request.url).pathname}`),
+        [OTHER_PROJECT]: () => new Response("another website"),
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://acme.example/pricing"),
+      env,
+      context(env),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("acme website at /pricing");
+  });
+
+  it("redirects a project's camox.site address to its Custom Domain, path and query kept", async () => {
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      customDomains: { "acme.example": ACME_UUID },
+      workers: { [ACME_UUID]: () => new Response("acme website") },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://acme.camox.site/blog/hello?ref=newsletter&page=2"),
+      env,
+      context(env),
+    );
+
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe(
+      "https://acme.example/blog/hello?ref=newsletter&page=2",
+    );
+  });
+
+  it.each([
+    ["a subdomain of a Custom Domain", "https://www.acme.example/"],
+    ["a Custom Domain under camox.site", "https://acme.example.camox.site/"],
+  ])("answers %s with a not-found page", async (_, url) => {
+    const env = fakeEnv({
+      slugs: { acme: ACME_UUID },
+      customDomains: { "acme.example": ACME_UUID },
+      workers: { [ACME_UUID]: () => new Response("acme website") },
+    });
+
+    const response = await worker.fetch(new Request(url), env, context(env));
+
+    expect(response.status).toBe(404);
+  });
+
   it("lets other user Worker failures through", async () => {
     const env = fakeEnv({
       slugs: { acme: ACME_UUID },
@@ -265,13 +346,14 @@ const mirrored = (session: string) => `camox_auth_cookie=${encodeURIComponent(se
  * Dispatch's bindings for Acme's website, whose Live code is its user Worker, with a draft with
  * code previewing `revision`, which only `MEMBER_SESSION` can see, as the API answers.
  */
-async function previewingEnv() {
+async function previewingEnv({ customDomain }: { customDomain?: string } = {}) {
   const loader = fakeLoader();
   const builds = fakeBucket({ [ARCHIVE_KEY]: await archived(BUILD) });
   const asked: { project: string; draft: string; session: string }[] = [];
   const env = {
     ...fakeEnv({
       slugs: { acme: PROJECT },
+      customDomains: customDomain ? { [customDomain]: PROJECT } : {},
       workers: {
         [PROJECT]: (request) => {
           const url = new URL(request.url);
@@ -294,7 +376,11 @@ async function previewingEnv() {
     },
   } as unknown as Env;
   const fetch = (path: string, headers: Record<string, string> = {}) =>
-    worker.fetch(new Request(`https://acme.camox.site${path}`, { headers }), env, context(env));
+    worker.fetch(
+      new Request(`https://${customDomain ?? "acme.camox.site"}${path}`, { headers }),
+      env,
+      context(env),
+    );
   return { env, asked, loader, builds, fetch };
 }
 
@@ -311,6 +397,16 @@ describe("a draft with code's preview", () => {
     const response = await fetch(path, { cookie: mirrored(MEMBER_SESSION) });
 
     expect(await response.text()).toBe(`The revision under ${PREFIX} at ${path}`);
+  });
+
+  it("reaches its previewed revision for a member on the project's Custom Domain", async () => {
+    const { fetch, asked } = await previewingEnv({ customDomain: "acme.example" });
+    const path = `/_camox/data?path=%2Fpricing&camox-draft=${DRAFT}`;
+
+    const response = await fetch(path, { cookie: mirrored(MEMBER_SESSION) });
+
+    expect(await response.text()).toBe(`The revision under ${PREFIX} at ${path}`);
+    expect(asked).toEqual([{ project: PROJECT, draft: DRAFT, session: MEMBER_SESSION }]);
   });
 
   it("reaches it with Better Auth's own cookie too, as on the API's host", async () => {
@@ -453,6 +549,16 @@ describe("a revision's client assets", () => {
     expect(await response.text()).toBe(PRICING_CSS);
   });
 
+  it("are served on the project's Custom Domain", async () => {
+    const previewing = await previewingEnv({ customDomain: "acme.example" });
+    await new CamoxRevisions(context(previewing.env), previewing.env).prepare(revision);
+
+    const response = await previewing.fetch(`${PREFIX}assets/pricing.css`);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(PRICING_CSS);
+  });
+
   it("are served with their scripts' content type", async () => {
     const { fetch } = await prewarmed();
 
@@ -472,9 +578,7 @@ describe("a revision's client assets", () => {
   it("aren't served on another project's host", async () => {
     const { env } = await prewarmed();
     const slugs: Record<string, string> = { acme: PROJECT, globex: OTHER_PROJECT };
-    (env as unknown as { PROJECT_SLUGS: unknown }).PROJECT_SLUGS = {
-      get: async (slug: string) => slugs[slug] ?? null,
-    };
+    (env as unknown as { PROJECT_SLUGS: unknown }).PROJECT_SLUGS = fakeProjectHosts(slugs);
 
     const response = await worker.fetch(
       new Request(`https://globex.camox.site${PREFIX}assets/pricing.css`),

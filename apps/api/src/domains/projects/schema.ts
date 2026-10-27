@@ -16,6 +16,12 @@ export const projects = sqliteTable(
      */
     uuid: text().notNull().$defaultFn(generateUuidv7),
     slug: text().notNull(),
+    /**
+     * The domain the project's website is served at instead of its `<slug>.camox.site` subdomain,
+     * which then redirects to it (ADR 0028). Only operators set it, writing dispatch's KV map too
+     * (apps/dispatch/README.md).
+     */
+    customDomain: text("custom_domain"),
     name: text().notNull(),
     deployToken: text("deploy_token").notNull().default(""),
     /** `settingUp` until its first release succeeds, then `live`, or `setupFailed`. */
@@ -66,6 +72,7 @@ export const projects = sqliteTable(
   (table) => [
     uniqueIndex("projects_uuid_idx").on(table.uuid),
     uniqueIndex("projects_slug_idx").on(table.slug),
+    uniqueIndex("projects_custom_domain_idx").on(table.customDomain),
     index("projects_organization_idx").on(table.organizationId),
   ],
 );

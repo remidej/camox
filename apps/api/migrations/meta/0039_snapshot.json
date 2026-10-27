@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "010eb89d-8356-4560-984c-d7666544f634",
+  "id": "1c104d7c-6d2d-4103-80dc-610e41e52c22",
   "prevId": "a0a9cb6d-a380-44be-a80a-c42556b4dfa0",
   "tables": {
     "account": {
@@ -570,6 +570,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "custom_domain": {
+          "name": "custom_domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -671,14 +678,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "code_outside_camox": {
-          "name": "code_outside_camox",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -703,6 +702,11 @@
         "projects_slug_idx": {
           "name": "projects_slug_idx",
           "columns": ["slug"],
+          "isUnique": true
+        },
+        "projects_custom_domain_idx": {
+          "name": "projects_custom_domain_idx",
+          "columns": ["custom_domain"],
           "isUnique": true
         },
         "projects_organization_idx": {
