@@ -21,6 +21,7 @@ import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
+import { reportTranslation } from "../patrol/translator";
 import {
   type Bookkeeping,
   readBookkeeping,
@@ -61,7 +62,9 @@ const copyOf = (row: Row) =>
 /**
  * Runs a translation job, unless its request is gone because its draft ended, was emptied or
  * dropped the locale since. A job that fails for good leaves the localization as it was and
- * settles its request, so its locale stops showing as translating.
+ * settles its request, so its locale stops showing as translating. The Translator reports what
+ * the job wrote, or that it failed, before it settles (ADR 0024): settling may publish a
+ * catch-up draft, which ends its reports.
  */
 export const runTranslationJob = Effect.fn("translation.run")(function* (
   db: Database,
@@ -72,26 +75,33 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
   const startedAt = Date.now();
   if (draft) {
     const run = job.source === "defaults" ? translateDefaults : translate;
-    yield* run(db, draft, job).pipe(
-      Effect.catchCause((cause) => Effect.logError(`[translation] ${jobName(job)} failed`, cause)),
+    const outcome = yield* run(db, draft, job).pipe(
+      Effect.map((wrote) => (wrote ? ("done" as const) : null)),
+      Effect.catchCause((cause) =>
+        Effect.logError(`[translation] ${jobName(job)} failed`, cause).pipe(
+          Effect.as("failed" as const),
+        ),
+      ),
     );
+    if (outcome) yield* reportTranslation(db, draft, job, outcome);
   }
   yield* settleTranslation(db, job, startedAt);
 });
 
+/** Translates a job's entity: whether it wrote its localization. */
 const translate = Effect.fn("translation.translate")(function* (
   db: Database,
   draft: Draft,
   job: TranslationJob,
 ) {
   const scope = yield* translationScope(db, draft, job);
-  if (!scope) return;
+  if (!scope) return false;
   const table = overlay.contentTableOf(job.entity);
   const source = (yield* overlay.get(db, draft, table, job.entityId)) as Row | undefined;
 
   if (job.source === "live") {
     const conflict = yield* liveConflictOf(db, scope, job);
-    if (!source || !conflict) return;
+    if (!source || !conflict) return false;
     const { live, stored, written } = conflict;
     const localized = yield* localize(db, scope, job, source, {
       // Live's localization, merged from Live's bookkeeping, keeps what Live changed and follows
@@ -106,8 +116,9 @@ const translate = Effect.fn("translation.translate")(function* (
       held: stored,
       edits: { values: valuesOf(stored), written },
     });
-    if (localized) yield* overlay.rebase(db, scope.target, table, job.entityId, live.version);
-    return;
+    if (localized === undefined) return false;
+    yield* overlay.rebase(db, scope.target, table, job.entityId, live.version);
+    return localized;
   }
 
   const current = (yield* overlay.get(db, scope.target, table, job.entityId)) as Row | undefined;
@@ -117,17 +128,19 @@ const translate = Effect.fn("translation.translate")(function* (
     if (current) yield* overlay.remove(db, scope.target, table, job.entityId);
     yield* dropDescendants(db, scope.target, { entity: job.entity, id: job.entityId });
     yield* releaseClaims(db, draft, job.locale, job.entityId);
-    return;
+    // Its subject is gone: there's nothing to report.
+    return false;
   }
   // A localization deleted from the locale stays deleted, and so does what's beneath it.
-  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return;
-  yield* localize(db, scope, job, source, {
+  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return false;
+  const localized = yield* localize(db, scope, job, source, {
     current,
     bookkeeping: current
       ? yield* readBookkeeping(db, scope.target, job.entity, job.entityId)
       : undefined,
     held: current,
   });
+  return localized ?? false;
 });
 
 /**
@@ -165,7 +178,8 @@ const liveConflictOf = Effect.fn("translation.liveConflictOf")(function* (
  * back `edits` made by hand in another copy, and writes the result into the draft unless the
  * draft already holds it (`held`), with its bookkeeping. A `current` without bookkeeping, next to
  * another copy's, counts as edited by hand wherever it holds something else than Camox wrote
- * there (ADR 0016). False when the locale left the localization out while the model ran.
+ * there (ADR 0016). Whether it wrote the localization; undefined when the locale left it out
+ * while the model ran.
  */
 const localize = Effect.fn("translation.localize")(function* (
   db: Database,
@@ -196,7 +210,7 @@ const localize = Effect.fn("translation.localize")(function* (
   );
   if (edits) keepEdits(shape, merged, edits.values, edits.written.output);
   // The locale may have left it out while the model ran.
-  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return false;
+  if (yield* isLeftOut(db, draft, scope.target, job.entity, source)) return undefined;
   if (job.entity === "page") yield* placeLocalizedPage(db, scope, job.entityId, merged);
   if (isOrderedEntity(job.entity)) {
     const localizing = { entity: job.entity, source, current, bookkeeping };
@@ -235,7 +249,7 @@ const localize = Effect.fn("translation.localize")(function* (
       row: written,
     } as GenerationTarget);
   }
-  return true;
+  return written !== undefined;
 });
 
 const isGeneratedEntity = (

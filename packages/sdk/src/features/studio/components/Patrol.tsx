@@ -41,6 +41,7 @@ export function Patrol({ className }: { className?: string }) {
 
 function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boolean }) {
   const { data: view } = useReadQuery(reads.patrol({ projectId }));
+  const { data: locales } = useReadQuery(reads.localeList({ projectId }));
   // Each patroller keeps its own state, whatever its place in the roster.
   const [expanded, setExpanded] = React.useState<ReadonlySet<PatrollerId>>(new Set());
   const toggle = (id: PatrollerId) =>
@@ -51,10 +52,78 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
     });
   // The relative times move on while the Patrol stays open.
   const now = useNow(30_000);
-  if (!view) return null;
+  // While the pointer is over the Patrol, its order holds, so a report doesn't move away just as
+  // it's about to be clicked. Leaving applies the latest order.
+  const [heldOrder, setHeldOrder] = React.useState<readonly PatrollerId[] | null>(null);
+  const shown = view && inHeldOrder(view, heldOrder);
+  const roster = useMovingRows(shown?.patrollers.map(({ id }) => id).join(" "));
+  if (!shown) return null;
   return (
-    <PatrolRoster view={view} now={now} inDraft={inDraft} expanded={expanded} onToggle={toggle} />
+    <div
+      ref={roster}
+      className="relative"
+      onPointerEnter={() => setHeldOrder(shown.patrollers.map(({ id }) => id))}
+      onPointerLeave={() => setHeldOrder(null)}
+    >
+      <PatrolRoster
+        view={shown}
+        now={now}
+        inDraft={inDraft}
+        singleLocale={locales?.length === 1}
+        expanded={expanded}
+        onToggle={toggle}
+      />
+    </div>
   );
+}
+
+/**
+ * The view with its patrollers in the order held, if any, and its latest content: patrollers the
+ * order doesn't hold follow, in the view's order, and those no longer in the view are dropped.
+ */
+export function inHeldOrder(view: PatrolView, order: readonly PatrollerId[] | null): PatrolView {
+  if (!order) return view;
+  const place = (id: PatrollerId) => {
+    const index = order.indexOf(id);
+    return index === -1 ? order.length : index;
+  };
+  // A stable sort keeps the view's order among the patrollers the order doesn't hold.
+  return { ...view, patrollers: [...view.patrollers].sort((a, b) => place(a.id) - place(b.id)) };
+}
+
+/** How long a patroller takes to move to its new place, in ms. */
+const MOVE_DURATION = 250;
+/** A strong ease-out: the move starts at once and settles gently. */
+const MOVE_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+/**
+ * Moves each patroller from where it showed to its new place when the order (a key of their ids)
+ * changes, rather than jumping there. Without motion for editors who reduce it.
+ */
+function useMovingRows(order: string | undefined) {
+  const node = React.useRef<HTMLDivElement>(null);
+  /** Where each patroller showed, as of the last render, and in which order. */
+  const last = React.useRef<{ order: string | undefined; tops: Map<string, number> }>(null);
+  React.useLayoutEffect(() => {
+    const roster = node.current;
+    if (!roster) return;
+    const rows = [...roster.querySelectorAll<HTMLElement>("[data-patroller]")];
+    const tops = new Map(rows.map((row) => [row.dataset.patroller!, row.offsetTop]));
+    const previous = last.current;
+    last.current = { order, tops };
+    if (!previous || previous.order === order) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    for (const row of rows) {
+      const from = previous.tops.get(row.dataset.patroller!);
+      const to = tops.get(row.dataset.patroller!)!;
+      if (from === undefined || from === to) continue;
+      row.animate([{ transform: `translateY(${from - to}px)` }, { transform: "none" }], {
+        duration: MOVE_DURATION,
+        easing: MOVE_EASING,
+      });
+    }
+  });
+  return node;
 }
 
 /** The time now, updated every `intervalMs`. */
@@ -69,18 +138,21 @@ function useNow(intervalMs: number) {
 
 /**
  * A `PatrolView`, in the order it gives: each patroller's avatar, role, and when it last worked,
- * and the reports of the expanded ones. Live's reports carry a tag when a draft is viewed.
+ * and the reports of the expanded ones. Live's reports carry a tag when a draft is viewed. In a
+ * project with a single locale, the Translator invites the editor to add a language instead.
  */
 export function PatrolRoster({
   view,
   now,
   inDraft,
+  singleLocale,
   expanded,
   onToggle,
 }: {
   view: PatrolView;
   now: number;
   inDraft: boolean;
+  singleLocale: boolean;
   expanded: ReadonlySet<string>;
   onToggle: (id: PatrollerId) => void;
 }) {
@@ -92,6 +164,11 @@ export function PatrolRoster({
           patroller={patroller}
           now={now}
           inDraft={inDraft}
+          idle={
+            patroller.id === "translator" && singleLocale
+              ? "Add a language to translate into"
+              : undefined
+          }
           expanded={expanded.has(patroller.id)}
           onToggle={() => onToggle(patroller.id)}
         />
@@ -131,19 +208,24 @@ function PatrollerRow({
   patroller,
   now,
   inDraft,
+  idle,
   expanded,
   onToggle,
 }: {
   patroller: PatrollerView;
   now: number;
   inDraft: boolean;
+  /** What the patroller says while idle instead of when it last worked. */
+  idle: string | undefined;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const reportsId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
   const subtitle =
-    working ?? (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
+    working ??
+    idle ??
+    (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
   return (
     <li data-patroller={patroller.id} className="flex flex-col">
       <button

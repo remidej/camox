@@ -13,8 +13,10 @@ import { z } from "zod";
 
 import type { Database } from "../../db";
 import { decodeInput } from "../../lib/errors";
+import { blocks, collectionRecords, repeatableItems, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { selectInChunks } from "../content/chunks";
+import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import { catchUpDraftOf } from "../drafts/catch-up";
 import {
@@ -44,23 +46,68 @@ export const getPatrolInput = z.object({ projectId: z.number() });
 type ReportRow = typeof reports.$inferSelect;
 
 /**
- * Names the subjects of one entity a scope holds, by id: those it doesn't hold have no name. Each
- * entity a report can be about has one.
+ * Names the subjects of one entity a scope holds, by id, as the Canvas names them: those it
+ * doesn't hold have no name. Each entity a report can be about has one.
  */
 type Namer = (
   db: Database,
+  projectId: number,
   scope: ReadScope,
   ids: readonly string[],
 ) => Effect.Effect<Map<string, string>>;
 
-const NAMERS: Partial<Record<ReportEntity, Namer>> = {
-  page: (db, scope, ids) =>
+const NAMERS: Record<ReportEntity, Namer> = {
+  page: (db, _projectId, scope, ids) =>
     Effect.map(
       selectInChunks(db, scope, pages, ids, (chunk) => inArray(pages.id, chunk)),
       (rows) => new Map(rows.map((page) => [page.id, page.nickname])),
     ),
+  // Blocks and repeatable items by their summary, or their title until they have one.
+  block: (db, projectId, scope, ids) =>
+    Effect.gen(function* () {
+      const rows = yield* selectInChunks(db, scope, blocks, ids, (chunk) =>
+        inArray(blocks.id, chunk),
+      );
+      const shown = yield* contentReader({ db }, { projectId, draft: scope }).shown.blocks(rows);
+      return new Map(shown.map((block) => [block.id, block.summary || block.title || block.type]));
+    }),
+  repeatableItem: (db, projectId, scope, ids) =>
+    Effect.gen(function* () {
+      const rows = yield* selectInChunks(db, scope, repeatableItems, ids, (chunk) =>
+        inArray(repeatableItems.id, chunk),
+      );
+      const shown = yield* contentReader({ db }, { projectId, draft: scope }).shown.items(rows);
+      return new Map(shown.map((item) => [item.id, item.summary || item.title || item.fieldName]));
+    }),
+  // Shared content by the name of its synced block definition.
+  sharedContent: (db, projectId, scope, ids) =>
+    Effect.gen(function* () {
+      const rows = yield* selectInChunks(db, scope, sharedContents, ids, (chunk) =>
+        inArray(sharedContents.id, chunk),
+      );
+      const reader = contentReader({ db }, { projectId, draft: scope });
+      const names = new Map<string, string>();
+      for (const row of rows) {
+        names.set(row.id, (yield* reader.blockDefinition(row.type))?.title ?? row.type);
+      }
+      return names;
+    }),
+  record: (db, projectId, scope, ids) =>
+    Effect.gen(function* () {
+      const rows = yield* selectInChunks(db, scope, collectionRecords, ids, (chunk) =>
+        inArray(collectionRecords.id, chunk),
+      );
+      const reader = contentReader({ db }, { projectId, draft: scope });
+      const names = new Map<string, string>();
+      for (const [collectionId, inCollection] of Map.groupBy(rows, (row) => row.collectionId)) {
+        for (const record of yield* reader.shown.records(collectionId, inCollection)) {
+          names.set(record.id, record.title || record.id);
+        }
+      }
+      return names;
+    }),
   // Files aren't localized: a file's name is its filename in the default locale.
-  file: (db, scope, ids) =>
+  file: (db, _projectId, scope, ids) =>
     Effect.gen(function* () {
       const inDefault = inDefaultLocale(scope);
       const rows = yield* selectInChunks(db, inDefault, files, ids, (chunk) =>
@@ -107,10 +154,9 @@ const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
   }
   const names = new Map<ReportRow, string>();
   for (const group of groups.values()) {
-    const namer = NAMERS[group.entity];
-    if (!namer) continue;
-    const named = yield* namer(
+    const named = yield* NAMERS[group.entity](
       db,
+      projectId,
       group.scope,
       group.rows.map((row) => subjectOf(row)!.id),
     );
@@ -129,6 +175,7 @@ const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
  */
 const workingOn = Effect.fn("patrol.workingOn")(function* (
   db: Database,
+  projectId: number,
   pending: readonly PendingWork[],
   scope: Draft | null,
 ) {
@@ -140,8 +187,7 @@ const workingOn = Effect.fn("patrol.workingOn")(function* (
     return { working: { count: pending.length, subject: null, locale }, since };
   }
   const { entity, id } = pending[0]!;
-  const namer = NAMERS[entity];
-  const name = namer ? (yield* namer(db, scope, [id])).get(id) : undefined;
+  const name = (yield* NAMERS[entity](db, projectId, scope, [id])).get(id);
   const working: PatrollerWorking = {
     count: 1,
     subject: name === undefined ? null : { entity, id, name },
@@ -212,7 +258,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   const workScopes = viewed ? [viewed.id] : [null, ...(catchUp ? [catchUp.id] : [])];
   const working = yield* Effect.forEach(PATROLLERS, (patroller) =>
     Effect.flatMap(patroller.pending(ctx.db, projectId, workScopes), (pending) =>
-      workingOn(ctx.db, pending, viewed ? draftOf(viewed) : null),
+      workingOn(ctx.db, projectId, pending, viewed ? draftOf(viewed) : null),
     ),
   );
 

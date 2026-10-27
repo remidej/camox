@@ -7,7 +7,7 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { PatrolRoster } = await import("./Patrol");
+const { PatrolRoster, inHeldOrder } = await import("./Patrol");
 
 const now = Date.UTC(2026, 9, 27, 12);
 const minutes = (count: number) => now - count * 60_000;
@@ -61,13 +61,17 @@ const translator: PatrollerView = {
 };
 
 /** Renders the Patrol into a document, to read it as editors do. */
-function render(view: PatrolView, options: { expanded?: string[]; inDraft?: boolean } = {}) {
+function render(
+  view: PatrolView,
+  options: { expanded?: string[]; inDraft?: boolean; singleLocale?: boolean } = {},
+) {
   const { document } = new Window();
   document.body.innerHTML = renderToString(
     <PatrolRoster
       view={view}
       now={now}
       inDraft={options.inDraft ?? true}
+      singleLocale={options.singleLocale ?? false}
       expanded={new Set(options.expanded ?? [])}
       onToggle={() => {}}
     />,
@@ -85,6 +89,9 @@ function render(view: PatrolView, options: { expanded?: string[]; inDraft?: bool
       [...document.querySelectorAll(`[data-patroller="${id}"] [data-report]`)].map((row) =>
         [...row.children].map(text).join(" "),
       ),
+    expandedRole: text(
+      document.querySelector('[aria-expanded="true"]')?.querySelector("[data-patroller-role]"),
+    ),
     more: (id: string) => text(document.querySelector(`[data-patroller="${id}"] [data-more]`)),
   };
 }
@@ -101,6 +108,13 @@ void test("an idle patroller says when it last worked, and one that never worked
   const shown = render({ patrollers: [seoManager(), translator] });
 
   assert.deepEqual(shown.subtitles, ["2 minutes ago", ""]);
+});
+
+void test("in a single-locale project, the Translator invites the editor to add a language, whenever it last worked", () => {
+  const worked = { ...translator, lastActivityAt: minutes(2) };
+  const shown = render({ patrollers: [seoManager(), worked] }, { singleLocale: true });
+
+  assert.deepEqual(shown.subtitles, ["2 minutes ago", "Add a language to translate into"]);
 });
 
 void test("patrollers are collapsed until expanded", () => {
@@ -128,6 +142,38 @@ void test("Live's reports carry a Live tag in a draft only", () => {
   );
 
   assert.equal(shown.reports("seoManager")[2], "Described team.png in English 1h");
+});
+
+void test("the Translator's reports read as translations, merges with Live's included", () => {
+  const hero = { entity: "block" as const, id: "block-1", name: "hero" };
+  const footer = { entity: "sharedContent" as const, id: "footer", name: "Footer" };
+  const reports = [
+    report("1", {
+      summary: { kind: "structured", verb: "translated", subject: hero, locale: "es" },
+    }),
+    report("2", {
+      summary: { kind: "structured", verb: "mergedWithLive", subject: hero, locale: "de" },
+    }),
+    report("3", {
+      outcome: "failed",
+      summary: { kind: "structured", verb: "translated", subject: footer, locale: "fr" },
+    }),
+    report("4", {
+      live: true,
+      summary: { kind: "structured", verb: "publishedCatchUp", subject: null, locale: null },
+    }),
+  ];
+  const shown = render(
+    { patrollers: [{ ...translator, lastActivityAt: minutes(2), reports }] },
+    { expanded: ["translator"] },
+  );
+
+  assert.deepEqual(shown.reports("translator"), [
+    "Translated hero to Spanish 2m",
+    "Translated hero to German 2m",
+    "Couldn't translate Footer to French 2m",
+    "Published the caught-up translations Live 2m",
+  ]);
 });
 
 void test("an AI-written report shows as written", () => {
@@ -168,6 +214,7 @@ function renderOne(patroller: PatrollerView) {
       view={{ patrollers: [patroller] }}
       now={now}
       inDraft
+      singleLocale={false}
       expanded={new Set()}
       onToggle={() => {}}
     />,
@@ -235,4 +282,46 @@ void test("assistive technology hears the working state in words, once", () => {
   const idle = renderOne(seoManager());
   assert.equal(idle.announced, "");
   assert.ok(!idle.subtitleHidden);
+});
+
+void test("without a held order, the Patrol shows the order it's given", () => {
+  const view = { patrollers: [translator, seoManager()] };
+
+  assert.deepEqual(
+    inHeldOrder(view, null).patrollers.map(({ id }) => id),
+    ["translator", "seoManager"],
+  );
+});
+
+void test("a held order keeps patrollers in place but shows their latest content", () => {
+  const working = seoManager({ lastActivityAt: minutes(0) });
+
+  const shown = inHeldOrder({ patrollers: [working, translator] }, ["translator", "seoManager"]);
+
+  assert.deepEqual(
+    shown.patrollers.map(({ id }) => id),
+    ["translator", "seoManager"],
+  );
+  assert.equal(shown.patrollers[1], working);
+});
+
+void test("a patroller missing from the held order shows after the held ones, and a gone one is dropped", () => {
+  const shown = inHeldOrder({ patrollers: [seoManager(), translator] }, [
+    "translator",
+    "gone" as PatrollerView["id"],
+  ]);
+
+  assert.deepEqual(
+    shown.patrollers.map(({ id }) => id),
+    ["translator", "seoManager"],
+  );
+});
+
+void test("an expanded patroller stays expanded when it moves", () => {
+  const expanded = ["translator"];
+  const before = render({ patrollers: [seoManager(), translator] }, { expanded });
+  const after = render({ patrollers: [translator, seoManager()] }, { expanded });
+
+  assert.equal(before.expandedRole, "Translator");
+  assert.equal(after.expandedRole, "Translator");
 });
