@@ -29,6 +29,13 @@ export const BUILD_STATUS_ENTRY = "camox.build-status";
  */
 export const RECONCILE_ENTRY = "camox.reconcile";
 
+/**
+ * The kind of the transcript entry opening a draft's thread a Live thread handed a request off
+ * to: the Brief, which the model reads and editors see as from Camox, ahead of the editor's
+ * messages.
+ */
+export const BRIEF_ENTRY = "camox.brief";
+
 export const reconcileDataSchema = z.object({ message: z.string() });
 
 export const buildStatusSchema = z.enum(["building", "fixing"]);
@@ -270,6 +277,7 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
     if (entry.kind === EDITOR_MESSAGE_ENTRY) {
       return sender && { id, type: "editor", sender, text: textOf(message.content) };
     }
+    if (entry.kind === BRIEF_ENTRY) return { id, type: "camox", text: textOf(message.content) };
     if (entry.kind === RECONCILE_ENTRY) {
       const reconcile = reconcileDataSchema.safeParse(entry.data).data;
       return reconcile && { id, type: "camox", text: reconcile.message };

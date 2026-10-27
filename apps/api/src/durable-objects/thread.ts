@@ -1,5 +1,6 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
+  BRIEF_ENTRY,
   BUILD_STATUS_ENTRY,
   type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
@@ -179,6 +180,26 @@ const participantSchema = z.object({
   apiOrigin: z.string(),
 });
 type Participant = z.infer<typeof participantSchema>;
+
+/**
+ * How the API opens a draft's thread with no studio connected (`Thread.open`): what it belongs
+ * to, the API's public origin, the Brief from Camox, and the messages the editor sent, oldest
+ * first, each with the operation id it was sent with.
+ */
+export type ThreadOpening = {
+  identity: ThreadIdentity;
+  apiOrigin: string;
+  brief: string;
+  editor: ThreadSender;
+  messages: { operationId: string; text: string }[];
+};
+
+/** A user message of `text`, as Pi places an input. */
+const userMessage = (text: string) => ({
+  role: "user" as const,
+  content: [{ type: "text" as const, text }],
+  timestamp: Date.now(),
+});
 
 /** What a thread nobody messaged yet shows: no messages, without opening Pi, which would store. */
 const NOT_STARTED: SnapshotEvent = {
@@ -862,7 +883,7 @@ export class Thread extends DurableObject<Bindings> {
     // A thread whose write started a draft may not have moved into it yet: a teammate opening
     // the draft, or the editor coming back to Live, finishes the move first.
     const known = await this.#settle();
-    if (known && !this.#admits(known, participant.data)) {
+    if (known && !this.#admits(known, participant.data.identity)) {
       connection.close(1008, "Unauthorized");
       return;
     }
@@ -874,7 +895,7 @@ export class Thread extends DurableObject<Bindings> {
    * Whether a started thread reaches a participant: a draft's thread reaches whoever the API let
    * into that draft; a Live thread only ever reaches its owner.
    */
-  #admits(known: ThreadIdentity, { identity }: Participant) {
+  #admits(known: ThreadIdentity, identity: ThreadIdentity) {
     if (belongsTo(known, identity)) return true;
     console.error("A thread refused a connection naming another project, draft or owner", {
       known,
@@ -1144,12 +1165,68 @@ export class Thread extends DurableObject<Bindings> {
    * Starts the thread with a participant's first message, unless it started: records what it
    * belongs to, and shows Pi's events on every socket. False when it belongs to another project, draft or owner.
    */
-  async #start(participant: Participant): Promise<boolean> {
+  async #start(identity: ThreadIdentity): Promise<boolean> {
     const known = await this.#knownIdentity();
-    if (known) return this.#admits(known, participant);
-    await this.ctx.storage.put(IDENTITY_KEY, participant.identity);
+    if (known) return this.#admits(known, identity);
+    await this.ctx.storage.put(IDENTITY_KEY, identity);
     for (const socket of this.ctx.getWebSockets()) await this.#watch(socket);
     return true;
+  }
+
+  /** Records the API's public origin, as the connection of the last message, or the API, named it. */
+  async #recordApiOrigin(apiOrigin: string) {
+    if ((await this.ctx.storage.get(API_ORIGIN_KEY)) !== apiOrigin) {
+      await this.ctx.storage.put(API_ORIGIN_KEY, apiOrigin);
+    }
+  }
+
+  /**
+   * Opens the thread from the API, with no studio connected, as a Live thread handing a request
+   * off to a draft does (ADR 0025): records what it belongs to and the API's origin, adds the
+   * Brief, which the model reads and studios show as from Camox, then the editor's messages
+   * under their name, and starts the agent's run, which acts as that editor. Every message but
+   * the last goes in before the run, the last starting it, so the model reads them all on its
+   * first call. Repeating it changes nothing.
+   */
+  async open({ identity, apiOrigin, brief, editor, messages }: ThreadOpening): Promise<void> {
+    const [first] = messages;
+    const last = messages.at(-1);
+    if (!first || !last) throw new Error("A thread opens with at least one editor's message");
+    if (await this.#hasEnded()) throw new Error("The thread ended with its draft");
+    if (!(await this.#start(identity))) {
+      throw new Error("The thread belongs to another project, draft or owner");
+    }
+    await this.#recordApiOrigin(apiOrigin);
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    if (!root) throw new Error("The thread has no conversation to open");
+    const entryOf = (operationId: string) => ({
+      kind: EDITOR_MESSAGE_ENTRY,
+      data: { ...editor, operationId },
+    });
+    // Request ids keep each entry to one write, however many times the thread is opened.
+    await root.submit(
+      {
+        type: "write",
+        requestId: `${BRIEF_ENTRY}:${first.operationId}`,
+        entry: { kind: BRIEF_ENTRY, model: [userMessage(brief)] },
+      },
+      BACKGROUND,
+    );
+    for (const { operationId, text } of messages.slice(0, -1)) {
+      await root.submit(
+        {
+          type: "write",
+          requestId: operationId,
+          entry: { ...entryOf(operationId), model: [userMessage(text)] },
+        },
+        BACKGROUND,
+      );
+    }
+    await this.harness.submit(last.text, {
+      whenBusy: "steer",
+      operationId: last.operationId,
+      entry: entryOf(last.operationId),
+    });
   }
 
   async #watch(socket: WebSocket) {
@@ -1196,14 +1273,11 @@ export class Thread extends DurableObject<Bindings> {
     }
     switch (message.type) {
       case "send": {
-        if (!(await this.#start(participant.data))) {
+        if (!(await this.#start(participant.data.identity))) {
           connection.close(1008, "Unauthorized");
           return;
         }
-        const { apiOrigin } = participant.data;
-        if ((await this.ctx.storage.get(API_ORIGIN_KEY)) !== apiOrigin) {
-          await this.ctx.storage.put(API_ORIGIN_KEY, apiOrigin);
-        }
+        await this.#recordApiOrigin(participant.data.apiOrigin);
         try {
           // A message sent while the agent works joins its run after the current round of tool
           // calls, instead of waiting for a run of its own.
