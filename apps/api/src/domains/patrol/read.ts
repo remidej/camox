@@ -1,5 +1,6 @@
 import {
   type PatrollerView,
+  type PatrollerWorking,
   type PatrolView,
   type ReportPlace,
   type ReportEntity,
@@ -33,6 +34,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { pages } from "../pages/schema";
 import { PATROLLERS } from "./patrollers";
 import { reports } from "./schema";
+import type { PendingWork } from "./working";
 
 // The Patrol read (ADR 0024): every patroller of the registry, with its reports in the scope the
 // studio views. A draft sees its own reports and Live's; Live sees its own. The catch-up draft's
@@ -217,6 +219,40 @@ const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
   return names;
 });
 
+/**
+ * What a patroller's pending work says it's on, and since when it's been on it: how many
+ * subjects, with the one subject, named in the scope's default locale, when there's one, and
+ * the locale when they share one.
+ */
+const workingOn = Effect.fn("patrol.workingOn")(function* (
+  db: Database,
+  projectId: number,
+  pending: readonly PendingWork[],
+  scope: Draft | null,
+) {
+  if (pending.length === 0) return { working: null, since: undefined };
+  const since = Math.min(...pending.map((work) => work.requestedAt));
+  const locales = new Set(pending.map((work) => work.locale));
+  const locale = locales.size === 1 ? pending[0]!.locale : null;
+  if (pending.length > 1) {
+    return { working: { count: pending.length, subject: null, locale }, since };
+  }
+  const { entity, id } = pending[0]!;
+  const name = (yield* NAMERS[entity](db, projectId, scope, [id])).get(id)?.name;
+  const working: PatrollerWorking = {
+    count: 1,
+    subject: name === undefined ? null : { entity, id, name },
+    locale,
+  };
+  return { working, since };
+});
+
+/** The latest of some times, or null when none is known. */
+const latest = (...times: (number | undefined)[]) => {
+  const known = times.filter((time) => time !== undefined);
+  return known.length > 0 ? Math.max(...known) : null;
+};
+
 /** Newest first; a report written later wins a tie. */
 const newestFirst = (a: ReportRow, b: ReportRow) => b.at - a.at || b.rowId - a.rowId;
 
@@ -270,7 +306,15 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
     };
   };
 
-  const patrollers = PATROLLERS.map((patroller): PatrollerView => {
+  // What's pending in the scope viewed: on Live, the catch-up draft's work is Live's.
+  const workScopes = viewed ? [viewed.id] : [null, ...(catchUp ? [catchUp.id] : [])];
+  const working = yield* Effect.forEach(PATROLLERS, (patroller) =>
+    Effect.flatMap(patroller.pending(ctx.db, projectId, workScopes), (pending) =>
+      workingOn(ctx.db, projectId, pending, viewed ? draftOf(viewed) : null),
+    ),
+  );
+
+  const patrollers = PATROLLERS.map((patroller, index): PatrollerView => {
     const own = shown.filter((row) => row.patroller === patroller.id).sort(newestFirst);
     const rest = new Map<string | null, number>();
     for (const row of own.slice(REPORTS_SHOWN)) {
@@ -279,8 +323,8 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
     return {
       id: patroller.id,
       role: patroller.role,
-      working: null,
-      lastActivityAt: own[0]?.at ?? null,
+      working: working[index]!.working,
+      lastActivityAt: latest(own[0]?.at, working[index]!.since),
       reports: own.slice(0, REPORTS_SHOWN).map(viewOf),
       more: [...rest]
         .map(([locale, count]) => ({ locale, count }))

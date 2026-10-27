@@ -212,6 +212,87 @@ void test("the reports not shown are counted by locale", () => {
   assert.equal(shown.more("seoManager"), "…and 212 more in German, 3 in French");
 });
 
+const hero = { entity: "block" as const, id: "block-1", name: "hero" };
+
+/** Renders one patroller, and reads its subtitle, working indicator and announced state. */
+function renderOne(patroller: PatrollerView) {
+  const { document } = new Window();
+  document.body.innerHTML = renderToString(
+    <PatrolRoster
+      view={{ patrollers: [patroller] }}
+      now={now}
+      inDraft
+      singleLocale={false}
+      expanded={new Set()}
+      onToggle={() => {}}
+      onShow={() => {}}
+    />,
+  );
+  const row = document.querySelector("[data-patroller]")!;
+  const text = (element: { textContent: string | null } | null) =>
+    element?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+  const subtitle = row.querySelector("[data-patroller-subtitle]");
+  return {
+    subtitle: text(subtitle),
+    subtitleHidden: subtitle?.getAttribute("aria-hidden") === "true",
+    announced: text(row.querySelector("[data-working-status]")),
+    indicator: row.querySelector("[data-working-indicator]"),
+  };
+}
+
+const translating = (working: PatrollerView["working"]): PatrollerView => ({
+  ...translator,
+  lastActivityAt: minutes(1),
+  working,
+});
+
+void test("a working patroller's subtitle names its one subject and the locale", () => {
+  const shown = renderOne(translating({ count: 1, subject: hero, locale: "es" }));
+
+  assert.equal(shown.subtitle, "Translating hero into Spanish");
+});
+
+void test("a working patroller's subtitle counts a burst into a locale", () => {
+  const shown = renderOne(translating({ count: 38, subject: null, locale: "de" }));
+
+  assert.equal(shown.subtitle, "Translating 38 items into German");
+});
+
+void test("a burst across locales is counted without naming one", () => {
+  const shown = renderOne(translating({ count: 76, subject: null, locale: null }));
+
+  assert.equal(shown.subtitle, "Translating 76 items");
+});
+
+void test("the SEO manager says what it's writing, or which file it's describing", () => {
+  const writing = renderOne(seoManager({ working: { count: 1, subject: pricing, locale: "fr" } }));
+  assert.equal(writing.subtitle, "Writing SEO for Pricing in French");
+
+  const describing = renderOne(seoManager({ working: { count: 1, subject: team, locale: "en" } }));
+  assert.equal(describing.subtitle, "Describing team.png in English");
+
+  const burst = renderOne(seoManager({ working: { count: 3, subject: null, locale: "de" } }));
+  assert.equal(burst.subtitle, "Writing SEO for 3 items in German");
+});
+
+void test("the avatar circle shows a working indicator only while working", () => {
+  const working = renderOne(translating({ count: 1, subject: hero, locale: "es" }));
+  assert.ok(working.indicator);
+  assert.equal(working.indicator.getAttribute("aria-hidden"), "true");
+
+  assert.equal(renderOne(seoManager()).indicator, null);
+});
+
+void test("assistive technology hears the working state in words, once", () => {
+  const working = renderOne(translating({ count: 1, subject: hero, locale: "es" }));
+  assert.equal(working.announced, "Working: translating hero into Spanish");
+  assert.ok(working.subtitleHidden);
+
+  const idle = renderOne(seoManager());
+  assert.equal(idle.announced, "");
+  assert.ok(!idle.subtitleHidden);
+});
+
 void test("without a held order, the Patrol shows the order it's given", () => {
   const view = { patrollers: [translator, seoManager()] };
 
