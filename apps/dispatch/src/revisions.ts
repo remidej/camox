@@ -185,25 +185,34 @@ export async function prewarmRevision(
   env: RevisionBindings,
   toLoad: RevisionToLoad,
   gateway: (props: GatewayProps) => Fetcher,
-): Promise<void> {
+): Promise<PrewarmTimings> {
+  const startedAt = Date.now();
   const files = await buildFiles(env, toLoad);
+  const assets = [...files].filter(([path]) => path.startsWith(CLIENT_DIR));
   await Promise.all(
-    [...files]
-      .filter(([path]) => path.startsWith(CLIENT_DIR))
-      .map(([path, content]) =>
-        env.REVISION_BUILDS.put(
-          revisionAssetKey(toLoad.project, toLoad.revision, path.slice(CLIENT_DIR.length)),
-          content,
-          { httpMetadata: { contentType: contentTypeOf(path) } },
-        ),
+    assets.map(([path, content]) =>
+      env.REVISION_BUILDS.put(
+        revisionAssetKey(toLoad.project, toLoad.revision, path.slice(CLIENT_DIR.length)),
+        content,
+        { httpMetadata: { contentType: contentTypeOf(path) } },
       ),
+    ),
   );
+  const storedAt = Date.now();
   const rendered = await loadRevision(env, toLoad, gateway)
     .getEntrypoint()
     .fetch(new Request("https://prewarm.camox.invalid" + RENDERER_DOCUMENT_PATH));
   // Its body is drained so the render runs to its end; how it went isn't the prewarm's to judge.
   await rendered.arrayBuffer();
+  return { assets: assets.length, assetsMs: storedAt - startedAt, renderMs: Date.now() - storedAt };
 }
+
+/**
+ * What a prewarm took, for the API's timing logs: how many client assets it stored, how long
+ * reading the build and storing them took, then the first render. Mirrored in
+ * apps/api/src/domains/revisions/dispatch.ts: keep the two in sync.
+ */
+export type PrewarmTimings = { assets: number; assetsMs: number; renderMs: number };
 
 /** The renderer document's path (`RUNTIME_ROUTE_PATHS.renderer` in `camox`). */
 export const RENDERER_DOCUMENT_PATH = "/_camox/renderer";

@@ -7,6 +7,7 @@ import {
   isMissingBuild,
   isRevisionAssetPath,
   loadRevision,
+  type PrewarmTimings,
   prewarmRevision,
   readDefinitionSet,
   type RevisionBindings,
@@ -67,7 +68,7 @@ export class CamoxRevisions extends WorkerEntrypoint<Env> {
    * Readies a revision before its draft's viewers are told of it: its client assets are served
    * from then on, and it's loaded and rendered once.
    */
-  prewarm(revision: RevisionToLoad): Promise<void> {
+  prewarm(revision: RevisionToLoad): Promise<PrewarmTimings> {
     return prewarmRevision(this.env, revision, gatewayOf(this.ctx));
   }
 }

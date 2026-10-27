@@ -6,6 +6,7 @@ import { createDb } from "../../db";
 import type { PreparedCommit } from "../../durable-objects/draft-code";
 import { projectRooms } from "../../lib/project-rooms";
 import { runService } from "../../lib/run-service";
+import { errorField, logSpan, type SpanFields, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { agentServiceContext } from "../_shared/service-context";
 import { syncRevisionDefinitions } from "../definitions/service";
@@ -42,15 +43,44 @@ export class BuildInfrastructureError extends Error {
   }
 }
 
-/** Runs `step`, trying it again after a failure, with a growing delay, before giving up. */
-export async function retried<T>(step: () => Promise<T>): Promise<T> {
+/** A timing span of a retried step: its name, its fields, and what to read of its result. */
+type RetriedSpan<T> = { name: string; fields: SpanFields; after?: (result: T) => SpanFields };
+
+/**
+ * Runs `step`, trying it again after a failure, with a growing delay, before giving up. With
+ * `span`, logs how long it took, retries and their waits included, and its `attempts`.
+ */
+export async function retried<T>(step: () => Promise<T>, span?: RetriedSpan<T>): Promise<T> {
+  const startedAt = Date.now();
   for (let attempt = 1; ; attempt++) {
     try {
-      return await step();
+      const result = await step();
+      if (span) {
+        logSpan(span.name, Date.now() - startedAt, {
+          ...span.fields,
+          ...span.after?.(result),
+          attempts: attempt,
+          ok: true,
+        });
+      }
+      return result;
     } catch (error) {
-      if (attempt >= INFRASTRUCTURE_ATTEMPTS) throw new BuildInfrastructureError(error);
+      if (attempt >= INFRASTRUCTURE_ATTEMPTS) {
+        if (span) {
+          logSpan(span.name, Date.now() - startedAt, {
+            ...span.fields,
+            attempts: attempt,
+            ok: false,
+            error: errorField(error),
+          });
+        }
+        throw new BuildInfrastructureError(error);
+      }
       // The message too: an error from another Worker logs only its stack.
-      console.warn(`A revision's build step failed, and is tried again: ${String(error)}`, error);
+      console.warn(
+        `A revision's build step${span ? ` (${span.name})` : ""} failed, and is tried again: ${String(error)}`,
+        error,
+      );
       await scheduler.wait(INFRASTRUCTURE_RETRY_DELAY_MS * 2 ** (attempt - 1));
     }
   }
@@ -128,16 +158,35 @@ async function previewRevision(
   env: Bindings,
   draft: BuiltDraft,
   revision: BuiltRevision,
+  span: SpanFields,
 ): Promise<BuildResult> {
   if (draft.previewedRevisionId === revision.id) return passed(revision.id);
+  const fields = { ...span, revisionId: revision.id };
+  return timed("revision.preview", fields, () => previewNewRevision(env, draft, revision, fields));
+}
+
+async function previewNewRevision(
+  env: Bindings,
+  draft: BuiltDraft,
+  revision: BuiltRevision,
+  fields: SpanFields,
+): Promise<BuildResult> {
   const toLoad: RevisionToLoad = {
     revision: revision.id,
     archiveKey: revision.archiveKey,
     project: draft.projectUuid,
     draft: draft.id,
   };
-  const definitionSet = await retried(() => env.DISPATCH.readDefinitionSet(toLoad));
-  await retried(() => env.DISPATCH.prewarm(toLoad));
+  const definitionSet = await retried(() => env.DISPATCH.readDefinitionSet(toLoad), {
+    name: "revision.preview.readDefinitionSet",
+    fields,
+  });
+  await retried(() => env.DISPATCH.prewarm(toLoad), {
+    name: "revision.preview.prewarm",
+    fields,
+    // How many client assets dispatch put in R2, and how long that and the first render took.
+    after: (prewarmed) => prewarmed ?? {},
+  });
   const ctx = agentServiceContext({
     db: createDb(env.DB),
     env,
@@ -145,12 +194,14 @@ async function previewRevision(
     waitUntil: (promise) => void promise.catch(console.error),
   });
   try {
-    await runService(
-      syncRevisionDefinitions(ctx, {
-        draftId: draft.id,
-        revisionId: revision.id,
-        definitionSet,
-      }),
+    await timed("revision.preview.syncDefinitions", fields, () =>
+      runService(
+        syncRevisionDefinitions(ctx, {
+          draftId: draft.id,
+          revisionId: revision.id,
+          definitionSet,
+        }),
+      ),
     );
   } catch (error) {
     if (!(error instanceof ORPCError) || error.code !== "BAD_REQUEST") throw error;
@@ -170,13 +221,18 @@ async function previewRevision(
       lint: [],
     };
   }
-  projectRooms.send(draft.projectId, {
-    type: "revision",
-    draftId: draft.id,
-    revisionId: revision.id,
-    sdkVersion: revision.camoxVersion ?? "",
+  await timed("revision.preview.announce", fields, async () =>
+    projectRooms.send(draft.projectId, {
+      type: "revision",
+      draftId: draft.id,
+      revisionId: revision.id,
+      sdkVersion: revision.camoxVersion ?? "",
+    }),
+  );
+  await retried(() => pruneBuilds(env, draft, [revision.id, draft.previewedRevisionId]), {
+    name: "revision.preview.prune",
+    fields,
   });
-  await retried(() => pruneBuilds(env, draft, [revision.id, draft.previewedRevisionId]));
   return passed(revision.id);
 }
 
@@ -250,7 +306,25 @@ export async function buildRevision(
   draftId: string,
   origin: RevisionOrigin,
 ): Promise<BuildResult> {
-  const result = await buildAndPreview(env, draftId, origin);
+  // Groups the spans of this build, whose revision isn't known until it's committed.
+  const span: SpanFields = {
+    draftId,
+    buildId: crypto.randomUUID(),
+    leftBy: origin.leftBy,
+    threadId: origin.run?.threadId,
+    runId: origin.run?.runId,
+  };
+  const result = await timed(
+    "revision.build",
+    span,
+    () => buildAndPreview(env, draftId, origin, span),
+    (built) => ({
+      revisionId: built.revision,
+      built: built.ok,
+      buildErrors: built.build.length,
+      typeErrors: built.types.length,
+    }),
+  );
   // Code that builds without errors and holds the `main` that clashed no longer clashes.
   if (result.ok) await retried(() => env.DRAFT_CODE.getByName(draftId).settleClash());
   return result;
@@ -260,6 +334,7 @@ async function buildAndPreview(
   env: Bindings,
   draftId: string,
   { leftBy, run, prepared: given }: RevisionOrigin,
+  buildSpan: SpanFields,
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
   const draft = await db
@@ -275,13 +350,21 @@ async function buildAndPreview(
     .where(eq(drafts.id, draftId))
     .get();
   if (!draft) throw new Error("The draft to build ended");
+  // Each span names the project too, once the draft does.
+  const span = Object.assign(buildSpan, { projectId: draft.projectId });
   const code = env.DRAFT_CODE.getByName(draftId);
   if (!given) {
     const conflicted = await retried(() => code.conflicts());
     if (conflicted.length > 0) return markersLeft(conflicted);
   }
   const prepared =
-    given ?? (await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] })));
+    given ??
+    (await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] }), {
+      name: "revision.build.prepareCommit",
+      fields: span,
+      after: ({ files }) => ({ bytes: files.byteLength }),
+    }));
+  const reuseCheckStartedAt = Date.now();
   const existing = await db
     .select({
       id: revisions.id,
@@ -295,6 +378,15 @@ async function buildAndPreview(
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
     .get();
   // A revision whose type check never finished is built again, to check it.
+  const reused =
+    existing?.buildStatus === "built" &&
+    !!existing.archiveKey &&
+    existing.typeCheckStatus !== "pending";
+  logSpan("revision.build.reuseCheck", Date.now() - reuseCheckStartedAt, {
+    ...span,
+    reused,
+    revisionId: existing?.id,
+  });
   if (
     existing?.buildStatus === "built" &&
     existing.archiveKey &&
@@ -303,7 +395,10 @@ async function buildAndPreview(
     // Code back to an earlier revision's tree, such as a reverted change, is that revision
     // again, committed on top of the branch. A merge of `main` changing no file is committed too.
     if (draft.headRevisionId !== existing.id || given) {
-      const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }));
+      const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }), {
+        name: "revision.build.push",
+        fields: { ...span, revisionId: existing.id },
+      });
       await db.update(revisions).set({ commit, parents }).where(eq(revisions.id, existing.id));
       await db.update(drafts).set({ headRevisionId: existing.id }).where(eq(drafts.id, draftId));
     }
@@ -311,15 +406,24 @@ async function buildAndPreview(
     const previewed =
       leftBy === "merge" && existing.typeCheckStatus === "failed"
         ? passed(existing.id)
-        : await previewRevision(env, draft, {
-            id: existing.id,
-            archiveKey: existing.archiveKey,
-            camoxVersion: existing.camoxVersion,
-          });
+        : await previewRevision(
+            env,
+            draft,
+            {
+              id: existing.id,
+              archiveKey: existing.archiveKey,
+              camoxVersion: existing.camoxVersion,
+            },
+            span,
+          );
     return withTypeErrors(previewed, existing.typeErrors);
   }
 
-  const outcome = await retried(() => buildInSandbox(env, draftId, prepared));
+  const outcome = await retried(() => buildInSandbox(env, draftId, prepared, span), {
+    name: "revision.build.sandbox",
+    fields: span,
+    after: (built) => ({ built: built.ok }),
+  });
   if (!outcome.ok) {
     const { shown, total } = capped(buildErrorsOf(outcome.log));
     return {
@@ -337,8 +441,14 @@ async function buildAndPreview(
     draft: draftId,
     revision: revisionId,
   });
-  await retried(() => env.REVISION_BUILDS.put(archiveKey, outcome.archive));
-  const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }));
+  await retried(() => env.REVISION_BUILDS.put(archiveKey, outcome.archive), {
+    name: "revision.build.r2Put",
+    fields: { ...span, revisionId, bytes: outcome.archive.byteLength },
+  });
+  const { commit, parents } = await retried(() => code.commit({ commit: prepared.commit }), {
+    name: "revision.build.push",
+    fields: { ...span, revisionId },
+  });
   const built = {
     commit,
     parents,
@@ -364,7 +474,8 @@ async function buildAndPreview(
     .onConflictDoUpdate({ target: [revisions.draftId, revisions.tree], set: built })
     .returning({ id: revisions.id });
   await db.update(drafts).set({ headRevisionId: recorded!.id }).where(eq(drafts.id, draftId));
-  const preview = () => previewRevision(env, draft, { id: recorded!.id, archiveKey, camoxVersion });
+  const preview = () =>
+    previewRevision(env, draft, { id: recorded!.id, archiveKey, camoxVersion }, span);
   // The preview shows an agent's revision without waiting on its type check. A merge of `main`
   // waits for it: until the merged code type checks, the preview stays on the draft's last
   // revision, on the old `main` (spec #560, section 11).
@@ -372,9 +483,15 @@ async function buildAndPreview(
 
   // A sandbox failing during the check checks again: the draft's builds run one at a time, so
   // its workspace still holds the tree.
+  // The span is what's left of the check once the preview is out: the wait for its result.
   let attempt = 0;
-  const typeCheck = await retried(() =>
-    attempt++ === 0 ? outcome.typeCheck : checkTypesInSandbox(env, draftId),
+  const typeCheck = await retried(
+    () => (attempt++ === 0 ? outcome.typeCheck : checkTypesInSandbox(env, draftId, span)),
+    {
+      name: "revision.build.typeCheckWait",
+      fields: { ...span, revisionId: recorded!.id },
+      after: ({ ok }) => ({ passed: ok }),
+    },
   );
   const record = typeCheckRecord(typeCheck);
   await db.update(revisions).set(record).where(eq(revisions.id, recorded!.id));

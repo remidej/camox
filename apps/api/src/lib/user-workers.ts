@@ -100,7 +100,8 @@ async function assetHash(path: string, base64: string) {
 
 /**
  * Uploads a user Worker's static assets through an upload session: the manifest, then each bucket
- * of files Cloudflare doesn't have yet. Returns the completion token its upload is given.
+ * of files Cloudflare doesn't have yet. Returns the completion token its upload is given, with
+ * how many buckets and bytes it uploaded, for the publish's timing logs.
  * https://developers.cloudflare.com/workers/static-assets/direct-upload/
  */
 async function uploadAssets(env: CloudflareEnv, name: string, assets: WorkerAsset[]) {
@@ -125,12 +126,16 @@ async function uploadAssets(env: CloudflareEnv, name: string, assets: WorkerAsse
   );
   // Every file uploaded already: the session's token completes the upload.
   let completion = session.jwt;
+  let uploadedFiles = 0;
+  let uploadedBytes = 0;
   for (const bucket of session.buckets ?? []) {
     const form = new FormData();
     for (const hash of bucket) {
       const file = files.find((candidate) => candidate.hash === hash);
       if (!file) throw new CloudflareApiError(`The assets upload asked for an unknown ${hash}`, 0);
       form.append(hash, new File([file.base64], hash, { type: file.contentType }));
+      uploadedFiles++;
+      uploadedBytes += file.content.byteLength;
     }
     const uploaded = await cloudflare<{ jwt?: string }>(
       `${ACCOUNTS}/${env.CLOUDFLARE_ACCOUNT_ID}/workers/assets/upload?base64=true`,
@@ -139,23 +144,47 @@ async function uploadAssets(env: CloudflareEnv, name: string, assets: WorkerAsse
     );
     if (uploaded?.jwt) completion = uploaded.jwt;
   }
-  return completion;
+  return {
+    jwt: completion,
+    buckets: session.buckets?.length ?? 0,
+    files: uploadedFiles,
+    bytes: uploadedBytes,
+  };
 }
+
+/** What an upload of a user Worker sent, and how long its assets and script took. */
+export type UserWorkerUpload = {
+  /** Its static assets, and those of them Cloudflare didn't have yet, in how many buckets. */
+  assets: number;
+  assetsUploaded: number;
+  assetBuckets: number;
+  assetBytesUploaded: number;
+  assetsMs: number;
+  modules: number;
+  moduleBytes: number;
+  scriptMs: number;
+};
 
 /**
  * Uploads `worker` as the user Worker `name`, replacing any of that name: it serves at once, to
  * whatever dispatch sends to it. https://developers.cloudflare.com/api/resources/workers_for_platforms/subresources/dispatch/subresources/namespaces/subresources/scripts/methods/update/
  */
-export async function uploadUserWorker(env: CloudflareEnv, name: string, worker: UserWorker) {
-  const assets =
-    worker.assets.length > 0
-      ? {
-          jwt: await uploadAssets(env, name, worker.assets),
-          ...(worker.assetRules._headers || worker.assetRules._redirects
-            ? { config: worker.assetRules }
-            : {}),
-        }
-      : undefined;
+export async function uploadUserWorker(
+  env: CloudflareEnv,
+  name: string,
+  worker: UserWorker,
+): Promise<UserWorkerUpload> {
+  const startedAt = Date.now();
+  const uploaded = worker.assets.length > 0 ? await uploadAssets(env, name, worker.assets) : null;
+  const assetsDoneAt = Date.now();
+  const assets = uploaded
+    ? {
+        jwt: uploaded.jwt,
+        ...(worker.assetRules._headers || worker.assetRules._redirects
+          ? { config: worker.assetRules }
+          : {}),
+      }
+    : undefined;
   const metadata = {
     main_module: worker.mainModule,
     compatibility_date: worker.compatibilityDate,
@@ -182,6 +211,16 @@ export async function uploadUserWorker(env: CloudflareEnv, name: string, worker:
     { method: "PUT", token: env.CF_TOKEN, body: form },
     `Uploading the user Worker ${name}`,
   );
+  return {
+    assets: worker.assets.length,
+    assetsUploaded: uploaded?.files ?? 0,
+    assetBuckets: uploaded?.buckets ?? 0,
+    assetBytesUploaded: uploaded?.bytes ?? 0,
+    assetsMs: assetsDoneAt - startedAt,
+    modules: worker.modules.length,
+    moduleBytes: worker.modules.reduce((sum, module) => sum + module.content.byteLength, 0),
+    scriptMs: Date.now() - assetsDoneAt,
+  };
 }
 
 /** Deletes the user Worker `name`, if there is one. */

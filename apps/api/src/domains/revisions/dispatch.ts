@@ -23,7 +23,12 @@ export type Dispatch = {
   readDefinitionSet(revision: RevisionToLoad): Promise<unknown>;
   /**
    * Readies a revision before its draft's viewers are told of it: dispatch serves its client
-   * assets from then on, and has loaded and rendered it once.
+   * assets from then on, and has loaded and rendered it once. Says how many client assets it
+   * stored and how long that and the render took, for the API's timing logs (none from a
+   * dispatch older than that).
    */
-  prewarm(revision: RevisionToLoad): Promise<void>;
+  prewarm(revision: RevisionToLoad): Promise<PrewarmTimings | void>;
 };
+
+/** What a prewarm took. Mirrored in apps/dispatch/src/revisions.ts: keep the two in sync. */
+export type PrewarmTimings = { assets: number; assetsMs: number; renderMs: number };

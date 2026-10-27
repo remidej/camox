@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 
 import type { Database } from "../../db";
 import { untarGzip } from "../../lib/tar";
+import { type SpanFields, timed } from "../../lib/timing";
 import {
   deleteUserWorker,
   deleteUserWorkersTagged,
@@ -194,16 +195,24 @@ export async function uploadPublishScript(
     instanceId,
     archiveKey,
   }: { project: string; draft: string; instanceId: string; archiveKey: string },
+  span: SpanFields = {},
 ): Promise<string> {
-  const archive = await env.REVISION_BUILDS.get(archiveKey);
-  if (!archive)
-    throw new UnpublishableBuildError(`The revision's build ${archiveKey} isn't stored`);
-  const worker = workerOfBuild(await untarGzip(archive.body), {
-    vars: { [PUBLISHING_DRAFT_VAR]: draft },
-    tags: [publishScriptsTag(project)],
+  const worker = await timed("publish.upload.readBuild", span, async () => {
+    const archive = await env.REVISION_BUILDS.get(archiveKey);
+    if (!archive)
+      throw new UnpublishableBuildError(`The revision's build ${archiveKey} isn't stored`);
+    return workerOfBuild(await untarGzip(archive.body), {
+      vars: { [PUBLISHING_DRAFT_VAR]: draft },
+      tags: [publishScriptsTag(project)],
+    });
   });
   const name = publishScriptName(project, instanceId);
-  await uploadUserWorker(env, name, worker);
+  await timed(
+    "publish.upload.worker",
+    span,
+    () => uploadUserWorker(env, name, worker),
+    (upload) => upload,
+  );
   return name;
 }
 

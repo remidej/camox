@@ -11,6 +11,7 @@ import { Effect } from "effect";
 import { createDb, type Database } from "../../db";
 import { record } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
+import { logSpan, type SpanFields, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { deleteDraftCode } from "../code/drafts";
 import { camoxContext, computePreview, publishWithCode } from "../drafts/publish";
@@ -92,6 +93,13 @@ type Shipped = {
   draftName: string | null;
 };
 
+/** Wraps a step's callback so that it logs its timing span when it runs. */
+type TimedStep = <T>(
+  name: string,
+  run: () => Promise<T>,
+  after?: (result: T) => SpanFields,
+) => () => Promise<T>;
+
 type Checked =
   | { ship: Shipped }
   | { aborted: PublishAbortReason }
@@ -103,9 +111,32 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     const params = event.payload;
     const instanceId = event.instanceId;
     const db = createDb(this.env.DB);
+    // Timing logs come from within steps, which a replay of `run` doesn't run again. Each says
+    // `atMs`, how long after the Workflow was created it ended, so the waits between steps show.
+    const createdAt = event.timestamp.getTime();
+    const span: SpanFields = {
+      projectId: params.projectId,
+      draftId: params.draftId,
+      instanceId,
+      revisionId: params.revision,
+    };
+    const timedStep =
+      <T>(name: string, run: () => Promise<T>, after?: (result: T) => SpanFields) =>
+      () =>
+        timed(name, span, run, (result) => ({
+          ...after?.(result),
+          atMs: Date.now() - createdAt,
+        }));
     const abort = (reason: PublishAbortReason) =>
-      step.do(`go back to the review: ${reason}`, () =>
-        endPublishing(db, params, instanceId, reason),
+      step.do(
+        `go back to the review: ${reason}`,
+        timedStep(
+          "publish.abort",
+          () => endPublishing(db, params, instanceId, reason),
+          () => ({
+            reason,
+          }),
+        ),
       );
 
     // The script Live served before this publish's, once Live may serve this one: until the
@@ -115,8 +146,10 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       const to = rollBackTo;
       rollBackTo = undefined;
       if (!to) return;
-      await step.do("point Live back at the previous script", UNTIL_DONE, () =>
-        pointLiveAt(db, params.projectId, to.previous),
+      await step.do(
+        "point Live back at the previous script",
+        UNTIL_DONE,
+        timedStep("publish.rollBack", () => pointLiveAt(db, params.projectId, to.previous)),
       );
       // Requests dispatch sent to this publish's script end before it's deleted.
       await step.sleep("let dispatch serve the previous script", LIVE_SCRIPT_SETTLES);
@@ -136,29 +169,44 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     };
 
     try {
-      if (!(await this.waitForTurn(step, db, params, instanceId))) return;
+      if (!(await this.waitForTurn(step, db, params, instanceId, timedStep))) return;
 
       // 1. The revision the review pinned must still be the draft's head, or the draft's merges
       // of `main` on top of it: when `main` moved, the publish waits for the merge, and ships it.
-      const checked = await this.waitForHead(step, db, params, instanceId);
+      const checked = await this.waitForHead(step, db, params, instanceId, timedStep);
       if ("gone" in checked) return;
       if ("aborted" in checked) return await abort(checked.aborted);
       const { ship } = checked;
 
       // 2. Upload without serving: the build as a user Worker of its own, which nothing sends
       // requests to yet.
-      uploaded = await step.do("upload the publish's script", INFRASTRUCTURE_RETRIES, () =>
-        uploadPublishScript(this.env, {
-          project: ship.projectUuid,
-          draft: params.draftId,
-          instanceId,
-          archiveKey: ship.archiveKey,
-        }),
+      uploaded = await step.do(
+        "upload the publish's script",
+        INFRASTRUCTURE_RETRIES,
+        timedStep("publish.upload", () =>
+          uploadPublishScript(
+            this.env,
+            {
+              project: ship.projectUuid,
+              draft: params.draftId,
+              instanceId,
+              archiveKey: ship.archiveKey,
+            },
+            { ...span, revisionId: ship.revision },
+          ),
+        ),
       );
       const script = uploaded;
 
       // 3. Re-check conflicts, and blockers, against the review.
-      const recheck = await step.do("re-check the conflicts", () => this.recheck(db, params));
+      const recheck = await step.do(
+        "re-check the conflicts",
+        timedStep(
+          "publish.recheck",
+          () => this.recheck(db, params),
+          (reason) => ({ reason }),
+        ),
+      );
       if (recheck) {
         await discardScript();
         return await abort(recheck);
@@ -166,34 +214,66 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
 
       // 4. Promote: point Live at the script. From here until the batch commits, its reads see
       // Live overlaid with the publishing draft.
-      const previous = await step.do("read the script Live serves", () =>
-        liveScriptOf(db, params.projectId),
+      const previous = await step.do(
+        "read the script Live serves",
+        timedStep("publish.readLiveScript", () => liveScriptOf(db, params.projectId)),
       );
       // A promotion whose answer is lost may have moved the pointer all the same.
       rollBackTo = { previous };
-      await step.do("let the script read the draft", async () => {
-        await db
-          .update(drafts)
-          .set({ publishPromotedAt: Date.now() })
-          .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)));
-      });
-      await step.do("point Live at the publish's script", INFRASTRUCTURE_RETRIES, () =>
-        pointLiveAt(db, params.projectId, script),
+      await step.do(
+        "let the script read the draft",
+        timedStep("publish.letScriptReadDraft", async () => {
+          await db
+            .update(drafts)
+            .set({ publishPromotedAt: Date.now() })
+            .where(and(eq(drafts.id, params.draftId), eq(drafts.publishInstanceId, instanceId)));
+        }),
+      );
+      // When Live was pointed at the script, for timing the sleep after: none from a publish
+      // that pointed it before this was recorded.
+      const pointed: { at: number } | undefined = await step.do(
+        "point Live at the publish's script",
+        INFRASTRUCTURE_RETRIES,
+        timedStep("publish.pointLive", async () => {
+          await pointLiveAt(db, params.projectId, script);
+          return { at: Date.now() };
+        }),
       );
       // Dispatch serves it everywhere before Live's content changes.
       await step.sleep("let dispatch serve the publish's script", LIVE_SCRIPT_SETTLES);
 
-      // 5. The publish batch, with the draft's definitions.
-      const batch = await step.do("run the publish batch", () =>
-        runService(publishWithCode(db, { ...params, revision: ship.revision, instanceId })),
-      );
+      // 5. The publish batch, with the draft's definitions. Once it applied, the draft's viewers
+      // hear `draftEnded`: the publish is done for them.
+      const batch = await step.do("run the publish batch", async () => {
+        if (pointed) {
+          logSpan("publish.settle", Date.now() - pointed.at, {
+            ...span,
+            atMs: Date.now() - createdAt,
+          });
+        }
+        const applied = await timedStep(
+          "publish.batch",
+          () => runService(publishWithCode(db, { ...params, revision: ship.revision, instanceId })),
+          (result) => ({ applied: result.applied }),
+        )();
+        if (applied.applied) {
+          logSpan("publish.draftEnded", Date.now() - createdAt, {
+            ...span,
+            atMs: Date.now() - createdAt,
+          });
+        }
+        return applied;
+      });
       if (!batch.applied && batch.ended?.outcome !== "published") {
         await rollBack();
         await discardScript();
         // A draft deleted while it published has no review to go back to.
         if (!batch.ended) {
           await abort(
-            await step.do("tell why the batch aborted", () => this.whyAborted(db, params)),
+            await step.do(
+              "tell why the batch aborted",
+              timedStep("publish.whyAborted", () => this.whyAborted(db, params)),
+            ),
           );
         }
         return;
@@ -205,30 +285,40 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       uploaded = undefined;
 
       // 6. Live serves the revision's tree: the push to `main` releases nothing.
-      await step.do("record the tree Live serves", UNTIL_DONE, () =>
-        recordServedTree(db, params, instanceId, ship),
+      await step.do(
+        "record the tree Live serves",
+        UNTIL_DONE,
+        timedStep("publish.recordTree", () => recordServedTree(db, params, instanceId, ship)),
       );
 
       // 7. One squashed commit on `main`.
-      await step.do("push the squashed commit to main", UNTIL_DONE, async () => {
-        const commit = await this.env.DRAFT_CODE.getByName(params.draftId).publishToMain({
-          commit: ship.commit,
-          message: ship.draftName ? `Publish "${ship.draftName}"` : "Publish a draft",
-        });
-        await db
-          .update(releases)
-          .set({ commit })
-          .where(eq(releases.workflowInstanceId, instanceId));
-        // `main` holds the draft's code: what's next in the project's queue may move it.
-        await leavePublishPush(db, params.projectId, instanceId);
-      });
+      await step.do(
+        "push the squashed commit to main",
+        UNTIL_DONE,
+        timedStep("publish.publishToMain", async () => {
+          const commit = await this.env.DRAFT_CODE.getByName(params.draftId).publishToMain({
+            commit: ship.commit,
+            message: ship.draftName ? `Publish "${ship.draftName}"` : "Publish a draft",
+          });
+          await db
+            .update(releases)
+            .set({ commit })
+            .where(eq(releases.workflowInstanceId, instanceId));
+          // `main` holds the draft's code: what's next in the project's queue may move it.
+          await leavePublishPush(db, params.projectId, instanceId);
+        }),
+      );
 
       // 8. The draft's branch, builds, working copy and sandbox.
-      await step.do("delete the draft's code", UNTIL_DONE, () =>
-        Effect.runPromise(
-          deleteDraftCode(
-            { env: this.env, db },
-            { projectId: params.projectId, draftId: params.draftId },
+      await step.do(
+        "delete the draft's code",
+        UNTIL_DONE,
+        timedStep("publish.deleteDraftCode", () =>
+          Effect.runPromise(
+            deleteDraftCode(
+              { env: this.env, db },
+              { projectId: params.projectId, draftId: params.draftId },
+            ),
           ),
         ),
       );
@@ -237,8 +327,12 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
       // serving it before the batch.
       if (previous) {
         await step
-          .do("delete the previous publish's script", INFRASTRUCTURE_RETRIES, () =>
-            deletePublishScript(this.env, previous),
+          .do(
+            "delete the previous publish's script",
+            INFRASTRUCTURE_RETRIES,
+            timedStep("publish.deletePreviousScript", () =>
+              deletePublishScript(this.env, previous),
+            ),
           )
           .catch((error: unknown) =>
             console.error("A previous publish's script wasn't deleted", error),
@@ -256,9 +350,11 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
         .catch((ended: unknown) => console.error("A failed publish wasn't ended", ended));
       throw error;
     } finally {
+      // Its span's `atMs` is the publish's total, from the Workflow's creation to its end.
       await step
-        .do("wake the project's next publish", () =>
-          wakeNextPublish(this.env, db, params.projectId),
+        .do(
+          "wake the project's next publish",
+          timedStep("publish.end", () => wakeNextPublish(this.env, db, params.projectId)),
         )
         .catch((woken: unknown) => console.error("The next publish wasn't woken", woken));
     }
@@ -273,10 +369,16 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     db: Database,
     params: PublishParams,
     instanceId: string,
+    timedStep: TimedStep,
   ) {
     for (let check = 1; ; check++) {
-      const turn = await step.do(`check the project's turn (${check})`, () =>
-        turnOf(db, params.projectId, instanceId),
+      const turn = await step.do(
+        `check the project's turn (${check})`,
+        timedStep(
+          "publish.turnCheck",
+          () => turnOf(db, params.projectId, instanceId),
+          (turn) => ({ check, turn }),
+        ),
       );
       if (turn !== "waiting") return turn === "turn";
       await step
@@ -328,7 +430,11 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     if (!revision.archiveKey) {
       // In the draft's build queue: its sandbox builds one tree at a time.
       const built = draft.threadId
-        ? await this.env.THREAD.getByName(draft.threadId).buildForPublish(params.draftId)
+        ? await timed(
+            "publish.rebuildPrunedHead",
+            { projectId: params.projectId, draftId: params.draftId, instanceId, revisionId: head },
+            () => this.env.THREAD.getByName(draft.threadId!).buildForPublish(params.draftId),
+          )
         : null;
       if (built?.revision !== head) return { aborted: "revisionChanged" };
       revision = await revisionOf(db, head);
@@ -356,10 +462,21 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     db: Database,
     params: PublishParams,
     instanceId: string,
+    timedStep: TimedStep,
   ): Promise<Exclude<Checked, { merging: true }>> {
     for (let check = 1; ; check++) {
-      const checked = await step.do(`check the revision is the draft's head (${check})`, () =>
-        this.check(db, params, instanceId),
+      const checked = await step.do(
+        `check the revision is the draft's head (${check})`,
+        timedStep(
+          "publish.headCheck",
+          () => this.check(db, params, instanceId),
+          (checked) => ({
+            check,
+            outcome: Object.keys(checked)[0],
+            ...("aborted" in checked && { reason: checked.aborted }),
+            ...("ship" in checked && { shipped: checked.ship.revision }),
+          }),
+        ),
       );
       if (!("merging" in checked)) return checked;
       if (check >= MERGE_CHECKS) return { aborted: "liveCodeMoved" };

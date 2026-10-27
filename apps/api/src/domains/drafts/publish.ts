@@ -15,6 +15,7 @@ import {
   TranslationsPendingError,
 } from "../../lib/errors";
 import { record } from "../../lib/journal";
+import { logSpan } from "../../lib/timing";
 import {
   blockDefinitions,
   blocks,
@@ -823,11 +824,18 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   rawInput: z.input<typeof publishInput>,
 ) {
   const { projectId, token, publishAnyway, revision } = yield* decodeInput(publishInput, rawInput);
+  const startedAt = Date.now();
   const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
   if (!scope) return endedAs(earlier);
+  const span = { projectId, draftId: scope.id, revisionId: revision };
   const shown = yield* decodeToken(token);
   const stored = yield* overlay.changesOf(ctx.db, scope);
+  const previewStartedAt = Date.now();
   const preview = yield* computePreview(ctx, scope);
+  logSpan("publish.request.computePreview", Date.now() - previewStartedAt, {
+    ...span,
+    withCode: !!preview.code,
+  });
   // A draft with code publishes its code even when it changed no content.
   if (stored.length === 0 && !preview.code) return nothingToPublish;
 
@@ -868,11 +876,15 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
           : "The agent changed the draft's code since the review. Review it again before publishing.",
       });
     }
-    yield* startPublish(ctx, scope, {
+    const startPublishAt = Date.now();
+    const instanceId = yield* startPublish(ctx, scope, {
       revision: preview.code.revision,
       token,
       publishedBy: user.id,
     });
+    logSpan("publish.request.startPublish", Date.now() - startPublishAt, { ...span, instanceId });
+    // Only the request: its publish Workflow's spans go on from there.
+    logSpan("publish.request", Date.now() - startedAt, { ...span, instanceId, withCode: true });
     return publishingStarted;
   }
 
@@ -881,6 +893,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     publishedBy: user.id,
     stored,
   });
+  logSpan("publish.request", Date.now() - startedAt, { ...span, withCode: false, applied });
   if (!applied) {
     if (ended) return endedAs(ended);
     return yield* new ConflictsChangedError({
@@ -960,6 +973,7 @@ const startPublish = Effect.fn("drafts.startPublish")(function* (
   }
   // The draft's viewers see it publishing.
   yield* record(ctx.db, { kind: "drafts", projectId: scope.projectId });
+  return instanceId;
 });
 
 /**
