@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.56.0](https://github.com/remidej/camox/compare/camox-v0.55.0...camox-sdk-v0.56.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* the API's `drafts.discard` procedure is now `drafts.delete`, an ended draft's outcome is `deleted` instead of `discarded`, and the CLI's `discard` command is now `delete`. A migration rewrites stored outcomes.
+
+### Features
+
+* the agent reads the camox skill at the version its website installs ([#623](https://github.com/remidej/camox/issues/623)) ([9a0cd14](https://github.com/remidej/camox/commit/9a0cd14c30d30d7e3897cd2a241eb5f9b2e540f2))
+
+
+### Refactoring
+
+* delete drafts instead of discarding them ([#615](https://github.com/remidej/camox/issues/615)) ([bc5ccce](https://github.com/remidej/camox/commit/bc5ccce7a2a61389cbd8d834ec1cf7aeea60663f))
+
 ## [0.55.0](https://github.com/remidej/camox/compare/camox-v0.54.0...camox-sdk-v0.55.0) (2026-10-26)
 
 
