@@ -6,6 +6,11 @@ import { assertSyncAccess, recordDefinitionsSynced, type SyncTarget } from "../.
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 import {
+  declaredArtifactSources,
+  defaultArtifactSources,
+  storingSources,
+} from "../artifact-sources/store";
+import {
   blockDefinitionInput,
   planBlockDefinitions,
   validateBlockDefinitions,
@@ -113,6 +118,31 @@ export const syncRevisionDefinitions = Effect.fn("definitions.syncRevisionDefini
 });
 
 /**
+ * Every artifact source a Definition Set can put in content: in the blocks its layouts and
+ * homepage declare, which it writes, in its definitions' default content, which new blocks
+ * start from, and in its artifact fields' defaults, which reads show for content holding no
+ * source. The sync stores them all, so content it writes or reads show never lacks a source.
+ */
+function declaredSources(set: z.output<typeof definitionSetInput>) {
+  const schemaOf = new Map(set.blocks.map((block) => [block.blockId, block.contentSchema]));
+  const sources = new Set<string>();
+  const add = (found: Iterable<string>) => {
+    for (const source of found) sources.add(source);
+  };
+  for (const block of [
+    ...set.layouts.flatMap((layout) => layout.blocks),
+    ...(set.homepage?.blocks ?? []),
+  ]) {
+    add(declaredArtifactSources(schemaOf.get(block.type), block.content, block.repeatableItems));
+  }
+  for (const block of set.blocks) {
+    add(declaredArtifactSources(block.contentSchema, block.defaultContent));
+    add(defaultArtifactSources(block.contentSchema));
+  }
+  return sources;
+}
+
+/**
  * Applies a Definition Set to a sync's target, with `alongside`'s writes in the same batch.
  */
 const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function* (
@@ -146,6 +176,11 @@ const applyDefinitionSet = Effect.fn("definitions.applyDefinitionSet")(function*
       )
     : null;
 
+  plan.add(
+    overlay.plannedStatements(
+      ...(yield* storingSources(ctx.db, target.project.id, declaredSources(set))),
+    ),
+  );
   if (alongside) plan.add(alongside);
   yield* overlay.runPlanned(ctx.db, plan.done(undefined));
   yield* recordDefinitionsSynced(ctx.db, target);
