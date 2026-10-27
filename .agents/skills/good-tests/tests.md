@@ -35,15 +35,6 @@ test("checkout calls paymentService.process", async () => {
 });
 ```
 
-Red flags:
-
-- Mocking internal collaborators
-- Testing private methods
-- Asserting on call counts/order
-- Test breaks when refactoring without behavior change
-- Test name describes HOW not WHAT
-- Verifying through external means instead of interface
-
 ```typescript
 // BAD: Bypasses interface to verify
 test("createUser saves to database", async () => {
