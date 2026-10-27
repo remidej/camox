@@ -40,6 +40,7 @@ export function Patrol({ className }: { className?: string }) {
 
 function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boolean }) {
   const { data: view } = useReadQuery(reads.patrol({ projectId }));
+  const { data: locales } = useReadQuery(reads.localeList({ projectId }));
   // Each patroller keeps its own state, whatever its place in the roster.
   const [expanded, setExpanded] = React.useState<ReadonlySet<PatrollerId>>(new Set());
   const toggle = (id: PatrollerId) =>
@@ -52,7 +53,14 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
   const now = useNow(30_000);
   if (!view) return null;
   return (
-    <PatrolRoster view={view} now={now} inDraft={inDraft} expanded={expanded} onToggle={toggle} />
+    <PatrolRoster
+      view={view}
+      now={now}
+      inDraft={inDraft}
+      singleLocale={locales?.length === 1}
+      expanded={expanded}
+      onToggle={toggle}
+    />
   );
 }
 
@@ -68,18 +76,21 @@ function useNow(intervalMs: number) {
 
 /**
  * A `PatrolView`, in the order it gives: each patroller's avatar, role, and when it last worked,
- * and the reports of the expanded ones. Live's reports carry a tag when a draft is viewed.
+ * and the reports of the expanded ones. Live's reports carry a tag when a draft is viewed. In a
+ * project with a single locale, the Translator invites the editor to add a language instead.
  */
 export function PatrolRoster({
   view,
   now,
   inDraft,
+  singleLocale,
   expanded,
   onToggle,
 }: {
   view: PatrolView;
   now: number;
   inDraft: boolean;
+  singleLocale: boolean;
   expanded: ReadonlySet<string>;
   onToggle: (id: PatrollerId) => void;
 }) {
@@ -91,6 +102,11 @@ export function PatrolRoster({
           patroller={patroller}
           now={now}
           inDraft={inDraft}
+          idle={
+            patroller.id === "translator" && singleLocale
+              ? "Add a language to translate into"
+              : undefined
+          }
           expanded={expanded.has(patroller.id)}
           onToggle={() => onToggle(patroller.id)}
         />
@@ -103,17 +119,21 @@ function PatrollerRow({
   patroller,
   now,
   inDraft,
+  idle,
   expanded,
   onToggle,
 }: {
   patroller: PatrollerView;
   now: number;
   inDraft: boolean;
+  /** What the patroller says while idle instead of when it last worked. */
+  idle: string | undefined;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const reportsId = React.useId();
-  const subtitle = patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now);
+  const subtitle =
+    idle ?? (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
   return (
     <li data-patroller={patroller.id} className="flex flex-col">
       <button

@@ -43,6 +43,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import * as patrolReports from "../patrol/reports";
+import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
 import { rootOfItem } from "../repeatable-items/roots";
 import { codeOfDraft, type PreviewCode } from "../revisions/preview";
@@ -1080,12 +1081,14 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
   }
   const preview = yield* computePreview(ctx, scope);
   if (preview.blockers.length > 0 || preview.conflicts.length > 0) return;
-  yield* publishChecked(ctx, scope, {
+  const { applied } = yield* publishChecked(ctx, scope, {
     shown: [],
     publishedBy: CAMOX_ACTOR,
     stored,
     translated: true,
   });
+  // The Translator reports on Live that Live's translations caught up (ADR 0024).
+  if (applied) yield* reportCatchUpPublished(db, scope);
 });
 
 /**

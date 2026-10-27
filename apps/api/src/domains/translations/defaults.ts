@@ -46,20 +46,20 @@ function untouched(schema: unknown, content: Content): Content {
 
 /**
  * Translates the defaults of a block placed in the job's locale of a draft, or of the shared
- * content a synced block created there.
+ * content a synced block created there. Whether it wrote any.
  */
 export const translateDefaults = Effect.fn("translation.defaults")(function* (
   db: Database,
   draft: Draft,
   job: TranslationJob,
 ) {
-  if (job.entity !== "block" && job.entity !== "sharedContent") return;
+  if (job.entity !== "block" && job.entity !== "sharedContent") return false;
   const scope = yield* translationScope(db, draft, job);
-  if (!scope) return;
+  if (!scope) return false;
   const { target } = scope;
   const table = job.entity === "sharedContent" ? sharedContents : blocks;
   const root = yield* overlay.get(db, target, table, job.entityId);
-  if (!root) return;
+  if (!root) return false;
   const key = { projectId: root.projectId, type: root.type };
   const schema = (yield* loadDefinitionSchemas(db, key, draft))?.contentSchema;
   const itemRoot: ItemRoot =
@@ -88,7 +88,7 @@ export const translateDefaults = Effect.fn("translation.defaults")(function* (
     pending.set(id, found);
     for (const text of found.texts) texts.push({ ...text, key: `${id}:${text.key}` });
   }
-  if (texts.length === 0) return;
+  if (texts.length === 0) return false;
   const translations = yield* translateTexts(scope, texts);
 
   const now = Date.now();
@@ -126,4 +126,5 @@ export const translateDefaults = Effect.fn("translation.defaults")(function* (
       row: { id: root.id },
     });
   }
+  return written;
 });
