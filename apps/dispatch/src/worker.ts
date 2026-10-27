@@ -137,7 +137,9 @@ export default {
 
 /**
  * The project a hostname serves: a Custom Domain's, or a `camox.site` slug's, with the Custom
- * Domain that slug redirects to, if any. Null for any other host.
+ * Domain that slug redirects to, if any. Null for any other host. Mirrored in
+ * apps/api/src/domains/auth/studio-hosts.ts, which tells the studio's sign-in the hosts it may sign
+ * in on: keep the two in sync.
  */
 async function resolveHost(
   env: Env,
@@ -169,8 +171,7 @@ async function dispatchTo(env: Env, script: string, request: Request) {
 
 /**
  * What precedes camox.site in a hostname. Slugs are one label, the depth Universal SSL covers, so
- * a deeper subdomain finds no slug. Mirrored in apps/api/src/domains/auth/studio-hosts.ts, which
- * tells the studio's sign-in a project's host: keep the two in sync.
+ * a deeper subdomain finds no slug.
  */
 function projectSlug(hostname: string) {
   return hostname.endsWith(PROJECTS_DOMAIN) ? hostname.slice(0, -PROJECTS_DOMAIN.length) : "";
