@@ -125,6 +125,12 @@ type StartedDraftRecord = {
   opened?: boolean;
 };
 
+/**
+ * The prefix of the request ids keeping, on Live, an editor's message handed off to a draft before
+ * it joined the run, followed by its operation id.
+ */
+const HANDED_OFF_PREFIX = "camox.handed-off:";
+
 /** Where a tool call, or a hook, runs: the conversation, as Pi reads it then. */
 type InConversation = {
   api: Pick<HookApi, "snapshot" | "conversationId">;
@@ -998,7 +1004,7 @@ export class Thread extends DurableObject<Bindings> {
     };
     const opening: ThreadOpening = {
       ...before,
-      messages: mergeMessages(before.messages, await this.#withdrawQueued(invocation)),
+      messages: mergeMessages(before.messages, await this.#withdrawQueued(invocation, draftId)),
     };
     await this.ctx.storage.put(key, { draftId, threadId, opening } satisfies StartedDraftRecord);
     await this.env.THREAD.getByName(threadId).open(opening);
@@ -1032,7 +1038,7 @@ export class Thread extends DurableObject<Bindings> {
       const started = await this.ctx.storage.get<StartedDraftRecord>(key);
       // The call failed before the draft's thread opened: the run goes on, messages and all.
       if (!started?.opening || !started.opened) continue;
-      const late = await this.#withdrawQueued(invocation);
+      const late = await this.#withdrawQueued(invocation, started.draftId);
       if (late.length === 0) continue;
       const opening = {
         ...started.opening,
@@ -1045,19 +1051,36 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * Withdraws the editors' messages waiting to join the run in the conversation `invocation` is
-   * part of, oldest first: the run never reads them.
+   * part of, oldest first, as they go to the draft `draftId` the run hands its request off to:
+   * they start no run there. The Live thread keeps each, under its sender, as a message the model
+   * reads, which Pi places at the end of the conversation once the round of tool calls ends, and
+   * which studios show in the turn ending on the draft's card.
    */
-  async #withdrawQueued({ api, context }: InConversation) {
+  async #withdrawQueued({ api, context }: InConversation, draftId: string) {
     const inbox = await api.snapshot(InboxDoc, api.conversationId, context);
     const pi = await this.harness.pi();
+    const conversation = await pi.conversation(api.conversationId, context);
     const withdrawn: ThreadOpening["messages"] = [];
     for (const item of inbox?.items ?? []) {
       if (item.mode === "write" || item.entry?.kind !== EDITOR_MESSAGE_ENTRY) continue;
-      const operationId = editorMessageDataSchema.safeParse(item.entry.data).data?.operationId;
+      const data = editorMessageDataSchema.safeParse(item.entry.data).data;
       const text = textOf(item.content as Parameters<typeof textOf>[0]);
-      if (!operationId || !text) continue;
+      if (!data?.operationId || !text) continue;
       if ((await pi.abortSubmission(item.id, context, api.conversationId)) !== "aborted") continue;
-      withdrawn.push({ operationId, text });
+      await conversation?.submit(
+        {
+          type: "write",
+          // The withdrawn input holds the operation id as its own request id.
+          requestId: `${HANDED_OFF_PREFIX}${data.operationId}`,
+          entry: {
+            kind: EDITOR_MESSAGE_ENTRY,
+            data: { ...data, handedOffTo: draftId },
+            model: [userMessage(text)],
+          },
+        },
+        context,
+      );
+      withdrawn.push({ operationId: data.operationId, text });
     }
     return withdrawn;
   }

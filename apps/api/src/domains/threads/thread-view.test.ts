@@ -250,6 +250,26 @@ describe("a thread's view", () => {
     expect(view.messages.at(-1)).toMatchObject({ from: "draft", ...card });
   });
 
+  it("shows a message handed off with the request in the turn ending on its card, as finished", () => {
+    const card = { draftId: "draft-1", name: "New prices" };
+    const view = threadViewOf(
+      reduceThreadEvents(EMPTY_THREAD_STATE, [
+        snapshot([
+          editorMessage("Raise the price"),
+          ...handOff(card),
+          // Sent as the agent handed the request off, which took it to the draft too.
+          { ...editorMessage("And the annual plan"), data: { ...editor, handedOffTo: "draft-1" } },
+          editorMessage("Thanks"),
+          answer("You're welcome."),
+        ]),
+      ]),
+    );
+
+    expect(
+      view.messages.map((message) => ("text" in message ? message.text : message.from)),
+    ).toEqual(["Raise the price", "And the annual plan", "draft", "Thanks", "You're welcome."]);
+  });
+
   it("shows a startDraft call that failed as a turn Camox couldn't finish, with no card", () => {
     expect(
       shown(

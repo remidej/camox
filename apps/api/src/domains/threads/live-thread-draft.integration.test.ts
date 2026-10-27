@@ -228,11 +228,17 @@ describe("a Live thread handing a request off to a draft", () => {
     inDraft.close();
     // The agent on Live said nothing after the card: only the draft's agent answered.
     expect(threadModelCalls()).toBe(calls + 1);
-    expect(said(live.view())).toEqual([
+    // The Live thread keeps both messages, in the turn that ended on the card.
+    const askedOnLive = [
       { from: "editor", text: "Add a launch page" },
+      { from: "editor", text: "Link it from pricing" },
       { from: "draft", name: "Launch page" },
-    ]);
+    ];
+    expect(said(live.view())).toEqual(askedOnLive);
     live.close();
+    const next = await connectLiveThread(project.id, token);
+    expect(said(next.view())).toEqual(askedOnLive);
+    next.close();
   });
 
   it("refuses a script that writes on Live", async () => {

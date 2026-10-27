@@ -85,9 +85,13 @@ export type ThreadSender = z.infer<typeof threadSenderSchema>;
 export const isSender = (data: unknown): data is ThreadSender =>
   threadSenderSchema.safeParse(data).success;
 
-/** What an editor's message entry records: who sent it, and the operation id it was sent with. */
+/**
+ * What an editor's message entry records: who sent it, the operation id it was sent with, and for
+ * a message sent on Live as the agent handed the request off, the draft it went to with it.
+ */
 export const editorMessageDataSchema = threadSenderSchema.extend({
   operationId: z.string().optional(),
+  handedOffTo: z.string().optional(),
 });
 
 /**
@@ -203,7 +207,13 @@ export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
 
 /** One transcript entry, as far as the studio's view is concerned. */
 type ThreadStep = { id: string } & (
-  | { type: "editor"; sender: ThreadSender; text: string }
+  | {
+      type: "editor";
+      sender: ThreadSender;
+      text: string;
+      /** The draft the message went to, as the agent on Live handed the request off. */
+      handedOffTo?: string;
+    }
   /** Camox starting a turn of its own, saying why. */
   | { type: "camox"; text: string }
   | { type: "answer"; text: string }
@@ -309,7 +319,16 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
   if (!message) return undefined;
   if (message.role === "user") {
     if (entry.kind === EDITOR_MESSAGE_ENTRY) {
-      return sender && { id, type: "editor", sender, text: textOf(message.content) };
+      const handedOffTo = editorMessageDataSchema.safeParse(entry.data).data?.handedOffTo;
+      return (
+        sender && {
+          id,
+          type: "editor",
+          sender,
+          text: textOf(message.content),
+          ...(handedOffTo && { handedOffTo }),
+        }
+      );
     }
     if (entry.kind === BRIEF_ENTRY) return { id, type: "camox", text: textOf(message.content) };
     if (entry.kind === RECONCILE_ENTRY) {
@@ -370,7 +389,24 @@ export function threadViewOf({
 
   for (const step of steps) {
     switch (step.type) {
-      case "editor":
+      case "editor": {
+        // A message sent as the agent on Live handed the request off went to the draft with it:
+        // it belongs to the turn ending on that draft's card, which it shows just before. Pi
+        // placed it after the card, which leaves the transcript the model read as it was.
+        const card = step.handedOffTo
+          ? messages.findLastIndex(
+              (message) => message.from === "draft" && message.draftId === step.handedOffTo,
+            )
+          : -1;
+        if (card !== -1) {
+          messages.splice(card, 0, {
+            id: step.id,
+            from: "editor",
+            sender: step.sender,
+            text: step.text,
+          });
+          break;
+        }
         // Pi places a steering message only once a model call is settled: after a round of tool
         // calls, or with the answer ending the run. Never between a failed call and its retry, so
         // an editor's message after an unfinished call means that call's turn is over.
@@ -378,6 +414,7 @@ export function threadViewOf({
         messages.push({ id: step.id, from: "editor", sender: step.sender, text: step.text });
         waiting = step.id;
         break;
+      }
       case "camox":
         if (unfinished) fail();
         messages.push({ id: step.id, from: "camox", text: step.text });
