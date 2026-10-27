@@ -156,17 +156,22 @@ export function fakeLoader() {
   return { loaded, fetched, binding: binding as unknown as WorkerLoader };
 }
 
-/** An R2 bucket in memory, by key, with each object's content type. */
+/** An R2 bucket in memory, by key, with each object's content type, recording what it was asked. */
 export function fakeBucket(initial: Record<string, Uint8Array> = {}) {
   const objects = new Map<string, { body: Uint8Array; contentType?: string }>(
     Object.entries(initial).map(([key, body]) => [key, { body }]),
   );
+  const gets: string[] = [];
   const bucket = {
-    get: async (key: string) => {
+    get: async (key: string, options?: { range?: { offset: number; length: number } }) => {
+      gets.push(key);
       const object = objects.get(key);
       if (!object) return null;
+      const { offset = 0, length = object.body.byteLength - offset } = options?.range ?? {};
+      const body = object.body.slice(offset, offset + length);
       return {
-        body: new Response(object.body).body,
+        body: new Response(body).body,
+        json: async () => JSON.parse(new TextDecoder().decode(body)),
         httpMetadata: { contentType: object.contentType },
         httpEtag: `"${key.length}"`,
       };
@@ -180,7 +185,7 @@ export function fakeBucket(initial: Record<string, Uint8Array> = {}) {
       objects.set(key, { body, contentType: options?.httpMetadata?.contentType });
     },
   };
-  return { objects, bucket: bucket as unknown as R2Bucket };
+  return { objects, gets, bucket: bucket as unknown as R2Bucket };
 }
 
 /**

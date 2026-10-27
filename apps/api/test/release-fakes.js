@@ -398,6 +398,13 @@ const sandboxSleepAfter = new Map();
 const sandboxTransports = new Map();
 /** @type {Map<string, { running: number, most: number }>} sandbox → its builds running now, and the most that ran at once */
 const buildsAtOnce = new Map();
+/**
+ * Where the image of a revision sandbox records the lockfile it installed the Template from, as
+ * the release sandbox's Dockerfile writes it.
+ */
+const IMAGE_INSTALLED_LOCKFILE = "/opt/camox/website/node_modules/.camox-installed-lockfile";
+/** @type {string | null} the digest a new revision sandbox's image says it installed, if a test gave it one */
+let imageInstalledLockfile = null;
 /** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
 const heldBuilds = new Set();
 /** @type {Set<string>} the revision sandboxes whose type checks are held, as checks still running */
@@ -491,6 +498,10 @@ export class FakeRevisionSandbox extends DurableObject {
     ctx.blockConcurrencyWhile(async () => {
       this.name = (await ctx.storage.get("name")) ?? "";
     });
+    // A container starts from its image, which may hold an install.
+    if (imageInstalledLockfile) {
+      this.files.set(IMAGE_INSTALLED_LOCKFILE, new TextEncoder().encode(imageInstalledLockfile));
+    }
   }
 
   async configure(configuration) {
@@ -739,21 +750,20 @@ export class FakeDispatch extends WorkerEntrypoint {
   }
 
   /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
-  async prewarm(revision) {
+  async prepare(revision) {
     const failures = prewarmFailures.get(revision.project) ?? 0;
     if (failures > 0) {
       prewarmFailures.set(revision.project, failures - 1);
       throw new Error("Network connection lost.");
     }
-    if (!(await this.env.REVISION_BUILDS.head(revision.archiveKey))) {
-      throw new Error(`The build ${revision.archiveKey} isn't stored`);
-    }
+    const definitionSet = await this.readDefinitionSet(revision);
     // Dispatch stores the revision's client assets where its asset prefix serves them from.
     await this.env.REVISION_BUILDS.put(
-      `${revision.project}/revisions/${revision.revision}/assets/index.css`,
+      `${revision.project}/revisions/${revision.revision}/#assets`,
       "body {}",
     );
     prewarmed.push(revision);
+    return { definitionSet, assets: 1, readMs: 0, assetsMs: 0, definitionSetMs: 0, renderMs: 0 };
   }
 }
 
@@ -1052,6 +1062,22 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} sandbox How long a revision sandbox was told to stay up idle. */
   async sandboxSleepAfter(sandbox) {
     return sandboxSleepAfter.get(sandbox);
+  }
+
+  /**
+   * Gives revision sandboxes started from now on an image holding the install of `lockfile`, as
+   * the release sandbox's image holds the Template's, or none with null.
+   * @param {string | null} lockfile
+   */
+  async installInImage(lockfile) {
+    if (lockfile === null) {
+      imageInstalledLockfile = null;
+      return;
+    }
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(lockfile));
+    imageInstalledLockfile = [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
   }
 
   /** @param {string} name A user Worker of the `production` dispatch namespace, as uploaded. */

@@ -7,20 +7,24 @@ import { lintErrorsOf } from "./lint-log";
 import type { LintError } from "./result";
 
 // Each draft with code builds its revisions in its own sandbox, named by the draft's ID: a
-// Container in the release sandbox Worker (release-sandbox/), with the release sandbox's image.
-// It's reused across the agent's turns, keeping its install, and sleeps once idle.
+// Container in the release sandbox Worker (release-sandbox/), with the release sandbox's image,
+// which holds the Template's install. It's reused across the agent's turns, keeping its install,
+// and sleeps once idle.
 
 /** How long a revision sandbox stays up idle, keeping its install for the next build. */
 export const REVISION_SANDBOX_SLEEP_AFTER = "15m";
 
-/** Where the website's files are built. */
-const WORKSPACE = "/workspace/website";
+/** Where the website's files are built: where the image installed the Template (its Dockerfile). */
+const WORKSPACE = "/opt/camox/website";
 /** Where the working copy's tree is streamed to before it replaces the workspace's files. */
 const TREE_ARCHIVE = "/tmp/camox-tree.tar";
 /** Where a passed build's output is archived. */
 const BUILD_ARCHIVE = "/tmp/camox-build.tar.gz";
-/** A digest of the lockfile the workspace last installed. */
-const INSTALLED_LOCKFILE = "/tmp/camox-installed-lockfile";
+/**
+ * A digest of the lockfile the workspace's `node_modules` holds the install of: the Template's,
+ * in a new sandbox whose image installed it.
+ */
+const INSTALLED_LOCKFILE = `${WORKSPACE}/node_modules/.camox-installed-lockfile`;
 
 /**
  * The config the type check reads: the project's own `tsconfig.json`, over all of `src/`. It's
@@ -153,23 +157,40 @@ async function workspaceWith(
   });
 
   // The lockfile is platform-owned: an install that fails is the sandbox's failure. A sandbox
-  // that kept its install for this lockfile skips it: `installed` says whether it ran.
+  // that holds the install of this lockfile, its own or its image's, skips it: `installed` says
+  // whether it ran. An install that fails midway leaves no digest, so the next one runs again.
   await timed(
     "revision.sandbox.install",
     span,
     async () => {
       const installed = (await sandbox.exists(INSTALLED_LOCKFILE)).exists
-        ? (await sandbox.readFile(INSTALLED_LOCKFILE)).content
+        ? (await sandbox.readFile(INSTALLED_LOCKFILE)).content.trim()
         : null;
       const wanted = await digest(lockfile ?? "");
       if (installed === wanted) return false;
-      await run("pnpm install --frozen-lockfile", { env: { CI: "1" } });
+      await run(`rm -f ${INSTALLED_LOCKFILE} && pnpm install --frozen-lockfile`, {
+        env: { CI: "1" },
+      });
       await sandbox.writeFile(INSTALLED_LOCKFILE, wanted);
       return true;
     },
     (installed) => ({ installed }),
   );
   return { sandbox, run };
+}
+
+/**
+ * Starts the draft's sandbox and installs the dependencies of `tree`, which holds the files the
+ * install reads, so the build that follows doesn't wait for either: it writes its own tree, and
+ * installs only if the lockfile changed since. Throws a `SandboxError` when the sandbox fails.
+ */
+export async function warmSandbox(
+  env: Pick<Bindings, "REVISION_SANDBOX">,
+  draftId: string,
+  tree: Tree,
+  span: SpanFields = { draftId },
+): Promise<void> {
+  await workspaceWith(env, draftId, tree, span);
 }
 
 /**

@@ -7,8 +7,9 @@ import {
   isMissingBuild,
   isRevisionAssetPath,
   loadRevision,
-  type PrewarmTimings,
-  prewarmRevision,
+  type PreparedRevision,
+  type PrepareTimings,
+  prepareRevision,
   readDefinitionSet,
   type RevisionBindings,
   type RevisionToLoad,
@@ -65,11 +66,21 @@ export class CamoxRevisions extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Readies a revision before its draft's viewers are told of it: its client assets are served
-   * from then on, and it's loaded and rendered once.
+   * Readies a revision before its draft's viewers are told of it, reading its build once: its
+   * client assets are served from then on, and it's loaded and rendered once. Returns its
+   * Definition Set (JSON-shaped), with what each part took.
    */
-  prewarm(revision: RevisionToLoad): Promise<PrewarmTimings> {
-    return prewarmRevision(this.env, revision, gatewayOf(this.ctx));
+  prepare(revision: RevisionToLoad): Promise<PreparedRevision> {
+    return prepareRevision(this.env, revision, gatewayOf(this.ctx));
+  }
+
+  /**
+   * `prepare`, for an API deployed before it, which dispatch's deploy precedes: it reads the
+   * Definition Set with `readDefinitionSet`.
+   */
+  async prewarm(revision: RevisionToLoad): Promise<PrepareTimings> {
+    const { definitionSet: _, ...timings } = await this.prepare(revision);
+    return timings;
   }
 }
 

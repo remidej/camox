@@ -46,6 +46,7 @@ import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-imag
 import * as patrolReports from "../patrol/reports";
 import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
+import { uploadAhead } from "../publishes/upload-ahead";
 import { rootOfItem } from "../repeatable-items/roots";
 import { codeOfDraft, type PreviewCode } from "../revisions/preview";
 import { endingThread } from "../threads/service";
@@ -682,6 +683,12 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
   const { fingerprint: _, ...preview } = yield* computePreview(ctx, scope);
   // Someone is reviewing the draft: an outdated overview is written now, not after the debounce.
   yield* requestIfOutdated(ctx.db, scope.id, preview.overview);
+  // Publishing it is near: its publish script goes up now, unless it already did.
+  if (preview.code?.revision && !preview.code.publishing) {
+    ctx.waitUntil(
+      uploadAhead(ctx.env, ctx.db, { draftId: scope.id, revisionId: preview.code.revision }),
+    );
+  }
   return preview;
 });
 
@@ -757,6 +764,11 @@ const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, en
  * those `shown`, and, when `translated`, while it still has nothing left to translate. Whether it
  * applied, and how the draft ended: when it didn't apply, a concurrent publish or delete may have
  * ended it; otherwise Live changed, or a translation was requested.
+ *
+ * Once it applied, its follow-ups end the draft's thread, delete the files no one uses anymore
+ * and request Live's generated values and merges. With `followUpsApart`, they're returned to
+ * run as a unit of work of their own, once this one's journal told the draft's viewers it ended:
+ * a unit's realtime messages go once all of it succeeded.
  */
 const publishChecked = Effect.fn("drafts.publishChecked")(function* (
   ctx: ServiceContext,
@@ -769,6 +781,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
     translated?: boolean;
     /** Statements of the batch's own, run once Live holds what the draft publishes. */
     after?: BatchItem[];
+    followUpsApart?: boolean;
   },
 ) {
   const { projectId } = scope;
@@ -799,17 +812,21 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
   );
   if (applied._tag === "Failure") {
     const ended = yield* findEndedDraft(ctx.db, projectId, scope.id);
-    return { applied: false, ended: ended ?? null };
+    return { applied: false, ended: ended ?? null, followUps: undefined };
   }
 
-  yield* thread.end;
-  yield* deleteUnreferencedBlobs(ctx, blobs);
-  yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
-  yield* requestLiveGeneration(ctx, scope, options.stored);
-  yield* translations.requestLiveMerges(ctx.db, scope, options.stored);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   yield* recordEnded(ctx, projectId, ended);
-  return { applied: true, ended };
+  const followUps = Effect.gen(function* () {
+    yield* thread.end;
+    yield* deleteUnreferencedBlobs(ctx, blobs);
+    yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
+    yield* requestLiveGeneration(ctx, scope, options.stored);
+    yield* translations.requestLiveMerges(ctx.db, scope, options.stored);
+  });
+  if (options.followUpsApart) return { applied: true, ended, followUps };
+  yield* followUps;
+  return { applied: true, ended, followUps: undefined };
 });
 
 /**
@@ -918,6 +935,7 @@ const publishWhole = Effect.fn("drafts.publishWhole")(function* (
     publishedBy: string;
     stored: overlay.StoredChange[];
     after?: BatchItem[];
+    followUpsApart?: boolean;
   },
 ) {
   // Read before the batch drops them with the draft's other translation state.
@@ -984,7 +1002,8 @@ const startPublish = Effect.fn("drafts.startPublish")(function* (
  * own Worker serves Live: the draft's content, as `publishDraft` applies it, and the pinned
  * revision's definitions, replacing Live's, in one batch. It aborts when Live's conflicts are no
  * longer those `token` records, or when the draft previews another revision than `revision`.
- * Returns whether it applied, and how the draft ended, also when an earlier run ended it.
+ * Returns whether it applied, and how the draft ended, also when an earlier run ended it, with
+ * its follow-ups once it applied, to run as a unit of work of their own (`publishChecked`).
  */
 export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
   db: ServiceContext["db"],
@@ -1015,7 +1034,7 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
         .get(),
     );
     const found = ended ? yield* findEndedDraft(db, ended.projectId, draftId) : undefined;
-    return { applied: false, ended: found ?? null };
+    return { applied: false, ended: found ?? null, followUps: undefined };
   }
   const scope = draftOf(row);
   const shown = yield* decodeToken(token);
@@ -1034,6 +1053,7 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
         requestedAt: row.publishRequestedAt ?? Date.now(),
       }),
     ],
+    followUpsApart: true,
   });
   // Live's viewers read its new definitions.
   if (result.applied) {

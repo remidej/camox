@@ -19,16 +19,27 @@ export type RevisionToLoad = {
 
 /** Dispatch's `CamoxRevisions` entrypoint. */
 export type Dispatch = {
-  /** A revision's Definition Set, as its build's entrypoint gives it: JSON, not yet checked. */
-  readDefinitionSet(revision: RevisionToLoad): Promise<unknown>;
   /**
-   * Readies a revision before its draft's viewers are told of it: dispatch serves its client
-   * assets from then on, and has loaded and rendered it once. Says how many client assets it
-   * stored and how long that and the render took, for the API's timing logs (none from a
-   * dispatch older than that).
+   * Readies a revision before its draft's viewers are told of it, reading its build once:
+   * dispatch serves its client assets from then on, and has loaded and rendered it once. Returns
+   * its Definition Set (JSON, not yet checked), with what each part took, for the API's timing
+   * logs.
    */
-  prewarm(revision: RevisionToLoad): Promise<PrewarmTimings | void>;
+  prepare(revision: RevisionToLoad): Promise<PreparedRevision>;
 };
 
-/** What a prewarm took. Mirrored in apps/dispatch/src/revisions.ts: keep the two in sync. */
-export type PrewarmTimings = { assets: number; assetsMs: number; renderMs: number };
+/**
+ * What preparing a revision took: reading its build, then, at once, storing its client assets
+ * (how many) and reading its Definition Set, then the first render. Mirrored in
+ * apps/dispatch/src/revisions.ts: keep the two in sync.
+ */
+export type PrepareTimings = {
+  assets: number;
+  readMs: number;
+  assetsMs: number;
+  definitionSetMs: number;
+  renderMs: number;
+};
+
+/** A prepared revision's Definition Set, with what preparing it took. */
+export type PreparedRevision = PrepareTimings & { definitionSet: unknown };

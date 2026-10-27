@@ -9,6 +9,7 @@ import {
   DRAFT,
   fakeBucket,
   fakeLoader,
+  definitionSet,
   PRICING_CSS,
   PROJECT,
   REVISION,
@@ -433,15 +434,15 @@ describe("a draft with code's preview", () => {
 });
 
 describe("a revision's client assets", () => {
-  /** A revision dispatch has prewarmed, as the API asks once its build passed. */
+  /** A revision dispatch has prepared, as the API asks once its build passed. */
   async function prewarmed() {
     const previewing = await previewingEnv();
     const { env } = previewing;
-    await new CamoxRevisions(context(env), env).prewarm(revision);
+    await new CamoxRevisions(context(env), env).prepare(revision);
     return previewing;
   }
 
-  it("are served under its asset prefix to anyone, once it's prewarmed", async () => {
+  it("are served under its asset prefix to anyone, once it's prepared", async () => {
     const { fetch } = await prewarmed();
 
     const response = await fetch(`${PREFIX}assets/pricing.css`);
@@ -484,7 +485,7 @@ describe("a revision's client assets", () => {
     expect(response.status).toBe(404);
   });
 
-  it("answer a revision that was never prewarmed with not found, not the project Worker", async () => {
+  it("answer a revision that was never prepared with not found, not the project Worker", async () => {
     const { fetch } = await previewingEnv();
 
     const response = await fetch(`${PREFIX}assets/pricing.css`);
@@ -492,23 +493,69 @@ describe("a revision's client assets", () => {
     expect(response.status).toBe(404);
     expect(await response.text()).not.toContain("Live's code");
   });
+
+  it("answer a path the build has no asset at with not found", async () => {
+    const { fetch } = await prewarmed();
+
+    const response = await fetch(`${PREFIX}assets/missing.css`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("are stored in two objects, however many the build has", async () => {
+    const { env, builds, fetch } = await previewingEnv();
+    const icons = Object.fromEntries(
+      Array.from({ length: 5 }, (_, at) => [`dist/client/icons/${at}.svg`, `<svg>${at}</svg>`]),
+    );
+    builds.objects.set(ARCHIVE_KEY, { body: await archived({ ...BUILD, ...icons }) });
+
+    await new CamoxRevisions(context(env), env).prepare(revision);
+
+    const stored = [...builds.objects.keys()].filter((key) =>
+      key.startsWith(`${PROJECT}/revisions/${REVISION}/`),
+    );
+    expect(stored).toHaveLength(2);
+    expect(await (await fetch(`${PREFIX}icons/3.svg`)).text()).toBe("<svg>3</svg>");
+  });
+
+  it("are still served one object each for a revision prewarmed before they were packed", async () => {
+    const { builds, fetch } = await previewingEnv();
+    builds.objects.set(`${PROJECT}/revisions/${REVISION}/assets/pricing.css`, {
+      body: new TextEncoder().encode(PRICING_CSS),
+      contentType: "text/css; charset=utf-8",
+    });
+
+    const response = await fetch(`${PREFIX}assets/pricing.css`);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(PRICING_CSS);
+  });
 });
 
-describe("prewarming a revision", () => {
+describe("preparing a revision", () => {
   it("loads it and renders its renderer document once", async () => {
     const { env, loader } = await previewingEnv();
 
-    await new CamoxRevisions(context(env), env).prewarm(revision);
+    await new CamoxRevisions(context(env), env).prepare(revision);
 
     expect(loader.loaded.map(({ name }) => name)).toEqual([REVISION]);
     expect(loader.fetched).toEqual([`${REVISION} /_camox/renderer`]);
+  });
+
+  it("gives the API its Definition Set, reading its build once", async () => {
+    const { env, builds } = await previewingEnv();
+
+    const prepared = await new CamoxRevisions(context(env), env).prepare(revision);
+
+    expect(prepared.definitionSet).toEqual(definitionSet(PREFIX));
+    expect(builds.gets.filter((key) => key === ARCHIVE_KEY)).toHaveLength(1);
   });
 
   it("fails when its build isn't stored", async () => {
     const { env } = await previewingEnv();
 
     await expect(
-      new CamoxRevisions(context(env), env).prewarm({ ...revision, archiveKey: "missing.tar.gz" }),
+      new CamoxRevisions(context(env), env).prepare({ ...revision, archiveKey: "missing.tar.gz" }),
     ).rejects.toThrow("missing.tar.gz");
   });
 });

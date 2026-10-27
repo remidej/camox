@@ -2,8 +2,8 @@ import type { Bindings } from "../../types";
 
 // A revision's build is stored in `REVISION_BUILDS` as one gzipped tar archive of the website's
 // `dist/` directory as `vp build` leaves it: `dist/client/` (the client assets) and the server
-// build's directory with its `wrangler.json`. Prewarming a revision has dispatch store its client
-// assets too, one object each, which its asset prefix serves.
+// build's directory with its `wrangler.json`. Preparing a revision has dispatch store its client
+// assets too, in one object with an index beside it, which its asset prefix serves.
 
 type Keyed = { project: string; draft: string };
 
@@ -15,7 +15,7 @@ export const revisionArchiveKey = ({ revision, ...draft }: Keyed & { revision: s
   `${draftPrefix(draft)}${revision}.tar.gz`;
 
 /**
- * Where dispatch stores a prewarmed revision's client assets. Mirrored from `revisionAssetKey` in
+ * Where dispatch stores a prepared revision's client assets. Mirrored from `revisionAssetKey` in
  * apps/dispatch/src/revisions.ts: keep the two in sync.
  */
 const revisionAssetsPrefix = ({ project, revision }: { project: string; revision: string }) =>

@@ -38,6 +38,7 @@ type Fakes = {
   crashSandboxes(marker: string, times: number): Promise<void>;
   sandboxDestroyed(sandbox: string): Promise<boolean>;
   sandboxSleepAfter(sandbox: string): Promise<string | undefined>;
+  installInImage(lockfile: string | null): Promise<void>;
 };
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -337,6 +338,53 @@ RolldownError: src/blocks/faq.tsx defines the block "questions", but its file is
     expect(installs).toHaveLength(1);
     expect(await fakes.revisionBuilds(draft.id)).toHaveLength(2);
     expect(await fakes.sandboxSleepAfter(draft.id)).toBe(REVISION_SANDBOX_SLEEP_AFTER);
+  });
+
+  it("starts the sandbox as the agent first writes code, installing before it builds", async () => {
+    const { draft } = await buildInFirstTurn({
+      "src/blocks/pricing.tsx": PRICING,
+      "src/blocks/faq.tsx": `export const faq = "Ask us";\n`,
+    });
+
+    const commands = (await fakes.revisionCommands(draft.id)).map(({ command }) => command);
+    const built = commands.findIndex((command) => command.includes("vp build"));
+    const beforeBuild = commands.slice(0, built);
+    const extracts = beforeBuild.flatMap((command, at) =>
+      command.includes("tar -xf") ? [at] : [],
+    );
+    const installs = beforeBuild.flatMap((command, at) =>
+      command.includes("pnpm install") ? [at] : [],
+    );
+    // Its first write started the sandbox, once for both writes, and the build found the install.
+    expect(extracts).toHaveLength(2);
+    expect(installs).toHaveLength(1);
+    expect(installs[0]).toBeGreaterThan(extracts[0]!);
+    expect(installs[0]).toBeLessThan(extracts[1]!);
+  });
+
+  it("doesn't install in a new sandbox whose image installed the lockfile", async () => {
+    await fakes.installInImage(LOCKFILE);
+    try {
+      const { draft } = await buildInFirstTurn({ "src/blocks/pricing.tsx": PRICING });
+
+      const commands = await fakes.revisionCommands(draft.id);
+      expect(commands.filter(({ command }) => command.includes("pnpm install"))).toEqual([]);
+      expect(await fakes.revisionBuilds(draft.id)).toHaveLength(1);
+    } finally {
+      await fakes.installInImage(null);
+    }
+  });
+
+  it("installs in a new sandbox whose image installed another lockfile", async () => {
+    await fakes.installInImage(`${LOCKFILE}# the Template's\n`);
+    try {
+      const { draft } = await buildInFirstTurn({ "src/blocks/pricing.tsx": PRICING });
+
+      const commands = await fakes.revisionCommands(draft.id);
+      expect(commands.filter(({ command }) => command.includes("pnpm install"))).toHaveLength(1);
+    } finally {
+      await fakes.installInImage(null);
+    }
   });
 
   it("retries a sandbox that fails, without telling the agent", async () => {

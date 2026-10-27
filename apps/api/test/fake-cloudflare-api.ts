@@ -194,6 +194,15 @@ export async function serveCloudflareApi(request: Request): Promise<Response> {
   if (request.method === "PUT") {
     return intercept(projectOf(name), `PUT ${name}`, () => uploadScript(name, request));
   }
+  if (request.method === "GET") {
+    return intercept(projectOf(name), `GET ${name}`, async () =>
+      userWorkers.has(name)
+        ? envelope(200, { script: { id: name } })
+        : envelope(404, null, [
+            { code: 10007, message: "This Worker does not exist on your account." },
+          ]),
+    );
+  }
   if (request.method === "DELETE") {
     return intercept(projectOf(name), `DELETE ${name}`, async () => {
       if (failingDeletions.has(name)) {
