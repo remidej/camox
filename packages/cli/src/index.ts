@@ -3,12 +3,14 @@ import { message } from "@optique/core/message";
 import { defineProgram } from "@optique/core/program";
 import { runSync } from "@optique/run";
 
+import * as clone from "./commands/clone";
+import * as gitCredential from "./commands/git-credential";
 import * as login from "./commands/login";
 import * as logout from "./commands/logout";
 import * as release from "./commands/release";
 
 const program = defineProgram({
-  parser: or(login.parser, logout.parser, release.parser),
+  parser: or(login.parser, logout.parser, release.parser, clone.parser, gitCredential.parser),
   metadata: {
     name: "camox",
     brief: message`Camox CLI`,
@@ -26,5 +28,11 @@ switch (result.command) {
     break;
   case "release":
     release.handler(result);
+    break;
+  case "clone":
+    await clone.handler(result);
+    break;
+  case "git-credential":
+    await gitCredential.handler(result);
     break;
 }
