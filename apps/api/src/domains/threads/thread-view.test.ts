@@ -1,10 +1,15 @@
 import {
   BUILD_STATUS_ENTRY,
   type BuildStatus,
+  DRAFT_ENDED_ENTRY,
   EDITOR_MESSAGE_ENTRY,
   EMPTY_THREAD_STATE,
   reduceThreadEvents,
+  reduceThreadFrame,
   RUN_STOPPED_ENTRY,
+  START_DRAFT_TOOL,
+  type ThreadServerMessage,
+  type ThreadState,
   threadViewOf,
 } from "@camox/api-contract/threads";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -48,11 +53,44 @@ const answer = (text: string) => ({
   model: [fauxAssistantMessage([fauxText(text)])],
 });
 
+/** The agent on Live calling `startDraft`, and the call's result, failed or not. */
+const handOff = (card: { draftId: string; name: string }, { isError = false } = {}) => [
+  {
+    kind: "pi.assistant",
+    model: [
+      fauxAssistantMessage([fauxToolCall(START_DRAFT_TOOL, { name: card.name, brief: "…" })], {
+        stopReason: "toolUse",
+      }),
+    ],
+  },
+  {
+    kind: "pi.tool-result",
+    model: [
+      {
+        role: "toolResult" as const,
+        toolCallId: "call-1",
+        toolName: START_DRAFT_TOOL,
+        content: [{ type: "text" as const, text: isError ? "The draft ended." : "{}" }],
+        ...(!isError && { details: card }),
+        isError,
+        timestamp: 0,
+      },
+    ],
+  },
+];
+
 const buildStatus = (status: BuildStatus) => ({ kind: BUILD_STATUS_ENTRY, data: { status } });
 
 /** The message Pi continues a run with when the end of a turn sends the agent back to work. */
 const continuation = (text: string) => ({
   kind: "pi.user",
+  model: [{ role: "user" as const, content: text, timestamp: 0 }],
+});
+
+/** Camox's note to the agent on Live that a draft it started ended, which the model alone reads. */
+const draftEnded = (text: string) => ({
+  kind: DRAFT_ENDED_ENTRY,
+  data: { draftId: "d" },
   model: [{ role: "user" as const, content: text, timestamp: 0 }],
 });
 
@@ -198,5 +236,140 @@ describe("a thread's view", () => {
     expect(
       running([{ callId: "call-1", status: "running" }], [{ type: "run_end", inputs: [] }]),
     ).toBeUndefined();
+  });
+
+  it("ends a Live turn handed off to a draft on the draft's card, as finished", () => {
+    const card = { draftId: "draft-1", name: "New prices" };
+    const view = threadViewOf(
+      reduceThreadEvents(EMPTY_THREAD_STATE, [
+        snapshot([editorMessage("Raise the price"), ...handOff(card)]),
+      ]),
+    );
+
+    expect(view.messages.map(({ from }) => from)).toEqual(["editor", "draft"]);
+    expect(view.messages.at(-1)).toMatchObject({ from: "draft", ...card });
+  });
+
+  it("shows a message handed off with the request in the turn ending on its card, as finished", () => {
+    const card = { draftId: "draft-1", name: "New prices" };
+    const view = threadViewOf(
+      reduceThreadEvents(EMPTY_THREAD_STATE, [
+        snapshot([
+          editorMessage("Raise the price"),
+          ...handOff(card),
+          // Sent as the agent handed the request off, which took it to the draft too.
+          { ...editorMessage("And the annual plan"), data: { ...editor, handedOffTo: "draft-1" } },
+          editorMessage("Thanks"),
+          answer("You're welcome."),
+        ]),
+      ]),
+    );
+
+    expect(
+      view.messages.map((message) => ("text" in message ? message.text : message.from)),
+    ).toEqual(["Raise the price", "And the annual plan", "draft", "Thanks", "You're welcome."]);
+  });
+
+  it("shows a startDraft call that failed as a turn Camox couldn't finish, with no card", () => {
+    expect(
+      shown(
+        [
+          editorMessage("Raise the price"),
+          ...handOff({ draftId: "d", name: "N" }, { isError: true }),
+        ],
+        false,
+      ).said,
+    ).toEqual(["editor", "failed"]);
+  });
+
+  it("shows a card's draft as the thread last looked it up, across snapshots", () => {
+    const entries = [
+      editorMessage("Raise the price"),
+      ...handOff({ draftId: "draft-1", name: "New prices" }),
+      editorMessage("Add a launch page"),
+      ...handOff({ draftId: "draft-2", name: "Launch page" }),
+    ];
+    const cards = (state: ThreadState) =>
+      threadViewOf(state).messages.filter((message) => message.from === "draft");
+    const renamed = [
+      { type: "events", events: [snapshot(entries)] },
+      { type: "drafts", drafts: { "draft-1": { name: "Prices for 2027" } } },
+    ] satisfies ThreadServerMessage[];
+    const state = renamed.reduce(reduceThreadFrame, EMPTY_THREAD_STATE);
+
+    expect(cards(state)).toEqual([
+      { id: expect.any(String), from: "draft", draftId: "draft-1", name: "Prices for 2027" },
+      { id: expect.any(String), from: "draft", draftId: "draft-2", name: "Launch page" },
+    ]);
+
+    const ended = [
+      { type: "drafts", drafts: { "draft-1": { name: "Prices for 2027", ended: "published" } } },
+      // A resync's snapshot comes before the thread looks the drafts up again.
+      { type: "events", events: [snapshot(entries)] },
+    ] satisfies ThreadServerMessage[];
+    const after = ended.reduce(reduceThreadFrame, state);
+
+    expect(cards(after)).toEqual([
+      {
+        id: expect.any(String),
+        from: "draft",
+        draftId: "draft-1",
+        name: "Prices for 2027",
+        ended: "published",
+      },
+      { id: expect.any(String), from: "draft", draftId: "draft-2", name: "Launch page" },
+    ]);
+  });
+
+  it("keeps the agent's name for a card whose draft's name was cleared", () => {
+    const state = [
+      {
+        type: "events",
+        events: [
+          snapshot([editorMessage("Raise the price"), ...handOff({ draftId: "d", name: "N" })]),
+        ],
+      },
+      { type: "drafts", drafts: { d: { name: null } } },
+    ] satisfies ThreadServerMessage[];
+
+    expect(
+      threadViewOf(state.reduce(reduceThreadFrame, EMPTY_THREAD_STATE)).messages.at(-1),
+    ).toEqual({
+      id: expect.any(String),
+      from: "draft",
+      draftId: "d",
+      name: "N",
+    });
+  });
+
+  it("keeps a card a Live turn ended on as the next turn starts", () => {
+    expect(
+      shown([
+        editorMessage("Raise the price"),
+        ...handOff({ draftId: "d", name: "N" }),
+        editorMessage("And the launch page?"),
+        answer("It's in the draft."),
+      ]).said,
+    ).toEqual(["editor", "draft", "editor", "agent"]);
+  });
+
+  it("never shows the note that a draft ended, nor hides the answer before it", () => {
+    const ended = draftEnded("The draft New prices was published by Ada Lovelace.");
+    const turns = [
+      editorMessage("Raise the price"),
+      ...handOff({ draftId: "d", name: "N" }),
+      editorMessage("Is it live yet?"),
+      answer("Not yet."),
+    ];
+
+    expect(shown([...turns, ended], false).said).toEqual(["editor", "draft", "editor", "agent"]);
+    expect(shown([...turns, ended, editorMessage("And now?"), answer("Yes.")]).said).toEqual([
+      "editor",
+      "draft",
+      "editor",
+      "agent",
+      "editor",
+      "agent",
+    ]);
   });
 });

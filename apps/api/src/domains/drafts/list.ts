@@ -8,6 +8,7 @@ import { getAuthorizedProject, requireUser } from "../../authorization";
 import { decodeInput, InvalidInputError } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
+import { showDraftOnLive } from "../threads/service";
 import { listedChanges } from "../translations/review";
 import { translatingLocales } from "../translations/service";
 import { accessTo } from "./access";
@@ -193,6 +194,7 @@ export const renameDraft = Effect.fn("drafts.rename")(function* (
     ctx.db.update(drafts).set({ name: trimmed }).where(eq(drafts.id, draft.id)),
   );
   yield* record(ctx.db, { kind: "drafts", projectId });
+  yield* showDraftOnLive(ctx, draft.liveThreadId);
   const [summary] = yield* summarize(ctx.db, [{ ...draft, name: trimmed }]);
   return summary!;
 });

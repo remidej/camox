@@ -4,8 +4,9 @@ import * as React from "react";
 import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId, useDraftScope } from "../../../lib/draft-scope";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
-import { type CarriedThread, useThread } from "../../../lib/use-thread";
+import { useThread } from "../../../lib/use-thread";
 import { cn } from "../../../lib/utils";
+import { useNavigate } from "../../navigation/navigation";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { FollowAgentContext } from "../followAgentContext";
 import { ThreadComposer } from "./ThreadComposer";
@@ -15,7 +16,8 @@ import { ThreadMessages } from "./ThreadMessages";
  * The Agent Sidebar's Chat widget, where an editor works with Camox's agent in a thread. Elsewhere in the
  * studio it is only hidden: the studio keeps following the editor's runs there. It follows
  * where the studio is: the editor's own Live thread on Live, and the draft's thread in a draft.
- * When the Live thread starts a draft, the studio enters it with the thread.
+ * When the agent on Live hands the editor's request off to a draft, the studio that asked enters
+ * it, if it still shows Live; the card the Live turn ends on opens it too.
  */
 export function ChatWidget({ className }: { className?: string }) {
   return (
@@ -41,26 +43,16 @@ function CurrentThread() {
   const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const draftId = useCurrentDraftId();
   const draftScope = useDraftScope();
-  // What the Live thread showed as the studio entered the draft it started, so the draft's
-  // socket picks the same thread up without flashing empty, and sends what's still on its way.
-  const [carried, setCarried] = React.useState<{ draftId: string; thread: CarriedThread }>();
+  const navigate = useNavigate();
+  // Only a studio still on Live enters the draft its request was handed off to.
   const enterDraft = React.useCallback(
-    (started: string, thread: CarriedThread) => {
-      // Only a studio still on Live enters it, as for a first write.
-      if (draftScope.current() !== null) return;
-      const { startedDraft: _, continuedIn: __, ...state } = thread.state;
-      setCarried({ draftId: started, thread: { ...thread, state } });
-      draftScope.enterStarted(started);
-    },
+    (started: string) => draftScope.enterStarted(started),
     [draftScope],
   );
-  // Only the move into the draft carries the thread over.
-  React.useEffect(
-    () =>
-      draftScope.subscribe(({ move }) => {
-        if (move !== "started") setCarried(undefined);
-      }),
-    [draftScope],
+  /** Views the same page in the draft a card names. */
+  const openDraft = React.useCallback(
+    (next: string) => void navigate({ to: window.location.href, draft: next }),
+    [navigate],
   );
 
   if (!project) {
@@ -78,8 +70,8 @@ function CurrentThread() {
       apiUrl={apiUrl}
       projectId={project.id}
       draftId={draftId}
-      carried={carried?.draftId === draftId ? carried.thread : undefined}
       onEnterDraft={enterDraft}
+      onOpenDraft={openDraft}
     />
   );
 }
@@ -88,21 +80,19 @@ function Thread({
   apiUrl,
   projectId,
   draftId,
-  carried,
   onEnterDraft,
+  onOpenDraft,
 }: {
   apiUrl: string;
   projectId: number;
   draftId: string | null;
-  carried?: CarriedThread;
-  onEnterDraft: (draftId: string, carried: CarriedThread) => void;
+  onEnterDraft: (draftId: string) => void;
+  onOpenDraft: (draftId: string) => void;
 }) {
   const { view, sending, send, stop, error, touched } = useThread(apiUrl, projectId, draftId, {
-    carried,
     onEnterDraft,
   });
-  // The studio follows what its runs touch, starting with what the write that started the draft
-  // touched, carried from the Live thread.
+  // The studio follows what its runs touch.
   const follow = React.use(FollowAgentContext);
   const followTouched = React.useEffectEvent((batch: TouchedBatch) => follow?.receive(batch));
   React.useEffect(() => {
@@ -115,7 +105,7 @@ function Thread({
   };
   return (
     <>
-      <ThreadMessages view={view} sending={sending} />
+      <ThreadMessages view={view} sending={sending} onOpenDraft={onOpenDraft} />
       {error && (
         <p role="alert" className="text-destructive px-2 pt-2 text-sm">
           {error}

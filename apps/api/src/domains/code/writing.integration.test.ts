@@ -4,7 +4,7 @@ import { abortAllDurableObjects, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext, openDevelopmentDraft } from "../../../test/fixtures";
+import { createRpcContext, openDevelopmentDraft, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import { LOCKFILE } from "../../../test/revision-builds";
 import {
@@ -58,6 +58,12 @@ async function websiteWithCode() {
   return website;
 }
 
+/** A new draft of `website`, started by the fixture member, and its thread, open. */
+async function draftThread(website: Awaited<ReturnType<typeof websiteWithCode>>, token: string) {
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  return { draftId, thread: await connectDraftThread(website.project.id, draftId, token) };
+}
+
 /**
  * Has the agent call the tool `name` with `args`, and returns what the tool answered it, as the
  * agent's answer shows it: without a last newline.
@@ -73,42 +79,49 @@ async function toolResult(
 }
 
 describe("the agent writing the website's code", () => {
-  it("starts a draft with its first code write on Live, whose reads return the new file", async () => {
+  it("writes in the draft's own branch, whose reads return the new file, leaving Live's code", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const thread = await connectLiveThread(website.project.id, token);
+    const { draftId, thread } = await draftThread(website, token);
 
     await toolResult(thread, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
 
-    const [draft, ...others] = await draftsOf(website);
-    expect(others).toEqual([]);
-    expect(draft?.createdBy.id).toBe(website.memberUser.id);
-    expect(thread.view().startedDraft?.draftId).toBe(draft?.id);
-    thread.close();
-
-    // The thread moved into the draft, where the new file is, beside Live's.
-    const inDraft = await connectDraftThread(website.project.id, draft!.id, token);
-    expect(await toolResult(inDraft, "read", { path: "src/blocks/pricing.tsx" })).toBe(
+    expect(await toolResult(thread, "read", { path: "src/blocks/pricing.tsx" })).toBe(
       PRICING.trimEnd(),
     );
-    expect(await toolResult(inDraft, "ls", { path: "src/blocks" })).toBe("hero.tsx\npricing.tsx");
-    inDraft.close();
+    expect(await toolResult(thread, "ls", { path: "src/blocks" })).toBe("hero.tsx\npricing.tsx");
+    thread.close();
 
     // Live's code is unchanged, and the draft has its own branch.
     const live = await connectLiveThread(website.project.id, token);
     expect(await toolResult(live, "ls", { path: "src/blocks" })).toBe("hero.tsx");
     live.close();
-    expect(await fakes.branches(website.project.uuid)).toEqual(["main", draft!.id]);
+    expect(await fakes.branches(website.project.uuid)).toEqual(["main", draftId]);
+  });
+
+  it("offers no code writes on Live, where a write changes nothing and starts no draft", async () => {
+    const website = await websiteWithCode();
+    const token = await signIn(website.db, website.memberUser.id);
+    const live = await connectLiveThread(website.project.id, token);
+
+    const result = await toolResult(live, "write", {
+      path: "src/blocks/pricing.tsx",
+      content: PRICING,
+    });
+
+    expect(result).not.toBe("");
+    expect(await toolResult(live, "ls", { path: "src/blocks" })).toBe("hero.tsx");
+    live.close();
+    expect(await draftsOf(website)).toEqual([]);
+    expect(await fakes.branches(website.project.uuid)).toEqual(["main"]);
   });
 
   it("still reads its changes in a later turn, after the working copy was evicted", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
-    await toolResult(live, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
-    live.close();
-    const [draft] = await draftsOf(website);
-    const thread = await connectDraftThread(website.project.id, draft!.id, token);
+    const { draftId, thread } = await draftThread(website, token);
+    const draft = { id: draftId };
+    await toolResult(thread, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
     await toolResult(thread, "edit", {
       path: "src/blocks/hero.tsx",
       edits: [{ oldText: "Welcome to Acme", newText: "Welcome back" }],
@@ -160,18 +173,16 @@ describe("the agent writing the website's code", () => {
   it("refuses writes beyond the write line, naming the rule, and writes nothing", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
+    const { draftId, thread } = await draftThread(website, token);
+    const draft = { id: draftId };
     const allowed = "You may write `src/**/*.{ts,tsx,css}`, except `src/camox/`.";
 
-    // On Live, a refused write starts no draft.
+    // A refused first write gives the draft no working copy.
     expect(
-      await toolResult(live, "write", { path: "vite.config.ts", content: "export {};" }),
+      await toolResult(thread, "write", { path: "vite.config.ts", content: "export {};" }),
     ).toContain(`\`vite.config.ts\` is platform-owned; only Upgrades change it. ${allowed}`);
-    expect(await draftsOf(website)).toEqual([]);
-    await toolResult(live, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
-    live.close();
-    const [draft] = await draftsOf(website);
-    const thread = await connectDraftThread(website.project.id, draft!.id, token);
+    expect(await env.DRAFT_CODE.getByName(draftId).held()).toBe(false);
+    await toolResult(thread, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
 
     const platformOwned = (path: string) =>
       `\`${path}\` is platform-owned; only Upgrades change it. ${allowed}`;
@@ -235,15 +246,14 @@ describe("the agent writing the website's code", () => {
   it("gives a draft without code its working copy with its first code write", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
+    const { draftId, thread } = await draftThread(website, token);
+    const draft = { id: draftId };
     answerWithScript(`
       const home = await tools.getPage({ path: "/home" });
       await tools.editBlock({ id: home.blocks[0].id, content: { body: "Hi" } });
     `);
     answerNext("Done.");
-    await ask(live, "Say hi");
-    const [draft] = await draftsOf(website);
-    const thread = await connectDraftThread(website.project.id, draft!.id, token);
+    await ask(thread, "Say hi", { keepOpen: true });
     expect(await toolResult(thread, "ls", { path: "src/blocks" })).toBe("hero.tsx");
 
     await toolResult(thread, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
@@ -257,25 +267,25 @@ describe("the agent writing the website's code", () => {
   it("starts the draft's code from the copy of main the agent read", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
-    expect(await toolResult(live, "read", { path: "src/blocks/hero.tsx" })).toBe(HERO.trimEnd());
+    const { thread } = await draftThread(website, token);
+    expect(await toolResult(thread, "read", { path: "src/blocks/hero.tsx" })).toBe(HERO.trimEnd());
     // `main` moves, and the copy the agent read hasn't caught up yet.
     await fakes.commit(website.project.uuid, { "src/blocks/hero.tsx": "export {};\n" }, "Moved");
 
-    await toolResult(live, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
+    await toolResult(thread, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
 
-    expect(await toolResult(live, "read", { path: "src/blocks/hero.tsx" })).toBe(HERO.trimEnd());
-    expect(await toolResult(live, "ls", { path: "src/blocks" })).toBe("hero.tsx\npricing.tsx");
-    live.close();
+    expect(await toolResult(thread, "read", { path: "src/blocks/hero.tsx" })).toBe(HERO.trimEnd());
+    expect(await toolResult(thread, "ls", { path: "src/blocks" })).toBe("hero.tsx\npricing.tsx");
+    thread.close();
   });
 
   it("deletes the draft's branch and working copy when the draft is deleted", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
-    await toolResult(live, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
-    live.close();
-    const [draft] = await draftsOf(website);
+    const { draftId, thread } = await draftThread(website, token);
+    const draft = { id: draftId };
+    await toolResult(thread, "write", { path: "src/blocks/pricing.tsx", content: PRICING });
+    thread.close();
 
     await call(
       router.drafts.delete,

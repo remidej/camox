@@ -3,7 +3,7 @@ import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
 import { commitToMain, pushToMain, startDeliveringPush } from "../../../test/pushes";
 import {
@@ -25,8 +25,6 @@ import {
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
-  draftsOf,
   lastAnswer,
   said,
   signIn,
@@ -75,12 +73,12 @@ const previewOf = (website: Website, draftId: string) =>
 async function draftWithPricing() {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
-  const live = await connectLiveThread(website.project.id, token);
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  const thread = await connectDraftThread(website.project.id, draftId, token);
   answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
   answerNext("I added a pricing section.");
-  await ask(live, "Add a pricing section");
-  const [draft] = await draftsOf(website);
-  return { website, token, draftId: draft!.id };
+  await ask(thread, "Add a pricing section");
+  return { website, token, draftId };
 }
 
 /** The revision messages the draft's viewers were sent, in order. */

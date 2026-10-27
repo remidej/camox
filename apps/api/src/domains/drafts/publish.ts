@@ -775,7 +775,10 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
   // Collected before the batch drops the draft's rows and replaces Live's.
   const blobs = yield* blobsOfDraft(ctx.db, scope);
   const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
-  const thread = yield* endingThread(ctx, scope.id);
+  const thread = yield* endingThread(ctx, scope.id, {
+    outcome: "published",
+    byUserId: options.publishedBy,
+  });
   const applied = yield* Effect.result(
     overlay.publish(ctx.db, scope, {
       shown: options.shown,
@@ -1121,7 +1124,7 @@ export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
   // Collected before the cascade drops the draft's rows.
   const blobs = yield* blobsOfDraft(ctx.db, scope);
   const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
-  const thread = yield* endingThread(ctx, scope.id);
+  const thread = yield* endingThread(ctx, scope.id, { outcome: "deleted", byUserId: user.id });
   const result = yield* Effect.result(
     overlay.deleteDraft(ctx.db, scope, {
       deletedBy: user.id,
