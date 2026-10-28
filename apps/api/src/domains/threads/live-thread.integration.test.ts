@@ -104,6 +104,47 @@ describe("an editor's Live thread", () => {
     thread.close();
   });
 
+  it("tells the agent what the editor had selected on the page", async () => {
+    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
+    const token = await signIn(db, memberUser.id);
+    let read: string[] = [];
+    answerFrom(({ editorMessages }) => {
+      read = editorMessages;
+      return "Done.";
+    });
+
+    const thread = await connectLiveThread(project.id, token);
+    thread.send({
+      type: "send",
+      operationId: crypto.randomUUID(),
+      text: "Make this punchier",
+      where: {
+        on: "page",
+        locale: "en",
+        path: "/",
+        title: "Home",
+        selection: {
+          path: ["Hero", "Fast setup", "Title"],
+          blockId: "019a0000-0000-7000-8000-00000000000b",
+          itemId: "019a0000-0000-7000-8000-00000000000c",
+          fieldName: "title",
+        },
+      },
+    });
+    await thread.until(() => thread.view().messages.some((message) => message.from === "agent"));
+
+    const [message] = read;
+    expect(message).toMatch(/^Make this punchier\W/);
+    expect(message).toContain('"Hero" > "Fast setup" > "Title"');
+    expect(message).toContain("019a0000-0000-7000-8000-00000000000b");
+    expect(message).toContain("019a0000-0000-7000-8000-00000000000c");
+    expect(message).toContain('"title"');
+    expect(thread.view().messages.find((entry) => entry.from === "editor")).toMatchObject({
+      text: "Make this punchier",
+    });
+    thread.close();
+  });
+
   it("shows a reconnecting editor where the thread is, agent still working", async () => {
     const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
     const token = await signIn(db, memberUser.id);

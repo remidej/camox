@@ -263,10 +263,25 @@ type ThreadStep = { id: string } & (
 );
 
 /**
+ * What an editor had selected on the page as they sent a message, unless they cleared it from
+ * the message: its path as the studio names it, from the block down to the selection, with the
+ * ids the agent's tools take. A record is the one the selection shows, a field the selection's
+ * own, of the record when a record is selected.
+ */
+export const editorSelectionSchema = z.object({
+  path: z.array(z.string().max(512)).min(1).max(16),
+  blockId: z.string().max(64).optional(),
+  itemId: z.string().max(64).optional(),
+  recordId: z.string().max(64).optional(),
+  fieldName: z.string().max(256).optional(),
+});
+export type EditorSelection = z.infer<typeof editorSelectionSchema>;
+
+/**
  * Where an editor was in the studio as they sent a message, in the Locale they viewed: a Page,
  * by its path after the Locale's prefix and its title, with its id for a curated page and its
- * Layout's for a layout page, or the Canvas with no page selected. A hint for the agent, never
- * what the message is about.
+ * Layout's for a layout page, and what they had selected on it, or the Canvas with no page
+ * selected. A hint for the agent, never what the message is about.
  */
 export const editorWhereSchema = z.discriminatedUnion("on", [
   z.object({
@@ -276,6 +291,7 @@ export const editorWhereSchema = z.discriminatedUnion("on", [
     title: z.string().max(512),
     pageId: z.string().max(64).optional(),
     layoutId: z.string().max(256).optional(),
+    selection: editorSelectionSchema.optional(),
   }),
   z.object({ on: z.literal("canvas"), locale: z.string().max(64) }),
 ]);
