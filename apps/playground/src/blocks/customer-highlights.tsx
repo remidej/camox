@@ -42,7 +42,7 @@ function CustomerHighlightsComponent() {
               <li
                 className={
                   highlight.useSetting("emphasized")
-                    ? "border-brand rounded-lg border-2 p-6"
+                    ? "border-accent rounded-lg border-2 p-6"
                     : "border-line rounded-lg border p-6"
                 }
               >

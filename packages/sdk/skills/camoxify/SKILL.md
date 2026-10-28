@@ -39,7 +39,7 @@ Learn the project's **Theme** before styling: read its main stylesheet, the CSS 
 
 Reuse the project's **Components**, such as its button or card, and compose or extend them to match the reference. Build a new Component only when none fits.
 
-Style through the Theme's utilities rather than raw colors or stock palette classes, so a rebrand stays one stylesheet edit. To match the reference's colors, fonts and radii, change the Theme's values in the stylesheet; when the reference needs a role the Theme lacks, add a token there with a comment explaining it.
+Style through the Theme's utilities rather than raw colors or stock palette classes, so a rebrand stays one stylesheet edit. To match the reference's colors, fonts and radii, change the Theme's values in the stylesheet: its main color for buttons and links becomes the **Brand Color**, and a second color it uses for emphasis or decoration becomes the **Accent Color**; when the reference needs a role the Theme lacks, add a token there with a comment explaining it.
 
 If the reference uses another styling system, recreate its appearance and behavior with the project's Components and Tailwind utilities; do not copy or introduce the reference's styling dependencies.
 

@@ -49,7 +49,7 @@ function AccordionTrigger({ className, children, ...props }: ComponentProps<"sum
       {children}
       <ChevronDownIcon
         aria-hidden
-        className="text-ink-muted pointer-events-none size-4 shrink-0 transition-transform group-open/accordion-item:rotate-180 motion-reduce:transition-none"
+        className="text-accent pointer-events-none size-4 shrink-0 transition-transform group-open/accordion-item:rotate-180 motion-reduce:transition-none"
       />
     </summary>
   );

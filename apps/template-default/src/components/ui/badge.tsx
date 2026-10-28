@@ -10,7 +10,7 @@ export function Badge({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
       className={cn(
-        "rounded-control border-line text-ink inline-flex items-center gap-1 border px-2 py-0.5 text-xs font-semibold",
+        "rounded-control bg-accent/10 text-accent inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold",
         className,
       )}
       {...props}

@@ -45,6 +45,7 @@ const statistics = createBlock({
           default: "brand",
           options: {
             brand: "Brand",
+            accent: "Accent",
             ink: "Ink",
             muted: "Muted",
           },
@@ -68,6 +69,7 @@ const statistics = createBlock({
 // The bar beside each statistic: its accent color, fading out downward.
 const accentBarClasses: Record<string, string> = {
   brand: "from-brand to-brand/10",
+  accent: "from-accent to-accent/10",
   ink: "from-ink to-ink/10",
   muted: "from-ink-muted to-ink-muted/10",
 };
@@ -80,7 +82,7 @@ function StatisticsComponent() {
           {/* Header section */}
           <div className="mb-16">
             <statistics.Field name="title">
-              {(props) => <p {...props} className="text-eyebrow text-brand mb-4 uppercase" />}
+              {(props) => <p {...props} className="text-eyebrow text-accent mb-4 uppercase" />}
             </statistics.Field>
             <statistics.Field name="subtitle">
               {(props) => <h2 {...props} className="text-heading mb-6" />}
@@ -104,7 +106,7 @@ function StatisticsComponent() {
                       )}
                     />
                     <div className="flex flex-col">
-                      <stat.Icon name="icon" className="text-brand mb-2 size-5" />
+                      <stat.Icon name="icon" className="text-accent mb-2 size-5" />
                       <stat.Field name="number">
                         {(props) => <div {...props} className="mb-2 text-4xl font-bold" />}
                       </stat.Field>

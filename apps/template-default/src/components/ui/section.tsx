@@ -8,6 +8,7 @@ export const colorSchemeOptions = {
   light: "Light",
   dark: "Dark",
   brand: "Brand",
+  accent: "Accent",
   tint: "Tint",
 } as const;
 

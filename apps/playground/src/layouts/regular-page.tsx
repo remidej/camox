@@ -15,7 +15,7 @@ const regularPageLayout = createLayout({
   toImage: ({ page, project }) => (
     <div className="light bg-canvas text-ink font-body flex h-full w-full flex-col justify-center px-20 py-16">
       {project.name && (
-        <div className="text-brand mb-6 text-2xl font-semibold tracking-widest uppercase">
+        <div className="text-accent mb-6 text-2xl font-semibold tracking-widest uppercase">
           {project.name}
         </div>
       )}

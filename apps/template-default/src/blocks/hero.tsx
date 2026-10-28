@@ -52,8 +52,20 @@ function HeroComponent() {
   return (
     <Section
       scheme={scheme}
-      className={cn(!withIllustration && "flex flex-col items-center justify-center")}
+      className={cn(
+        "relative isolate overflow-hidden",
+        !withIllustration && "flex flex-col items-center justify-center",
+      )}
     >
+      {/* A soft glow of both colors behind the content, so the hero isn't a flat fill. */}
+      <div
+        aria-hidden
+        className="from-accent/25 pointer-events-none absolute inset-0 -z-10 bg-radial-[at_85%_0%] to-transparent to-60%"
+      />
+      <div
+        aria-hidden
+        className="from-brand/20 pointer-events-none absolute inset-0 -z-10 bg-radial-[at_10%_100%] to-transparent to-55%"
+      />
       <Container>
         <div
           className={cn(

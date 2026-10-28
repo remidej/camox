@@ -32,8 +32,8 @@ function propertiesOf(selector: string) {
   return properties;
 }
 
-// The page default and the four schemes a block's "Color scheme" setting offers.
-const colorSchemeSelectors = [":root", ".light", ".dark", ".brand", ".tint"];
+// The page default and the five schemes a block's "Color scheme" setting offers.
+const colorSchemeSelectors = [":root", ".light", ".dark", ".brand", ".accent", ".tint"];
 
 for (const selector of colorSchemeSelectors) {
   void test(`${selector} is a color scheme that gives Camox's editor its variables`, () => {
@@ -53,6 +53,6 @@ for (const selector of colorSchemeSelectors) {
 // them would ignore the color scheme around it. Rules read the per-scheme variables instead.
 void test("rules read color roles from the surrounding color scheme", () => {
   const rawRoleAlias =
-    /var\(--color-(canvas|panel|ink|ink-muted|line|brand|ink-on-brand|success|warning|error)\)/g;
+    /var\(--color-(canvas|panel|ink|ink-muted|line|brand|ink-on-brand|accent|ink-on-accent|success|warning|error)\)/g;
   assert.deepEqual(stylesheet.replace(/\/\*[\s\S]*?\*\//g, "").match(rawRoleAlias) ?? [], []);
 });

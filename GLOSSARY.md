@@ -150,6 +150,14 @@ _Avoid_: Design system, style, skin
 One of the color sets a theme defines, such as light, dark or brand, that a block or part of one switches to.
 _Avoid_: Theme, mode
 
+**Brand Color**:
+The theme's main color, used for what visitors click: buttons, links and focus rings.
+_Avoid_: Primary color
+
+**Accent Color**:
+The theme's second color, used for what visitors look at but don't click, such as eyebrows, highlighted words, badges and decorations, so a page isn't monochrome.
+_Avoid_: Secondary color (clashes with secondary buttons)
+
 ### Content
 
 **Page**:

@@ -15,6 +15,8 @@ const twMerge = extendTailwindMerge({
         "line",
         "brand",
         "ink-on-brand",
+        "accent",
+        "ink-on-accent",
         "success",
         "warning",
         "error",

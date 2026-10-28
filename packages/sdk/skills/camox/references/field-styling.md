@@ -14,7 +14,7 @@ Spread the field's render-prop `props` onto the element to preserve inline editi
 <myBlock.Field name="title">{(props) => <h1 {...props} />}</myBlock.Field>
 ```
 
-Camox owns inline markup so editing and published output have the same appearance. Customize appearance with `textStyle` and `linkStyle` (these replace the old `components` prop). Utilities below, such as `text-brand`, are examples; use the ones the project's Theme defines:
+Camox owns inline markup so editing and published output have the same appearance. Customize appearance with `textStyle` and `linkStyle` (these replace the old `components` prop). Utilities below, such as `text-accent`, are examples; use the ones the project's Theme defines:
 
 ```tsx
 <myBlock.Field
@@ -31,7 +31,7 @@ Camox owns inline markup so editing and published output have the same appearanc
       };
     }
     return {
-      className: bold ? "text-brand" : undefined,
+      className: bold ? "text-accent" : undefined,
       style: bold && italic ? { letterSpacing: "0.02em" } : undefined,
     };
   }}
