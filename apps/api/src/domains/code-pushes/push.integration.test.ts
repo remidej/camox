@@ -496,6 +496,35 @@ describe("a refused push", () => {
     expect(await branchesOf(website.project.uuid)).toEqual(["main"]);
   });
 
+  it("refuses a push naming a published draft, telling the member to start from main", async () => {
+    const { website, checkout } = await flaggedWebsite();
+    // A draft the agent started, which changed content only, published.
+    const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+    const inDraft = {
+      context: createRpcContext(website.db, website.memberUser, { [DRAFT_HEADER]: draftId }),
+    };
+    await call(
+      router.pages.create,
+      { projectId: website.project.id, pathSegment: "pricing", layoutId: website.layout.layoutId },
+      inDraft,
+    );
+    const { token } = await call(
+      router.drafts.previewPublish,
+      { projectId: website.project.id },
+      inDraft,
+    );
+    await call(router.drafts.publish, { projectId: website.project.id, token }, inDraft);
+    await checkout.commit({ [PRICING_FILE]: PRICING });
+
+    await expect(push(website, checkout, { draftId })).rejects.toMatchObject({
+      code: "PUSH_REFUSED",
+      data: { reason: "draftEnded" },
+      message: expect.stringMatching(/published.*start a new branch from `main`/),
+    });
+    expect(await draftsOf(website)).toEqual([]);
+    expect(await branchesOf(website.project.uuid)).toEqual(["main"]);
+  });
+
   it("refuses a project whose code can't be worked on outside Camox", async () => {
     const website = await websiteWithCode();
     const checkout = await checkoutOf(website.project.uuid);
