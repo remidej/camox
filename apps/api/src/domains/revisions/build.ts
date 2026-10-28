@@ -515,6 +515,7 @@ async function buildAndPreview(
     parents,
     buildStatus: "built" as const,
     archiveKey,
+    sdkBundle: outcome.sdkBundle,
   };
   const camoxVersion = prepared.lockfile ? camoxVersionInLockfile(prepared.lockfile) : null;
   const [recorded] = await db

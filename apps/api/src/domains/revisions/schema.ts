@@ -1,4 +1,5 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import type { SdkBundleNames } from "camox/_internal/sdkBundleName";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
@@ -50,6 +51,11 @@ export const revisions = sqliteTable(
     archiveKey: text("archive_key"),
     /** The `camox` version the revision's `pnpm-lock.yaml` installs, if it has one. */
     camoxVersion: text("camox_version"),
+    /**
+     * The SDK Bundle its build names, one name per target (ADR 0029). Null for a build that
+     * names none, which is whole-app.
+     */
+    sdkBundle: text("sdk_bundle", { mode: "json" }).$type<SdkBundleNames>(),
     createdAt: int("created_at").notNull(),
   },
   (table) => [

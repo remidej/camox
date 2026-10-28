@@ -44,7 +44,25 @@ export const ENSURE_SDK_BUNDLE: WorkflowStepConfig = {
   timeout: "20 minutes",
 };
 
-/** Where one target's SDK Bundle is stored: a gzipped tar archive of its folder's files. */
+/** The SDK Bundle of a website's lockfile, as the API's copy of camox names it. */
+export async function sdkBundleNamesOf(
+  lockfile: string,
+  settings: SdkBundleSettings = HOSTED_SDK_BUNDLE_SETTINGS,
+): Promise<SdkBundleNames> {
+  return Object.fromEntries(
+    await Promise.all(
+      SDK_BUNDLE_TARGETS.map(async (target) => [
+        target,
+        await sdkBundleName({ lockfile, target, settings }),
+      ]),
+    ),
+  ) as SdkBundleNames;
+}
+
+/**
+ * Where one target's SDK Bundle is stored: a gzipped tar archive of its folder's files. Mirrored
+ * in apps/dispatch/src/revisions.ts: keep the two in sync.
+ */
 export const sdkBundleArchiveKey = (name: string) => `sdk/${name}.tar.gz`;
 
 /** Where the website is installed in the sandbox, outside the release steps' `/workspace`. */
@@ -74,24 +92,28 @@ const tail = (text: string, lines = 20) => text.trimEnd().split("\n").slice(-lin
  * one returns at once. Otherwise it's built, and each target is stored only if nothing with its
  * name is yet, so callers that race all end up with the first stored bytes.
  *
- * The names it looks up first come from the API's copy of camox. They digest `camox`'s own
- * resolution, so one that's stored was built by the website's camox version. The names it stores
- * under come from the website's own camox, in the sandbox. Where the two copies name a lockfile
- * differently, the lookup misses, and the build stores nothing new.
+ * The names it looks up first are the ones it's given, or else the API's copy of camox's. Those
+ * digest `camox`'s own resolution, so one that's stored was built by the website's camox
+ * version. The names it stores under come from the website's own camox, in the sandbox. Where
+ * the API's copy names a lockfile differently, its lookup misses, and the build stores nothing
+ * new.
  */
 export async function ensureSdkBundle(
   env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
   source: SdkBundleSource,
-  settings: SdkBundleSettings = HOSTED_SDK_BUNDLE_SETTINGS,
+  {
+    settings = HOSTED_SDK_BUNDLE_SETTINGS,
+    names: given,
+  }: {
+    settings?: SdkBundleSettings;
+    /**
+     * The names the website's own camox gave the bundle, such as a build's missing-bundle error
+     * reports: they're looked up instead of the API's.
+     */
+    names?: SdkBundleNames;
+  } = {},
 ): Promise<SdkBundleNames> {
-  const names = Object.fromEntries(
-    await Promise.all(
-      SDK_BUNDLE_TARGETS.map(async (target) => [
-        target,
-        await sdkBundleName({ lockfile: source.lockfile, target, settings }),
-      ]),
-    ),
-  ) as SdkBundleNames;
+  const names = given ?? (await sdkBundleNamesOf(source.lockfile, settings));
   const stored = await Promise.all(
     Object.values(names).map((name) => env.REVISION_BUILDS.head(sdkBundleArchiveKey(name))),
   );

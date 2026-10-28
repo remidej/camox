@@ -24,9 +24,15 @@ Each call is its own Workflow step (`ENSURE_SDK_BUNDLE`), as it installs and bui
 - **The Upgrade batch** (`../upgrades/workflow.ts`) ensures the Template's, from `template-default`'s `main`, before it upgrades any project. If it can't, the upgrade fails before moving anyone.
 - **Each project's Upgrade** (`../upgrades/project-workflow.ts`) ensures its own after its update step and before its dry-run release. The upgraded lockfile is only in the update step's workspace snapshot, so a sandbox of its own restores that snapshot and reads the two files back. A bundle that can't be ensured fails the project's build step.
 
+## Getting a stored bundle into a build
+
+A hosted build never builds its bundle: it fails with the missing-bundle error (`sdkBundleMissingIn` reads it from the log) unless its cache (`CAMOX_INTERNAL_SDK_BUNDLE_CACHE`) holds a folder per target, named by the target's name. `fetchSdkBundle(env, sandbox, { cacheDir, lockfile, names?, ensureFrom? })` (`fetch.ts`) unpacks the stored archives into that cache, skipping a target already there. Without `names`, the API's copy of camox names the bundle. With `ensureFrom: { packageJson }`, a bundle that isn't stored is ensured first; without it, the call returns null.
+
+- **A revision's sandbox** (`../revisions/sandbox.ts`) fetches it beside starting the revision builder, into `/opt/camox/sdk-bundles`, so a sandbox started ahead has it before its first build. A build that still fails with the missing-bundle error has it ensured, from the names in the error, and builds once more.
+
 ## Tests
 
-`ensure.integration.test.ts` covers a stored bundle, a missing one and a race, and `../upgrades/workflow.integration.test.ts` covers both callers, with the release sandbox faked at its binding (`test/release-fakes.js`). The fake sandbox's build names the bundle from the lockfile written to it with the SDK's `sdkBundleName`, and archives text naming the sandbox that built it. `test/website-lockfile.ts` is a hosted website's lockfile, which names a bundle.
+`ensure.integration.test.ts` covers a stored bundle, a missing one and a race, `../revisions/sdk-bundle.integration.test.ts` covers revisions fetching and ensuring theirs, and `../upgrades/workflow.integration.test.ts` covers both callers, with the release sandbox faked at its binding (`test/release-fakes.js`). The fake sandbox's build names the bundle from the lockfile written to it with the SDK's `sdkBundleName`, and archives text naming the sandbox that built it. `test/website-lockfile.ts` is a hosted website's lockfile, which names a bundle.
 
 ```sh
 pnpm --filter @camox/api exec vp test --run --project integration src/domains/sdk-bundles src/domains/upgrades

@@ -1,4 +1,8 @@
-import { sdkBundleName } from "camox/_internal/sdkBundleName";
+import {
+  SDK_BUNDLE_BUILD_MANIFEST,
+  sdkBundleMissingLine,
+  sdkBundleName,
+} from "camox/_internal/sdkBundleName";
 // Fakes for the release, creation, deletion and upgrade Workflows' Cloudflare Artifacts, sandbox
 // and email bindings, the revision sandboxes the agent's builds run in, and the Cloudflare API
 // they call, run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles
@@ -552,9 +556,25 @@ const buildsAtOnce = new Map();
  * Where the image of a revision sandbox records the lockfile it installed the Template from, as
  * the release sandbox's Dockerfile writes it.
  */
-const IMAGE_INSTALLED_LOCKFILE = "/opt/camox/website/node_modules/.camox-installed-lockfile";
+/** Where a revision sandbox builds the website's files. */
+const REVISION_WORKSPACE = "/opt/camox/website";
+const IMAGE_INSTALLED_LOCKFILE = `${REVISION_WORKSPACE}/node_modules/.camox-installed-lockfile`;
 /** @type {string | null} the digest a new revision sandbox's image says it installed, if a test gave it one */
 let imageInstalledLockfile = null;
+/** @type {string[]} builds of a tree with a file holding one of these build against an SDK Bundle, as with #674's switch on */
+const sdkBundleSwitchedOn = [];
+/**
+ * The settings a hosted website's `camox()` compiles into its SDK Bundle: its defaults, as the
+ * platform-owned `vite.config.ts` sets none of them.
+ */
+const HOSTED_SETTINGS = {
+  iconIds: [],
+  telemetryDisabled: false,
+  experimentalFeatures: false,
+  apiUrl: "https://api.camox.ai",
+};
+/** Unpacking a stored SDK Bundle's archive into a build's bundle cache, then naming its folder. */
+const SDK_BUNDLE_UNPACK_COMMAND = /\btar -xzf (\S+) -C (\S+) .*\bmv -T \2 (\S+)/;
 /** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
 const heldBuilds = new Set();
 /** @type {Set<string>} the revision sandboxes whose type checks are held, as checks still running */
@@ -621,6 +641,15 @@ export class FakeRevisionSandbox extends DurableObject {
   tree = {};
   /** Whether the last build passed. */
   built = false;
+  /** @type {{ browser: string, workerd: string } | null} the SDK Bundle the last build named */
+  sdkBundle = null;
+
+  /** Whether the website's camox in the workspace builds against an SDK Bundle. */
+  #buildsAgainstSdkBundle() {
+    return sdkBundleSwitchedOn.some((marker) =>
+      Object.values(this.tree).some((content) => content.includes(marker)),
+    );
+  }
 
   /** @param {Uint8Array} [incoming] a file being written, the tree's archive among them */
   #crash(incoming) {
@@ -685,7 +714,13 @@ export class FakeRevisionSandbox extends DurableObject {
 
   async readFile(path, options = {}) {
     this.#crash();
-    const bytes = this.files.get(path);
+    // The workspace's files are the tree last extracted into it.
+    const extracted = path.startsWith(`${REVISION_WORKSPACE}/`)
+      ? this.tree[path.slice(REVISION_WORKSPACE.length + 1)]
+      : undefined;
+    const bytes =
+      this.files.get(path) ??
+      (extracted === undefined ? undefined : new TextEncoder().encode(extracted));
     if (!bytes) throw new Error(`File not found: ${path}`);
     const base64 = options.encoding === "base64";
     return {
@@ -750,6 +785,29 @@ export class FakeRevisionSandbox extends DurableObject {
       const builds = revisionBuilds.get(this.name) ?? [];
       builds.push({ sandbox: this.name, files: this.tree, archive: null });
       revisionBuilds.set(this.name, builds);
+      this.sdkBundle = null;
+      if (this.#buildsAgainstSdkBundle()) {
+        // As a hosted build with the switch on: it names its bundle from the workspace's
+        // lockfile and fails before bundling, whatever its code, unless the bundle's cache
+        // holds both targets.
+        const lockfile = this.tree["pnpm-lock.yaml"] ?? "";
+        const names = {
+          browser: await sdkBundleName({ lockfile, target: "browser", settings: HOSTED_SETTINGS }),
+          workerd: await sdkBundleName({ lockfile, target: "workerd", settings: HOSTED_SETTINGS }),
+        };
+        const cache = options.env?.CAMOX_INTERNAL_SDK_BUNDLE_CACHE;
+        const cached = Object.values(names).every(
+          (name) => cache && this.files.has(`${cache}/${name}/sdk-bundle.json`),
+        );
+        if (!cached) {
+          this.built = false;
+          return result(
+            1,
+            `error during build:\nSdkBundleMissingError: The SDK Bundle isn't in its cache.\n${sdkBundleMissingLine(names)}\n`,
+          );
+        }
+        this.sdkBundle = names;
+      }
       this.built = !failing;
       return failing ? result(1, failing.log) : result(0);
     }
@@ -805,9 +863,26 @@ export class FakeRevisionSandbox extends DurableObject {
     if (archive) {
       if (!this.built) return result(2, "tar: dist: Cannot stat: No such file or directory");
       const build = `fake build of ${await treeOf(this.tree)}`;
-      const bytes = await fakeBuildArchive(build, this.tree);
+      const bytes = await fakeBuildArchive(build, this.tree, this.sdkBundle);
       this.files.set(archive[1], bytes);
       Object.assign(revisionBuilds.get(this.name).at(-1), { archive: [...bytes], build });
+      // As `cat dist/*/camox-sdk-bundle.json` prints it, when the command reads it.
+      const manifest =
+        command.includes(SDK_BUNDLE_BUILD_MANIFEST) && this.sdkBundle
+          ? JSON.stringify(this.sdkBundle)
+          : "";
+      return result(0, "", manifest);
+    }
+    const unpack = SDK_BUNDLE_UNPACK_COMMAND.exec(command);
+    if (unpack) {
+      const archived = this.files.get(unpack[1]);
+      if (!archived) return result(2, `tar: ${unpack[1]}: Cannot open: No such file or directory`);
+      if ([...this.files.keys()].some((path) => path.startsWith(`${unpack[3]}/`))) {
+        return result(1, `mv: cannot move '${unpack[2]}' to '${unpack[3]}': Directory not empty`);
+      }
+      // Fake bundles are archived as text naming them: their folder holds it as its manifest.
+      this.files.set(`${unpack[3]}/sdk-bundle.json`, archived);
+      this.files.delete(unpack[1]);
       return result(0);
     }
     return result(0);
@@ -845,8 +920,9 @@ const DEFINITION_SET_FILE = "dist/fake-definition-set.json";
  * (`configureBuildsOf`).
  * @param {string} build
  * @param {Record<string, string>} tree
+ * @param {{ browser: string, workerd: string } | null} sdkBundle the SDK Bundle the build names, if any
  */
-async function fakeBuildArchive(build, tree) {
+async function fakeBuildArchive(build, tree, sdkBundle = null) {
   const configured = configuredBuilds.findLast(({ marker }) =>
     Object.values(tree).some((content) => content.includes(marker)),
   );
@@ -872,6 +948,7 @@ async function fakeBuildArchive(build, tree) {
     "dist/client/_headers": "/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n",
     "dist/client/.assetsignore": "wrangler.json\n.dev.vars\n",
     [DEFINITION_SET_FILE]: JSON.stringify(definitionSetOf(tree)),
+    ...(sdkBundle ? { [`dist/acme/${SDK_BUNDLE_BUILD_MANIFEST}`]: JSON.stringify(sdkBundle) } : {}),
   };
   const encoder = new TextEncoder();
   const archive = tar(
@@ -1014,6 +1091,15 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async installResolves(repo, lockfile) {
     installsResolving.set(repo, lockfile);
+  }
+
+  /**
+   * Makes the website's camox build every tree with a file holding `marker` against an SDK
+   * Bundle, as with the switch on (#674): it names its bundle, which must be in its cache.
+   * @param {string} marker
+   */
+  async buildAgainstSdkBundlesOf(marker) {
+    sdkBundleSwitchedOn.push(marker);
   }
 
   /** Every SDK Bundle's build, in the order they started, without what it built. */
