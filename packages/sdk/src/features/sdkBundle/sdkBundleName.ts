@@ -13,7 +13,7 @@ export * from "./specifiers";
  * The version of the code that builds SDK Bundles. Bump it whenever a change to the builder
  * changes what a bundle holds for the same packages and settings.
  */
-export const SDK_BUNDLE_BUILDER_VERSION = "1";
+export const SDK_BUNDLE_BUILDER_VERSION = "2";
 
 /** Where a website's pages and Worker find an SDK Bundle's files: `/_camox/sdk/<name>/`. */
 export function sdkBundlePath(name: string): string {
@@ -89,11 +89,14 @@ export async function sdkBundleName({
   settings,
   builderVersion = SDK_BUNDLE_BUILDER_VERSION,
 }: SdkBundleNameInputs): Promise<string> {
-  const roots = [...new Set(sdkBundleSpecifiers(target).map(packageOfSpecifier))];
-  const resolutions = bundledResolutions(parse(lockfile) as Lockfile, importer, roots);
+  const parsed = parse(lockfile) as Lockfile;
+  const specifiers = heldSpecifiers(parsed, importer, target);
+  const roots = [...new Set(specifiers.map(packageOfSpecifier))];
+  const resolutions = bundledResolutions(parsed, importer, roots);
   const digested = JSON.stringify({
     builderVersion,
     target,
+    specifiers,
     settings: {
       iconIds: settings.iconIds,
       telemetryDisabled: settings.telemetryDisabled,
@@ -106,6 +109,34 @@ export async function sdkBundleName({
   return [...new Uint8Array(digest).slice(0, 16)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/**
+ * The specifiers the SDK Bundle of the website at `importer` holds for `target`: the packages it
+ * shares with camox are in only when it installs them.
+ */
+export function sdkBundleSpecifiersFor({
+  lockfile,
+  importer = ".",
+  target,
+}: {
+  lockfile: string;
+  importer?: string;
+  target: SdkBundleTarget;
+}): string[] {
+  return heldSpecifiers(parse(lockfile) as Lockfile, importer, target);
+}
+
+function heldSpecifiers(lockfile: Lockfile, importer: string, target: SdkBundleTarget): string[] {
+  const locked = lockfile.importers?.[importer];
+  if (!locked)
+    throw new Error(`Camox: the lockfile has no importer at ${JSON.stringify(importer)}.`);
+  const installed = new Set(
+    [locked.dependencies, locked.optionalDependencies, locked.devDependencies].flatMap((deps) =>
+      Object.keys(deps ?? {}),
+    ),
+  );
+  return sdkBundleSpecifiers(target, installed);
 }
 
 /** The parts of a pnpm v9 lockfile the name reads. */

@@ -9,8 +9,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseSync } from "vite-plus";
 
 import { type SdkBundleBuild, buildSdkBundle } from "./buildSdkBundle";
-import { type SdkBundleSettings, sdkBundleName } from "./sdkBundleName";
-import { SDK_BUNDLE_TARGETS, sdkBundleEntryFile, sdkBundleSpecifiers } from "./specifiers";
+import { type SdkBundleSettings, sdkBundleName, sdkBundleSpecifiersFor } from "./sdkBundleName";
+import { SDK_BUNDLE_TARGETS, sdkBundleEntryFile } from "./specifiers";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const templateRoot = join(repoRoot, "apps/template-default");
@@ -64,9 +64,11 @@ void describe("the Template's SDK Bundle", () => {
     }
   });
 
-  void test("holds an entry for every specifier on the SDK's list, in both targets", () => {
+  void test("holds an entry for every specifier on the SDK's list, in both targets", async () => {
+    const lockfile = await readFile(join(repoRoot, "pnpm-lock.yaml"), "utf8");
     for (const target of SDK_BUNDLE_TARGETS) {
-      for (const specifier of sdkBundleSpecifiers(target)) {
+      const importer = "apps/template-default";
+      for (const specifier of sdkBundleSpecifiersFor({ lockfile, importer, target })) {
         assert.ok(
           existsSync(join(build[target].dir, sdkBundleEntryFile(specifier))),
           `${target}: ${specifier}`,

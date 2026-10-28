@@ -8,19 +8,20 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 
-import { type InlineConfig, type Plugin, build } from "vite-plus";
+import { type InlineConfig, type Plugin, type Rolldown, build } from "vite-plus";
 
 import {
   SDK_BUNDLE_BUILDER_VERSION,
   type SdkBundleSettings,
   sdkBundleName,
   sdkBundlePath,
+  sdkBundleSpecifiersFor,
 } from "./sdkBundleName";
 import {
   SDK_BUNDLE_TARGETS,
   type SdkBundleTarget,
+  loadsAtFirstPaint,
   sdkBundleEntryFile,
-  sdkBundleSpecifiers,
 } from "./specifiers";
 
 /** The manifest each target's folder holds, beside its files. */
@@ -89,10 +90,19 @@ export async function buildSdkBundle({
   settings: SdkBundleSettings;
 }): Promise<SdkBundleBuild> {
   const names = await sdkBundleNamesFor({ root, settings });
+  const { lockfile, importer } = await readSdkBundleLockfile(root);
   const result = {} as SdkBundleBuild;
   for (const target of SDK_BUNDLE_TARGETS) {
     const dir = join(outDir, target);
-    const entries = await buildTarget({ root: resolve(root), dir, target, names, settings });
+    const specifiers = sdkBundleSpecifiersFor({ lockfile, importer, target });
+    const entries = await buildTarget({
+      root: resolve(root),
+      dir,
+      target,
+      specifiers,
+      names,
+      settings,
+    });
     const manifest: SdkBundleManifest = {
       name: names[target],
       target,
@@ -116,16 +126,17 @@ async function buildTarget({
   root,
   dir,
   target,
+  specifiers,
   names,
   settings,
 }: {
   root: string;
   dir: string;
   target: SdkBundleTarget;
+  specifiers: string[];
   names: Record<SdkBundleTarget, string>;
   settings: SdkBundleSettings;
 }): Promise<Record<string, string>> {
-  const specifiers = sdkBundleSpecifiers(target);
   const entryName = (specifier: string) => sdkBundleEntryFile(specifier).replace(/\.mjs$/, "");
   const workerd = target === "workerd";
   const config: InlineConfig = {
@@ -191,16 +202,82 @@ async function buildTarget({
           // Flat, so a module's relative imports are its only imports: workerd resolves any
           // other specifier from the importing module's folder.
           entryFileNames: "[name].mjs",
-          chunkFileNames: "c-[hash].mjs",
+          chunkFileNames: (chunk) =>
+            !workerd && FIRST_PAINT_CHUNKS.has(chunk.name) ? "[name]-[hash].mjs" : "c-[hash].mjs",
           assetFileNames: "[name]-[hash][extname]",
         },
       },
     },
   };
+  if (!workerd) {
+    const input = config.build!.rolldownOptions!.input as Record<string, string>;
+    const pageInput = Object.fromEntries(
+      specifiers
+        .filter(loadsAtFirstPaint)
+        .map((specifier) => [entryName(specifier), input[entryName(specifier)]!]),
+    );
+    // What a page loads at first paint goes in one `page` chunk, and React in a `react` one.
+    const pageModules = await modulesLoadedStatically(config, pageInput);
+    const output = config.build!.rolldownOptions!.output as Rolldown.OutputOptions;
+    output.codeSplitting = {
+      groups: [
+        {
+          name: "react",
+          test: (id) => pageModules.has(id) && REACT_MODULE.test(id),
+          priority: 2,
+        },
+        { name: "page", test: (id) => pageModules.has(id), priority: 1 },
+      ],
+    };
+  }
   await build(config);
   return Object.fromEntries(
     specifiers.map((specifier) => [specifier, sdkBundleEntryFile(specifier)]),
   );
+}
+
+/**
+ * The chunks a page loads at first paint, beside the entry files it imports: its code, React, and
+ * the helpers Rolldown keeps in a chunk of their own.
+ */
+const FIRST_PAINT_CHUNKS = new Set(["page", "react", "rolldown-runtime"]);
+
+const REACT_MODULE = /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/;
+
+/**
+ * The modules the browser loads when it imports `input`'s entries, without what they import
+ * lazily: a first build of those entries alone, so what they import but never use is left out,
+ * as their own build would.
+ */
+async function modulesLoadedStatically(
+  config: InlineConfig,
+  input: Record<string, string>,
+): Promise<Set<string>> {
+  const result = await build({
+    ...config,
+    build: {
+      ...config.build,
+      write: false,
+      rolldownOptions: { ...config.build!.rolldownOptions, input },
+    },
+  });
+  const outputs = (Array.isArray(result) ? result : [result]) as Rolldown.RolldownOutput[];
+  const chunks = new Map<string, Rolldown.OutputChunk>();
+  for (const { output } of outputs)
+    for (const file of output) if (file.type === "chunk") chunks.set(file.fileName, file);
+  const loaded = new Set<string>();
+  const visit = (fileName: string) => {
+    if (loaded.has(fileName)) return;
+    loaded.add(fileName);
+    for (const imported of chunks.get(fileName)?.imports ?? []) visit(imported);
+  };
+  for (const chunk of chunks.values()) if (chunk.isEntry) visit(chunk.fileName);
+  const modules = new Set<string>();
+  for (const fileName of loaded) {
+    for (const [id, module] of Object.entries(chunks.get(fileName)?.modules ?? {}))
+      if (module.renderedLength > 0) modules.add(id);
+  }
+  return modules;
 }
 
 /** One entry per specifier, exporting what it exports, CommonJS packages included. */

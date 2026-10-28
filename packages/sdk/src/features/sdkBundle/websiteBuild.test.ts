@@ -54,6 +54,7 @@ async function copyTemplate(temp: string): Promise<string> {
   for (const file of ["src", "tsconfig.json", "package.json", "wrangler.jsonc"])
     await cp(join(templateRoot, file), join(root, file), { recursive: true });
   await symlink(join(templateRoot, "node_modules"), join(root, "node_modules"), "dir");
+  await writeFile(join(root, ENTRY_POINTS_BLOCK), ENTRY_POINTS_BLOCK_SOURCE);
   await writeFile(
     join(root, "vite.config.mjs"),
     `import { cloudflare } from "@cloudflare/vite-plugin";
@@ -69,9 +70,47 @@ export default {
   return root;
 }
 
+/**
+ * A block whose page code imports every public camox entry point the SDK says a page loads, and
+ * React.
+ */
+const ENTRY_POINTS_BLOCK = "src/blocks/entry-points.tsx";
+const ENTRY_POINTS = [
+  "camox/createApp",
+  "camox/createBlock",
+  "camox/createLayout",
+  "camox/document",
+  "camox/navigation",
+  "react",
+];
+const ENTRY_POINTS_BLOCK_SOURCE = `import { createApp } from "camox/createApp";
+import { createBlock } from "camox/createBlock";
+import { createLayout } from "camox/createLayout";
+import { defineDocument } from "camox/document";
+import { Link } from "camox/navigation";
+import { useState } from "react";
+
+const used = [createApp, createLayout, defineDocument, Link];
+
+export const block = createBlock({
+  id: "entry-points",
+  title: "Entry points",
+  description: "Uses every public entry point",
+  content: (field) => ({ title: field.string({ default: "Entry points" }) }),
+  toReact: () => {
+    const [count] = useState(used.length);
+    return <p>{count}</p>;
+  },
+  toTitle: ({ content }) => content.title,
+  toMarkdown: ({ content }) => [content.title],
+});
+`;
+
 interface TemplateBuild {
   /** Every module each environment's output holds, by environment. */
   modules: Map<string, string[]>;
+  /** The client output's chunks, by file name: the module each is the facade of, if any. */
+  clientChunks: Map<string, string | null>;
   /** What the build logged. */
   log: string;
   clientDir: string;
@@ -84,9 +123,13 @@ async function buildTemplate(
   env: Record<string, string | undefined>,
 ): Promise<TemplateBuild> {
   const modules = new Map<string, string[]>();
+  const clientChunks = new Map<string, string | null>();
   const probe: Plugin = {
     name: "probe",
     generateBundle(_options, bundle) {
+      if (this.environment.name === "client")
+        for (const file of Object.values(bundle))
+          if (file.type === "chunk") clientChunks.set(file.fileName, file.facadeModuleId);
       const ids = Object.values(bundle).flatMap((file) =>
         file.type === "chunk" ? Object.keys(file.modules) : [],
       );
@@ -122,11 +165,11 @@ async function buildTemplate(
     configPath: string;
   };
   const workerDir = dirname(resolve(root, ".wrangler/deploy", deploy.configPath));
-  return { modules, log, clientDir: join(root, "dist/client"), workerDir };
+  return { modules, clientChunks, log, clientDir: join(root, "dist/client"), workerDir };
 }
 
-/** The specifiers a module imports, statically or with a literal `import()`. */
-function importsOf(file: string, code: string): string[] {
+/** The specifiers a module imports, statically or, unless `staticOnly`, with a literal `import()`. */
+function importsOf(file: string, code: string, staticOnly = false): string[] {
   const { module } = parseSync(file, code);
   const specifiers = [
     ...module.staticImports.map((entry) => entry.moduleRequest.value),
@@ -136,6 +179,7 @@ function importsOf(file: string, code: string): string[] {
       ),
     ),
   ];
+  if (staticOnly) return specifiers;
   for (const { moduleRequest } of module.dynamicImports) {
     const literal = /^["'`]([^"'`]*)["'`]$/.exec(
       code.slice(moduleRequest.start, moduleRequest.end),
@@ -186,7 +230,7 @@ void describe("a website built against its SDK Bundle", () => {
     assert.deepEqual(manifest, names);
   });
 
-  void test("holds no camox or React code, only the website's own", () => {
+  void test("holds no camox, React or packages it shares with camox, only the website's own", () => {
     const sdkSource = join(repoRoot, "packages/sdk/src/");
     // The Worker entry is compiled into each website's build: it imports the website's modules.
     const workerEntry = join(sdkSource, "features/runtime/worker.ts");
@@ -194,8 +238,13 @@ void describe("a website built against its SDK Bundle", () => {
       for (const id of ids) {
         assert.doesNotMatch(
           id,
-          /[/\\]node_modules[/\\](\.pnpm[/\\])?(react|react-dom|scheduler|camox|@tanstack\+?[/\\]?react-query)[@/\\]/,
+          /[/\\]node_modules[/\\](\.pnpm[/\\])?(react|react-dom|scheduler|camox|@tanstack\+?[/\\]?react-query|tailwind-merge|clsx|class-variance-authority)[@/\\]/,
           `${environment} holds ${id}`,
+        );
+        // The website's icons are its own, drawn by the bundle's icon helper.
+        assert.doesNotMatch(
+          id,
+          /[/\\]lucide-react[/\\].*[/\\](createLucideIcon|Icon|context)\.m?js$/,
         );
         if (id !== workerEntry)
           assert.ok(!id.startsWith(sdkSource), `${environment} holds camox's ${id}`);
@@ -236,6 +285,50 @@ void describe("a website built against its SDK Bundle", () => {
     }
     assert.ok(bundleImports.has(sdkBundleEntryFile("camox/_internal/runtime")));
     assert.ok(bundleImports.has(sdkBundleEntryFile("camox/_internal/workerRuntime")));
+  });
+
+  void test("a page loads camox's entry points from one page chunk and React from one react chunk", async () => {
+    const prefix = `/_camox/sdk/${names.browser}/`;
+    const bundleDir = join(
+      cache,
+      (await readdir(cache)).find((folder) => folder.startsWith(names.browser))!,
+    );
+    const manifest = JSON.parse(await readFile(join(bundleDir, "sdk-bundle.json"), "utf8")) as {
+      entries: Record<string, string>;
+    };
+    const entryFiles = new Set(Object.values(manifest.entries));
+    // What a page with the block loads at first paint: the page's client, the block, and what
+    // they import statically, in the website's build and in its SDK Bundle.
+    const blockChunk = [...second.clientChunks].find(([, facade]) =>
+      facade?.endsWith(ENTRY_POINTS_BLOCK),
+    )?.[0];
+    assert.ok(blockChunk, "the build has no chunk for the block");
+    const websiteFiles = new Set<string>();
+    const bundleFiles = new Set<string>();
+    const load = async (dir: string, file: string, loaded: Set<string>) => {
+      if (loaded.has(file)) return;
+      loaded.add(file);
+      for (const specifier of importsOf(file, await readFile(join(dir, file), "utf8"), true)) {
+        if (specifier.startsWith(prefix))
+          await load(bundleDir, specifier.slice(prefix.length), bundleFiles);
+        else if (dir === bundleDir)
+          await load(dir, posix.join(posix.dirname(file), specifier), bundleFiles);
+        else await load(dir, posix.join(posix.dirname(file), specifier), websiteFiles);
+      }
+    };
+    await load(second.clientDir, "_chunks/camox-page-client.mjs", websiteFiles);
+    await load(second.clientDir, blockChunk, websiteFiles);
+
+    for (const specifier of ENTRY_POINTS)
+      assert.ok(
+        bundleFiles.has(sdkBundleEntryFile(specifier)),
+        `the page doesn't load ${specifier}`,
+      );
+    const chunks = [...bundleFiles].filter((file) => !entryFiles.has(file));
+    for (const chunk of chunks)
+      assert.match(chunk, /^(page|react|rolldown-runtime)-[\w-]+\.mjs$/, `the page loads ${chunk}`);
+    assert.equal(chunks.filter((chunk) => chunk.startsWith("page-")).length, 1, chunks.join(", "));
+    assert.equal(chunks.filter((chunk) => chunk.startsWith("react-")).length, 1, chunks.join(", "));
   });
 
   void test("builds a missing SDK Bundle into its cache, and reuses it on the next build", () => {

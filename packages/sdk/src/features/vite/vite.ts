@@ -347,7 +347,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
         if (forbidden) this.error(forbidden);
       }
       if (sdkBundle) {
-        const external = sdkBundle.resolve(id, this.environment.config.consumer);
+        const external = sdkBundle.resolve(id, importer, this.environment.config.consumer);
         if (external) return external;
       }
       const runtimeId = resolveRuntimeDevId(id, importer);
