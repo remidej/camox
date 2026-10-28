@@ -6,10 +6,28 @@ import { z } from "zod";
 import { assertOrgMembership, requireUser } from "../../authorization";
 import { decodeInput, ForbiddenError, NotFoundError } from "../../lib/errors";
 import { projects } from "../../schema";
+import type { Bindings } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 
-/** How long a read token lasts. Git asks the CLI's credential helper for another once it expires. */
-const READ_TOKEN_TTL_SECONDS = 60 * 60;
+/**
+ * How long a member's read token lasts: it serves their Git commands for a while, and Git asks
+ * the CLI's credential helper for another once it expires.
+ */
+const MEMBER_READ_TOKEN_TTL_SECONDS = 60 * 60;
+
+/**
+ * The Git remote of the project's repo `repo`, and a read token for it lasting `ttlSeconds`.
+ * The token's `plaintext` reads `<secret>?expires=<unix seconds>`: a Bearer header takes it
+ * whole, Git's Basic auth takes the secret.
+ */
+export async function readAccess(env: Bindings, repo: string, ttlSeconds: number) {
+  using artifacts = await env.ARTIFACTS.get(repo);
+  const [{ remote }, token] = await Promise.all([
+    artifacts.info(),
+    artifacts.createToken("read", ttlSeconds),
+  ]);
+  return { remote, token };
+}
 
 /**
  * The project `projectUuid`, for a member of its organization, when its code can be worked on
@@ -49,17 +67,12 @@ export const createCodeReadToken = Effect.fn("projects.createCodeReadToken")(fun
   const { projectUuid } = yield* decodeInput(createCodeReadTokenInput, rawInput);
   const project = yield* projectWithCodeOutsideCamox(ctx, user.id, projectUuid);
 
-  const { remote, token } = yield* Effect.promise(async () => {
-    using repo = await ctx.env.ARTIFACTS.get(project.uuid);
-    const [info, token] = await Promise.all([
-      repo.info(),
-      repo.createToken("read", READ_TOKEN_TTL_SECONDS),
-    ]);
-    return { remote: info.remote, token };
-  });
+  const { remote, token } = yield* Effect.promise(() =>
+    readAccess(ctx.env, project.uuid, MEMBER_READ_TOKEN_TTL_SECONDS),
+  );
   return {
     remote,
-    // Artifacts tokens read `<secret>?expires=<unix seconds>`; Git's Basic auth takes the secret.
+    // Git's Basic auth takes the secret alone.
     token: token.plaintext.split("?expires=")[0],
     expiresAt: token.expiresAt,
     projectSlug: project.slug,

@@ -16,7 +16,7 @@ import { projectWithCodeOutsideCamox } from "../projects/code-access";
 import type { BuildResult } from "../revisions/result";
 import { destroySandbox } from "../revisions/sandbox";
 import { parseBundle } from "./bundle";
-import { checkPush } from "./checks";
+import { checkPush, draftEnded, INVALID_BUNDLE } from "./checks";
 import {
   buildPushedHead,
   type CheckedLanding,
@@ -53,11 +53,10 @@ export type PushStep =
   /** Its head builds. */
   | "building";
 
-/** A push that landed: its draft, the draft's branch, the head's build and the studio URL. */
+/** A push that landed: its draft, the head's build and the studio URL. */
 export type Pushed = {
+  /** The draft, whose branch in the project's repo its id names. */
   draftId: string;
-  /** The draft's branch in the project's repo, named by its id. */
-  branch: string;
   result: BuildResult;
   studioUrl: string;
 };
@@ -65,7 +64,7 @@ export type Pushed = {
 /**
  * Pushes the bundle's commits onto a new draft named after the branch, or onto the open draft
  * `draftId` names, for a member of a project whose code can be worked on outside Camox. Returns
- * the draft, its branch, the head's build (its type errors included) and the draft's studio URL.
+ * the draft, the head's build (its type errors included) and the draft's studio URL.
  * `progress` hears where the push stands. A refused push writes nothing.
  */
 export const pushToDraft = Effect.fn("code.push")(function* (
@@ -81,12 +80,7 @@ export const pushToDraft = Effect.fn("code.push")(function* (
   const bundle = parseBundle(
     new Uint8Array(yield* Effect.promise(() => input.bundle.arrayBuffer())),
   );
-  if (!bundle) {
-    return yield* new PushRefusedError({
-      reason: "invalidBundle",
-      message: "Camox expects a Git bundle of one branch's new commits.",
-    });
-  }
+  if (!bundle) return yield* new PushRefusedError(INVALID_BUNDLE);
   const hasCode = open
     ? yield* Effect.promise(() => ctx.env.DRAFT_CODE.getByName(open.id).held())
     : false;
@@ -105,26 +99,24 @@ export const pushToDraft = Effect.fn("code.push")(function* (
     url.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
     return url.toString();
   };
-  const pusher = { id: user.id, name: user.name, image: user.image ?? null };
+  // The thread entry of the push, once it landed on the draft `draftId`.
+  const entry = (draftId: string) => ({
+    identity: { projectId: project.id, draftId, ownerId: null },
+    pusher: { id: user.id, name: user.name, image: user.image ?? null },
+    subjects: landing.subjects,
+  });
 
   if (open) {
     const threadId = yield* threadOf(ctx, open.id);
     // The thread's answer, as its RPC stub types it, is the landing it returns.
     const landed = (yield* Effect.promise(() =>
-      ctx.env.THREAD.getByName(threadId).landPush(
-        {
-          ...landing,
-          identity: { projectId: project.id, draftId: open.id, ownerId: null },
-          pusher,
-          subjects: check.checked.subjects,
-        },
-        () => progress("waiting"),
+      ctx.env.THREAD.getByName(threadId).landPush({ ...landing, ...entry(open.id) }, () =>
+        progress("waiting"),
       ),
     )) as Landing;
     if ("refused" in landed) return yield* new PushRefusedError(landed.refused);
     return {
       draftId: open.id,
-      branch: open.id,
       result: landed.result,
       studioUrl: studio(open.id),
     } satisfies Pushed;
@@ -155,12 +147,7 @@ export const pushToDraft = Effect.fn("code.push")(function* (
   const opened = yield* Effect.exit(
     Effect.promise(async () => {
       const result = await landBuilt(ctx.env, draftId, landing, built);
-      await ctx.env.THREAD.getByName(threadId).notePush({
-        identity: { projectId: project.id, draftId, ownerId: null },
-        pusher,
-        subjects: check.checked.subjects,
-        result,
-      });
+      await ctx.env.THREAD.getByName(threadId).notePush({ ...entry(draftId), result });
       return result;
     }),
   );
@@ -170,7 +157,6 @@ export const pushToDraft = Effect.fn("code.push")(function* (
   }
   return {
     draftId,
-    branch: draftId,
     result: opened.value,
     studioUrl: studio(draftId),
   } satisfies Pushed;
@@ -195,10 +181,7 @@ const openDraft = Effect.fn("code.push.openDraft")(function* (
   if (draft) return draft;
   const ended = yield* findEndedDraft(ctx.db, projectId, draftId);
   if (ended) {
-    return yield* new PushRefusedError({
-      reason: "draftEnded",
-      message: `This draft was ${ended.outcome}, so it takes no more pushes: start a new branch from \`main\`, then push it to open a new draft.`,
-    });
+    return yield* new PushRefusedError(draftEnded(`was ${ended.outcome}`));
   }
   return yield* new NotFoundError({ message: "This project has no draft with that id." });
 });
@@ -215,11 +198,7 @@ const threadOf = Effect.fn("code.push.threadOf")(function* (ctx: ServiceContext,
     ctx.db.select({ threadId: drafts.threadId }).from(drafts).where(eq(drafts.id, draftId)).get(),
   );
   if (!row?.threadId) {
-    return yield* new PushRefusedError({
-      reason: "draftEnded",
-      message:
-        "This draft ended as you pushed, so it takes no more pushes: start a new branch from `main`, then push it to open a new draft.",
-    });
+    return yield* new PushRefusedError(draftEnded("ended as you pushed"));
   }
   return row.threadId;
 });

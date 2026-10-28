@@ -12,6 +12,7 @@ import { string } from "@optique/core/valueparser";
 
 import { pushCode } from "../lib/api";
 import { getOrAuthenticate } from "../lib/auth";
+import { UUID } from "../lib/uuid";
 
 // `camox push` sends the local branch's commits to Camox, which lands them on a draft (ADR
 // 0026): the push goes to the API, which checks and lands them, never to the repo. The first
@@ -35,7 +36,7 @@ export const parser = command(
 );
 
 /** A draft's branch, as a branch's upstream names it: `origin/<draft id>`. */
-const DRAFT_UPSTREAM = /^origin\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const DRAFT_UPSTREAM = new RegExp(`^origin/(${UUID})$`, "i");
 
 /** What the spinner says while the push is at each step. */
 const STEPS: Record<string, string> = {
@@ -45,8 +46,7 @@ const STEPS: Record<string, string> = {
 };
 
 /** The Project ID the camox() plugin names in a Vite config. */
-const PROJECT_ID =
-  /\bprojectId\s*:\s*["']([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']/i;
+const PROJECT_ID = new RegExp(`\\bprojectId\\s*:\\s*["'](${UUID})["']`, "i");
 
 const fail = (text: string): never => {
   p.log.error(text);
@@ -63,13 +63,15 @@ function git(args: string[], why: string, { quiet = false } = {}) {
   return run.stdout.trim();
 }
 
-type Errors = { file: string; line: number; column?: number; message: string }[];
+/** Errors as a build result lists them: build errors, or type errors, which have no column. */
+type Errors = (Pushed["result"]["build"][number] | Pushed["result"]["types"][number])[];
 
 const listed = (errors: Errors) =>
   errors
-    .map(({ file, line, column, message: text }) =>
-      file ? `${file}:${line}${column === undefined ? "" : `:${column}`} ${text}` : text,
-    )
+    .map((error) => {
+      const column = "column" in error ? `:${error.column}` : "";
+      return error.file ? `${error.file}:${error.line}${column} ${error.message}` : error.message;
+    })
     .join("\n");
 
 export async function handler(args: { command: "push"; draft?: string }): Promise<never> {
@@ -164,9 +166,10 @@ export async function handler(args: { command: "push"; draft?: string }): Promis
   spinner.stop("Pushed.");
 
   // The branch now follows the draft's, so pulling brings in what Camox adds to it.
-  git(["fetch", "--quiet", "origin", pushed.branch], "Couldn't fetch the draft's branch.");
+  // The draft's branch is named by its id.
+  git(["fetch", "--quiet", "origin", pushed.draftId], "Couldn't fetch the draft's branch.");
   git(
-    ["branch", `--set-upstream-to=origin/${pushed.branch}`, branch],
+    ["branch", `--set-upstream-to=origin/${pushed.draftId}`, branch],
     "Couldn't set your branch's upstream to the draft's branch.",
   );
 

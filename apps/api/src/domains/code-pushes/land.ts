@@ -3,22 +3,15 @@ import type { Bindings } from "../../types";
 import { buildRevision, failedBuild, retried } from "../revisions/build";
 import type { BuildResult } from "../revisions/result";
 import { buildInSandbox, type SandboxBuild } from "../revisions/sandbox";
-import { PULL_DRAFT_FIRST, type PushRefusal } from "./checks";
+import { type CheckedPush, PULL_DRAFT_FIRST, type PushRefusal } from "./checks";
 
 // Landing a checked push on a draft (ADR 0026): its commits join the draft's branch as they are,
 // and its head becomes one revision, built in the draft's sandbox.
 
 /** A push that passed its checks, as the draft it lands on receives it. */
-export type CheckedLanding = {
+export type CheckedLanding = CheckedPush & {
   /** The project's Project ID, which names its repo. */
   repo: string;
-  /** The pushed head, as a commit to build. */
-  prepared: PreparedCommit;
-  /** The commits of `main` or of the draft's branch the pushed commits build on. */
-  prerequisites: string[];
-  /** The newest commit of `main` the pushed head holds. */
-  base: string;
-  pack: Uint8Array;
 };
 
 /** Whether the push landed, with its head's build, or why it was refused. */

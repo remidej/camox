@@ -7,6 +7,7 @@ import { tar } from "../../lib/tar";
 import type { Bindings } from "../../types";
 import { CODE_ROOT } from "../code/main-copy";
 import { type TreeFiles, unwritableChanges, WRITABLE } from "../code/write-line";
+import { readAccess } from "../projects/code-access";
 import type { Bundle } from "./bundle";
 
 // The checks a push passes before anything is written (ADR 0026), but its build: they read the
@@ -41,8 +42,12 @@ export type PushRefusal = {
 
 /** A push that passed the checks: its head, as a commit to build, and what landing it needs. */
 export type CheckedPush = {
+  /** The pushed head, as a commit to build. */
   prepared: PreparedCommit;
-  /** The commits of `main` the pushed commits build on: the bundle's prerequisites. */
+  /**
+   * The commits of `main` or of the draft's branch the pushed commits build on: the bundle's
+   * prerequisites.
+   */
   prerequisites: string[];
   /** The newest commit of `main` the pushed head holds, which a draft it opens forks from. */
   base: string;
@@ -58,8 +63,20 @@ export const PULL_DRAFT_FIRST: PushRefusal = {
     "The draft has commits your branch doesn't: pull the draft first (`git pull`), then push again.",
 };
 
-/** How long the read token the checks fetch `main` with lasts. */
-const READ_TOKEN_TTL_SECONDS = 10 * 60;
+/** The refusal of a push whose body isn't a Git bundle of one branch's new commits. */
+export const INVALID_BUNDLE: PushRefusal = {
+  reason: "invalidBundle",
+  message: "Camox expects a Git bundle of one branch's new commits.",
+};
+
+/** The refusal of a push to a draft that ended, as `ended` says, such as "was published". */
+export const draftEnded = (ended: string): PushRefusal => ({
+  reason: "draftEnded",
+  message: `This draft ${ended}, so it takes no more pushes: start a new branch from \`main\`, then push it to open a new draft.`,
+});
+
+/** How long the read token the checks fetch with lasts: only for the fetches of one push. */
+const CHECKS_READ_TOKEN_TTL_SECONDS = 10 * 60;
 /** Where the bundle's packfile is indexed. */
 const PACK = ".git/objects/pack/pack-push.pack";
 /** The local ref the pushed head is merged from. */
@@ -84,38 +101,32 @@ export async function checkPush(
   });
   const [pushed, ...others] = bundle.refs;
   if (!pushed || others.length > 0 || bundle.prerequisites.length === 0) {
-    return refused("invalidBundle", "Camox expects a Git bundle of one branch's new commits.");
+    return { refused: INVALID_BUNDLE };
   }
   const fs = new MemoryFs();
   const at = { fs, dir: CODE_ROOT };
-  {
-    using artifacts = await env.ARTIFACTS.get(repo);
-    const [{ remote }, token] = await Promise.all([
-      artifacts.info(),
-      artifacts.createToken("read", READ_TOKEN_TTL_SECONDS),
-    ]);
-    const headers = { Authorization: `Bearer ${token.plaintext}` };
-    await git.clone({
+  const { remote, token } = await readAccess(env, repo, CHECKS_READ_TOKEN_TTL_SECONDS);
+  const headers = { Authorization: `Bearer ${token.plaintext}` };
+  await git.clone({
+    ...at,
+    http,
+    url: remote,
+    headers,
+    ref: "main",
+    singleBranch: true,
+    noCheckout: true,
+  });
+  if (draftBranch) {
+    const { fetchHead } = await git.fetch({
       ...at,
       http,
       url: remote,
       headers,
-      ref: "main",
+      remoteRef: draftBranch,
       singleBranch: true,
-      noCheckout: true,
+      tags: false,
     });
-    if (draftBranch) {
-      const { fetchHead } = await git.fetch({
-        ...at,
-        http,
-        url: remote,
-        headers,
-        remoteRef: draftBranch,
-        singleBranch: true,
-        tags: false,
-      });
-      await git.writeRef({ ...at, ref: DRAFT_REF, value: fetchHead!, force: true });
-    }
+    await git.writeRef({ ...at, ref: DRAFT_REF, value: fetchHead!, force: true });
   }
   const main = await git.resolveRef({ ...at, ref: MAIN_REF });
   const draftHead = draftBranch ? await git.resolveRef({ ...at, ref: DRAFT_REF }) : undefined;

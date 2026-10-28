@@ -4,6 +4,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
 
 import { installLocalhostDns } from "./local-dns";
+import { UUID } from "./uuid";
 
 const CAMOX_API_URL = process.env.CAMOX_API_URL || "https://api.camox.ai";
 installLocalhostDns(new URL(CAMOX_API_URL).hostname);
@@ -28,7 +29,7 @@ export async function verifySession(token: string): Promise<boolean> {
 
 // --- Projects ---
 
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_SHAPE = new RegExp(`^${UUID}$`, "i");
 
 /** The Project ID of a project named by its Project ID or its Project Slug. */
 async function projectIdOf(token: string, project: string) {

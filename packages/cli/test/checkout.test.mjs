@@ -115,7 +115,6 @@ async function serveRpc(req, res, procedure, input) {
       json: {
         type: "pushed",
         draftId,
-        branch: draftId,
         result: { ok: true, revision: "rev", build: [], types: [], lint: [] },
         studioUrl: `https://acme.camox.site/?camox-draft=${draftId}`,
       },

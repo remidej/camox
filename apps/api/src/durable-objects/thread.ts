@@ -739,7 +739,7 @@ export class Thread extends DurableObject<Bindings> {
    * its entry to the thread: the agent reads it, and doesn't answer it.
    */
   async landPush(
-    push: CheckedLanding & { identity: ThreadIdentity; pusher: ThreadSender; subjects: string[] },
+    push: CheckedLanding & { identity: ThreadIdentity; pusher: ThreadSender },
     waiting?: () => Promise<void> | void,
   ): Promise<Landing> {
     if (await this.#hasEnded()) throw new Error("The thread ended with its draft");

@@ -177,7 +177,7 @@ describe("pushing a new branch", () => {
     const drafts = await draftsOf(website);
     expect(drafts.find(({ id }) => id === pushed.draftId)).toMatchObject({ name: "pricing" });
     // The draft's branch is the checkout's, commits included, so the checkout fast-forwards.
-    expect(await checkout.remoteLog(pushed.branch)).toEqual(await checkout.log());
+    expect(await checkout.remoteLog(pushed.draftId)).toEqual(await checkout.log());
     // One build, of the pushed head, which the draft previews.
     const builds = await fakes.revisionBuilds(pushed.draftId);
     expect(builds).toHaveLength(1);
@@ -201,16 +201,16 @@ describe("pushing to an open draft", () => {
     const { website, checkout } = await flaggedWebsite();
     await checkout.commit({ [PRICING_FILE]: PRICING }, "Add a pricing section");
     const first = await push(website, checkout);
-    await checkout.pull(first.branch);
+    await checkout.pull(first.draftId);
     await checkout.commit({ [PRICING_FILE]: `${PRICING}// Monthly\n` }, "Bill monthly");
 
     const second = await push(website, checkout, { draftId: first.draftId });
 
-    expect(second).toMatchObject({ draftId: first.draftId, branch: first.branch });
+    expect(second).toMatchObject({ draftId: first.draftId });
     expect(second.result).toMatchObject({ ok: true });
     expect(second.result.revision).not.toBe(first.result.revision);
     expect(await draftsOf(website)).toEqual([expect.objectContaining({ id: first.draftId })]);
-    expect(await checkout.remoteLog(first.branch)).toEqual(await checkout.log());
+    expect(await checkout.remoteLog(first.draftId)).toEqual(await checkout.log());
     const builds = await fakes.revisionBuilds(first.draftId);
     expect(builds.at(-1)!.files).toMatchObject({ [PRICING_FILE]: `${PRICING}// Monthly\n` });
     expect((await previewOf(website, first.draftId)).code).toMatchObject({
@@ -222,7 +222,7 @@ describe("pushing to an open draft", () => {
     await checkout.commit({ [PRICING_FILE]: PRICING }, "Add a pricing section");
     const first = await push(website, checkout);
     const reviewed = await previewOf(website, first.draftId);
-    await checkout.pull(first.branch);
+    await checkout.pull(first.draftId);
     await checkout.commit({ [PRICING_FILE]: `${PRICING}// Monthly\n` }, "Bill monthly");
 
     await push(website, checkout, { draftId: first.draftId });
@@ -281,7 +281,7 @@ describe("a push's entry in the draft's thread", () => {
     const { website, checkout } = await flaggedWebsite();
     await checkout.commit({ [PRICING_FILE]: PRICING }, "Add a pricing section");
     const first = await push(website, checkout);
-    await checkout.pull(first.branch);
+    await checkout.pull(first.draftId);
     await checkout.commit({ [PRICING_FILE]: `${PRICING}// Monthly\n` }, "Bill monthly");
     await push(website, checkout, { draftId: first.draftId });
     const token = await signIn(website.db, website.memberUser.id);
@@ -307,7 +307,7 @@ describe("pushing to a draft the agent works in", () => {
 
     const pushed = await push(website, checkout, { draftId });
 
-    expect(pushed).toMatchObject({ draftId, branch: draftId, result: { ok: true } });
+    expect(pushed).toMatchObject({ draftId, result: { ok: true } });
     const branch = await checkout.remoteLog(draftId);
     expect(branch).toEqual(await checkout.log());
     expect(branch.slice(1)).toEqual(agents);
@@ -531,7 +531,7 @@ describe("an accepted push", () => {
     const pushed = await push(website, checkout);
 
     expect(pushed.result).toMatchObject({ ok: true });
-    expect(await checkout.remoteLog(pushed.branch)).toEqual(await checkout.log());
+    expect(await checkout.remoteLog(pushed.draftId)).toEqual(await checkout.log());
     const [build] = await fakes.revisionBuilds(pushed.draftId);
     expect(build!.files).toMatchObject({ ...UPGRADE, [PRICING_FILE]: PRICING });
     expect((await previewOf(website, pushed.draftId)).code).toMatchObject({ includesLive: true });
@@ -546,8 +546,8 @@ describe("an accepted push", () => {
     await pushToMain(website.project.uuid, mainWith({ [HERO_FILE]: NEW_HERO }));
 
     const repo = website.project.uuid;
-    expect(await gitFakes.readFile(repo, pushed.branch, HERO_FILE)).toBe(NEW_HERO);
-    expect(await gitFakes.readFile(repo, pushed.branch, PRICING_FILE)).toBe(PRICING);
+    expect(await gitFakes.readFile(repo, pushed.draftId, HERO_FILE)).toBe(NEW_HERO);
+    expect(await gitFakes.readFile(repo, pushed.draftId, PRICING_FILE)).toBe(PRICING);
     expect((await previewOf(website, pushed.draftId)).code).toMatchObject({ includesLive: true });
   });
 
@@ -556,7 +556,7 @@ describe("an accepted push", () => {
     const repo = website.project.uuid;
     await checkout.commit({ [PRICING_FILE]: PRICING });
     const first = await push(website, checkout);
-    await checkout.pull(first.branch);
+    await checkout.pull(first.draftId);
     const NEW_HERO = `export const hero = "Welcome to the new Acme";\n`;
     await commitToMain(repo, mainWith({ [HERO_FILE]: NEW_HERO }));
     await checkout.mergeMain();
@@ -578,7 +578,7 @@ describe("an accepted push", () => {
     expect((await previewOf(website, first.draftId)).code).toMatchObject({ includesLive: true });
     answer();
     await thread.untilIdle();
-    expect(await checkout.remoteLog(first.branch)).toEqual(await checkout.log());
+    expect(await checkout.remoteLog(first.draftId)).toEqual(await checkout.log());
   });
 
   it("opens no draft when Camox fails to land it, after building it", async () => {
