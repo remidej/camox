@@ -19,13 +19,16 @@ import { Label } from "@camox/ui/label";
 import { Spinner } from "@camox/ui/spinner";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { createContext, useEffect, useState } from "react";
 import slugify from "slugify";
 
 import { api } from "@/lib/api";
 import { projectQueries } from "@/lib/queries";
 
 const SLUG_CHECK_DELAY_MS = 300;
+
+/** Opens the organization's create project dialog, which its layout renders. */
+export const CreateProjectContext = createContext<() => void>(() => {});
 
 /** `value`, once it has stopped changing for `delay` milliseconds. */
 function useDebouncedValue<T>(value: T, delay: number) {
