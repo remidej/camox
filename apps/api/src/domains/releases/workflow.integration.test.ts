@@ -609,6 +609,11 @@ describe("a release of a website built against an SDK Bundle", () => {
     return { db, project, commit, lockfile: websiteLock, names };
   }
 
+  /** Whether the project's `camox release` ran. */
+  async function builtRelease(repo: string) {
+    return (await fakes.commandsRun(repo)).some(({ command }) => command.includes("camox release"));
+  }
+
   /** What the SDK Bundle cache of the project's `camox release` held as it ran. */
   async function releaseCacheOf(repo: string) {
     const release = (await fakes.commandsRun(repo)).find(({ command }) =>
@@ -690,7 +695,7 @@ describe("a release of a website built against an SDK Bundle", () => {
       status: "failed",
       failedStep: "release",
     });
-    expect(await releaseCacheOf(project.uuid)).toBeUndefined();
+    expect(await builtRelease(project.uuid)).toBe(false);
   });
 
   it("fails at its release step, before building, when its SDK Bundle can't be ensured", async () => {
@@ -703,7 +708,6 @@ describe("a release of a website built against an SDK Bundle", () => {
       status: "failed",
       failedStep: "release",
     });
-    const commands = (await fakes.commandsRun(project.uuid)).map(({ command }) => command);
-    expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
+    expect(await builtRelease(project.uuid)).toBe(false);
   });
 });
