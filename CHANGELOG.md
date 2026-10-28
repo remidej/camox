@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.2](https://github.com/remidej/camox/compare/camox-v0.60.1...camox-v0.60.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **api:** resolve every SDK export from source in the API's tests ([#691](https://github.com/remidej/camox/issues/691)) ([13ca046](https://github.com/remidej/camox/commit/13ca0469357140841aad980da67a3aa146d8bfec))
+
 ## [0.60.1](https://github.com/remidej/camox/compare/camox-v0.60.0...camox-v0.60.1) (2026-10-28)
 
 
