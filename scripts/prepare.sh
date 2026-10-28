@@ -14,3 +14,7 @@ NX_DAEMON=false NX_ISOLATE_PLUGINS=false pnpm exec nx run-many -t build --projec
 # The banner starts an npm update check that can delay exit after migrations finish.
 WRANGLER_HIDE_BANNER=true pnpm --filter @camox/api db:migrate:local
 pnpm --filter @camox/api seed --if-empty
+
+# camox.ai's checkout needs a Camox login; a worktree without it still works.
+bash scripts/camox-ai-checkout.sh ||
+  printf 'Skipped camox.ai checkout: see "camox.ai'"'"'s checkout" in CONTRIBUTORS.md\n' >&2
