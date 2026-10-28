@@ -70,12 +70,13 @@ export class CamoxRevisions extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Readies a revision before its draft's viewers are told of it, reading its build once: its
-   * client assets are served from then on, and it's loaded and rendered once. Returns its
-   * Definition Set (JSON-shaped), with what each part took.
+   * Readies a revision before its draft's viewers are told of it, reading its build once, from
+   * `archive` when the API sends it, or else from R2: its client assets are served from then on,
+   * and it's loaded and rendered once. Returns its Definition Set (JSON-shaped), with what each
+   * part took.
    */
-  prepare(revision: RevisionToLoad): Promise<PreparedRevision> {
-    return prepareRevision(this.env, revision, gatewayOf(this.ctx));
+  prepare(revision: RevisionToLoad, archive?: Uint8Array): Promise<PreparedRevision> {
+    return prepareRevision(this.env, revision, gatewayOf(this.ctx), archive);
   }
 
   /**
