@@ -314,11 +314,11 @@ function markersLeft(files: string[]): BuildResult {
   };
 }
 
-export const MESSAGES: Record<RevisionSource, string> = {
+/** The message of the commit Camox makes for a revision; a pushed head is the member's commit. */
+export const MESSAGES: Record<Exclude<RevisionSource, "push">, string> = {
   build: "Camox's agent built its changes",
   turn: "Camox's agent ended its turn",
   merge: "Merge Live's code",
-  push: "A member pushed their commits",
 };
 
 /**
@@ -387,13 +387,15 @@ async function buildAndPreview(
     const conflicted = await retried(() => code.conflicts());
     if (conflicted.length > 0) return markersLeft(conflicted);
   }
-  const prepared =
-    given ??
-    (await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] }), {
+  let prepared = given;
+  if (!prepared) {
+    if (leftBy === "push") throw new Error("A push builds the head it pushed");
+    prepared = await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] }), {
       name: "revision.build.prepareCommit",
       fields: span,
       after: ({ files }) => ({ bytes: files.byteLength }),
-    }));
+    });
+  }
   // A pushed head lands as it is, its files taking its tree.
   const landing = { commit: prepared.commit, checkout: leftBy === "push", mergedMain };
   const reuseCheckStartedAt = Date.now();

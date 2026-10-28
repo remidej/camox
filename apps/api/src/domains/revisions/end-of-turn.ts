@@ -196,7 +196,11 @@ async function turnBuild(
  * Commits the working copy of the draft `draftId` as its new revision without a build, pushed to
  * its branch: a revision that isn't built, which the draft's preview doesn't show.
  */
-async function commitUnbuilt(env: Bindings, draftId: string, { leftBy, run }: RevisionOrigin) {
+async function commitUnbuilt(
+  env: Bindings,
+  draftId: string,
+  { leftBy, run }: RevisionOrigin & { leftBy: keyof typeof MESSAGES },
+) {
   const db = createDb(env.DB);
   const code = env.DRAFT_CODE.getByName(draftId);
   const prepared = await retried(() => code.prepareCommit({ message: MESSAGES[leftBy] }));
