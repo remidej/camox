@@ -1,3 +1,4 @@
+import { sdkBundleName } from "camox/_internal/sdkBundleName";
 // Fakes for the release, creation, deletion and upgrade Workflows' Cloudflare Artifacts, sandbox
 // and email bindings, the revision sandboxes the agent's builds run in, and the Cloudflare API
 // they call, run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles
@@ -219,15 +220,110 @@ export class FakeArtifacts extends WorkerEntrypoint {
 export class FakeSandbox extends DurableObject {
   /** @type {string | undefined} */
   repo;
+  /** Its name, as `getSandbox` gives it. */
+  name = "";
+  /** @type {Map<string, string>} the files written to it, by path */
+  files = new Map();
+  /** Whether a workspace snapshot was restored into it. */
+  restoredBackup = false;
+  /** @type {string[]} the commands it ran outside a step, as an SDK Bundle's build runs them */
+  commands = [];
 
-  async configure() {}
+  async configure(configuration = {}) {
+    if (configuration.sandboxName) this.name = configuration.sandboxName.name;
+  }
 
-  /** @param {string} command */
-  async execWithSessionToken(command) {
+  async writeFile(path, content) {
+    this.files.set(
+      path,
+      typeof content === "string" ? content : await new Response(content).text(),
+    );
+    return { success: true, path, timestamp: "" };
+  }
+
+  async readFile(path = "", options = {}) {
+    const content = this.files.get(path);
+    if (content === undefined) return { content: "" };
+    return {
+      success: true,
+      path,
+      content:
+        options.encoding === "base64" ? toBase64(new TextEncoder().encode(content)) : content,
+      encoding: options.encoding === "base64" ? "base64" : "utf-8",
+      timestamp: "",
+    };
+  }
+
+  /**
+   * @param {string} command
+   * @param {unknown} _session
+   * @param {{ env?: Record<string, string>, cwd?: string }} options
+   */
+  async execWithSessionToken(command, _session, options = {}) {
     this.repo ??= REMOTE.exec(command)?.[1];
+    const result = (exitCode, stdout = "") => ({
+      success: exitCode === 0,
+      exitCode,
+      stdout,
+      stderr: "",
+      command,
+    });
     // Not a FUSE device, the way a local container answers `test -c /dev/fuse`.
-    const exitCode = command.startsWith("test -c /dev/fuse") ? 1 : 0;
-    return { success: exitCode === 0, exitCode, stdout: "", stderr: "", command };
+    if (command.startsWith("test -c /dev/fuse")) return result(1);
+    const checkout = CHECKOUT_COMMAND.exec(command);
+    if (checkout && this.repo) {
+      // The commit's files, over what a restored snapshot left.
+      const files =
+        repos.get(this.repo)?.get(checkout[1]) ?? (await gitFiles(this.repo, checkout[1]));
+      for (const [path, content] of Object.entries(files ?? {})) {
+        if (typeof content === "string") this.files.set(`${WORKSPACE}/${path}`, content);
+      }
+    }
+    if (this.repo) return result(0);
+    this.commands.push(command);
+    if (SDK_BUNDLE_BUILD_COMMAND.test(command))
+      return result(0, await this.#buildSdkBundle(options));
+    const archive = SDK_BUNDLE_ARCHIVE_COMMAND.exec(command);
+    if (archive) {
+      const [, file, target] = archive;
+      const build = sdkBundleBuilds.findLast(({ sandbox }) => sandbox === this.name);
+      if (!build?.names) return result(2);
+      this.files.set(file, `SDK Bundle ${build.names[target]}, built in ${this.name}`);
+    }
+    return result(0);
+  }
+
+  /**
+   * Builds the SDK Bundle of the website installed in `cwd`, as the website's camox would: named
+   * from its lockfile and the settings it's given. Prints the builder's report.
+   * @param {{ env?: Record<string, string>, cwd?: string }} options
+   */
+  async #buildSdkBundle({ cwd = "", env = {} }) {
+    const folder = `${cwd.replace(/\/$/, "")}/`;
+    const written = Object.fromEntries(
+      [...this.files]
+        .filter(([path]) => path.startsWith(folder))
+        .map(([path, content]) => [path.slice(folder.length), content]),
+    );
+    const build = {
+      order: order(),
+      sandbox: this.name,
+      written,
+      commands: [...this.commands],
+      restoredBackup: this.restoredBackup,
+      names: null,
+    };
+    sdkBundleBuilds.push(build);
+    const lockfile = written["pnpm-lock.yaml"] ?? "";
+    const held = () =>
+      heldSdkBundleMarkers.some((marker) => lockfile.includes(marker)) &&
+      !letGoSdkBundleSandboxes.has(this.name);
+    // Polled: a promise resolved from the request letting go wouldn't wake this one.
+    while (held()) await scheduler.wait(10);
+    const settings = JSON.parse(env.CAMOX_SDK_BUNDLE_SETTINGS ?? "{}");
+    const name = (target) => sdkBundleName({ lockfile, target, settings });
+    build.names = { browser: await name("browser"), workerd: await name("workerd") };
+    return `vite v8.0.0 building for production...\ncamox-sdk-bundle: ${JSON.stringify(build.names)}\n`;
   }
 
   /**
@@ -246,6 +342,7 @@ export class FakeSandbox extends DurableObject {
     });
     if (failure) failure.times -= 1;
     const exitCode = failure ? 1 : 0;
+    if (exitCode === 0 && command.includes("npm pkg set")) this.#update(repo, command);
     // A release's deploy replaces the project's Worker, named after its Project ID.
     if (exitCode === 0 && /\bwrangler deploy\b/.test(command)) {
       deployUserWorker(repo, `release of ${repo}`);
@@ -268,11 +365,32 @@ export class FakeSandbox extends DurableObject {
     };
   }
 
-  async createBackup({ dir }) {
-    return { id: crypto.randomUUID(), dir, localBucket: true };
+  /**
+   * What an Upgrade's update step leaves, as its command would (`updateCommand`): the Camox
+   * packages set in `package.json`, the lockfile the install resolves, and both saved in
+   * `.camox-upgrade/`.
+   * @param {string} repo
+   * @param {string} command
+   */
+  #update(repo, command) {
+    const manifest = upgradedManifest(this.files.get(`${WORKSPACE}/package.json`) ?? "{}", command);
+    const lockfile =
+      installsResolving.get(repo) ?? this.files.get(`${WORKSPACE}/pnpm-lock.yaml`) ?? "";
+    for (const folder of [WORKSPACE, `${WORKSPACE}/.camox-upgrade`]) {
+      this.files.set(`${folder}/package.json`, manifest);
+      this.files.set(`${folder}/pnpm-lock.yaml`, lockfile);
+    }
   }
 
-  async restoreBackup() {
+  async createBackup({ dir }) {
+    const id = crypto.randomUUID();
+    backups.set(id, new Map(this.files));
+    return { id, dir, localBucket: true };
+  }
+
+  async restoreBackup({ id }) {
+    this.restoredBackup = true;
+    this.files = new Map(backups.get(id) ?? []);
     return { success: true };
   }
 
@@ -280,12 +398,33 @@ export class FakeSandbox extends DurableObject {
     return { files: [] };
   }
 
-  async readFile() {
-    return { content: "" };
+  async destroy() {
+    this.files.clear();
   }
-
-  async destroy() {}
 }
+
+/** Where `@cloudflare/ci` checks a step's commit out. */
+const WORKSPACE = "/workspace";
+/** `@cloudflare/ci`'s checkout of a step's commit, quoted or not. */
+const CHECKOUT_COMMAND = /fetch --depth=1 origin '?([0-9a-f]{40})'?/;
+/** @type {Map<string, Map<string, string>>} a step's workspace snapshot, by its id */
+const backups = new Map();
+/** @type {Map<string, string>} repo name → the lockfile `pnpm install` resolves in its upgrade */
+const installsResolving = new Map();
+
+/** An SDK Bundle's build: the builder, run from the website's folder (`domains/sdk-bundles`). */
+const SDK_BUNDLE_BUILD_COMMAND = /\bCAMOX_SDK_BUNDLE_BUILDER\b/;
+/** An archive of one target's folder of a built SDK Bundle. */
+const SDK_BUNDLE_ARCHIVE_COMMAND = /-cf (\S+) -C \S*\/(browser|workerd) /;
+/**
+ * @type {{ sandbox: string, written: Record<string, string>, commands: string[], restoredBackup: boolean, names: Record<string, string> | null }[]}
+ * every SDK Bundle's build, in the order they started
+ */
+const sdkBundleBuilds = [];
+/** @type {string[]} SDK Bundle builds wait while their lockfile contains one of these */
+const heldSdkBundleMarkers = [];
+/** @type {Set<string>} sandboxes whose held SDK Bundle build was let go */
+const letGoSdkBundleSandboxes = new Set();
 
 /**
  * What an Upgrade's push step does to a Git repo, as its commands would (the upgrade project
@@ -304,20 +443,29 @@ async function upgradePush(repo, command, run) {
     built ? gitFiles(repo, built) : null,
   ]);
   if (!main || !at) return 1;
-  const manifest = JSON.parse(at["package.json"] ?? "{}");
   const set = run.findLast((ran) => ran.command.includes("npm pkg set"))?.command ?? "";
-  for (const [, section, name, version] of set.matchAll(
-    /(dependencies|devDependencies)\.(\S+?)=(\S+)/g,
-  )) {
-    manifest[section] = { ...manifest[section], [name]: version };
-  }
-  const upgraded = `${JSON.stringify(manifest, null, 2)}\n`;
+  const upgraded = upgradedManifest(at["package.json"] ?? "{}", set);
   if (main["package.json"] === upgraded) return 0;
   const platform = ["package.json", "pnpm-lock.yaml"];
   if (platform.some((path) => main[path] !== at[path])) return 1;
   const message = /git commit -q -m "([^"]+)"/.exec(command)?.[1] ?? "Upgrade";
   await commitFiles(repo, { ...main, "package.json": upgraded }, message);
   return 0;
+}
+
+/**
+ * A `package.json` as `npm pkg set` leaves it, with the versions the command sets.
+ * @param {string} packageJson
+ * @param {string} command
+ */
+function upgradedManifest(packageJson, command) {
+  const manifest = JSON.parse(packageJson);
+  for (const [, section, name, version] of command.matchAll(
+    /(dependencies|devDependencies)\.(\S+?)=(\S+)/g,
+  )) {
+    manifest[section] = { ...manifest[section], [name]: version };
+  }
+  return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 /**
@@ -857,6 +1005,33 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} repo */
   async letGo(repo) {
     held.delete(repo);
+  }
+
+  /**
+   * Makes `pnpm install` in the repo's upgrade write `lockfile`, as resolving the new SDK would.
+   * @param {string} repo
+   * @param {string} lockfile
+   */
+  async installResolves(repo, lockfile) {
+    installsResolving.set(repo, lockfile);
+  }
+
+  /** Every SDK Bundle's build, in the order they started, without what it built. */
+  async sdkBundleBuilds() {
+    return sdkBundleBuilds.map(({ names: _names, ...build }) => build);
+  }
+
+  /**
+   * Makes the SDK Bundle builds whose lockfile contains `marker` wait until they're let go.
+   * @param {string} marker
+   */
+  async holdSdkBundleBuildsOf(marker) {
+    heldSdkBundleMarkers.push(marker);
+  }
+
+  /** @param {string} sandbox Lets the held SDK Bundle build in `sandbox` finish. */
+  async letGoSdkBundleBuild(sandbox) {
+    letGoSdkBundleSandboxes.add(sandbox);
   }
 
   /** @param {string} repo */
