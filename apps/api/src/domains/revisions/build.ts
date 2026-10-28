@@ -168,6 +168,17 @@ type BuiltRevision = {
   prepared?: Promise<PreparedRevision>;
 };
 
+/**
+ * The largest revision build the API sends dispatch with the preparation, under Workers RPC's
+ * 32 MiB message limit (developers.cloudflare.com/workers/runtime-apis/rpc/), with room for the
+ * rest of the message. A tuning value.
+ */
+const DISPATCH_ARCHIVE_LIMIT = 24 * 1024 * 1024;
+
+/** Whether a build is small enough to go to dispatch in one RPC message. */
+const fitsOneMessage = (env: Bindings, archive: Uint8Array) =>
+  archive.byteLength <= Number(env.DISPATCH_ARCHIVE_LIMIT_BYTES ?? DISPATCH_ARCHIVE_LIMIT);
+
 /** Has dispatch prepare a revision, from `archive` when the API holds it, or else from R2. */
 function prepareInDispatch(
   env: Bindings,
@@ -488,15 +499,18 @@ async function buildAndPreview(
   });
   // Dispatch prepares the preview from the archive the API holds, while the archive is stored and
   // the code pushed (ADR 0029). The preview waits for all three: it's only announced once the
-  // revision is recorded, which a failed upload or push stops.
-  const preparing = prepareInDispatch(
-    env,
-    { revision: revisionId, archiveKey, project: draft.projectUuid, draft: draftId },
-    { ...span, revisionId },
-    outcome.archive,
-  );
+  // revision is recorded, which a failed upload or push stops. An archive too large for one
+  // message is prepared from R2 once stored, by the preview.
+  const preparing = fitsOneMessage(env, outcome.archive)
+    ? prepareInDispatch(
+        env,
+        { revision: revisionId, archiveKey, project: draft.projectUuid, draft: draftId },
+        { ...span, revisionId },
+        outcome.archive,
+      )
+    : undefined;
   // Awaited by the preview: an upload or push failing first throws its own error.
-  preparing.catch(() => {});
+  preparing?.catch(() => {});
   // The archive's upload and the push go at once. A push that landed without its archive is no
   // revision yet: the next build of the tree uploads one and commits it again, which keeps the
   // branch's head as it is (`commit` in DraftCode).

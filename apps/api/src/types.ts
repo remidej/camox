@@ -12,6 +12,11 @@ export type Bindings = {
   EMAIL: SendEmail;
   /** Where alerts go, such as a failed release's. Cloudflare Email Routing forwards it. */
   ALERT_EMAIL_TO: string;
+  /**
+   * The largest revision build, in bytes, the API sends dispatch in one message
+   * (`DISPATCH_ARCHIVE_LIMIT` in domains/revisions/build.ts when unset). Set only by tests.
+   */
+  DISPATCH_ARCHIVE_LIMIT_BYTES?: string;
   OPEN_ROUTER_API_KEY: string;
   /** Camox's Google Fonts Developer API key, which the daily fonts snapshot is taken with. */
   GOOGLE_FONTS_API_KEY: string;

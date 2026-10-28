@@ -19,6 +19,7 @@ import {
   websiteFixture,
 } from "../../../test/threads";
 import { router } from "../../router";
+import type { Bindings } from "../../types";
 import { INFRASTRUCTURE_ATTEMPTS } from "./build";
 import type { RevisionToLoad } from "./dispatch";
 import type { PreviewQuestion } from "./previewed-revision";
@@ -314,6 +315,31 @@ describe("a draft's new revision", () => {
     expect(revisionMessages(website)).toHaveLength(1);
     // Dispatch prepared it from the build the API sent, as it never got stored.
     expect(preparedFor(await fakes.prewarmed(), draftId).length).toBeGreaterThan(1);
+  });
+
+  it("is prepared from its stored build when its build is too large to send, and isn't prepared when that fails", async () => {
+    const { website, draftId, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
+    const prepared = preparedFor(await fakes.prewarmed(), draftId).length;
+    // Every build is larger than what goes to dispatch in one message.
+    const bindings = env as unknown as Bindings;
+    bindings.DISPATCH_ARCHIVE_LIMIT_BYTES = "1";
+    onTestFinished(() => {
+      delete bindings.DISPATCH_ARCHIVE_LIMIT_BYTES;
+    });
+    const put = builds.put.bind(builds);
+    vi.spyOn(builds, "put").mockImplementation(async (key, ...rest) => {
+      if (key.endsWith(".tar.gz")) throw new Error("We encountered an internal error.");
+      return put(key, ...rest);
+    });
+
+    const result = await writeAndBuild(thread, blockFile(marker));
+    thread.close();
+
+    expect(result).toContain("a problem on its side");
+    // It waits for its build to be stored, which never was.
+    expect(preparedFor(await fakes.prewarmed(), draftId)).toHaveLength(prepared);
   });
 
   it("is announced once, however often the same code is built", async () => {
