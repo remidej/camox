@@ -3,6 +3,7 @@ import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
 import { MemoryFs } from "../../lib/memory-fs";
 import { camoxVersionInLockfile } from "../releases/lockfile";
 import { codeEnv } from "./env";
+import { PLATFORM_SKILLS } from "./platform-skills";
 import { type SkillFiles, SKILLS_ROOT, skillsAt } from "./skills";
 
 /** A file of a project's code: its content, or where a symlink points. */
@@ -33,8 +34,7 @@ export async function writeFiles(fs: MemoryFs, files: CodeFile[]) {
 
 /**
  * The tree the agent reads on Live, and in a draft without code: `main` as `copy` holds it, with
- * the skills of its `camox` version mounted from `skills` (`mountSkills`). Nothing in it can be
- * written.
+ * the agent's skills mounted (`mountSkills`). Nothing in it can be written.
  */
 export async function mainCopyFs(copy: MainCopy, skills: R2Bucket) {
   const fs = new MemoryFs();
@@ -49,10 +49,20 @@ export async function lockedCamoxVersion(fs: MemoryFs) {
   return typeof lockfile === "string" ? camoxVersionInLockfile(lockfile) : null;
 }
 
+/** Writes `files`, skills' files by their path under `SKILLS_ROOT`, into `fs`. */
+async function writeSkills(fs: MemoryFs, files: SkillFiles) {
+  for (const [path, text] of Object.entries(files)) {
+    const at = `${SKILLS_ROOT}/${path}`;
+    await createDirs(fs, at.slice(0, at.lastIndexOf("/")));
+    await fs.promises.writeFile(at, text);
+  }
+}
+
 /**
- * Mounts under `SKILLS_ROOT` the skills of the `camox` version the lockfile in `fs` installs, from
- * `skills`, in place of any mounted before. Returns the version mounted, which is the lockfile's
- * even when `skills` has none for it, or undefined when they couldn't be read, to try again.
+ * Mounts under `SKILLS_ROOT` the platform's skills, and those of the `camox` version the lockfile
+ * in `fs` installs, from `skills`, in place of any mounted before. Returns the version mounted,
+ * which is the lockfile's even when `skills` has none for it, or undefined when they couldn't be
+ * read, to try again.
  */
 export async function mountSkills(fs: MemoryFs, skills: R2Bucket) {
   const version = await lockedCamoxVersion(fs);
@@ -63,6 +73,7 @@ export async function mountSkills(fs: MemoryFs, skills: R2Bucket) {
   for (const { path, kind } of mounted) {
     await (kind === "dir" ? fs.promises.rmdir(path) : fs.promises.unlink(path));
   }
+  await writeSkills(fs, PLATFORM_SKILLS);
   if (!version) return version;
   let files: SkillFiles | null;
   try {
@@ -72,11 +83,7 @@ export async function mountSkills(fs: MemoryFs, skills: R2Bucket) {
     return undefined;
   }
   if (!files) console.error(`Camox has no skills for camox ${version}`);
-  for (const [path, text] of Object.entries(files ?? {})) {
-    const at = `${SKILLS_ROOT}/${path}`;
-    await createDirs(fs, at.slice(0, at.lastIndexOf("/")));
-    await fs.promises.writeFile(at, text);
-  }
+  await writeSkills(fs, files ?? {});
   return version;
 }
 

@@ -119,6 +119,15 @@ function sdkFromSource() {
 
 export default defineConfig({
   logLevel: "silent",
+  plugins: [
+    {
+      // Markdown imports are their text, as wrangler.jsonc's `Text` rule bundles them.
+      name: "markdown-as-text",
+      enforce: "pre",
+      transform: (code, id) =>
+        id.endsWith(".md") ? `export default ${JSON.stringify(code)};` : undefined,
+    },
+  ],
   resolve: { alias: sdkFromSource() },
   test: {
     projects: [

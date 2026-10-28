@@ -1,7 +1,17 @@
-// Camox's skills, as the `camox` version a project installs ships them: each SDK publish uploads
-// its `skills/` to `SKILLS` under its version (apps/api/scripts/upload-skills.mjs), and the
-// agent reads the version the project's lockfile installs, as a local agent reads them through
-// `node_modules`. The API never holds a copy of its own, so it can't drift from the SDK's.
+import { parse as parseYaml } from "yaml";
+
+// The agent's skills, mounted read-only beside the code, each a folder with its `SKILL.md`:
+//
+// - Camox's, as the `camox` version a project installs ships them: each SDK publish uploads its
+//   `skills/` to `SKILLS` under its version (apps/api/scripts/upload-skills.mjs), and the agent
+//   reads the version the project's lockfile installs, as a local agent reads them through
+//   `node_modules`. The API never holds a copy of its own, so it can't drift from the SDK's.
+// - The platform's, which the API ships for tasks beyond the code, such as writing copy
+//   (apps/api/skills/README.md).
+//
+// The agent's instructions list the platform's skills by their frontmatter (`skillsSection`), and
+// it reads one when a task matches it, as Pi's coding agent does. Camox's skill isn't listed: the
+// instructions for the code tell the agent to read it before any change (prompt.ts).
 
 /** The skills the agent reads: the others drive the CLI, which it works without. */
 export const HOSTED_SKILLS = ["camox"] as const;
@@ -9,7 +19,7 @@ export const HOSTED_SKILLS = ["camox"] as const;
 /** Where the skills are mounted in the agent's environment, read-only, beside the code. */
 export const SKILLS_ROOT = "/.camox/skills";
 
-/** A version's skills: each file's path under `skills/`, such as `camox/SKILL.md`, to its text. */
+/** Skills' files: each one's path under `skills/`, such as `camox/SKILL.md`, to its text. */
 export type SkillFiles = Record<string, string>;
 
 /** The object of `SKILLS` holding the skills `camox` `version` ships. */
@@ -40,3 +50,64 @@ export async function skillsAt(bucket: R2Bucket, version: string): Promise<Skill
   files.catch(() => read.delete(version));
   return files;
 }
+
+/**
+ * The section of the agent's instructions listing the skills in `files`, by the name and
+ * description each `SKILL.md`'s frontmatter gives, where they're mounted, or undefined when none
+ * is listed. Its wording and format are Pi's coding agent's, `@earendil-works/pi-coding-agent`
+ * 1.3.0 (`formatSkillsForPrompt` in `dist/core/skills.js`), which isn't installed: models know it.
+ */
+export function skillsSection(files: SkillFiles) {
+  const skills = Object.entries(files)
+    .filter(([path]) => /^[^/]+\/SKILL\.md$/.test(path))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([path, text]) => {
+      const location = `${SKILLS_ROOT}/${path}`;
+      const data = frontmatterOf(text);
+      const { name, description } = data;
+      if (data["disable-model-invocation"] === true) return [];
+      if (typeof name !== "string" || typeof description !== "string" || !description.trim()) {
+        console.error(`The skill in ${location} has no name or description: it isn't listed`);
+        return [];
+      }
+      return [{ name: name.trim(), description: description.trim(), location }];
+    });
+  if (skills.length === 0) return undefined;
+  return [
+    "The following skills provide specialized instructions for specific tasks.",
+    "Use the read tool to load a skill's file when the task matches its description.",
+    "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
+    "",
+    "<available_skills>",
+    ...skills.flatMap((skill) => [
+      "  <skill>",
+      `    <name>${escapeXml(skill.name)}</name>`,
+      `    <description>${escapeXml(skill.description)}</description>`,
+      `    <location>${escapeXml(skill.location)}</location>`,
+      "  </skill>",
+    ]),
+    "</available_skills>",
+  ].join("\n");
+}
+
+/** The fields of the YAML frontmatter `markdown` starts with, or none. */
+function frontmatterOf(markdown: string): Record<string, unknown> {
+  const yaml = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(markdown)?.[1];
+  if (yaml === undefined) return {};
+  try {
+    const data: unknown = parseYaml(yaml);
+    return data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+const escapeXml = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
