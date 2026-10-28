@@ -22,9 +22,12 @@ interface LockedPackage {
 function lockfile({
   packages: overrides = {},
   devDependencies = ["vite@8.0.0", "wrangler@4.151.0"],
+  shared = [],
 }: {
   packages?: Record<string, Partial<LockedPackage>>;
   devDependencies?: string[];
+  /** Packages camox shares with websites that the website installs too, by `name@version`. */
+  shared?: string[];
 } = {}): string {
   const packages: Record<string, LockedPackage> = {
     "camox@0.59.0": {
@@ -33,6 +36,7 @@ function lockfile({
       dependencies: [
         "@base-ui/react@1.9.0",
         "@camox/cli@0.59.0",
+        "clsx@2.1.1",
         "react@19.3.1",
         "@cloudflare/vite-plugin@1.64.0",
       ],
@@ -45,6 +49,7 @@ function lockfile({
       peerDependencies: ["react"],
     },
     "@floating-ui/react@0.27.0": { integrity: "sha512-floating-ui" },
+    "clsx@2.1.1": { integrity: "sha512-clsx" },
     "@camox/cli@0.59.0": { integrity: "sha512-camox-cli", dependencies: ["@clack/prompts@1.8.1"] },
     "@clack/prompts@1.8.1": { integrity: "sha512-clack-prompts" },
     "react@19.3.1": { integrity: "sha512-react" },
@@ -92,9 +97,12 @@ function lockfile({
     );
   const dependencyMap = (keys: string[]) =>
     section(keys.map((key) => `      ${quote(split(key).name)}: ${quote(lockedVersion(key))}`));
-  const dependencies = ["camox", "react", "react-dom", "@tanstack/react-query"].map((name) =>
-    Object.keys(packages).find((key) => split(key).name === name)!,
-  );
+  const dependencies = [
+    ...["camox", "react", "react-dom", "@tanstack/react-query"].map((name) =>
+      Object.keys(packages).find((key) => split(key).name === name)!,
+    ),
+    ...shared,
+  ];
   return `lockfileVersion: '9.0'
 
 importers:
@@ -209,6 +217,14 @@ void describe("an SDK Bundle's name", () => {
     for (const [change, changed] of Object.entries(elsewhere)) {
       assert.equal(await sdkBundleName(inputs({ lockfile: changed })), name, change);
     }
+  });
+
+  void test("changes when the website installs a package it shares with camox", async () => {
+    // camox reaches clsx either way, but only the website's own install puts it in the bundle.
+    assert.notEqual(
+      await sdkBundleName(inputs({ lockfile: lockfile({ shared: ["clsx@2.1.1"] }) })),
+      await sdkBundleName(inputs()),
+    );
   });
 
   void test("changes with the builder's version, the target and each compiled setting", async () => {

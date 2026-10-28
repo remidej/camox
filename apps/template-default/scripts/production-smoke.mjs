@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(appRoot, "../..");
 const temp = await mkdtemp(join(tmpdir(), "camox-production-"));
+// Builds against an SDK Bundle unless `CAMOX_INTERNAL_SDK_BUNDLE=0` asks for a whole-app build.
+const withSdkBundle = process.env.CAMOX_INTERNAL_SDK_BUNDLE !== "0";
 
 try {
   // Where the monorepo has it, beside its lockfile: the copy builds against the Template's SDK Bundle.
@@ -125,7 +127,7 @@ export default {
         HOME: home,
         CAMOX_INTERNAL_RELEASE: "0",
         CAMOX_INTERNAL_HOSTED: "1",
-        CAMOX_INTERNAL_SDK_BUNDLE: "1",
+        CAMOX_INTERNAL_SDK_BUNDLE: withSdkBundle ? "1" : "0",
         CAMOX_INTERNAL_SDK_BUNDLE_CACHE: sdkBundleCache,
       },
       encoding: "utf8",
@@ -151,26 +153,30 @@ export default {
     await builder.buildApp();
     writeFileSync(${JSON.stringify(modulesFile)}, JSON.stringify(modules));
     const { addSdkBundleToBuild } = await import("camox/_internal/sdkBundle");
-    await addSdkBundleToBuild({ root: ${JSON.stringify(root)} });
+    const added = await addSdkBundleToBuild({ root: ${JSON.stringify(root)} });
+    if (${withSdkBundle} !== (added !== null)) throw new Error("The build names the wrong SDK Bundle: " + JSON.stringify(added));
   `,
     180_000,
   );
   assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
 
-  // The output names its SDK Bundle, and holds only the Template's own code: camox and React are
-  // the bundle's. The Worker entry is compiled into each website's build, as it imports the website.
+  // The output names its SDK Bundle, and holds only the Template's own code: camox, React and the
+  // packages camox shares with the Template are the bundle's. The Worker entry is compiled into
+  // each website's build, as it imports the website.
   const deployConfig = JSON.parse(
     await readFile(join(root, ".wrangler/deploy/config.json"), "utf8"),
   );
   const workerDir = dirname(resolve(root, ".wrangler/deploy", deployConfig.configPath));
-  const sdkBundle = JSON.parse(await readFile(join(workerDir, "camox-sdk-bundle.json"), "utf8"));
-  assert.match(sdkBundle.browser, /^[0-9a-f]{32}$/);
-  assert.match(sdkBundle.workerd, /^[0-9a-f]{32}$/);
   const sdkSource = join(repoRoot, "packages/sdk/src/");
-  for (const id of JSON.parse(await readFile(modulesFile, "utf8"))) {
+  if (withSdkBundle) {
+    const sdkBundle = JSON.parse(await readFile(join(workerDir, "camox-sdk-bundle.json"), "utf8"));
+    assert.match(sdkBundle.browser, /^[0-9a-f]{32}$/);
+    assert.match(sdkBundle.workerd, /^[0-9a-f]{32}$/);
+  }
+  for (const id of withSdkBundle ? JSON.parse(await readFile(modulesFile, "utf8")) : []) {
     assert.doesNotMatch(
       id,
-      /[/\\]node_modules[/\\](\.pnpm[/\\])?(react|react-dom|scheduler|camox)[@/\\]/,
+      /[/\\]node_modules[/\\](\.pnpm[/\\])?(react|react-dom|scheduler|camox|tailwind-merge|clsx|class-variance-authority)[@/\\]/,
       `The build holds ${id}.`,
     );
     if (id !== join(sdkSource, "features/runtime/worker.ts"))
