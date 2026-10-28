@@ -107,6 +107,11 @@
       "types": "./dist/features/og/imageResponse.d.ts",
       "import": "./dist/features/og/imageResponse.js"
     },
+    "./_internal/workerRuntime": {
+      "source": "./src/features/runtime/workerRuntime.ts",
+      "types": "./dist/features/runtime/workerRuntime.d.ts",
+      "import": "./dist/features/runtime/workerRuntime.js"
+    },
     "./worker": {
       "source": "./src/features/runtime/worker.ts",
       "types": "./dist/features/runtime/worker.d.ts",
@@ -191,6 +196,10 @@
       "./_internal/imageResponse": {
         "types": "./dist/features/og/imageResponse.d.ts",
         "import": "./dist/features/og/imageResponse.js"
+      },
+      "./_internal/workerRuntime": {
+        "types": "./dist/features/runtime/workerRuntime.d.ts",
+        "import": "./dist/features/runtime/workerRuntime.js"
       },
       "./worker": {
         "types": "./dist/features/runtime/worker.d.ts",
