@@ -140,7 +140,6 @@ ${Object.entries(packages)
 const settings: SdkBundleSettings = {
   iconIds: ["arrow-right", "check"],
   telemetryDisabled: false,
-  experimentalFeatures: false,
   apiUrl: "https://api.camox.ai",
 };
 
@@ -234,7 +233,6 @@ void describe("an SDK Bundle's name", () => {
       "the target": { target: "workerd" },
       "the icon ids": { settings: { ...settings, iconIds: ["arrow-right"] } },
       telemetry: { settings: { ...settings, telemetryDisabled: true } },
-      "experimental features": { settings: { ...settings, experimentalFeatures: true } },
       "the API URL": { settings: { ...settings, apiUrl: "http://localhost:8787" } },
     };
     for (const [change, overrides] of Object.entries(changes)) {

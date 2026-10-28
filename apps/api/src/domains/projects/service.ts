@@ -80,6 +80,11 @@ export const updateProjectSocialProfilesInput = z.object({
   id: z.number(),
   socialProfiles: z.array(socialProfileUrlSchema).max(50),
 });
+/** Whether the studio shows experimental features. */
+export const updateProjectExperimentalFeaturesInput = z.object({
+  id: z.number(),
+  experimentalFeatures: z.boolean(),
+});
 
 /** The homepage content a Definition Set declares: its layout and initial blocks. */
 export const homepageInput = z.object({
@@ -399,6 +404,31 @@ export const updateProjectSocialProfiles = Effect.fn("projects.updateProjectSoci
     return { socialProfiles: result.socialProfiles, updatedAt: result.updatedAt };
   },
 );
+
+/** Switches the studio's experimental features: a Project Setting, so every draft changes too. */
+export const updateProjectExperimentalFeatures = Effect.fn(
+  "projects.updateProjectExperimentalFeatures",
+)(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof updateProjectExperimentalFeaturesInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id, experimentalFeatures } = yield* decodeInput(
+    updateProjectExperimentalFeaturesInput,
+    rawInput,
+  );
+  yield* getAuthorizedProject(ctx.db, id, user.id);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(projects)
+      .set({ experimentalFeatures, updatedAt: Date.now() })
+      .where(eq(projects.id, id))
+      .returning()
+      .get(),
+  );
+  yield* record(ctx.db, { kind: "project", projectId: id });
+  return { experimentalFeatures: result.experimentalFeatures, updatedAt: result.updatedAt };
+});
 
 export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   ctx: ServiceContext,

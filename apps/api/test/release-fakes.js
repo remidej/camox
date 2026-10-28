@@ -708,7 +708,6 @@ const sdkBundleSwitchedOn = [];
 const HOSTED_SETTINGS = {
   iconIds: [],
   telemetryDisabled: false,
-  experimentalFeatures: false,
   apiUrl: "https://api.camox.ai",
 };
 /** Unpacking a stored SDK Bundle's archive into a build's bundle cache, then naming its folder. */

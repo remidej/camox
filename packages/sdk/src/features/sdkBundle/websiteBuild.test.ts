@@ -31,7 +31,6 @@ const CONFIG_GLOBAL = "__camoxSdkBundleTestPlugins";
 const settings: SdkBundleSettings = {
   iconIds: [],
   telemetryDisabled: false,
-  experimentalFeatures: false,
   apiUrl: "https://api.camox.ai",
 };
 

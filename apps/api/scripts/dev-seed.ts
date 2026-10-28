@@ -160,7 +160,12 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
 
   const now = Date.now();
 
-  async function seedProject(name: string, slug: string, uuid: string) {
+  async function seedProject(
+    name: string,
+    slug: string,
+    uuid: string,
+    { experimentalFeatures = false } = {},
+  ) {
     const project = await db
       .insert(projects)
       .values({
@@ -169,6 +174,7 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
         slug,
         organizationId: orgId,
         deployToken: "camox-dev-deploy-token",
+        experimentalFeatures,
         createdAt: now,
         updatedAt: now,
       })
@@ -191,6 +197,8 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
     "Camox Playground",
     "camox-playground-01",
     "01a15fff-627b-7fa1-938b-93ab659c1acc",
+    // The playground exercises features still in development, such as collections.
+    { experimentalFeatures: true },
   );
   const templateDefault = await seedProject(
     "Camox Template Default",

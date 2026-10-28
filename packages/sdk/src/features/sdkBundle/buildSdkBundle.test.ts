@@ -19,7 +19,6 @@ const templateRoot = join(repoRoot, "apps/template-default");
 const settings: SdkBundleSettings = {
   iconIds: [],
   telemetryDisabled: false,
-  experimentalFeatures: false,
   apiUrl: "https://api.camox.ai",
 };
 

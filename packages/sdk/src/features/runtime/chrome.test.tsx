@@ -159,38 +159,23 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.equal(isContentNavbarPath("/camox/content/assets"), true);
   assert.equal(isContentNavbarPath("/camox/content/collections/articles/new"), true);
   assert.equal(isContentNavbarPath("/camox/contentful"), false);
-  const previousFlag =
-    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ === "undefined"
-      ? undefined
-      : __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
-  try {
-    for (const flag of [undefined, false, true]) {
-      if (flag === undefined)
-        Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-      else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
-      const canvasHtml = renderToString(
-        createElement(PageApp, {
-          draftScope: testDraftScope(),
-          input: {
-            ...input,
-            pathname: "/camox/canvas/blog/post",
-            href: "https://site.test/mounted/camox/canvas/blog/post",
-            runtimeBasePath: "/mounted",
-            routeKind: "studio-nested",
-          },
-          queryClient: new QueryClient(),
-          camoxApp,
-        }),
-      );
-      assert.match(canvasHtml, /My actual project/);
-      assert.match(canvasHtml, /<div hidden=""[^>]*><menu role="toolbar"/);
-      assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
-    }
-  } finally {
-    if (previousFlag === undefined)
-      Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-    else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
-  }
+  const canvasHtml = renderToString(
+    createElement(PageApp, {
+      draftScope: testDraftScope(),
+      input: {
+        ...input,
+        pathname: "/camox/canvas/blog/post",
+        href: "https://site.test/mounted/camox/canvas/blog/post",
+        runtimeBasePath: "/mounted",
+        routeKind: "studio-nested",
+      },
+      queryClient: new QueryClient(),
+      camoxApp,
+    }),
+  );
+  assert.match(canvasHtml, /My actual project/);
+  assert.match(canvasHtml, /<div hidden=""[^>]*><menu role="toolbar"/);
+  assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
 
   const publicInput = { ...input, presentation: "public" as const, project: undefined };
   const publicHtml = renderToString(

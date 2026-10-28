@@ -57,7 +57,6 @@ export interface SdkBundleSettings {
   /** The icon ids of the collection the website picked. */
   iconIds: readonly string[];
   telemetryDisabled: boolean;
-  experimentalFeatures: boolean;
   apiUrl: string;
 }
 
@@ -100,7 +99,6 @@ export async function sdkBundleName({
     settings: {
       iconIds: settings.iconIds,
       telemetryDisabled: settings.telemetryDisabled,
-      experimentalFeatures: settings.experimentalFeatures,
       apiUrl: settings.apiUrl,
     },
     packages: resolutions,

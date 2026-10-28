@@ -143,8 +143,6 @@ export interface CamoxPluginOptions {
     apiUrl?: string;
     /** URL of the Camox authentication backend (default: https://app.camox.ai) */
     authenticationUrl?: string;
-    /** Enable experimental features (default: false). */
-    enableExperimentalFeatures?: boolean;
     /** Disable automatic code generation (route and layout files) (default: false) */
     disableCodeGen?: boolean;
     /** Mount the Camox-owned dev runtime at this base path. Use "/" for root mode. */
@@ -455,7 +453,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
           settings: {
             iconIds,
             telemetryDisabled: !!options.disableTelemetry,
-            experimentalFeatures: options._internal?.enableExperimentalFeatures ?? false,
             apiUrl,
           },
           // A hosted release never builds an SDK Bundle: the platform gives it one.
@@ -498,9 +495,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
         define: {
           __CAMOX_ICON_IDS__: JSON.stringify(iconIds),
           __CAMOX_TELEMETRY_DISABLED__: JSON.stringify(!!options.disableTelemetry),
-          __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: JSON.stringify(
-            options._internal?.enableExperimentalFeatures ?? false,
-          ),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),
           __CAMOX_PROJECT_ID__: JSON.stringify(projectUuid),

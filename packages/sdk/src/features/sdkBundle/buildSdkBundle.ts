@@ -148,7 +148,6 @@ async function buildTarget({
     define: {
       __CAMOX_ICON_IDS__: JSON.stringify(settings.iconIds),
       __CAMOX_TELEMETRY_DISABLED__: JSON.stringify(settings.telemetryDisabled),
-      __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: JSON.stringify(settings.experimentalFeatures),
       __CAMOX_API_URL__: JSON.stringify(settings.apiUrl),
       "process.env.NODE_ENV": JSON.stringify("production"),
     },

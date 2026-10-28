@@ -21,16 +21,16 @@ import { ContentAssets } from "./ContentAssets";
 import { ContentCollection, ContentCollectionItemSheet } from "./ContentCollection";
 
 export const CamoxContent = () => {
+  const projectUuid = useProjectUuid();
+  const { data: project } = useReadQuery(reads.project({ projectUuid }));
   const pathname = useLocalePath();
   const localized = useLocalizedPath();
   if (pathname === STUDIO_CONTENT_PATH || pathname === `${STUDIO_CONTENT_PATH}/`) {
     return <Navigate to={localized(STUDIO_ASSETS_PATH)} replace />;
   }
 
-  if (
-    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ !== "undefined" &&
-    __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__
-  ) {
+  // Collections are an experimental feature, which the project's settings switch on.
+  if (project?.experimentalFeatures) {
     return <ExperimentalContent />;
   }
 
