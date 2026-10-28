@@ -335,6 +335,21 @@ export class FakeSandbox extends DurableObject {
     }
     if (this.repo) return result(0);
     this.commands.push(command);
+    // pnpm 11 holds back packages published less than a day ago, as every camox release an
+    // Upgrade installs is, unless the workspace exempts camox's own packages.
+    if (/^pnpm install --frozen-lockfile\b/.test(command)) {
+      const workspace = this.files.get(
+        `${(options.cwd ?? "").replace(/\/$/, "")}/pnpm-workspace.yaml`,
+      );
+      const exempt = /minimumReleaseAgeExclude:\s*\n\s+- camox\s*\n\s+- "@camox\/\*"/;
+      if (!workspace || !exempt.test(workspace)) {
+        return {
+          ...result(1),
+          stderr:
+            "[ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION] camox was published within the minimumReleaseAge cutoff",
+        };
+      }
+    }
     if (SDK_BUNDLE_BUILD_COMMAND.test(command))
       return result(0, await this.#buildSdkBundle(options));
     // Whether the camox installed where it runs builds against an SDK Bundle, as it answers.

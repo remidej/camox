@@ -37,6 +37,17 @@ export const HOSTED_SDK_BUNDLE_SETTINGS: SdkBundleSettings = {
 };
 
 /**
+ * The platform's own `pnpm-workspace.yaml`, never the website's. pnpm 11 holds back packages
+ * published less than a day ago, and an Upgrade installs a camox release minutes after it's
+ * published, so camox's packages are exempt, as in every project's workspace (`@camox/cli`'s
+ * `PNPM_WORKSPACE`).
+ */
+const PNPM_WORKSPACE = `minimumReleaseAgeExclude:
+  - camox
+  - "@camox/*"
+`;
+
+/**
  * The Workflow step that ensures an SDK Bundle: an install and a build, a few minutes at most,
  * tried again a few times, as a sandbox can fail to start.
  */
@@ -171,6 +182,7 @@ async function buildSdkBundle(
     >;
     await sandbox.writeFile(`${WEBSITE}/package.json`, JSON.stringify(manifest, null, 2));
     await sandbox.writeFile(`${WEBSITE}/pnpm-lock.yaml`, source.lockfile);
+    await sandbox.writeFile(`${WEBSITE}/pnpm-workspace.yaml`, PNPM_WORKSPACE);
     // No package's install script runs either: the build needs none.
     await run("pnpm install --frozen-lockfile --ignore-scripts", { env: { CI: "1" } });
     if (probeEnv && !(await buildsAgainstSdkBundle(sandbox, WEBSITE, probeEnv))) return null;
