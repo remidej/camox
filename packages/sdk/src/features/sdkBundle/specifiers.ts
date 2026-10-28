@@ -35,6 +35,7 @@ const SPECIFIERS: readonly SdkBundleSpecifier[] = [
   { specifier: "camox/_internal/studioServer", only: "workerd" },
   { specifier: "camox/_internal/runtime", only: "workerd" },
   { specifier: "camox/_internal/imageResponse", only: "workerd" },
+  { specifier: "camox/_internal/workerRuntime", only: "workerd" },
   // React, React DOM and TanStack Query: one copy for camox and the website.
   { specifier: "react" },
   { specifier: "react/jsx-runtime" },
