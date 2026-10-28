@@ -49,6 +49,7 @@ import {
 } from "./hostedChecks";
 import { generateIconTypes } from "./iconGeneration";
 import { generateLayoutFiles, watchLayoutFiles } from "./layoutGeneration";
+import { type SdkBundleBuildState, sdkBundleBuildState } from "./sdkBundleBuild";
 import {
   publicFilesInHashedDirs,
   readOwnHeaders,
@@ -331,6 +332,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
   let localDeployToken: string | undefined;
   let blockChunks: Record<string, string[]> = {};
   let devServer: ViteDevServer | undefined;
+  /** Set when the build builds against an SDK Bundle. */
+  let sdkBundle: SdkBundleBuildState | undefined;
 
   return {
     name: "camox",
@@ -343,6 +346,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
         const forbidden = forbiddenImport(hostedProject, id, importer);
         if (forbidden) this.error(forbidden);
       }
+      if (sdkBundle) {
+        const external = sdkBundle.resolve(id, this.environment.config.consumer);
+        if (external) return external;
+      }
       const runtimeId = resolveRuntimeDevId(id, importer);
       if (runtimeId) return runtimeId;
       if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
@@ -351,6 +358,9 @@ export function camox(options: CamoxPluginOptions): Plugin {
     async load(id, loadOptions) {
       // Local CSS watchers must not share the directory cleaned by package builds.
       const stylesDir = resolve(sdkRoot, !isBuild && isSdkSource ? ".dev" : "dist");
+      if (id === RESOLVED_VIRTUAL_STUDIO_CSS && sdkBundle) {
+        return `export default ${JSON.stringify(sdkBundle.studioStylesheetUrl)};`;
+      }
       if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
         const cssPath = resolve(stylesDir, "studio.css");
         if (isBuild) {
@@ -401,7 +411,15 @@ export function camox(options: CamoxPluginOptions): Plugin {
       }
       return transformArtifactRuntime(code, id);
     },
+    renderChunk(code, chunk) {
+      if (!sdkBundle || this.environment.config.consumer !== "server") return;
+      const relative = sdkBundle.relativizeWorkerImports(code, chunk.fileName);
+      return relative === undefined ? undefined : { code: relative, map: null };
+    },
     generateBundle(_outputOptions, bundle) {
+      if (sdkBundle && this.environment.config.consumer === "server") {
+        this.emitFile({ type: "asset", ...sdkBundle.manifest });
+      }
       if (this.environment.name !== "client") return;
       blockChunks = collectBlockChunks(bundle, resolvedConfig.root);
       if (!isBuild) return;
@@ -430,6 +448,19 @@ export function camox(options: CamoxPluginOptions): Plugin {
         localDeployToken = localDeployTokenOf(apiUrl, options);
       }
       if (!isBuild) localAuth = readAuthTokenForUrl(authenticationUrl);
+      if (isBuild) {
+        sdkBundle = await sdkBundleBuildState({
+          root: resolve(_config.root ?? process.cwd()),
+          settings: {
+            iconIds,
+            telemetryDisabled: !!options.disableTelemetry,
+            experimentalFeatures: options._internal?.enableExperimentalFeatures ?? false,
+            apiUrl,
+          },
+          // A hosted release never builds an SDK Bundle: the platform gives it one.
+          mayBuild: !(isRelease && process.env[HOSTED_BUILD_ENV] === "1"),
+        });
+      }
       return {
         // One build serves under any URL prefix: Live's `/`, or a revision's preview.
         ...(isBuild && {
@@ -574,6 +605,12 @@ export function camox(options: CamoxPluginOptions): Plugin {
       else if (localDeployToken) target = "local Live";
       else if (!isBuild && !localAuth) target = "authentication required";
       config.logger.info(`${mode} Camox app (${target})`, { timestamp: true });
+      if (sdkBundle?.built) {
+        config.logger.info(
+          `Built the SDK Bundle ${sdkBundle.names.browser} (browser) and ${sdkBundle.names.workerd} (workerd) into its cache`,
+          { timestamp: true },
+        );
+      }
     },
 
     configureServer(server: ViteDevServer) {

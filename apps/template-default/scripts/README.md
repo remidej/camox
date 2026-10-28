@@ -8,8 +8,10 @@ pnpm --filter @camox/template-default test:production
 ```
 
 The test builds a temporary copy of the starter whose Worker wraps `camox/worker` with
-a `/smoke` route, then serves the build with `vite preview`, which runs it in workerd as
-Cloudflare does. It asserts that the Camox Worker answers, that React renders the
+a `/smoke` route, against its SDK Bundle (`CAMOX_INTERNAL_SDK_BUNDLE=1`, built into a temporary
+cache). It checks that the output names the bundle and holds no camox or React code, adds the
+bundle as `camox release` does, then serves the build with `vite preview`, which runs it in
+workerd as Cloudflare does. It asserts that the Camox Worker answers, that React renders the
 Template's native Accordion (its `<details>` share one `name`) and Button (a link given
 a link field's `to`, a `<button>` otherwise), that Camox's OG renderer can produce a PNG, and that the built stylesheet declares
 the `--camox-*` variables the SDK reads on every color scheme. It also checks that every
