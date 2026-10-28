@@ -59,25 +59,50 @@ function moduleOf(path: string, content: Uint8Array): string | WorkerLoaderModul
   return null;
 }
 
-/**
- * The code of a revision's Dynamic Worker, from its build: the server build's modules, run with
- * the compatibility date and flags of its `wrangler.json`. Its main module sets the revision's
- * asset prefix in a module of its own, which runs before the server bundle loads, then
- * re-exports the build, its named entrypoints included.
- */
-function revisionCode(
-  files: Map<string, Uint8Array>,
-  { revision, archiveKey }: RevisionToLoad,
-  globalOutbound: Fetcher,
-): WorkerLoaderWorkerCode {
+/** A build's server build: its folder within the archive, and its `wrangler.json`. */
+function serverBuildOf(files: Map<string, Uint8Array>, archiveKey: string) {
   const configPath = [...files.keys()].find((path) =>
     /^dist\/(?!client\/)[^/]+\/wrangler\.json$/.test(path),
   );
   if (!configPath) throw new Error(`The build ${archiveKey} has no server build`);
   const serverDir = configPath.slice(0, -"wrangler.json".length);
   const config = JSON.parse(new TextDecoder().decode(files.get(configPath))) as BuiltWranglerConfig;
+  return { serverDir, configPath, config };
+}
 
-  const modules: Record<string, string | WorkerLoaderModule> = {};
+/**
+ * The SDK Bundle a build names (ADR 0029), one name per target, in its server build's
+ * `camox-sdk-bundle.json` (`SDK_BUNDLE_BUILD_MANIFEST` in `camox`). Null for a whole-app build.
+ */
+function sdkBundleOf(files: Map<string, Uint8Array>, archiveKey: string): SdkBundleNames | null {
+  const manifest = files.get(`${serverBuildOf(files, archiveKey).serverDir}${SDK_BUNDLE_MANIFEST}`);
+  if (!manifest) return null;
+  const { browser, workerd } = JSON.parse(new TextDecoder().decode(manifest)) as SdkBundleNames;
+  if (!SDK_BUNDLE_NAME.test(browser) || !SDK_BUNDLE_NAME.test(workerd)) {
+    throw new Error(`The build ${archiveKey} names an SDK Bundle that isn't one`);
+  }
+  return { browser, workerd };
+}
+
+/**
+ * The code of a revision's Dynamic Worker, from its build: the server build's modules, with
+ * those of the workerd SDK Bundle it names, which its chunks import from `_camox/sdk/<name>/` at
+ * its folder's root, run with the compatibility date and flags of its `wrangler.json`. Its main
+ * module sets the revision's asset prefix in a module of its own, which runs before the server
+ * bundle loads, then re-exports the build, its named entrypoints included.
+ */
+async function revisionCode(
+  env: RevisionBindings,
+  files: Map<string, Uint8Array>,
+  { revision, archiveKey }: RevisionToLoad,
+  globalOutbound: Fetcher,
+): Promise<WorkerLoaderWorkerCode> {
+  const { serverDir, configPath, config } = serverBuildOf(files, archiveKey);
+  const sdkBundle = sdkBundleOf(files, archiveKey);
+
+  const modules: Record<string, string | WorkerLoaderModule> = sdkBundle
+    ? { ...(await sdkBundleModules(env, sdkBundle.workerd)) }
+    : {};
   for (const [path, content] of files) {
     if (!path.startsWith(serverDir) || path === configPath) continue;
     const module = moduleOf(path, content);
@@ -112,11 +137,102 @@ export function loadRevision(
 ): WorkerStub {
   return env.LOADER.get(toLoad.revision, async () =>
     revisionCode(
+      env,
       await buildFiles(env, toLoad),
       toLoad,
       gateway({ project: toLoad.project, draft: toLoad.draft }),
     ),
   );
+}
+
+/** An SDK Bundle's name: a digest, as `sdkBundleName` in `camox` makes it. */
+const SDK_BUNDLE_NAME = /^[0-9a-f]{32}$/;
+/** The file a build names its SDK Bundle in (`SDK_BUNDLE_BUILD_MANIFEST` in `camox`). */
+const SDK_BUNDLE_MANIFEST = "camox-sdk-bundle.json";
+
+/** An SDK Bundle's names, one per target. Mirrors `SdkBundleNames` in `camox`. */
+type SdkBundleNames = { browser: string; workerd: string };
+
+/**
+ * Where one target's SDK Bundle is stored, as ensuring it stores it: a gzipped tar archive of its
+ * folder. Mirrored in apps/api/src/domains/sdk-bundles/ensure.ts: keep the two in sync.
+ */
+export const sdkBundleArchiveKey = (name: string) => `sdk/${name}.tar.gz`;
+
+/**
+ * Where a browser SDK Bundle's files are stored to be served, as a revision's client assets are:
+ * one pack, and its index, written last. Under no project, as every project serves them, and
+ * never deleted, as SDK Bundles aren't.
+ */
+const sdkBundlePackKey = (name: string) => `sdk/${name}/#assets`;
+const sdkBundleIndexKey = (name: string) => `sdk/${name}/#index`;
+
+/** The workerd SDK Bundles' modules this isolate read, by bucket and name: they never change. */
+const sdkBundleModulesOf = new WeakMap<
+  R2Bucket,
+  Map<string, Promise<Record<string, WorkerLoaderModule | string>>>
+>();
+/** How many workerd SDK Bundles an isolate keeps the modules of, dropping the oldest. A tuning value. */
+const SDK_BUNDLES_KEPT = 4;
+
+/**
+ * A workerd SDK Bundle's modules, keyed where a server build imports them from: under
+ * `_camox/sdk/<name>/`. Read once per isolate.
+ */
+function sdkBundleModules(env: RevisionBindings, name: string) {
+  let kept = sdkBundleModulesOf.get(env.REVISION_BUILDS);
+  if (!kept) {
+    kept = new Map();
+    sdkBundleModulesOf.set(env.REVISION_BUILDS, kept);
+  }
+  const found = kept.get(name);
+  if (found) return found;
+  const read = sdkBundleFiles(env, name).then((files) => {
+    const modules: Record<string, WorkerLoaderModule | string> = {};
+    for (const [path, content] of files) {
+      const module = moduleOf(path, content);
+      if (module) modules[`_camox/sdk/${name}/${path}`] = module;
+    }
+    return modules;
+  });
+  // A read that failed is tried again by the next load.
+  const forget = () => {
+    if (kept.get(name) === read) kept.delete(name);
+  };
+  read.catch(forget);
+  kept.set(name, read);
+  if (kept.size > SDK_BUNDLES_KEPT) kept.delete(kept.keys().next().value!);
+  return read;
+}
+
+/** One target's SDK Bundle's files, from its stored archive. */
+async function sdkBundleFiles(env: RevisionBindings, name: string) {
+  const archive = await env.REVISION_BUILDS.get(sdkBundleArchiveKey(name));
+  if (!archive) throw new Error(`An SDK Bundle isn't stored: ${sdkBundleArchiveKey(name)}`);
+  return untarGzip(archive.body);
+}
+
+/** The browser SDK Bundles this isolate knows are stored to be served, by bucket. */
+const servedSdkBundlesOf = new WeakMap<R2Bucket, Set<string>>();
+
+/**
+ * Stores a browser SDK Bundle's files where `/_camox/sdk/<name>/` serves them from, unless
+ * they're there: the first revision naming it to be prepared stores them for every project.
+ */
+async function storeSdkBundleAssets(env: RevisionBindings, name: string) {
+  let served = servedSdkBundlesOf.get(env.REVISION_BUILDS);
+  if (!served) {
+    served = new Set();
+    servedSdkBundlesOf.set(env.REVISION_BUILDS, served);
+  }
+  if (served.has(name)) return;
+  if (!(await env.REVISION_BUILDS.head(sdkBundleIndexKey(name)))) {
+    const { pack, index } = packed([...(await sdkBundleFiles(env, name))]);
+    // The index last: a bundle with an index has its pack.
+    await env.REVISION_BUILDS.put(sdkBundlePackKey(name), pack);
+    await env.REVISION_BUILDS.put(sdkBundleIndexKey(name), JSON.stringify(index));
+  }
+  served.add(name);
 }
 
 /** What loading a revision whose build isn't stored fails with. */
@@ -191,6 +307,19 @@ const CONTENT_TYPES: Record<string, string> = {
 const contentTypeOf = (path: string) =>
   CONTENT_TYPES[path.slice(path.lastIndexOf(".") + 1).toLowerCase()] ?? "application/octet-stream";
 
+/** Files one after the other in one pack, with the index saying where each one is. */
+function packed(files: (readonly [path: string, content: Uint8Array])[]) {
+  const pack = new Uint8Array(files.reduce((size, [, content]) => size + content.byteLength, 0));
+  const index: AssetIndex = {};
+  let offset = 0;
+  for (const [path, content] of files) {
+    pack.set(content, offset);
+    index[path] = [offset, content.byteLength, contentTypeOf(path)];
+    offset += content.byteLength;
+  }
+  return { pack, index };
+}
+
 /**
  * Stores a revision's client assets where its asset prefix serves them from: in one object, with
  * its index beside it, since a Worker writes only a few objects at once, and a build's client
@@ -201,15 +330,10 @@ async function storeClientAssets(
   { project, revision }: RevisionToLoad,
   files: Map<string, Uint8Array>,
 ) {
-  const assets = [...files].filter(([path]) => path.startsWith(CLIENT_DIR));
-  const pack = new Uint8Array(assets.reduce((size, [, content]) => size + content.byteLength, 0));
-  const index: AssetIndex = {};
-  let offset = 0;
-  for (const [path, content] of assets) {
-    pack.set(content, offset);
-    index[path.slice(CLIENT_DIR.length)] = [offset, content.byteLength, contentTypeOf(path)];
-    offset += content.byteLength;
-  }
+  const assets = [...files]
+    .filter(([path]) => path.startsWith(CLIENT_DIR))
+    .map(([path, content]) => [path.slice(CLIENT_DIR.length), content] as const);
+  const { pack, index } = packed(assets);
   // Both at once: no one asks for the revision's assets before the API is told it's prepared.
   await Promise.all([
     env.REVISION_BUILDS.put(revisionAssetsPackKey(project, revision), pack),
@@ -238,14 +362,21 @@ export async function prepareRevision(
     : await buildFiles(env, toLoad);
   const readAt = Date.now();
   const revision = env.LOADER.get(toLoad.revision, async () =>
-    revisionCode(files, toLoad, gateway({ project: toLoad.project, draft: toLoad.draft })),
+    revisionCode(env, files, toLoad, gateway({ project: toLoad.project, draft: toLoad.draft })),
   );
+  const sdkBundle = sdkBundleOf(files, toLoad.archiveKey);
   const timed = async <T>(run: () => Promise<T>) => {
     const at = Date.now();
     return { result: await run(), ms: Date.now() - at };
   };
   const [stored, read] = await Promise.all([
-    timed(() => storeClientAssets(env, toLoad, files)),
+    timed(async () => {
+      const [assets] = await Promise.all([
+        storeClientAssets(env, toLoad, files),
+        sdkBundle && storeSdkBundleAssets(env, sdkBundle.browser),
+      ]);
+      return assets;
+    }),
     timed(() => readDefinitionSet(revision)),
   ]);
   const rendered = await timed(async () => {
@@ -296,9 +427,8 @@ const assetIndexesOf = new WeakMap<R2Bucket, Map<string, Promise<AssetIndex | nu
 /** How many indexes an isolate keeps, dropping the oldest. A tuning value. */
 const ASSET_INDEXES_KEPT = 100;
 
-/** The index of a revision's asset pack, or null when the revision wasn't prepared. */
-function assetIndexOf(env: RevisionBindings, project: string, revision: string) {
-  const key = revisionAssetsIndexKey(project, revision);
+/** The index of the asset pack at `key`, or null when it isn't stored (yet). */
+function assetIndexOf(env: RevisionBindings, key: string) {
   let assetIndexes = assetIndexesOf.get(env.REVISION_BUILDS);
   if (!assetIndexes) {
     assetIndexes = new Map();
@@ -347,17 +477,9 @@ export async function serveRevisionAsset(
   const match = ASSET_PATH.exec(pathname);
   if (!match) return notFound();
   const [, revision, path] = match as unknown as [string, string, string];
-  const index = await assetIndexOf(env, project, revision);
+  const index = await assetIndexOf(env, revisionAssetsIndexKey(project, revision));
   if (index) {
-    const entry = Object.hasOwn(index, path) ? index[path] : undefined;
-    if (!entry) return notFound();
-    const [offset, length, contentType] = entry;
-    const etag = `"${revision}-${offset}"`;
-    if (length === 0) return assetResponse(null, contentType, etag);
-    const asset = await env.REVISION_BUILDS.get(revisionAssetsPackKey(project, revision), {
-      range: { offset, length },
-    });
-    return asset ? assetResponse(asset.body, contentType, etag) : notFound();
+    return packedAsset(env, index, revisionAssetsPackKey(project, revision), path, revision);
   }
   // A revision prewarmed before assets were packed has an object for each.
   const asset = await env.REVISION_BUILDS.get(revisionAssetKey(project, revision, path));
@@ -367,6 +489,42 @@ export async function serveRevisionAsset(
     asset.httpMetadata?.contentType ?? contentTypeOf(pathname),
     asset.httpEtag,
   );
+}
+
+/** The asset at `path` in the pack at `packKey`, which `index` indexes. */
+async function packedAsset(
+  env: RevisionBindings,
+  index: AssetIndex,
+  packKey: string,
+  path: string,
+  etagPrefix: string,
+) {
+  const entry = Object.hasOwn(index, path) ? index[path] : undefined;
+  if (!entry) return notFound();
+  const [offset, length, contentType] = entry;
+  const etag = `"${etagPrefix}-${offset}"`;
+  if (length === 0) return assetResponse(null, contentType, etag);
+  const asset = await env.REVISION_BUILDS.get(packKey, { range: { offset, length } });
+  return asset ? assetResponse(asset.body, contentType, etag) : notFound();
+}
+
+/** The path a browser SDK Bundle's file is served at. */
+const SDK_BUNDLE_PATH = /^\/_camox\/sdk\/([0-9a-f]{32})\/(.+)$/;
+
+/** Whether a request's path is under some SDK Bundle's prefix. */
+export const isSdkBundlePath = (pathname: string) => pathname.startsWith("/_camox/sdk/");
+
+/**
+ * A browser SDK Bundle's file, at a path under its prefix, to anyone, on any project's host: it's
+ * the same for every project, and never changes under its name. Not found until a revision naming
+ * it was prepared, and for a workerd SDK Bundle, which no revision serves.
+ */
+export async function serveSdkBundleFile(env: RevisionBindings, pathname: string) {
+  const match = SDK_BUNDLE_PATH.exec(pathname);
+  if (!match) return notFound();
+  const [, name, path] = match as unknown as [string, string, string];
+  const index = await assetIndexOf(env, sdkBundleIndexKey(name));
+  return index ? packedAsset(env, index, sdkBundlePackKey(name), path, name) : notFound();
 }
 
 /** A revision's Definition Set, as its build's entrypoint gives it (JSON-shaped). */

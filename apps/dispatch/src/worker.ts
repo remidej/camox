@@ -6,6 +6,7 @@ import {
   type GatewayProps,
   isMissingBuild,
   isRevisionAssetPath,
+  isSdkBundlePath,
   loadRevision,
   type PreparedRevision,
   type PrepareTimings,
@@ -14,6 +15,7 @@ import {
   type RevisionBindings,
   type RevisionToLoad,
   serveRevisionAsset,
+  serveSdkBundleFile,
 } from "./revisions";
 
 export interface Env extends RevisionBindings {
@@ -109,6 +111,8 @@ export default {
     // A draft with code's revision (ADR 0023): its client assets, to anyone, and its renderer
     // document and runtime reads, to the members who can see the draft.
     if (isRevisionAssetPath(url.pathname)) return serveRevisionAsset(env, uuid, url.pathname);
+    // The SDK Bundles revisions name (ADR 0029): the same for every project, to anyone.
+    if (isSdkBundlePath(url.pathname)) return serveSdkBundleFile(env, url.pathname);
     const revision = await revisionFor(env.API, uuid, request);
     if (revision) {
       try {
