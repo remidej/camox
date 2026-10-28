@@ -1351,7 +1351,7 @@ export function createEditableBlock<
           <div
             aria-hidden
             data-camox-artifact-layer=""
-            style={{ position: "absolute", inset: 0, cursor: "pointer" }}
+            style={{ position: "absolute", inset: 0, cursor: "default" }}
           />
         )}
       </div>
