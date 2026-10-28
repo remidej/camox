@@ -8,8 +8,8 @@
 /** The files an upgrade changes, and commits. */
 const PLATFORM_FILES = "package.json pnpm-lock.yaml";
 
-/** Where the update step saves the upgraded files for the steps after it. */
-const UPGRADED_FILES = ".camox-upgrade";
+/** Where the update step saves the upgraded files for the steps after it, in its workspace. */
+export const UPGRADED_FILES = ".camox-upgrade";
 
 const restoreUpgradedFiles = `cp ${UPGRADED_FILES}/package.json ${UPGRADED_FILES}/pnpm-lock.yaml .`;
 

@@ -1,13 +1,15 @@
 import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
-import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
+import type { CiBindings, DirectoryBackup, RunnerOptions } from "@cloudflare/ci/worker";
+import { getSandbox } from "@cloudflare/sandbox";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
 import { createDb, type Database } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { leaveUpgradePush, queueUpgradePush, turnOf } from "../publishes/queue";
-import { buildCommand, pushCommand, updateCommand } from "./commands";
+import { ENSURE_SDK_BUNDLE, ensureSdkBundle, type SdkBundleSource } from "../sdk-bundles/ensure";
+import { UPGRADED_FILES, buildCommand, pushCommand, updateCommand } from "./commands";
 
 type UpgradeEnv = Bindings & CiBindings;
 
@@ -78,6 +80,14 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
           await step.do("read the Camox packages", () => setVersionsCommand(this.env, params)),
         ),
       }));
+      // The SDK Bundle the dry-run release builds against, from the lockfile the update resolved.
+      current = "build";
+      const upgraded = await step.do("read the upgraded lockfile", () =>
+        upgradedFiles(this.env, updated.snapshot),
+      );
+      await step.do("ensure the SDK Bundle", ENSURE_SDK_BUNDLE, () =>
+        ensureSdkBundle(this.env, upgraded),
+      );
       const built = await run(updated, "build", async () => ({
         command: buildCommand(),
         // A new hosted check that the project's code breaks fails the Upgrade's build.
@@ -127,6 +137,27 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
       })
       // The upgrade Workflow stops waiting after a while, and then reads this instance's status.
       .catch((sendError: unknown) => console.error("Upgrade outcome not sent", sendError));
+  }
+}
+
+/**
+ * The `package.json` and lockfile the update step saved, read from its workspace snapshot in a
+ * sandbox of their own: the SDK Bundle builds in one that never restored a website's workspace.
+ */
+async function upgradedFiles(env: UpgradeEnv, snapshot: DirectoryBackup): Promise<SdkBundleSource> {
+  const sandbox = getSandbox(env.SANDBOX, `upgraded-files-${crypto.randomUUID()}`, {
+    transport: "rpc",
+    enableDefaultSession: false,
+  });
+  try {
+    await sandbox.restoreBackup(snapshot);
+    const read = async (file: string) =>
+      (await sandbox.readFile(`${snapshot.dir}/${UPGRADED_FILES}/${file}`)).content;
+    return { packageJson: await read("package.json"), lockfile: await read("pnpm-lock.yaml") };
+  } finally {
+    await sandbox.destroy().catch((error: unknown) => {
+      console.error("An upgrade's sandbox wasn't destroyed", error);
+    });
   }
 }
 

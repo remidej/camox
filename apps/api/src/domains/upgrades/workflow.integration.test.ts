@@ -1,3 +1,4 @@
+import { sdkBundleName } from "camox/_internal/sdkBundleName";
 import {
   introspectWorkflow,
   introspectWorkflowInstance,
@@ -5,10 +6,12 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture } from "../../../test/fixtures";
+import { websiteLockfile } from "../../../test/website-lockfile";
 import { projects } from "../../schema";
+import { HOSTED_SDK_BUNDLE_SETTINGS, sdkBundleArchiveKey } from "../sdk-bundles/ensure";
 import { buildCommand, updateCommand } from "./commands";
 import { PROJECTS_PER_BATCH } from "./workflow";
 
@@ -25,6 +28,9 @@ type ReleaseFakes = {
   hold(repo: string, pattern: string): Promise<void>;
   letGo(repo: string): Promise<void>;
   commandsRun(repo: string): Promise<CommandRun[]>;
+  /** Makes `pnpm install` in the repo's upgrade write `lockfile`, as resolving the new SDK would. */
+  installResolves(repo: string, lockfile: string): Promise<void>;
+  sdkBundleBuilds(): Promise<{ written: Record<string, string>; order: number }[]>;
   emailsSent(): Promise<Email[]>;
 };
 
@@ -47,23 +53,9 @@ const WORKFLOWS = "https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/
 
 const NEW_VERSION = "0.10.0";
 
-function lockfile(camoxVersion: string) {
-  return [
-    "lockfileVersion: '9.0'",
-    "",
-    "importers:",
-    "",
-    "  .:",
-    "    dependencies:",
-    "      camox:",
-    `        specifier: ^${camoxVersion}`,
-    `        version: ${camoxVersion}(react@19.3.1)`,
-    "      react:",
-    "        specifier: ^19.3.1",
-    "        version: 19.3.1",
-    "",
-  ].join("\n");
-}
+const TEMPLATE_REPO = "template-default";
+
+const lockfile = (camoxVersion: string) => websiteLockfile(camoxVersion);
 
 function packageJson(dependencies: Record<string, string>, devDependencies = {}) {
   return JSON.stringify({ name: "site", private: true, dependencies, devDependencies }, null, 2);
@@ -121,11 +113,38 @@ async function pushesToMain(repo: string) {
   );
 }
 
+/** Whether the SDK Bundle of `lockfile` is stored, with both its targets. */
+async function sdkBundleStored(lockfile: string) {
+  const stored = await Promise.all(
+    (["browser", "workerd"] as const).map(async (target) => {
+      const name = await sdkBundleName({ lockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS });
+      return env.REVISION_BUILDS.head(sdkBundleArchiveKey(name));
+    }),
+  );
+  return stored.every(Boolean);
+}
+
+/** When the SDK Bundle of `lockfile` started building, by the fakes' clock. */
+async function sdkBundleBuiltAt(lockfile: string) {
+  const builds = await fakes.sdkBundleBuilds();
+  return builds.find(({ written }) => written["pnpm-lock.yaml"] === lockfile)?.order;
+}
+
+/** The Template, as the SDK publish refreshes it before the upgrade starts. */
+async function refreshTemplate(templateLockfile: string) {
+  await fakes.push(TEMPLATE_REPO, commitSha(), {
+    "package.json": packageJson({ camox: `^${NEW_VERSION}`, react: "^19.3.1" }),
+    "pnpm-lock.yaml": templateLockfile,
+  });
+}
+
 async function emailsAbout(projectId: string) {
   return (await fakes.emailsSent()).filter(({ text }) => text.includes(projectId));
 }
 
 describe("upgrading every project to a new SDK", () => {
+  beforeEach(() => refreshTemplate(lockfile(NEW_VERSION)));
+
   // Every upgrade covers every project, and this file's tests share one database: once a test is
   // done, its projects are on the new SDK, so later upgrades leave them alone.
   afterEach(async () => {
@@ -149,6 +168,39 @@ describe("upgrading every project to a new SDK", () => {
       expect(await pushesToMain(project.uuid)).toHaveLength(1);
       expect(await emailsAbout(project.uuid)).toEqual([]);
     }
+  });
+
+  it("ensures the Template's SDK Bundle before upgrading any project", async () => {
+    // Its own resolution, so no other test stored its SDK Bundle.
+    const templateLockfile = websiteLockfile(NEW_VERSION, {
+      react: `19.3.1-${crypto.randomUUID()}`,
+    });
+    await refreshTemplate(templateLockfile);
+    const { project } = await projectOn("0.9.1");
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await sdkBundleStored(templateLockfile)).toBe(true);
+    const [firstCommand] = await fakes.commandsRun(project.uuid);
+    expect(await sdkBundleBuiltAt(templateLockfile)).toBeLessThan(firstCommand!.order);
+  });
+
+  it("ensures each project's own SDK Bundle, from its upgraded lockfile, before its dry-run release", async () => {
+    const { project } = await projectOn("0.9.1");
+    // The project resolves the new SDK's packages unlike the Template.
+    const upgradedLockfile = websiteLockfile(NEW_VERSION, {
+      react: `19.3.1-${crypto.randomUUID()}`,
+    });
+    await fakes.installResolves(project.uuid, upgradedLockfile);
+
+    await upgradeTo(NEW_VERSION);
+
+    expect(await sdkBundleStored(upgradedLockfile)).toBe(true);
+    const build = (await fakes.commandsRun(project.uuid)).find(
+      ({ command }) => command === buildCommand(),
+    );
+    expect(await sdkBundleBuiltAt(upgradedLockfile)).toBeLessThan(build!.order);
+    expect(await pushesToMain(project.uuid)).toHaveLength(1);
   });
 
   it("pushes on top of main unless main changed its package.json or lockfile since, with a write token only that step gets", async () => {

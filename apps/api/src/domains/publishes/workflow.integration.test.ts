@@ -34,6 +34,7 @@ import {
   type Website,
   websiteFixture,
 } from "../../../test/threads";
+import { websiteLockfile } from "../../../test/website-lockfile";
 import { router } from "../../router";
 import { blocks } from "../../schema";
 import { drafts } from "../drafts/schema";
@@ -129,6 +130,7 @@ async function websiteWithCode() {
   const website = await websiteFixture({ home: "Hello" });
   await pushToMain(website.project.uuid, {
     "package.json": `{ "name": "acme", "dependencies": { "camox": "1.0.0" } }\n`,
+    "pnpm-lock.yaml": websiteLockfile("1.0.0"),
     "src/blocks/text.tsx": `export const text = "text";\n`,
   });
   const token = await signIn(website.db, website.memberUser.id);

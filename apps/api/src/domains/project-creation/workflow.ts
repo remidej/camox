@@ -13,7 +13,7 @@ export type ProjectCreationParams = {
 };
 
 /** The repo every new project's code starts as a fork of (packages/cli/scripts/README.md). */
-const TEMPLATE_REPO = "template-default";
+export const TEMPLATE_REPO = "template-default";
 
 /**
  * A new project's setup, up to its first release: it forks `template-default` into the project's
