@@ -1,7 +1,11 @@
 import { socialProfileUrlSchema } from "@camox/api-contract/projects";
 import { Button } from "@camox/ui/button";
-import { ButtonGroup } from "@camox/ui/button-group";
-import { Input } from "@camox/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@camox/ui/input-group";
 import { Spinner } from "@camox/ui/spinner";
 import {
   closestCenter,
@@ -183,8 +187,8 @@ function SortableProfileRow({
         >
           <GripVertical />
         </Button>
-        <ButtonGroup className="w-full">
-          <Input
+        <InputGroup data-disabled={disabled || undefined}>
+          <InputGroupInput
             type="url"
             value={entry.url}
             placeholder="https://www.linkedin.com/company/…"
@@ -193,17 +197,20 @@ function SortableProfileRow({
             disabled={disabled}
             onChange={(event) => onChange(event.target.value)}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label="Remove"
-            disabled={disabled}
-            onClick={onRemove}
+          <InputGroupAddon
+            align="inline-end"
+            className="opacity-0 group-focus-within/input-group:opacity-100 group-hover/input-group:opacity-100"
           >
-            <Trash2 />
-          </Button>
-        </ButtonGroup>
+            <InputGroupButton
+              size="icon-xs"
+              aria-label="Remove"
+              disabled={disabled}
+              onClick={onRemove}
+            >
+              <Trash2 />
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
       </div>
       {error && <p className="text-destructive pl-9 text-xs">{error}</p>}
     </li>
