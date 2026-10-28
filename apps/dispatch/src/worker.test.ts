@@ -732,6 +732,20 @@ describe("a revision built against an SDK Bundle", () => {
     expect(builds.gets.filter((key) => key === SDK_BUNDLE_ARCHIVE_KEYS.workerd)).toHaveLength(1);
   });
 
+  it("never replaces a stored SDK Bundle's files when revisions naming it are prepared at once", async () => {
+    const { env, builds } = await previewingEnv({ build: BUNDLED_BUILD });
+    const other = { ...revision, revision: "0195f2a4-9b8c-7d6e-8f00-778899aabbcc" };
+    builds.objects.set(other.archiveKey, builds.objects.get(ARCHIVE_KEY)!);
+
+    await Promise.all(
+      [revision, other].map((toPrepare) =>
+        new CamoxRevisions(context(env), env).prepare(toPrepare),
+      ),
+    );
+
+    expect(builds.replaced.filter((key) => key.startsWith("sdk/"))).toEqual([]);
+  });
+
   it("serves its SDK Bundle's browser files to anyone, for good", async () => {
     const { fetch } = await prepared();
 

@@ -162,6 +162,8 @@ export function fakeBucket(initial: Record<string, Uint8Array> = {}) {
     Object.entries(initial).map(([key, body]) => [key, { body }]),
   );
   const gets: string[] = [];
+  /** The keys whose stored bytes a put replaced. */
+  const replaced: string[] = [];
   const bucket = {
     get: async (key: string, options?: { range?: { offset: number; length: number } }) => {
       gets.push(key);
@@ -180,13 +182,20 @@ export function fakeBucket(initial: Record<string, Uint8Array> = {}) {
     put: async (
       key: string,
       value: Uint8Array | string,
-      options?: { httpMetadata?: { contentType?: string } },
+      options?: {
+        httpMetadata?: { contentType?: string };
+        onlyIf?: { etagDoesNotMatch?: string };
+      },
     ) => {
+      // As R2 does: `etagDoesNotMatch: "*"` writes only when nothing has the key.
+      if (objects.has(key) && options?.onlyIf?.etagDoesNotMatch === "*") return null;
+      if (objects.has(key)) replaced.push(key);
       const body = typeof value === "string" ? new TextEncoder().encode(value) : value;
       objects.set(key, { body, contentType: options?.httpMetadata?.contentType });
+      return { key };
     },
   };
-  return { objects, gets, bucket: bucket as unknown as R2Bucket };
+  return { objects, gets, replaced, bucket: bucket as unknown as R2Bucket };
 }
 
 /**

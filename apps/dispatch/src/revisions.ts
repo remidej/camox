@@ -228,9 +228,11 @@ async function storeSdkBundleAssets(env: RevisionBindings, name: string) {
   if (served.has(name)) return;
   if (!(await env.REVISION_BUILDS.head(sdkBundleIndexKey(name)))) {
     const { pack, index } = packed([...(await sdkBundleFiles(env, name))]);
-    // The index last: a bundle with an index has its pack.
-    await env.REVISION_BUILDS.put(sdkBundlePackKey(name), pack);
-    await env.REVISION_BUILDS.put(sdkBundleIndexKey(name), JSON.stringify(index));
+    // The index last: a bundle with an index has its pack. Each is written only if nothing has
+    // its key, so a name's served bytes never change once stored, whoever races to store them.
+    const once = { onlyIf: { etagDoesNotMatch: "*" } };
+    await env.REVISION_BUILDS.put(sdkBundlePackKey(name), pack, once);
+    await env.REVISION_BUILDS.put(sdkBundleIndexKey(name), JSON.stringify(index), once);
   }
   served.add(name);
 }
