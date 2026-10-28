@@ -85,6 +85,73 @@ void test("preview authenticates before loading the page", async (t) => {
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
 });
 
+void test("a studio sign-in's token is exchanged by the Worker, which redirects signed in", async (t) => {
+  const verifications: { url: string; cookieHeader: string | null; body: unknown }[] = [];
+  let refuse = false;
+  // The exchange passes its URL as a string and its body as JSON. Content reads pass a Request.
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (url: string | Request, init: RequestInit & { body: string }) => {
+      if (typeof url !== "string") throw new Error("Content read");
+      verifications.push({
+        url,
+        cookieHeader: new Headers(init.headers).get("Better-Auth-Cookie"),
+        body: JSON.parse(init.body),
+      });
+      if (refuse) return Response.json({ message: "Invalid token" }, { status: 400 });
+      return Response.json(
+        { session: { token: "session" }, user: { id: "user" } },
+        {
+          headers: {
+            "Set-Better-Auth-Cookie":
+              "__Secure-better-auth.session_token=session.signature; Max-Age=604800; Path=/; HttpOnly; Secure; SameSite=Lax",
+          },
+        },
+      );
+    },
+  );
+  let rendered = 0;
+  const options: RuntimeOptions = {
+    apiUrl: "https://api.test/",
+    authenticationUrl: "https://auth.test",
+    projectUuid: "test",
+    renderPage: async () => {
+      rendered++;
+      return "";
+    },
+  };
+  const signIn = new Request("https://site.test/about?camox-draft=draft&ott=token");
+  assert.equal(isPublicRequest(signIn, options), false, "no shared cache keeps the redirect");
+
+  const response = await handleCamoxRequest(signIn, options);
+  assert.deepEqual(verifications, [
+    {
+      url: "https://api.test/api/auth/one-time-token/verify",
+      cookieHeader: "",
+      body: { token: "token" },
+    },
+  ]);
+  assert.equal(response?.status, 302);
+  assert.equal(response?.headers.get("Location"), "/about?camox-draft=draft");
+  assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
+  const setCookie = response?.headers.get("Set-Cookie") ?? "";
+  assert.match(
+    setCookie,
+    /^camox_auth_cookie=__Secure-better-auth.session_token%3Dsession.signature; Path=\/; /,
+  );
+  assert.match(setCookie, /; Secure$/);
+  assert.equal(rendered, 0, "the page renders after the redirect, for the member");
+
+  // A token the API refuses leaves the page to the browser, which says why it can't sign in.
+  refuse = true;
+  await assert.rejects(
+    handleCamoxRequest(new Request("https://site.test/about?ott=used"), options),
+    /Content read/,
+  );
+  assert.equal(verifications.length, 2);
+});
+
 void test("runtime returns complete route payloads for curated, singleton, derived and studio navigation", async (t) => {
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {

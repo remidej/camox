@@ -6,7 +6,18 @@ import * as React from "react";
 import { actionsStore } from "@/features/provider/actionsStore";
 
 import { validatePreviewTarget, type PreviewTarget } from "./preview-handoff";
-import { SERVER_AUTH_COOKIE_NAME, buildClearServerAuthCookieHeader } from "./server-auth-cookie";
+import {
+  buildClearServerAuthCookieHeader,
+  buildServerAuthCookieHeader,
+  readServerAuthCookie,
+} from "./server-auth-cookie";
+import {
+  type StoredCookie,
+  getCookie,
+  getSetCookie,
+  parseSetCookieHeader,
+  withCookieHeader,
+} from "./stored-auth-cookies";
 export { buildClearServerAuthCookieHeader, getServerAuthCookieHeader } from "./server-auth-cookie";
 
 /* -------------------------------------------------------------------------------------------------
@@ -19,100 +30,35 @@ export { buildClearServerAuthCookieHeader, getServerAuthCookieHeader } from "./s
  * Adapted from `@convex-dev/better-auth/client/plugins`.
  * -----------------------------------------------------------------------------------------------*/
 
-interface CookieAttributes {
-  value: string;
-  expires?: Date;
-  "max-age"?: number;
-  domain?: string;
-  path?: string;
-  secure?: boolean;
-  httpOnly?: boolean;
-  sameSite?: "Strict" | "Lax" | "None";
-}
-
-interface StoredCookie {
-  value: string;
-  expires: string | null;
-}
-
 function writeServerAuthCookie(cookie: string) {
   if (typeof document === "undefined") return;
 
-  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  const secure = window.location.protocol === "https:";
   if (!cookie) {
-    document.cookie = `${buildClearServerAuthCookieHeader()}${secure}`;
+    document.cookie = `${buildClearServerAuthCookieHeader()}${secure ? "; Secure" : ""}`;
     return;
   }
 
-  document.cookie = `${SERVER_AUTH_COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/; SameSite=Lax; Max-Age=2592000${secure}`;
+  document.cookie = buildServerAuthCookieHeader(cookie, { secure });
 }
 
-function parseSetCookieHeader(header: string): Map<string, CookieAttributes> {
-  const cookieMap = new Map<string, CookieAttributes>();
-  const cookies = header.split(", ");
-  cookies.forEach((cookie) => {
-    const [nameValue, ...attributes] = cookie.split("; ");
-    const [name, value] = nameValue.split("=");
+const STORED_COOKIES_KEY = "better-auth_cookie";
 
-    const cookieObj: CookieAttributes = { value };
-
-    attributes.forEach((attr) => {
-      const [attrName, attrValue] = attr.split("=");
-      cookieObj[attrName.toLowerCase() as "value"] = attrValue;
-    });
-
-    cookieMap.set(name, cookieObj);
-  });
-
-  return cookieMap;
-}
-
-function getSetCookie(header: string, prevCookie?: string) {
-  const parsed = parseSetCookieHeader(header);
-  let toSetCookie: Record<string, StoredCookie> = {};
-  parsed.forEach((cookie, key) => {
-    const expiresAt = cookie["expires"];
-    const maxAge = cookie["max-age"];
-    let expires: Date | null = null;
-    if (expiresAt) {
-      expires = new Date(String(expiresAt));
-    } else if (maxAge) {
-      expires = new Date(Date.now() + Number(maxAge) * 1000);
-    }
-    toSetCookie[key] = {
-      value: cookie["value"],
-      expires: expires ? expires.toISOString() : null,
-    };
-  });
-  if (prevCookie) {
-    try {
-      const prevCookieParsed = JSON.parse(prevCookie);
-      toSetCookie = {
-        ...prevCookieParsed,
-        ...toSetCookie,
-      };
-    } catch {
-      //
-    }
-  }
-  return JSON.stringify(toSetCookie);
-}
-
-function getCookie(cookie: string) {
-  let parsed = {} as Record<string, StoredCookie>;
-  try {
-    parsed = JSON.parse(cookie) as Record<string, StoredCookie>;
-  } catch {
-    // noop
-  }
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(parsed)) {
-    if (value.expires && new Date(value.expires) < new Date()) {
-      continue;
-    }
-    parts.push(`${key}=${value.value}`);
-  }
-  return parts.join("; ");
+/**
+ * The stored cookies, with the session the website's Worker signed in with added: it exchanges a
+ * sign-in's one-time token itself and sets only the mirror. Read storage through this alone,
+ * since reading it writes the mirror back from storage.
+ */
+function readStoredCookies(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  key = STORED_COOKIES_KEY,
+): string {
+  const stored = storage.getItem(key) || "{}";
+  if (typeof document === "undefined") return stored;
+  const adopted = withCookieHeader(stored, readServerAuthCookie(document.cookie));
+  if (!adopted) return stored;
+  storage.setItem(key, adopted);
+  return adopted;
 }
 
 /**
@@ -121,7 +67,7 @@ function getCookie(cookie: string) {
  */
 export function getAuthCookieHeader(): string {
   if (typeof window === "undefined") return "";
-  const cookie = getCookie(localStorage.getItem("better-auth_cookie") || "{}");
+  const cookie = getCookie(readStoredCookies(localStorage));
   writeServerAuthCookie(cookie);
   return cookie;
 }
@@ -150,10 +96,7 @@ function crossDomainClient(
     getActions(_: any, $store: ClientStore) {
       store = $store;
       return {
-        getCookie: () => {
-          const cookie = storage?.getItem(cookieName);
-          return getCookie(cookie || "{}");
-        },
+        getCookie: () => (storage ? getCookie(readStoredCookies(storage, cookieName)) : ""),
         updateSession: () => {
           $store.notify("$sessionSignal");
         },
@@ -218,8 +161,7 @@ function crossDomainClient(
             return { url, options };
           }
           options = options || {};
-          const storedCookie = storage.getItem(cookieName);
-          const cookie = getCookie(storedCookie || "{}");
+          const cookie = getCookie(readStoredCookies(storage, cookieName));
           writeServerAuthCookie(cookie);
           options.credentials = getAuthRequestCredentials(cookie);
           options.headers = {
@@ -262,6 +204,8 @@ export function createCamoxAuthClient(apiUrl: string) {
 /**
  * Process a `?ott=` one-time token from the URL before the provider mounts.
  * Verifies the token against the API backend and notifies the session store.
+ * The Worker exchanges a studio sign-in's token before rendering, so this handles a preview
+ * link's, and any token the Worker couldn't exchange.
  *
  * Reports completion and explicit handoff failures instead of silently showing live content.
  * Keeps the handoff marker until SSR confirms authentication on the subsequent load.
@@ -369,7 +313,7 @@ export function useProjectUuid() {
 const subscribeToHydration = () => () => {};
 
 function hasStoredAuthCookie() {
-  return getCookie(localStorage.getItem("better-auth_cookie") || "{}") !== "";
+  return getCookie(readStoredCookies(localStorage)) !== "";
 }
 
 const noSubscription = () => () => {};
