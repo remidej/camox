@@ -1859,6 +1859,9 @@ async function createStudioHtmlResponse({
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
     locale: located.locale,
     locales: located.locales,
+    // The studio follows the draft its routes say they're in: without one, it would leave the
+    // draft for Live, and leave a locale only the draft has.
+    draftId: project ? getRequestDraftId(request) : undefined,
   } satisfies StudioRenderInput;
   if (dataOnly)
     return Response.json(studioRenderInput, {

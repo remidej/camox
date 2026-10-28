@@ -290,6 +290,17 @@ void test("a page says which draft it read", async (t) => {
   }
 });
 
+void test("a studio route says which draft its URL names, so the studio stays in it", async (t) => {
+  mockApi(t);
+  for (const path of ["/camox/content", "/camox/settings"]) {
+    const data = `/_camox/data?path=${encodeURIComponent(path)}`;
+    const member = await request(withDraft(data, "d1"), { cookie: MEMBER_SESSION });
+    assert.equal(((await member!.json()) as PageRenderInput).draftId, "d1", path);
+    const visitor = await request(withDraft(data, "d1"));
+    assert.equal(((await visitor!.json()) as PageRenderInput).draftId ?? null, null, path);
+  }
+});
+
 void test("a visitor opening a URL with a draft param sees Live, without the param and with no notice", async (t) => {
   mockApi(t);
   for (const path of PATHS) {
