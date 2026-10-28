@@ -22,3 +22,7 @@ A website's public renders (pages, their Markdown Representation and navigation 
 ## Amendment: a named cache, never `caches.default`
 
 Websites on camox.site run as user Workers in a Workers for Platforms dispatch namespace, in untrusted mode, where `caches.default` throws on every call. Each user Worker gets its own isolated cache through `caches.open()` instead. Renders are kept in the named cache `camox-public-renders`, which works the same on a self-hosted website. The namespace stays untrusted: agent-written code runs in these Workers (ADR 0020), and in trusted mode every Worker in the namespace shares one cache, so one project's code could read or replace another's renders. The cache only ever saves a render. When it can't be opened, read or written, the website renders as if it had no cache.
+
+## Amendment: the build ID covers the SDK Bundle
+
+A render's HTML also names its SDK Bundle's files (ADR 0029). A build pins one SDK Bundle that never changes, and every build gets a new build ID, so the cache key needs no SDK Bundle name.

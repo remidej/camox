@@ -256,6 +256,10 @@ _Avoid_: Branch, environment, changeset, working copy
 One state of a draft's code, left each time the agent builds its changes, at the end of an agent turn that changed code, by a merge of Live's code, or by a member pushing commits from their own checkout. A turn can leave several. Each is built once, the draft's preview shows the last one that built, and its definitions are what the draft's content uses from then on. Publishing serves the last revision's build on Live. A contributors' term: editors only ever see the draft.
 _Avoid_: Version, build, snapshot
 
+**SDK Bundle**:
+Camox, React and the npm packages websites share with Camox, built ahead of time and shared by every website that resolves them to the same versions. A revision's build holds only the website's own code and names the SDK Bundle it runs with, which never changes once built. A contributors' term.
+_Avoid_: Shell, vendor bundle, runtime bundle
+
 **Publish**:
 Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, merge

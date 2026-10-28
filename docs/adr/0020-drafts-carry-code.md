@@ -114,3 +114,7 @@ Uploading the publish's Worker took most of a publish: 17 of its 30 seconds in p
 ## Amendment: development drafts are gone
 
 Development drafts are removed (ADR 0027), and `apps/landing` becomes a hosted project, built from a checkout through pushes (ADR 0026). The consequence above that development drafts stay no longer holds. A revision can also be left by a member's push, which follows this ADR's rules for revisions: it waits for the agent's turn, aborts a publish confirmation, and is reconciled by Camox's agent when `main` moves under it.
+
+## Amendment: a revision's build pins its SDK Bundle
+
+A revision's build holds only the website's own code and names the SDK Bundle it runs with (ADR 0029). Live still serves the bytes members previewed: the revision's build together with that SDK Bundle, which never changes once built.

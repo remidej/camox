@@ -41,3 +41,7 @@ Agent-written code may make outbound requests, from the server and the browser. 
 ## Amendment: the line applies to pushed code
 
 `apps/landing` becomes a hosted project (ADR 0026), so the build checks apply to it. Code a member pushes from their own checkout follows the same line as the agent's: the API refuses a push that changes a platform-owned file, so only Upgrades change them, whoever writes the website's code.
+
+## Amendment: the shell is the SDK Bundle
+
+The shell built once per SDK version is the SDK Bundle (ADR 0029). It is built once per resolution of its packages and the settings compiled into it, rather than per SDK version. Besides React and Camox, it holds the npm packages websites share with Camox.
