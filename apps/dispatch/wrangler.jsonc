@@ -7,7 +7,11 @@
   "compatibility_date": "2026-03-28",
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "*.camox.site/*", "zone_name": "camox.site" }],
+  // Each Custom Domain has its own route, on its own zone (README.md).
+  "routes": [
+    { "pattern": "*.camox.site/*", "zone_name": "camox.site" },
+    { "pattern": "camox.ai/*", "zone_name": "camox.ai" },
+  ],
   "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }],
   // slug or Custom Domain → project UUID; the UUID names the project's user Worker. A slug's entry
   // names its project's Custom Domain in its metadata, which it then redirects to (README.md).

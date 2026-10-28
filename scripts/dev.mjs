@@ -54,7 +54,6 @@ export async function createDevEnvironment(env = process.env, repoRoot = root) {
     API: 8787,
     DASHBOARD: 3274,
     PLAYGROUND: 3000,
-    LANDING: 3001,
     TEMPLATE: 7400,
   })) {
     const port = await findAvailablePort(defaultPort, allocated);

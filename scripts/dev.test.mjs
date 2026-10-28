@@ -76,7 +76,6 @@ await test("createDevEnvironment replaces stale checkout ports and URLs without 
     CAMOX_DEV_API_PORT: "1",
     CAMOX_DEV_DASHBOARD_PORT: "2",
     CAMOX_DEV_PLAYGROUND_PORT: "3",
-    CAMOX_DEV_LANDING_PORT: "4",
     CAMOX_DEV_TEMPLATE_PORT: "5",
     CAMOX_DEV_HOSTNAME: "stale.localhost",
     NODE_OPTIONS: "--no-warnings",
@@ -95,12 +94,11 @@ await test("createDevEnvironment replaces stale checkout ports and URLs without 
   assert.ok(Number(env.CAMOX_DEV_DASHBOARD_PORT) >= 3274);
   assert.notEqual(env.CAMOX_DEV_API_PORT, env.CAMOX_DEV_DASHBOARD_PORT);
   assert.ok(Number(env.CAMOX_DEV_PLAYGROUND_PORT) >= 3000);
-  assert.ok(Number(env.CAMOX_DEV_LANDING_PORT) >= 3001);
   assert.ok(Number(env.CAMOX_DEV_TEMPLATE_PORT) >= 7400);
   const ports = Object.entries(env)
     .filter(([key]) => /^CAMOX_DEV_.*_PORT$/.test(key))
     .map(([, port]) => port);
-  assert.equal(new Set(ports).size, 5);
+  assert.equal(new Set(ports).size, 4);
   assert.equal(env.CAMOX_DEV_HOSTNAME, checkoutHostname(root));
   assert.equal(env.VITE_API_URL, `http://${env.CAMOX_DEV_HOSTNAME}:${env.CAMOX_DEV_API_PORT}`);
   assert.equal(
@@ -127,7 +125,7 @@ await test("frontend allocation skips IPv6-only listeners and keeps all app port
   const ports = Object.entries(env)
     .filter(([key]) => /^CAMOX_DEV_.*_PORT$/.test(key))
     .map(([, port]) => Number(port));
-  assert.equal(new Set(ports).size, 5);
+  assert.equal(new Set(ports).size, 4);
   assert.ok(!ports.includes(occupied));
   for (const port of ports) {
     await listen(t, "127.0.0.1", port);

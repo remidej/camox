@@ -57,8 +57,6 @@ already be on npm. Check the registry and workflow logs before retrying; a rerun
 can fail on an already-published version. Rerunning the whole workflow may
 not report `release_created` again, which skips the deploy and the publish, so
 prefer rerunning only the failed jobs.
-The landing command `camox release` builds and syncs the site; it does not create
-an npm release or invoke release-please.
 
 ## camox.ai's checkout
 
@@ -114,7 +112,7 @@ include the regenerated route tree in the same commit. Do not edit it manually.
 ## Production deployment
 
 `.github/workflows/deploy.yml` runs the checks and tests, then deploys API,
-dashboard, landing, and dispatch, each time a release PR is merged, before the
+dashboard, and dispatch, each time a release PR is merged, before the
 npm release of the same commit. Ordinary pushes to `main` don't deploy. To deploy
 `main` without a release, run the workflow manually from the Actions tab.
 Active deployments are not canceled by newer ones; only the newest pending
@@ -132,8 +130,6 @@ to `main`, and add these environment secrets (repository secrets also work):
   the release sandbox Worker's Container and the API's `cf.artifacts.repo.pushed`
   event subscription, so it needs Containers and event subscription permissions.
 - `CLOUDFLARE_ACCOUNT_ID`: the account containing the Workers and D1 database.
-- `CAMOX_DEPLOY_TOKEN`: the landing project's production deploy token, used by
-  `camox release` to sync its definitions.
 
 Do not require environment approval if deployment should be fully automatic.
 Existing API runtime secrets must already be configured in Cloudflare; this
@@ -157,16 +153,14 @@ Git-triggered builds for these apps to avoid competing deployments.
    (`deploy:sandbox`) and the release sandbox Worker (`deploy:release-sandbox`), whose
    Durable Objects the API binds, then deploy the API.
 4. Check `/health` (API availability and a D1 query).
-5. Deploy dashboard, then run landing's `camox release` and deploy its Worker.
+5. Deploy dashboard.
 
 When release-please cuts a release, the `publish` job publishes the SDK once this deploy has
 succeeded, `refresh-template` refreshes `template-default`, and `upgrade-projects` starts the
 API's upgrade Workflow, which moves every project to the new SDK
 ([`apps/api/src/domains/upgrades/README.md`](apps/api/src/domains/upgrades/README.md)).
 
-Landing's release builds and syncs against the newly deployed API, so it runs
-after the API health check. It is not cached. A failed step stops subsequent
-steps, but does not undo earlier deployments or production definition syncs.
+A failed step stops subsequent steps, but does not undo earlier deployments.
 The health check is a basic availability check, not full schema validation.
 
 ### Database changes

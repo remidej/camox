@@ -107,9 +107,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CAMOX_DEPLOY_TOKEN: ${{ secrets.CAMOX_DEPLOY_TOKEN }}
         run: |
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CAMOX_DEPLOY_TOKEN; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing production secret: $name"
               exit 1
@@ -172,14 +171,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # This build syncs production definitions and must use the deployed API.
-      - name: Release and deploy landing
-        run: pnpm --filter landing deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CAMOX_DEPLOY_TOKEN: ${{ secrets.CAMOX_DEPLOY_TOKEN }}
 
   release-please:
     if: github.ref == 'refs/heads/main'

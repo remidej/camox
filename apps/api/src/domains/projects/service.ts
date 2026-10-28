@@ -7,7 +7,7 @@ import {
   UNAVAILABLE_SLUG_MESSAGES,
   type UnavailableSlugReason,
 } from "@camox/api-contract/projects";
-import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -431,21 +431,6 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
     });
   }
 
-  // Collect IDs needed for cascade deletion
-  // Blocks on pages and in layouts both belong to the project.
-  const blockRows = yield* Effect.promise(() =>
-    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.projectId, projectId)),
-  );
-  const blockIds = blockRows.map((r) => r.id);
-
-  const repeatableItemRows = yield* Effect.promise(() =>
-    ctx.db
-      .select({ id: repeatableItems.id })
-      .from(repeatableItems)
-      .where(itemsInProject(projectId)),
-  );
-  const repeatableItemIds = repeatableItemRows.map((r) => r.id);
-
   const fileRows = yield* Effect.promise(() =>
     ctx.db
       .select({ id: files.id, blobId: files.blobId })
@@ -457,18 +442,15 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
     ctx.db.delete(generatedValues).where(eq(generatedValues.projectId, projectId)),
   );
 
-  // Delete in FK-safe order
-  if (repeatableItemIds.length > 0) {
-    yield* Effect.promise(() =>
-      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.id, repeatableItemIds)),
-    );
-  }
+  // Delete in FK-safe order. Rows are selected by project, never by a list of their ids: a
+  // project has more of them than D1 binds in one query.
+  // Items first, as those under blocks are found through their block.
+  yield* Effect.promise(() => ctx.db.delete(repeatableItems).where(itemsInProject(projectId)));
   yield* Effect.promise(() =>
     ctx.db.delete(sharedContents).where(eq(sharedContents.projectId, projectId)),
   );
-  if (blockIds.length > 0) {
-    yield* Effect.promise(() => ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)));
-  }
+  // Blocks on pages and in layouts both belong to the project.
+  yield* Effect.promise(() => ctx.db.delete(blocks).where(eq(blocks.projectId, projectId)));
   yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.projectId, projectId)));
 
   // Delete files from R2 and database
