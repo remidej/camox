@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.61.0](https://github.com/remidej/camox/compare/camox-v0.60.2...camox-sdk-v0.61.0) (2026-10-28)
+
+
+### Features
+
+* turn SDK Bundles on, and fix the Upgrade's SDK Bundle install ([#696](https://github.com/remidej/camox/issues/696)) ([13d8295](https://github.com/remidej/camox/commit/13d8295e819c4b44ac3fd286d56802b3ea6feb53))
+
+
+### Miscellaneous
+
+* lint against unchecked type assertions with vendored anti-slop rules ([#693](https://github.com/remidej/camox/issues/693)) ([d27970f](https://github.com/remidej/camox/commit/d27970fc0f5fab43b5fabd13aae25d4bfb6b789c))
+
 ## [0.60.2](https://github.com/remidej/camox/compare/camox-v0.60.1...camox-sdk-v0.60.2) (2026-10-28)
 
 
