@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.2](https://github.com/remidej/camox/compare/camox-v0.60.1...camox-sdk-v0.60.2) (2026-10-28)
+
+
+### Miscellaneous
+
+* **camox-sdk:** Synchronize camox versions
+
 ## [0.60.1](https://github.com/remidej/camox/compare/camox-v0.60.0...camox-sdk-v0.60.1) (2026-10-28)
 
 
