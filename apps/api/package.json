@@ -36,6 +36,7 @@
     "@tanstack/ai-openrouter": "^0.22.0",
     "agents": "0.29.0",
     "better-auth": "^1.7.10",
+    "camox": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "effect": "^4.0.5",
     "fractional-indexing": "^4.0.0",

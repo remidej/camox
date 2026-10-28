@@ -1,4 +1,5 @@
 import { PUBLISHING_DRAFT_VAR } from "@camox/api-contract/drafts";
+import { SDK_BUNDLE_BUILD_MANIFEST, SDK_BUNDLE_TARGETS } from "camox/_internal/sdkBundleName";
 import { eq } from "drizzle-orm";
 
 import type { Database } from "../../db";
@@ -13,6 +14,7 @@ import {
 } from "../../lib/user-workers";
 import type { Bindings } from "../../types";
 import { projects } from "../projects/schema";
+import { sdkBundleArchiveKey } from "../sdk-bundles/ensure";
 
 // A publish with code uploads the build of the revision members previewed as a user Worker of its
 // own, its publish script, beside the one named after the Project ID that releases deploy. The
@@ -183,6 +185,54 @@ export function workerOfBuild(
   };
 }
 
+/** An SDK Bundle's name: a digest, as `sdkBundleName` in `camox` makes it. */
+const SDK_BUNDLE_NAME = /^[0-9a-f]{32}$/;
+
+/**
+ * A revision's build together with the SDK Bundle it names, if any (ADR 0029): the browser
+ * bundle's files under `dist/client/_camox/sdk/<name>/`, and the workerd bundle's beside the
+ * server build's own, under `_camox/sdk/<name>/`, where its chunks import them from. As
+ * `camox release` lays them out (`addSdkBundleToBuild`). The bundle's bytes come from
+ * `REVISION_BUILDS`, where only ensuring a bundle stores them: the build only names it. A build
+ * that names none is whole-app, and returned as it is.
+ */
+async function withSdkBundle(
+  env: Pick<Bindings, "REVISION_BUILDS">,
+  files: Map<string, Uint8Array>,
+): Promise<Map<string, Uint8Array>> {
+  const manifestPath = [...files.keys()].find((path) => {
+    const [dist, dir, file, ...deeper] = path.split("/");
+    return (
+      dist === "dist" && dir !== "client" && file === SDK_BUNDLE_BUILD_MANIFEST && !deeper.length
+    );
+  });
+  if (!manifestPath) return files;
+  const serverDir = manifestPath.slice(0, -SDK_BUNDLE_BUILD_MANIFEST.length);
+  let names: Record<string, unknown>;
+  try {
+    names = JSON.parse(decode(files.get(manifestPath))!) as Record<string, unknown>;
+  } catch {
+    throw new UnpublishableBuildError(`The build's ${SDK_BUNDLE_BUILD_MANIFEST} isn't JSON`);
+  }
+  const withBundle = new Map(files);
+  for (const target of SDK_BUNDLE_TARGETS) {
+    const name = names?.[target];
+    // The build wrote it: only a name reads a stored bundle.
+    if (typeof name !== "string" || !SDK_BUNDLE_NAME.test(name)) {
+      throw new UnpublishableBuildError(`The build names no ${target} SDK Bundle`);
+    }
+    const archive = await env.REVISION_BUILDS.get(sdkBundleArchiveKey(name));
+    if (!archive)
+      throw new Error(`The build's SDK Bundle isn't stored: ${sdkBundleArchiveKey(name)}`);
+    const folder =
+      target === "browser" ? `${CLIENT_DIR}_camox/sdk/${name}/` : `${serverDir}_camox/sdk/${name}/`;
+    for (const [path, content] of await untarGzip(archive.body)) {
+      withBundle.set(`${folder}${path}`, content);
+    }
+  }
+  return withBundle;
+}
+
 /**
  * Uploads the build of a draft's revision as the draft's publish script. It carries the draft's
  * ID, so its public reads see Live overlaid with the draft while the draft publishes
@@ -197,7 +247,7 @@ export async function uploadPublishScript(
     const archive = await env.REVISION_BUILDS.get(archiveKey);
     if (!archive)
       throw new UnpublishableBuildError(`The revision's build ${archiveKey} isn't stored`);
-    return workerOfBuild(await untarGzip(archive.body), {
+    return workerOfBuild(await withSdkBundle(env, await untarGzip(archive.body)), {
       vars: { [PUBLISHING_DRAFT_VAR]: draft },
       tags: [publishScriptsTag(project)],
     });

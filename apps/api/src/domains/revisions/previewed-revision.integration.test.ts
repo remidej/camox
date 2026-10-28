@@ -3,7 +3,7 @@ import type { RevisionMessage } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import { createRpcContext, createSessionFixture, startDraft } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
@@ -19,6 +19,7 @@ import {
   websiteFixture,
 } from "../../../test/threads";
 import { router } from "../../router";
+import type { Bindings } from "../../types";
 import { INFRASTRUCTURE_ATTEMPTS } from "./build";
 import type { RevisionToLoad } from "./dispatch";
 import type { PreviewQuestion } from "./previewed-revision";
@@ -37,6 +38,10 @@ type Fakes = {
   defineBuildsOf(marker: string, definitionSet: unknown): Promise<void>;
   prewarmed(): Promise<RevisionToLoad[]>;
   failPrewarms(project: string, times: number): Promise<void>;
+  holdPushes(repo: string, branch: string): Promise<void>;
+  letGoPushes(repo: string, branch: string): Promise<void>;
+  pushesWaiting(repo: string): Promise<number>;
+  failPushes(repo: string, branch: string, times: number): Promise<void>;
 };
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -48,6 +53,7 @@ const previews = (
 const builds = (env as unknown as { REVISION_BUILDS: R2Bucket }).REVISION_BUILDS;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await abortAllDurableObjects();
   forgetThreadModel();
 });
@@ -150,6 +156,10 @@ async function draftWithPricing() {
   };
 }
 
+/** The revisions of `draftId` dispatch prepared, oldest first. */
+const preparedFor = (prepared: RevisionToLoad[], draftId: string) =>
+  prepared.filter(({ draft }) => draft === draftId);
+
 const revisionMessages = (website: Website) =>
   sentTo(website.project.id).filter(
     (message): message is RevisionMessage => message.type === "revision",
@@ -250,6 +260,86 @@ describe("a draft's new revision", () => {
     expect(JSON.parse(result)).toMatchObject({ ok: false });
 
     expect(revisionMessages(website)).toEqual([]);
+  });
+
+  it("is prepared while its code is pushed, and announced once the push landed", async () => {
+    const { website, draftId, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
+    await fakes.holdPushes(website.project.uuid, draftId);
+    onTestFinished(() => fakes.letGoPushes(website.project.uuid, draftId));
+
+    const building = writeAndBuild(thread, blockFile(marker));
+    await vi.waitFor(async () => {
+      expect(await fakes.pushesWaiting(website.project.uuid)).toBe(1);
+      expect(preparedFor(await fakes.prewarmed(), draftId)).toHaveLength(2);
+    });
+    expect(revisionMessages(website)).toHaveLength(1);
+
+    await fakes.letGoPushes(website.project.uuid, draftId);
+    const result = JSON.parse(await building) as { ok: boolean; revision?: string };
+    thread.close();
+
+    expect(result.ok).toBe(true);
+    expect(revisionMessages(website).at(-1)).toMatchObject({ revisionId: result.revision });
+  });
+
+  it("isn't announced when its code can't be pushed", async () => {
+    const { website, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
+    // The agent's build fails its pushes, then the end of its turn's build.
+    await fakes.failPushes(website.project.uuid, "*", 2 * INFRASTRUCTURE_ATTEMPTS);
+
+    const result = await writeAndBuild(thread, blockFile(marker));
+    thread.close();
+
+    expect(result).toContain("a problem on its side");
+    expect(revisionMessages(website)).toHaveLength(1);
+  });
+
+  it("is prepared from its build as the API stores it, and isn't announced when that fails", async () => {
+    const { website, draftId, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
+    const put = builds.put.bind(builds);
+    vi.spyOn(builds, "put").mockImplementation(async (key, ...rest) => {
+      if (key.endsWith(".tar.gz")) throw new Error("We encountered an internal error.");
+      return put(key, ...rest);
+    });
+
+    const result = await writeAndBuild(thread, blockFile(marker));
+    thread.close();
+
+    expect(result).toContain("a problem on its side");
+    expect(revisionMessages(website)).toHaveLength(1);
+    // Dispatch prepared it from the build the API sent, as it never got stored.
+    expect(preparedFor(await fakes.prewarmed(), draftId).length).toBeGreaterThan(1);
+  });
+
+  it("is prepared from its stored build when its build is too large to send, and isn't prepared when that fails", async () => {
+    const { website, draftId, thread } = await draftWithPricing();
+    const marker = crypto.randomUUID();
+    await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
+    const prepared = preparedFor(await fakes.prewarmed(), draftId).length;
+    // Every build is larger than what goes to dispatch in one message.
+    const bindings = env as unknown as Bindings;
+    bindings.DISPATCH_ARCHIVE_LIMIT_BYTES = "1";
+    onTestFinished(() => {
+      delete bindings.DISPATCH_ARCHIVE_LIMIT_BYTES;
+    });
+    const put = builds.put.bind(builds);
+    vi.spyOn(builds, "put").mockImplementation(async (key, ...rest) => {
+      if (key.endsWith(".tar.gz")) throw new Error("We encountered an internal error.");
+      return put(key, ...rest);
+    });
+
+    const result = await writeAndBuild(thread, blockFile(marker));
+    thread.close();
+
+    expect(result).toContain("a problem on its side");
+    // It waits for its build to be stored, which never was.
+    expect(preparedFor(await fakes.prewarmed(), draftId)).toHaveLength(prepared);
   });
 
   it("is announced once, however often the same code is built", async () => {

@@ -1,13 +1,16 @@
 import { CIWorkflow } from "@cloudflare/ci";
 import type { CiContext, CiParams, CloudflareArtifacts } from "@cloudflare/ci";
-import type { CiBindings, RunnerOptions } from "@cloudflare/ci/worker";
+import type { CiBindings, DirectoryBackup, RunnerOptions } from "@cloudflare/ci/worker";
+import { getSandbox } from "@cloudflare/sandbox";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
 import { createDb, type Database } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { leaveUpgradePush, queueUpgradePush, turnOf } from "../publishes/queue";
-import { buildCommand, pushCommand, updateCommand } from "./commands";
+import { ENSURE_SDK_BUNDLE, type SdkBundleSource } from "../sdk-bundles/ensure";
+import { RELEASE_SDK_BUNDLE_ENV, withStoredSdkBundle } from "../sdk-bundles/workspace";
+import { UPGRADED_FILES, buildCommand, pushCommand, updateCommand } from "./commands";
 
 type UpgradeEnv = Bindings & CiBindings;
 
@@ -78,10 +81,25 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
           await step.do("read the Camox packages", () => setVersionsCommand(this.env, params)),
         ),
       }));
-      const built = await run(updated, "build", async () => ({
+      // The SDK Bundle the dry-run release builds against, from the lockfile the update resolved.
+      current = "build";
+      const upgraded = await step.do("read the upgraded lockfile", () =>
+        upgradedFiles(this.env, updated.snapshot),
+      );
+      // A hosted build never builds its SDK Bundle: it's ensured and put into the workspace,
+      // unless the upgraded camox builds whole-app.
+      const withBundle = await step.do(
+        "put the SDK Bundle into the workspace",
+        ENSURE_SDK_BUNDLE,
+        () => withStoredSdkBundle(this.env, updated.snapshot, upgraded, HOSTED_BUILD),
+      );
+      const building: Pick<CiContext, "runner"> = withBundle
+        ? { runner: (options) => ci.runner({ ...options, snapshot: withBundle.snapshot }) }
+        : updated;
+      const built = await run(building, "build", async () => ({
         command: buildCommand(),
         // A new hosted check that the project's code breaks fails the Upgrade's build.
-        env: { ...HOSTED_BUILD },
+        env: { ...HOSTED_BUILD, ...RELEASE_SDK_BUNDLE_ENV },
       }));
       // A publish with code serves its revision's build, then pushes its tree to `main`: an
       // upgrade pushed in between would release `main` without the draft's code over it, and the
@@ -127,6 +145,27 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
       })
       // The upgrade Workflow stops waiting after a while, and then reads this instance's status.
       .catch((sendError: unknown) => console.error("Upgrade outcome not sent", sendError));
+  }
+}
+
+/**
+ * The `package.json` and lockfile the update step saved, read from its workspace snapshot in a
+ * sandbox of their own: the SDK Bundle builds in one that never restored a website's workspace.
+ */
+async function upgradedFiles(env: UpgradeEnv, snapshot: DirectoryBackup): Promise<SdkBundleSource> {
+  const sandbox = getSandbox(env.SANDBOX, `upgraded-files-${crypto.randomUUID()}`, {
+    transport: "rpc",
+    enableDefaultSession: false,
+  });
+  try {
+    await sandbox.restoreBackup(snapshot);
+    const read = async (file: string) =>
+      (await sandbox.readFile(`${snapshot.dir}/${UPGRADED_FILES}/${file}`)).content;
+    return { packageJson: await read("package.json"), lockfile: await read("pnpm-lock.yaml") };
+  } finally {
+    await sandbox.destroy().catch((error: unknown) => {
+      console.error("An upgrade's sandbox wasn't destroyed", error);
+    });
   }
 }
 

@@ -97,3 +97,20 @@ void test("a build whose _headers would hold more rules than Workers read fails,
 
   assert.throws(() => staticAssetHeaders({ unhashedFiles }), /past Workers Static Assets' 100/);
 });
+
+void test("a build against an SDK Bundle has browsers keep its files for good", () => {
+  const headers = staticAssetHeaders({ unhashedFiles: [], sdkBundle: true });
+
+  assert.deepEqual(
+    headersFor("/_camox/sdk/0123456789abcdef0123456789abcdef/camox-studio-client.mjs", headers).get(
+      "cache-control",
+    ),
+    ["public, max-age=31536000, immutable"],
+  );
+});
+
+void test("a whole-app build's _headers names no SDK Bundle", () => {
+  const headers = staticAssetHeaders({ unhashedFiles: [] });
+
+  assert.doesNotMatch(headers, /_camox\/sdk/);
+});

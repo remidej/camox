@@ -260,6 +260,10 @@ _Avoid_: Version, build, snapshot
 Camox, React and the npm packages websites share with Camox, built ahead of time and shared by every website that resolves them to the same versions. A revision's build holds only the website's own code and names the SDK Bundle it runs with, which never changes once built. A contributors' term.
 _Avoid_: Shell, vendor bundle, runtime bundle
 
+**Whole-app build**:
+A build of a website that holds Camox, React and the packages it shares with Camox itself, instead of naming an SDK Bundle: what every build was before SDK Bundles, and what a build from a Camox that doesn't build against one still is. It keeps working wherever it's served. A contributors' term.
+_Avoid_: Full build, monolithic build, legacy build
+
 **Publish**:
 Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, merge

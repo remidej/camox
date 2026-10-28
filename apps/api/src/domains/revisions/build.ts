@@ -16,7 +16,7 @@ import { notUploadedAhead } from "../publishes/upload-ahead";
 import { camoxVersionInLockfile } from "../releases/lockfile";
 import { deleteRevisionBuild, revisionArchiveKey } from "./archive";
 import { buildErrorsOf } from "./build-log";
-import type { RevisionToLoad } from "./dispatch";
+import type { PreparedRevision, RevisionToLoad } from "./dispatch";
 import { type BuildResult, ERRORS_SHOWN } from "./result";
 import {
   buildInSandbox,
@@ -157,8 +157,42 @@ type BuiltDraft = {
   previewedRevisionId: string | null;
 };
 
-/** A built revision, with its build. */
-type BuiltRevision = { id: string; archiveKey: string; camoxVersion: string | null };
+/**
+ * A built revision, with its build, and its preparation by dispatch when the build started it,
+ * as it was stored and pushed. Without it, dispatch prepares the revision from its stored build.
+ */
+type BuiltRevision = {
+  id: string;
+  archiveKey: string;
+  camoxVersion: string | null;
+  prepared?: Promise<PreparedRevision>;
+};
+
+/**
+ * The largest revision build the API sends dispatch with the preparation, under Workers RPC's
+ * 32 MiB message limit (developers.cloudflare.com/workers/runtime-apis/rpc/), with room for the
+ * rest of the message. A tuning value.
+ */
+const DISPATCH_ARCHIVE_LIMIT = 24 * 1024 * 1024;
+
+/** Whether a build is small enough to go to dispatch in one RPC message. */
+const fitsOneMessage = (env: Bindings, archive: Uint8Array) =>
+  archive.byteLength <= Number(env.DISPATCH_ARCHIVE_LIMIT_BYTES ?? DISPATCH_ARCHIVE_LIMIT);
+
+/** Has dispatch prepare a revision, from `archive` when the API holds it, or else from R2. */
+function prepareInDispatch(
+  env: Bindings,
+  toLoad: RevisionToLoad,
+  fields: SpanFields,
+  archive?: Uint8Array,
+) {
+  return retried(() => env.DISPATCH.prepare(toLoad, archive), {
+    name: "revision.preview.prepare",
+    fields,
+    // How many client assets dispatch stored, and how long each part took.
+    after: (prepared) => ({ ...prepared, definitionSet: undefined }),
+  });
+}
 
 /**
  * Makes a built revision the one its draft previews, unless the draft already previews it (ADR
@@ -190,12 +224,7 @@ async function previewNewRevision(
     project: draft.projectUuid,
     draft: draft.id,
   };
-  const { definitionSet } = await retried(() => env.DISPATCH.prepare(toLoad), {
-    name: "revision.preview.prepare",
-    fields,
-    // How many client assets dispatch stored, and how long each part took.
-    after: (prepared) => ({ ...prepared, definitionSet: undefined }),
-  });
+  const { definitionSet } = await (revision.prepared ?? prepareInDispatch(env, toLoad, fields));
   const ctx = agentServiceContext({
     db: createDb(env.DB),
     env,
@@ -468,6 +497,20 @@ async function buildAndPreview(
     draft: draftId,
     revision: revisionId,
   });
+  // Dispatch prepares the preview from the archive the API holds, while the archive is stored and
+  // the code pushed (ADR 0029). The preview waits for all three: it's only announced once the
+  // revision is recorded, which a failed upload or push stops. An archive too large for one
+  // message is prepared from R2 once stored, by the preview.
+  const preparing = fitsOneMessage(env, outcome.archive)
+    ? prepareInDispatch(
+        env,
+        { revision: revisionId, archiveKey, project: draft.projectUuid, draft: draftId },
+        { ...span, revisionId },
+        outcome.archive,
+      )
+    : undefined;
+  // Awaited by the preview: an upload or push failing first throws its own error.
+  preparing?.catch(() => {});
   // The archive's upload and the push go at once. A push that landed without its archive is no
   // revision yet: the next build of the tree uploads one and commits it again, which keeps the
   // branch's head as it is (`commit` in DraftCode).
@@ -486,6 +529,7 @@ async function buildAndPreview(
     parents,
     buildStatus: "built" as const,
     archiveKey,
+    sdkBundle: outcome.sdkBundle,
   };
   const camoxVersion = prepared.lockfile ? camoxVersionInLockfile(prepared.lockfile) : null;
   const [recorded] = await db
@@ -506,8 +550,20 @@ async function buildAndPreview(
     .onConflictDoUpdate({ target: [revisions.draftId, revisions.tree], set: built })
     .returning({ id: revisions.id });
   await db.update(drafts).set({ headRevisionId: recorded!.id }).where(eq(drafts.id, draftId));
+  // A concurrent build of the tree that recorded it first named it: what dispatch prepared under
+  // this build's ID isn't that revision, which dispatch prepares from its stored build instead.
   const preview = () =>
-    previewRevision(env, draft, { id: recorded!.id, archiveKey, camoxVersion }, span);
+    previewRevision(
+      env,
+      draft,
+      {
+        id: recorded!.id,
+        archiveKey,
+        camoxVersion,
+        prepared: recorded!.id === revisionId ? preparing : undefined,
+      },
+      span,
+    );
   // The preview shows an agent's revision without waiting on its type check. A merge of `main`
   // waits for it: until the merged code type checks, the preview stays on the draft's last
   // revision, on the old `main` (spec #560, section 11).

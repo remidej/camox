@@ -1,8 +1,14 @@
 import { getSandbox } from "@cloudflare/sandbox";
+import {
+  SDK_BUNDLE_BUILD_MANIFEST,
+  type SdkBundleNames,
+  sdkBundleMissingIn,
+} from "camox/_internal/sdkBundleName";
 
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import { type SpanFields, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
+import { fetchSdkBundle } from "../sdk-bundles/fetch";
 import { lintErrorsOf } from "./lint-log";
 import type { LintError } from "./result";
 
@@ -42,11 +48,25 @@ const TYPE_CHECK_CONFIG_CONTENT = JSON.stringify({
 const TYPE_CHECK_COMMAND = `tsrs -p ${TYPE_CHECK_CONFIG} --pretty false`;
 
 /**
+ * The builds' SDK Bundle cache (ADR 0029): outside the workspace, whose files each tree
+ * replaces, and its `node_modules`, so the website's install never holds it. It keeps each
+ * bundle fetched into it for the sandbox's later builds.
+ */
+const SDK_BUNDLE_CACHE = "/opt/camox/sdk-bundles";
+
+/**
  * What builds and `vp lint` run with: both load the project's Vite config. Its Camox plugin
  * builds a dry-run release as `camox release --dry-run` does, releasing nothing, and the hosted
- * build's variables turn on the hosted projects' checks.
+ * build's variables turn on the hosted projects' checks. A hosted build reads its SDK Bundle from
+ * the cache, and never builds it.
  */
-const VITE_ENV = { CAMOX_INTERNAL_RELEASE: "dry-run", ...HOSTED_BUILD, CI: "1", NO_COLOR: "1" };
+const VITE_ENV = {
+  CAMOX_INTERNAL_RELEASE: "dry-run",
+  ...HOSTED_BUILD,
+  CAMOX_INTERNAL_SDK_BUNDLE_CACHE: SDK_BUNDLE_CACHE,
+  CI: "1",
+  NO_COLOR: "1",
+};
 
 /** Vite+'s CLI, run as it's installed rather than through `pnpm exec`, which starts pnpm first. */
 const VP = "node_modules/.bin/vp";
@@ -104,11 +124,17 @@ export class SandboxError extends Error {
 export type SandboxTypeCheck = { ok: boolean; output: string };
 
 /**
- * A build's outcome: its output as one gzipped tar archive, with the type check of the same tree,
- * which may still be running, or the log of its failure.
+ * A build's outcome: its output as one gzipped tar archive, with the SDK Bundle it names (null
+ * for a whole-app build) and the type check of the same tree, which may still be running, or the
+ * log of its failure.
  */
 export type SandboxBuild =
-  | { ok: true; archive: Uint8Array; typeCheck: Promise<SandboxTypeCheck> }
+  | {
+      ok: true;
+      archive: Uint8Array;
+      sdkBundle: SdkBundleNames | null;
+      typeCheck: Promise<SandboxTypeCheck>;
+    }
   | { ok: false; log: string };
 
 /**
@@ -145,6 +171,9 @@ const tail = (text: string, lines = 20) => text.trimEnd().split("\n").slice(-lin
 /** A working copy's tree: a tar archive of its files, and its lockfile. */
 type Tree = { files: Uint8Array; lockfile: string | null };
 
+/** What a revision sandbox's builds need: the sandbox, and where SDK Bundles come from. */
+type SandboxEnv = Pick<Bindings, "REVISION_SANDBOX" | "SANDBOX" | "REVISION_BUILDS">;
+
 /**
  * Type checks all of `src/` in the tree the draft's sandbox last extracted, with its install.
  * Throws a `SandboxError` when the sandbox, not the check, fails.
@@ -176,10 +205,11 @@ export async function checkTypesInSandbox(
 /**
  * The draft's sandbox, its workspace holding `tree`: its files replace the workspace's, keeping
  * its `node_modules`, which is installed again only when the lockfile isn't the one last
- * installed. `run` runs a command in the workspace, throwing a `SandboxError` when it fails.
+ * installed, and its SDK Bundle cache, which gets the lockfile's stored SDK Bundle unless it has
+ * it. `run` runs a command in the workspace, throwing a `SandboxError` when it fails.
  */
 async function workspaceWith(
-  env: Pick<Bindings, "REVISION_SANDBOX">,
+  env: SandboxEnv,
   draftId: string,
   { files, lockfile }: Tree,
   span: SpanFields,
@@ -225,6 +255,15 @@ async function workspaceWith(
   );
   // Once installed, so the builder loads that install. It loads as the agent writes, in a
   // sandbox started ahead of its build, and a builder that didn't start leaves `vp build` to it.
+  // The SDK Bundle comes beside it, so a sandbox started ahead has it before its first build.
+  await Promise.all([
+    startBuilder(sandbox),
+    lockfile === null ? undefined : cacheSdkBundle(env, sandbox, lockfile, span),
+  ]);
+  return { sandbox, run };
+}
+
+async function startBuilder(sandbox: ReturnType<typeof sandboxOf>) {
   try {
     const started = await sandbox.startProcess(START_BUILDER_COMMAND, {
       cwd: WORKSPACE,
@@ -235,7 +274,29 @@ async function workspaceWith(
   } catch (error) {
     console.warn("A revision sandbox's builder didn't start", error);
   }
-  return { sandbox, run };
+}
+
+/**
+ * Puts the lockfile's stored SDK Bundle, as the API names it, in the sandbox's cache, unless it's
+ * there. Never fails: a build missing its bundle has it ensured (`buildInSandbox`). A whole-app
+ * build doesn't read it.
+ */
+async function cacheSdkBundle(
+  env: SandboxEnv,
+  sandbox: ReturnType<typeof sandboxOf>,
+  lockfile: string,
+  span: SpanFields,
+) {
+  try {
+    await timed(
+      "revision.sandbox.sdkBundle",
+      span,
+      () => fetchSdkBundle(env, sandbox, { cacheDir: SDK_BUNDLE_CACHE, lockfile }),
+      (names) => ({ cached: names !== null }),
+    );
+  } catch (error) {
+    console.warn("A revision sandbox didn't get its SDK Bundle", error);
+  }
 }
 
 /**
@@ -244,7 +305,7 @@ async function workspaceWith(
  * installs only if the lockfile changed since. Throws a `SandboxError` when the sandbox fails.
  */
 export async function warmSandbox(
-  env: Pick<Bindings, "REVISION_SANDBOX">,
+  env: SandboxEnv,
   draftId: string,
   tree: Tree,
   span: SpanFields = { draftId },
@@ -254,11 +315,12 @@ export async function warmSandbox(
 
 /**
  * Builds a tree in the draft's sandbox, as a dry-run release of a hosted project. The type check
- * of `src/` runs beside the build, and a passed build returns it still going. Throws a
- * `SandboxError` when the sandbox, not the build, fails.
+ * of `src/` runs beside the build, and a passed build returns it still going. A build missing
+ * its SDK Bundle has it ensured, then builds once more. Throws a `SandboxError` when the sandbox,
+ * not the build, fails.
  */
 export async function buildInSandbox(
-  env: Pick<Bindings, "REVISION_SANDBOX">,
+  env: SandboxEnv,
   draftId: string,
   tree: Tree,
   span: SpanFields = { draftId },
@@ -268,30 +330,65 @@ export async function buildInSandbox(
   const typeCheck = checkTypesInSandbox(env, draftId, span);
   // A build that fails drops its check: nothing waits on it then.
   typeCheck.catch(() => undefined);
-  const built = await timed(
-    "revision.sandbox.viteBuild",
-    span,
-    async () => {
-      const result = await sandbox.exec(BUILD_COMMAND, { cwd: WORKSPACE, env: VITE_ENV });
-      return { ...result, ...builderReportOf(`${result.stdout}\n${result.stderr}`) };
-    },
-    ({ success, fields }) => ({ built: success, ...fields }),
-  );
+  const viteBuild = () =>
+    timed(
+      "revision.sandbox.viteBuild",
+      span,
+      async () => {
+        const result = await sandbox.exec(BUILD_COMMAND, { cwd: WORKSPACE, env: VITE_ENV });
+        return { ...result, ...builderReportOf(`${result.stdout}\n${result.stderr}`) };
+      },
+      ({ success, fields }) => ({ built: success, ...fields }),
+    );
+  let built = await viteBuild();
+  const missing = built.success ? null : sdkBundleMissingIn(built.log);
+  if (missing) {
+    // Named by the website's own camox: the bundle it needs, whatever the API's copy names.
+    const { content: packageJson } = await sandbox.readFile(`${WORKSPACE}/package.json`);
+    await timed("revision.sandbox.sdkBundle", { ...span, ensured: true }, () =>
+      fetchSdkBundle(env, sandbox, {
+        cacheDir: SDK_BUNDLE_CACHE,
+        lockfile: tree.lockfile ?? "",
+        names: missing,
+        ensureFrom: { packageJson },
+      }),
+    );
+    built = await viteBuild();
+    if (!built.success && sdkBundleMissingIn(built.log)) {
+      throw new SandboxError(`The build is still missing its SDK Bundle: ${tail(built.log)}`);
+    }
+  }
   if (!built.success) return { ok: false, log: built.log };
 
-  const archive = await timed(
+  const { archive, sdkBundle } = await timed(
     "revision.sandbox.archive",
     span,
     async () => {
       // gzip's fastest level, in a third of the default's time: the archive only goes to R2,
-      // inside Cloudflare, where a few more bytes cost less than a second more.
-      await run(`tar -I 'gzip -1' -cf ${BUILD_ARCHIVE} -C . dist`);
+      // inside Cloudflare, where a few more bytes cost less than a second more. The SDK Bundle
+      // the build names is read in the same command.
+      const archived = await run(
+        `tar -I 'gzip -1' -cf ${BUILD_ARCHIVE} -C . dist && (cat dist/*/${SDK_BUNDLE_BUILD_MANIFEST} 2>/dev/null || true)`,
+      );
       const { content } = await sandbox.readFile(BUILD_ARCHIVE, { encoding: "base64" });
-      return Uint8Array.from(atob(content), (char) => char.charCodeAt(0));
+      return {
+        archive: Uint8Array.from(atob(content), (char) => char.charCodeAt(0)),
+        sdkBundle: sdkBundleOf(archived.stdout),
+      };
     },
-    ({ byteLength }) => ({ bytes: byteLength }),
+    ({ archive }) => ({ bytes: archive.byteLength }),
   );
-  return { ok: true, archive, typeCheck };
+  return { ok: true, archive, sdkBundle, typeCheck };
+}
+
+/** The SDK Bundle a build's manifest names, or null when it has none: a whole-app build. */
+function sdkBundleOf(manifest: string): SdkBundleNames | null {
+  if (!manifest.trim()) return null;
+  const { browser, workerd } = JSON.parse(manifest) as Partial<SdkBundleNames>;
+  if (typeof browser !== "string" || typeof workerd !== "string") {
+    throw new SandboxError(`A build names an SDK Bundle that isn't one: ${manifest.slice(0, 200)}`);
+  }
+  return { browser, workerd };
 }
 
 /**
@@ -300,7 +397,7 @@ export async function buildInSandbox(
  * the lint itself does: findings never fail it.
  */
 export async function lintInSandbox(
-  env: Pick<Bindings, "REVISION_SANDBOX">,
+  env: SandboxEnv,
   draftId: string,
   tree: Tree,
   span: SpanFields = { draftId },

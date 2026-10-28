@@ -6,10 +6,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(appRoot, "../..");
 const temp = await mkdtemp(join(tmpdir(), "camox-production-"));
+// Builds against an SDK Bundle unless `CAMOX_INTERNAL_SDK_BUNDLE=0` asks for a whole-app build.
+const withSdkBundle = process.env.CAMOX_INTERNAL_SDK_BUNDLE !== "0";
 
 try {
-  const root = join(temp, "app");
+  // Where the monorepo has it, beside its lockfile: the copy builds against the Template's SDK Bundle.
+  const root = join(temp, "apps/template-default");
+  const sdkBundleCache = join(temp, "sdk-bundles");
+  await cp(join(repoRoot, "pnpm-lock.yaml"), join(temp, "pnpm-lock.yaml"));
   const home = join(temp, "home");
   await mkdir(join(home, ".camox"), { recursive: true });
   await writeFile(
@@ -18,7 +24,7 @@ try {
       "http://localhost:3274": { token: "smoke", name: "Smoke", email: "smoke@example.com" },
     }),
   );
-  await mkdir(root);
+  await mkdir(root, { recursive: true });
   for (const file of ["src", "vite.config.ts", "tsconfig.json", "package.json", "wrangler.jsonc"]) {
     await cp(join(appRoot, file), join(root, file), { recursive: true });
   }
@@ -116,21 +122,66 @@ export default {
     spawnSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: root,
       // Hosted projects start from the Template, so it builds with their checks on.
-      env: { ...process.env, HOME: home, CAMOX_INTERNAL_RELEASE: "0", CAMOX_INTERNAL_HOSTED: "1" },
+      env: {
+        ...process.env,
+        HOME: home,
+        CAMOX_INTERNAL_RELEASE: "0",
+        CAMOX_INTERNAL_HOSTED: "1",
+        CAMOX_INTERNAL_SDK_BUNDLE: withSdkBundle ? "1" : "0",
+        CAMOX_INTERNAL_SDK_BUNDLE_CACHE: sdkBundleCache,
+      },
       encoding: "utf8",
       timeout,
       killSignal: "SIGKILL",
     });
 
+  // Builds, listing every module the output holds, then adds the SDK Bundle as `camox release` does.
+  const modulesFile = join(temp, "modules.json");
   const build = run(
     `
+    import { writeFileSync } from "node:fs";
     const { createBuilder } = await import(${vitePlus});
-    const builder = await createBuilder({ root: ${JSON.stringify(root)} });
+    const modules = [];
+    const probe = {
+      name: "smoke:modules",
+      generateBundle(_options, bundle) {
+        for (const file of Object.values(bundle))
+          if (file.type === "chunk") modules.push(...Object.keys(file.modules));
+      },
+    };
+    const builder = await createBuilder({ root: ${JSON.stringify(root)}, plugins: [probe] });
     await builder.buildApp();
+    writeFileSync(${JSON.stringify(modulesFile)}, JSON.stringify(modules));
+    const { addSdkBundleToBuild } = await import("camox/_internal/sdkBundle");
+    const added = await addSdkBundleToBuild({ root: ${JSON.stringify(root)} });
+    if (${withSdkBundle} !== (added !== null)) throw new Error("The build names the wrong SDK Bundle: " + JSON.stringify(added));
   `,
     180_000,
   );
   assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
+
+  // The output names its SDK Bundle, and holds only the Template's own code: camox, React and the
+  // packages camox shares with the Template are the bundle's. The Worker entry is compiled into
+  // each website's build, as it imports the website.
+  const deployConfig = JSON.parse(
+    await readFile(join(root, ".wrangler/deploy/config.json"), "utf8"),
+  );
+  const workerDir = dirname(resolve(root, ".wrangler/deploy", deployConfig.configPath));
+  const sdkSource = join(repoRoot, "packages/sdk/src/");
+  if (withSdkBundle) {
+    const sdkBundle = JSON.parse(await readFile(join(workerDir, "camox-sdk-bundle.json"), "utf8"));
+    assert.match(sdkBundle.browser, /^[0-9a-f]{32}$/);
+    assert.match(sdkBundle.workerd, /^[0-9a-f]{32}$/);
+  }
+  for (const id of withSdkBundle ? JSON.parse(await readFile(modulesFile, "utf8")) : []) {
+    assert.doesNotMatch(
+      id,
+      /[/\\]node_modules[/\\](\.pnpm[/\\])?(react|react-dom|scheduler|camox|tailwind-merge|clsx|class-variance-authority)[@/\\]/,
+      `The build holds ${id}.`,
+    );
+    if (id !== join(sdkSource, "features/runtime/worker.ts"))
+      assert.ok(!id.startsWith(sdkSource), `The build holds camox's ${id}.`);
+  }
 
   // The page default and the four schemes a block's "Color scheme" setting offers. Each
   // sets `color-scheme` and declares the variables the SDK colors highlights and empty images

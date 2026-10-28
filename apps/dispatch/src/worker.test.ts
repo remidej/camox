@@ -4,7 +4,10 @@ import {
   API_URL,
   ARCHIVE_KEY,
   archived,
+  archivedSdkBundle,
+  BROWSER_SDK_BUNDLE,
   BUILD,
+  BUNDLED_BUILD,
   context,
   DRAFT,
   fakeBucket,
@@ -14,6 +17,10 @@ import {
   PROJECT,
   REVISION,
   revision,
+  SDK_BUNDLE,
+  SDK_BUNDLE_ARCHIVE_KEYS,
+  STUDIO_CSS,
+  WORKERD_SDK_BUNDLE,
 } from "../test/fakes";
 import { LIVE_SCRIPT_TTL_MS } from "./live-script";
 import { PREVIEW_ANSWER_TTL_MS } from "./previews";
@@ -346,9 +353,16 @@ const mirrored = (session: string) => `camox_auth_cookie=${encodeURIComponent(se
  * Dispatch's bindings for Acme's website, whose Live code is its user Worker, with a draft with
  * code previewing `revision`, which only `MEMBER_SESSION` can see, as the API answers.
  */
-async function previewingEnv({ customDomain }: { customDomain?: string } = {}) {
+async function previewingEnv({
+  customDomain,
+  build = BUILD,
+}: { customDomain?: string; build?: Record<string, string> } = {}) {
   const loader = fakeLoader();
-  const builds = fakeBucket({ [ARCHIVE_KEY]: await archived(BUILD) });
+  const builds = fakeBucket({
+    [ARCHIVE_KEY]: await archived(build),
+    [SDK_BUNDLE_ARCHIVE_KEYS.browser]: await archivedSdkBundle(BROWSER_SDK_BUNDLE),
+    [SDK_BUNDLE_ARCHIVE_KEYS.workerd]: await archivedSdkBundle(WORKERD_SDK_BUNDLE),
+  });
   const asked: { project: string; draft: string; session: string }[] = [];
   const env = {
     ...fakeEnv({
@@ -663,11 +677,149 @@ describe("preparing a revision", () => {
     expect(builds.gets.filter((key) => key === ARCHIVE_KEY)).toHaveLength(1);
   });
 
+  it("prepares it from the build the API sends, without reading it back", async () => {
+    const { env, builds, fetch } = await previewingEnv();
+    builds.objects.delete(ARCHIVE_KEY);
+
+    const prepared = await new CamoxRevisions(context(env), env).prepare(
+      revision,
+      await archived(BUILD),
+    );
+
+    expect(prepared.definitionSet).toEqual(definitionSet(PREFIX));
+    expect(builds.gets).not.toContain(ARCHIVE_KEY);
+    expect(await (await fetch(`${PREFIX}assets/pricing.css`)).text()).toBe(PRICING_CSS);
+  });
+
   it("fails when its build isn't stored", async () => {
     const { env } = await previewingEnv();
 
     await expect(
       new CamoxRevisions(context(env), env).prepare({ ...revision, archiveKey: "missing.tar.gz" }),
     ).rejects.toThrow("missing.tar.gz");
+  });
+});
+
+describe("a revision built against an SDK Bundle", () => {
+  /** A bundled revision dispatch has prepared, as the API asks once its build passed. */
+  async function prepared() {
+    const previewing = await previewingEnv({ build: BUNDLED_BUILD });
+    const { env } = previewing;
+    await new CamoxRevisions(context(env), env).prepare(revision);
+    return previewing;
+  }
+
+  it("runs with its SDK Bundle's workerd modules beside its build's", async () => {
+    const { fetch } = await prepared();
+
+    const response = await fetch(`/_camox/renderer?camox-draft=${DRAFT}`, {
+      cookie: mirrored(MEMBER_SESSION),
+    });
+
+    expect(await response.text()).toBe(
+      `rendered by the SDK Bundle: the revision under ${PREFIX} at /_camox/renderer?camox-draft=${DRAFT}`,
+    );
+  });
+
+  it("reads its SDK Bundle's modules once for every revision naming it", async () => {
+    const { env, builds } = await previewingEnv({ build: BUNDLED_BUILD });
+    const other = { ...revision, revision: "0195f2a4-9b8c-7d6e-8f00-778899aabbcc" };
+    builds.objects.set(other.archiveKey, builds.objects.get(ARCHIVE_KEY)!);
+
+    await new CamoxRevisions(context(env), env).prepare(revision);
+    await new CamoxRevisions(context(env), env).prepare(other);
+
+    expect(builds.gets.filter((key) => key === SDK_BUNDLE_ARCHIVE_KEYS.workerd)).toHaveLength(1);
+  });
+
+  it("never replaces a stored SDK Bundle's files when revisions naming it are prepared at once", async () => {
+    const { env, builds } = await previewingEnv({ build: BUNDLED_BUILD });
+    const other = { ...revision, revision: "0195f2a4-9b8c-7d6e-8f00-778899aabbcc" };
+    builds.objects.set(other.archiveKey, builds.objects.get(ARCHIVE_KEY)!);
+
+    await Promise.all(
+      [revision, other].map((toPrepare) =>
+        new CamoxRevisions(context(env), env).prepare(toPrepare),
+      ),
+    );
+
+    expect(builds.replaced.filter((key) => key.startsWith("sdk/"))).toEqual([]);
+  });
+
+  it("serves its SDK Bundle's browser files to anyone, for good", async () => {
+    const { fetch } = await prepared();
+
+    const response = await fetch(`/_camox/sdk/${SDK_BUNDLE.browser}/camox-studio-Q2x8.css`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^text\/css/);
+    expect(response.headers.get("cache-control")).toContain("immutable");
+    expect(await response.text()).toBe(STUDIO_CSS);
+  });
+
+  it("serves its SDK Bundle's browser files on another project's host too", async () => {
+    const { env } = await prepared();
+    const slugs: Record<string, string> = { acme: PROJECT, globex: OTHER_PROJECT };
+    (env as unknown as { PROJECT_SLUGS: unknown }).PROJECT_SLUGS = fakeProjectHosts(slugs);
+
+    const response = await worker.fetch(
+      new Request(`https://globex.camox.site/_camox/sdk/${SDK_BUNDLE.browser}/entry.mjs`),
+      env,
+      context(env),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^text\/javascript/);
+  });
+
+  it("doesn't serve its SDK Bundle's workerd half", async () => {
+    const { fetch } = await prepared();
+
+    const response = await fetch(`/_camox/sdk/${SDK_BUNDLE.workerd}/entry.mjs`);
+
+    // Live's Worker answers, which holds no workerd modules among its assets.
+    expect(await response.text()).toBe(
+      `Live's code at /_camox/sdk/${SDK_BUNDLE.workerd}/entry.mjs`,
+    );
+  });
+
+  it("answers a path its SDK Bundle has no file at with not found", async () => {
+    const { fetch } = await prepared();
+
+    const response = await fetch(`/_camox/sdk/${SDK_BUNDLE.browser}/missing.mjs`);
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("Live's code");
+  });
+});
+
+describe("a whole-app revision", () => {
+  it("is prepared and runs without reading any SDK Bundle", async () => {
+    const { env, builds, fetch } = await previewingEnv();
+
+    await new CamoxRevisions(context(env), env).prepare(revision);
+    const response = await fetch(`/_camox/renderer?camox-draft=${DRAFT}`, {
+      cookie: mirrored(MEMBER_SESSION),
+    });
+
+    expect(await response.text()).toBe(
+      `The revision under ${PREFIX} at /_camox/renderer?camox-draft=${DRAFT}`,
+    );
+    expect(builds.gets.filter((key) => key.startsWith("sdk/"))).toEqual([]);
+  });
+});
+
+describe("Live built against an SDK Bundle", () => {
+  it("serves an SDK Bundle's files from Live's Worker when no revision naming it was prepared", async () => {
+    // As after an Upgrade's release: Live's Worker holds the bundle as its static assets.
+    const { fetch } = await previewingEnv({ build: BUNDLED_BUILD });
+
+    const response = await fetch(`/_camox/sdk/${SDK_BUNDLE.browser}/entry.mjs`, {
+      cookie: mirrored(MEMBER_SESSION),
+    });
+
+    expect(await response.text()).toBe(
+      `Live's code at /_camox/sdk/${SDK_BUNDLE.browser}/entry.mjs`,
+    );
   });
 });

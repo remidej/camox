@@ -1,3 +1,8 @@
+import {
+  SDK_BUNDLE_BUILD_MANIFEST,
+  sdkBundleMissingLine,
+  sdkBundleName,
+} from "camox/_internal/sdkBundleName";
 // Fakes for the release, creation, deletion and upgrade Workflows' Cloudflare Artifacts, sandbox
 // and email bindings, the revision sandboxes the agent's builds run in, and the Cloudflare API
 // they call, run by the integration tests as an auxiliary Worker (vite.config.ts), which bundles
@@ -219,15 +224,190 @@ export class FakeArtifacts extends WorkerEntrypoint {
 export class FakeSandbox extends DurableObject {
   /** @type {string | undefined} */
   repo;
+  /** Its name, as `getSandbox` gives it. */
+  name = "";
+  /** @type {Map<string, string>} the files written to it, by path */
+  files = new Map();
+  /** @type {Map<string, Uint8Array>} the files of `files` that are bytes, such as archives */
+  binaries = new Map();
+  /** Whether a workspace snapshot was restored into it. */
+  restoredBackup = false;
+  /** @type {string[]} the commands it ran outside a step, as an SDK Bundle's build runs them */
+  commands = [];
 
-  async configure() {}
+  async configure(configuration = {}) {
+    if (configuration.sandboxName) this.name = configuration.sandboxName.name;
+  }
 
-  /** @param {string} command */
-  async execWithSessionToken(command) {
+  async writeFile(path, content) {
+    if (typeof content === "string") {
+      this.files.set(path, content);
+    } else {
+      const bytes = new Uint8Array(await new Response(content).arrayBuffer());
+      this.binaries.set(path, bytes);
+      this.files.set(path, new TextDecoder().decode(bytes));
+    }
+    return { success: true, path, timestamp: "" };
+  }
+
+  /** @param {string} path a file, or a folder holding one */
+  async exists(path) {
+    const exists = [...this.files.keys()].some(
+      (file) => file === path || file.startsWith(`${path}/`),
+    );
+    return { success: true, path, exists, timestamp: "" };
+  }
+
+  /** Whether the website's camox in `folder` builds against an SDK Bundle. */
+  #buildsAgainstSdkBundle(folder = WORKSPACE) {
+    return [...this.files].some(
+      ([path, content]) =>
+        path.startsWith(`${folder.replace(/\/$/, "")}/`) &&
+        sdkBundleSwitchedOn.some((marker) => content.includes(marker)),
+    );
+  }
+
+  /**
+   * What `camox release` finds in its SDK Bundle cache: each folder's manifest, by its name. A
+   * website whose camox builds against an SDK Bundle fails without both of its targets there.
+   * @param {string} command
+   * @param {Record<string, string>} env
+   */
+  async #releaseSdkBundleCache(command, env) {
+    const cache = env.CAMOX_INTERNAL_SDK_BUNDLE_CACHE;
+    /** @type {Record<string, string>} */
+    const cached = {};
+    for (const [path, content] of this.files) {
+      const name = cache && new RegExp(`^${cache}/([^/]+)/sdk-bundle\\.json$`).exec(path)?.[1];
+      if (name) cached[name] = content;
+    }
+    if (!this.#buildsAgainstSdkBundle()) return { cached, missing: false };
+    // An Upgrade's build first copies back the files its update saved (`buildCommand`).
+    const folder = command.includes(".camox-upgrade") ? `${WORKSPACE}/.camox-upgrade` : WORKSPACE;
+    const lockfile = this.files.get(`${folder}/pnpm-lock.yaml`) ?? "";
+    const names = await Promise.all(
+      ["browser", "workerd"].map((target) =>
+        sdkBundleName({ lockfile, target, settings: HOSTED_SETTINGS }),
+      ),
+    );
+    return { cached, missing: names.some((name) => cached[name] === undefined) };
+  }
+
+  async readFile(path = "", options = {}) {
+    const content = this.files.get(path);
+    if (content === undefined) return { content: "" };
+    return {
+      success: true,
+      path,
+      content:
+        options.encoding === "base64"
+          ? toBase64(this.binaries.get(path) ?? new TextEncoder().encode(content))
+          : content,
+      encoding: options.encoding === "base64" ? "base64" : "utf-8",
+      timestamp: "",
+    };
+  }
+
+  /**
+   * @param {string} command
+   * @param {unknown} _session
+   * @param {{ env?: Record<string, string>, cwd?: string }} options
+   */
+  async execWithSessionToken(command, _session, options = {}) {
     this.repo ??= REMOTE.exec(command)?.[1];
+    const result = (exitCode, stdout = "") => ({
+      success: exitCode === 0,
+      exitCode,
+      stdout,
+      stderr: "",
+      command,
+    });
     // Not a FUSE device, the way a local container answers `test -c /dev/fuse`.
-    const exitCode = command.startsWith("test -c /dev/fuse") ? 1 : 0;
-    return { success: exitCode === 0, exitCode, stdout: "", stderr: "", command };
+    if (command.startsWith("test -c /dev/fuse")) return result(1);
+    const checkout = CHECKOUT_COMMAND.exec(command);
+    if (checkout && this.repo) {
+      // The commit's files, over what a restored snapshot left.
+      const files =
+        repos.get(this.repo)?.get(checkout[1]) ?? (await gitFiles(this.repo, checkout[1]));
+      for (const [path, content] of Object.entries(files ?? {})) {
+        if (typeof content === "string") this.files.set(`${WORKSPACE}/${path}`, content);
+      }
+    }
+    if (this.repo) return result(0);
+    this.commands.push(command);
+    if (SDK_BUNDLE_BUILD_COMMAND.test(command))
+      return result(0, await this.#buildSdkBundle(options));
+    // Whether the camox installed where it runs builds against an SDK Bundle, as it answers.
+    if (SDK_BUNDLE_SWITCH_PROBE.test(command)) {
+      const switchedOn = this.#buildsAgainstSdkBundle(options.cwd);
+      return result(0, switchedOn ? "sdk-bundle\n" : "whole-app\n");
+    }
+    const removed = /^rm -rf (\S+)$/.exec(command);
+    if (removed) {
+      for (const path of this.files.keys()) {
+        if (path === removed[1] || path.startsWith(`${removed[1]}/`)) this.files.delete(path);
+      }
+      return result(0);
+    }
+    const unpack = SDK_BUNDLE_UNPACK_COMMAND.exec(command);
+    if (unpack) {
+      const archived = this.binaries.get(unpack[1]);
+      if (archived === undefined) return result(2);
+      if ([...this.files.keys()].some((path) => path.startsWith(`${unpack[3]}/`))) return result(1);
+      const decoder = new TextDecoder();
+      for (const [path, content] of await unpackedSdkBundle(archived)) {
+        this.files.set(`${unpack[3]}/${path}`, decoder.decode(content));
+      }
+      this.files.delete(unpack[1]);
+      this.binaries.delete(unpack[1]);
+      return result(0);
+    }
+    const archive = SDK_BUNDLE_ARCHIVE_COMMAND.exec(command);
+    if (archive) {
+      const [, file, target] = archive;
+      const build = sdkBundleBuilds.findLast(({ sandbox }) => sandbox === this.name);
+      if (!build?.names) return result(2);
+      const manifest = `SDK Bundle ${build.names[target]}, built in ${this.name}`;
+      this.files.set(file, manifest);
+      this.binaries.set(file, await fakeSdkBundleArchive(manifest));
+    }
+    return result(0);
+  }
+
+  /**
+   * Builds the SDK Bundle of the website installed in `cwd`, as the website's camox would: named
+   * from its lockfile and the settings it's given. Prints the builder's report.
+   * @param {{ env?: Record<string, string>, cwd?: string }} options
+   */
+  async #buildSdkBundle({ cwd = "", env = {} }) {
+    const folder = `${cwd.replace(/\/$/, "")}/`;
+    const written = Object.fromEntries(
+      [...this.files]
+        .filter(([path]) => path.startsWith(folder))
+        .map(([path, content]) => [path.slice(folder.length), content]),
+    );
+    const build = {
+      order: order(),
+      sandbox: this.name,
+      written,
+      commands: [...this.commands],
+      restoredBackup: this.restoredBackup,
+      names: null,
+    };
+    sdkBundleBuilds.push(build);
+    const lockfile = written["pnpm-lock.yaml"] ?? "";
+    const held = () =>
+      heldSdkBundleMarkers.some((marker) => lockfile.includes(marker)) &&
+      !letGoSdkBundleSandboxes.has(this.name);
+    // Polled: a promise resolved from the request letting go wouldn't wake this one.
+    while (held()) await scheduler.wait(10);
+    const settings = JSON.parse(env.CAMOX_SDK_BUNDLE_SETTINGS ?? "{}");
+    const name = (target) => sdkBundleName({ lockfile, target, settings });
+    build.names = forgedSdkBundleNames.find(({ marker }) => lockfile.includes(marker))?.names ?? {
+      browser: await name("browser"),
+      workerd: await name("workerd"),
+    };
+    return `vite v8.0.0 building for production...\ncamox-sdk-bundle: ${JSON.stringify(build.names)}\n`;
   }
 
   /**
@@ -238,14 +418,23 @@ export class FakeSandbox extends DurableObject {
     const command = WRAPPED.exec(wrapped)?.[1] ?? wrapped;
     const repo = this.repo ?? "";
     const run = commandsRun.get(repo) ?? [];
-    run.push({ command, env: { ...options.env }, order: order() });
+    const sdkBundle = /\bcamox release\b/.test(command)
+      ? await this.#releaseSdkBundleCache(command, options.env ?? {})
+      : null;
+    run.push({
+      command,
+      env: { ...options.env },
+      order: order(),
+      ...(sdkBundle ? { sdkBundleCache: sdkBundle.cached } : {}),
+    });
     commandsRun.set(repo, run);
 
     const failure = failures.get(repo)?.find(({ pattern, times }) => {
       return times > 0 && command.includes(pattern);
     });
     if (failure) failure.times -= 1;
-    const exitCode = failure ? 1 : 0;
+    const exitCode = failure || sdkBundle?.missing ? 1 : 0;
+    if (exitCode === 0 && command.includes("npm pkg set")) this.#update(repo, command);
     // A release's deploy replaces the project's Worker, named after its Project ID.
     if (exitCode === 0 && /\bwrangler deploy\b/.test(command)) {
       deployUserWorker(repo, `release of ${repo}`);
@@ -268,11 +457,32 @@ export class FakeSandbox extends DurableObject {
     };
   }
 
-  async createBackup({ dir }) {
-    return { id: crypto.randomUUID(), dir, localBucket: true };
+  /**
+   * What an Upgrade's update step leaves, as its command would (`updateCommand`): the Camox
+   * packages set in `package.json`, the lockfile the install resolves, and both saved in
+   * `.camox-upgrade/`.
+   * @param {string} repo
+   * @param {string} command
+   */
+  #update(repo, command) {
+    const manifest = upgradedManifest(this.files.get(`${WORKSPACE}/package.json`) ?? "{}", command);
+    const lockfile =
+      installsResolving.get(repo) ?? this.files.get(`${WORKSPACE}/pnpm-lock.yaml`) ?? "";
+    for (const folder of [WORKSPACE, `${WORKSPACE}/.camox-upgrade`]) {
+      this.files.set(`${folder}/package.json`, manifest);
+      this.files.set(`${folder}/pnpm-lock.yaml`, lockfile);
+    }
   }
 
-  async restoreBackup() {
+  async createBackup({ dir }) {
+    const id = crypto.randomUUID();
+    backups.set(id, new Map(this.files));
+    return { id, dir, localBucket: true };
+  }
+
+  async restoreBackup({ id }) {
+    this.restoredBackup = true;
+    this.files = new Map(backups.get(id) ?? []);
     return { success: true };
   }
 
@@ -280,12 +490,68 @@ export class FakeSandbox extends DurableObject {
     return { files: [] };
   }
 
-  async readFile() {
-    return { content: "" };
+  async destroy() {
+    this.files.clear();
+    this.binaries.clear();
   }
-
-  async destroy() {}
 }
+
+/**
+ * A fake SDK Bundle's archive, as ensuring one stores it: a gzipped tar of a folder whose
+ * `sdk-bundle.json` is `manifest`, beside an entry module.
+ * @param {string} manifest
+ */
+async function fakeSdkBundleArchive(manifest) {
+  const encoder = new TextEncoder();
+  const archive = tar(
+    Object.entries({ "sdk-bundle.json": manifest, "entry.mjs": `// ${manifest}\n` }).map(
+      ([path, content]) => ({ path: `./${path}`, mode: 0o644, content: encoder.encode(content) }),
+    ),
+  );
+  return new Uint8Array(
+    await new Response(
+      new Blob([archive]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer(),
+  );
+}
+
+/**
+ * The files of an SDK Bundle's archive, by path from its folder, as `tar -xzf` unpacks them.
+ * @param {Uint8Array} archive
+ */
+function unpackedSdkBundle(archive) {
+  return untarGzip(new Blob([archive]).stream());
+}
+
+/** Where `@cloudflare/ci` checks a step's commit out. */
+const WORKSPACE = "/workspace";
+/** `@cloudflare/ci`'s checkout of a step's commit, quoted or not. */
+const CHECKOUT_COMMAND = /fetch --depth=1 origin '?([0-9a-f]{40})'?/;
+/** @type {Map<string, Map<string, string>>} a step's workspace snapshot, by its id */
+const backups = new Map();
+/** @type {Map<string, string>} repo name → the lockfile `pnpm install` resolves in its upgrade */
+const installsResolving = new Map();
+
+/** Asking the website's camox whether it builds against an SDK Bundle (`domains/sdk-bundles`). */
+const SDK_BUNDLE_SWITCH_PROBE = /\bCAMOX_SDK_BUNDLE_PROBE\b/;
+/** An SDK Bundle's build: the builder, run from the website's folder (`domains/sdk-bundles`). */
+const SDK_BUNDLE_BUILD_COMMAND = /\bCAMOX_SDK_BUNDLE_BUILDER\b/;
+/** An archive of one target's folder of a built SDK Bundle. */
+const SDK_BUNDLE_ARCHIVE_COMMAND = /-cf (\S+) -C \S*\/(browser|workerd) /;
+/**
+ * @type {{ sandbox: string, written: Record<string, string>, commands: string[], restoredBackup: boolean, names: Record<string, string> | null }[]}
+ * every SDK Bundle's build, in the order they started
+ */
+const sdkBundleBuilds = [];
+/** @type {string[]} SDK Bundle builds wait while their lockfile contains one of these */
+const heldSdkBundleMarkers = [];
+/**
+ * @type {{ marker: string, names: Record<string, string> }[]} SDK Bundle builds whose lockfile
+ * contains `marker` report `names`, as a forked camox could
+ */
+const forgedSdkBundleNames = [];
+/** @type {Set<string>} sandboxes whose held SDK Bundle build was let go */
+const letGoSdkBundleSandboxes = new Set();
 
 /**
  * What an Upgrade's push step does to a Git repo, as its commands would (the upgrade project
@@ -304,20 +570,29 @@ async function upgradePush(repo, command, run) {
     built ? gitFiles(repo, built) : null,
   ]);
   if (!main || !at) return 1;
-  const manifest = JSON.parse(at["package.json"] ?? "{}");
   const set = run.findLast((ran) => ran.command.includes("npm pkg set"))?.command ?? "";
-  for (const [, section, name, version] of set.matchAll(
-    /(dependencies|devDependencies)\.(\S+?)=(\S+)/g,
-  )) {
-    manifest[section] = { ...manifest[section], [name]: version };
-  }
-  const upgraded = `${JSON.stringify(manifest, null, 2)}\n`;
+  const upgraded = upgradedManifest(at["package.json"] ?? "{}", set);
   if (main["package.json"] === upgraded) return 0;
   const platform = ["package.json", "pnpm-lock.yaml"];
   if (platform.some((path) => main[path] !== at[path])) return 1;
   const message = /git commit -q -m "([^"]+)"/.exec(command)?.[1] ?? "Upgrade";
   await commitFiles(repo, { ...main, "package.json": upgraded }, message);
   return 0;
+}
+
+/**
+ * A `package.json` as `npm pkg set` leaves it, with the versions the command sets.
+ * @param {string} packageJson
+ * @param {string} command
+ */
+function upgradedManifest(packageJson, command) {
+  const manifest = JSON.parse(packageJson);
+  for (const [, section, name, version] of command.matchAll(
+    /(dependencies|devDependencies)\.(\S+?)=(\S+)/g,
+  )) {
+    manifest[section] = { ...manifest[section], [name]: version };
+  }
+  return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 /**
@@ -404,9 +679,25 @@ const buildsAtOnce = new Map();
  * Where the image of a revision sandbox records the lockfile it installed the Template from, as
  * the release sandbox's Dockerfile writes it.
  */
-const IMAGE_INSTALLED_LOCKFILE = "/opt/camox/website/node_modules/.camox-installed-lockfile";
+/** Where a revision sandbox builds the website's files. */
+const REVISION_WORKSPACE = "/opt/camox/website";
+const IMAGE_INSTALLED_LOCKFILE = `${REVISION_WORKSPACE}/node_modules/.camox-installed-lockfile`;
 /** @type {string | null} the digest a new revision sandbox's image says it installed, if a test gave it one */
 let imageInstalledLockfile = null;
+/** @type {string[]} builds of a tree with a file holding one of these build against an SDK Bundle, as with #674's switch on */
+const sdkBundleSwitchedOn = [];
+/**
+ * The settings a hosted website's `camox()` compiles into its SDK Bundle: its defaults, as the
+ * platform-owned `vite.config.ts` sets none of them.
+ */
+const HOSTED_SETTINGS = {
+  iconIds: [],
+  telemetryDisabled: false,
+  experimentalFeatures: false,
+  apiUrl: "https://api.camox.ai",
+};
+/** Unpacking a stored SDK Bundle's archive into a build's bundle cache, then naming its folder. */
+const SDK_BUNDLE_UNPACK_COMMAND = /\btar -xzf (\S+) -C (\S+) .*\bmv -T \2 (\S+)/;
 /** @type {Set<string>} the revision sandboxes whose builds are held, as builds still running */
 const heldBuilds = new Set();
 /** @type {Set<string>} the revision sandboxes whose type checks are held, as checks still running */
@@ -473,6 +764,15 @@ export class FakeRevisionSandbox extends DurableObject {
   tree = {};
   /** Whether the last build passed. */
   built = false;
+  /** @type {{ browser: string, workerd: string } | null} the SDK Bundle the last build named */
+  sdkBundle = null;
+
+  /** Whether the website's camox in the workspace builds against an SDK Bundle. */
+  #buildsAgainstSdkBundle() {
+    return sdkBundleSwitchedOn.some((marker) =>
+      Object.values(this.tree).some((content) => content.includes(marker)),
+    );
+  }
 
   /** @param {Uint8Array} [incoming] a file being written, the tree's archive among them */
   #crash(incoming) {
@@ -537,7 +837,13 @@ export class FakeRevisionSandbox extends DurableObject {
 
   async readFile(path, options = {}) {
     this.#crash();
-    const bytes = this.files.get(path);
+    // The workspace's files are the tree last extracted into it.
+    const extracted = path.startsWith(`${REVISION_WORKSPACE}/`)
+      ? this.tree[path.slice(REVISION_WORKSPACE.length + 1)]
+      : undefined;
+    const bytes =
+      this.files.get(path) ??
+      (extracted === undefined ? undefined : new TextEncoder().encode(extracted));
     if (!bytes) throw new Error(`File not found: ${path}`);
     const base64 = options.encoding === "base64";
     return {
@@ -602,6 +908,29 @@ export class FakeRevisionSandbox extends DurableObject {
       const builds = revisionBuilds.get(this.name) ?? [];
       builds.push({ sandbox: this.name, files: this.tree, archive: null });
       revisionBuilds.set(this.name, builds);
+      this.sdkBundle = null;
+      if (this.#buildsAgainstSdkBundle()) {
+        // As a hosted build with the switch on: it names its bundle from the workspace's
+        // lockfile and fails before bundling, whatever its code, unless the bundle's cache
+        // holds both targets.
+        const lockfile = this.tree["pnpm-lock.yaml"] ?? "";
+        const names = {
+          browser: await sdkBundleName({ lockfile, target: "browser", settings: HOSTED_SETTINGS }),
+          workerd: await sdkBundleName({ lockfile, target: "workerd", settings: HOSTED_SETTINGS }),
+        };
+        const cache = options.env?.CAMOX_INTERNAL_SDK_BUNDLE_CACHE;
+        const cached = Object.values(names).every(
+          (name) => cache && this.files.has(`${cache}/${name}/sdk-bundle.json`),
+        );
+        if (!cached) {
+          this.built = false;
+          return result(
+            1,
+            `error during build:\nSdkBundleMissingError: The SDK Bundle isn't in its cache.\n${sdkBundleMissingLine(names)}\n`,
+          );
+        }
+        this.sdkBundle = names;
+      }
       this.built = !failing;
       return failing ? result(1, failing.log) : result(0);
     }
@@ -657,9 +986,27 @@ export class FakeRevisionSandbox extends DurableObject {
     if (archive) {
       if (!this.built) return result(2, "tar: dist: Cannot stat: No such file or directory");
       const build = `fake build of ${await treeOf(this.tree)}`;
-      const bytes = await fakeBuildArchive(build, this.tree);
+      const bytes = await fakeBuildArchive(build, this.tree, this.sdkBundle);
       this.files.set(archive[1], bytes);
       Object.assign(revisionBuilds.get(this.name).at(-1), { archive: [...bytes], build });
+      // As `cat dist/*/camox-sdk-bundle.json` prints it, when the command reads it.
+      const manifest =
+        command.includes(SDK_BUNDLE_BUILD_MANIFEST) && this.sdkBundle
+          ? JSON.stringify(this.sdkBundle)
+          : "";
+      return result(0, "", manifest);
+    }
+    const unpack = SDK_BUNDLE_UNPACK_COMMAND.exec(command);
+    if (unpack) {
+      const archived = this.files.get(unpack[1]);
+      if (!archived) return result(2, `tar: ${unpack[1]}: Cannot open: No such file or directory`);
+      if ([...this.files.keys()].some((path) => path.startsWith(`${unpack[3]}/`))) {
+        return result(1, `mv: cannot move '${unpack[2]}' to '${unpack[3]}': Directory not empty`);
+      }
+      for (const [path, content] of await unpackedSdkBundle(archived)) {
+        this.files.set(`${unpack[3]}/${path}`, content);
+      }
+      this.files.delete(unpack[1]);
       return result(0);
     }
     return result(0);
@@ -697,8 +1044,9 @@ const DEFINITION_SET_FILE = "dist/fake-definition-set.json";
  * (`configureBuildsOf`).
  * @param {string} build
  * @param {Record<string, string>} tree
+ * @param {{ browser: string, workerd: string } | null} sdkBundle the SDK Bundle the build names, if any
  */
-async function fakeBuildArchive(build, tree) {
+async function fakeBuildArchive(build, tree, sdkBundle = null) {
   const configured = configuredBuilds.findLast(({ marker }) =>
     Object.values(tree).some((content) => content.includes(marker)),
   );
@@ -724,6 +1072,7 @@ async function fakeBuildArchive(build, tree) {
     "dist/client/_headers": "/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n",
     "dist/client/.assetsignore": "wrangler.json\n.dev.vars\n",
     [DEFINITION_SET_FILE]: JSON.stringify(definitionSetOf(tree)),
+    ...(sdkBundle ? { [`dist/acme/${SDK_BUNDLE_BUILD_MANIFEST}`]: JSON.stringify(sdkBundle) } : {}),
   };
   const encoder = new TextEncoder();
   const archive = tar(
@@ -765,14 +1114,25 @@ export class FakeDispatch extends WorkerEntrypoint {
     return JSON.parse(new TextDecoder().decode(files.get(DEFINITION_SET_FILE)));
   }
 
-  /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
-  async prepare(revision) {
+  /**
+   * Prepares a revision from `archive`, the build the API sends, or else from its build in
+   * `REVISION_BUILDS`.
+   * @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision
+   * @param {Uint8Array} [archive]
+   */
+  async prepare(revision, archive) {
     const failures = prewarmFailures.get(revision.project) ?? 0;
     if (failures > 0) {
       prewarmFailures.set(revision.project, failures - 1);
       throw new Error("Network connection lost.");
     }
-    const definitionSet = await this.readDefinitionSet(revision);
+    const definitionSet = archive
+      ? JSON.parse(
+          new TextDecoder().decode(
+            (await untarGzip(new Response(archive).body)).get(DEFINITION_SET_FILE),
+          ),
+        )
+      : await this.readDefinitionSet(revision);
     // Dispatch stores the revision's client assets where its asset prefix serves them from.
     await this.env.REVISION_BUILDS.put(
       `${revision.project}/revisions/${revision.revision}/#assets`,
@@ -846,6 +1206,52 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} repo */
   async letGo(repo) {
     held.delete(repo);
+  }
+
+  /**
+   * Makes `pnpm install` in the repo's upgrade write `lockfile`, as resolving the new SDK would.
+   * @param {string} repo
+   * @param {string} lockfile
+   */
+  async installResolves(repo, lockfile) {
+    installsResolving.set(repo, lockfile);
+  }
+
+  /**
+   * Makes the website's camox build every tree with a file holding `marker` against an SDK
+   * Bundle, as with the switch on (#674): it names its bundle, which must be in its cache.
+   * @param {string} marker
+   */
+  async buildAgainstSdkBundlesOf(marker) {
+    sdkBundleSwitchedOn.push(marker);
+  }
+
+  /** Every SDK Bundle's build, in the order they started, without what it built. */
+  async sdkBundleBuilds() {
+    return sdkBundleBuilds.map(({ names: _names, ...build }) => build);
+  }
+
+  /**
+   * Makes the SDK Bundle builds whose lockfile contains `marker` wait until they're let go.
+   * @param {string} marker
+   */
+  async holdSdkBundleBuildsOf(marker) {
+    heldSdkBundleMarkers.push(marker);
+  }
+
+  /**
+   * Makes the SDK Bundle builds whose lockfile contains `marker` report, and archive under,
+   * `names` instead of their own, as a lockfile pointing at a forked camox could.
+   * @param {string} marker
+   * @param {Record<string, string>} names
+   */
+  async forgeSdkBundleNamesOf(marker, names) {
+    forgedSdkBundleNames.push({ marker, names });
+  }
+
+  /** @param {string} sandbox Lets the held SDK Bundle build in `sandbox` finish. */
+  async letGoSdkBundleBuild(sandbox) {
+    letGoSdkBundleSandboxes.add(sandbox);
   }
 
   /** @param {string} repo */

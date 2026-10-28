@@ -9,6 +9,8 @@ type Bundle = Record<
 /** Where the client build puts the files it names by their content's hash. */
 const HASHED_DIRS = ["assets", "_chunks"] as const;
 const IMMUTABLE = "public, max-age=31536000, immutable";
+/** Where a build against an SDK Bundle serves its files, under the bundle's name (ADR 0029). */
+const SDK_BUNDLE_DIR = "_camox/sdk";
 /** Workers Static Assets reads at most this many rules. */
 const MAX_RULES = 100;
 
@@ -16,20 +18,25 @@ const MAX_RULES = 100;
  * The `_headers` file Workers Static Assets serves the client build with. Files under
  * `/assets/` and `/_chunks/` are named by their content's hash, so browsers keep them for good;
  * the files there named otherwise, the entry chunks pages load by a fixed name and whatever the
- * app's public directory puts there, keep the default, which revalidates. The app's own
- * `_headers` comes first, as it wrote it.
+ * app's public directory puts there, keep the default, which revalidates. A build against an
+ * SDK Bundle has its files under `/_camox/sdk/<name>/`, which never change under a name either.
+ * The app's own `_headers` comes first, as it wrote it.
  */
 export function staticAssetHeaders({
   ownHeaders,
   unhashedFiles,
+  sdkBundle = false,
 }: {
   /** The app's own `_headers`, from its public directory. */
   ownHeaders?: string;
   /** The files under the hashed directories not named by their hash, relative to the root. */
   unhashedFiles: readonly string[];
+  /** Whether the build is against an SDK Bundle, rather than whole-app. */
+  sdkBundle?: boolean;
 }): string {
+  const immutableDirs = sdkBundle ? [...HASHED_DIRS, SDK_BUNDLE_DIR] : HASHED_DIRS;
   const rules = [
-    ...HASHED_DIRS.map((dir) => `/${dir}/*\n  Cache-Control: ${IMMUTABLE}`),
+    ...immutableDirs.map((dir) => `/${dir}/*\n  Cache-Control: ${IMMUTABLE}`),
     ...[...unhashedFiles].sort().map((file) => `/${file}\n  ! Cache-Control`),
   ];
   const own = ownHeaders?.trimEnd();

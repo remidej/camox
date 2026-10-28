@@ -162,6 +162,8 @@ export function fakeBucket(initial: Record<string, Uint8Array> = {}) {
     Object.entries(initial).map(([key, body]) => [key, { body }]),
   );
   const gets: string[] = [];
+  /** The keys whose stored bytes a put replaced. */
+  const replaced: string[] = [];
   const bucket = {
     get: async (key: string, options?: { range?: { offset: number; length: number } }) => {
       gets.push(key);
@@ -176,16 +178,24 @@ export function fakeBucket(initial: Record<string, Uint8Array> = {}) {
         httpEtag: `"${key.length}"`,
       };
     },
+    head: async (key: string) => (objects.has(key) ? { key } : null),
     put: async (
       key: string,
       value: Uint8Array | string,
-      options?: { httpMetadata?: { contentType?: string } },
+      options?: {
+        httpMetadata?: { contentType?: string };
+        onlyIf?: { etagDoesNotMatch?: string };
+      },
     ) => {
+      // As R2 does: `etagDoesNotMatch: "*"` writes only when nothing has the key.
+      if (objects.has(key) && options?.onlyIf?.etagDoesNotMatch === "*") return null;
+      if (objects.has(key)) replaced.push(key);
       const body = typeof value === "string" ? new TextEncoder().encode(value) : value;
       objects.set(key, { body, contentType: options?.httpMetadata?.contentType });
+      return { key };
     },
   };
-  return { objects, gets, bucket: bucket as unknown as R2Bucket };
+  return { objects, gets, replaced, bucket: bucket as unknown as R2Bucket };
 }
 
 /**
@@ -205,4 +215,57 @@ export function context(env: Env, props: unknown = {}): ExecutionContext {
     waitUntil: () => {},
     passThroughOnException: () => {},
   } as unknown as ExecutionContext;
+}
+
+/** The SDK Bundle a bundled build names (ADR 0029), one name per target. */
+export const SDK_BUNDLE = {
+  browser: "0123456789abcdef0123456789abcdef",
+  workerd: "fedcba9876543210fedcba9876543210",
+};
+export const SDK_BUNDLE_ARCHIVE_KEYS = {
+  browser: `sdk/${SDK_BUNDLE.browser}.tar.gz`,
+  workerd: `sdk/${SDK_BUNDLE.workerd}.tar.gz`,
+};
+
+/** The SDK Bundle's workerd half, as `buildSdkBundle` leaves its folder. */
+export const WORKERD_SDK_BUNDLE: Record<string, string> = {
+  "entry.mjs": `export { greeting } from "./chunks/greeting.mjs";\n`,
+  "chunks/greeting.mjs": `export const greeting = "rendered by the SDK Bundle";\n`,
+  "sdk-bundle.json": JSON.stringify({ name: SDK_BUNDLE.workerd, target: "workerd" }),
+};
+
+export const STUDIO_CSS = ".camox-studio { color: plum }\n";
+
+/** The SDK Bundle's browser half. */
+export const BROWSER_SDK_BUNDLE: Record<string, string> = {
+  "entry.mjs": `export const camox = "in the browser";\n`,
+  "camox-studio-Q2x8.css": STUDIO_CSS,
+  "sdk-bundle.json": JSON.stringify({ name: SDK_BUNDLE.browser, target: "browser" }),
+};
+
+/**
+ * A build against `SDK_BUNDLE`, as `vp build` leaves it with the switch on: its server build
+ * names the bundle beside its `wrangler.json`, and imports the bundle's workerd entry from the
+ * root of its folder.
+ */
+export const BUNDLED_BUILD: Record<string, string> = {
+  ...BUILD,
+  "dist/acme_website/camox-sdk-bundle.json": JSON.stringify(SDK_BUNDLE),
+  "dist/acme_website/index.js": BUILD["dist/acme_website/index.js"]!.replace(
+    `const prefix`,
+    `import { greeting } from "./_camox/sdk/${SDK_BUNDLE.workerd}/entry.mjs";\nconst prefix`,
+  ).replace(`"The revision under "`, `greeting + ": the revision under "`),
+};
+
+/** A target's folder of an SDK Bundle archived as ensuring it stores it: `tar -czf … -C <dir> .`. */
+export async function archivedSdkBundle(files: Record<string, string>) {
+  const dir = await mkdtemp(join(tmpdir(), "camox-sdk-bundle-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  await mkdir(join(dir, "out"));
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(dir, "out", path)), { recursive: true });
+    await writeFile(join(dir, "out", path), content);
+  }
+  await promisify(execFile)("tar", ["-czf", "bundle.tar.gz", "-C", "out", "."], { cwd: dir });
+  return new Uint8Array(await readFile(join(dir, "bundle.tar.gz")));
 }
