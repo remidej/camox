@@ -24,10 +24,11 @@ export type Project = Omit<ListedProject, "homepageOgImageUrl">;
 // Favicons live in R2 keyed by projectId, served via a public endpoint with a
 // short cache. `updatedAt` from the project row drives the cache-bust query
 // param: when we upload or delete, the API bumps `projects.updatedAt`, which
-// flows through React Query and changes this URL on the next render.
+// flows through React Query and changes this URL on the next render. A project
+// without its own favicon gets the default one, as on its website.
 
 const FAVICON_API_BASE = `${import.meta.env.VITE_API_URL!}/favicons`;
 
 export function getFaviconUrl(project: { id: number; updatedAt: number }) {
-  return `${FAVICON_API_BASE}/${project.id}?v=${project.updatedAt}`;
+  return `${FAVICON_API_BASE}/${project.id}?v=${project.updatedAt}&default=camox`;
 }
