@@ -1,7 +1,7 @@
 import { sdkBundleName } from "camox/_internal/sdkBundleName";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { startDraft } from "../../../test/fixtures";
@@ -46,17 +46,26 @@ const SWITCHED_ON = "// built against an SDK Bundle";
  * is no other test's. With `switchedOn`, its builds name that bundle.
  */
 async function websiteWithCode({ switchedOn = true } = {}) {
-  const react = `19.3.${Math.floor(Math.random() * 1e9)}`;
-  const lockfile = websiteLockfile("1.0.0", { react });
+  const lockfile = uniqueLockfile();
   const website = await websiteFixture({ home: "Hello" });
-  await pushToMain(website.project.uuid, {
+  const main = (lockfile: string) => ({
     "package.json": `{ "name": "acme", "dependencies": { "camox": "^1.0.0" } }\n`,
     "pnpm-lock.yaml": lockfile,
     "src/blocks/hero.tsx": `export const hero = "Welcome to Acme"; ${switchedOn ? SWITCHED_ON : ""}\n`,
   });
+  await pushToMain(website.project.uuid, main(lockfile));
   await fakes.buildAgainstSdkBundlesOf(SWITCHED_ON);
-  return { ...website, lockfile };
+  return {
+    ...website,
+    lockfile,
+    /** Pushes `main` again with `lockfile`, as an Upgrade does. */
+    pushLockfile: (lockfile: string) => pushToMain(website.project.uuid, main(lockfile)),
+  };
 }
+
+/** A lockfile resolving a `react` of its own, so its SDK Bundle is no other test's. */
+const uniqueLockfile = () =>
+  websiteLockfile("1.0.0", { react: `19.3.${Math.floor(Math.random() * 1e9)}` });
 
 /** The SDK Bundle's names for `lockfile`, as a hosted website's camox names it. */
 async function namesOf(lockfile: string): Promise<SdkBundleNames> {
@@ -140,6 +149,34 @@ describe("a revision built against an SDK Bundle", () => {
     );
     expect(unpacked).toHaveLength(2);
     expect(new Set(unpacked)).toEqual(new Set([names.browser, names.workerd]));
+  });
+
+  it("fetches the new bundle into the same sandbox when a merge changes the draft's lockfile", async () => {
+    const website = await websiteWithCode();
+    await storeSdkBundle(website.lockfile);
+    const { draftId, thread } = await draftOf(website);
+    await buildTurn(thread, { "src/blocks/pricing.tsx": `export const p = 1;\n` });
+    const upgraded = uniqueLockfile();
+    const names = await storeSdkBundle(upgraded);
+
+    // An Upgrade's push to `main`, which Camox merges into the draft.
+    await website.pushLockfile(upgraded);
+
+    // The turn's build and the merge's, in the draft's one sandbox: neither failed for want of
+    // its bundle.
+    expect(await fakes.revisionBuilds(draftId)).toHaveLength(2);
+    const [revision] = await website.db
+      .select({ sdkBundle: revisions.sdkBundle })
+      .from(revisions)
+      .where(eq(revisions.draftId, draftId))
+      .orderBy(desc(revisions.createdAt))
+      .limit(1);
+    expect(revision!.sdkBundle).toEqual(names);
+    // Its sandbox fetched it from R2: nothing ensured it.
+    const ensured = (await fakes.sdkBundleBuilds()).filter(
+      ({ written }) => written["pnpm-lock.yaml"] === upgraded,
+    );
+    expect(ensured).toEqual([]);
   });
 
   it("ensures a missing bundle, then builds again", async () => {
