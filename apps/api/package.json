@@ -45,6 +45,7 @@
     "outdent": "^0.8.0",
     "partyserver": "^0.5.10",
     "slugify": "^1.6.9",
+    "yaml": "2.9.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

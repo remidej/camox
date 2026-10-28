@@ -63,6 +63,7 @@ import { agentServiceContext } from "../domains/_shared/service-context";
 import { type CheckedLanding, type Landing, landPush } from "../domains/code-pushes/land";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
+import { PLATFORM_SKILLS_SECTION } from "../domains/code/platform-skills";
 import { codeInstructions } from "../domains/code/prompt";
 import { remoteEnv } from "../domains/code/remote-env";
 import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
@@ -465,6 +466,7 @@ export class Thread extends DurableObject<Bindings> {
             tag: false,
           },
           { key: "code", render: () => codeInstructions, tag: false },
+          { key: "skills", render: () => PLATFORM_SKILLS_SECTION, tag: false },
         ],
         tools,
         // Once a script ends, failed or not, the studios hear what its writes touched.
