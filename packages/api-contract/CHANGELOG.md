@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.60.0](https://github.com/remidej/camox/compare/camox-v0.59.0...@camox/api-contract-v0.60.0) (2026-10-28)
+
+
+### Features
+
+* say what the agent does beside its squareling, with a face for each activity ([#686](https://github.com/remidej/camox/issues/686)) ([9760946](https://github.com/remidej/camox/commit/97609460e279d3dcb68ea2ea94ccd263837d4d6b))
+* show the selection in the agent composer and tell the agent about it ([#687](https://github.com/remidej/camox/issues/687)) ([6456d5e](https://github.com/remidej/camox/commit/6456d5edef50cf1595de877b567f5676c1f19403))
+* tell the agent which page the editor is looking at ([#668](https://github.com/remidej/camox/issues/668)) ([f1a2ca7](https://github.com/remidej/camox/commit/f1a2ca7ec0641e2a960a40ff412aca292d8becaf))
+
 ## [0.59.0](https://github.com/remidej/camox/compare/camox-v0.58.1...@camox/api-contract-v0.59.0) (2026-10-28)
 
 

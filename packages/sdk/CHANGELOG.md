@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.60.0](https://github.com/remidej/camox/compare/camox-v0.59.0...camox-sdk-v0.60.0) (2026-10-28)
+
+
+### Features
+
+* revisions build against an SDK Bundle ([#681](https://github.com/remidej/camox/issues/681)) ([b7b39c7](https://github.com/remidej/camox/commit/b7b39c7441fb5a79f93da46ca5520327e712e083))
+* say what the agent does beside its squareling, with a face for each activity ([#686](https://github.com/remidej/camox/issues/686)) ([9760946](https://github.com/remidej/camox/commit/97609460e279d3dcb68ea2ea94ccd263837d4d6b))
+* **sdk:** open a patroller's reports in a popover to the left ([#685](https://github.com/remidej/camox/issues/685)) ([25480db](https://github.com/remidej/camox/commit/25480db12aafad3eb7ec98af48dd2b85a4dcb6a7))
+* **sdk:** reorder social profiles by drag and drop ([#688](https://github.com/remidej/camox/issues/688)) ([fb34563](https://github.com/remidej/camox/commit/fb3456396b1a1ac769c3a5c15ce3d901279c605e))
+* serve camox.ai from its hosted project and remove the framework-era landing ([#682](https://github.com/remidej/camox/issues/682)) ([3d68865](https://github.com/remidej/camox/commit/3d6886564fbdaaf7f6fb6c5fcf6b39394b618a2a)), closes [#663](https://github.com/remidej/camox/issues/663)
+* show the selection in the agent composer and tell the agent about it ([#687](https://github.com/remidej/camox/issues/687)) ([6456d5e](https://github.com/remidej/camox/commit/6456d5edef50cf1595de877b567f5676c1f19403))
+* tell the agent which page the editor is looking at ([#668](https://github.com/remidej/camox/issues/668)) ([f1a2ca7](https://github.com/remidej/camox/commit/f1a2ca7ec0641e2a960a40ff412aca292d8becaf))
+
+
+### Bug Fixes
+
+* **sdk:** sign the studio in on the Worker, without a reload ([#683](https://github.com/remidej/camox/issues/683)) ([b6502d4](https://github.com/remidej/camox/commit/b6502d42517c5c44227ee792caf74a2d76d01693))
+* **sdk:** stop a draft's preview doubling its page when new code arrives ([#680](https://github.com/remidej/camox/issues/680)) ([daa11d5](https://github.com/remidej/camox/commit/daa11d5d787bad5ffc19eec7d5e350ad5afb3bc4))
+* studio navbar keeps draft and locale, plus dashboard touch-ups ([#684](https://github.com/remidej/camox/issues/684)) ([34bffd9](https://github.com/remidej/camox/commit/34bffd9410b7161fc47747476644006bb9ed5dad))
+
 ## [0.59.0](https://github.com/remidej/camox/compare/camox-v0.58.1...camox-sdk-v0.59.0) (2026-10-28)
 
 
