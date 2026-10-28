@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.62.0](https://github.com/remidej/camox/compare/camox-v0.61.0...camox-v0.62.0) (2026-10-28)
+
+
+### Features
+
+* **api:** give the agent platform skills it reads when a task needs them ([#698](https://github.com/remidej/camox/issues/698)) ([438f96f](https://github.com/remidej/camox/commit/438f96fc8e5095f8a3e6e5b73d20582b1a0e8091))
+* make experimental features a Project Setting ([#699](https://github.com/remidej/camox/issues/699)) ([f870808](https://github.com/remidej/camox/commit/f870808e716ab009bcf29b5beb1962790b34f6ae))
+* **template:** add an accent color to the Theme ([#695](https://github.com/remidej/camox/issues/695)) ([b172389](https://github.com/remidej/camox/commit/b1723891bec4ccdda5122f95c50727da3ad89141))
+
 ## [0.61.0](https://github.com/remidej/camox/compare/camox-v0.60.2...camox-v0.61.0) (2026-10-28)
 
 
