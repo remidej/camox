@@ -3,44 +3,23 @@
   "release-type": "node",
   "bump-minor-pre-major": true,
   "changelog-sections": [
-    { "type": "feat", "section": "Features" },
-    { "type": "fix", "section": "Bug Fixes" },
-    { "type": "perf", "section": "Performance Improvements" },
-    { "type": "refactor", "section": "Refactoring" },
-    { "type": "docs", "section": "Documentation" },
-    { "type": "chore", "section": "Miscellaneous" }
+    { "type": "feat", "section": "Changes" },
+    { "type": "fix", "section": "Changes" },
+    { "type": "perf", "section": "Changes" },
+    { "type": "refactor", "section": "Changes" },
+    { "type": "docs", "section": "Changes" },
+    { "type": "chore", "section": "Changes" }
   ],
   "packages": {
     ".": {
       "component": "camox",
-      "changelog-path": "CHANGELOG.md"
-    },
-    "packages/sdk": {
-      "component": "camox-sdk",
       "changelog-path": "CHANGELOG.md",
-      "skip-github-release": true
-    },
-    "packages/cli": {
-      "component": "@camox/cli",
-      "changelog-path": "CHANGELOG.md",
-      "skip-github-release": true
-    },
-    "packages/ui": {
-      "component": "@camox/ui",
-      "changelog-path": "CHANGELOG.md",
-      "skip-github-release": true
-    },
-    "packages/api-contract": {
-      "component": "@camox/api-contract",
-      "changelog-path": "CHANGELOG.md",
-      "skip-github-release": true
+      "extra-files": [
+        { "type": "json", "path": "packages/sdk/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/cli/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/ui/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/api-contract/package.json", "jsonpath": "$.version" }
+      ]
     }
-  },
-  "plugins": [
-    {
-      "type": "linked-versions",
-      "groupName": "camox",
-      "components": ["camox", "camox-sdk", "@camox/cli", "@camox/ui", "@camox/api-contract"]
-    }
-  ]
+  }
 }

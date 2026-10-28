@@ -37,12 +37,13 @@ bumps and changelogs from Conventional Commits.
    to `template-default` on Cloudflare Artifacts, which new projects fork
    (`packages/cli/scripts/README.md`).
 
-`release-please-config.json` links the root and these four packages into one
-version group. Package-specific GitHub releases are disabled with
-`skip-github-release`; the root provides the shared GitHub release.
-`.release-please-manifest.json` records the released versions. The configured
-changelog sections include features, fixes, performance, refactoring,
-documentation, and chores.
+Camox releases as one version. `release-please-config.json` has a single root
+package, `camox`, which reads every commit and writes the one changelog and
+GitHub release; it bumps the four packages' versions through `extra-files`, so
+they always match the root. `.release-please-manifest.json` records the
+released version. Features, fixes, performance, refactoring, documentation, and
+chores all go in one "Changes" list, so the release notes are a flat list of
+PRs. Add any new published package to `extra-files`.
 
 The `publish` job needs the repository secret `NPM_TOKEN` with permission to
 publish these packages. It uses `GITHUB_TOKEN` to manage release PRs and GitHub
