@@ -10,6 +10,7 @@ import { useNavigate } from "../../navigation/navigation";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { EditorWhereContext } from "../editorWhereContext";
 import { FollowAgentContext } from "../followAgentContext";
+import { useEditorSelection } from "../useEditorSelection";
 import { ThreadComposer } from "./ThreadComposer";
 import { ThreadMessages } from "./ThreadMessages";
 
@@ -19,7 +20,8 @@ import { ThreadMessages } from "./ThreadMessages";
  * where the studio is: the editor's own Live thread on Live, and the draft's thread in a draft.
  * When the agent on Live hands the editor's request off to a draft, the studio that asked enters
  * it, if it still shows Live; the card the Live turn ends on opens it too. Each message tells the
- * agent where the editor is: the page they look at, or the Canvas with no page selected.
+ * agent where the editor is: the page they look at, with what they selected on it unless they
+ * cleared it from the composer, or the Canvas with no page selected.
  */
 export function ChatWidget({ className }: { className?: string }) {
   return (
@@ -102,10 +104,18 @@ function Thread({
   }, [touched]);
   // The agent reads where the editor is as a hint for what their message is about.
   const where = React.use(EditorWhereContext);
+  const selection = useEditorSelection(where);
+  // Clearing the selection leaves it out of messages until the editor selects something else.
+  const selectionKey = selection
+    ? JSON.stringify([selection.blockId, selection.itemId, selection.recordId, selection.fieldName])
+    : null;
+  const [cleared, setCleared] = React.useState<string | null>(null);
+  if (cleared !== null && selectionKey !== cleared) setCleared(null);
+  const carried = selection && selectionKey !== cleared ? selection : undefined;
   // The editor's message starts a run the studio follows, even if they took over the last one.
   const sendFollowing = (text: string) => {
     follow?.resume();
-    send(text, where);
+    send(text, where?.on === "page" && carried ? { ...where, selection: carried } : where);
   };
   return (
     <>
@@ -115,7 +125,13 @@ function Thread({
           {error}
         </p>
       )}
-      <ThreadComposer onSend={sendFollowing} onStop={stop} running={view.running} />
+      <ThreadComposer
+        onSend={sendFollowing}
+        onStop={stop}
+        selection={carried?.path.at(-1)}
+        onClearSelection={() => selectionKey !== null && setCleared(selectionKey)}
+        running={view.running}
+      />
     </>
   );
 }

@@ -97,7 +97,7 @@ const getSettingsFields = (schema: unknown): SchemaField[] => {
  * Builds the path of fieldNames from the block root to the given item,
  * then walks the schema down that path to return the sub-schema for the item's fields.
  */
-const getSchemaForItem = (
+export const getSchemaForItem = (
   contentSchema: unknown,
   itemId: string,
   itemsMap: Map<string, NormalizedItem>,

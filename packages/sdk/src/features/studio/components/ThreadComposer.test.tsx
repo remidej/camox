@@ -21,3 +21,17 @@ void test("with no run going, there's no Stop button", () => {
   assert.doesNotMatch(html, />Stop</);
   assert.match(html, />Send</);
 });
+
+void test("the selection shows over the message, with a button that clears it", () => {
+  const html = renderToString(
+    <ThreadComposer onSend={noop} selection="Title" onClearSelection={noop} />,
+  );
+
+  assert.match(html, /aria-label="Selection".*Title.*>Clear selection<\/span>.*<textarea/s);
+});
+
+void test("with nothing selected, there's no selection over the message", () => {
+  const html = renderToString(<ThreadComposer onSend={noop} onClearSelection={noop} />);
+
+  assert.doesNotMatch(html, /Selection|Clear selection/);
+});

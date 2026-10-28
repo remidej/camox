@@ -4,21 +4,27 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@camox/ui/input-group";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, SquareDashedMousePointer, Square, X } from "lucide-react";
 import { useState } from "react";
 
 /**
  * Where an editor writes to the agent: Enter sends, Shift+Enter adds a line. While a run is
- * going, sending steers it, and a Stop button sits beside Send.
+ * going, sending steers it, and a Stop button sits beside Send. Over the message, what the
+ * editor has selected, which their messages carry to the agent until they clear it.
  */
 export function ThreadComposer({
   onSend,
   onStop,
+  selection,
+  onClearSelection,
   running = false,
   disabled = false,
 }: {
   onSend?: (text: string) => void;
   onStop?: () => void;
+  /** What the editor selected, as the studio names it. */
+  selection?: string;
+  onClearSelection?: () => void;
   /** Whether a run is going, which Stop ends. */
   running?: boolean;
   disabled?: boolean;
@@ -42,6 +48,11 @@ export function ThreadComposer({
       }}
     >
       <InputGroup>
+        {selection && (
+          <InputGroupAddon align="block-start" className="border-input border-b">
+            <SelectionChip name={selection} onClear={onClearSelection} />
+          </InputGroupAddon>
+        )}
         <InputGroupTextarea
           aria-label="Message"
           placeholder="Message Camox…"
@@ -75,5 +86,29 @@ export function ThreadComposer({
         </InputGroupAddon>
       </InputGroup>
     </form>
+  );
+}
+
+/** The selection the editor's messages carry, by its name. */
+function SelectionChip({ name, onClear }: { name: string; onClear?: () => void }) {
+  return (
+    <div
+      aria-label="Selection"
+      className="bg-muted text-foreground flex h-6 max-w-full min-w-0 cursor-default items-center gap-1 rounded-sm pr-0.5 pl-1.5 text-xs"
+    >
+      <SquareDashedMousePointer className="text-muted-foreground size-3.5 shrink-0" />
+      <span className="min-w-0 truncate font-medium">{name}</span>
+      {onClear && (
+        <InputGroupButton
+          type="button"
+          size="icon-xs"
+          className="text-muted-foreground hover:text-foreground size-5 shrink-0"
+          onClick={onClear}
+        >
+          <X className="size-3" />
+          <span className="sr-only">Clear selection</span>
+        </InputGroupButton>
+      )}
+    </div>
   );
 }
