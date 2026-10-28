@@ -20,12 +20,13 @@ export type RevisionToLoad = {
 /** Dispatch's `CamoxRevisions` entrypoint. */
 export type Dispatch = {
   /**
-   * Readies a revision before its draft's viewers are told of it, reading its build once:
+   * Readies a revision before its draft's viewers are told of it, reading its build once, from
+   * `archive` when the API sends it, as it does while it stores it, or else from R2:
    * dispatch serves its client assets from then on, and has loaded and rendered it once. Returns
    * its Definition Set (JSON, not yet checked), with what each part took, for the API's timing
    * logs.
    */
-  prepare(revision: RevisionToLoad): Promise<PreparedRevision>;
+  prepare(revision: RevisionToLoad, archive?: Uint8Array): Promise<PreparedRevision>;
 };
 
 /**

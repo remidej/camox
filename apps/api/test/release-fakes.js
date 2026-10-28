@@ -765,14 +765,25 @@ export class FakeDispatch extends WorkerEntrypoint {
     return JSON.parse(new TextDecoder().decode(files.get(DEFINITION_SET_FILE)));
   }
 
-  /** @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision */
-  async prepare(revision) {
+  /**
+   * Prepares a revision from `archive`, the build the API sends, or else from its build in
+   * `REVISION_BUILDS`.
+   * @param {{ revision: string, archiveKey: string, project: string, draft: string }} revision
+   * @param {Uint8Array} [archive]
+   */
+  async prepare(revision, archive) {
     const failures = prewarmFailures.get(revision.project) ?? 0;
     if (failures > 0) {
       prewarmFailures.set(revision.project, failures - 1);
       throw new Error("Network connection lost.");
     }
-    const definitionSet = await this.readDefinitionSet(revision);
+    const definitionSet = archive
+      ? JSON.parse(
+          new TextDecoder().decode(
+            (await untarGzip(new Response(archive).body)).get(DEFINITION_SET_FILE),
+          ),
+        )
+      : await this.readDefinitionSet(revision);
     // Dispatch stores the revision's client assets where its asset prefix serves them from.
     await this.env.REVISION_BUILDS.put(
       `${revision.project}/revisions/${revision.revision}/#assets`,

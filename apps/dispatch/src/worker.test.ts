@@ -663,6 +663,20 @@ describe("preparing a revision", () => {
     expect(builds.gets.filter((key) => key === ARCHIVE_KEY)).toHaveLength(1);
   });
 
+  it("prepares it from the build the API sends, without reading it back", async () => {
+    const { env, builds, fetch } = await previewingEnv();
+    builds.objects.delete(ARCHIVE_KEY);
+
+    const prepared = await new CamoxRevisions(context(env), env).prepare(
+      revision,
+      await archived(BUILD),
+    );
+
+    expect(prepared.definitionSet).toEqual(definitionSet(PREFIX));
+    expect(builds.gets).not.toContain(ARCHIVE_KEY);
+    expect(await (await fetch(`${PREFIX}assets/pricing.css`)).text()).toBe(PRICING_CSS);
+  });
+
   it("fails when its build isn't stored", async () => {
     const { env } = await previewingEnv();
 
