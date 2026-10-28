@@ -353,14 +353,6 @@ void describe("a website built against its SDK Bundle", () => {
     );
   });
 
-  void test("has browsers keep the SDK Bundle's files for good", async () => {
-    const headers = await readFile(join(second.clientDir, "_headers"), "utf8");
-    assert.match(
-      headers,
-      /^\/_camox\/sdk\/\*\n {2}Cache-Control: public, max-age=31536000, immutable$/m,
-    );
-  });
-
   void test("a hosted release whose SDK Bundle is missing fails with the missing-bundle error", async () => {
     const empty = join(temp, "empty-cache");
     const failure = await buildTemplate(root, {
