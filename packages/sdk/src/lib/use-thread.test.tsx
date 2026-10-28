@@ -134,6 +134,28 @@ void test("a message the thread turns down stops the wait and says so; only the 
   assert.deepEqual(socket().received, [stillOnItsWay]);
 });
 
+void test("a message carries where the editor was as they sent it, resent too", async (t) => {
+  const { thread, socket } = await studio(t);
+  const where = {
+    on: "page" as const,
+    locale: "en",
+    path: "/pricing",
+    title: "Pricing",
+    pageId: "019a0000-0000-7000-8000-000000000002",
+  };
+
+  await act(async () => thread().send("Shorten this page's intro", where));
+  const sent = socket().received.at(-1);
+  assert.ok(sent?.type === "send");
+  assert.deepEqual(sent.where, where);
+  const first = socket();
+  await act(async () => first.close());
+  await waitFor(() => socket() !== first && socket().readyState === 1, "the studio reconnects");
+  await act(async () => socket().reply(snapshotOf([])));
+
+  assert.deepEqual(socket().received, [sent]);
+});
+
 const STARTED_DRAFT = "019a0000-0000-7000-8000-000000000001";
 
 const ada = { id: "user-1", name: "Ada Lovelace", image: null };

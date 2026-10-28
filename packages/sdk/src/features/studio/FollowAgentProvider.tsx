@@ -1,3 +1,4 @@
+import type { EditorWhere } from "@camox/api-contract/threads";
 import * as React from "react";
 
 import { useProjectUuid } from "../../lib/auth";
@@ -9,6 +10,7 @@ import { type CanvasPage, canvasPageId, getCanvasPages } from "../canvas/canvasP
 import { selectedCanvasPage } from "../canvas/canvasSelection";
 import { useDiscoveredPreviewPaths } from "../canvas/useDiscoveredPreviewPaths";
 import { useLocation, useNavigate } from "../navigation/navigation";
+import { EditorWhereContext } from "./editorWhereContext";
 import {
   createFollowAgent,
   type FollowAgent,
@@ -16,6 +18,7 @@ import {
   type FollowWhere,
 } from "./followAgent";
 import { FollowAgentContext, type StudioFollow } from "./followAgentContext";
+import { STUDIO_CANVAS_PATH } from "./routes";
 
 const NO_BLOCK_IDS: readonly string[] = [];
 
@@ -64,8 +67,31 @@ function useCurrentPageBlocks(page: CanvasPage | undefined, path: string) {
   );
 }
 
-/** Where the editor is, and the Studio content following locates the agent's touches with. */
-function useFollowWhere(runtimeBasePath: string): FollowWhere {
+/** Where the editor is, for the agent to read, from the Page they look at, if any. */
+function editorWhereOf(
+  current: CanvasPage | undefined,
+  path: string,
+  locale: string,
+): EditorWhere | undefined {
+  if (path === STUDIO_CANVAS_PATH) return { on: "canvas", locale };
+  if (!current) return undefined;
+  return {
+    on: "page",
+    locale,
+    path,
+    title: current.title,
+    ...(current.kind === "curated" ? { pageId: current.pageId } : { layoutId: current.layoutId }),
+  };
+}
+
+/**
+ * Where the editor is, with the Studio content following locates the agent's touches with, and
+ * as the agent reads it.
+ */
+function useFollowWhere(runtimeBasePath: string): {
+  where: FollowWhere;
+  editorWhere: EditorWhere | undefined;
+} {
   const layouts = useRoutableLayouts();
   const projectUuid = useProjectUuid();
   const location = useLocation();
@@ -80,7 +106,8 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
     [pageList, layouts, discoveredPaths, locale],
   );
   const current = selectedCanvasPage(canvasPages, layouts, location.pathname, locales);
-  const blocks = useCurrentPageBlocks(current, parseLocalePath(location.pathname, locales).path);
+  const path = parseLocalePath(location.pathname, locales).path;
+  const blocks = useCurrentPageBlocks(current, path);
   const pages = React.useMemo(() => {
     const layoutOf = new Map(pageList?.map((page) => [page.id, page.layoutId]));
     return canvasPages.flatMap((page): FollowPage[] => {
@@ -101,7 +128,7 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
     });
   }, [canvasPages, pageList, current?.key, blocks]);
   const { pathname, search, source } = location;
-  return React.useMemo(
+  const where = React.useMemo(
     () => ({
       pages,
       locale: locale.tag,
@@ -110,12 +137,20 @@ function useFollowWhere(runtimeBasePath: string): FollowWhere {
     }),
     [pages, locale.tag, pathname, search, source, current?.key],
   );
+  // The same place gives the same value, so the thread only hears of actual moves.
+  const json = JSON.stringify(editorWhereOf(current, path, locale.tag) ?? null);
+  const editorWhere = React.useMemo(
+    () => (JSON.parse(json) as EditorWhere | null) ?? undefined,
+    [json],
+  );
+  return { where, editorWhere };
 }
 
 /**
  * Follows the agent for the Studio session, across its pages and into the draft its Live thread
  * starts: the Canvas or the Preview goes where the editor's runs write. Only the Website Section
- * follows; elsewhere in the Studio, the editor stays where they are.
+ * follows; elsewhere in the Studio, the editor stays where they are. It tells the thread where
+ * the editor is too, which their messages carry to the agent.
  */
 export function FollowAgentProvider({
   runtimeBasePath,
@@ -127,7 +162,7 @@ export function FollowAgentProvider({
   website: boolean;
   children: React.ReactNode;
 }) {
-  const where = useFollowWhere(runtimeBasePath);
+  const { where, editorWhere } = useFollowWhere(runtimeBasePath);
   const navigate = useNavigate();
   const latest = React.useRef({ navigate, where });
   React.useLayoutEffect(() => {
@@ -157,5 +192,9 @@ export function FollowAgentProvider({
       },
     [follow, website],
   );
-  return <FollowAgentContext value={value}>{children}</FollowAgentContext>;
+  return (
+    <FollowAgentContext value={value}>
+      <EditorWhereContext value={editorWhere}>{children}</EditorWhereContext>
+    </FollowAgentContext>
+  );
 }
