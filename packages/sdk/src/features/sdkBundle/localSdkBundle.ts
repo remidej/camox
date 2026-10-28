@@ -19,8 +19,8 @@ import { SDK_BUNDLE_TARGETS } from "./specifiers";
 
 /** Turns building against an SDK Bundle on (`1`) or off (`0`) for `vite build`. */
 export const SDK_BUNDLE_SWITCH_ENV = "CAMOX_INTERNAL_SDK_BUNDLE";
-/** Off until websites build against an SDK Bundle by default (#670). */
-const SDK_BUNDLE_SWITCH_DEFAULT = false;
+/** On: websites build against an SDK Bundle by default (#670, ADR 0029). */
+const SDK_BUNDLE_SWITCH_DEFAULT = true;
 /** The folder SDK Bundles are cached in, when not the website's own. */
 export const SDK_BUNDLE_CACHE_ENV = "CAMOX_INTERNAL_SDK_BUNDLE_CACHE";
 

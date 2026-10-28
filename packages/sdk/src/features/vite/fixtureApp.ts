@@ -8,6 +8,7 @@ import { createBuilder, preview } from "vite-plus";
 
 import { ASSET_PREFIX_GLOBAL } from "../runtime/assetPrefix";
 import { DEFINITION_SET_ENTRYPOINT } from "../runtime/definitionSetEntrypoint";
+import { SDK_BUNDLE_SWITCH_ENV } from "../sdkBundle/localSdkBundle";
 import { HOSTED_BUILD_ENV } from "./hostedChecks";
 import { camox } from "./vite";
 
@@ -67,7 +68,13 @@ export async function buildFixtureApp({
       await writeFile(join(root, path), contents);
     }
     await linkDependencies(root);
-    const env = { CAMOX_INTERNAL_RELEASE: "dry-run", [HOSTED_BUILD_ENV]: hosted ? "1" : undefined };
+    const env = {
+      CAMOX_INTERNAL_RELEASE: "dry-run",
+      [HOSTED_BUILD_ENV]: hosted ? "1" : undefined,
+      // Whole-app: the fixture has no lockfile to name an SDK Bundle by. Builds against one are
+      // covered by websiteBuild.test.ts.
+      [SDK_BUNDLE_SWITCH_ENV]: "0",
+    };
     await withEnv(env, async () => {
       // A config file, as apps have: Vite loads it again for each environment, so each
       // environment's build gets its own plugin instances unless a plugin is shared.
