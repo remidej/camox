@@ -69,9 +69,14 @@ describe("ensuring an SDK Bundle", () => {
 
     const [build, ...others] = await buildsOf(source.lockfile);
     expect(others).toEqual([]);
-    // No website code and no cache: only the manifest without its scripts, and the lockfile.
+    // No website code and no cache: only the manifest without its scripts, the lockfile, and the
+    // platform's own workspace settings.
     expect(build!.restoredBackup).toBe(false);
-    expect(Object.keys(build!.written).sort()).toEqual(["package.json", "pnpm-lock.yaml"]);
+    expect(Object.keys(build!.written).sort()).toEqual([
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+    ]);
     expect(build!.written["pnpm-lock.yaml"]).toBe(source.lockfile);
     expect(JSON.parse(build!.written["package.json"]!).scripts).toBeUndefined();
     expect(build!.commands).toContainEqual(

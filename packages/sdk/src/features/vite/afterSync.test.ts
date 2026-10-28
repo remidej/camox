@@ -14,6 +14,7 @@ import { createLogger, createServer, resolveConfig } from "vite-plus";
 
 import type { DefinitionSet } from "@/core/createApp";
 
+import { SDK_BUNDLE_SWITCH_ENV } from "../sdkBundle/localSdkBundle";
 import { type CamoxPluginOptions, camox } from "./vite";
 
 type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["afterSync"]>;
@@ -251,6 +252,8 @@ void test("a release syncs the app's blocks to Live: its requests name no draft"
   for (const [name, value] of Object.entries({
     CAMOX_INTERNAL_RELEASE: "1",
     CAMOX_DEPLOY_TOKEN: "deploy-token",
+    // Whole-app: the checkout has no lockfile to name an SDK Bundle by.
+    [SDK_BUNDLE_SWITCH_ENV]: "0",
   })) {
     const previous = process.env[name];
     process.env[name] = value;
@@ -290,6 +293,8 @@ void test("a dry-run release builds without a login or a Deploy Token, and syncs
   for (const [name, value] of Object.entries({
     CAMOX_INTERNAL_RELEASE: "dry-run",
     CAMOX_DEPLOY_TOKEN: undefined,
+    // Whole-app: the checkout has no lockfile to name an SDK Bundle by.
+    [SDK_BUNDLE_SWITCH_ENV]: "0",
   })) {
     const previous = process.env[name];
     if (value === undefined) delete process.env[name];
