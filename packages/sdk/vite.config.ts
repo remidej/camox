@@ -25,6 +25,7 @@ export default defineConfig({
       "features/runtime/rendererClient": "src/features/runtime/rendererClient.tsx",
       "features/runtime/studioServer": "src/features/runtime/studioServer.tsx",
       "features/runtime/worker": "src/features/runtime/worker.ts",
+      "features/runtime/workerRuntime": "src/features/runtime/workerRuntime.ts",
       "features/sdkBundle/sdkBundleName": "src/features/sdkBundle/sdkBundleName.ts",
       "features/sdkBundle/buildSdkBundle": "src/features/sdkBundle/buildSdkBundle.ts",
       // An explicit entry: tsdown can't traverse the dynamic
@@ -49,6 +50,9 @@ export default defineConfig({
         // Self-import in `createLayout.tsx`: the app's bundler, not this pack, must load
         // the renderer's WASM, so it stays the bare specifier.
         "camox/_internal/imageResponse",
+        // The Worker entry is compiled into each website's build, and reaches camox through
+        // the package, so the website's build holds one copy of camox's modules.
+        "camox/_internal/workerRuntime",
         // Inferred API types reach into the unpublished api app through
         // @camox/api-contract. Declaration emit can't follow them there, and
         // no public type keeps them, so leave them unresolved.

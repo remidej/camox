@@ -142,8 +142,6 @@ export interface CamoxPluginOptions {
     apiUrl?: string;
     /** URL of the Camox authentication backend (default: https://app.camox.ai) */
     authenticationUrl?: string;
-    /** Show Tanstack query devtools (default: false) */
-    enableTanstackDevtools?: boolean;
     /** Enable experimental features (default: false). */
     enableExperimentalFeatures?: boolean;
     /** Disable automatic code generation (route and layout files) (default: false) */
@@ -318,7 +316,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
   const projectUuid = projectIdOf(options);
   const apiUrl = options._internal?.apiUrl ?? PRODUCTION_API_URL;
   const authenticationUrl = options._internal?.authenticationUrl ?? DEFAULT_AUTHENTICATION_URL;
-  const enableTanstackDevtools = options._internal?.enableTanstackDevtools ?? false;
   const disableCodeGen = options._internal?.disableCodeGen ?? false;
   const runtimeBasePath = options._internal?.runtimeBasePath;
 
@@ -469,7 +466,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
         define: {
           __CAMOX_ICON_IDS__: JSON.stringify(iconIds),
           __CAMOX_TELEMETRY_DISABLED__: JSON.stringify(!!options.disableTelemetry),
-          __ENABLE_TANSTACK_DEVTOOLS__: JSON.stringify(enableTanstackDevtools),
           __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: JSON.stringify(
             options._internal?.enableExperimentalFeatures ?? false,
           ),
