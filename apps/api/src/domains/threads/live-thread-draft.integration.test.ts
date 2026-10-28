@@ -203,11 +203,18 @@ describe("a Live thread handing a request off to a draft", () => {
     const live = await connectLiveThread(project.id, token);
     const release = holdNextToolCall("startDraft", { name: "Launch page", brief: BRIEF });
     answerFrom(({ editorMessages }) => `Saw: ${editorMessages.join(" | ")}.`);
-    live.send({ type: "send", operationId: crypto.randomUUID(), text: "Add a launch page" });
+    // Where the editor was is for the agent on Live: the Brief carries what the draft needs.
+    const where = { on: "canvas", locale: "en" } as const;
+    live.send({
+      type: "send",
+      operationId: crypto.randomUUID(),
+      text: "Add a launch page",
+      where,
+    });
     await live.until(() => live.view().running);
     // Sent while the agent on Live was calling startDraft.
     const steering = crypto.randomUUID();
-    live.send({ type: "send", operationId: steering, text: "Link it from pricing" });
+    live.send({ type: "send", operationId: steering, text: "Link it from pricing", where });
     await live.until(() =>
       live.frames.some((frame) => frame.type === "accepted" && frame.operationId === steering),
     );

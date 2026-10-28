@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { addMember, createProjectFixture } from "../../../test/fixtures";
 import {
+  answerFrom,
   answerNext,
   forgetThreadModel,
   holdNextAnswer,
@@ -46,6 +47,59 @@ describe("an editor's Live thread", () => {
         text: "How many pages are there?",
       },
       { id: expect.any(String), from: "agent", text: "Your website has **three** pages." },
+    ]);
+    thread.close();
+  });
+
+  it("tells the agent where the editor was, which the thread doesn't show", async () => {
+    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
+    const token = await signIn(db, memberUser.id);
+    let read: string[] = [];
+    answerFrom(({ editorMessages }) => {
+      read = editorMessages;
+      return "Done.";
+    });
+    answerFrom(({ editorMessages }) => {
+      read = editorMessages;
+      return "Done again.";
+    });
+
+    const thread = await connectLiveThread(project.id, token);
+    thread.send({
+      type: "send",
+      operationId: crypto.randomUUID(),
+      text: "Shorten this page's intro",
+      where: {
+        on: "page",
+        locale: "en",
+        path: "/pricing",
+        title: "Pricing",
+        pageId: "019a0000-0000-7000-8000-000000000002",
+      },
+    });
+    await thread.until(() => thread.view().messages.some((message) => message.from === "agent"));
+    thread.send({
+      type: "send",
+      operationId: crypto.randomUUID(),
+      text: "And the outro",
+      where: { on: "canvas", locale: "en" },
+    });
+    await thread.until(() =>
+      thread
+        .view()
+        .messages.some((message) => message.from === "agent" && message.text === "Done again."),
+    );
+
+    const [onPage, onCanvas] = read;
+    expect(onPage).toMatch(/^Shorten this page's intro\W/);
+    expect(onPage).toContain("Pricing");
+    expect(onPage).toContain("/pricing");
+    expect(onPage).toContain("019a0000-0000-7000-8000-000000000002");
+    expect(onCanvas).toMatch(/^And the outro\W/);
+    expect(onCanvas).toContain("Canvas");
+    expect(thread.view().messages.filter((message) => message.from === "editor")).toEqual([
+      expect.objectContaining({ text: "Shorten this page's intro" }),
+      expect.objectContaining({ text: "And the outro" }),
     ]);
     thread.close();
   });

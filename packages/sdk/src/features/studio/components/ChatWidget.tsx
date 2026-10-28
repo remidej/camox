@@ -8,6 +8,7 @@ import { useThread } from "../../../lib/use-thread";
 import { cn } from "../../../lib/utils";
 import { useNavigate } from "../../navigation/navigation";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
+import { EditorWhereContext } from "../editorWhereContext";
 import { FollowAgentContext } from "../followAgentContext";
 import { ThreadComposer } from "./ThreadComposer";
 import { ThreadMessages } from "./ThreadMessages";
@@ -17,7 +18,8 @@ import { ThreadMessages } from "./ThreadMessages";
  * studio it is only hidden: the studio keeps following the editor's runs there. It follows
  * where the studio is: the editor's own Live thread on Live, and the draft's thread in a draft.
  * When the agent on Live hands the editor's request off to a draft, the studio that asked enters
- * it, if it still shows Live; the card the Live turn ends on opens it too.
+ * it, if it still shows Live; the card the Live turn ends on opens it too. Each message tells the
+ * agent where the editor is: the page they look at, or the Canvas with no page selected.
  */
 export function ChatWidget({ className }: { className?: string }) {
   return (
@@ -98,10 +100,12 @@ function Thread({
   React.useEffect(() => {
     if (touched) followTouched(touched.batch);
   }, [touched]);
+  // The agent reads where the editor is as a hint for what their message is about.
+  const where = React.use(EditorWhereContext);
   // The editor's message starts a run the studio follows, even if they took over the last one.
   const sendFollowing = (text: string) => {
     follow?.resume();
-    send(text);
+    send(text, where);
   };
   return (
     <>

@@ -1,4 +1,5 @@
 import {
+  type EditorWhere,
   EMPTY_THREAD_STATE,
   reduceThreadFrame,
   type StartedDraft,
@@ -16,8 +17,11 @@ import { apiSocketOptions } from "./api-socket";
 /** `WebSocket.OPEN`, without reaching for a global the server doesn't have. */
 const OPEN = 1;
 
-/** Messages on their way to a thread, which hasn't accepted them yet, by operation id. */
-export type Unaccepted = ReadonlyMap<string, string>;
+/**
+ * Messages on their way to a thread, which hasn't accepted them yet, by operation id, with where
+ * the editor was as they sent them.
+ */
+type Unaccepted = ReadonlyMap<string, { text: string; where?: EditorWhere }>;
 
 /**
  * A script's touches the studio follows, numbered in the order they came: a new one, even with
@@ -144,8 +148,8 @@ export function useThread(
 
   // Messages still on their way are resent once the thread showed itself.
   const resendUnaccepted = React.useEffectEvent(() => {
-    for (const [operationId, text] of unaccepted) {
-      transmit(socket, { type: "send", operationId, text });
+    for (const [operationId, message] of unaccepted) {
+      transmit(socket, { type: "send", operationId, ...message });
     }
   });
   React.useEffect(() => {
@@ -162,12 +166,13 @@ export function useThread(
   }, [socket]);
 
   const send = React.useCallback(
-    (text: string) => {
+    (text: string, where?: EditorWhere) => {
       const operationId = crypto.randomUUID();
+      const message = where ? { text, where } : { text };
       sent.add(operationId);
       setError(undefined);
-      setUnaccepted((current) => new Map(current).set(operationId, text));
-      transmit(socket, { type: "send", operationId, text });
+      setUnaccepted((current) => new Map(current).set(operationId, message));
+      transmit(socket, { type: "send", operationId, ...message });
     },
     [sent, socket],
   );
@@ -180,7 +185,9 @@ export function useThread(
     view,
     /** Whether a message is still on its way to the thread, which hasn't accepted it yet. */
     sending: unaccepted.size > 0,
-    /** Sends a message, steering the run going if any. */
+    /**
+     * Sends a message, with where the editor is as they send it, steering the run going if any.
+     */
     send,
     stop,
     /** Why the thread last turned a message down, until the editor sends another. */
