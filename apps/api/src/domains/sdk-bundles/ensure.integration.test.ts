@@ -5,7 +5,13 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { sdkBundleFiles, storeSdkBundle } from "../../../test/sdk-bundles";
 import { websiteLockfile } from "../../../test/website-lockfile";
 import { untarGzip } from "../../lib/tar";
-import { ensureSdkBundle, HOSTED_SDK_BUNDLE_SETTINGS, sdkBundleArchiveKey } from "./ensure";
+import {
+  ensureSdkBundle,
+  HOSTED_SDK_BUNDLE_SETTINGS,
+  sdkBundleArchiveKey,
+  type SdkBundleNames,
+  sdkBundleNamesOf,
+} from "./ensure";
 
 // Ensuring an SDK Bundle is the only step that stores one (ADR 0029). The release sandbox it builds
 // in is faked at its binding (test/release-fakes.js): its build of the bundle names it with the
@@ -26,6 +32,8 @@ type SdkBundleFakes = {
   /** Makes the builds whose lockfile contains `marker` wait until they're let go. */
   holdSdkBundleBuildsOf(marker: string): Promise<void>;
   letGoSdkBundleBuild(sandbox: string): Promise<void>;
+  /** Makes the builds whose lockfile contains `marker` report `names` instead of their own. */
+  forgeSdkBundleNamesOf(marker: string, names: SdkBundleNames): Promise<void>;
 };
 
 /** A website on its own camox version, so no other test stores its SDK Bundle. */
@@ -96,6 +104,24 @@ describe("ensuring an SDK Bundle", () => {
     expect(await stored(names.workerd)).toBe(
       sdkBundleFiles(names.workerd, "workerd")["sdk-bundle.json"],
     );
+  });
+
+  it("stores nothing when the website's camox reports another lockfile's names", async () => {
+    // A lockfile can point `camox` at a fork, whose builder could name its bytes after the
+    // Template's next SDK Bundle, which the conditional write would then keep for everyone.
+    const source = website();
+    const victim = await sdkBundleNamesOf(website().lockfile);
+    await fakes.forgeSdkBundleNamesOf(source.lockfile, victim);
+
+    await expect(ensureSdkBundle(env, source)).rejects.toThrow(/other names/);
+
+    expect(await buildsOf(source.lockfile)).toHaveLength(1);
+    for (const name of [
+      ...Object.values(victim),
+      ...Object.values(await namesOf(source.lockfile)),
+    ]) {
+      expect(await stored(name)).toBeNull();
+    }
   });
 
   it("keeps the first stored bytes when two ensures of one SDK Bundle race", async () => {

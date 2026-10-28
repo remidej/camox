@@ -94,9 +94,8 @@ const tail = (text: string, lines = 20) => text.trimEnd().split("\n").slice(-lin
  *
  * The names it looks up first are the ones it's given, or else the API's copy of camox's. Those
  * digest `camox`'s own resolution, so one that's stored was built by the website's camox
- * version. The names it stores under come from the website's own camox, in the sandbox. Where
- * the API's copy names a lockfile differently, its lookup misses, and the build stores nothing
- * new.
+ * version. It stores only under the API's names: when the website's camox, in the sandbox,
+ * reports others (a fork, or a camox whose naming changed), it throws and stores nothing.
  */
 export async function ensureSdkBundle(
   env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
@@ -121,7 +120,10 @@ export async function ensureSdkBundle(
   return buildSdkBundle(env, source, settings);
 }
 
-/** Builds the SDK Bundle in a sandbox of its own, and stores each target it doesn't find. */
+/**
+ * Builds the SDK Bundle in a sandbox of its own, and stores each target it doesn't find. Stores
+ * nothing when the website's camox names it unlike the API's copy does.
+ */
 async function buildSdkBundle(
   env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
   source: SdkBundleSource,
@@ -162,6 +164,16 @@ async function buildSdkBundle(
     if (!report)
       throw new Error(`The SDK Bundle's builder reported no names: ${tail(built.stdout)}`);
     const names = JSON.parse(report) as SdkBundleNames;
+    // The website's camox can be a fork, whose builder could name its bytes after another
+    // lockfile's bundle, such as the Template's next one. Only the API's names are stored under.
+    const expected = await sdkBundleNamesOf(source.lockfile, settings);
+    if (SDK_BUNDLE_TARGETS.some((target) => names[target] !== expected[target])) {
+      throw new Error(
+        `The website's camox built the SDK Bundle under other names than the API's copy of camox ` +
+          `gives its lockfile (${JSON.stringify(names)}, not ${JSON.stringify(expected)}), so ` +
+          `nothing was stored. The API's camox and the website's must name SDK Bundles alike.`,
+      );
+    }
 
     for (const target of SDK_BUNDLE_TARGETS) {
       const archive = `/tmp/camox-sdk-bundle/${target}.tar.gz`;

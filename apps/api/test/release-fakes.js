@@ -398,7 +398,10 @@ export class FakeSandbox extends DurableObject {
     while (held()) await scheduler.wait(10);
     const settings = JSON.parse(env.CAMOX_SDK_BUNDLE_SETTINGS ?? "{}");
     const name = (target) => sdkBundleName({ lockfile, target, settings });
-    build.names = { browser: await name("browser"), workerd: await name("workerd") };
+    build.names = forgedSdkBundleNames.find(({ marker }) => lockfile.includes(marker))?.names ?? {
+      browser: await name("browser"),
+      workerd: await name("workerd"),
+    };
     return `vite v8.0.0 building for production...\ncamox-sdk-bundle: ${JSON.stringify(build.names)}\n`;
   }
 
@@ -537,6 +540,11 @@ const SDK_BUNDLE_ARCHIVE_COMMAND = /-cf (\S+) -C \S*\/(browser|workerd) /;
 const sdkBundleBuilds = [];
 /** @type {string[]} SDK Bundle builds wait while their lockfile contains one of these */
 const heldSdkBundleMarkers = [];
+/**
+ * @type {{ marker: string, names: Record<string, string> }[]} SDK Bundle builds whose lockfile
+ * contains `marker` report `names`, as a forked camox could
+ */
+const forgedSdkBundleNames = [];
 /** @type {Set<string>} sandboxes whose held SDK Bundle build was let go */
 const letGoSdkBundleSandboxes = new Set();
 
@@ -1224,6 +1232,16 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async holdSdkBundleBuildsOf(marker) {
     heldSdkBundleMarkers.push(marker);
+  }
+
+  /**
+   * Makes the SDK Bundle builds whose lockfile contains `marker` report, and archive under,
+   * `names` instead of their own, as a lockfile pointing at a forked camox could.
+   * @param {string} marker
+   * @param {Record<string, string>} names
+   */
+  async forgeSdkBundleNamesOf(marker, names) {
+    forgedSdkBundleNames.push({ marker, names });
   }
 
   /** @param {string} sandbox Lets the held SDK Bundle build in `sandbox` finish. */

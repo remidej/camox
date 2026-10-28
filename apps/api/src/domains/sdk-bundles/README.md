@@ -8,14 +8,18 @@ An SDK Bundle is Camox, React and the npm packages websites share with Camox, bu
 
 1. It names the bundle from the lockfile and the hosted settings (`HOSTED_SDK_BUNDLE_SETTINGS`), with the API's copy of camox (`camox/_internal/sdkBundleName`). When both targets are stored, it returns those names at once.
 2. Otherwise it builds in a new release sandbox (`SANDBOX`, under a random name), which has run nothing and restores no snapshot. It writes only the manifest, without its `scripts`, and the lockfile, outside `/workspace`, then runs `pnpm install --frozen-lockfile --ignore-scripts`. No website code and no package's install script runs there.
-3. The website's own camox builds the bundle (`camox/_internal/sdkBundle`) and reports the names it built under. Those are the names it stores under and returns.
+3. The website's own camox builds the bundle (`camox/_internal/sdkBundle`) and reports the names it built under. They must be the API's names from step 1: otherwise it throws and stores nothing (see below).
 4. Each target's folder is stored as one gzipped tar archive in `REVISION_BUILDS`, at `sdk/<name>.tar.gz`, with `onlyIf: { etagDoesNotMatch: "*" }`: only if nothing has that name yet. Callers that race all end up with the first stored bytes, and a bundle never changes once stored.
 
 SDK Bundles are never deleted: a revision, a draft's Worker or Live can pin any of them.
 
 ### Which copy of camox names a bundle
 
-Every name digests `camox`'s own resolution in the lockfile. So a stored name the API's copy computes was built by the website's camox version, and returning it at once is right. When the API's copy names a lockfile unlike the website's camox would, as when a later SDK changed what the name digests, the lookup misses: the sandbox builds, finds the website's camox's names, and stores nothing those names already hold. The API is deployed before every SDK publish, so it's never older than a website's camox.
+The API's copy of camox names every stored bundle. The builder in the sandbox is the website's own camox, which a lockfile can point at a fork, so the names it prints aren't trusted: a fork could print another lockfile's name, such as the Template's next bundle, and the conditional write would keep its bytes there for everyone. So the bytes are stored only when the printed names are the API's own for that lockfile.
+
+Every name digests `camox`'s own resolution in the lockfile, so a stored name was built by the website's camox version, and returning it at once is right.
+
+**The API's camox must name bundles as the published SDK does.** Both digest `SDK_BUNDLE_BUILDER_VERSION` (`packages/sdk/src/features/sdkBundle/sdkBundleName.ts`) and what it covers. ADR 0019's order holds: the API that names bundles a new way is deployed before the SDK that builds them that way is published, and the Upgrade then moves every project to it. Between the two, a website still on the old naming has its ensure fail with `The website's camox built the SDK Bundle under other names than the API's copy of camox gives its lockfile (…)`, listing both pairs of names, and nothing is stored. Its revision or release fails as an infrastructure error, while bundles already stored keep serving. Its Upgrade fixes it.
 
 ## Who calls it
 
@@ -33,7 +37,7 @@ A hosted build never builds its bundle: it fails with the missing-bundle error (
 
 ## Tests
 
-`ensure.integration.test.ts` covers a stored bundle, a missing one and a race, `../revisions/sdk-bundle.integration.test.ts` covers revisions fetching and ensuring theirs, `../upgrades/workflow.integration.test.ts` covers both callers and the Upgrade's dry run, and `../releases/workflow.integration.test.ts` covers releases, with the release sandbox faked at its binding (`test/release-fakes.js`). The fake sandbox's build names the bundle from the lockfile written to it with the SDK's `sdkBundleName`, and archives a real gzipped tar whose `sdk-bundle.json` names the sandbox that built it. Its `camox release` fails without its bundle in its cache, as the website's camox does with the switch on. `test/sdk-bundles.ts` stores a bundle as ensuring does. `test/website-lockfile.ts` is a hosted website's lockfile, which names a bundle.
+`ensure.integration.test.ts` covers a stored bundle, a missing one, a race and a builder printing foreign names, `../revisions/sdk-bundle.integration.test.ts` covers revisions fetching and ensuring theirs, `../upgrades/workflow.integration.test.ts` covers both callers and the Upgrade's dry run, and `../releases/workflow.integration.test.ts` covers releases, with the release sandbox faked at its binding (`test/release-fakes.js`). The fake sandbox's build names the bundle from the lockfile written to it with the SDK's `sdkBundleName`, and archives a real gzipped tar whose `sdk-bundle.json` names the sandbox that built it. Its `camox release` fails without its bundle in its cache, as the website's camox does with the switch on. `test/sdk-bundles.ts` stores a bundle as ensuring does. `test/website-lockfile.ts` is a hosted website's lockfile, which names a bundle.
 
 ```sh
 pnpm --filter @camox/api exec vp test --run --project integration src/domains/sdk-bundles src/domains/upgrades
