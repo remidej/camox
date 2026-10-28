@@ -39,7 +39,7 @@ function LargeParagraphsGroupComponent() {
     <section className="py-12 sm:py-16">
       <div className="max-w-page px-gutter mx-auto">
         <largeParagraphsGroup.Field name="title">
-          {(props) => <h3 {...props} className="text-eyebrow text-brand mb-4 uppercase sm:mb-6" />}
+          {(props) => <h3 {...props} className="text-eyebrow text-accent mb-4 uppercase sm:mb-6" />}
         </largeParagraphsGroup.Field>
         <div className="flex max-w-4xl flex-col gap-8 sm:gap-12">
           <largeParagraphsGroup.Repeater name="items">

@@ -72,7 +72,10 @@ function HeroComponent() {
   return (
     <Section
       scheme={scheme}
-      className={cn("bg-linear-to-br from-brand/15 to-transparent", compact && "py-10")}
+      className={cn(
+        "bg-linear-to-br from-brand/15 via-transparent to-accent/15",
+        compact && "py-10",
+      )}
     >
       <Container>
         <div className="mx-auto flex max-w-5xl flex-col lg:flex-row lg:items-center lg:gap-12">
@@ -80,7 +83,7 @@ function HeroComponent() {
             <hero.Field
               name="title"
               textStyle={({ bold }) => ({
-                style: bold ? { color: "var(--brand)" } : undefined,
+                style: bold ? { color: "var(--accent)" } : undefined,
               })}
             >
               {(props) => (

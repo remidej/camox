@@ -52,7 +52,7 @@ function PokedexComponent() {
       <div className="mx-auto max-w-6xl px-5 sm:px-8">
         <div className="mb-10 max-w-2xl">
           <p className="text-eyebrow text-ink-muted mb-4 flex items-center gap-2 uppercase">
-            <span aria-hidden="true" className="bg-brand size-2 rounded-full" />
+            <span aria-hidden="true" className="bg-accent size-2 rounded-full" />
             The weekly selection
           </p>
           <pokedex.Field name="title">

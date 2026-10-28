@@ -20,9 +20,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Color schemes. Put a scheme class (`light`, `dark`, `brand` or `tint`) on any element and
- * everything inside it uses that scheme's color roles. Schemes nest: a `.light` element
- * inside a `.dark` one is light again.
+ * Color schemes. Put a scheme class (`light`, `dark`, `brand`, `accent` or `tint`) on any
+ * element and everything inside it uses that scheme's color roles. Schemes nest: a `.light`
+ * element inside a `.dark` one is light again.
  *
  * Each scheme sets every color role:
  * - `canvas`: the background of a block.
@@ -30,26 +30,38 @@
  * - `ink`: main text and icons.
  * - `ink-muted`: secondary text.
  * - `line`: borders and dividers.
- * - `brand`: the emphasis color, as a fill (solid button) or as ink (link, icon, focus ring).
+ * - `brand`: the color of what visitors click, as a fill (solid button) or as ink (link,
+ *   focus ring).
  * - `ink-on-brand`: text on a `brand` fill.
+ * - `accent`: the second color, for what visitors look at rather than click: eyebrows,
+ *   highlighted words, badges, icons and decorations. Never for buttons or links, so
+ *   visitors can tell what's clickable.
+ * - `ink-on-accent`: text on an `accent` fill.
  * - `success`, `warning`, `error`: feedback colors, used as ink plus a faint fill of
  *   themselves (for instance `text-error bg-error/10`).
  *
- * Any ink reads on any surface of the same scheme, so only `brand` has a paired ink.
- * Neutral hovers and subtle fills are `ink` at low opacity (`hover:bg-ink/5`), so there is
- * no hover token. Each scheme also sets `color-scheme`, so native controls and scrollbars
- * follow it.
+ * Any ink reads on any surface of the same scheme, so only `brand` and `accent` have a
+ * paired ink. Neutral hovers and subtle fills are `ink` at low opacity (`hover:bg-ink/5`), so
+ * there is no hover token. Each scheme also sets `color-scheme`, so native controls and
+ * scrollbars follow it.
  */
 
 /*
- * Brand inputs. Every scheme derives its colors from the first three values, so a rebrand
- * starts here. Schemes never hardcode a brand color.
+ * Brand inputs. Every scheme derives its colors from the first five values, so a rebrand
+ * starts here. Schemes never hardcode a brand or accent color.
  */
 :root {
   /* The brand color. Keep it dark enough for white text on it (the brand scheme). */
   --brand-color: oklch(0.52 0.2 262);
   /* A lighter brand color that reads on dark backgrounds, used by the dark scheme. */
   --brand-color-on-dark: oklch(0.74 0.14 262);
+  /*
+   * The accent color, a second hue that keeps pages from looking monochrome. Keep it dark
+   * enough for white text on it (the accent scheme) and distinct from the error red.
+   */
+  --accent-color: oklch(0.55 0.21 330);
+  /* A lighter accent color that reads on dark backgrounds, used by the dark scheme. */
+  --accent-color-on-dark: oklch(0.78 0.14 330);
   /* The hue (0-360) that tints every gray, so neutrals lean toward the brand. */
   --neutral-hue: 262;
   /* The case of eyebrows (the Eyebrow Component): `uppercase`, or `none` to keep it as typed. */
@@ -67,6 +79,8 @@
   --line: oklch(0.9 0.01 var(--neutral-hue));
   --brand: var(--brand-color);
   --ink-on-brand: oklch(1 0 0);
+  --accent: var(--accent-color);
+  --ink-on-accent: oklch(1 0 0);
   --success: oklch(0.5 0.13 150);
   /* A dark amber, so warnings stay readable as text on light surfaces. */
   --warning: oklch(0.52 0.12 65);
@@ -83,6 +97,8 @@
   --line: oklch(1 0 0 / 12%);
   --brand: var(--brand-color-on-dark);
   --ink-on-brand: oklch(0.18 0.02 var(--neutral-hue));
+  --accent: var(--accent-color-on-dark);
+  --ink-on-accent: oklch(0.18 0.02 var(--neutral-hue));
   --success: oklch(0.77 0.15 150);
   --warning: oklch(0.83 0.14 80);
   --error: oklch(0.72 0.17 25);
@@ -91,7 +107,7 @@
 /*
  * Brand: a band filled with the brand color, such as a call to action. `brand` turns white
  * and `ink-on-brand` turns into the brand color, so solid buttons and focus rings stay
- * visible on it.
+ * visible on it. `accent` turns into a pale accent, readable on the fill at heading sizes.
  */
 .brand {
   color-scheme: dark;
@@ -102,39 +118,66 @@
   --line: oklch(1 0 0 / 25%);
   --brand: oklch(1 0 0);
   --ink-on-brand: var(--brand-color);
+  --accent: color-mix(in oklch, var(--accent-color-on-dark) 55%, white);
+  --ink-on-accent: var(--brand-color);
   --success: oklch(0.86 0.13 150);
   --warning: oklch(0.88 0.13 85);
   --error: oklch(0.84 0.1 25);
 }
 
 /*
- * Tint: the light scheme with `canvas` and `panel` swapped, for a light-gray band where
- * cards turn white.
+ * Tint: a light band washed with the brand color, where cards turn white. Calmer than the
+ * brand and accent bands, for breaking up a run of light blocks.
  */
 .tint {
   color-scheme: light;
-  --canvas: oklch(0.965 0.008 var(--neutral-hue));
+  --canvas: color-mix(in oklch, var(--brand-color) 8%, white);
   --panel: oklch(0.995 0.002 var(--neutral-hue));
   --ink: oklch(0.2 0.02 var(--neutral-hue));
   --ink-muted: oklch(0.48 0.02 var(--neutral-hue));
-  --line: oklch(0.88 0.012 var(--neutral-hue));
+  --line: color-mix(in oklch, var(--brand-color) 16%, white);
   --brand: var(--brand-color);
   --ink-on-brand: oklch(1 0 0);
+  --accent: var(--accent-color);
+  --ink-on-accent: oklch(1 0 0);
   --success: oklch(0.5 0.13 150);
   --warning: oklch(0.52 0.12 65);
   --error: oklch(0.53 0.2 27);
 }
 
 /*
+ * Accent: a band filled with the accent color, for a block that should stand out without
+ * being a call to action, such as a testimonial or a banner. Like the brand scheme, `brand`
+ * and `accent` turn white and their paired inks turn into the fill, so buttons stay visible.
+ */
+.accent {
+  color-scheme: dark;
+  --canvas: var(--accent-color);
+  --panel: color-mix(in oklch, var(--accent-color) 86%, white);
+  --ink: oklch(1 0 0);
+  --ink-muted: oklch(1 0 0 / 80%);
+  --line: oklch(1 0 0 / 25%);
+  --brand: oklch(1 0 0);
+  --ink-on-brand: var(--accent-color);
+  --accent: oklch(1 0 0);
+  --ink-on-accent: var(--accent-color);
+  --success: oklch(0.86 0.13 150);
+  --warning: oklch(0.88 0.13 85);
+  --error: oklch(0.84 0.1 25);
+}
+
+/*
  * The variables Camox's editor reads from the site: highlighted text, and the fill and text
  * of an empty image. Declared on every scheme so they follow the scheme they're used in.
+ * Highlights use `accent`: they're for looking at, and they give headings the second color.
  */
 :root,
 .light,
 .dark,
 .brand,
+.accent,
 .tint {
-  --camox-highlight: var(--brand);
+  --camox-highlight: var(--accent);
   --camox-placeholder: var(--panel);
   --camox-placeholder-ink: var(--ink-muted);
 }
@@ -153,6 +196,8 @@
   --color-line: var(--line);
   --color-brand: var(--brand);
   --color-ink-on-brand: var(--ink-on-brand);
+  --color-accent: var(--accent);
+  --color-ink-on-accent: var(--ink-on-accent);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-error: var(--error);

@@ -106,7 +106,7 @@ export default {
       ]),
     );
     const sections = Object.fromEntries(
-      ["light", "dark", "brand", "tint"].map((scheme) => [
+      ["light", "dark", "brand", "accent", "tint"].map((scheme) => [
         scheme,
         renderToStaticMarkup(createElement(Section, { scheme }, "Content")),
       ]),
@@ -183,7 +183,7 @@ export default {
       assert.ok(!id.startsWith(sdkSource), `The build holds camox's ${id}.`);
   }
 
-  // The page default and the four schemes a block's "Color scheme" setting offers. Each
+  // The page default and the five schemes a block's "Color scheme" setting offers. Each
   // sets `color-scheme` and declares the variables the SDK colors highlights and empty images
   // from, so they resolve against that scheme's tokens rather than inheriting the values
   // computed on :root.
@@ -194,7 +194,7 @@ export default {
     await Promise.all(cssFiles.map((file) => readFile(join(assetsDir, file), "utf8")))
   ).join("\n");
   const declared = declarationsBySelector(css);
-  for (const scheme of [":root", ".light", ".dark", ".brand", ".tint"]) {
+  for (const scheme of [":root", ".light", ".dark", ".brand", ".accent", ".tint"]) {
     for (const property of [
       "color-scheme",
       "--camox-highlight",
@@ -309,7 +309,7 @@ export default {
         assert.equal(settings.scheme.title, "Color scheme", blockId);
         assert.deepEqual(
           settings.scheme.enumLabels,
-          { light: "Light", dark: "Dark", brand: "Brand", tint: "Tint" },
+          { light: "Light", dark: "Dark", brand: "Brand", accent: "Accent", tint: "Tint" },
           blockId,
         );
         assert.equal(settings.scheme.default, defaultScheme, blockId);

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 export function Eyebrow({ className, ...props }: ComponentProps<"p">) {
   return (
     <p
-      className={cn("text-eyebrow text-brand [text-transform:var(--eyebrow-case)]", className)}
+      className={cn("text-eyebrow text-accent [text-transform:var(--eyebrow-case)]", className)}
       {...props}
     />
   );
