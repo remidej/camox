@@ -25,6 +25,8 @@ export default defineConfig({
       "features/runtime/rendererClient": "src/features/runtime/rendererClient.tsx",
       "features/runtime/studioServer": "src/features/runtime/studioServer.tsx",
       "features/runtime/worker": "src/features/runtime/worker.ts",
+      "features/sdkBundle/sdkBundleName": "src/features/sdkBundle/sdkBundleName.ts",
+      "features/sdkBundle/buildSdkBundle": "src/features/sdkBundle/buildSdkBundle.ts",
       // An explicit entry: tsdown can't traverse the dynamic
       // `await import("camox/_internal/imageResponse")` in createLayout.
       "features/og/imageResponse": "src/features/og/imageResponse.ts",
