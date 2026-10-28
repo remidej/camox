@@ -309,7 +309,7 @@ function localDeployTokenOf(apiUrl: string, options: CamoxPluginOptions): string
   const token = options._internal?.localDeployToken;
   if (token && isLocalApi(apiUrl)) return token;
   throw new Error(
-    "Camox: dev mode only runs against a local Camox API, with its internal deploy token. " +
+    "Camox: dev mode only runs against a local Camox API, with its internal Deploy Token. " +
       "A hosted project's code reaches Camox through drafts and Upgrades.",
   );
 }

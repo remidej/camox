@@ -144,7 +144,7 @@ async function devCheckout(
   };
 }
 
-/** The deploy token apps/api's dev seed gives every project, which dev mode releases with. */
+/** The Deploy Token apps/api's dev seed gives every project, which dev mode releases with. */
 const LOCAL_DEPLOY_TOKEN = "local-deploy-token";
 
 function devServerConfig(
@@ -194,7 +194,7 @@ async function waitFor(condition: () => boolean, logs: string[]): Promise<void> 
   assert.ok(condition(), logs.join("\n"));
 }
 
-void test("dev mode releases the app's definitions to Live with the deploy token, as a release does", async (t) => {
+void test("dev mode releases the app's definitions to Live with the Deploy Token, as a release does", async (t) => {
   const checkout = await devCheckout(t);
   const { logs } = await startDevServer(checkout, () => {});
 
@@ -356,14 +356,14 @@ async function assertDevModeRefused(config: Parameters<typeof createServer>[0]) 
   );
 }
 
-void test("dev mode refuses to start without the deploy token", async (t) => {
+void test("dev mode refuses to start without the Deploy Token", async (t) => {
   const checkout = await devCheckout(t);
 
   await assertDevModeRefused(devServerConfig(checkout, {}));
   assert.deepEqual(checkout.requests, []);
 });
 
-void test("dev mode refuses to start against an API that isn't local, even with the deploy token", async (t) => {
+void test("dev mode refuses to start against an API that isn't local, even with the Deploy Token", async (t) => {
   const checkout = await devCheckout(t);
 
   await assertDevModeRefused(

@@ -66,7 +66,7 @@ void test("Camox tells the CLI the project's Project ID through runtime.json", (
 
 void test("Camox names the project by its Project ID in the Worker's runtime options", async () => {
   const root = mkdtempSync(join(tmpdir(), "camox-worker-"));
-  // Dev mode runs only against a local API, with its deploy token.
+  // Dev mode runs only against a local API, with its Deploy Token.
   const plugin = camox({
     projectId: PROJECT_ID,
     _internal: { apiUrl: "http://localhost:8787", localDeployToken: "local-deploy-token" },
