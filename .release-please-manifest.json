@@ -1,7 +1,7 @@
 {
-  ".": "0.60.0",
-  "packages/sdk": "0.60.0",
-  "packages/cli": "0.60.0",
-  "packages/ui": "0.60.0",
-  "packages/api-contract": "0.60.0"
+  ".": "0.60.1",
+  "packages/sdk": "0.60.1",
+  "packages/cli": "0.60.1",
+  "packages/ui": "0.60.1",
+  "packages/api-contract": "0.60.1"
 }

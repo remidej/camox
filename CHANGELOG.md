@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.1](https://github.com/remidej/camox/compare/camox-v0.60.0...camox-v0.60.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **api:** bundle the release fakes against the SDK's source ([#689](https://github.com/remidej/camox/issues/689)) ([21b51bf](https://github.com/remidej/camox/commit/21b51bf31632c8a964d7a08648ecb466c85d3a4f))
+
 ## [0.60.0](https://github.com/remidej/camox/compare/camox-v0.59.0...camox-v0.60.0) (2026-10-28)
 
 
