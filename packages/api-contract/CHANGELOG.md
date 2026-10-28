@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.0](https://github.com/remidej/camox/compare/camox-v0.60.2...@camox/api-contract-v0.61.0) (2026-10-28)
+
+
+### Miscellaneous
+
+* lint against unchecked type assertions with vendored anti-slop rules ([#693](https://github.com/remidej/camox/issues/693)) ([d27970f](https://github.com/remidej/camox/commit/d27970fc0f5fab43b5fabd13aae25d4bfb6b789c))
+
 ## [0.60.2](https://github.com/remidej/camox/compare/camox-v0.60.1...@camox/api-contract-v0.60.2) (2026-10-28)
 
 
