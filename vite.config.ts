@@ -10,6 +10,8 @@ export default defineConfig({
       "**/routeTree.gen.ts",
       "packages/cli/templates/**",
       "packages/sdk/test/fixture-app/**",
+      // camox.ai's checkout: a hosted project, checked on its own.
+      "sites/**",
     ],
     options: { typeAware: true, typeCheck: true },
     overrides: [
@@ -29,7 +31,7 @@ export default defineConfig({
     "*.{css,html,js,json,jsonc,jsx,md,mdx,scss,ts,tsx,yaml,yml}": "vp check --fix",
   },
   fmt: {
-    ignorePatterns: ["**/layouts.gen.d.ts", "**/routeTree.gen.ts"],
+    ignorePatterns: ["**/layouts.gen.d.ts", "**/routeTree.gen.ts", "sites/**"],
     sortImports: {},
     sortTailwindcss: {},
   },

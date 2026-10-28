@@ -60,6 +60,46 @@ prefer rerunning only the failed jobs.
 The landing command `camox release` builds and syncs the site; it does not create
 an npm release or invoke release-please.
 
+## camox.ai's checkout
+
+camox.ai is a hosted Camox project, `camox-site`, with its code in its own
+Artifacts repo. `sites/camox.ai` is a Git submodule of that repo, so a coding
+agent working here sees camox.ai's files next to Camox's source. The project
+has `code_outside_camox` set, so its members can read the repo and push to
+drafts (ADR 0026):
+
+- `git pull` in `sites/camox.ai` brings in `main` and every draft's branch.
+- `npx @camox/cli push` sends the current branch's commits to a draft; a new
+  branch opens a new draft. Merge `main` into the branch first when an Upgrade
+  landed there.
+- Before pushing, run `pnpm exec tsc --noEmit`, `pnpm exec vp lint` and
+  `pnpm exec camox release --dry-run` in the checkout.
+
+The submodule is ignored by `git status` (`ignore = all`), stays out of the
+pnpm workspace, Nx (`.nxignore`) and the root's lint and format, and installs on
+its own from its lockfile and the published `camox`. `.agents/skills/camox`
+links to the `camox` skill inside the checkout's installed SDK, so a local agent
+follows the hosted agent's instructions for the version the code runs on.
+
+### One-time setup
+
+1. Log in to Camox: `npx @camox/cli login`.
+2. The submodule was added with:
+
+   ```sh
+   git submodule add <the project's Artifacts remote> sites/camox.ai
+   git config -f .gitmodules submodule.sites/camox.ai.ignore all
+   ```
+
+   To find the remote, clone the project once with
+   `npx @camox/cli clone camox-site` and read `git remote get-url origin` in it.
+
+3. Check it out and install it: `bash scripts/camox-ai-checkout.sh`. It fetches
+   with `camox git-credential` as the credential helper, set only in the
+   checkout's own Git config for the Artifacts host, then installs.
+4. New worktrees run the same script from `scripts/prepare.sh`. Without a Camox
+   login it prints a notice and the worktree is set up without the checkout.
+
 ## Dashboard route tree
 
 Commit `apps/dashboard/src/routeTree.gen.ts`, as recommended by the

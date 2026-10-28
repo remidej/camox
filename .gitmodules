@@ -1,0 +1,4 @@
+[submodule "sites/camox.ai"]
+	path = sites/camox.ai
+	url = https://22c0a64149eec1bfb1c98056d81fb4bc.artifacts.cloudflare.net/git/projects/01a181fb-c774-793f-b1ff-c7c8b6befa46.git
+	ignore = all
