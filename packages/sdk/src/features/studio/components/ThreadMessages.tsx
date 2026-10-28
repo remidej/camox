@@ -153,36 +153,52 @@ function AgentPresence({
 }
 
 /**
- * How long a line saying what the agent does stays at least, in ms: a round of tool calls can take
- * less, and the line would flicker.
+ * How long a line saying what the agent does stays at least, in ms, so editors have time to read
+ * it: a round of tool calls can take far less.
  */
-const ACTIVITY_MIN_DURATION = 600;
+export const ACTIVITY_MIN_DURATION = 2000;
 
 /**
- * `activity`, each holding for at least `ACTIVITY_MIN_DURATION` before the next replaces it. A turn
- * that ends, or starts, shows at once.
+ * How long the agent must keep doing something before a line says so, in ms: thinking briefly
+ * between two rounds of tool calls never shows.
+ */
+export const ACTIVITY_SETTLE_DURATION = 800;
+
+/**
+ * `activity` as a line shows it, steadied: a new activity shows once it lasted
+ * `ACTIVITY_SETTLE_DURATION` and the line before held for `ACTIVITY_MIN_DURATION`, so a brief
+ * one never shows. Only the line lags: a turn that starts or ends shows at once.
  */
 function useSteadyActivity(activity: AgentActivity | undefined) {
-  // Each line shown is a new object, so one that shows again holds again.
+  // Each change is a new object, so an activity that comes back waits again.
+  const [latest, setLatest] = React.useState({ activity });
+  const [lasted, setLasted] = React.useState<typeof latest>();
   const [held, setHeld] = React.useState({ activity });
   const [settled, setSettled] = React.useState<typeof held>();
+  React.useEffect(() => {
+    const timer = setTimeout(() => setLasted(latest), ACTIVITY_SETTLE_DURATION);
+    return () => clearTimeout(timer);
+  }, [latest]);
   React.useEffect(() => {
     const timer = setTimeout(() => setSettled(held), ACTIVITY_MIN_DURATION);
     return () => clearTimeout(timer);
   }, [held]);
-  if (activity !== held.activity && (settled === held || !activity || !held.activity)) {
-    setHeld({ activity });
+  if (activity !== latest.activity) {
+    setLatest({ activity });
+  } else if (activity !== held.activity) {
+    const startsOrEnds = !activity || !held.activity;
+    if (startsOrEnds || (lasted === latest && settled === held)) setHeld({ activity });
   }
   return activity && (held.activity ?? activity);
 }
 
 const SQUARELING_STATUSES: Record<AgentActivity, SquarelingStatus> = {
   thinking: "thinking",
-  exploring: "acting",
-  changing: "acting",
-  building: "acting",
+  exploring: "exploring",
+  changing: "changing",
+  building: "building",
   fixing: "fixing",
-  startingDraft: "acting",
+  startingDraft: "changing",
 };
 
 const ACTIVITY_LINES: Record<AgentActivity, string> = {

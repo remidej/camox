@@ -61,7 +61,11 @@ code {
   }
 }
 
-/* The agent's squareling (Squareling.tsx): its motion says what the agent is doing. */
+/*
+ * The agent's squareling (Squareling.tsx): its motion says what the agent is doing, keyed by the
+ * face it shows (`data-face`). Its eyes glide between faces, and each face's loop starts after
+ * the one before settled: delayed by Squareling.tsx's `SETTLE_DURATION`, 300ms.
+ */
 .squareling :is(.squareling-body, .squareling-eyes, .squareling-eye) {
   transform-box: fill-box;
   transform-origin: center;
@@ -69,48 +73,115 @@ code {
 .squareling .squareling-body {
   transform-origin: 50% 100%;
 }
-[data-squareling="thinking"] .squareling-eyes {
-  animation: squareling-look 3.6s ease-in-out infinite;
+.squareling .squareling-gaze {
+  transition: transform 450ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-[data-squareling="thinking"] .squareling-eye {
-  animation: squareling-blink 3.6s linear infinite;
+.squareling .squareling-eye {
+  transition:
+    scale 300ms cubic-bezier(0.23, 1, 0.32, 1),
+    translate 300ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-[data-squareling="acting"] .squareling-body {
-  animation: squareling-hop 0.8s ease-in-out infinite;
+/* Idle, it looks at the editor, blinking now and then. */
+[data-face="idle"] .squareling-gaze {
+  transform: translateX(var(--squareling-towards-us));
 }
-[data-squareling="fixing"] .squareling-body {
-  animation: squareling-wiggle 1.2s ease-in-out infinite;
+[data-face="idle"]:not([data-squareling-variant]) .squareling-blinks {
+  animation: squareling-blink 6s linear 300ms infinite;
+}
+/* Thinking, it looks up and away, slowly tilting its head one way, then the other. */
+[data-face="thinking"] .squareling-gaze {
+  transform: translate(-6px, -10px);
+}
+[data-face="thinking"] .squareling-body {
+  animation: squareling-tilt 6s ease-in-out 300ms infinite;
+}
+[data-face="thinking"] .squareling-blinks {
+  animation: squareling-blink 5s linear 300ms infinite;
+}
+/* Looking around, its eyes dart from side to side, resting on what they find. */
+[data-face="exploring"] .squareling-eyes {
+  animation: squareling-look-around 2.8s 300ms infinite;
+}
+/* Making changes, it hops at the work, eyes narrowed on it. */
+[data-face="changing"] .squareling-body {
+  animation: squareling-hop 0.8s ease-in-out 300ms infinite;
+}
+/* Building, it waits, breathing slowly. */
+[data-face="building"] .squareling-body {
+  animation: squareling-breathe 1.8s ease-in-out 300ms infinite;
+}
+[data-face="building"] .squareling-blinks {
+  animation: squareling-blink 3.6s linear 300ms infinite;
+}
+/* Fixing, it shakes itself, one eye narrowed. */
+[data-face="fixing"] .squareling-body {
+  animation: squareling-wiggle 1.2s ease-in-out 300ms infinite;
 }
 /*
  * A working patroller's narrowed eyes follow the work, at the pace of reading, along its body:
  * across the Translator's wide wedge, down the SEO manager's tall block.
  */
-[data-squareling="working"][data-squareling-variant="translator"] .squareling-eyes {
-  animation: squareling-glance 2.8s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+[data-face="working"][data-squareling-variant="translator"] .squareling-eyes {
+  animation: squareling-glance 2.8s cubic-bezier(0.77, 0, 0.175, 1) 300ms infinite;
 }
-[data-squareling="working"][data-squareling-variant="seoManager"] .squareling-eyes {
-  animation: squareling-scan 2.8s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+[data-face="working"][data-squareling-variant="seoManager"] .squareling-eyes {
+  animation: squareling-scan 2.8s cubic-bezier(0.77, 0, 0.175, 1) 300ms infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .squareling * {
     animation: none !important;
+    transition: none !important;
   }
 }
 
-@keyframes squareling-look {
+@keyframes squareling-tilt {
   0%,
-  18%,
-  92%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25%,
+  45% {
+    transform: rotate(-8deg);
+  }
+  70%,
+  85% {
+    transform: rotate(4deg);
+  }
+}
+/* Quick glances, each easing out onto where the eyes rest. */
+@keyframes squareling-look-around {
+  0%,
+  14% {
+    transform: translate(0, 0);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  22%,
+  40% {
+    transform: translate(-30px, 2px);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  48%,
+  62% {
+    transform: translate(-14px, -9px);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  70%,
+  88% {
+    transform: translate(2px, 6px);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  96%,
   100% {
     transform: translate(0, 0);
   }
-  26%,
-  44% {
-    transform: translate(3px, -10px);
+}
+@keyframes squareling-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
   }
-  54%,
-  80% {
-    transform: translate(-26px, 0);
+  50% {
+    transform: scale(1.04, 0.95);
   }
 }
 @keyframes squareling-blink {

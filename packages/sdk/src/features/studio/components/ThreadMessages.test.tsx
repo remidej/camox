@@ -7,7 +7,8 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { ThreadMessages } = await import("./ThreadMessages");
+const { ACTIVITY_MIN_DURATION, ACTIVITY_SETTLE_DURATION, ThreadMessages } =
+  await import("./ThreadMessages");
 
 const editor = { id: "user-1", name: "Ada Lovelace", image: null };
 
@@ -164,11 +165,11 @@ void test("the agent's squareling says what the agent does, in words too, never 
   };
 
   assert.deepEqual(shown("thinking"), { squareling: "thinking", said: "Thinking…" });
-  assert.deepEqual(shown("exploring"), { squareling: "acting", said: "Looking around…" });
-  assert.deepEqual(shown("changing"), { squareling: "acting", said: "Making changes…" });
-  assert.deepEqual(shown("building"), { squareling: "acting", said: "Building…" });
+  assert.deepEqual(shown("exploring"), { squareling: "exploring", said: "Looking around…" });
+  assert.deepEqual(shown("changing"), { squareling: "changing", said: "Making changes…" });
+  assert.deepEqual(shown("building"), { squareling: "building", said: "Building…" });
   assert.deepEqual(shown("fixing"), { squareling: "fixing", said: "Fixing the build…" });
-  assert.deepEqual(shown("startingDraft"), { squareling: "acting", said: "Starting a draft…" });
+  assert.deepEqual(shown("startingDraft"), { squareling: "changing", said: "Starting a draft…" });
   // A run the thread hasn't said anything of yet starts with thinking.
   assert.deepEqual(shown(), { squareling: "thinking", said: "Thinking…" });
 });
@@ -237,37 +238,49 @@ async function inDocument<T>(
 /** Long enough for any line saying what the agent does to have held. */
 const ACTIVITY_HOLD = 60_000;
 
-void test("what the agent does holds a moment before the next replaces it, so it doesn't flicker", async (t) => {
+void test("what the agent does shows once it lasted, and holds before the next replaces it, so editors can read it", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
   const said = await inDocument(async ({ act, root, container }) => {
     const said: (string | null)[] = [];
+    const status = () => container.querySelector('[role="status"]')!.textContent;
     const show = async (view: Omit<ThreadView, "messages">) => {
       await act(async () => root.render(<ThreadMessages view={{ messages: [asked], ...view }} />));
-      said.push(container.querySelector('[role="status"]')!.textContent);
+      said.push(status());
     };
     const wait = async (ms: number) => {
       await act(async () => t.mock.timers.tick(ms));
-      said.push(container.querySelector('[role="status"]')!.textContent);
+      said.push(status());
     };
 
     await show({ running: true, activity: "thinking" });
     await show({ running: true, activity: "exploring" });
+    await wait(ACTIVITY_SETTLE_DURATION);
+    await wait(ACTIVITY_MIN_DURATION);
+    await wait(ACTIVITY_HOLD);
+    await show({ running: true, activity: "thinking" });
+    await wait(ACTIVITY_SETTLE_DURATION / 2);
+    await show({ running: true, activity: "exploring" });
     await wait(ACTIVITY_HOLD);
     await show({ running: true, activity: "changing" });
     await wait(ACTIVITY_HOLD);
-    await show({ running: true, activity: "thinking" });
     await show({ running: false });
     return said;
   });
 
   assert.deepEqual(said, [
     "Thinking…",
-    // Thinking only just showed: looking around waits its turn, then shows.
+    // Looking around lasted, but thinking only just showed: it waits its turn, then shows.
+    "Thinking…",
     "Thinking…",
     "Looking around…",
     "Looking around…",
-    "Making changes…",
+    // Thinking for a moment between two rounds never shows.
+    "Looking around…",
+    "Looking around…",
+    "Looking around…",
+    "Looking around…",
+    "Looking around…",
     "Making changes…",
     // A turn that ends shows at once.
     "",
