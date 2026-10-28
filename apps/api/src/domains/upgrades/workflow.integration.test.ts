@@ -1,4 +1,3 @@
-import { sdkBundleName } from "camox/_internal/sdkBundleName";
 import {
   introspectWorkflow,
   introspectWorkflowInstance,
@@ -11,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { createProjectFixture } from "../../../test/fixtures";
 import { websiteLockfile } from "../../../test/website-lockfile";
 import { projects } from "../../schema";
-import { HOSTED_SDK_BUNDLE_SETTINGS, sdkBundleArchiveKey } from "../sdk-bundles/ensure";
+import { sdkBundleArchiveKey, sdkBundleNamesOf } from "../sdk-bundles/ensure";
 import { buildCommand, updateCommand } from "./commands";
 import { PROJECTS_PER_BATCH } from "./workflow";
 
@@ -123,10 +122,9 @@ async function pushesToMain(repo: string) {
 /** Whether the SDK Bundle of `lockfile` is stored, with both its targets. */
 async function sdkBundleStored(lockfile: string) {
   const stored = await Promise.all(
-    (["browser", "workerd"] as const).map(async (target) => {
-      const name = await sdkBundleName({ lockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS });
-      return env.REVISION_BUILDS.head(sdkBundleArchiveKey(name));
-    }),
+    Object.values(await sdkBundleNamesOf(lockfile)).map((name) =>
+      env.REVISION_BUILDS.head(sdkBundleArchiveKey(name)),
+    ),
   );
   return stored.every(Boolean);
 }
@@ -251,11 +249,7 @@ describe("upgrading every project to a new SDK", () => {
     const build = (await fakes.commandsRun(project.uuid)).find(
       ({ command }) => command === buildCommand(),
     );
-    const names = await Promise.all(
-      (["browser", "workerd"] as const).map((target) =>
-        sdkBundleName({ lockfile: upgradedLockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS }),
-      ),
-    );
+    const names = Object.values(await sdkBundleNamesOf(upgradedLockfile));
     expect(Object.keys(build!.sdkBundleCache!).sort()).toEqual(names.sort());
     expect(await pushesToMain(project.uuid)).toHaveLength(1);
   });

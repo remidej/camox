@@ -6,13 +6,13 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
-import { sdkBundleFiles, sdkBundleNamesFor, storeSdkBundle } from "../../../test/sdk-bundles";
+import { sdkBundleFiles, storeSdkBundle } from "../../../test/sdk-bundles";
 import { websiteLockfile } from "../../../test/website-lockfile";
 import { router } from "../../router";
 import { projects, releases } from "../../schema";
 import type { Bindings } from "../../types";
 import { publishScriptsTag } from "../publishes/scripts";
-import type { SdkBundleNames } from "../sdk-bundles/ensure";
+import { type SdkBundleNames, sdkBundleNamesOf } from "../sdk-bundles/ensure";
 import { RELEASE_SDK_BUNDLE_CACHE } from "../sdk-bundles/workspace";
 
 // A push to a project's repo releases it: the release Workflow installs, runs `camox release`
@@ -598,7 +598,7 @@ describe("a release of a website built against an SDK Bundle", () => {
       react: `19.3.${Math.floor(Math.random() * 1e9)}`,
     });
     const commit = commitSha();
-    const names = await sdkBundleNamesFor(websiteLock);
+    const names = await sdkBundleNamesOf(websiteLock);
     await fakes.buildAgainstSdkBundlesOf(SWITCHED_ON);
     await fakes.push(project.uuid, commit, {
       "package.json": packageJson,

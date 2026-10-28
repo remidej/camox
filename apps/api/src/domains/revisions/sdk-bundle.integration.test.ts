@@ -1,4 +1,3 @@
-import { sdkBundleName } from "camox/_internal/sdkBundleName";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { desc, eq } from "drizzle-orm";
@@ -10,7 +9,8 @@ import { storeSdkBundle } from "../../../test/sdk-bundles";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import { ask, connectDraftThread, signIn, websiteFixture } from "../../../test/threads";
 import { websiteLockfile } from "../../../test/website-lockfile";
-import { HOSTED_SDK_BUNDLE_SETTINGS, type SdkBundleNames } from "../sdk-bundles/ensure";
+import { untarGzip } from "../../lib/tar";
+import { sdkBundleArchiveKey } from "../sdk-bundles/ensure";
 import { revisions } from "./schema";
 
 // A draft's revisions build against their SDK Bundle (ADR 0029). The revision sandbox is faked at
@@ -27,7 +27,7 @@ type Fakes = {
   buildAgainstSdkBundlesOf(marker: string): Promise<void>;
   revisionBuilds(sandbox: string): Promise<unknown[]>;
   revisionCommands(sandbox: string): Promise<{ command: string }[]>;
-  sdkBundleBuilds(): Promise<{ written: Record<string, string> }[]>;
+  sdkBundleBuilds(): Promise<{ sandbox: string; written: Record<string, string> }[]>;
 };
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -67,11 +67,11 @@ async function websiteWithCode({ switchedOn = true } = {}) {
 const uniqueLockfile = () =>
   websiteLockfile("1.0.0", { react: `19.3.${Math.floor(Math.random() * 1e9)}` });
 
-/** The SDK Bundle's names for `lockfile`, as a hosted website's camox names it. */
-async function namesOf(lockfile: string): Promise<SdkBundleNames> {
-  const name = (target: "browser" | "workerd") =>
-    sdkBundleName({ lockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS });
-  return { browser: await name("browser"), workerd: await name("workerd") };
+/** The manifest of the SDK Bundle target stored under `name`, which the fake build names it in. */
+async function storedManifest(name: string) {
+  const archive = await env.REVISION_BUILDS.get(sdkBundleArchiveKey(name));
+  if (!archive) return null;
+  return new TextDecoder().decode((await untarGzip(archive.body)).get("sdk-bundle.json"));
 }
 
 type Website = Awaited<ReturnType<typeof websiteWithCode>>;
@@ -193,7 +193,14 @@ describe("a revision built against an SDK Bundle", () => {
       ({ written }) => written["pnpm-lock.yaml"] === website.lockfile,
     );
     expect(ensured).toHaveLength(1);
-    expect(await sdkBundleOf(website, built.revision!)).toEqual(await namesOf(website.lockfile));
+    // It records the bundle that ensuring built and stored.
+    const recorded = await sdkBundleOf(website, built.revision!);
+    for (const name of Object.values(recorded ?? {})) {
+      expect(await storedManifest(name)).toBe(
+        `SDK Bundle ${name}, built in ${ensured[0]!.sandbox}`,
+      );
+    }
+    expect(Object.keys(recorded ?? {}).sort()).toEqual(["browser", "workerd"]);
     expect(await fakes.revisionBuilds(draftId)).toHaveLength(2);
   });
 

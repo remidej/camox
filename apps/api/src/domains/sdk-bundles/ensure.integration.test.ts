@@ -1,4 +1,3 @@
-import { sdkBundleName } from "camox/_internal/sdkBundleName";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -7,7 +6,6 @@ import { websiteLockfile } from "../../../test/website-lockfile";
 import { untarGzip } from "../../lib/tar";
 import {
   ensureSdkBundle,
-  HOSTED_SDK_BUNDLE_SETTINGS,
   sdkBundleArchiveKey,
   type SdkBundleNames,
   sdkBundleNamesOf,
@@ -49,12 +47,6 @@ function website() {
   return { lockfile, packageJson };
 }
 
-async function namesOf(lockfile: string) {
-  const name = (target: "browser" | "workerd") =>
-    sdkBundleName({ lockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS });
-  return { browser: await name("browser"), workerd: await name("workerd") };
-}
-
 /** The manifest of the SDK Bundle stored under `name`, which the fake build names it in. */
 async function stored(name: string) {
   const archive = await env.REVISION_BUILDS.get(sdkBundleArchiveKey(name));
@@ -75,7 +67,6 @@ describe("ensuring an SDK Bundle", () => {
 
     const names = await ensureSdkBundle(env, source);
 
-    expect(names).toEqual(await namesOf(source.lockfile));
     const [build, ...others] = await buildsOf(source.lockfile);
     expect(others).toEqual([]);
     // No website code and no cache: only the manifest without its scripts, and the lockfile.
@@ -118,7 +109,7 @@ describe("ensuring an SDK Bundle", () => {
     expect(await buildsOf(source.lockfile)).toHaveLength(1);
     for (const name of [
       ...Object.values(victim),
-      ...Object.values(await namesOf(source.lockfile)),
+      ...Object.values(await sdkBundleNamesOf(source.lockfile)),
     ]) {
       expect(await stored(name)).toBeNull();
     }

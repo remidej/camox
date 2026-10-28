@@ -10,7 +10,7 @@ import { parseSync } from "vite-plus";
 
 import { type SdkBundleBuild, buildSdkBundle } from "./buildSdkBundle";
 import { type SdkBundleSettings, sdkBundleName, sdkBundleSpecifiersFor } from "./sdkBundleName";
-import { SDK_BUNDLE_TARGETS, sdkBundleEntryFile } from "./specifiers";
+import { SDK_BUNDLE_TARGETS, type SdkBundleTarget, sdkBundleEntryFile } from "./specifiers";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const templateRoot = join(repoRoot, "apps/template-default");
@@ -53,7 +53,8 @@ void describe("the Template's SDK Bundle", () => {
   });
   after(() => rm(outDir, { recursive: true, force: true }));
 
-  void test("is named from the Template's lockfile and settings, before it's built", async () => {
+  void test("is named as the Template's lockfile names it before it's built", async () => {
+    // What a cache or the API looks the bundle up by, without building it.
     const lockfile = await readFile(join(repoRoot, "pnpm-lock.yaml"), "utf8");
     for (const target of SDK_BUNDLE_TARGETS) {
       assert.equal(
@@ -101,7 +102,7 @@ void describe("the Template's SDK Bundle", () => {
   });
 
   void test("gives CommonJS packages named exports, built for each target", async () => {
-    const entry = (target: "browser" | "workerd", specifier: string) =>
+    const entry = (target: SdkBundleTarget, specifier: string) =>
       import(pathToFileURL(join(build[target].dir, sdkBundleEntryFile(specifier))).href) as Promise<
         Record<string, unknown>
       >;
