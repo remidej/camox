@@ -1472,7 +1472,7 @@ void test("says why the last publish with code went back to the review", async (
   );
   const close = await openReview();
   try {
-    assert.match(dialogText(), /The agent changed the code since this review opened/);
+    assert.match(dialogText(), /The draft's code changed since this review opened/);
     assert.equal(publishButton()?.disabled, false);
   } finally {
     await close();

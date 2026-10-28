@@ -159,6 +159,13 @@ function squarelingStatus(
   return status === "building" || usingTools ? "acting" : "thinking";
 }
 
+/** How a member's pushed code built, as the thread says it. */
+const PUSH_OUTCOMES: Record<Extract<ThreadMessage, { from: "push" }>["outcome"], string> = {
+  built: "Built, and in the preview.",
+  typeErrors: "Built, with type errors that block publishing.",
+  notPreviewed: "Built, but the preview can’t show it.",
+};
+
 const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
   building: "Building…",
   fixing: "Fixing a build error…",
@@ -198,6 +205,32 @@ function ThreadMessageRow({
       <Message>
         <MessageContent>
           <ThreadMarkdown text={message.text} />
+        </MessageContent>
+      </Message>
+    );
+  }
+  if (message.from === "push") {
+    // A member pushed code from their own checkout, between turns: no one answers it.
+    const commits = message.subjects.length;
+    return (
+      <Message>
+        <MessageAvatar>
+          <SenderAvatar sender={message.sender} />
+        </MessageAvatar>
+        <MessageContent>
+          <MessageHeader className="text-muted-foreground text-xs">
+            {`${message.sender.name} pushed ${commits} ${commits === 1 ? "commit" : "commits"}`}
+          </MessageHeader>
+          <div data-thread-push className={DRAFT_CARD_CLASSES}>
+            <ul className="flex flex-col gap-0.5">
+              {message.subjects.map((subject, index) => (
+                <li key={index} className="font-mono text-xs">
+                  {subject}
+                </li>
+              ))}
+            </ul>
+            <span className="text-muted-foreground text-xs">{PUSH_OUTCOMES[message.outcome]}</span>
+          </div>
         </MessageContent>
       </Message>
     );

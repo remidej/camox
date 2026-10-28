@@ -261,3 +261,26 @@ for (const [ended, said] of [
     assert.deepEqual(opened, []);
   });
 }
+
+void test("a member's push shows who pushed, their commits and how they built, ending no turn", () => {
+  const view: ThreadView = {
+    running: false,
+    messages: [
+      {
+        id: "1",
+        from: "push",
+        sender: editor,
+        subjects: ["Add a <pricing> section", "Bill monthly"],
+        outcome: "typeErrors",
+      },
+    ],
+  };
+
+  const html = renderToString(<ThreadMessages view={view} />);
+
+  assert.match(html, /Ada Lovelace pushed 2 commits/);
+  assert.match(html, /Add a &lt;pricing&gt; section/);
+  assert.match(html, /Bill monthly/);
+  assert.match(html, /type errors/);
+  assert.equal(html.match(/>AL</g)?.length, 1);
+});

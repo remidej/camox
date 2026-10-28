@@ -485,7 +485,7 @@ const publishInput = (projectId: number, shown: PublishPreview, publishAnyway?: 
 /** Why a publish with code went back to the review, as the review says it. */
 const PUBLISH_ABORTED: Record<string, string> = {
   revisionChanged:
-    "The agent changed the code since this review opened, so the publish stopped. Check the preview, then publish again.",
+    "The draft's code changed since this review opened, so the publish stopped. Check the preview, then publish again.",
   conflictsChanged:
     "Live changed while publishing, so the publish stopped and Live is as it was. Check the new list.",
   blocked: "Something now needs fixing before publishing, so the publish stopped.",
