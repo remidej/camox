@@ -40,6 +40,7 @@ The archive is agent-built, so nothing of it runs and its `wrangler.json` is nev
 - its main module, compatibility date and compatibility flags, the only fields read from its `wrangler.json`: the main module must be one of its ES modules, the date a date, and the flags among the Template's (`nodejs_compat`). Anything else fails the publish;
 - the platform's bindings only: the `CAMOX_PUBLISHING_DRAFT` variable. A release's Worker gets none from Camox either (the Template's `wrangler.jsonc` has none);
 - the client assets of `dist/client/`, without what its `.assetsignore` names, with its `_headers` and `_redirects` as the assets' rules, as wrangler reads them;
+- for a build that names an SDK Bundle in its server build's `camox-sdk-bundle.json` (ADR 0029), the stored bundle's files, read from `REVISION_BUILDS`: the browser bundle's as assets under `/_camox/sdk/<name>/`, the workerd bundle's as modules under `_camox/sdk/<name>/` beside the build's, as `camox release` lays them out. Workers Assets only uploads the files the Worker lacks, so after a first upload only the revision's own files go up. The SDK's `_headers` makes `/_camox/sdk/*` immutable. A whole-app build uploads as before;
 - the `camox-publish-<Project ID>` tag.
 
 ## Upgrades

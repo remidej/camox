@@ -6,6 +6,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { sdkBundleFiles, sdkBundleNamesFor, storeSdkBundle } from "../../../test/sdk-bundles";
+import { websiteLockfile } from "../../../test/website-lockfile";
 import { router } from "../../router";
 import { projects, releases } from "../../schema";
 import type { Bindings } from "../../types";
@@ -25,7 +27,16 @@ type ReleaseFakes = {
   passCommand(repo: string, pattern: string): Promise<void>;
   hold(repo: string, pattern: string): Promise<void>;
   letGo(repo: string): Promise<void>;
-  commandsRun(repo: string): Promise<{ command: string; env: Record<string, string> }[]>;
+  commandsRun(repo: string): Promise<
+    {
+      command: string;
+      env: Record<string, string>;
+      /** For `camox release`: what its SDK Bundle cache held, by folder name. */
+      sdkBundleCache?: Record<string, string>;
+    }[]
+  >;
+  buildAgainstSdkBundlesOf(marker: string): Promise<void>;
+  sdkBundleBuilds(): Promise<{ written: Record<string, string> }[]>;
   failEmailsAbout(pattern: string): Promise<void>;
   emailsSent(): Promise<Email[]>;
   deployWorker(name: string, tags?: string[]): Promise<void>;
@@ -561,5 +572,113 @@ describe("a release of a project a publish's Worker serves", () => {
     expect(await previews.liveScript({ project: project.uuid })).toBe(serving);
     expect(await fakes.hasWorker(serving)).toBe(true);
     expect(await fakes.hasWorker(older)).toBe(true);
+  });
+});
+
+describe("a release of a website built against an SDK Bundle", () => {
+  /** The website's camox builds trees holding this against an SDK Bundle (ADR 0029). */
+  const SWITCHED_ON = "// built against an SDK Bundle";
+
+  /**
+   * A project whose `main` is pushed as `commit`, its lockfile resolving a `react` of its own, so
+   * its SDK Bundle is no other test's. With `switchedOn`, its builds name that bundle.
+   */
+  async function pushedWebsite({
+    switchedOn = true,
+    packageJson = `{ "name": "acme", "dependencies": { "camox": "^1.0.0" } }\n`,
+  } = {}) {
+    const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
+    const websiteLock = websiteLockfile("1.0.0", {
+      react: `19.3.${Math.floor(Math.random() * 1e9)}`,
+    });
+    const commit = commitSha();
+    await fakes.buildAgainstSdkBundlesOf(SWITCHED_ON);
+    await fakes.push(project.uuid, commit, {
+      "package.json": packageJson,
+      "pnpm-lock.yaml": websiteLock,
+      "src/camox.ts": switchedOn ? `${SWITCHED_ON}\n` : "\n",
+    });
+    return {
+      db,
+      project,
+      commit,
+      lockfile: websiteLock,
+      names: await sdkBundleNamesFor(websiteLock),
+    };
+  }
+
+  /** What the SDK Bundle cache of the project's `camox release` held as it ran. */
+  async function releaseCacheOf(repo: string) {
+    const release = (await fakes.commandsRun(repo)).find(({ command }) =>
+      command.includes("camox release"),
+    );
+    return release?.sdkBundleCache;
+  }
+
+  async function releaseOf(db: Fixture["db"], projectId: number) {
+    return db.select().from(releases).where(eq(releases.projectId, projectId)).get();
+  }
+
+  it("puts the stored SDK Bundle into the release's sandbox before `camox release`", async () => {
+    const { db, project, commit, lockfile: websiteLock, names } = await pushedWebsite();
+    await storeSdkBundle(websiteLock);
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit));
+
+    expect(await releaseOf(db, project.id)).toMatchObject({ status: "succeeded" });
+    expect(await releaseCacheOf(project.uuid)).toEqual({
+      [names.browser]: sdkBundleFiles(names.browser, "browser")["sdk-bundle.json"],
+      [names.workerd]: sdkBundleFiles(names.workerd, "workerd")["sdk-bundle.json"],
+    });
+  });
+
+  it("ensures a missing SDK Bundle first, from the pushed commit's files", async () => {
+    const { db, project, commit, lockfile: websiteLock, names } = await pushedWebsite();
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit));
+
+    expect(await releaseOf(db, project.id)).toMatchObject({ status: "succeeded" });
+    const builds = (await fakes.sdkBundleBuilds()).filter(
+      ({ written }) => written["pnpm-lock.yaml"] === websiteLock,
+    );
+    expect(builds).toHaveLength(1);
+    const cache = await releaseCacheOf(project.uuid);
+    expect(Object.keys(cache ?? {}).sort()).toEqual(Object.values(names).sort());
+    expect(cache![names.workerd]).toContain(`SDK Bundle ${names.workerd}, built in`);
+  });
+
+  it("releases a whole-app website as before, with no SDK Bundle fetched or ensured", async () => {
+    const {
+      db,
+      project,
+      commit,
+      lockfile: websiteLock,
+    } = await pushedWebsite({
+      switchedOn: false,
+    });
+    await storeSdkBundle(websiteLock);
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit));
+
+    expect(await releaseOf(db, project.id)).toMatchObject({ status: "succeeded" });
+    expect(await releaseCacheOf(project.uuid)).toEqual({});
+    const builds = (await fakes.sdkBundleBuilds()).filter(
+      ({ written }) => written["pnpm-lock.yaml"] === websiteLock,
+    );
+    expect(builds).toEqual([]);
+  });
+
+  it("fails at its release step, before building, when its SDK Bundle can't be ensured", async () => {
+    // A manifest the bundle's install can't read.
+    const { db, project, commit } = await pushedWebsite({ packageJson: "{ not json" });
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+
+    expect(await releaseOf(db, project.id)).toMatchObject({
+      status: "failed",
+      failedStep: "release",
+    });
+    const commands = (await fakes.commandsRun(project.uuid)).map(({ command }) => command);
+    expect(commands).toEqual(["pnpm install --frozen-lockfile"]);
   });
 });

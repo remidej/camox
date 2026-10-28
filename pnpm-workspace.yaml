@@ -33,3 +33,5 @@ allowBuilds:
   workerd: true
 minimumReleaseAgeExclude:
   - agents@0.29.0
+patchedDependencies:
+  "@cloudflare/ci@0.2.0": patches/@cloudflare__ci@0.2.0.patch

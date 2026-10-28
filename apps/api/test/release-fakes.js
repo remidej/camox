@@ -228,6 +228,8 @@ export class FakeSandbox extends DurableObject {
   name = "";
   /** @type {Map<string, string>} the files written to it, by path */
   files = new Map();
+  /** @type {Map<string, Uint8Array>} the files of `files` that are bytes, such as archives */
+  binaries = new Map();
   /** Whether a workspace snapshot was restored into it. */
   restoredBackup = false;
   /** @type {string[]} the commands it ran outside a step, as an SDK Bundle's build runs them */
@@ -238,11 +240,53 @@ export class FakeSandbox extends DurableObject {
   }
 
   async writeFile(path, content) {
-    this.files.set(
-      path,
-      typeof content === "string" ? content : await new Response(content).text(),
-    );
+    if (typeof content === "string") {
+      this.files.set(path, content);
+    } else {
+      const bytes = new Uint8Array(await new Response(content).arrayBuffer());
+      this.binaries.set(path, bytes);
+      this.files.set(path, new TextDecoder().decode(bytes));
+    }
     return { success: true, path, timestamp: "" };
+  }
+
+  async exists(path) {
+    return { success: true, path, exists: this.files.has(path), timestamp: "" };
+  }
+
+  /** Whether the website's camox in the workspace builds against an SDK Bundle. */
+  #buildsAgainstSdkBundle() {
+    return [...this.files].some(
+      ([path, content]) =>
+        path.startsWith(`${WORKSPACE}/`) &&
+        sdkBundleSwitchedOn.some((marker) => content.includes(marker)),
+    );
+  }
+
+  /**
+   * What `camox release` finds in its SDK Bundle cache: each folder's manifest, by its name. A
+   * website whose camox builds against an SDK Bundle fails without both of its targets there.
+   * @param {string} command
+   * @param {Record<string, string>} env
+   */
+  async #releaseSdkBundleCache(command, env) {
+    const cache = env.CAMOX_INTERNAL_SDK_BUNDLE_CACHE;
+    /** @type {Record<string, string>} */
+    const cached = {};
+    for (const [path, content] of this.files) {
+      const name = cache && new RegExp(`^${cache}/([^/]+)/sdk-bundle\\.json$`).exec(path)?.[1];
+      if (name) cached[name] = content;
+    }
+    if (!this.#buildsAgainstSdkBundle()) return { cached, missing: false };
+    // An Upgrade's build first copies back the files its update saved (`buildCommand`).
+    const folder = command.includes(".camox-upgrade") ? `${WORKSPACE}/.camox-upgrade` : WORKSPACE;
+    const lockfile = this.files.get(`${folder}/pnpm-lock.yaml`) ?? "";
+    const names = await Promise.all(
+      ["browser", "workerd"].map((target) =>
+        sdkBundleName({ lockfile, target, settings: HOSTED_SETTINGS }),
+      ),
+    );
+    return { cached, missing: names.some((name) => cached[name] === undefined) };
   }
 
   async readFile(path = "", options = {}) {
@@ -252,7 +296,9 @@ export class FakeSandbox extends DurableObject {
       success: true,
       path,
       content:
-        options.encoding === "base64" ? toBase64(new TextEncoder().encode(content)) : content,
+        options.encoding === "base64"
+          ? toBase64(this.binaries.get(path) ?? new TextEncoder().encode(content))
+          : content,
       encoding: options.encoding === "base64" ? "base64" : "utf-8",
       timestamp: "",
     };
@@ -287,12 +333,38 @@ export class FakeSandbox extends DurableObject {
     this.commands.push(command);
     if (SDK_BUNDLE_BUILD_COMMAND.test(command))
       return result(0, await this.#buildSdkBundle(options));
+    // Whether the workspace's camox builds against an SDK Bundle, as it answers.
+    if (SDK_BUNDLE_SWITCH_PROBE.test(command)) {
+      return result(0, this.#buildsAgainstSdkBundle() ? "sdk-bundle\n" : "whole-app\n");
+    }
+    const removed = /^rm -rf (\S+)$/.exec(command);
+    if (removed) {
+      for (const path of this.files.keys()) {
+        if (path === removed[1] || path.startsWith(`${removed[1]}/`)) this.files.delete(path);
+      }
+      return result(0);
+    }
+    const unpack = SDK_BUNDLE_UNPACK_COMMAND.exec(command);
+    if (unpack) {
+      const archived = this.binaries.get(unpack[1]);
+      if (archived === undefined) return result(2);
+      if ([...this.files.keys()].some((path) => path.startsWith(`${unpack[3]}/`))) return result(1);
+      const decoder = new TextDecoder();
+      for (const [path, content] of await unpackedSdkBundle(archived)) {
+        this.files.set(`${unpack[3]}/${path}`, decoder.decode(content));
+      }
+      this.files.delete(unpack[1]);
+      this.binaries.delete(unpack[1]);
+      return result(0);
+    }
     const archive = SDK_BUNDLE_ARCHIVE_COMMAND.exec(command);
     if (archive) {
       const [, file, target] = archive;
       const build = sdkBundleBuilds.findLast(({ sandbox }) => sandbox === this.name);
       if (!build?.names) return result(2);
-      this.files.set(file, `SDK Bundle ${build.names[target]}, built in ${this.name}`);
+      const manifest = `SDK Bundle ${build.names[target]}, built in ${this.name}`;
+      this.files.set(file, manifest);
+      this.binaries.set(file, await fakeSdkBundleArchive(manifest));
     }
     return result(0);
   }
@@ -338,14 +410,22 @@ export class FakeSandbox extends DurableObject {
     const command = WRAPPED.exec(wrapped)?.[1] ?? wrapped;
     const repo = this.repo ?? "";
     const run = commandsRun.get(repo) ?? [];
-    run.push({ command, env: { ...options.env }, order: order() });
+    const sdkBundle = /\bcamox release\b/.test(command)
+      ? await this.#releaseSdkBundleCache(command, options.env ?? {})
+      : null;
+    run.push({
+      command,
+      env: { ...options.env },
+      order: order(),
+      ...(sdkBundle ? { sdkBundleCache: sdkBundle.cached } : {}),
+    });
     commandsRun.set(repo, run);
 
     const failure = failures.get(repo)?.find(({ pattern, times }) => {
       return times > 0 && command.includes(pattern);
     });
     if (failure) failure.times -= 1;
-    const exitCode = failure ? 1 : 0;
+    const exitCode = failure || sdkBundle?.missing ? 1 : 0;
     if (exitCode === 0 && command.includes("npm pkg set")) this.#update(repo, command);
     // A release's deploy replaces the project's Worker, named after its Project ID.
     if (exitCode === 0 && /\bwrangler deploy\b/.test(command)) {
@@ -404,7 +484,35 @@ export class FakeSandbox extends DurableObject {
 
   async destroy() {
     this.files.clear();
+    this.binaries.clear();
   }
+}
+
+/**
+ * A fake SDK Bundle's archive, as ensuring one stores it: a gzipped tar of a folder whose
+ * `sdk-bundle.json` is `manifest`, beside an entry module.
+ * @param {string} manifest
+ */
+async function fakeSdkBundleArchive(manifest) {
+  const encoder = new TextEncoder();
+  const archive = tar(
+    Object.entries({ "sdk-bundle.json": manifest, "entry.mjs": `// ${manifest}\n` }).map(
+      ([path, content]) => ({ path: `./${path}`, mode: 0o644, content: encoder.encode(content) }),
+    ),
+  );
+  return new Uint8Array(
+    await new Response(
+      new Blob([archive]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer(),
+  );
+}
+
+/**
+ * The files of an SDK Bundle's archive, by path from its folder, as `tar -xzf` unpacks them.
+ * @param {Uint8Array} archive
+ */
+function unpackedSdkBundle(archive) {
+  return untarGzip(new Blob([archive]).stream());
 }
 
 /** Where `@cloudflare/ci` checks a step's commit out. */
@@ -416,6 +524,8 @@ const backups = new Map();
 /** @type {Map<string, string>} repo name → the lockfile `pnpm install` resolves in its upgrade */
 const installsResolving = new Map();
 
+/** Asking the website's camox whether it builds against an SDK Bundle (`domains/sdk-bundles`). */
+const SDK_BUNDLE_SWITCH_PROBE = /\bCAMOX_SDK_BUNDLE_PROBE\b/;
 /** An SDK Bundle's build: the builder, run from the website's folder (`domains/sdk-bundles`). */
 const SDK_BUNDLE_BUILD_COMMAND = /\bCAMOX_SDK_BUNDLE_BUILDER\b/;
 /** An archive of one target's folder of a built SDK Bundle. */
@@ -880,8 +990,9 @@ export class FakeRevisionSandbox extends DurableObject {
       if ([...this.files.keys()].some((path) => path.startsWith(`${unpack[3]}/`))) {
         return result(1, `mv: cannot move '${unpack[2]}' to '${unpack[3]}': Directory not empty`);
       }
-      // Fake bundles are archived as text naming them: their folder holds it as its manifest.
-      this.files.set(`${unpack[3]}/sdk-bundle.json`, archived);
+      for (const [path, content] of await unpackedSdkBundle(archived)) {
+        this.files.set(`${unpack[3]}/${path}`, content);
+      }
       this.files.delete(unpack[1]);
       return result(0);
     }

@@ -12,6 +12,8 @@ import type { Bindings } from "../../types";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 import { deletePublishScripts, liveScriptOf } from "../publishes/scripts";
+import { ENSURE_SDK_BUNDLE } from "../sdk-bundles/ensure";
+import { RELEASE_SDK_BUNDLE_ENV, withStoredSdkBundle } from "../sdk-bundles/workspace";
 import { sendReleaseFailureAlert } from "./alert";
 import { camoxVersionInLockfile } from "./lockfile";
 import { releases, type ReleaseStep } from "./schema";
@@ -150,12 +152,30 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         command: "pnpm install --frozen-lockfile",
         cache: { inputs: ["pnpm-lock.yaml"] },
       }));
-      const released = await run(installed, "release", async () => ({
+      // A hosted build never builds its SDK Bundle (ADR 0029): the stored one goes into the
+      // workspace it builds on, ensured first when it isn't stored. Its failure is the release's.
+      current = "release";
+      const withBundle = await step.do(
+        "put the SDK Bundle into the workspace",
+        ENSURE_SDK_BUNDLE,
+        async () =>
+          withStoredSdkBundle(
+            this.env,
+            installed.snapshot,
+            await this.readSdkBundleSource(push.repo, push.sha),
+            HOSTED_BUILD,
+          ),
+      );
+      const building: Runs = withBundle
+        ? { runner: (options) => ci.runner({ ...options, snapshot: withBundle.snapshot }) }
+        : installed;
+      const released = await run(building, "release", async () => ({
         command: "pnpm exec camox release",
         env: {
           CAMOX_DEPLOY_TOKEN: await deployToken(db, started.projectId),
           // Code that breaks a hosted check fails the build, so Live keeps its release.
           ...HOSTED_BUILD,
+          ...RELEASE_SDK_BUNDLE_ENV,
         },
       }));
       // A project deleted during its release stops it quietly, before it deploys a Worker its
@@ -236,6 +256,14 @@ export class ReleaseWorkflow extends CIWorkflow<CloudflareArtifacts, ReleaseEnv>
         await followSetup(db, started.projectId, { status: "live", setupStep: null });
       }
     });
+  }
+
+  /** The pushed commit's `package.json` and lockfile, which its SDK Bundle is built from. */
+  private async readSdkBundleSource(repoName: string, commit: string) {
+    using repo = await this.env.ARTIFACTS.get(repoName);
+    const read = async (path: string) =>
+      (await (await repo.readFile({ ref: commit, path }))?.text()) ?? "";
+    return { packageJson: await read("package.json"), lockfile: await read("pnpm-lock.yaml") };
   }
 
   /** The commit's tree, and the `camox` version its `pnpm-lock.yaml` installs. */

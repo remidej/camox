@@ -31,10 +31,17 @@ type ReleaseFakes = {
   /** Makes `pnpm install` in the repo's upgrade write `lockfile`, as resolving the new SDK would. */
   installResolves(repo: string, lockfile: string): Promise<void>;
   sdkBundleBuilds(): Promise<{ written: Record<string, string>; order: number }[]>;
+  buildAgainstSdkBundlesOf(marker: string): Promise<void>;
   emailsSent(): Promise<Email[]>;
 };
 
-type CommandRun = { command: string; env: Record<string, string>; order: number };
+type CommandRun = {
+  command: string;
+  env: Record<string, string>;
+  order: number;
+  /** For `camox release`: what its SDK Bundle cache held, by folder name. */
+  sdkBundleCache?: Record<string, string>;
+};
 
 type Email = {
   from: { name: string; email: string };
@@ -200,6 +207,30 @@ describe("upgrading every project to a new SDK", () => {
       ({ command }) => command === buildCommand(),
     );
     expect(await sdkBundleBuiltAt(upgradedLockfile)).toBeLessThan(build!.order);
+    expect(await pushesToMain(project.uuid)).toHaveLength(1);
+  });
+
+  it("builds its dry-run release against the SDK Bundle of its upgraded lockfile", async () => {
+    // The new SDK's camox builds against an SDK Bundle.
+    const switchedOn = `// built against an SDK Bundle ${crypto.randomUUID()}`;
+    await fakes.buildAgainstSdkBundlesOf(switchedOn);
+    const { project } = await projectOn("0.9.1", { "src/camox.ts": `${switchedOn}\n` });
+    const upgradedLockfile = websiteLockfile(NEW_VERSION, {
+      react: `19.3.1-${crypto.randomUUID()}`,
+    });
+    await fakes.installResolves(project.uuid, upgradedLockfile);
+
+    await upgradeTo(NEW_VERSION);
+
+    const build = (await fakes.commandsRun(project.uuid)).find(
+      ({ command }) => command === buildCommand(),
+    );
+    const names = await Promise.all(
+      (["browser", "workerd"] as const).map((target) =>
+        sdkBundleName({ lockfile: upgradedLockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS }),
+      ),
+    );
+    expect(Object.keys(build!.sdkBundleCache!).sort()).toEqual(names.sort());
     expect(await pushesToMain(project.uuid)).toHaveLength(1);
   });
 

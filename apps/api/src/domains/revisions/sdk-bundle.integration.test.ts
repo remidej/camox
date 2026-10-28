@@ -6,14 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
+import { storeSdkBundle } from "../../../test/sdk-bundles";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import { ask, connectDraftThread, signIn, websiteFixture } from "../../../test/threads";
 import { websiteLockfile } from "../../../test/website-lockfile";
-import {
-  HOSTED_SDK_BUNDLE_SETTINGS,
-  type SdkBundleNames,
-  sdkBundleArchiveKey,
-} from "../sdk-bundles/ensure";
+import { HOSTED_SDK_BUNDLE_SETTINGS, type SdkBundleNames } from "../sdk-bundles/ensure";
 import { revisions } from "./schema";
 
 // A draft's revisions build against their SDK Bundle (ADR 0029). The revision sandbox is faked at
@@ -29,11 +26,11 @@ vi.mock("../../lib/thread-model", async () => {
 type Fakes = {
   buildAgainstSdkBundlesOf(marker: string): Promise<void>;
   revisionBuilds(sandbox: string): Promise<unknown[]>;
+  revisionCommands(sandbox: string): Promise<{ command: string }[]>;
   sdkBundleBuilds(): Promise<{ written: Record<string, string> }[]>;
 };
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
-const builds = (env as unknown as { REVISION_BUILDS: R2Bucket }).REVISION_BUILDS;
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -66,26 +63,6 @@ async function namesOf(lockfile: string): Promise<SdkBundleNames> {
   const name = (target: "browser" | "workerd") =>
     sdkBundleName({ lockfile, target, settings: HOSTED_SDK_BUNDLE_SETTINGS });
   return { browser: await name("browser"), workerd: await name("workerd") };
-}
-
-/** Stores the SDK Bundle of `lockfile`, as ensuring it does. */
-async function storeSdkBundle(lockfile: string) {
-  const names = await namesOf(lockfile);
-  for (const name of Object.values(names)) {
-    await builds.put(sdkBundleArchiveKey(name), `SDK Bundle ${name}`);
-  }
-  return names;
-}
-
-/** The keys of the SDK Bundle archives read from `REVISION_BUILDS` from now on. */
-function sdkBundleReads() {
-  const read: string[] = [];
-  const get = builds.get.bind(builds);
-  vi.spyOn(builds, "get").mockImplementation(((key: string, options?: R2GetOptions) => {
-    if (key.startsWith("sdk/")) read.push(key);
-    return get(key, options);
-  }) as typeof builds.get);
-  return read;
 }
 
 type Website = Awaited<ReturnType<typeof websiteWithCode>>;
@@ -147,8 +124,7 @@ describe("a revision built against an SDK Bundle", () => {
   it("fetches its bundle once for the builds of the same lockfile", async () => {
     const website = await websiteWithCode();
     const names = await storeSdkBundle(website.lockfile);
-    const { thread } = await draftOf(website);
-    const read = sdkBundleReads();
+    const { draftId, thread } = await draftOf(website);
 
     await buildTurn(
       thread,
@@ -158,16 +134,22 @@ describe("a revision built against an SDK Bundle", () => {
     const second = await buildTurn(thread, { "src/blocks/pricing.tsx": `export const p = 2;\n` });
 
     expect(second.ok).toBe(true);
-    expect(read.sort()).toEqual(
-      [sdkBundleArchiveKey(names.browser), sdkBundleArchiveKey(names.workerd)].sort(),
+    // One unpack per target into its sandbox's cache, named after the target's bundle.
+    const unpacked = (await fakes.revisionCommands(draftId)).flatMap(({ command }) =>
+      command.includes("tar -xzf") ? [/\bmv -T \S+ \S+\/([0-9a-f]{32})$/.exec(command)?.[1]] : [],
     );
+    expect(unpacked).toHaveLength(2);
+    expect(new Set(unpacked)).toEqual(new Set([names.browser, names.workerd]));
   });
 
   it("ensures a missing bundle, then builds again", async () => {
-    const website = await websiteWithCode();
+    // Only the draft's code builds against it: `main`'s release would ensure it otherwise.
+    const website = await websiteWithCode({ switchedOn: false });
     const { draftId, thread } = await draftOf(website);
 
-    const built = await buildTurn(thread, { "src/blocks/pricing.tsx": `export const p = 1;\n` });
+    const built = await buildTurn(thread, {
+      "src/blocks/pricing.tsx": `export const p = 1; ${SWITCHED_ON}\n`,
+    });
 
     expect(built.ok).toBe(true);
     const ensured = (await fakes.sdkBundleBuilds()).filter(

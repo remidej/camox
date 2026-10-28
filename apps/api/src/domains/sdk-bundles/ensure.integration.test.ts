@@ -2,12 +2,14 @@ import { sdkBundleName } from "camox/_internal/sdkBundleName";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { sdkBundleFiles, storeSdkBundle } from "../../../test/sdk-bundles";
 import { websiteLockfile } from "../../../test/website-lockfile";
+import { untarGzip } from "../../lib/tar";
 import { ensureSdkBundle, HOSTED_SDK_BUNDLE_SETTINGS, sdkBundleArchiveKey } from "./ensure";
 
 // Ensuring an SDK Bundle is the only step that stores one (ADR 0029). The release sandbox it builds
 // in is faked at its binding (test/release-fakes.js): its build of the bundle names it with the
-// website's camox, from the lockfile written to it, and archives text naming the build.
+// website's camox, from the lockfile written to it, and archives a manifest naming the build.
 
 const fakes = (env as unknown as { RELEASE_FAKES: SdkBundleFakes }).RELEASE_FAKES;
 
@@ -45,8 +47,11 @@ async function namesOf(lockfile: string) {
   return { browser: await name("browser"), workerd: await name("workerd") };
 }
 
+/** The manifest of the SDK Bundle stored under `name`, which the fake build names it in. */
 async function stored(name: string) {
-  return (await env.REVISION_BUILDS.get(sdkBundleArchiveKey(name)))?.text() ?? null;
+  const archive = await env.REVISION_BUILDS.get(sdkBundleArchiveKey(name));
+  if (!archive) return null;
+  return new TextDecoder().decode((await untarGzip(archive.body)).get("sdk-bundle.json"));
 }
 
 /** The builds of the SDK Bundle of a website's lockfile, in the order they started. */
@@ -80,17 +85,17 @@ describe("ensuring an SDK Bundle", () => {
 
   it("returns a stored SDK Bundle's names without building it", async () => {
     const source = website();
-    const names = await namesOf(source.lockfile);
-    for (const name of Object.values(names)) {
-      await env.REVISION_BUILDS.put(sdkBundleArchiveKey(name), `SDK Bundle ${name}, stored`);
-    }
+    const names = await storeSdkBundle(source.lockfile);
 
     expect(await ensureSdkBundle(env, source)).toEqual(names);
 
     expect(await buildsOf(source.lockfile)).toEqual([]);
-    for (const name of Object.values(names)) {
-      expect(await stored(name)).toBe(`SDK Bundle ${name}, stored`);
-    }
+    expect(await stored(names.browser)).toBe(
+      sdkBundleFiles(names.browser, "browser")["sdk-bundle.json"],
+    );
+    expect(await stored(names.workerd)).toBe(
+      sdkBundleFiles(names.workerd, "workerd")["sdk-bundle.json"],
+    );
   });
 
   it("keeps the first stored bytes when two ensures of one SDK Bundle race", async () => {

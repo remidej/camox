@@ -17,6 +17,7 @@ import { callSeedingLive, createRpcContext, startDraft } from "../../../test/fix
 import { watchScheduling } from "../../../test/generation";
 import { sentTo } from "../../../test/project-rooms";
 import { deliverPushes, pushToMain } from "../../../test/pushes";
+import { sdkBundleFiles, storeSdkBundle } from "../../../test/sdk-bundles";
 import {
   answerFrom,
   answerWithScript,
@@ -67,6 +68,7 @@ type UserWorker = {
 };
 
 type Fakes = {
+  buildAgainstSdkBundlesOf(marker: string): Promise<void>;
   defineBuildsOf(marker: string, definitionSet: unknown): Promise<void>;
   configureBuildsOf(marker: string, config: Record<string, unknown>): Promise<void>;
   revisionBuilds(
@@ -125,16 +127,29 @@ const HELLO = "<!-- Text -->\nHello";
 /** A pricing block saying plans start at $9, as the studio reads its Markdown. */
 const PRICING = "<!-- Pricing -->\nPlans start at $9";
 
-/** A website whose `main` holds its text block, and whose Live home page says "Hello". */
-async function websiteWithCode() {
+/** The website's camox builds trees holding this against an SDK Bundle (ADR 0029). */
+const BUILT_AGAINST_AN_SDK_BUNDLE = "// built against an SDK Bundle";
+
+/**
+ * A website whose `main` holds its text block, and whose Live home page says "Hello". With
+ * `sdkBundle`, its builds name an SDK Bundle of its own, which is stored.
+ */
+async function websiteWithCode({ sdkBundle = false } = {}) {
   const website = await websiteFixture({ home: "Hello" });
+  const lockfile = websiteLockfile("1.0.0", {
+    react: sdkBundle ? `19.3.${Math.floor(Math.random() * 1e9)}` : undefined,
+  });
+  // Stored before `main`'s release would ensure it.
+  const sdkBundleNames = sdkBundle ? await storeSdkBundle(lockfile) : null;
   await pushToMain(website.project.uuid, {
     "package.json": `{ "name": "acme", "dependencies": { "camox": "1.0.0" } }\n`,
-    "pnpm-lock.yaml": websiteLockfile("1.0.0"),
+    "pnpm-lock.yaml": lockfile,
     "src/blocks/text.tsx": `export const text = "text";\n`,
+    ...(sdkBundle ? { "src/camox.ts": `${BUILT_AGAINST_AN_SDK_BUNDLE}\n` } : {}),
   });
+  await fakes.buildAgainstSdkBundlesOf(BUILT_AGAINST_AN_SDK_BUNDLE);
   const token = await signIn(website.db, website.memberUser.id);
-  return { website, token };
+  return { website, token, sdkBundleNames };
 }
 
 /** The pricing block's file, which the fake sandbox builds into a set with the pricing block. */
@@ -1147,5 +1162,52 @@ describe("publishing a draft with code", () => {
     expect(builds.objects).toEqual([]);
     expect(await env.DRAFT_CODE.getByName(draftId).held()).toBe(false);
     expect(await fakes.sandboxDestroyed(draftId)).toBe(true);
+  });
+});
+
+describe("publishing a draft with code built against an SDK Bundle", () => {
+  it("puts the build on Live with its SDK Bundle's files as assets and its modules beside the build's", async () => {
+    const { website, token, sdkBundleNames } = await websiteWithCode({ sdkBundle: true });
+    const { browser, workerd } = sdkBundleNames!;
+    const draftId = await draftChangingCode(website, token);
+    await using publishes = await watchPublishes();
+    await publish(website, draftId, await previewOf(website, draftId));
+    await publishesEnd(publishes);
+
+    const live = (await served(website))!;
+    expect(live).toMatchObject({ build: await lastBuildOf(draftId) });
+    const worker = (await fakes.userWorker(live.name))!;
+    // Keyed where the build's chunks import them from: `_camox/sdk/<name>/` at the server
+    // build's root, beside its own modules.
+    expect(Object.keys(worker.modules).sort()).toEqual([
+      `_camox/sdk/${workerd}/chunks/react.mjs`,
+      `_camox/sdk/${workerd}/entry.mjs`,
+      "assets/chunk.js",
+      "index.js",
+    ]);
+    expect(worker.modules[`_camox/sdk/${workerd}/entry.mjs`]).toEqual({
+      type: "application/javascript+module",
+      text: sdkBundleFiles(workerd, "workerd")["entry.mjs"],
+    });
+    // Served under `/_camox/sdk/<name>/`, where the build's client chunks import them from.
+    expect(worker.assets[`/_camox/sdk/${browser}/entry.mjs`]).toEqual({
+      contentType: "text/javascript; charset=utf-8",
+      text: sdkBundleFiles(browser, "browser")["entry.mjs"],
+    });
+    expect(worker.assets[`/_camox/sdk/${browser}/camox-studio-Q2x8.css`]).toEqual({
+      contentType: "text/css; charset=utf-8",
+      text: sdkBundleFiles(browser, "browser")["camox-studio-Q2x8.css"],
+    });
+    expect(worker.assets["/assets/index.css"]).toBeDefined();
+  });
+
+  it("uploads the SDK Bundle with the draft's Worker ahead of its publish", async () => {
+    const { website, token, sdkBundleNames } = await websiteWithCode({ sdkBundle: true });
+
+    const draftId = await draftChangingCode(website, token);
+
+    const worker = (await fakes.userWorker(scriptOf(website, draftId)))!;
+    expect(worker.modules).toHaveProperty([`_camox/sdk/${sdkBundleNames!.workerd}/entry.mjs`]);
+    expect(worker.assets).toHaveProperty([`/_camox/sdk/${sdkBundleNames!.browser}/entry.mjs`]);
   });
 });

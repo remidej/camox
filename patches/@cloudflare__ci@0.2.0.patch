@@ -1,0 +1,27 @@
+diff --git a/src/pipeline/ci-workflow.ts b/src/pipeline/ci-workflow.ts
+index a0ac164d44c2caace0a209652d181b013a2138e9..1e5d43a75b8ace941011ffd6996fa297edeb42eb 100644
+--- a/src/pipeline/ci-workflow.ts
++++ b/src/pipeline/ci-workflow.ts
+@@ -173,7 +173,7 @@ export abstract class CIWorkflow<
+ 
+     // CI ctx object
+     return Object.freeze({
+-      runner: (options) => invoke(options, undefined),
++      runner: (options) => invoke(options, options.snapshot),
+     });
+   }
+ }
+diff --git a/src/pipeline/types.ts b/src/pipeline/types.ts
+index a1f5ff3aa8c30350300f3bd8d1f25cbc850aff65..87cd9321234e79d499a1bb2e5dcae412792a23be 100644
+--- a/src/pipeline/types.ts
++++ b/src/pipeline/types.ts
+@@ -153,6 +153,9 @@ export type CiRunStepOutput = {
+ export type RunnerOptions = {
+   // Names identify durable Workflow steps and must be deterministic.
+   name: string;
++  // Starts an independent runner on this workspace Snapshot, as a chained
++  // runner starts on its parent's. Ignored by chained runners.
++  snapshot?: DirectoryBackup;
+   command: string;
+   cwd?: string;
+   env?: Record<string, string>;

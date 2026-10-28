@@ -29,6 +29,9 @@ overrides:
   vite@*: npm:@voidzero-dev/vite-plus-core@1.3.0
   vitest@*: 5.0.5
 
+patchedDependencies:
+  '@cloudflare/ci@0.2.0': 71ddcd7f93a628e4e7c49c262f6607bd857ccfa5c568474e47334f65f7560495
+
 importers:
 
   .:
@@ -59,7 +62,7 @@ importers:
         version: 4.1.1
       '@cloudflare/ci':
         specifier: 0.2.0
-        version: 0.2.0
+        version: 0.2.0(patch_hash=71ddcd7f93a628e4e7c49c262f6607bd857ccfa5c568474e47334f65f7560495)
       '@cloudflare/sandbox':
         specifier: 0.12.1
         version: 0.12.1
@@ -8509,7 +8512,7 @@ snapshots:
       fast-wrap-ansi: 0.2.0
       sisteransi: 1.0.5
 
-  '@cloudflare/ci@0.2.0':
+  '@cloudflare/ci@0.2.0(patch_hash=71ddcd7f93a628e4e7c49c262f6607bd857ccfa5c568474e47334f65f7560495)':
     dependencies:
       '@cloudflare/sandbox': 0.12.1
       zod: 4.6.7
