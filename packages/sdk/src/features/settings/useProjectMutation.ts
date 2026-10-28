@@ -1,5 +1,5 @@
 import { toast } from "@camox/ui/toaster";
-import { type UseMutationOptions, useMutation } from "@tanstack/react-query";
+import { type MutationFunction, type MutationKey, useMutation } from "@tanstack/react-query";
 
 import { type Project, projectMutations } from "@/lib/queries";
 
@@ -10,6 +10,14 @@ type ProjectMutation = keyof ProjectMutations;
 type VariablesOf<M extends ProjectMutation> = Parameters<
   NonNullable<ReturnType<ProjectMutations[M]>["mutationFn"]>
 >[0];
+
+/** Each project mutation's options, as far as saving with it needs them. */
+const projectMutationOptions: {
+  [M in ProjectMutation]: () => {
+    mutationKey?: MutationKey;
+    mutationFn?: MutationFunction<unknown, VariablesOf<M>>;
+  };
+} = projectMutations;
 
 /**
  * One of the project's mutations, as a Settings part saves with it: once it succeeds the studio
@@ -30,13 +38,8 @@ export function useProjectMutation<M extends ProjectMutation>(
   },
 ) {
   const studioCache = useStudioCache();
-  const options = projectMutations[mutation]() as unknown as UseMutationOptions<
-    unknown,
-    Error,
-    VariablesOf<M>
-  >;
   return useMutation({
-    ...options,
+    ...projectMutationOptions[mutation](),
     onSuccess: async (_, variables) => {
       await studioCache.invalidate(reads.project({ projectUuid: project.uuid }));
       onSuccess?.(variables);

@@ -145,7 +145,7 @@ async function fixture(titles: [string, string, string]) {
   });
   let current = newDraft();
 
-  const tool = async (name: string, args: object = {}, headers = current) => {
+  const tool = async (name: string, args: Record<string, unknown> = {}, headers = current) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },

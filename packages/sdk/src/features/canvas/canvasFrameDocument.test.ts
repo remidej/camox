@@ -83,7 +83,7 @@ void test("sheets are walked again only once rules are inserted or an import loa
   const rules = new Proxy(sheet.cssRules, {
     get: (target, key) => {
       if (key === Symbol.iterator) walks++;
-      const value = Reflect.get(target, key, target) as unknown;
+      const value: unknown = target[key as keyof typeof target];
       return typeof value === "function" ? value.bind(target) : value;
     },
   });

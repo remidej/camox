@@ -182,7 +182,11 @@ async function fixture() {
   const starting: Headers = { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" };
   const inDraft: Headers = { [DRAFT_HEADER]: draft };
 
-  const tool = async (name: string, args: object = {}, headers: Headers = inDraft) => {
+  const tool = async (
+    name: string,
+    args: Record<string, unknown> = {},
+    headers: Headers = inDraft,
+  ) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },

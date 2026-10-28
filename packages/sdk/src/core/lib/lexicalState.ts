@@ -1,3 +1,4 @@
+import type { SerializedEditorState } from "lexical";
 import { Lexer, type Token } from "marked";
 
 import { FORMAT_FLAGS } from "./modifierFormats";
@@ -76,7 +77,9 @@ function extractText(node: any): string {
   return parts.join(node.type === "root" ? "\n\n" : "");
 }
 
-export function lexicalStateToMarkdown(serialized: string | Record<string, unknown>): string {
+export function lexicalStateToMarkdown(
+  serialized: string | SerializedEditorState | Record<string, unknown>,
+): string {
   try {
     const parsed = typeof serialized === "object" ? serialized : JSON.parse(serialized);
     return extractMarkdown(parsed.root);

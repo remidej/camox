@@ -52,7 +52,7 @@ export class EdgeCachePurger extends DurableObject<Bindings> {
 
 /** Purges are scoped to the entrypoint that sends them, so `EdgeCache` sends its own. */
 async function purgeEdgeCache(tags: string[]): Promise<PurgeResult> {
-  const edgeCache = (exports as unknown as { EdgeCache: Fetcher }).EdgeCache;
+  const edgeCache = exports.EdgeCache;
   const response = await edgeCache.fetch(EDGE_CACHE_PURGE_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

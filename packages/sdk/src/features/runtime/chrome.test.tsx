@@ -159,7 +159,10 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.equal(isContentNavbarPath("/camox/content/assets"), true);
   assert.equal(isContentNavbarPath("/camox/content/collections/articles/new"), true);
   assert.equal(isContentNavbarPath("/camox/contentful"), false);
-  const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+  const previousFlag =
+    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ === "undefined"
+      ? undefined
+      : __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
   try {
     for (const flag of [undefined, false, true]) {
       if (flag === undefined)

@@ -1,11 +1,14 @@
 import type { InvalidationMessage, QueryKey } from "@camox/api-contract/query-keys";
+import type { EventFromStore, SnapshotFromStore } from "@xstate/store";
 
 import { version } from "../../../package.json";
 import type { ContentEdit } from "../../core/editing/contentEdits";
 import type { RepeatableItemSeed } from "../../core/editing/createEditableBlock";
 import type { LocaleView } from "../../lib/locale-path";
 import type { ViewLocale } from "../../lib/view-locale-context";
-import type { EditingOwner } from "../preview/previewStore";
+import type { canvasStore } from "../canvas/canvasStore";
+import type { EditingOwner, previewStore } from "../preview/previewStore";
+import type { referencePickerFocus } from "../preview/referencePickerFocus";
 import type { StudioNotice } from "../preview/studioNotice";
 import { RUNTIME_ROUTE_PATHS } from "../runtime/runtimeRoutes";
 
@@ -145,17 +148,33 @@ export interface RendererAnswers {
 /** The answer to `Question`. */
 export type RendererAnswer<Question extends RendererQuestion> = RendererAnswers[Question["type"]];
 
-/** The stores whose state the studio owns, and the renderer mirrors. */
-export type MirroredStore = "preview" | "canvas";
+/** The state of each store whose state the studio owns, and the renderer mirrors. */
+export interface MirroredContexts {
+  preview: SnapshotFromStore<typeof previewStore>["context"];
+  canvas: SnapshotFromStore<typeof canvasStore>["context"];
+}
 
-/** What the renderer's copy of a mirrored store is sent, to take the studio's state. */
-export type MirrorEvent = { type: "mirror"; context: unknown };
+/** The stores whose state the studio owns, and the renderer mirrors. */
+export type MirroredStore = keyof MirroredContexts;
+
+/** The events of each store whose events the renderer forwards to the studio, which applies them. */
+export interface ForwardedEvents {
+  preview: EventFromStore<typeof previewStore>;
+  referencePickerFocus: EventFromStore<typeof referencePickerFocus>;
+}
 
 /** The stores whose events the renderer forwards to the studio, which applies them. */
-export type ForwardedStore = "preview" | "referencePickerFocus";
+export type ForwardedStore = keyof ForwardedEvents;
 
-/** An event of one of the studio's stores. */
-export type StoreEvent = { type: string; [key: string]: unknown };
+/** The studio's state of a mirrored store. */
+export type StoreMessage<Store extends MirroredStore = MirroredStore> = {
+  [S in Store]: { type: "store"; store: S; context: MirroredContexts[S] };
+}[Store];
+
+/** An event of a forwarded store, for the studio to apply. */
+export type StoreEventMessage<Store extends ForwardedStore = ForwardedStore> = {
+  [S in Store]: { type: "storeEvent"; store: S; event: ForwardedEvents[S] };
+}[Store];
 
 /** What the studio tells the renderer. */
 export type StudioMessage =
@@ -168,7 +187,7 @@ export type StudioMessage =
       target: RendererFrameTarget;
     }
   | { type: "frameEnd"; frameId: string }
-  | { type: "store"; store: MirroredStore; context: unknown }
+  | StoreMessage
   /**
    * The studio moved to another draft without reloading the renderer: only a draft its first
    * content write started, which starts from what Live showed.
@@ -193,7 +212,7 @@ export type StudioMessage =
 /** What the renderer tells the studio. */
 export type RendererMessage =
   | { type: "hello"; protocol: number; sdkVersion: string }
-  | { type: "storeEvent"; store: ForwardedStore; event: StoreEvent }
+  | StoreEventMessage
   /** The frame's page committed, and after each change it settled again. */
   | { type: "rendered"; frameId: string }
   /** The frame's page threw while rendering, and shows that it failed. */

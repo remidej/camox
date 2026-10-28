@@ -27,7 +27,7 @@ export const VIEWPORT_HEIGHT = 800;
 const resizeObservers = new WeakMap<object, Set<() => void>>();
 
 type Placement = { top: number; height: number };
-type IntersectionEntry = { target: object; isIntersecting: boolean };
+type IntersectionEntry = { target: Element; isIntersecting: boolean };
 
 /**
  * Two-realm harness for the host-runtime protocol. The page window holds the artifact frame
@@ -47,7 +47,7 @@ export function createArtifactPage() {
   const page = new Window({ width: 1024, height: VIEWPORT_HEIGHT });
   setUserActivation(page, false);
   inheritCustomProperties(page);
-  const placements = new WeakMap<object, Placement>();
+  const placements = new WeakMap<Element, Placement>();
   const layoutReads = new WeakMap<object, number>();
   const intersections = installIntersectionObserver(page, (target) => placements.get(target));
 
@@ -141,13 +141,13 @@ function rootMarginOf(rootMargin: string, viewportHeight: number) {
  */
 function installIntersectionObserver(
   page: Window,
-  placementOf: (target: object) => Placement | undefined,
+  placementOf: (target: Element) => Placement | undefined,
 ) {
   const observers = new Set<HarnessIntersectionObserver>();
   class HarnessIntersectionObserver {
     #callback: (entries: IntersectionEntry[], observer: unknown) => void;
     #rootMargin: string;
-    #targets = new Map<object, boolean | null>();
+    #targets = new Map<Element, boolean | null>();
     constructor(
       callback: (entries: IntersectionEntry[], observer: unknown) => void,
       options: { rootMargin?: string } = {},
@@ -156,11 +156,11 @@ function installIntersectionObserver(
       this.#rootMargin = options.rootMargin ?? "0px";
       observers.add(this);
     }
-    observe(target: object) {
+    observe(target: Element) {
       this.#targets.set(target, null);
       this.check();
     }
-    unobserve(target: object) {
+    unobserve(target: Element) {
       this.#targets.delete(target);
     }
     disconnect() {

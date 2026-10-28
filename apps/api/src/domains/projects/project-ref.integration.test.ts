@@ -222,14 +222,17 @@ describe("A read naming the project", () => {
   });
 });
 
+/** How an input may name a project, rightly or not. */
+type ProjectNames = { projectUuid?: string; projectSlug?: string };
+
 describe("A project's name in an input", () => {
-  const invalidNames: Record<string, (project: { uuid: string; slug: string }) => object> = {
+  const invalidNames: Record<string, (project: { uuid: string; slug: string }) => ProjectNames> = {
     "an uppercase Project ID": ({ uuid }) => ({ projectUuid: uuid.toUpperCase() }),
     "a Project ID that isn't a UUIDv7": () => ({ projectUuid: crypto.randomUUID() }),
     "its slug": ({ slug }) => ({ projectSlug: slug }),
     "no name at all": () => ({}),
   };
-  const procedures: Record<string, (f: Content, names: object) => Promise<unknown>> = {
+  const procedures: Record<string, (f: Content, names: ProjectNames) => Promise<unknown>> = {
     "definitions.sync": (f, names) =>
       call(
         router.definitions.sync,

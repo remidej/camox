@@ -104,13 +104,13 @@ const AddBlockSheet = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boole
         updatedAt: now,
       };
 
-      // Seed the optimistic block's own read. It lacks the block's repeatable items, so
-      // settling refetches the created block.
+      // Seed the optimistic block's own read. It lacks what only the server knows of the block,
+      // like its repeatable items and references, so settling refetches the created block.
       edit.set(reads.blockBundle(optimisticId), {
-        block: optimisticBlock,
+        block: optimisticBlock as BlockBundle["block"],
         repeatableItems: [],
         files: [],
-      } as unknown as BlockBundle);
+      });
 
       // Insert at the correct position in blockIds
       const insertIndex = pageBlocks.findIndex((b) => b.position > position);

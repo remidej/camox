@@ -419,9 +419,7 @@ export function SidebarLexicalEditor({
         return;
       }
       if (timerRef.current) clearTimeout(timerRef.current);
-      pendingMarkdownRef.current = lexicalStateToMarkdown(
-        editorState.toJSON() as unknown as Record<string, unknown>,
-      );
+      pendingMarkdownRef.current = lexicalStateToMarkdown(editorState.toJSON());
       timerRef.current = window.setTimeout(flushChange, 300);
     },
     [flushChange],

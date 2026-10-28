@@ -1,3 +1,5 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import type { ReferenceRecord } from "../lib/reference";
 
 type SavedRecord = { id: string; content: Record<string, unknown> };
@@ -50,8 +52,8 @@ export class ReferenceWrites {
   }
 }
 
-const writers = new WeakMap<object, ReferenceWrites>();
-export function referenceWritesFor(client: object) {
+const writers = new WeakMap<QueryClient, ReferenceWrites>();
+export function referenceWritesFor(client: QueryClient) {
   let writer = writers.get(client);
   if (!writer) {
     writer = new ReferenceWrites();

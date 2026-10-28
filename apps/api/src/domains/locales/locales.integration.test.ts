@@ -128,18 +128,18 @@ async function fixture() {
   let current = newDraft();
   const inDraft = () => current;
 
-  const callTool = async (name: string, args: object = {}, headers = inDraft()) =>
+  const callTool = async (name: string, args: Record<string, unknown> = {}, headers = inDraft()) =>
     (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
       member(headers),
     )) as ToolResponse;
-  const tool = async (name: string, args: object = {}, headers = inDraft()) => {
+  const tool = async (name: string, args: Record<string, unknown> = {}, headers = inDraft()) => {
     const response = await callTool(name, args, headers);
     if (!response.ok) throw new Error(`${name} failed: ${JSON.stringify(response.error)}`);
     return response.result;
   };
-  const errorOf = async (name: string, args: object = {}, headers = inDraft()) => {
+  const errorOf = async (name: string, args: Record<string, unknown> = {}, headers = inDraft()) => {
     const response = await callTool(name, args, headers);
     if (response.ok) throw new Error(`${name} succeeded`);
     return response.error.code;

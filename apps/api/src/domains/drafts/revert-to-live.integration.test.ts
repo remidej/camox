@@ -79,7 +79,7 @@ async function fixture() {
     member(),
   );
 
-  const tool = async (name: string, args: object, headers: Headers) => {
+  const tool = async (name: string, args: Record<string, unknown>, headers: Headers) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },

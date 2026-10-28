@@ -2,7 +2,6 @@ import type { ProjectRoomMessage } from "@camox/api-contract/query-keys";
 import { env, waitUntil } from "cloudflare:workers";
 
 import type { ProjectRoom } from "../durable-objects/project-room";
-import type { Bindings } from "../types";
 
 /**
  * The realtime rooms, one per project, that every viewer of the project follows, in Live or in
@@ -18,7 +17,7 @@ type ProjectRoomStub = DurableObjectStub & Pick<ProjectRoom, "broadcastMessage">
 /** The rooms as Durable Objects, reached from wherever the current invocation runs. */
 export const projectRooms: ProjectRooms = {
   send(projectId, message) {
-    const namespace = (env as unknown as Bindings).ProjectRoom;
+    const namespace = env.ProjectRoom;
     const stub = namespace.get(namespace.idFromName(String(projectId))) as ProjectRoomStub;
     waitUntil(
       stub

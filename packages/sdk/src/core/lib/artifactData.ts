@@ -9,6 +9,9 @@ type DataSource = { scope: "content" | "settings"; schema: TSchema };
 // Kept off the synced definition: symbols never enter persisted JSON.
 const DATA_SOURCES = Symbol("camox.artifactDataSources");
 
+/** A field's schema, with the sources of its Artifact Data once resolved. */
+type ArtifactFieldSchema = TSchema & { [DATA_SOURCES]?: Record<string, DataSource> };
+
 /** Content fields that can't be Artifact Data. */
 const unsharedFieldTypes = new Set(["Artifact", "Repeater", "Reference", "ReferenceList"]);
 
@@ -59,7 +62,7 @@ function valueSchema(schema: TSchema): Record<string, unknown> {
  * definition, so `blocks describe` shows agents the exact shape of `camox.data`.
  */
 export function attachArtifactData(
-  content: Record<string, TSchema>,
+  content: Record<string, ArtifactFieldSchema>,
   settings: Record<string, TSchema> | undefined,
   owner: string,
 ) {
@@ -87,7 +90,7 @@ export function attachArtifactData(
     field.dataSchema = objectSchema(
       Object.fromEntries(Object.entries(sources).map(([name, s]) => [name, valueSchema(s.schema)])),
     );
-    Reflect.set(field, DATA_SOURCES, sources);
+    field[DATA_SOURCES] = sources;
   }
 }
 
@@ -134,12 +137,11 @@ function normalizeValue(schema: TSchema, value: unknown, resolve: ArtifactDataRe
  * to hrefs and assets to URLs. Artifacts without `data` receive an empty object.
  */
 export function artifactData(
-  field: TSchema | undefined,
+  field: ArtifactFieldSchema | undefined,
   owner: { content: Record<string, unknown>; settings: Record<string, unknown> },
   resolve: ArtifactDataResolvers,
 ): ArtifactData {
-  const sources =
-    field && (Reflect.get(field, DATA_SOURCES) as Record<string, DataSource> | undefined);
+  const sources = field?.[DATA_SOURCES];
   if (!sources) return {};
   return Object.fromEntries(
     Object.entries(sources).map(([name, { scope, schema }]) => [

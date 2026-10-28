@@ -52,7 +52,7 @@ export type EnvAnswer =
   | { ok: false; error: { code: FileErrorCode; message: string; path?: string } };
 
 /** A call nothing aborts, as the environment answering a call runs it. */
-const BACKGROUND = { abortSignal: undefined, value: () => undefined } as unknown as Context;
+const BACKGROUND: Context = { abortSignal: undefined, value: () => undefined };
 
 /** Runs `call` on `env`, for a remote environment: see `remoteEnv`. */
 export async function answerEnvCall(env: ExecutionEnv, call: EnvCall): Promise<EnvAnswer> {

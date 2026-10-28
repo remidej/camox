@@ -442,7 +442,12 @@ void test("repeatable items render the records they link, at any repeater depth"
     ),
     toTitle: () => "",
   });
-  const item = (itemId: string, parentItemId: string | null, content: object, references = {}) => ({
+  const item = (
+    itemId: string,
+    parentItemId: string | null,
+    content: Record<string, unknown>,
+    references = {},
+  ) => ({
     id: itemId,
     blockId: "1",
     parentItemId,

@@ -23,6 +23,7 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
     "@commitlint/config-conventional": "^21.2.3",
+    "@oxlint/plugins": "1.88.0",
     "nx": "^23.3.0",
     "vite-plus": "catalog:"
   },

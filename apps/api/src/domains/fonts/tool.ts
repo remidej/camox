@@ -1,5 +1,5 @@
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import { defineTool } from "@earendil-works/pi-durable";
 
 import type { Bindings } from "../../types";
 import { FONT_CATEGORIES, FONTS_SHOWN, searchFonts } from "./catalog";
@@ -27,4 +27,4 @@ export const searchFontsTool = (env: Bindings) =>
       const result = await searchFonts(env, args);
       return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };
     },
-  }) as unknown as ToolRegistration;
+  });

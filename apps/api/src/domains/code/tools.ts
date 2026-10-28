@@ -368,10 +368,10 @@ export const rmTool = defineTool({
  * Pi Durable's `write` and `edit`, unchanged, and Camox's `mv` and `rm`.
  */
 export const codeWritingTools = (): ToolRegistration[] => [
-  createWriteTool() as unknown as ToolRegistration,
-  createEditTool() as unknown as ToolRegistration,
-  mvTool as unknown as ToolRegistration,
-  rmTool as unknown as ToolRegistration,
+  createWriteTool(),
+  createEditTool(),
+  mvTool,
+  rmTool,
 ];
 
 const pathsIn =
@@ -392,8 +392,8 @@ export const CODE_WRITES: { name: string; paths: (args: unknown) => string[] }[]
 
 /** The agent's tools for reading code, which both the model and code mode scripts may call. */
 export const codeReadingTools = (): ToolRegistration[] => [
-  createReadTool() as unknown as ToolRegistration,
-  grepTool as unknown as ToolRegistration,
-  findTool as unknown as ToolRegistration,
-  lsTool as unknown as ToolRegistration,
+  createReadTool(),
+  grepTool,
+  findTool,
+  lsTool,
 ];

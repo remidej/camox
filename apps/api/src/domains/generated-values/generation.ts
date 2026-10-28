@@ -108,7 +108,7 @@ const KINDS: { [E in JobEntity]: Kind<E> } = {
   },
 };
 
-const kindOf = (entity: JobEntity) => KINDS[entity] as unknown as Kind<JobEntity>;
+const kindOf = <E extends JobEntity>(entity: E): Kind<E> => KINDS[entity];
 
 /** Whether an entity's value is generated in each locale, or in the default locale only. */
 const localized = (entity: JobEntity) => LOCALIZED[kindOf(entity).type];

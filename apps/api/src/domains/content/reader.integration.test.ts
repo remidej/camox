@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, noArtifactFields, seedLive } from "../../../test/fixtures";
+import { forwarded } from "../../../test/forwarded";
 import { createDb } from "../../db";
 import { runService } from "../../lib/run-service";
 import {
@@ -67,8 +68,7 @@ function countingDb() {
           return target.prepare(query);
         };
       }
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
+      return forwarded(target, property);
     },
   });
   return {
