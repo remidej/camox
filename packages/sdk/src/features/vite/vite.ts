@@ -431,6 +431,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
         source: staticAssetHeaders({
           ownHeaders: readOwnHeaders(publicDir),
           unhashedFiles: [...unhashedEntries(bundle), ...publicFilesInHashedDirs(publicDir)],
+          sdkBundle: sdkBundle !== undefined,
         }),
       });
     },
