@@ -1,7 +1,7 @@
 {
-  ".": "0.58.1",
-  "packages/sdk": "0.58.1",
-  "packages/cli": "0.58.1",
-  "packages/ui": "0.58.1",
-  "packages/api-contract": "0.58.1"
+  ".": "0.59.0",
+  "packages/sdk": "0.59.0",
+  "packages/cli": "0.59.0",
+  "packages/ui": "0.59.0",
+  "packages/api-contract": "0.59.0"
 }

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.59.0](https://github.com/remidej/camox/compare/camox-v0.58.1...camox-v0.59.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* `vite dev` refuses to start unless `_internal.apiUrl` is a local API and `_internal.localDeployToken` is set: a hosted project's code reaches Camox through drafts and Upgrades.
+
+### Features
+
+* host camox.ai like any project (pushing code to drafts, no development drafts, Custom Domains) ([#664](https://github.com/remidej/camox/issues/664)) ([147ab16](https://github.com/remidej/camox/commit/147ab16efda8fa75049e9b5e08eb25f7f94e5f88))
+
+
+### Performance Improvements
+
+* faster revision builds ([#649](https://github.com/remidej/camox/issues/649)) ([#651](https://github.com/remidej/camox/issues/651)) ([e3d2653](https://github.com/remidej/camox/commit/e3d2653018b07476f48ba3592f64ea3c800fa332))
+
+
+### Documentation
+
+* link ADRs 0026 to 0028 to their spec, [#653](https://github.com/remidej/camox/issues/653) ([be9fca6](https://github.com/remidej/camox/commit/be9fca6f424c668e3fa71ff3b4183d579026d664))
+* pushing code to drafts, no more development drafts, and Custom Domains ([26de31c](https://github.com/remidej/camox/commit/26de31c22491dd264883f205aa94f0de85002b42))
+
+
+### Miscellaneous
+
+* **agents:** split test quality out of tdd into a good-tests skill ([#650](https://github.com/remidej/camox/issues/650)) ([1c194a7](https://github.com/remidej/camox/commit/1c194a704f7862790a609be11dff6b285f65dab8))
+
 ## [0.58.1](https://github.com/remidej/camox/compare/camox-v0.58.0...camox-v0.58.1) (2026-10-27)
 
 

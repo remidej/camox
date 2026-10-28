@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.59.0](https://github.com/remidej/camox/compare/camox-v0.58.1...@camox/api-contract-v0.59.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* `vite dev` refuses to start unless `_internal.apiUrl` is a local API and `_internal.localDeployToken` is set: a hosted project's code reaches Camox through drafts and Upgrades.
+
+### Features
+
+* host camox.ai like any project (pushing code to drafts, no development drafts, Custom Domains) ([#664](https://github.com/remidej/camox/issues/664)) ([147ab16](https://github.com/remidej/camox/commit/147ab16efda8fa75049e9b5e08eb25f7f94e5f88))
+
 ## [0.58.1](https://github.com/remidej/camox/compare/camox-v0.58.0...@camox/api-contract-v0.58.1) (2026-10-27)
 
 
