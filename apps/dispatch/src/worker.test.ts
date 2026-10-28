@@ -763,7 +763,10 @@ describe("a revision built against an SDK Bundle", () => {
 
     const response = await fetch(`/_camox/sdk/${SDK_BUNDLE.workerd}/entry.mjs`);
 
-    expect(response.status).toBe(404);
+    // Live's Worker answers, which holds no workerd modules among its assets.
+    expect(await response.text()).toBe(
+      `Live's code at /_camox/sdk/${SDK_BUNDLE.workerd}/entry.mjs`,
+    );
   });
 
   it("answers a path its SDK Bundle has no file at with not found", async () => {
@@ -789,5 +792,20 @@ describe("a whole-app revision", () => {
       `The revision under ${PREFIX} at /_camox/renderer?camox-draft=${DRAFT}`,
     );
     expect(builds.gets.filter((key) => key.startsWith("sdk/"))).toEqual([]);
+  });
+});
+
+describe("Live built against an SDK Bundle", () => {
+  it("serves an SDK Bundle's files from Live's Worker when no revision naming it was prepared", async () => {
+    // As after an Upgrade's release: Live's Worker holds the bundle as its static assets.
+    const { fetch } = await previewingEnv({ build: BUNDLED_BUILD });
+
+    const response = await fetch(`/_camox/sdk/${SDK_BUNDLE.browser}/entry.mjs`, {
+      cookie: mirrored(MEMBER_SESSION),
+    });
+
+    expect(await response.text()).toBe(
+      `Live's code at /_camox/sdk/${SDK_BUNDLE.browser}/entry.mjs`,
+    );
   });
 });

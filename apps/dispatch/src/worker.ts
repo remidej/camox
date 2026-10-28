@@ -111,9 +111,14 @@ export default {
     // A draft with code's revision (ADR 0023): its client assets, to anyone, and its renderer
     // document and runtime reads, to the members who can see the draft.
     if (isRevisionAssetPath(url.pathname)) return serveRevisionAsset(env, uuid, url.pathname);
-    // The SDK Bundles revisions name (ADR 0029): the same for every project, to anyone.
-    if (isSdkBundlePath(url.pathname)) return serveSdkBundleFile(env, url.pathname);
-    const revision = await revisionFor(env.API, uuid, request);
+    // The SDK Bundles revisions name (ADR 0029): the same for every project, to anyone. One no
+    // revision was prepared with, such as an Upgrade's release's, is among Live's static assets.
+    const sdkBundlePath = isSdkBundlePath(url.pathname);
+    if (sdkBundlePath) {
+      const served = await serveSdkBundleFile(env, url.pathname);
+      if (served) return served;
+    }
+    const revision = sdkBundlePath ? null : await revisionFor(env.API, uuid, request);
     if (revision) {
       try {
         return await loadRevision(env, revision, gatewayOf(ctx)).getEntrypoint().fetch(request);

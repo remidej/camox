@@ -516,15 +516,16 @@ export const isSdkBundlePath = (pathname: string) => pathname.startsWith("/_camo
 
 /**
  * A browser SDK Bundle's file, at a path under its prefix, to anyone, on any project's host: it's
- * the same for every project, and never changes under its name. Not found until a revision naming
- * it was prepared, and for a workerd SDK Bundle, which no revision serves.
+ * the same for every project, and never changes under its name. Null until a revision naming it
+ * was prepared, and for a workerd SDK Bundle, which no revision serves: Live's Worker, which
+ * holds its own SDK Bundle's files, answers then.
  */
 export async function serveSdkBundleFile(env: RevisionBindings, pathname: string) {
   const match = SDK_BUNDLE_PATH.exec(pathname);
-  if (!match) return notFound();
+  if (!match) return null;
   const [, name, path] = match as unknown as [string, string, string];
   const index = await assetIndexOf(env, sdkBundleIndexKey(name));
-  return index ? packedAsset(env, index, sdkBundlePackKey(name), path, name) : notFound();
+  return index ? packedAsset(env, index, sdkBundlePackKey(name), path, name) : null;
 }
 
 /** A revision's Definition Set, as its build's entrypoint gives it (JSON-shaped). */
