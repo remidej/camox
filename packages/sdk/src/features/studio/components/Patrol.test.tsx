@@ -12,7 +12,7 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { PatrolRoster, inHeldOrder } = await import("./Patrol");
+const { PatrolRoster, PatrollerReports, inHeldOrder } = await import("./Patrol");
 
 const now = Date.UTC(2026, 9, 27, 12);
 const minutes = (count: number) => now - count * 60_000;
@@ -69,19 +69,27 @@ const translator: PatrollerView = {
 /** Renders the Patrol into a document, to read it as editors do. */
 function render(
   view: PatrolView,
-  options: { expanded?: PatrollerId[]; inDraft?: boolean; singleLocale?: boolean } = {},
+  options: { open?: PatrollerId; inDraft?: boolean; singleLocale?: boolean } = {},
 ) {
   const { document } = new Window();
+  const inDraft = options.inDraft ?? true;
+  // The open patroller's reports show in a popover, apart from the roster.
+  const opened = view.patrollers.find(({ id }) => id === options.open);
   document.body.innerHTML = renderToString(
-    <PatrolRoster
-      view={view}
-      now={now}
-      inDraft={options.inDraft ?? true}
-      singleLocale={options.singleLocale ?? false}
-      expanded={new Set(options.expanded ?? [])}
-      onToggle={() => {}}
-      onShow={() => {}}
-    />,
+    <>
+      <PatrolRoster
+        view={view}
+        now={now}
+        inDraft={inDraft}
+        singleLocale={options.singleLocale ?? false}
+        open={options.open ?? null}
+        onOpenChange={() => {}}
+        onShow={() => {}}
+      />
+      {opened && (
+        <PatrollerReports patroller={opened} now={now} inDraft={inDraft} onShow={() => {}} />
+      )}
+    </>,
   );
   const patrollers = [...document.querySelectorAll("[data-patroller]")];
   const text = (element: { textContent: string | null } | null | undefined) =>
@@ -93,16 +101,16 @@ function render(
     ),
     // A report's sentence, tag and time, apart.
     reports: (id: string) =>
-      [...document.querySelectorAll(`[data-patroller="${id}"] [data-report]`)].map((row) =>
+      [...document.querySelectorAll(`[data-reports="${id}"] [data-report]`)].map((row) =>
         [...row.children].map(text).join(" "),
       ),
-    expandedRole: text(
-      document.querySelector('[aria-expanded="true"]')?.querySelector("[data-patroller-role]"),
+    openRole: text(
+      document.querySelector("[data-patroller][data-open]")?.querySelector("[data-patroller-role]"),
     ),
-    more: (id: string) => text(document.querySelector(`[data-patroller="${id}"] [data-more]`)),
+    more: (id: string) => text(document.querySelector(`[data-reports="${id}"] [data-more]`)),
     // What each report leads to, by its accessible name, or null for one that leads nowhere.
     leads: (id: string) =>
-      [...document.querySelectorAll(`[data-patroller="${id}"] [data-report]`)].map((row) => {
+      [...document.querySelectorAll(`[data-reports="${id}"] [data-report]`)].map((row) => {
         const control = row.querySelector("button, a, [role=button], [role=link], [tabindex]");
         return control ? control.getAttribute("aria-label") : null;
       }),
@@ -130,16 +138,18 @@ void test("in a single-locale project, the Translator invites the editor to add 
   assert.deepEqual(shown.subtitles, ["2 minutes ago", "Add a language to translate into"]);
 });
 
-void test("patrollers are collapsed until expanded", () => {
-  const collapsed = render({ patrollers: [seoManager(), translator] });
-  assert.deepEqual(collapsed.reports("seoManager"), []);
+void test("a patroller's reports are closed until opened", () => {
+  const closed = render({ patrollers: [seoManager(), translator] });
+  assert.deepEqual(closed.reports("seoManager"), []);
+  assert.equal(closed.openRole, "");
 
-  const expanded = render({ patrollers: [seoManager(), translator] }, { expanded: ["seoManager"] });
-  assert.equal(expanded.reports("seoManager").length, 3);
+  const opened = render({ patrollers: [seoManager(), translator] }, { open: "seoManager" });
+  assert.equal(opened.reports("seoManager").length, 3);
+  assert.equal(opened.openRole, "SEO manager");
 });
 
-void test("an expanded patroller's reports read as sentences, failures as failures, with short times", () => {
-  const shown = render({ patrollers: [seoManager()] }, { expanded: ["seoManager"] });
+void test("an open patroller's reports read as sentences, failures as failures, with short times", () => {
+  const shown = render({ patrollers: [seoManager()] }, { open: "seoManager" });
 
   assert.deepEqual(shown.reports("seoManager"), [
     "Wrote SEO for Pricing in German 2m",
@@ -149,10 +159,7 @@ void test("an expanded patroller's reports read as sentences, failures as failur
 });
 
 void test("Live's reports carry a Live tag in a draft only", () => {
-  const shown = render(
-    { patrollers: [seoManager()] },
-    { expanded: ["seoManager"], inDraft: false },
-  );
+  const shown = render({ patrollers: [seoManager()] }, { open: "seoManager", inDraft: false });
 
   assert.equal(shown.reports("seoManager")[2], "Described team.png in English 1h");
 });
@@ -178,7 +185,7 @@ void test("the Translator's reports read as translations, merges with Live's inc
   ];
   const shown = render(
     { patrollers: [{ ...translator, lastActivityAt: minutes(2), reports }] },
-    { expanded: ["translator"] },
+    { open: "translator" },
   );
 
   assert.deepEqual(shown.reports("translator"), [
@@ -193,7 +200,7 @@ void test("an AI-written report shows as written", () => {
   const written = report("4", { summary: { kind: "text", text: "Checked every link on Pricing" } });
   const shown = render(
     { patrollers: [seoManager({ reports: [written] })] },
-    { expanded: ["seoManager"] },
+    { open: "seoManager" },
   );
 
   assert.deepEqual(shown.reports("seoManager"), ["Checked every link on Pricing 2m"]);
@@ -211,7 +218,7 @@ void test("the reports not shown are counted by locale", () => {
         }),
       ],
     },
-    { expanded: ["seoManager"] },
+    { open: "seoManager" },
   );
 
   assert.equal(shown.more("seoManager"), "…and 212 more in German, 3 in French");
@@ -228,8 +235,8 @@ function renderOne(patroller: PatrollerView) {
       now={now}
       inDraft
       singleLocale={false}
-      expanded={new Set()}
-      onToggle={() => {}}
+      open={null}
+      onOpenChange={() => {}}
       onShow={() => {}}
     />,
   );
@@ -418,13 +425,12 @@ void test("a patroller missing from the held order shows after the held ones, an
   );
 });
 
-void test("an expanded patroller stays expanded when it moves", () => {
-  const expanded: PatrollerId[] = ["translator"];
-  const before = render({ patrollers: [seoManager(), translator] }, { expanded });
-  const after = render({ patrollers: [translator, seoManager()] }, { expanded });
+void test("an open patroller stays open when it moves", () => {
+  const before = render({ patrollers: [seoManager(), translator] }, { open: "translator" });
+  const after = render({ patrollers: [translator, seoManager()] }, { open: "translator" });
 
-  assert.equal(before.expandedRole, "Translator");
-  assert.equal(after.expandedRole, "Translator");
+  assert.equal(before.openRole, "Translator");
+  assert.equal(after.openRole, "Translator");
 });
 
 const onPricing = { kind: "page" as const, pageId: "page-1", blockId: null, itemId: null };
@@ -457,7 +463,7 @@ void test("a report leads to where its subject shows, named so, and one without 
   ];
   const shown = render(
     { patrollers: [seoManager({ reports })] },
-    { expanded: ["seoManager"], inDraft: false },
+    { open: "seoManager", inDraft: false },
   );
 
   assert.deepEqual(shown.leads("seoManager"), [
@@ -485,11 +491,11 @@ void test("a Live report seen from a draft leads to Live", () => {
   ];
   const view = { patrollers: [seoManager({ reports })] };
 
-  assert.deepEqual(render(view, { expanded: ["seoManager"] }).leads("seoManager"), [
+  assert.deepEqual(render(view, { open: "seoManager" }).leads("seoManager"), [
     "Wrote SEO for Pricing in German: show it on Live's Canvas in German",
     "Described team.png in English: open the file on Live",
   ]);
-  assert.deepEqual(render(view, { expanded: ["seoManager"], inDraft: false }).leads("seoManager"), [
+  assert.deepEqual(render(view, { open: "seoManager", inDraft: false }).leads("seoManager"), [
     "Wrote SEO for Pricing in German: show it on the Canvas in German",
     "Described team.png in English: open the file",
   ]);

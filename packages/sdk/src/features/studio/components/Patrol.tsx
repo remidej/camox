@@ -6,6 +6,7 @@ import {
   type ReportView,
 } from "@camox/api-contract/patrol";
 import { Badge } from "@camox/ui/badge";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@camox/ui/popover";
 import * as React from "react";
 
 import { AuthContext } from "../../../lib/auth";
@@ -27,7 +28,7 @@ import { Squareling } from "./Squareling";
 /**
  * The Agent Sidebar's Patrol, over the Chat widget: every patroller of the project, and what each
  * did without being asked in the draft viewed, or on Live (ADR 0024). It fetches the Patrol of the
- * scope viewed, and holds which patrollers are expanded.
+ * scope viewed, and holds which patroller's reports are open.
  */
 export function Patrol({ className }: { className?: string }) {
   const { projectUuid } = React.useContext(AuthContext)!;
@@ -54,39 +55,50 @@ export function Patrol({ className }: { className?: string }) {
 function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boolean }) {
   const { data: view } = useReadQuery(reads.patrol({ projectId }));
   const { data: locales } = useReadQuery(reads.localeList({ projectId }));
-  // Each patroller keeps its own state, whatever its place in the roster.
-  const [expanded, setExpanded] = React.useState<ReadonlySet<PatrollerId>>(new Set());
-  const toggle = (id: PatrollerId) =>
-    setExpanded((previous) => {
-      const next = new Set(previous);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
+  // Followed by its id, whatever its place in the roster.
+  const [open, setOpen] = React.useState<PatrollerId | null>(null);
   // The relative times move on while the Patrol stays open.
   const now = useNow(30_000);
-  // While the pointer is over the Patrol, its order holds, so a report doesn't move away just as
-  // it's about to be clicked. Leaving applies the latest order.
+  // While the pointer is over the Patrol, or a patroller's reports are open, its order holds, so a
+  // report doesn't move away just as it's about to be clicked. Then the latest order applies.
   const [heldOrder, setHeldOrder] = React.useState<readonly PatrollerId[] | null>(null);
+  const pointerIn = React.useRef(false);
   const shown = view && inHeldOrder(view, heldOrder);
   const roster = useMovingRows(shown?.patrollers.map(({ id }) => id).join(" "));
   const [openFileId, setOpenFileId] = React.useState<string | null>(null);
-  const show = useShowReport(inDraft, setOpenFileId);
+  const showReport = useShowReport(inDraft, setOpenFileId);
   if (!shown) return null;
+  const hold = () => setHeldOrder((held) => held ?? shown.patrollers.map(({ id }) => id));
+  const openReports = (id: PatrollerId | null) => {
+    setOpen(id);
+    if (id) hold();
+    else if (!pointerIn.current) setHeldOrder(null);
+  };
   return (
     <div
       ref={roster}
       className="relative"
-      onPointerEnter={() => setHeldOrder(shown.patrollers.map(({ id }) => id))}
-      onPointerLeave={() => setHeldOrder(null)}
+      onPointerEnter={() => {
+        pointerIn.current = true;
+        hold();
+      }}
+      onPointerLeave={() => {
+        pointerIn.current = false;
+        if (!open) setHeldOrder(null);
+      }}
     >
       <PatrolRoster
         view={shown}
         now={now}
         inDraft={inDraft}
         singleLocale={locales?.length === 1}
-        expanded={expanded}
-        onToggle={toggle}
-        onShow={show}
+        open={open}
+        onOpenChange={openReports}
+        onShow={(report) => {
+          // Showing it moves the editor on, which leaves the reports.
+          openReports(null);
+          showReport(report);
+        }}
       />
       {openFileId && (
         <AssetLightbox
@@ -190,7 +202,7 @@ function useNow(intervalMs: number) {
 
 /**
  * A `PatrolView`, in the order it gives: each patroller's avatar, role, and when it last worked,
- * and the reports of the expanded ones. Live's reports carry a tag when a draft is viewed. In a
+ * opening its reports in a popover to the left. Live's reports carry a tag when a draft is viewed. In a
  * project with a single locale, the Translator invites the editor to add a language instead.
  */
 export function PatrolRoster({
@@ -198,21 +210,22 @@ export function PatrolRoster({
   now,
   inDraft,
   singleLocale,
-  expanded,
-  onToggle,
+  open,
+  onOpenChange,
   onShow,
 }: {
   view: PatrolView;
   now: number;
   inDraft: boolean;
   singleLocale: boolean;
-  expanded: ReadonlySet<PatrollerId>;
-  onToggle: (id: PatrollerId) => void;
+  /** The patroller whose reports are open, if any. */
+  open: PatrollerId | null;
+  onOpenChange: (id: PatrollerId | null) => void;
   /** Shows a report's subject where it is: one with a place only. */
   onShow: (report: ReportView) => void;
 }) {
   return (
-    <ul className="flex flex-col py-1">
+    <ul className="flex flex-col gap-px p-1">
       {view.patrollers.map((patroller) => (
         <PatrollerRow
           key={patroller.id}
@@ -220,8 +233,8 @@ export function PatrolRoster({
           now={now}
           inDraft={inDraft}
           idle={singleLocale ? singleLocaleSentence(patroller.id) : undefined}
-          expanded={expanded.has(patroller.id)}
-          onToggle={() => onToggle(patroller.id)}
+          open={open === patroller.id}
+          onOpenChange={(next) => onOpenChange(next ? patroller.id : null)}
           onShow={onShow}
         />
       ))}
@@ -261,8 +274,8 @@ function PatrollerRow({
   now,
   inDraft,
   idle,
-  expanded,
-  onToggle,
+  open,
+  onOpenChange,
   onShow,
 }: {
   patroller: PatrollerView;
@@ -270,11 +283,10 @@ function PatrollerRow({
   inDraft: boolean;
   /** What the patroller says while idle instead of when it last worked. */
   idle: string | undefined;
-  expanded: boolean;
-  onToggle: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onShow: (report: ReportView) => void;
 }) {
-  const reportsId = React.useId();
   const statusId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
   const subtitle =
@@ -282,71 +294,95 @@ function PatrollerRow({
     idle ??
     (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
   return (
-    <li data-patroller={patroller.id} className="flex flex-col">
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={reportsId}
-        aria-describedby={working ? statusId : undefined}
-        onClick={onToggle}
-        className="hover:bg-muted/60 focus-visible:ring-ring/50 flex items-center gap-2.5 px-3 py-1.5 text-left outline-none focus-visible:ring-[3px]"
-      >
-        <span className="bg-muted relative flex size-8 shrink-0 items-center justify-center rounded-full">
-          <Squareling
-            variant={patroller.id}
-            status={working ? "working" : "idle"}
-            className="size-5"
-          />
-          {working && <WorkingArc />}
-        </span>
-        <span className="flex min-w-0 flex-col">
-          <span data-patroller-role className="truncate text-sm font-medium">
-            {patroller.role}
+    <li data-patroller={patroller.id} data-open={open || undefined} className="flex flex-col">
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger
+          aria-describedby={working ? statusId : undefined}
+          // A card of its own on hover, and while its reports are open.
+          className="hover:bg-muted/60 data-popup-open:bg-muted/60 focus-visible:ring-ring/50 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none focus-visible:ring-[3px]"
+        >
+          <span className="bg-muted relative flex size-8 shrink-0 items-center justify-center rounded-full">
+            <Squareling
+              variant={patroller.id}
+              status={working ? "working" : "idle"}
+              className="size-5"
+            />
+            {working && <WorkingArc />}
           </span>
-          <span
-            data-patroller-subtitle
-            aria-hidden={working ? true : undefined}
-            className="text-muted-foreground truncate text-xs"
-          >
-            {subtitle}
+          <span className="flex min-w-0 flex-col">
+            <span data-patroller-role className="truncate text-sm font-medium">
+              {patroller.role}
+            </span>
+            <span
+              data-patroller-subtitle
+              aria-hidden={working ? true : undefined}
+              className="text-muted-foreground truncate text-xs"
+            >
+              {subtitle}
+            </span>
           </span>
-        </span>
-      </button>
+        </PopoverTrigger>
+        {/* To the left, over the Canvas, clear of the sidebar's card around the roster. */}
+        <PopoverContent side="left" align="start" sideOffset={12} className="w-80 gap-2 p-3">
+          <PopoverTitle className="text-sm">{patroller.role}</PopoverTitle>
+          <PatrollerReports patroller={patroller} now={now} inDraft={inDraft} onShow={onShow} />
+        </PopoverContent>
+      </Popover>
       {/* Announced as it changes, and read with the patroller as its description. Always there,
           empty while idle, so that starting work is announced too. */}
       <span id={statusId} data-working-status role="status" className="sr-only">
         {working && `Working: ${working.charAt(0).toLowerCase()}${working.slice(1)}`}
       </span>
-      {expanded && (
-        <ul id={reportsId} className="flex flex-col gap-1 pt-0.5 pr-3 pb-2 pl-[3.375rem] text-xs">
-          {patroller.reports.map((report) => (
-            <li
-              key={report.id}
-              data-report
-              className="has-focus-visible:ring-ring/50 has-[button:hover]:bg-muted/60 relative -mx-1.5 flex items-baseline gap-2 rounded-sm px-1.5 has-focus-visible:ring-[3px]"
-            >
-              <ReportSentence report={report} inDraft={inDraft} onShow={onShow} />
-              {inDraft && report.live && (
-                <Badge variant="outline" size="sm">
-                  Live
-                </Badge>
-              )}
-              <time
-                dateTime={new Date(report.at).toISOString()}
-                className="text-muted-foreground shrink-0"
-              >
-                {shortTimeAgo(report.at, now)}
-              </time>
-            </li>
-          ))}
-          {patroller.more.length > 0 && (
-            <li data-more className="text-muted-foreground">
-              {moreSentence(patroller.more)}
-            </li>
-          )}
-        </ul>
-      )}
     </li>
+  );
+}
+
+/**
+ * A patroller's reports, latest first, each with a Live tag when a draft is viewed and how long
+ * ago, then how many more there are, by locale.
+ */
+export function PatrollerReports({
+  patroller,
+  now,
+  inDraft,
+  onShow,
+}: {
+  patroller: PatrollerView;
+  now: number;
+  inDraft: boolean;
+  onShow: (report: ReportView) => void;
+}) {
+  if (patroller.reports.length === 0 && patroller.more.length === 0) {
+    return <p className="text-muted-foreground text-xs">Nothing yet.</p>;
+  }
+  return (
+    <ul data-reports={patroller.id} className="flex flex-col gap-1 text-xs">
+      {patroller.reports.map((report) => (
+        <li
+          key={report.id}
+          data-report
+          className="has-focus-visible:ring-ring/50 has-[button:hover]:bg-muted/60 relative -mx-1.5 flex items-baseline gap-2 rounded-sm px-1.5 py-0.5 has-focus-visible:ring-[3px]"
+        >
+          <ReportSentence report={report} inDraft={inDraft} onShow={onShow} />
+          {inDraft && report.live && (
+            <Badge variant="outline" size="sm">
+              Live
+            </Badge>
+          )}
+          <time
+            dateTime={new Date(report.at).toISOString()}
+            className="text-muted-foreground shrink-0"
+          >
+            {shortTimeAgo(report.at, now)}
+          </time>
+        </li>
+      ))}
+      {patroller.more.length > 0 && (
+        <li data-more className="text-muted-foreground">
+          {moreSentence(patroller.more)}
+        </li>
+      )}
+    </ul>
   );
 }
 
