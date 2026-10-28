@@ -84,12 +84,14 @@ class FakeRepo extends RpcTarget {
     this.name = name;
   }
 
+  /** Like Cloudflare Artifacts, the plaintext is the secret followed by `?expires=<unix seconds>`. */
   async createToken(scope = "write", ttl = 86_400) {
+    const expires = Math.floor(Date.now() / 1000) + ttl;
     return {
       id: crypto.randomUUID(),
-      plaintext: `artifacts-${scope}-token`,
+      plaintext: `artifacts-${scope}-token?expires=${expires}`,
       scope,
-      expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+      expiresAt: new Date(expires * 1000).toISOString(),
     };
   }
 

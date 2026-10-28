@@ -43,10 +43,10 @@ describe("A project's code read token", () => {
 
     expect(access).toMatchObject({
       remote: `https://${FAKE_GIT_HOST}/git/projects/${f.project.uuid}.git`,
-      token: "artifacts-read-token",
       projectSlug: f.project.slug,
     });
-    expect(new Date(access.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    // Artifacts mints `<secret>?expires=<unix seconds>`; Git's password is the secret alone.
+    expect(access.token).toBe("artifacts-read-token");
   });
 
   it("is refused, saying so, on a project without the flag", async () => {

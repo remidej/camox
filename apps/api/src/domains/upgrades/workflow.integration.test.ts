@@ -163,7 +163,7 @@ describe("upgrading every project to a new SDK", () => {
     );
     // Pushed with a write token of the project's own repo, which only this step gets.
     expect(push?.env.UPGRADE_GIT_REMOTE).toMatch(new RegExp(`/projects/${project.uuid}\\.git$`));
-    expect(push?.env.GIT_CONFIG_VALUE_0).toBe("Authorization: Bearer artifacts-write-token");
+    expect(push?.env.GIT_CONFIG_VALUE_0).toMatch(/^Authorization: Bearer artifacts-write-token\b/);
     const others = (await fakes.commandsRun(project.uuid)).filter(
       ({ command }) => command !== push!.command,
     );

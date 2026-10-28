@@ -14,8 +14,10 @@ import { MemoryFs } from "../src/lib/memory-fs";
 /** The host the fake repos' remotes are on. The tests route the API's outbound fetches to it. */
 export const FAKE_GIT_HOST = "artifacts.camox.test";
 
-/** The write token the fake's `createToken` mints, which a push must present. */
+/** The secret of the write tokens the fake's `createToken` mints, which a push must present. */
 export const FAKE_WRITE_TOKEN = "artifacts-write-token";
+/** A token's plaintext, as Cloudflare Artifacts takes it: the secret, then its expiry. */
+const BEARER_WRITE_TOKEN = new RegExp(`^Bearer ${FAKE_WRITE_TOKEN}(\\?expires=\\d+)?$`);
 
 const ZERO = "0".repeat(40);
 const MAIN = "refs/heads/main";
@@ -508,7 +510,7 @@ export async function serveGit(request: Request): Promise<Response> {
   const [, name, endpoint] = match;
   const service = endpoint === "info/refs" ? url.searchParams.get("service") : endpoint;
   if (service === "git-receive-pack") {
-    if (request.headers.get("authorization") !== `Bearer ${FAKE_WRITE_TOKEN}`) {
+    if (!BEARER_WRITE_TOKEN.test(request.headers.get("authorization") ?? "")) {
       return new Response("Unauthorized", { status: 401 });
     }
   }
