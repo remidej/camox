@@ -55,11 +55,11 @@ Make only these kinds of change:
 - **New Settings on existing Block Definitions**, with defaults that leave current rendering unchanged. Existing content schemas stay exactly as they are. Before editing the block, capture it at desktop and mobile on a Page that places it, on the running dev server; step 6 compares against this capture.
 - **Description edits.** A new block's `description` says when to choose it over its siblings. Edit the siblings' descriptions so each one names what sets it apart, and the Agent can choose between them.
 
-New blocks live only in code, plus one review Page in a draft of its own: create it in the studio of the running dev server, whose first edit starts the draft, and place each new block on it with its default content. Leave every other Page, layouts, and publishing alone. This rules out new Layout-only Blocks: a Page can't hold them, and they only sync once a layout uses them. An existing Layout-only Block that gains a Setting is captured and checked on a Page whose layout uses it.
+New blocks live only in code, plus one review Page in the development draft: create it with the CLI (see [Managing Pages and Blocks](../camox-cli/references/cli-content.md)) and place each new block on it with its default content. Leave every other Page, layouts, and publishing alone. This rules out new Layout-only Blocks: a Page can't hold them, and they only sync once a layout uses them. An existing Layout-only Block that gains a Setting is captured and checked on a Page whose layout uses it.
 
 ## 6. Verify
 
-Finish with a link to the review Page, so the operator and the product marketing team can review the new blocks live. Delete any block the operator rejects, along with any description changes made only for it. Once the review is over, delete the review Page's draft from the studio, so no publish ever ships it.
+Finish with a link to the review Page, so the operator and the product marketing team can review the new blocks live. Delete any block the operator rejects, along with any description changes made only for it. Once the review is over, delete the review Page with `pages delete`, so publishing the development draft never ships it.
 
 The run is complete when:
 
