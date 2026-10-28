@@ -93,6 +93,7 @@ function RendererThumbnail({
   camoxApp: CamoxApp;
 }) {
   const frameWindow = slot.ownerDocument.defaultView;
+  const left = useLeftInSlot(slot);
   const frameContext = React.useMemo(
     () => ({
       window: frameWindow,
@@ -106,9 +107,10 @@ function RendererThumbnail({
     <NavigationProvider location={THUMBNAIL_LOCATION} navigate={noNavigation}>
       <FrameContext.Provider value={frameContext}>
         {/* A block whose code fails shows no thumbnail, and takes no page down with it. */}
-        <ThumbnailErrorBoundary>
+        <ThumbnailErrorBoundary left={left}>
           <React.Suspense fallback={null}>
             <ThumbnailBlock blockType={blockType} camoxApp={camoxApp} />
+            <RemovesLeft nodes={left} />
           </React.Suspense>
         </ThumbnailErrorBoundary>
       </FrameContext.Provider>
@@ -120,7 +122,7 @@ const THUMBNAIL_LOCATION: LocationState = { href: "", pathname: "/", search: "",
 const noNavigation = () => {};
 
 class ThumbnailErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; left: ChildNode[] },
   { failed: boolean }
 > {
   state = { failed: false };
@@ -131,7 +133,7 @@ class ThumbnailErrorBoundary extends React.Component<
     console.error("Camox: a block's thumbnail failed to render.", error);
   }
   render() {
-    return this.state.failed ? null : this.props.children;
+    return this.state.failed ? <RemovesLeft nodes={this.props.left} /> : this.props.children;
   }
 }
 
@@ -140,6 +142,27 @@ function ThumbnailBlock({ blockType, camoxApp }: { blockType: string; camoxApp: 
     camoxApp.getBlockById(blockType) ??
     (camoxApp.canLoadMoreBlocks() ? React.use(camoxApp.loadBlock(blockType)) : undefined);
   return block ? <BlockPeek block={block} /> : null;
+}
+
+/**
+ * What another renderer document left in `slot`, read before this one renders into it. Each new
+ * revision loads another renderer document, and removing the last one's frame never unmounts
+ * what it rendered into the studio's frames, so its page stays there.
+ */
+function useLeftInSlot(slot: HTMLElement): ChildNode[] {
+  const [left] = React.useState(() => [...slot.childNodes]);
+  return left;
+}
+
+/**
+ * Removes the nodes another renderer left, once what replaces them commits: until then, the
+ * frame keeps showing the last page rather than nothing.
+ */
+function RemovesLeft({ nodes }: { nodes: ChildNode[] }) {
+  React.useLayoutEffect(() => {
+    for (const node of nodes) node.remove();
+  }, [nodes]);
+  return null;
 }
 
 function locationOf(href: string): LocationState {
@@ -164,6 +187,7 @@ function RendererFrameContent({
   runtimeBasePath: string;
 }) {
   const frameWindow = slot.ownerDocument.defaultView;
+  const left = useLeftInSlot(slot);
   const frameElement = (frameWindow?.frameElement as HTMLIFrameElement | null) ?? null;
   const location = React.useMemo(() => locationOf(target.href), [target.href]);
   // The studio follows the page's navigations, unless its frame never navigates.
@@ -207,7 +231,7 @@ function RendererFrameContent({
               <ArtifactsRunContext value={target.artifactsRun}>
                 <ArtifactStudioContext value={target.artifactStudio}>
                   <React.Activity mode={target.resting ? "hidden" : "visible"}>
-                    <FrameErrorBoundary key={target.pathname} onError={failed}>
+                    <FrameErrorBoundary key={target.pathname} onError={failed} left={left}>
                       <React.Suspense fallback={<div role="status">Loading page…</div>}>
                         <FramePage
                           camoxApp={camoxApp}
@@ -218,6 +242,7 @@ function RendererFrameContent({
                           derivedLayoutId={target.derivedLayoutId}
                           onRendered={rendered}
                         />
+                        <RemovesLeft nodes={left} />
                       </React.Suspense>
                     </FrameErrorBoundary>
                   </React.Activity>
@@ -299,7 +324,7 @@ const ERROR_STYLE: React.CSSProperties = {
  * the studio. The studio and every other frame keep working.
  */
 class FrameErrorBoundary extends React.Component<
-  { children: React.ReactNode; onError: (message: string) => void },
+  { children: React.ReactNode; onError: (message: string) => void; left: ChildNode[] },
   { error: string | null }
 > {
   state: { error: string | null } = { error: null };
@@ -314,6 +339,7 @@ class FrameErrorBoundary extends React.Component<
     // The site's styles may be what failed: the notice brings its own.
     return (
       <div role="alert" data-camox-renderer-error style={ERROR_STYLE}>
+        <RemovesLeft nodes={this.props.left} />
         <p style={{ margin: 0, fontWeight: 600 }}>This page couldn’t render.</p>
         <p style={{ margin: "8px 0 0", fontFamily: "ui-monospace, monospace" }}>
           {this.state.error}

@@ -245,6 +245,28 @@ void test("the renderer renders each frame's page into the slot the studio gave 
   assert.ok(preview.slot.querySelector("[data-probe]"), "the other frame keeps its page");
 });
 
+void test("a renderer replaces the page the last renderer left in a frame once its own page renders", async (t) => {
+  let loadCode = () => {};
+  const codeLoaded = new Promise<void>((resolve) => (loadCode = resolve));
+  const { studio, show, visibleFrame, act } = await setup(t, {} as never, codeLoaded);
+  show("/");
+  const preview = visibleFrame("http://localhost/");
+  // A new revision's renderer document replaced the last one, whose page stays in the slot: a
+  // removed frame's document never unmounts what it rendered elsewhere.
+  const left = preview.slot.appendChild(
+    preview.frame.document.createElement("div") as unknown as HTMLElement,
+  );
+
+  await act(() =>
+    studio.send({ type: "frame", frameId: "preview", slot: preview.slot, target: target() }),
+  );
+  assert.ok(left.isConnected, "the last page shows while the code loads");
+
+  await act(() => loadCode());
+  assert.ok(!left.isConnected, "the last page is gone");
+  assert.equal(preview.slot.querySelectorAll("[data-probe]").length, 1);
+});
+
 void test("a draft with code's frames take its revision's stylesheets, not Live's the studio loaded them with", async (t) => {
   const { studio, show, visibleFrame, act } = await setup(t);
   const { createCanvasDocument } = await import("../canvas/canvasFrameDocument");
