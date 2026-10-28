@@ -526,17 +526,17 @@ function contentChanges(
   target: WriteTarget,
   projectId: number | undefined,
   table: ContentTable,
-  written: object,
+  id: string,
+  row: Record<string, unknown>,
   change: Extract<Change, { kind: "content" }>["change"],
   columns?: string[],
 ): Change[] {
   // A Live item whose block is gone shows nowhere: no project's viewers read it.
   if (projectId === undefined) return [];
-  const row = written as Record<string, unknown> & { id: string };
   const { entity } = registrationOf(table);
   const draftId = target === RELEASE ? null : target.id;
   const changes: Change[] = [
-    { kind: "content", entity, id: row.id, projectId, draftId, change, row, columns },
+    { kind: "content", entity, id, projectId, draftId, change, row, columns },
   ];
   // Every write of a localized entity, whatever wrote it: one in the default locale is
   // translated into the draft's other locales, or a release's into Live's (ADR 0015).
@@ -544,7 +544,7 @@ function contentChanges(
     changes.push({
       kind: "localizedWrite",
       entity,
-      id: row.id,
+      id,
       projectId,
       draftId,
       locale: row.locale,
@@ -558,11 +558,12 @@ const journalWrite = Effect.fn("overlay.journalWrite")(function* (
   db: Database,
   target: WriteTarget,
   table: ContentTable,
-  written: object,
+  id: string,
+  written: Record<string, unknown>,
   change: Extract<Change, { kind: "content" }>["change"],
 ) {
-  const projectId = yield* projectOfWrite(db, target, written as Record<string, unknown>);
-  for (const entry of contentChanges(target, projectId, table, written, change)) {
+  const projectId = yield* projectOfWrite(db, target, written);
+  for (const entry of contentChanges(target, projectId, table, id, written, change)) {
     yield* record(db, entry);
   }
 });
@@ -637,7 +638,7 @@ export const runPlanned = Effect.fn("overlay.runPlanned")(function* <A>(
 // batch. Such a write must say where its sources come from, so none can forget to.
 
 /** The content a row or a patch sets, if any. */
-const contentOf = (values: object): unknown => (values as { content?: unknown }).content;
+const contentOf = (values: Record<string, unknown>): unknown => values.content;
 
 /** The tables whose content can hold artifact sources. */
 type ArtifactTable = typeof blocks | typeof sharedContents | typeof repeatableItems;
@@ -805,10 +806,10 @@ export const planInsert = Effect.fn("overlay.planInsert")(function* <
     ...(yield* storingSourcesOf(db, projectId, contentOf(values), options.artifactSources)),
   ];
   if (target === RELEASE) statements.push(...liveFollowUps(table, row.id));
-  const planned = { version: 1, ...row } as unknown as Row<T>;
+  const planned = { version: 1, ...row } as Row<T>;
   return {
     statements,
-    changes: contentChanges(target, projectId, table, planned, "created"),
+    changes: contentChanges(target, projectId, table, row.id, planned, "created"),
     result: planned as Row<T> | undefined,
   } satisfies Planned<Row<T> | undefined>;
 });
@@ -876,7 +877,7 @@ export const planUpdate = Effect.fn("overlay.planUpdate")(function* <
     ];
     return {
       statements,
-      changes: contentChanges(target, projectId, table, row, "changed", columns),
+      changes: contentChanges(target, projectId, table, id, row, "changed", columns),
       result: row as Row<T> | undefined,
     } satisfies Planned<Row<T> | undefined>;
   }
@@ -915,7 +916,7 @@ export const planUpdate = Effect.fn("overlay.planUpdate")(function* <
   statements.push(...(yield* storing(target.projectId, held)));
   return {
     statements,
-    changes: contentChanges(target, target.projectId, table, row, "changed", columns),
+    changes: contentChanges(target, target.projectId, table, id, row, "changed", columns),
     result: row as Row<T> | undefined,
   } satisfies Planned<Row<T> | undefined>;
 });
@@ -981,7 +982,7 @@ export const planRemove = Effect.fn("overlay.planRemove")(function* <T extends C
   const planned = (statements: BatchItem[]) =>
     ({
       statements,
-      changes: contentChanges(target, projectId, table, shown, "deleted"),
+      changes: contentChanges(target, projectId, table, id, shown, "deleted"),
       result: shown as Row<T> | undefined,
     }) satisfies Planned<Row<T> | undefined>;
   if (target === RELEASE) {
@@ -1043,7 +1044,7 @@ export const revert = Effect.fn("overlay.revert")(function* <T extends ContentTa
       .where(and(storedIn(table, draft), eq(table.id, id), inLocaleOf(table, draft))),
   );
   const live = yield* liveRowFor(db, draft, table, id);
-  yield* journalWrite(db, draft, table, live ?? stored, live ? "changed" : "deleted");
+  yield* journalWrite(db, draft, table, id, live ?? stored, live ? "changed" : "deleted");
   return stored;
 });
 
@@ -1405,8 +1406,8 @@ export type StoredChange = {
  * The tag of the locale a row is in (ADR 0015), or null for an entity stored once, like a file or
  * a locale.
  */
-export const localeOfRow = (row: object): string | null =>
-  "locale" in row && typeof row.locale === "string" ? row.locale : null;
+export const localeOfRow = (row: Record<string, unknown>): string | null =>
+  typeof row.locale === "string" ? row.locale : null;
 
 /** Every entity a draft stores, as created, changed or deleted. */
 export const changesOf = Effect.fn("overlay.changesOf")(function* (db: Database, scope: Draft) {

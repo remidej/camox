@@ -230,7 +230,7 @@ function richTextsOf(key: string, value: unknown): UnitTexts | undefined {
       return stored(copy);
     },
     whole: {
-      text: lexicalStateToMarkdown(tree as unknown as Record<string, unknown>),
+      text: lexicalStateToMarkdown(tree),
       rebuild: (answer) => stored(markdownToLexicalState(answer)),
     },
   };

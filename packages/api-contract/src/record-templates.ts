@@ -17,10 +17,13 @@ export function templateFields(template: string): string[] {
  */
 export function nonStringTemplateFields(
   template: string,
-  properties: Readonly<Record<string, object | undefined>>,
+  properties: Readonly<Record<string, unknown>>,
 ): string[] {
-  const isString = (field: object | undefined) =>
-    field !== undefined && "fieldType" in field && field.fieldType === "String";
+  const isString = (field: unknown) =>
+    typeof field === "object" &&
+    field !== null &&
+    "fieldType" in field &&
+    field.fieldType === "String";
   return templateFields(template).filter((name) => !isString(properties[name]));
 }
 

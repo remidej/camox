@@ -194,9 +194,7 @@ export function InlineLexicalEditor({
       if (!isFocusedRef.current) return;
       editedDuringFocusRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      pendingMarkdownRef.current = lexicalStateToMarkdown(
-        editorState.toJSON() as unknown as Record<string, unknown>,
-      );
+      pendingMarkdownRef.current = lexicalStateToMarkdown(editorState.toJSON());
       timerRef.current = window.setTimeout(flushChange, 300);
     },
     [flushChange],

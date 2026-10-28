@@ -15,8 +15,10 @@ export function isSystemOrderKey(key: string): key is SystemOrderKey {
 }
 
 /** Whether a reference list field is query-backed: code defines its records, nothing is stored. */
-export function isQueryBacked(field: object | null | undefined) {
-  return !!field && (field as { query?: unknown }).query !== undefined;
+export function isQueryBacked(field: unknown) {
+  return (
+    typeof field === "object" && field !== null && "query" in field && field.query !== undefined
+  );
 }
 
 /**

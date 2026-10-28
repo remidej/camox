@@ -116,7 +116,7 @@ function useEditorLinkPages() {
 }
 
 /** Normalize legacy links (no `type` field) to the new union shape */
-const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
+const normalizeLinkValue = (value: LinkValue | Record<string, unknown>): LinkValue => {
   if (!value.type) {
     return { type: "external", ...value } as LinkValue;
   }
@@ -1379,7 +1379,7 @@ export function createEditableBlock<
     const rawFieldValue = repeaterContext
       ? (repeaterContext.itemContent[name] as LinkValue)
       : (content[name] as LinkValue);
-    const fieldValue = normalizeLinkValue(rawFieldValue as unknown as Record<string, unknown>);
+    const fieldValue = normalizeLinkValue(rawFieldValue);
     const applyEdit = useApplyContentEdit();
     const pages = useEditorLinkPages();
     const currentPathname = useLocation({ select: (l) => l.pathname });
@@ -1921,10 +1921,8 @@ export function createEditableBlock<
     );
   };
 
-  const Repeater = <K extends keyof RepeatableFields>({
-    name,
-    children,
-  }: {
+  /** A repeater's props: its field, and how to render each item with the item's own API. */
+  type RepeaterProps<K extends keyof RepeatableFields> = {
     name: K;
     children: (
       item: {
@@ -2031,6 +2029,16 @@ export function createEditableBlock<
       },
       index: number,
     ) => React.ReactNode;
+  };
+
+  // Untyped by field: the same component renders the block's repeaters and each item's nested
+  // ones, which `Repeater` and the item API type for their own fields.
+  const RepeaterImpl = ({
+    name,
+    children,
+  }: {
+    name: PropertyKey;
+    children: (item: any, index: number) => React.ReactNode;
   }) => {
     const blockContext = React.use(Context);
     if (!blockContext) {
@@ -2043,110 +2051,15 @@ export function createEditableBlock<
     const parentRepeaterContext = React.use(RepeatableItemContext);
     const fieldName = String(name);
 
-    // Type-cast components to work with item fields
-    // This is safe because each component checks RepeatableItemContext at runtime
-    const ItemField = Field as <F extends keyof ItemStringFields<K>>(props: {
-      name: F;
-      children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemLink = Link as <F extends keyof ItemLinkFields<K>>(props: {
-      name: F;
-      children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemEmbed = Embed as <F extends keyof ItemEmbedFields<K>>(props: {
-      name: F;
-      children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemArtifact = Artifact as <F extends keyof ItemArtifactFields<K>>(props: {
-      name: F;
-      children: (props: ArtifactRenderProps) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemImage = Image as <F extends keyof ItemImageFields<K>>(props: {
-      name: F;
-      children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemImageList = _AssetList as <F extends keyof ItemImageListFields<K>>(props: {
-      name: F;
-      children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemFileList = _AssetList as <F extends keyof ItemFileListFields<K>>(props: {
-      name: F;
-      children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemFile = File as <F extends keyof ItemFileFields<K>>(props: {
-      name: F;
-      children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
-    }) => React.ReactNode;
-
-    const ItemRepeater = Repeater as unknown as <F extends keyof ItemRepeatableFields<K>>(props: {
-      name: F;
-      children: (
-        item: {
-          Field: (props: {
-            name: string;
-            children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
-          }) => React.ReactNode;
-          Link: (props: {
-            name: string;
-            children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
-          }) => React.ReactNode;
-          Icon: (props: IconProps & { name: string }) => React.ReactNode;
-          Embed: (props: {
-            name: string;
-            children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
-          }) => React.ReactNode;
-          Artifact: (props: {
-            name: string;
-            children: (props: ArtifactRenderProps) => React.ReactNode;
-          }) => React.ReactNode;
-          Image: (props: {
-            name: string;
-            children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
-          }) => React.ReactNode;
-          File: (props: {
-            name: string;
-            children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
-          }) => React.ReactNode;
-          ImageList: (props: {
-            name: string;
-            children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
-          }) => React.ReactNode;
-          FileList: (props: {
-            name: string;
-            children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
-          }) => React.ReactNode;
-          Repeater: (props: {
-            name: string;
-            children: (item: any, index: number) => React.ReactNode;
-          }) => React.ReactNode;
-          Reference: (props: {
-            name: string;
-            children: (scope: ReferenceScope<any>) => React.ReactNode;
-          }) => React.ReactNode;
-          ReferenceList: (props: {
-            name: string;
-            children: (scope: ReferenceScope<any>) => React.ReactNode;
-          }) => React.ReactNode;
-          useSetting: (name: string) => unknown;
-        },
-        index: number,
-      ) => React.ReactNode;
-    }) => React.ReactNode;
-
     // Items come from either the parent repeater context (nested) or block content (top-level)
-    const source = parentRepeaterContext ? parentRepeaterContext.itemContent[name] : content[name];
+    const source = parentRepeaterContext
+      ? parentRepeaterContext.itemContent[fieldName]
+      : (content as Record<string, unknown>)[fieldName];
     const { itemsMap } = useNormalizedData();
     const storedValue = (source ?? []) as any[];
 
     if (!Array.isArray(storedValue)) {
-      throw new Error(`Field "${String(name)}" is not an array`);
+      throw new Error(`Field "${fieldName}" is not an array`);
     }
 
     // Resolve _itemId markers to full item objects from the normalized data.
@@ -2160,8 +2073,6 @@ export function createEditableBlock<
         return item;
       })
       .filter(Boolean);
-
-    type TItem = RepeatableItemType<K>;
 
     const settingsDefaultsForField = repeatableItemSettingsDefaults[fieldName];
     const itemSchema = (
@@ -2180,7 +2091,7 @@ export function createEditableBlock<
           const itemContent = {
             ...repeatableItemDefaults[fieldName],
             ...(isDbItem ? item.content : item),
-          } as TItem;
+          };
           const itemSettings: Record<string, unknown> = {
             ...settingsDefaultsForField,
             ...(isDbItem ? (item.settings as Record<string, unknown> | null) : null),
@@ -2188,34 +2099,21 @@ export function createEditableBlock<
           const itemId: string | undefined = isDbItem ? item.id : undefined;
           const useItemSetting = (settingName: string) => itemSettings[settingName];
 
+          // Each component reads the item's fields from RepeatableItemContext at runtime.
           const itemApi = {
-            Field: ItemField,
-            Link: ItemLink,
-            Icon: Icon as (props: IconProps & { name: keyof ItemIconFields<K> }) => React.ReactNode,
-            Embed: ItemEmbed,
-            Artifact: ItemArtifact,
-            Image: ItemImage,
-            File: ItemFile,
-            ImageList: ItemImageList,
-            FileList: ItemFileList,
-            Repeater: ItemRepeater,
-            Reference: Reference as unknown as <F extends ReferenceKeys<ItemShape<K>>>(props: {
-              name: F;
-              children: (
-                scope: ReferenceScope<ReferenceContent<ItemShape<K>[F]>>,
-              ) => React.ReactNode;
-            }) => React.ReactNode,
-            ReferenceList: ReferenceList as unknown as <
-              F extends ReferenceListKeys<ItemShape<K>>,
-            >(props: {
-              name: F;
-              children: (
-                scope: ReferenceScope<ReferenceContent<ItemShape<K>[F]>>,
-              ) => React.ReactNode;
-            }) => React.ReactNode,
-            useSetting: useItemSetting as <F extends keyof ItemSettingsStatic<K>>(
-              name: F,
-            ) => ItemSettingsStatic<K>[F],
+            Field,
+            Link,
+            Icon,
+            Embed,
+            Artifact,
+            Image,
+            File,
+            ImageList: _AssetList,
+            FileList: _AssetList,
+            Repeater: RepeaterImpl,
+            Reference: ReferenceImpl,
+            ReferenceList: ReferenceListImpl,
+            useSetting: useItemSetting,
           };
 
           return (
@@ -2246,6 +2144,8 @@ export function createEditableBlock<
       </RepeaterHoverProvider>
     );
   };
+  const Repeater: <K extends keyof RepeatableFields>(props: RepeaterProps<K>) => React.ReactNode =
+    RepeaterImpl;
 
   const BlockComponent = ({
     blockData,
@@ -2309,18 +2209,18 @@ export function createEditableBlock<
     // But we also need to pass to toReact for the content prop (used in non-Repeater contexts)
     const blockSettings = { ...settingsDefaults, ...blockData.settings } as TSettings;
     const normalizedContent = React.useMemo(() => {
-      const result = { ...blockData.content } as any;
+      const result = { ...blockData.content };
 
       // Transform array fields from full item objects to content-only for the component prop
       for (const key in result) {
         const value = result[key];
         if (Array.isArray(value) && value.length > 0 && value[0]?.content !== undefined) {
           // Extract just the content for the component prop
-          result[key] = value.map((item: any) => item.content);
+          result[key] = value.map((item: any) => item.content) as typeof value;
         }
       }
 
-      return result as TContent;
+      return result;
     }, [blockData.content]);
 
     const handleClick = (e: React.MouseEvent) => {
@@ -2672,12 +2572,13 @@ export function createEditableBlock<
     </div>
   );
 
-  const Reference = <K extends ReferenceKeys<TSchemaShape>>({
+  // Untyped by field, like `RepeaterImpl`: `Reference` and the item API type it for their fields.
+  const ReferenceImpl = ({
     name,
     children,
   }: {
-    name: K;
-    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+    name: string;
+    children: (scope: any) => React.ReactNode;
   }): React.ReactNode => {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
@@ -2726,6 +2627,10 @@ export function createEditableBlock<
       </PlacedRecordWrapper>
     );
   };
+  const Reference: <K extends ReferenceKeys<TSchemaShape>>(props: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+  }) => React.ReactNode = ReferenceImpl;
 
   /** One record of a reference list: selected and outlined on its own, apart from the others. */
   const ListedRecord = ({
@@ -2850,12 +2755,12 @@ export function createEditableBlock<
   // An empty manual list shows a placeholder on the Canvas that opens the sidebar's record
   // picker. A query-backed list renders the records its query resolved to, and nothing when
   // there are none: editors cannot add to it.
-  const ReferenceList = <K extends ReferenceListKeys<TSchemaShape>>({
+  const ReferenceListImpl = ({
     name,
     children,
   }: {
-    name: K;
-    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+    name: string;
+    children: (scope: any) => React.ReactNode;
   }): React.ReactNode => {
     const block = React.use(Context);
     const normalizedData = useNormalizedData();
@@ -2912,10 +2817,14 @@ export function createEditableBlock<
         record={record}
         listHovered={listHovered}
       >
-        {children as unknown as (scope: any) => React.ReactNode}
+        {children}
       </ListedRecord>
     ));
   };
+  const ReferenceList: <K extends ReferenceListKeys<TSchemaShape>>(props: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+  }) => React.ReactNode = ReferenceListImpl;
 
   /**
    * Wraps block content that renders outside the block's visual bounds (fixed navbars, modals, portals, etc.).

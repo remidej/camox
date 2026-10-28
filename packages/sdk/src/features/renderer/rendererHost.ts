@@ -17,6 +17,7 @@ import {
   deferredInbox,
   RENDERER_PROTOCOL,
   SDK_VERSION,
+  type ForwardedEvents,
   type ForwardedStore,
   type Inbox,
   type MirroredStore,
@@ -24,26 +25,28 @@ import {
   type RendererFrameTarget,
   type RendererMessage,
   type RendererQuestion,
-  type StoreEvent,
+  type StoreEventMessage,
+  type StoreMessage,
   type StudioHandle,
   type StudioMessage,
 } from "./protocol";
 
-/** A store the studio owns, as the host needs it. */
-type OwnedStore = {
-  send: (event: never) => void;
-  getSnapshot: () => { context: unknown };
-  subscribe: (observer: (snapshot: { context: unknown }) => void) => { unsubscribe: () => void };
+/** The studio's state of each store the renderer mirrors. */
+const storeMessages: { [Store in MirroredStore]: () => StoreMessage<Store> } = {
+  preview: () => ({ type: "store", store: "preview", context: previewStore.getSnapshot().context }),
+  canvas: () => ({ type: "store", store: "canvas", context: canvasStore.getSnapshot().context }),
 };
 
-const mirrored: Record<MirroredStore, OwnedStore> = {
-  preview: previewStore as unknown as OwnedStore,
-  canvas: canvasStore as unknown as OwnedStore,
-};
+/** The stores the renderer forwards its events to, as the host applies them. */
+const forwarded: {
+  [Store in ForwardedStore]: { send: (event: ForwardedEvents[Store]) => void };
+} = { preview: previewStore, referencePickerFocus };
 
-const forwarded: Record<ForwardedStore, OwnedStore> = {
-  preview: previewStore as unknown as OwnedStore,
-  referencePickerFocus: referencePickerFocus as unknown as OwnedStore,
+/** Applies an event the renderer forwarded to the studio's store. */
+const applyStoreEvent = <Store extends ForwardedStore>(message: StoreEventMessage<Store>) => {
+  const store = forwarded[message.store];
+  if (!store) return;
+  store.send(message.event);
 };
 
 /** What the studio hears about one of its frames. */
@@ -157,12 +160,12 @@ export function createRendererHost({
   const post = (message: StudioMessage) => {
     if (welcomed) renderer?.(message);
   };
-  const postStore = (store: MirroredStore) =>
-    post({ type: "store", store, context: mirrored[store].getSnapshot().context });
+  const postStore = (store: MirroredStore) => post(storeMessages[store]());
 
-  const subscriptions = (Object.keys(mirrored) as MirroredStore[]).map((store) =>
-    mirrored[store].subscribe(() => postStore(store)),
-  );
+  const subscriptions = [
+    previewStore.subscribe(() => postStore("preview")),
+    canvasStore.subscribe(() => postStore("canvas")),
+  ];
 
   // The renderer shows the draft the studio views, so it reads the same scope of keys.
   const shownScope = () => draftScope?.current() ?? LIVE_KEY_SCOPE;
@@ -207,7 +210,7 @@ export function createRendererHost({
         if (message.sdkVersion !== SDK_VERSION) return setStatus("updating");
         welcomed = true;
         setStatus("connected");
-        for (const store of Object.keys(mirrored) as MirroredStore[]) postStore(store);
+        for (const store of Object.keys(storeMessages) as MirroredStore[]) postStore(store);
         for (const [frameId, { slot, target }] of frames)
           post({ type: "frame", frameId, slot, target });
         for (const [thumbnailId, { slot, blockType }] of thumbnails)
@@ -216,12 +219,8 @@ export function createRendererHost({
         for (const listener of connectionListeners) listener();
         return;
       }
-      case "storeEvent": {
-        const store = forwarded[message.store];
-        if (!store) return;
-        store.send(message.event as StoreEvent as never);
-        return;
-      }
+      case "storeEvent":
+        return applyStoreEvent(message);
       case "rendered":
         return frames.get(message.frameId)?.hears.rendered?.();
       case "error":

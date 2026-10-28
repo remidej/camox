@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 
 import { createDb } from "../src/db";
+import { forwarded } from "./forwarded";
 
 /** How long a round stays open for the statements issued alongside its first. */
 const ROUND_MS = 15;
@@ -60,8 +61,7 @@ export function roundTripDb() {
               (target[property] as (...args: unknown[]) => Promise<unknown>).apply(target, args),
             );
         }
-        const value = Reflect.get(target, property);
-        return typeof value === "function" ? value.bind(target) : value;
+        return forwarded(target, property);
       },
     });
     real.set(wrapped, statement);
@@ -82,8 +82,7 @@ export function roundTripDb() {
             target.batch(batched.map((statement) => real.get(statement) ?? statement)),
           );
       }
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
+      return forwarded(target, property);
     },
   });
 

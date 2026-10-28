@@ -13,7 +13,8 @@ import {
   resolveAssetValue,
   useNormalizedData,
 } from "../lib/normalized-data";
-import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
+import { useBlockEditingRuntime, type BlockOptions } from "./editing/BlockEditingRuntime";
+import type { createEditableBlock } from "./editing/createEditableBlock";
 import {
   ArtifactStudioContext,
   ArtifactsRunContext,
@@ -61,9 +62,6 @@ export type {
   TextLinkStyleData,
 } from "./lib/lexicalReact";
 
-type EditableCreateBlock = typeof import("./editing/createEditableBlock").createEditableBlock;
-type EditableOptions = Parameters<EditableCreateBlock>[0];
-
 interface BlockContextValue {
   blockId: string;
   content: Record<string, unknown>;
@@ -87,7 +85,7 @@ interface RepeaterContextValue {
 const ASSET_LIST_SELF_KEY = "__camox_asset_self__";
 
 function normalizeLinkValue(value: Record<string, unknown>): LinkValue {
-  if (value.type) return value as unknown as LinkValue;
+  if (value.type) return value as LinkValue;
   return { type: "external", ...value } as LinkValue;
 }
 
@@ -206,7 +204,7 @@ function buildPeekItems(
   }
 }
 
-function createViewBlock(options: EditableOptions) {
+function createViewBlock(options: BlockOptions) {
   const fields = resolveBlockFields(options);
   const typeboxSchema = TypeBoxType.Object(fields.content);
   const settingsTypeboxSchema = fields.settings ? TypeBoxType.Object(fields.settings) : null;
@@ -755,5 +753,8 @@ function createViewBlock(options: EditableOptions) {
   };
 }
 
-export const createBlock = createViewBlock as unknown as EditableCreateBlock;
+// The view block has the editable block's API, but untyped by fields: TypeScript can't relate
+// it to the generic signature, which the editable block implements.
+// oxlint-disable-next-line anti-slop/no-chained-type-assertions -- one API, two implementations
+export const createBlock = createViewBlock as unknown as typeof createEditableBlock;
 export type Block = ReturnType<typeof createBlock>;

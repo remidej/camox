@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { StoreInspectionEvent, Subscription } from "@xstate/store";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { ApplyContentEdit } from "../../core/editing/contentEdits";
@@ -15,11 +16,12 @@ import {
   SDK_VERSION,
   type ForwardedStore,
   type Inbox,
+  type MirroredContexts,
   type MirroredStore,
-  type MirrorEvent,
   type RendererFrameTarget,
   type RendererMessage,
-  type StoreEvent,
+  type StoreEventMessage,
+  type StoreMessage,
   type StudioHandle,
   type StudioMessage,
 } from "./protocol";
@@ -38,26 +40,22 @@ export interface RendererThumbnail {
   blockType: string;
 }
 
-/** A store of this document that mirrors or forwards to the studio's. */
-type DocumentStore = {
-  send: (event: never) => void;
-  inspect: (observer: (event: { type: string; event?: StoreEvent }) => void) => {
-    unsubscribe: () => void;
+/** The stores of this document that take the studio's state as it is (`mirror`). */
+const mirrors: {
+  [Store in MirroredStore]: {
+    send: (event: { type: "mirror"; context: MirroredContexts[Store] }) => void;
   };
-};
+} = { preview: previewStore, canvas: canvasStore };
 
-/** A store of this document that takes the studio's state as it is (`mirror`). */
-type MirroringStore = { send: (event: MirrorEvent) => void };
+/** The stores of this document whose events are forwarded to the studio's. */
+const forwards: Record<
+  ForwardedStore,
+  { inspect: (observer: (inspection: StoreInspectionEvent) => void) => Subscription }
+> = { preview: previewStore, referencePickerFocus };
 
-const mirrors: Record<MirroredStore, MirroringStore> = {
-  preview: previewStore as unknown as MirroringStore,
-  canvas: canvasStore as unknown as MirroringStore,
-};
-
-const forwards: Record<ForwardedStore, DocumentStore> = {
-  preview: previewStore as unknown as DocumentStore,
-  referencePickerFocus: referencePickerFocus as unknown as DocumentStore,
-};
+/** Has this document's copy of a mirrored store take the studio's state. */
+const mirror = <Store extends MirroredStore>(message: StoreMessage<Store>) =>
+  mirrors[message.store]?.send({ type: "mirror", context: message.context });
 
 /** The renderer's side of its connection to the studio (see `protocol.ts`). */
 export interface StudioConnection {
@@ -142,7 +140,7 @@ export function connectToStudio(
         setFrames(frames.filter(({ frameId }) => frameId !== message.frameId));
         return;
       case "store":
-        mirrors[message.store]?.send({ type: "mirror", context: message.context });
+        mirror(message);
         return;
       case "draftStarted":
         draftScope.enterStarted(message.draftId);
@@ -212,7 +210,8 @@ export function connectToStudio(
       const event = inspection.event;
       if (inspection.type !== "@xstate.transition" || !event) return;
       if (event.type === "mirror" || event.type.startsWith("@xstate.")) return;
-      studio({ type: "storeEvent", store, event: { ...event } });
+      // Inspection types events loosely, but these are the store's own.
+      studio({ type: "storeEvent", store, event: { ...event } } as StoreEventMessage);
     }),
   );
 

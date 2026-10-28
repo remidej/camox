@@ -17,6 +17,7 @@ import {
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
+import { forwarded } from "../../../test/forwarded";
 import {
   answerEvery,
   failEverySchedule,
@@ -90,7 +91,12 @@ async function fixture() {
     member(),
   );
 
-  const tool = async (name: string, args: object, headers: Headers, on: Database = db) => {
+  const tool = async (
+    name: string,
+    args: Record<string, unknown>,
+    headers: Headers,
+    on: Database = db,
+  ) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
@@ -167,13 +173,13 @@ function interrupted(matches: (query: string) => boolean, meanwhile: () => Promi
   const statement = (real: D1PreparedStatement, query: string): D1PreparedStatement => {
     const handed = new Proxy(real, {
       get(target, key) {
-        const value = Reflect.get(target, key);
-        if (typeof value !== "function") return value;
         if (key === "bind")
           return (...values: unknown[]) => statement(target.bind(...values), query);
+        const value = forwarded(target, key);
+        if (typeof value !== "function") return value;
         return async (...args: unknown[]) => {
           await interrupt([query]);
-          return value.apply(target, args);
+          return value(...args);
         };
       },
     });
@@ -190,8 +196,7 @@ function interrupted(matches: (query: string) => boolean, meanwhile: () => Promi
           return target.batch(known.map(({ real }) => real));
         };
       }
-      const value = Reflect.get(target, key);
-      return typeof value === "function" ? value.bind(target) : value;
+      return forwarded(target, key);
     },
   });
   return createDb(d1);

@@ -1,6 +1,6 @@
 import { START_DRAFT_TOOL, type StartedDraftCard } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import { defineTool } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "./tools";
 
@@ -42,4 +42,4 @@ export const startDraftTool = (
         control: { terminate: true },
       };
     },
-  }) as unknown as ToolRegistration;
+  });

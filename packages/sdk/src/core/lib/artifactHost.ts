@@ -184,7 +184,7 @@ export function connectArtifactHost(
   let state = initialState;
   let ready = false;
 
-  const post = (type: string, payload: object = {}) => {
+  const post = (type: string, payload: Record<string, unknown> = {}) => {
     frame.contentWindow?.postMessage({ ...payload, camox: type, channel }, "*");
   };
   const sendStudio = () => post("studio", { studio: state.studio });

@@ -37,12 +37,18 @@ export interface Env extends RevisionBindings {
 /** The request header naming the draft a Camox API request reads and writes (ADR 0011). */
 const DRAFT_HEADER = "x-camox-draft";
 
-/** What `ctx.exports` makes of dispatch's own entrypoints: a stub per set of props. */
-type OwnExports = { CamoxGateway(options: { props: GatewayProps }): Fetcher };
+declare global {
+  namespace Cloudflare {
+    /** Dispatch's main module, which types `ctx.exports`: a stub per entrypoint and props. */
+    interface GlobalProps {
+      mainModule: typeof import("./worker");
+    }
+  }
+}
 
 /** Makes a revision's gateway, from dispatch's own exports. */
 const gatewayOf = (ctx: ExecutionContext) => (props: GatewayProps) =>
-  (ctx.exports as unknown as OwnExports).CamoxGateway({ props });
+  ctx.exports.CamoxGateway({ props });
 
 /**
  * Where a revision's outbound requests go, made per revision with its project and draft as

@@ -114,7 +114,7 @@ void describe("the Template's SDK Bundle", () => {
     // workerd's React DOM server renders to web streams, with the bundle's one copy of React.
     const html = await new Response(
       await (renderToReadableStream as (node: unknown) => Promise<ReadableStream>)(
-        (jsx as (type: string, props: object) => unknown)("p", { children: "Rendered" }),
+        (jsx as typeof import("react/jsx-runtime").jsx)("p", { children: "Rendered" }),
       ),
     ).text();
     assert.equal(html, "<p>Rendered</p>");

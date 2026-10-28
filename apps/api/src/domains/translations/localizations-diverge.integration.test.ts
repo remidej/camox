@@ -100,7 +100,11 @@ async function fixture() {
   );
 
   const inDraft: Headers = { [DRAFT_HEADER]: generateUuidv7() };
-  const tool = async (name: string, args: object = {}, headers: Headers = inDraft) => {
+  const tool = async (
+    name: string,
+    args: Record<string, unknown> = {},
+    headers: Headers = inDraft,
+  ) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },

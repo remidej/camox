@@ -1,22 +1,45 @@
 import * as React from "react";
 
-import { BlockEditingRuntimeProvider, type BlockEditingRuntime } from "./BlockEditingRuntime";
-import { createEditableBlock } from "./createEditableBlock";
+import {
+  BlockEditingRuntimeProvider,
+  type BlockEditingRuntime,
+  type BlockOptions,
+  type EditingPrimitive,
+} from "./BlockEditingRuntime";
+import {
+  createEditableBlock,
+  type BlockComponentProps,
+  type EditableBlock as EditableDefinition,
+} from "./createEditableBlock";
 
-const editableDefinitions = new WeakMap<object, ReturnType<typeof createEditableBlock>>();
+const editableDefinitions = new WeakMap<BlockOptions, EditableDefinition>();
 
-function getEditableDefinition(options: object) {
+function getEditableDefinition(options: BlockOptions) {
   let definition = editableDefinitions.get(options);
   if (definition) return definition;
-  definition = createEditableBlock(options as Parameters<typeof createEditableBlock>[0]);
+  definition = createEditableBlock(options);
   editableDefinitions.set(options, definition);
   return definition;
 }
 
-function EditableBlock({ options, props }: { options: object; props: object }) {
+/** A primitive of the editable definition, rendered with the props the view block received. */
+function editingPrimitive(
+  definition: EditableDefinition,
+  primitive: EditingPrimitive,
+): ((props: any) => React.ReactNode) | undefined {
+  return definition[primitive];
+}
+
+function EditableBlock({
+  options,
+  props,
+}: {
+  options: BlockOptions;
+  props: BlockComponentProps<Record<string, unknown>>;
+}) {
   const definition = getEditableDefinition(options);
   const Component = definition._internal.Component;
-  return <Component {...(props as React.ComponentProps<typeof Component>)} />;
+  return <Component {...props} />;
 }
 
 /** Record pages' records render through the record scope of a block without fields. */
@@ -42,11 +65,7 @@ const completeEditingRuntime: BlockEditingRuntime = {
     return <EditableBlock options={options} props={props} />;
   },
   renderPrimitive(options, primitive, props) {
-    const definition = getEditableDefinition(options) as unknown as Record<
-      string,
-      React.ComponentType<object>
-    >;
-    const Primitive = definition[primitive];
+    const Primitive = editingPrimitive(getEditableDefinition(options), primitive);
     if (!Primitive) throw new Error(`Unknown Camox editing primitive: ${primitive}`);
     return <Primitive {...props} />;
   },

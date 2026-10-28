@@ -303,8 +303,16 @@ type CreateLayoutOptions<
     Declared
   >;
 
-/** Every option a layout may define, as the implementation reads them. */
-type AnyLayoutOptions = LayoutBaseOptions<any, any, any> & {
+/**
+ * Every option a layout may define, as the implementation reads them. The public signatures
+ * validated which slot each block may go in.
+ */
+type AnyLayoutOptions = Omit<LayoutBaseOptions<any, any, any>, "blocks"> & {
+  blocks: {
+    before: readonly LayoutBlock<true>[];
+    after: readonly LayoutBlock<true>[];
+    initial?: readonly InitialBlockImport[];
+  };
   kind?: "curated" | "derived" | "singleton";
   loader?: (context: LayoutLoaderContext) => LoaderReturn;
   routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
@@ -333,11 +341,7 @@ function createLayoutDefinition(options: AnyLayoutOptions) {
     result?: AnyLayoutLoaderResult;
   } | null>(null);
 
-  // Cast away the validation mapped type — once user-side type-checking has passed,
-  // the runtime values are valid LayoutBlock arrays.
-  const beforeBlocks = options.blocks.before as unknown as LayoutBlock<true>[];
-  const afterBlocks = options.blocks.after as unknown as LayoutBlock<true>[];
-  const initialBlocks = options.blocks.initial as unknown as InitialBlockImport[] | undefined;
+  const { before: beforeBlocks, after: afterBlocks, initial: initialBlocks } = options.blocks;
 
   const BeforeBlocks = () => {
     const ctx = React.use(LayoutContext);
@@ -642,11 +646,8 @@ export function createLayout<const Id extends string>(
 >(
   options: FileOptions<Id, Result, B, A, I, Declared>,
 ) => LayoutFor<Result>;
-export function createLayout(
-  idOrOptions: string | CreateLayoutOptions<any, any, any, any, any>,
-): any {
-  if (typeof idOrOptions !== "string")
-    return createLayoutDefinition(idOrOptions as AnyLayoutOptions);
+export function createLayout(idOrOptions: string | AnyLayoutOptions): any {
+  if (typeof idOrOptions !== "string") return createLayoutDefinition(idOrOptions);
   return (options: AnyLayoutOptions) => createLayoutDefinition({ ...options, id: idOrOptions });
 }
 

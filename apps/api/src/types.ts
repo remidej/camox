@@ -94,5 +94,9 @@ declare global {
   namespace Cloudflare {
     /** The Worker's bindings, as `env` from `cloudflare:workers` holds them. */
     interface Env extends Bindings {}
+    /** The Worker's main module, which types `ctx.exports` and `exports` from `cloudflare:workers`. */
+    interface GlobalProps {
+      mainModule: typeof import("./worker");
+    }
   }
 }

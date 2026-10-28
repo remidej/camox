@@ -48,8 +48,8 @@ function parseGrant(value: string): Grant | null {
  * Whether a session is the studio's on a site, whose scripts can read it. It mints no one-time
  * tokens and reads no other session, so revoking it signs the user out of that site alone.
  */
-function isStudioSession(session: object | undefined) {
-  return Boolean(session && "studio" in session && session.studio);
+function isStudioSession(session: Record<string, unknown> | undefined) {
+  return Boolean(session?.studio);
 }
 
 /**

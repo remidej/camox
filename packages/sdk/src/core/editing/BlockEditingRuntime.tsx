@@ -2,12 +2,39 @@ import * as React from "react";
 
 import type { Collection } from "../createCollection";
 import type { LoadedRecord } from "../requestContext";
+import type { BlockComponentProps, createEditableBlock } from "./createEditableBlock";
+
+/** The options a block was defined with. */
+export type BlockOptions = Parameters<typeof createEditableBlock>[0];
+
+/** The components a block renders its fields with, which the runtime makes editable. */
+export type EditingPrimitive =
+  | "Field"
+  | "Icon"
+  | "Embed"
+  | "Artifact"
+  | "Link"
+  | "Image"
+  | "File"
+  | "ImageList"
+  | "FileList"
+  | "Reference"
+  | "ReferenceList"
+  | "Repeater"
+  | "Detached";
 
 export interface BlockEditingRuntime {
   // Keep the hook prefix so React Compiler never memoizes the context read.
-  useSetting(options: object, name: string): unknown;
-  renderBlock(options: object, props: object): React.ReactNode;
-  renderPrimitive(options: object, primitive: string, props: object): React.ReactNode;
+  useSetting(options: BlockOptions, name: string): unknown;
+  renderBlock(
+    options: BlockOptions,
+    props: BlockComponentProps<Record<string, unknown>>,
+  ): React.ReactNode;
+  renderPrimitive(
+    options: BlockOptions,
+    primitive: EditingPrimitive,
+    props: Record<string, unknown>,
+  ): React.ReactNode;
   /** Renders a record page's record, editable like a referenced record. */
   renderLayoutItem?(props: LayoutItemProps): React.ReactNode;
 }

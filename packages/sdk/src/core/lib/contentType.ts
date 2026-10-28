@@ -156,11 +156,12 @@ export type ToMarkdownBuilder<
   context: TemplateContext<TContent, TSettings>,
 ) => ReadonlyArray<string | FieldToken | Conditional>;
 
-function createContentProxy<TShape extends Record<string, TSchema>>(
-  shape?: TShape,
+/** Reads each field as its token. `TProxy` is how the template reads the fields. */
+function createContentProxy<TProxy extends object>(
+  shape?: Record<string, TSchema>,
   prefix = "",
-): ContentProxy<TShape> {
-  return new Proxy({} as ContentProxy<TShape>, {
+): TProxy {
+  return new Proxy({} as TProxy, {
     get(_target, prop) {
       if (typeof prop !== "string") return undefined;
       const path = prefix ? `${prefix}.${prop}` : prop;
@@ -178,10 +179,11 @@ function createContentProxy<TShape extends Record<string, TSchema>>(
  * link records by it, and whose properties are the tokens of the record's fields.
  */
 function referenceToken(shape: Record<string, TSchema> | undefined, path: string) {
-  const fields = createContentProxy(shape, path) as Record<string, unknown>;
+  const fields = createContentProxy<Record<string, unknown>>(shape, path);
   return new Proxy(new FieldToken(path), {
-    get(target, prop, receiver) {
-      if (typeof prop !== "string" || prop in target) return Reflect.get(target, prop, receiver);
+    get(target, prop) {
+      // `in` found it on the token: one of its own members.
+      if (typeof prop !== "string" || prop in target) return target[prop as keyof FieldToken];
       return fields[prop];
     },
   });
@@ -236,7 +238,7 @@ export function resolveToMarkdown<
   scope: SettingsScope,
   contentShape?: TContent,
 ): string[] {
-  const content = createContentProxy<TContent>(contentShape);
+  const content = createContentProxy<ContentProxy<TContent>>(contentShape);
   const settings = createSettingsProxy<TSettings>(settingsShape, scope);
   const entries = builder({ content, settings });
 
@@ -270,7 +272,7 @@ export function resolveRecordTemplate<TShape extends Record<string, TSchema>>(
   template: (context: RecordTemplateContext<TShape>) => string | undefined,
   contentShape: TShape,
 ): string | null {
-  const content = createContentProxy(contentShape) as unknown as RecordTextProxy<TShape>;
+  const content = createContentProxy<RecordTextProxy<TShape>>(contentShape);
   const result = template({ content });
   return result === undefined || result === null || String(result) === "" ? null : String(result);
 }
@@ -294,7 +296,7 @@ export function resolveToTitle<
   scope: SettingsScope,
   contentShape?: TContent,
 ): string {
-  const content = createContentProxy<TContent>(contentShape);
+  const content = createContentProxy<ContentProxy<TContent>>(contentShape);
   const settings = createSettingsProxy<TSettings>(settingsShape, scope);
   return String(builder({ content, settings }));
 }
@@ -443,7 +445,7 @@ export function resolveToStructuredData<
   scope: SettingsScope,
   contentShape?: TContent,
 ): unknown {
-  const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TContent>;
+  const content = createContentProxy<StructuredDataProxy<TContent>>(contentShape);
   const settings = createStructuredDataSettingsProxy<TSettings>(settingsShape, scope);
   return serializeTemplate(builder({ content, settings }));
 }
@@ -458,7 +460,7 @@ export function resolveRecordStructuredData<TShape extends Record<string, TSchem
   builder: (context: RecordStructuredDataContext<TShape>) => unknown,
   contentShape: TShape,
 ): Record<string, unknown> {
-  const content = createContentProxy(contentShape) as unknown as StructuredDataProxy<TShape>;
+  const content = createContentProxy<StructuredDataProxy<TShape>>(contentShape);
   return serializeTemplate(builder({ content })) as Record<string, unknown>;
 }
 
@@ -510,12 +512,15 @@ export type LinkValue = ({ type: "external"; href: string } | { type: "page"; pa
 // Symbols survive local schema/default copies, but never enter persisted JSON or AI schemas.
 const IMAGE_PLACEHOLDER = Symbol("camox.imagePlaceholder");
 
-export function isImagePlaceholder(value: ImageValue): boolean {
-  return typeof Reflect.get(value, IMAGE_PLACEHOLDER) === "string" && !value._fileId;
+/** An image, which a field's default marks as a placeholder with its title. */
+type MaybePlaceholderImage = ImageValue & { readonly [IMAGE_PLACEHOLDER]?: string };
+
+export function isImagePlaceholder(value: MaybePlaceholderImage): boolean {
+  return typeof value[IMAGE_PLACEHOLDER] === "string" && !value._fileId;
 }
 
-export function getImagePlaceholderTitle(value: ImageValue): string {
-  return Reflect.get(value, IMAGE_PLACEHOLDER) as string;
+export function getImagePlaceholderTitle(value: MaybePlaceholderImage): string | undefined {
+  return value[IMAGE_PLACEHOLDER];
 }
 
 export type ImageValue = {
@@ -1159,12 +1164,12 @@ export const contentFieldBuilder: ContentFieldBuilder = {
      * })
      */
     toStructuredData?: ToStructuredDataBuilder<T, S, N>;
-  }) => {
+  }): RepeaterField<T, S> => {
     if (options.minItems < 1) {
       throw new Error("Repeater requires minItems to be at least 1");
     }
 
-    const content = options.content(contentFieldBuilder);
+    const content: T = options.content(contentFieldBuilder);
     const settings = options.settings?.(settingBuilder);
     const owner = `Repeater${options.title ? ` "${options.title}"` : ""}`;
     assertFieldKinds(content, "content", owner);
@@ -1208,7 +1213,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       defaultItemSettings: settingsObjectSchema
         ? collectSchemaDefaults(settingsObjectSchema.properties)
         : undefined,
-    }) as unknown as RepeaterField<T, S>;
+    });
   },
 };
 

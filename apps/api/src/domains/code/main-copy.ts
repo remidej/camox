@@ -91,11 +91,6 @@ const readOnly = (path: string) =>
 export const mainCopyFsEnv = (fs: MemoryFs, id?: string) =>
   codeEnv(fs, { cwd: CODE_ROOT, id, writable: readOnly });
 
-/** Every operation of an `ExecutionEnv` a code environment has. */
-const OPERATIONS = Object.keys(codeEnv(new MemoryFs(), { cwd: "/", writable: readOnly })).filter(
-  (key) => key !== "id" && key !== "cwd",
-) as (keyof ExecutionEnv)[];
-
 /**
  * An environment whose tree is loaded on its first operation, once: Pi builds an environment for
  * every call that may use one, most of which never do.
@@ -112,10 +107,33 @@ export function lazyEnv(
     });
     return loading;
   };
-  const env: Record<string, unknown> = { id, cwd };
-  for (const operation of OPERATIONS) {
-    env[operation] = async (...args: unknown[]) =>
-      ((await loaded())[operation] as (...args: unknown[]) => unknown)(...args);
-  }
-  return env as unknown as ExecutionEnv;
+  // Every operation a code environment has, as it runs on the loaded one.
+  return {
+    id,
+    cwd,
+    absolutePath: async (...args) => (await loaded()).absolutePath(...args),
+    joinPath: async (...args) => (await loaded()).joinPath(...args),
+    readTextFile: async (...args) => (await loaded()).readTextFile(...args),
+    openTextLineReader: async (...args) => (await loaded()).openTextLineReader(...args),
+    readTextLines: async (...args) => (await loaded()).readTextLines(...args),
+    readBinaryFile: async (...args) => (await loaded()).readBinaryFile(...args),
+    openBinaryReader: async (...args) => (await loaded()).openBinaryReader(...args),
+    writeFile: async (...args) => (await loaded()).writeFile(...args),
+    appendFile: async (...args) => (await loaded()).appendFile(...args),
+    truncateFile: async (...args) => (await loaded()).truncateFile(...args),
+    flushFile: async (...args) => (await loaded()).flushFile(...args),
+    renameFile: async (...args) => (await loaded()).renameFile(...args),
+    fileInfo: async (...args) => (await loaded()).fileInfo(...args),
+    listDir: async (...args) => (await loaded()).listDir(...args),
+    openDirReader: async (...args) => (await loaded()).openDirReader(...args),
+    watch: async (...args) => (await loaded()).watch(...args),
+    canonicalPath: async (...args) => (await loaded()).canonicalPath(...args),
+    exists: async (...args) => (await loaded()).exists(...args),
+    createDir: async (...args) => (await loaded()).createDir(...args),
+    remove: async (...args) => (await loaded()).remove(...args),
+    createTempDir: async (...args) => (await loaded()).createTempDir(...args),
+    createTempFile: async (...args) => (await loaded()).createTempFile(...args),
+    exec: async (...args) => (await loaded()).exec(...args),
+    cleanup: async (...args) => (await loaded()).cleanup(...args),
+  };
 }

@@ -42,6 +42,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.3
         version: 21.2.3
+      '@oxlint/plugins':
+        specifier: 1.88.0
+        version: 1.88.0
       nx:
         specifier: ^23.3.0
         version: 23.3.0

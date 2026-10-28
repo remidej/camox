@@ -481,7 +481,7 @@ export async function serveRevisionAsset(
 ): Promise<Response> {
   const match = ASSET_PATH.exec(pathname);
   if (!match) return notFound();
-  const [, revision, path] = match as unknown as [string, string, string];
+  const [, revision, path] = match;
   const index = await assetIndexOf(env, revisionAssetsIndexKey(project, revision));
   if (index) {
     return packedAsset(env, index, revisionAssetsPackKey(project, revision), path, revision);
@@ -528,15 +528,17 @@ export const isSdkBundlePath = (pathname: string) => pathname.startsWith("/_camo
 export async function serveSdkBundleFile(env: RevisionBindings, pathname: string) {
   const match = SDK_BUNDLE_PATH.exec(pathname);
   if (!match) return null;
-  const [, name, path] = match as unknown as [string, string, string];
+  const [, name, path] = match;
   const index = await assetIndexOf(env, sdkBundleIndexKey(name));
   return index ? packedAsset(env, index, sdkBundlePackKey(name), path, name) : null;
 }
 
+/** The entrypoint a revision's build reads its Definition Set from. */
+interface DefinitionSetEntrypoint extends Rpc.WorkerEntrypointBranded {
+  read(): Promise<unknown>;
+}
+
 /** A revision's Definition Set, as its build's entrypoint gives it (JSON-shaped). */
 export function readDefinitionSet(revision: WorkerStub): Promise<unknown> {
-  const entrypoint = revision.getEntrypoint(DEFINITION_SET_ENTRYPOINT) as unknown as {
-    read(): Promise<unknown>;
-  };
-  return entrypoint.read();
+  return revision.getEntrypoint<DefinitionSetEntrypoint>(DEFINITION_SET_ENTRYPOINT).read();
 }

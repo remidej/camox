@@ -1,6 +1,6 @@
 import { BUILD_TOOL } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import { defineTool } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
 import type { BuildResult } from "./result";
@@ -22,7 +22,7 @@ export const conflictsTool = (list: () => Promise<string[]>) =>
       const files = await list();
       return { output: [{ type: "text" as const, text: JSON.stringify(files) }] };
     },
-  }) as unknown as ToolRegistration;
+  });
 
 /**
  * The agent's `build`, which builds its code changes and, when they pass, commits them as the
@@ -43,4 +43,4 @@ export const buildTool = (build: (invocation: ToolInvocation) => Promise<BuildRe
       const result = await build({ api, context });
       return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };
     },
-  }) as unknown as ToolRegistration;
+  });

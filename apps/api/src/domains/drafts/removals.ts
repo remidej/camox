@@ -62,27 +62,35 @@ const liveContentIn = <T extends overlay.ContentTable>(
     return kept.filter((row) => live.has(row.id));
   });
 
+type DefinitionTable = typeof blockDefinitions | typeof layouts | typeof collectionDefinitions;
+
+/** A definition table's rows of a project, as a scope reads them. */
+const readDefinitions = <T extends DefinitionTable>(
+  ctx: ServiceContext,
+  projectId: number,
+  table: T,
+  definitions: DraftScope,
+) =>
+  ctx.db
+    .select()
+    .from(table)
+    .where(and(eq(table.projectId, projectId), definitionsIn(table, definitions)));
+
+type DefinitionRow<T extends DefinitionTable> = Awaited<
+  ReturnType<typeof readDefinitions<T>>
+>[number];
+
 /** A definition table's rows, as Live and as the draft read them, by name. */
-const definitionsOf = <
-  T extends typeof blockDefinitions | typeof layouts | typeof collectionDefinitions,
->(
+const definitionsOf = <T extends DefinitionTable>(
   ctx: ServiceContext,
   scope: Scope,
   table: T,
-  nameOf: (row: T["$inferSelect"]) => string,
+  nameOf: (row: DefinitionRow<T>) => string,
 ) =>
   Effect.gen(function* () {
     const read = (definitions: DraftScope) =>
-      Effect.promise(
-        () =>
-          ctx.db
-            .select()
-            .from(table as typeof blockDefinitions)
-            .where(
-              and(eq(table.projectId, scope.projectId), definitionsIn(table, definitions)),
-            ) as unknown as Promise<T["$inferSelect"][]>,
-      );
-    const byName = (rows: T["$inferSelect"][]) => new Map(rows.map((row) => [nameOf(row), row]));
+      Effect.promise(() => readDefinitions(ctx, scope.projectId, table, definitions));
+    const byName = (rows: DefinitionRow<T>[]) => new Map(rows.map((row) => [nameOf(row), row]));
     return { live: byName(yield* read(null)), draft: byName(yield* read(scope)) };
   });
 

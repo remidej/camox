@@ -47,7 +47,7 @@ export default {
   fetch(request: Request, env: Bindings, ctx: ExecutionContext): Response | Promise<Response> {
     // Public reads go through the edge cache before any middleware runs.
     if (isEdgeCached(request)) {
-      const { EdgeCache } = ctx.exports as unknown as { EdgeCache: Fetcher };
+      const { EdgeCache } = ctx.exports;
       return EdgeCache.fetch(withoutCredentials(request));
     }
     return app.fetch(request, env, ctx);

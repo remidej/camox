@@ -90,7 +90,10 @@ async function renderContentPage(client: QueryClient, pathname: string) {
 }
 
 void test("collections are hidden and not queried when experimental UI is unset or disabled", async () => {
-  const previous = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+  const previous =
+    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ === "undefined"
+      ? undefined
+      : __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
   try {
     for (const flag of [undefined, false]) {
       if (flag === undefined)
@@ -160,7 +163,10 @@ void test("the assets empty view offers a multi-file upload control", async () =
 });
 
 void test("experimental UI enables collection browsing and the new-item form", async () => {
-  const previous = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+  const previous =
+    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ === "undefined"
+      ? undefined
+      : __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
   const client = new QueryClient();
   try {
     Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
