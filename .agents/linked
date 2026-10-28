@@ -3,7 +3,6 @@
 apps/api/.env.local
 apps/dashboard/.env.development.local
 apps/dashboard/.env.production
-apps/landing/.env
 apps/playground/.env.local
 apps/template-default/.env.local
 packages/sdk/.env.local

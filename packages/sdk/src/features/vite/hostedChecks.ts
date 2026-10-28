@@ -6,7 +6,7 @@ import { type ESTree, Visitor, parseSync } from "vite-plus";
 
 /**
  * Set by Camox's revision and release sandboxes: a hosted project's build checks the code an
- * agent may have written (ADR 0021). `apps/landing` and dev mode never set it.
+ * agent may have written (ADR 0021). Dev mode never sets it.
  */
 export const HOSTED_BUILD_ENV = "CAMOX_INTERNAL_HOSTED";
 

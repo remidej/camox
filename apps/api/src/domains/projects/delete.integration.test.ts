@@ -6,7 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
-import { layouts, locales, projects } from "../../schema";
+import { blocks, layouts, locales, projects, repeatableItems } from "../../schema";
 import type { Bindings } from "../../types";
 
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
@@ -22,8 +22,11 @@ type Fakes = { emailsSent(): Promise<{ subject: string; text: string }[]> };
  * what they do is the deletion Workflow's tests' concern. Disposing of `deletions` forgets the
  * deletion Workflow's instances, so each test holds it until it ends.
  */
-async function deleteAsMember({ customDomain }: { customDomain?: string } = {}) {
-  const fixture = await createProjectFixture(crypto.randomUUID());
+async function deleteAsMember({
+  customDomain,
+  fixture: given,
+}: { customDomain?: string; fixture?: Awaited<ReturnType<typeof createProjectFixture>> } = {}) {
+  const fixture = given ?? (await createProjectFixture(crypto.randomUUID()));
   await env.PROJECT_SLUGS.put(fixture.project.slug, fixture.project.uuid);
   if (customDomain) {
     // As an operator sets a Custom Domain (apps/dispatch/README.md).
@@ -52,6 +55,48 @@ describe("deleting a project", () => {
     expect(await db.select().from(projects).where(eq(projects.id, project.id))).toEqual([]);
     expect(await db.select().from(layouts).where(eq(layouts.projectId, project.id))).toEqual([]);
     expect(await db.select().from(locales).where(eq(locales.projectId, project.id))).toEqual([]);
+  });
+
+  it("removes all its blocks and items, however many they are", async () => {
+    // D1 binds at most 100 parameters in one query.
+    const count = 101;
+    const fixture = await createProjectFixture(crypto.randomUUID());
+    const { db, project } = fixture;
+    // One row per query, as many rows at once would exceed that limit too.
+    // Items under blocks name no project: this field finds the test's own.
+    const fieldName = crypto.randomUUID();
+    for (let i = 0; i < count; i++) {
+      const block = await db
+        .insert(blocks)
+        .values({
+          projectId: project.id,
+          pageId: "page",
+          type: "list",
+          content: {},
+          position: "a0",
+          createdAt: 1,
+          updatedAt: 1,
+        })
+        .returning({ id: blocks.id })
+        .get();
+      await db.insert(repeatableItems).values({
+        blockId: block.id,
+        fieldName,
+        content: {},
+        position: "a0",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    }
+
+    const { deletions } = await deleteAsMember({ fixture });
+    await using _ = deletions;
+
+    expect(await db.select().from(blocks).where(eq(blocks.projectId, project.id))).toEqual([]);
+    expect(
+      await db.select().from(repeatableItems).where(eq(repeatableItems.fieldName, fieldName)),
+    ).toEqual([]);
+    expect(await db.select().from(projects).where(eq(projects.id, project.id))).toEqual([]);
   });
 
   it("takes its camox.site host offline at once", async () => {
