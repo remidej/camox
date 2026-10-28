@@ -5,4 +5,8 @@
   "main": "release-fakes.js",
   "compatibility_date": "2026-03-28",
   "compatibility_flags": ["nodejs_compat"],
+  // The SDK from source, as the tests import it, since the API's test job builds no packages.
+  "alias": {
+    "camox/_internal/sdkBundleName": "../../../packages/sdk/src/features/sdkBundle/sdkBundleName.ts",
+  },
 }
