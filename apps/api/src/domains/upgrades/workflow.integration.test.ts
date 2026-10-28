@@ -138,9 +138,10 @@ async function sdkBundleBuiltAt(lockfile: string) {
 }
 
 /** The Template, as the SDK publish refreshes it before the upgrade starts. */
-async function refreshTemplate(templateLockfile: string) {
+async function refreshTemplate(templateLockfile: string, description?: string) {
+  const manifest = JSON.parse(packageJson({ camox: `^${NEW_VERSION}`, react: "^19.3.1" }));
   await fakes.push(TEMPLATE_REPO, commitSha(), {
-    "package.json": packageJson({ camox: `^${NEW_VERSION}`, react: "^19.3.1" }),
+    "package.json": JSON.stringify({ ...manifest, description }, null, 2),
     "pnpm-lock.yaml": templateLockfile,
   });
 }
@@ -178,11 +179,14 @@ describe("upgrading every project to a new SDK", () => {
   });
 
   it("ensures the Template's SDK Bundle before upgrading any project", async () => {
+    // The new SDK's camox builds against an SDK Bundle.
+    const switchedOn = `built against an SDK Bundle ${crypto.randomUUID()}`;
+    await fakes.buildAgainstSdkBundlesOf(switchedOn);
     // Its own resolution, so no other test stored its SDK Bundle.
     const templateLockfile = websiteLockfile(NEW_VERSION, {
       react: `19.3.1-${crypto.randomUUID()}`,
     });
-    await refreshTemplate(templateLockfile);
+    await refreshTemplate(templateLockfile, switchedOn);
     const { project } = await projectOn("0.9.1");
 
     await upgradeTo(NEW_VERSION);
@@ -193,7 +197,9 @@ describe("upgrading every project to a new SDK", () => {
   });
 
   it("ensures each project's own SDK Bundle, from its upgraded lockfile, before its dry-run release", async () => {
-    const { project } = await projectOn("0.9.1");
+    const switchedOn = `// built against an SDK Bundle ${crypto.randomUUID()}`;
+    await fakes.buildAgainstSdkBundlesOf(switchedOn);
+    const { project } = await projectOn("0.9.1", { "src/camox.ts": `${switchedOn}\n` });
     // The project resolves the new SDK's packages unlike the Template.
     const upgradedLockfile = websiteLockfile(NEW_VERSION, {
       react: `19.3.1-${crypto.randomUUID()}`,
@@ -207,6 +213,26 @@ describe("upgrading every project to a new SDK", () => {
       ({ command }) => command === buildCommand(),
     );
     expect(await sdkBundleBuiltAt(upgradedLockfile)).toBeLessThan(build!.order);
+    expect(await pushesToMain(project.uuid)).toHaveLength(1);
+  });
+
+  it("ensures no SDK Bundle while the new SDK's camox builds whole-app", async () => {
+    const templateLockfile = websiteLockfile(NEW_VERSION, {
+      react: `19.3.1-${crypto.randomUUID()}`,
+    });
+    await refreshTemplate(templateLockfile);
+    const { project } = await projectOn("0.9.1");
+    const upgradedLockfile = websiteLockfile(NEW_VERSION, {
+      react: `19.3.1-${crypto.randomUUID()}`,
+    });
+    await fakes.installResolves(project.uuid, upgradedLockfile);
+
+    await upgradeTo(NEW_VERSION);
+
+    for (const lockfile of [templateLockfile, upgradedLockfile]) {
+      expect(await sdkBundleBuiltAt(lockfile)).toBeUndefined();
+      expect(await sdkBundleStored(lockfile)).toBe(false);
+    }
     expect(await pushesToMain(project.uuid)).toHaveLength(1);
   });
 

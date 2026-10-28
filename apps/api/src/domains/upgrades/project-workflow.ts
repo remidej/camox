@@ -8,7 +8,7 @@ import { createDb, type Database } from "../../db";
 import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { leaveUpgradePush, queueUpgradePush, turnOf } from "../publishes/queue";
-import { ENSURE_SDK_BUNDLE, ensureSdkBundle, type SdkBundleSource } from "../sdk-bundles/ensure";
+import { ENSURE_SDK_BUNDLE, type SdkBundleSource } from "../sdk-bundles/ensure";
 import { RELEASE_SDK_BUNDLE_ENV, withStoredSdkBundle } from "../sdk-bundles/workspace";
 import { UPGRADED_FILES, buildCommand, pushCommand, updateCommand } from "./commands";
 
@@ -86,10 +86,8 @@ export class ProjectUpgradeWorkflow extends CIWorkflow<CloudflareArtifacts, Upgr
       const upgraded = await step.do("read the upgraded lockfile", () =>
         upgradedFiles(this.env, updated.snapshot),
       );
-      await step.do("ensure the SDK Bundle", ENSURE_SDK_BUNDLE, () =>
-        ensureSdkBundle(this.env, upgraded),
-      );
-      // A hosted build never builds its SDK Bundle: the one just ensured goes into the workspace.
+      // A hosted build never builds its SDK Bundle: it's ensured and put into the workspace,
+      // unless the upgraded camox builds whole-app.
       const withBundle = await step.do(
         "put the SDK Bundle into the workspace",
         ENSURE_SDK_BUNDLE,

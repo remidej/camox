@@ -254,11 +254,11 @@ export class FakeSandbox extends DurableObject {
     return { success: true, path, exists: this.files.has(path), timestamp: "" };
   }
 
-  /** Whether the website's camox in the workspace builds against an SDK Bundle. */
-  #buildsAgainstSdkBundle() {
+  /** Whether the website's camox in `folder` builds against an SDK Bundle. */
+  #buildsAgainstSdkBundle(folder = WORKSPACE) {
     return [...this.files].some(
       ([path, content]) =>
-        path.startsWith(`${WORKSPACE}/`) &&
+        path.startsWith(`${folder.replace(/\/$/, "")}/`) &&
         sdkBundleSwitchedOn.some((marker) => content.includes(marker)),
     );
   }
@@ -333,9 +333,10 @@ export class FakeSandbox extends DurableObject {
     this.commands.push(command);
     if (SDK_BUNDLE_BUILD_COMMAND.test(command))
       return result(0, await this.#buildSdkBundle(options));
-    // Whether the workspace's camox builds against an SDK Bundle, as it answers.
+    // Whether the camox installed where it runs builds against an SDK Bundle, as it answers.
     if (SDK_BUNDLE_SWITCH_PROBE.test(command)) {
-      return result(0, this.#buildsAgainstSdkBundle() ? "sdk-bundle\n" : "whole-app\n");
+      const switchedOn = this.#buildsAgainstSdkBundle(options.cwd);
+      return result(0, switchedOn ? "sdk-bundle\n" : "whole-app\n");
     }
     const removed = /^rm -rf (\S+)$/.exec(command);
     if (removed) {

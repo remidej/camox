@@ -3,6 +3,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { asc, eq } from "drizzle-orm";
 
 import { createDb } from "../../db";
+import { HOSTED_BUILD } from "../../lib/hosted-build";
 import type { Bindings } from "../../types";
 import { TEMPLATE_REPO } from "../project-creation/workflow";
 import { projects } from "../projects/schema";
@@ -94,8 +95,11 @@ export class UpgradeWorkflow extends WorkflowEntrypoint<Bindings, UpgradeParams>
 
     // The SDK Bundle new projects and most upgraded ones build against, stored before any of them
     // needs it. A Template whose bundle doesn't build fails the upgrade before it moves anyone.
+    // None while the new SDK's camox builds whole-app.
     await step.do("ensure the Template's SDK Bundle", ENSURE_SDK_BUNDLE, async () =>
-      ensureSdkBundle(this.env, await this.templateFiles()),
+      ensureSdkBundle(this.env, await this.templateFiles(), {
+        ifSwitchedOn: { buildEnv: HOSTED_BUILD },
+      }),
     );
 
     // Only live projects. One still setting up gets the new SDK from the Template, or from a

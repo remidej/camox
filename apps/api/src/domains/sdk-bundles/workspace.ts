@@ -4,6 +4,7 @@ import { getSandbox } from "@cloudflare/sandbox";
 import type { Bindings } from "../../types";
 import type { SdkBundleNames, SdkBundleSource } from "./ensure";
 import { fetchSdkBundle } from "./fetch";
+import { buildsAgainstSdkBundle } from "./switch";
 
 // Release steps (`camox release`, and an Upgrade's dry run) build in `@cloudflare/ci` sandboxes,
 // each on the workspace snapshot the step before it left. A hosted build never builds its SDK
@@ -22,16 +23,6 @@ export const RELEASE_SDK_BUNDLE_ENV = { CAMOX_INTERNAL_SDK_BUNDLE_CACHE: RELEASE
 
 /** How long the snapshot stays restorable, as `@cloudflare/ci` keeps its steps' snapshots. */
 const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
-
-/**
- * Asks the website's own camox whether its build is against an SDK Bundle: the switch is its
- * call. A camox from before SDK Bundles has no `buildsAgainstSdkBundle`, and builds whole-app.
- * Run with `node --input-type=module`, which resolves its imports from the workspace.
- */
-const SWITCH_PROBE = `
-const sdkBundle = await import("camox/_internal/sdkBundle").catch(() => ({}));
-console.log(sdkBundle.buildsAgainstSdkBundle?.(process.env) ? "sdk-bundle" : "whole-app");
-`;
 
 /**
  * A snapshot of the workspace `snapshot` with the stored SDK Bundle of the website `source`
@@ -53,14 +44,7 @@ export async function withStoredSdkBundle(
   });
   try {
     await sandbox.restoreBackup(snapshot);
-    const probed = await sandbox.exec('node --input-type=module -e "$CAMOX_SDK_BUNDLE_PROBE"', {
-      cwd: snapshot.dir,
-      env: { ...buildEnv, CAMOX_SDK_BUNDLE_PROBE: SWITCH_PROBE },
-    });
-    if (!probed.success) {
-      throw new Error(`The website's camox didn't answer: ${probed.stderr.trim()}`);
-    }
-    if (probed.stdout.trim() !== "sdk-bundle") return null;
+    if (!(await buildsAgainstSdkBundle(sandbox, snapshot.dir, buildEnv))) return null;
 
     const emptied = await sandbox.exec(`rm -rf ${RELEASE_SDK_BUNDLE_CACHE}`);
     if (!emptied.success) {

@@ -8,6 +8,7 @@ import {
 import type { WorkflowStepConfig } from "cloudflare:workers";
 
 import type { Bindings } from "../../types";
+import { buildsAgainstSdkBundle } from "./switch";
 
 // Ensuring an SDK Bundle is the only step that ever stores one (ADR 0029). It builds in a fresh
 // release sandbox that installs from the lockfile with no cache restored, so no website's code
@@ -100,25 +101,42 @@ const tail = (text: string, lines = 20) => text.trimEnd().split("\n").slice(-lin
 export async function ensureSdkBundle(
   env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
   source: SdkBundleSource,
+  options?: EnsureOptions,
+): Promise<SdkBundleNames>;
+/**
+ * With `ifSwitchedOn`, the website's camox is first asked whether it builds against an SDK
+ * Bundle, once installed, and null is returned, with nothing built, when it builds whole-app.
+ */
+export async function ensureSdkBundle(
+  env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
+  source: SdkBundleSource,
+  options: EnsureOptions & { ifSwitchedOn: { buildEnv: Record<string, string> } },
+): Promise<SdkBundleNames | null>;
+export async function ensureSdkBundle(
+  env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
+  source: SdkBundleSource,
   {
     settings = HOSTED_SDK_BUNDLE_SETTINGS,
     names: given,
-  }: {
-    settings?: SdkBundleSettings;
-    /**
-     * The names the website's own camox gave the bundle, such as a build's missing-bundle error
-     * reports: they're looked up instead of the API's.
-     */
-    names?: SdkBundleNames;
-  } = {},
-): Promise<SdkBundleNames> {
+    ifSwitchedOn,
+  }: EnsureOptions & { ifSwitchedOn?: { buildEnv: Record<string, string> } } = {},
+): Promise<SdkBundleNames | null> {
   const names = given ?? (await sdkBundleNamesOf(source.lockfile, settings));
   const stored = await Promise.all(
     Object.values(names).map((name) => env.REVISION_BUILDS.head(sdkBundleArchiveKey(name))),
   );
   if (stored.every(Boolean)) return names;
-  return buildSdkBundle(env, source, settings);
+  return buildSdkBundle(env, source, settings, ifSwitchedOn?.buildEnv);
 }
+
+type EnsureOptions = {
+  settings?: SdkBundleSettings;
+  /**
+   * The names the website's own camox gave the bundle, such as a build's missing-bundle error
+   * reports: they're looked up instead of the API's.
+   */
+  names?: SdkBundleNames;
+};
 
 /**
  * Builds the SDK Bundle in a sandbox of its own, and stores each target it doesn't find. Stores
@@ -128,7 +146,9 @@ async function buildSdkBundle(
   env: Pick<Bindings, "SANDBOX" | "REVISION_BUILDS">,
   source: SdkBundleSource,
   settings: SdkBundleSettings,
-): Promise<SdkBundleNames> {
+  /** With it, the website's camox is asked first whether it builds against an SDK Bundle. */
+  probeEnv?: Record<string, string>,
+): Promise<SdkBundleNames | null> {
   // A new sandbox each time: nothing ran in it, and no snapshot is restored into it.
   const sandbox = getSandbox(env.SANDBOX, `sdk-bundle-${crypto.randomUUID()}`, {
     transport: "rpc",
@@ -153,6 +173,7 @@ async function buildSdkBundle(
     await sandbox.writeFile(`${WEBSITE}/pnpm-lock.yaml`, source.lockfile);
     // No package's install script runs either: the build needs none.
     await run("pnpm install --frozen-lockfile --ignore-scripts", { env: { CI: "1" } });
+    if (probeEnv && !(await buildsAgainstSdkBundle(sandbox, WEBSITE, probeEnv))) return null;
     const built = await run(BUILD_COMMAND, {
       env: {
         CI: "1",
