@@ -33,8 +33,10 @@ import {
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
+  buildServerAuthCookieHeader,
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
+import { getCookie, getSetCookie } from "../../lib/stored-auth-cookies";
 import { reads, type StudioCache } from "../../lib/studio-reads";
 import { documentGoogleFonts } from "../og/documentFonts";
 import { DefaultPageImage, renderPageImage } from "../og/pageImage";
@@ -264,7 +266,7 @@ const PUBLIC_ROUTE_KINDS: ReadonlySet<RuntimeRouteKind> = new Set([
  */
 export function isPublicRequest(request: Request, options: RuntimeOptions = {}): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  if (isPrivateRender(request) || isPreviewHandoff(request, options)) return false;
+  if (isPrivateRender(request) || new URL(request.url).searchParams.has("ott")) return false;
   const pathname = getRuntimePathname(request.url, options.runtimeBasePath);
   return pathname !== null && PUBLIC_ROUTE_KINDS.has(matchRuntimeRoute(pathname).kind);
 }
@@ -872,6 +874,52 @@ function isPreviewHandoff(request: Request, options: RuntimeOptions): boolean {
     !!options.projectUuid &&
     !!options.renderPage
   );
+}
+
+/**
+ * Whether a request lands from the studio's sign-in with its one-time token, which the Worker
+ * exchanges itself. A preview link's handoff checks its target in the browser first.
+ */
+function isSignInHandoff(request: Request): boolean {
+  const { searchParams } = new URL(request.url);
+  return request.method === "GET" && searchParams.has("ott") && !searchParams.has("camox-preview");
+}
+
+/**
+ * Exchanges a sign-in's one-time token for the studio's session, sets the cookie that mirrors it,
+ * and sends the browser back to the URL without the token. The page then renders for the member
+ * at once, rather than for a visitor, then again once the browser signed in. Null when the
+ * exchange fails: the page loads with the token, and the browser tries it and says what failed.
+ */
+async function createSignInResponse(request: Request, apiUrl: string): Promise<Response | null> {
+  const url = new URL(request.url);
+  let setCookie: string | null;
+  try {
+    const response = await fetch(`${apiUrl.replace(/\/+$/, "")}/api/auth/one-time-token/verify`, {
+      method: "POST",
+      // Present but empty, the header asks the API for the session's cookies in a header of its
+      // own, which the browser's exchange stores too.
+      headers: { "Content-Type": "application/json", "Better-Auth-Cookie": "" },
+      body: JSON.stringify({ token: url.searchParams.get("ott") }),
+    });
+    if (!response.ok) return null;
+    setCookie = response.headers.get("Set-Better-Auth-Cookie");
+  } catch (error) {
+    console.error("[camox] Sign-in token exchange failed.", error);
+    return null;
+  }
+  const session = setCookie ? getCookie(getSetCookie(setCookie)) : "";
+  if (!session) return null;
+  url.searchParams.delete("ott");
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: `${url.pathname}${url.search}`,
+      "Cache-Control": "private, no-store",
+      "Referrer-Policy": "no-referrer",
+      "Set-Cookie": buildServerAuthCookieHeader(session, { secure: url.protocol === "https:" }),
+    },
+  });
 }
 
 /** Who reads a page's alternates, in the scope its page was read in. */
@@ -2082,6 +2130,10 @@ export async function handleCamoxRequest(
   // The rest of the runtime's paths sit under the locale's prefix.
   if (isPreviewHandoff(request, options) && match.kind === "page") {
     return createPreviewHandoffResponse({ options, pathname, request });
+  }
+  if (options.apiUrl && isSignInHandoff(request)) {
+    const signedIn = await createSignInResponse(request, options.apiUrl);
+    if (signedIn) return signedIn;
   }
 
   // Agents reach the Markdown Representation by asking for it, or at the page's `.md` URL.
