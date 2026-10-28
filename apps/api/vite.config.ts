@@ -95,17 +95,31 @@ async function releaseFakesWorker() {
   };
 }
 
+/**
+ * Each of the SDK's exports that names its source, as the source file: the API's tests run
+ * against the SDK as it is, and CI builds no packages for them.
+ */
+function sdkFromSource() {
+  const sdk = path.join(import.meta.dirname, "../../packages/sdk");
+  const { exports } = createRequire(import.meta.url)(path.join(sdk, "package.json")) as {
+    exports: Record<string, string | { source?: string }>;
+  };
+  return Object.entries(exports).flatMap(([subpath, target]) =>
+    typeof target === "object" && target.source
+      ? [
+          {
+            // Exactly the export: a string would also match the paths below it.
+            find: new RegExp(`^${path.posix.join("camox", subpath).replaceAll(".", "\\.")}$`),
+            replacement: path.join(sdk, target.source),
+          },
+        ]
+      : [],
+  );
+}
+
 export default defineConfig({
   logLevel: "silent",
-  resolve: {
-    alias: {
-      // Exercise the real playground collection definition without requiring SDK dist.
-      "camox/createCollection": path.resolve(
-        import.meta.dirname,
-        "../../packages/sdk/src/core/createCollection.ts",
-      ),
-    },
-  },
+  resolve: { alias: sdkFromSource() },
   test: {
     projects: [
       {
