@@ -1,7 +1,7 @@
-# On every push to main, release-please only updates its release PR. Merging that PR cuts a
-# release, which runs the checks and tests, deploys Camox, then publishes the SDK. Publishing
-# waits for the deploy of the same commit, so no published SDK is ahead of the deployed API
-# (ADR 0019). Each publish uploads its skills for the agent, refreshes the Template that new
+# Merging the release PR cuts a release (release-please.yml) and changes the version manifest,
+# which starts this workflow: it runs the checks and tests, deploys Camox, then publishes the SDK.
+# Publishing waits for the deploy of the same commit, so no published SDK is ahead of the deployed
+# API (ADR 0019). Each publish uploads its skills for the agent, refreshes the Template that new
 # projects fork, then upgrades every project to it. Running the workflow by hand deploys main
 # without a release.
 name: Deploy
@@ -10,6 +10,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - .release-please-manifest.json
   workflow_dispatch:
 
 permissions:
@@ -23,8 +25,7 @@ jobs:
   # Gates the deploy, split across runners: the API's integration tests alone take about 25
   # CPU-minutes, which one runner's 4 vCPUs would run in about 10.
   test:
-    needs: release-please
-    if: ${{ github.ref == 'refs/heads/main' && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: test (${{ matrix.suite }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -84,8 +85,8 @@ jobs:
         run: pnpm nx run @camox/api:test-shard-${{ matrix.shard }}
 
   deploy:
-    needs: [release-please, test]
-    if: ${{ github.ref == 'refs/heads/main' && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    needs: test
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -122,7 +123,7 @@ jobs:
 
       # The publish job publishes these builds, taken before the dashboard's build rebuilds any.
       - name: Keep package builds for publishing
-        if: ${{ needs.release-please.outputs.release_created == 'true' }}
+        if: ${{ github.event_name == 'push' }}
         uses: actions/upload-artifact@v4
         with:
           name: package-builds
@@ -172,29 +173,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  release-please:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: release-please
-      cancel-in-progress: false
-    permissions:
-      contents: write
-      pull-requests: write
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-    steps:
-      - uses: googleapis/release-please-action@v4
-        id: release
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  # Needing deploy means a failed or skipped deploy skips the publish.
+  # Needing deploy means a failed or skipped deploy skips the publish. A run by hand releases
+  # nothing, so it doesn't publish.
   publish:
-    needs: [deploy, release-please]
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    needs: deploy
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

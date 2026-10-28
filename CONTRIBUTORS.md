@@ -2,9 +2,11 @@
 
 ## Package releases with release-please
 
-`.github/workflows/deploy.yml` runs on pushes to `main` and uses
+`.github/workflows/release-please.yml` (the "Release PR" workflow) runs on
+pushes to `main` and uses
 [release-please](https://github.com/googleapis/release-please) to prepare version
-bumps and changelogs from Conventional Commits.
+bumps and changelogs from Conventional Commits. It deploys nothing; the "Deploy"
+workflow, `.github/workflows/deploy.yml`, runs only for releases.
 
 ### Contributor workflow
 
@@ -25,9 +27,9 @@ bumps and changelogs from Conventional Commits.
    package version bumps, changelogs, and the version manifest.
 2. A maintainer reviews the proposed versions and release notes, then merges
    the release PR when ready to ship.
-3. The resulting push to `main` creates the root GitHub release, and
-   release-please reports `release_created`. That starts the `test` jobs, which
-   run the checks and tests in parallel, then the `deploy` job, which deploys
+3. The resulting push to `main` creates the GitHub release. It also changes
+   `.release-please-manifest.json`, which starts `deploy.yml`: the `test` jobs
+   run the checks and tests in parallel, then the `deploy` job deploys
    production (see Production deployment). The `publish` job runs only once that
    deployment has succeeded, so no published SDK is ahead of the deployed API
    (ADR 0019).
@@ -55,9 +57,8 @@ fix forward, and the next release PR carries the fix.
 
 Publishing is sequential, not atomic: if a package fails, earlier packages may
 already be on npm. Check the registry and workflow logs before retrying; a rerun
-can fail on an already-published version. Rerunning the whole workflow may
-not report `release_created` again, which skips the deploy and the publish, so
-prefer rerunning only the failed jobs.
+can fail on an already-published version, so prefer rerunning only the failed
+jobs.
 
 ## camox.ai's checkout
 
@@ -114,8 +115,10 @@ include the regenerated route tree in the same commit. Do not edit it manually.
 
 `.github/workflows/deploy.yml` runs the checks and tests, then deploys API,
 dashboard, and dispatch, each time a release PR is merged, before the
-npm release of the same commit. Ordinary pushes to `main` don't deploy. To deploy
-`main` without a release, run the workflow manually from the Actions tab.
+npm release of the same commit. It starts on pushes to `main` that change
+`.release-please-manifest.json`, which only merging the release PR does, so
+ordinary pushes to `main` don't start it. To deploy
+`main` without a release, run the Deploy workflow manually from the Actions tab.
 Active deployments are not canceled by newer ones; only the newest pending
 deployment is retained. Avoid concurrent manual deployments from your machine.
 
@@ -218,7 +221,8 @@ and reset the local D1. Commit the SQL together with `migrations/meta`.
 
 Internal apps use `workspace:*` dependencies. The workflow builds SDK, CLI, UI,
 and API contract from the deployed commit; no npm publication is necessary.
-Public npm releases are the `release-please` and `publish` jobs of the same workflow.
+Public npm releases are cut by `release-please.yml` and published by the `publish` job of
+`deploy.yml`.
 The production API must still support older published SDKs used by customers.
 
 GitHub does not normally trigger another workflow for commits pushed using its
