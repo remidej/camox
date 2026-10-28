@@ -84,11 +84,18 @@ async function serveRpc(req, res, procedure, input) {
     };
   } else if (procedure === "code/push") {
     pushes.push(input);
+    // The push streams where it stands, as the API does, until it lands or is refused.
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    const event = (name, data) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+    event("message", { json: { type: "progress", step: "checking" } });
     if (refusal) {
-      res.writeHead(422, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ json: { defined: false, status: 422, ...refusal } }));
+      event("error", { json: { defined: false, status: 422, ...refusal } });
+      return res.end();
     }
+    event("message", { json: { type: "progress", step: "waiting" } });
+    event("message", { json: { type: "progress", step: "building" } });
     // The bundle's branch lands on the draft's, as the API lands it.
+    const draftId = input.draftId ?? DRAFT_ID;
     try {
       await git(root, [
         "--git-dir",
@@ -96,17 +103,24 @@ async function serveRpc(req, res, procedure, input) {
         "fetch",
         "--quiet",
         input.bundlePath,
-        `refs/heads/${input.branch}:refs/heads/${DRAFT_ID}`,
+        `+refs/heads/${input.branch}:refs/heads/${draftId}`,
       ]);
     } catch (error) {
-      return rpcError(res, 500, "INTERNAL_SERVER_ERROR", error.stderr);
+      event("error", {
+        json: { defined: false, status: 500, code: "INTERNAL_SERVER_ERROR", message: error.stderr },
+      });
+      return res.end();
     }
-    output = {
-      draftId: DRAFT_ID,
-      branch: DRAFT_ID,
-      result: { ok: true, revision: "rev", build: [], types: [], lint: [] },
-      studioUrl: STUDIO_URL,
-    };
+    event("message", {
+      json: {
+        type: "pushed",
+        draftId,
+        branch: draftId,
+        result: { ok: true, revision: "rev", build: [], types: [], lint: [] },
+        studioUrl: `https://acme.camox.site/?camox-draft=${draftId}`,
+      },
+    });
+    return res.end();
   } else {
     return rpcError(res, 404, "NOT_FOUND", "Not found");
   }
@@ -379,11 +393,9 @@ void test("git-credential ignores Git asking it to store or erase a credential",
   }
 });
 
-/** A clone of the flagged project, which its Vite config names, with a commit on a new branch. */
-async function checkoutOnBranch(branch) {
-  const clone = await cloneFlagged();
-  await git(clone, ["checkout", "--quiet", "-b", branch]);
-  await writeFile(join(clone, "pricing.tsx"), "export const pricing = 9;\n");
+/** Commits `content` as `pricing.tsx` in `clone`, as the member. */
+async function commitPricing(clone, content = "export const pricing = 9;\n") {
+  await writeFile(join(clone, "pricing.tsx"), content);
   await git(clone, ["add", "."]);
   await git(clone, [
     "-c",
@@ -393,10 +405,25 @@ async function checkoutOnBranch(branch) {
     "commit",
     "--quiet",
     "-m",
-    "Add pricing",
+    "Change pricing",
   ]);
+}
+
+/** A clone of the flagged project, which its Vite config names, with a commit on a new branch. */
+async function checkoutOnBranch(branch) {
+  const clone = await cloneFlagged();
+  await git(clone, ["checkout", "--quiet", "-b", branch]);
+  await commitPricing(clone);
   return clone;
 }
+
+/** The commits a bundle needs the receiving repo to have already. */
+const prerequisitesOf = async (clone, bundle) =>
+  [
+    ...(
+      await git(clone, ["bundle", "verify", bundle]).catch((error) => error.stdout + error.stderr)
+    ).matchAll(/^([0-9a-f]{40})/gm),
+  ].map(([, oid]) => oid);
 
 void test("push sends the branch's new commits as a bundle, tracks the draft's branch, and prints its studio URL", async () => {
   refusal = undefined;
@@ -408,6 +435,7 @@ void test("push sends the branch's new commits as a bundle, tracks the draft's b
   const sent = pushes.at(-1);
   assert.equal(sent.projectUuid, FLAGGED.uuid);
   assert.equal(sent.branch, "pricing");
+  assert.equal(sent.draftId, undefined);
   const head = await git(clone, ["rev-parse", "HEAD"]);
   assert.match(
     await git(clone, ["bundle", "list-heads", sent.bundlePath]),
@@ -446,4 +474,51 @@ void test("push prints a refusal and the build's errors, and exits non-zero", as
   assert.match(result.stdout + result.stderr, /doesn't build/);
   assert.match(result.stdout + result.stderr, /pricing\.tsx:1:26 Could not resolve '\.\/missing'/);
   await assert.rejects(git(clone, ["rev-parse", "--abbrev-ref", "broken@{upstream}"]));
+});
+
+void test("a later push from the branch goes to its draft, with only the commits the draft lacks", async () => {
+  refusal = undefined;
+  const clone = await checkoutOnBranch("monthly");
+  assert.equal((await cli(["push"], { cwd: clone })).code, 0);
+  const pushed = await git(clone, ["rev-parse", "HEAD"]);
+  await commitPricing(clone, "export const pricing = 12;\n");
+
+  const result = await cli(["push"], { cwd: clone });
+
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+  const sent = pushes.at(-1);
+  assert.equal(sent.draftId, DRAFT_ID);
+  // The draft has the commits pushed before: the bundle builds on them.
+  assert.ok((await prerequisitesOf(clone, sent.bundlePath)).includes(pushed));
+  assert.equal(
+    await git(clone, ["rev-parse", "monthly@{upstream}"]),
+    await git(clone, ["rev-parse", "HEAD"]),
+  );
+});
+
+void test("push --draft sends the branch to the draft it names, and tracks that draft's branch", async () => {
+  refusal = undefined;
+  const agentDraft = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6aaa";
+  // The agent's draft branches off `main`, as Camox makes it.
+  const clone = await cloneFlagged();
+  await git(clone, ["checkout", "--quiet", "-b", "agent"]);
+  await commitPricing(clone, "export const pricing = 5;\n");
+  await git(clone, ["push", "--quiet", repoOf(FLAGGED), `HEAD:refs/heads/${agentDraft}`]);
+  await git(clone, ["checkout", "--quiet", "main"]);
+  await git(clone, ["fetch", "--quiet", "origin", agentDraft]);
+  await git(clone, ["checkout", "--quiet", "-b", "finish-faq", "FETCH_HEAD"]);
+  const agents = await git(clone, ["rev-parse", "HEAD"]);
+  await commitPricing(clone);
+
+  const result = await cli(["push", "--draft", agentDraft], { cwd: clone });
+
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+  const sent = pushes.at(-1);
+  assert.equal(sent.draftId, agentDraft);
+  assert.ok((await prerequisitesOf(clone, sent.bundlePath)).includes(agents));
+  assert.equal(
+    await git(clone, ["rev-parse", "--abbrev-ref", "finish-faq@{upstream}"]),
+    `origin/${agentDraft}`,
+  );
+  assert.match(result.stdout, new RegExp(`camox-draft=${agentDraft}`));
 });

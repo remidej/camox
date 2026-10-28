@@ -49,13 +49,14 @@ export async function createCodeReadToken(token: string, project: string) {
 // --- Code ---
 
 /**
- * Pushes a branch's commits, as a Git bundle, to a new draft of a project whose code can be
- * worked on outside Camox (ADR 0026). Resolves once the pushed head built; a refusal rejects
- * with its message, and its build errors for a head that doesn't build.
+ * Pushes a branch's commits, as a Git bundle, to a draft of a project whose code can be worked
+ * on outside Camox (ADR 0026): a new one, or the open draft `draftId` names. Resolves to the
+ * push's events, where it stands, then the push once its head built; a refusal throws as they're
+ * read, with its message, and its build errors for a head that doesn't build.
  */
 export function pushCode(
   token: string,
-  input: { projectUuid: string; branch: string; bundle: File },
+  input: { projectUuid: string; branch: string; draftId?: string; bundle: File },
 ) {
   return createRpcClient(token).code.push(input);
 }

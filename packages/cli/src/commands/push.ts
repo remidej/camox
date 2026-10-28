@@ -6,17 +6,43 @@ import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { object } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
-import { command, constant } from "@optique/core/primitives";
+import { optional } from "@optique/core/modifiers";
+import { command, constant, option } from "@optique/core/primitives";
+import { string } from "@optique/core/valueparser";
 
 import { pushCode } from "../lib/api";
 import { getOrAuthenticate } from "../lib/auth";
 
-// `camox push` sends the local branch's commits to Camox, which opens a draft with them (ADR
-// 0026): the push goes to the API, which checks and lands them, never to the repo.
+// `camox push` sends the local branch's commits to Camox, which lands them on a draft (ADR
+// 0026): the push goes to the API, which checks and lands them, never to the repo. The first
+// push from a branch opens a draft, and the branch then follows the draft's branch, so later
+// pushes go to the same draft. `--draft <id>` names an open draft instead, such as one the agent
+// started.
 
-export const parser = command("push", object({ command: constant("push" as const) }), {
-  description: message`Push the current branch's commits to a new draft, on a project whose code can be worked on outside Camox.`,
-});
+export const parser = command(
+  "push",
+  object({
+    command: constant("push" as const),
+    draft: optional(
+      option("--draft", string({ metavar: "DRAFT_ID" }), {
+        description: message`Push to this open draft, such as one Camox's agent started, rather than the branch's own.`,
+      }),
+    ),
+  }),
+  {
+    description: message`Push the current branch's commits to its draft, on a project whose code can be worked on outside Camox: a new draft on its first push.`,
+  },
+);
+
+/** A draft's branch, as a branch's upstream names it: `origin/<draft id>`. */
+const DRAFT_UPSTREAM = /^origin\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** What the spinner says while the push is at each step. */
+const STEPS: Record<string, string> = {
+  checking: "Checking your commits...",
+  waiting: "Waiting for Camox's agent to finish its turn in the draft...",
+  building: "Building your code...",
+};
 
 /** The Project ID the camox() plugin names in a Vite config. */
 const PROJECT_ID =
@@ -46,7 +72,7 @@ const listed = (errors: Errors) =>
     )
     .join("\n");
 
-export async function handler(_args: { command: "push" }): Promise<never> {
+export async function handler(args: { command: "push"; draft?: string }): Promise<never> {
   p.intro("camox push");
   const root = git(
     ["rev-parse", "--show-toplevel"],
@@ -65,21 +91,44 @@ export async function handler(_args: { command: "push" }): Promise<never> {
     "Check out a branch to push.",
   )!;
   if (branch === "main") return fail("Push a branch of your own: main changes only by publishing.");
+  // The draft named, or else the one the branch follows since its first push.
+  const upstream = git(
+    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`],
+    "",
+    { quiet: true },
+  );
+  const draftId = args.draft ?? upstream?.match(DRAFT_UPSTREAM)?.[1]?.toLowerCase();
 
   const { token } = await getOrAuthenticate().catch(() => fail("Authentication failed."));
 
-  // The branch's new commits are those the current `main` doesn't have.
+  // The branch's new commits are those neither the current `main` nor the draft has.
   git(["fetch", "--quiet", "origin", "main"], "Couldn't fetch main.");
   const base = git(
     ["merge-base", "HEAD", "origin/main"],
     "Your branch shares no history with main.",
   )!;
+  // A draft without code yet, or one that ended, has no branch: Camox says which.
+  const draftFetched =
+    !!draftId &&
+    git(
+      ["fetch", "--quiet", "origin", `+refs/heads/${draftId}:refs/remotes/origin/${draftId}`],
+      "",
+      { quiet: true },
+    ) !== undefined;
   const scratch = mkdtempSync(join(tmpdir(), "camox-push-"));
   let bundle: Buffer;
   try {
     const file = join(scratch, "push.bundle");
     git(
-      ["bundle", "create", "--quiet", file, branch, `^${base}`],
+      [
+        "bundle",
+        "create",
+        "--quiet",
+        file,
+        branch,
+        `^${base}`,
+        ...(draftFetched ? [`^origin/${draftId}`] : []),
+      ],
       "Your branch has no new commits to push.",
     );
     bundle = readFileSync(file);
@@ -88,14 +137,21 @@ export async function handler(_args: { command: "push" }): Promise<never> {
   }
 
   const spinner = p.spinner();
-  spinner.start("Pushing and building your commits...");
-  let pushed: Awaited<ReturnType<typeof pushCode>>;
+  spinner.start("Pushing your commits...");
+  let pushed: Pushed | undefined;
   try {
-    pushed = await pushCode(token, {
+    // The push streams where it stands until it lands, however long its build takes.
+    const events = await pushCode(token, {
       projectUuid,
       branch,
+      ...(draftId && { draftId }),
       bundle: new File([new Uint8Array(bundle)], `${branch}.bundle`),
     });
+    for await (const event of events) {
+      if (event.type === "progress") spinner.message(STEPS[event.step] ?? "Pushing...");
+      else pushed = event;
+    }
+    if (!pushed) throw new Error("Camox ended the push without landing it. Push again.");
   } catch (error) {
     spinner.error("Camox refused the push.");
     const data = (error as { data?: { build?: Errors } }).data;
@@ -124,3 +180,8 @@ export async function handler(_args: { command: "push" }): Promise<never> {
   p.outro(`Review your draft in the studio: ${pushed.studioUrl}`);
   process.exit(0);
 }
+
+type Pushed = Extract<
+  Awaited<ReturnType<typeof pushCode>> extends AsyncIterable<infer E> ? E : never,
+  { type: "pushed" }
+>;
