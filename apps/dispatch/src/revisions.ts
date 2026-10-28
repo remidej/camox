@@ -220,7 +220,8 @@ async function storeClientAssets(
 
 /**
  * Readies a revision before anyone is told of it, as the API asks once its build passed, reading
- * its build once: stores its client assets where its asset prefix serves them from, and loads it
+ * its build once, from `archive` when the API sends it, as it does while it stores it, or else
+ * from R2: stores its client assets where its asset prefix serves them from, and loads it
  * to read its Definition Set and render its renderer document once, so the first member to
  * reload waits for neither. Returns the Definition Set (JSON-shaped, not yet checked), with what
  * each part took.
@@ -229,9 +230,12 @@ export async function prepareRevision(
   env: RevisionBindings,
   toLoad: RevisionToLoad,
   gateway: (props: GatewayProps) => Fetcher,
+  archive?: Uint8Array,
 ): Promise<PreparedRevision> {
   const startedAt = Date.now();
-  const files = await buildFiles(env, toLoad);
+  const files = archive
+    ? await untarGzip(new Response(archive).body!)
+    : await buildFiles(env, toLoad);
   const readAt = Date.now();
   const revision = env.LOADER.get(toLoad.revision, async () =>
     revisionCode(files, toLoad, gateway({ project: toLoad.project, draft: toLoad.draft })),
@@ -262,7 +266,8 @@ export async function prepareRevision(
 }
 
 /**
- * What preparing a revision took, for the API's timing logs: reading its build, then, at once,
+ * What preparing a revision took, for the API's timing logs: reading its build (unpacking it, and
+ * first fetching it from R2 unless the API sent it), then, at once,
  * storing its client assets (how many) and reading its Definition Set, then the first render.
  * Mirrored in apps/api/src/domains/revisions/dispatch.ts: keep the two in sync.
  */

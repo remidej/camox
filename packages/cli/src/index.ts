@@ -35,7 +35,7 @@ switch (result.command) {
     logout.handler(result);
     break;
   case "release":
-    release.handler(result);
+    await release.handler(result);
     break;
   case "clone":
     await clone.handler(result);

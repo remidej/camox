@@ -20,6 +20,38 @@ export function sdkBundlePath(name: string): string {
   return `/_camox/sdk/${name}/`;
 }
 
+/** An SDK Bundle's name for each target: a website's build names both. */
+export type SdkBundleNames = Record<SdkBundleTarget, string>;
+
+/**
+ * The file a website's build names its SDK Bundle in, as `SdkBundleNames` JSON, in the server
+ * build's folder beside its `wrangler.json`. A build without it is whole-app.
+ */
+export const SDK_BUNDLE_BUILD_MANIFEST = "camox-sdk-bundle.json";
+
+/** What a hosted build whose SDK Bundle is missing fails with, followed by the names as JSON. */
+export const SDK_BUNDLE_MISSING = "CAMOX_SDK_BUNDLE_MISSING";
+
+/** The line a build that's missing its SDK Bundle prints its error with. */
+export function sdkBundleMissingLine(names: SdkBundleNames): string {
+  return `${SDK_BUNDLE_MISSING} ${JSON.stringify({ browser: names.browser, workerd: names.workerd })}`;
+}
+
+/**
+ * The SDK Bundle a build's log says is missing, or null when the build failed for another reason:
+ * the caller ensures the bundle, then builds again.
+ */
+export function sdkBundleMissingIn(log: string): SdkBundleNames | null {
+  const json = new RegExp(`${SDK_BUNDLE_MISSING} (\\{[^\n]*?\\})`).exec(log)?.[1];
+  if (!json) return null;
+  try {
+    const { browser, workerd } = JSON.parse(json) as Partial<SdkBundleNames>;
+    return typeof browser === "string" && typeof workerd === "string" ? { browser, workerd } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The settings `camox()` compiles into an SDK Bundle. */
 export interface SdkBundleSettings {
   /** The icon ids of the collection the website picked. */

@@ -118,9 +118,9 @@
       "import": "./dist/features/sdkBundle/sdkBundleName.js"
     },
     "./_internal/sdkBundle": {
-      "source": "./src/features/sdkBundle/buildSdkBundle.ts",
-      "types": "./dist/features/sdkBundle/buildSdkBundle.d.ts",
-      "import": "./dist/features/sdkBundle/buildSdkBundle.js"
+      "source": "./src/features/sdkBundle/sdkBundle.ts",
+      "types": "./dist/features/sdkBundle/sdkBundle.d.ts",
+      "import": "./dist/features/sdkBundle/sdkBundle.js"
     },
     "./worker": {
       "source": "./src/features/runtime/worker.ts",
@@ -216,8 +216,8 @@
         "import": "./dist/features/sdkBundle/sdkBundleName.js"
       },
       "./_internal/sdkBundle": {
-        "types": "./dist/features/sdkBundle/buildSdkBundle.d.ts",
-        "import": "./dist/features/sdkBundle/buildSdkBundle.js"
+        "types": "./dist/features/sdkBundle/sdkBundle.d.ts",
+        "import": "./dist/features/sdkBundle/sdkBundle.js"
       },
       "./worker": {
         "types": "./dist/features/runtime/worker.d.ts",
