@@ -336,6 +336,20 @@ describe("exchanging the one-time token", () => {
 
     expect((await exchange(ott)).status).toBe(400);
   });
+
+  it("hands a studio on localhost its session for the SDK to keep, never as the API's own cookie", async () => {
+    const { memberUser } = await hostedProject();
+    const url = await redirectTo(
+      await authorizeStudio("http://localhost:3000/", await createSessionFixture(memberUser.id)),
+    );
+
+    const response = await exchange(url.searchParams.get("ott")!);
+
+    // The SDK mirrors it into `camox_auth_cookie`, the only session the site's SSR reads: a
+    // cookie set for localhost would reach every local port, the dashboard's session among them.
+    expect(response.headers.get("set-better-auth-cookie")).toMatch(/session_token=/);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 });
 
 describe("a studio session, which the site's scripts can read", () => {
