@@ -50,6 +50,7 @@ const project = {
   name: "Site",
   organizationSlug: "team",
   socialProfiles: [],
+  experimentalFeatures: false,
   analytics: { ga4: null, posthog: null },
   updatedAt: 1,
 };
@@ -68,11 +69,16 @@ const json = (body: unknown, status = 200) =>
 function mockApi(t: test.TestContext, overrides: Partial<typeof project> = {}) {
   const analyticsSaves: unknown[] = [];
   const projectUpdates: unknown[] = [];
+  const experimentalFeaturesSaves: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request | URL) => {
     if (request instanceof URL) return Response.json({});
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     if (path === "projects/updateAnalytics") {
       analyticsSaves.push(((await request.json()) as { json: unknown }).json);
+      return json({});
+    }
+    if (path === "projects/updateExperimentalFeatures") {
+      experimentalFeaturesSaves.push(((await request.json()) as { json: unknown }).json);
       return json({});
     }
     if (path === "projects/update") {
@@ -85,7 +91,7 @@ function mockApi(t: test.TestContext, overrides: Partial<typeof project> = {}) {
     if (path === "drafts/list") return json({ live: null, drafts: [] });
     return json({});
   });
-  return { analyticsSaves, projectUpdates };
+  return { analyticsSaves, projectUpdates, experimentalFeaturesSaves };
 }
 
 /** Lets the studio work until `check` holds, failing with `message` if it never does. */
@@ -331,4 +337,31 @@ void test("a project name that only differs by surrounding spaces can't be saved
   await type(projectNameInput(), ` ${project.name} `);
 
   assert.equal(projectNameSave()?.disabled, true);
+});
+
+const experimentalFeaturesSwitch = () =>
+  window.document.querySelector(
+    'section[aria-labelledby="camox-settings-experimental-features"] [role="switch"]',
+  ) as unknown as HTMLElement | null;
+
+void test("experimental features show off, and switching them saves the change", async (t) => {
+  const { experimentalFeaturesSaves } = mockApi(t);
+  await render(t, "/camox/settings");
+
+  assert.equal(experimentalFeaturesSwitch()?.getAttribute("aria-checked"), "false");
+  await click(experimentalFeaturesSwitch());
+  await waitFor(() => experimentalFeaturesSaves.length, "nothing was saved");
+
+  assert.deepEqual(experimentalFeaturesSaves, [{ id: project.id, experimentalFeatures: true }]);
+});
+
+void test("experimental features a project has on show on, and can be switched off", async (t) => {
+  const { experimentalFeaturesSaves } = mockApi(t, { experimentalFeatures: true });
+  await render(t, "/camox/settings");
+
+  assert.equal(experimentalFeaturesSwitch()?.getAttribute("aria-checked"), "true");
+  await click(experimentalFeaturesSwitch());
+  await waitFor(() => experimentalFeaturesSaves.length, "nothing was saved");
+
+  assert.deepEqual(experimentalFeaturesSaves, [{ id: project.id, experimentalFeatures: false }]);
 });

@@ -32,7 +32,6 @@ export type SdkBundleSource = {
 export const HOSTED_SDK_BUNDLE_SETTINGS: SdkBundleSettings = {
   iconIds: [],
   telemetryDisabled: false,
-  experimentalFeatures: false,
   apiUrl: "https://api.camox.ai",
 };
 

@@ -17,7 +17,7 @@ import {
 } from "@/features/studio/routes";
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
-import { type CollectionDefinition } from "@/lib/queries";
+import { type CollectionDefinition, type Project } from "@/lib/queries";
 
 import {
   StudioQueryClientProvider,
@@ -89,22 +89,32 @@ async function renderContentPage(client: QueryClient, pathname: string) {
   );
 }
 
-void test("collections are hidden and not queried when experimental UI is unset or disabled", async () => {
-  const previous =
-    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ === "undefined"
-      ? undefined
-      : __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
-  try {
-    for (const flag of [undefined, false]) {
-      if (flag === undefined)
-        Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-      else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
-      for (const pathname of [
-        STUDIO_ASSETS_PATH,
-        collectionContentPath("articles"),
-        newCollectionItemPath("articles"),
-      ]) {
-        const client = new QueryClient();
+/** The project as the studio reads it, with its experimental features switched on or off. */
+function projectWith(experimentalFeatures: boolean) {
+  return {
+    id: 1,
+    slug: "site",
+    name: "Site",
+    deployToken: "",
+    organizationId: "organization",
+    organizationSlug: null,
+    experimentalFeatures,
+    createdAt: 0,
+    updatedAt: 0,
+  } as unknown as Project;
+}
+
+void test("collections are hidden and not queried unless the project switches experimental features on", async () => {
+  // Not read yet, then read with the setting off.
+  for (const project of [undefined, projectWith(false)]) {
+    for (const pathname of [
+      STUDIO_ASSETS_PATH,
+      collectionContentPath("articles"),
+      newCollectionItemPath("articles"),
+    ]) {
+      const client = new QueryClient();
+      try {
+        if (project) testStudioCache(client).set(reads.project({ projectUuid: "site" }), project);
         const html = await renderContentPage(client, pathname);
         assert.match(html, /Assets/);
         assert.doesNotMatch(html, /Collections|Articles|Create item|New item/);
@@ -118,13 +128,10 @@ void test("collections are hidden and not queried when experimental UI is unset 
         // Cached collection data must not bypass the feature gate either.
         testStudioCache(client).set(reads.collectionList({ projectUuid: "site" }), collections);
         assert.doesNotMatch(await renderContentPage(client, pathname), /Collections|Articles/);
+      } finally {
         client.clear();
       }
     }
-  } finally {
-    if (previous === undefined)
-      Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-    else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previous });
   }
 });
 
@@ -140,16 +147,7 @@ void test("content index does not render Assets before redirecting", async () =>
 void test("the assets empty view offers a multi-file upload control", async () => {
   const client = new QueryClient();
   try {
-    testStudioCache(client).set(reads.project({ projectUuid: "site" }), {
-      id: 1,
-      slug: "site",
-      name: "Site",
-      deployToken: "",
-      organizationId: "organization",
-      organizationSlug: null,
-      createdAt: 0,
-      updatedAt: 0,
-    });
+    testStudioCache(client).set(reads.project({ projectUuid: "site" }), projectWith(false));
     testStudioCache(client).set(reads.fileList({ projectId: 1 }), []);
     const html = await renderContentPage(client, STUDIO_ASSETS_PATH);
     assert.match(html, /No assets yet/);
@@ -162,14 +160,10 @@ void test("the assets empty view offers a multi-file upload control", async () =
   }
 });
 
-void test("experimental UI enables collection browsing and the new-item form", async () => {
-  const previous =
-    typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ === "undefined"
-      ? undefined
-      : __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
+void test("experimental features enable collection browsing and the new-item form", async () => {
   const client = new QueryClient();
   try {
-    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
+    testStudioCache(client).set(reads.project({ projectUuid: "site" }), projectWith(true));
     testStudioCache(client).set(reads.collectionList({ projectUuid: "site" }), collections);
     testStudioCache(client).set(
       reads.records({ projectUuid: "site", collectionId: "articles" }),
@@ -190,9 +184,6 @@ void test("experimental UI enables collection browsing and the new-item form", a
     assert.match(sheetRoute, /No items yet/);
   } finally {
     client.clear();
-    if (previous === undefined)
-      Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
-    else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previous });
   }
 });
 

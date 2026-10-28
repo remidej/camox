@@ -63,6 +63,7 @@ export const projectMutations = {
   update: () => getOrpc().projects.update.mutationOptions(),
   updateAnalytics: () => getOrpc().projects.updateAnalytics.mutationOptions(),
   updateSocialProfiles: () => getOrpc().projects.updateSocialProfiles.mutationOptions(),
+  updateExperimentalFeatures: () => getOrpc().projects.updateExperimentalFeatures.mutationOptions(),
   uploadFavicon: () => ({
     mutationFn: async ({ projectId, file }: { projectId: number; file: globalThis.File }) => {
       const formData = new FormData();

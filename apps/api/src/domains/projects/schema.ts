@@ -66,6 +66,13 @@ export const projects = sqliteTable(
      * default, and set by hand in the database.
      */
     codeOutsideCamox: int("code_outside_camox", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Whether the studio shows features still in development, such as collections: a Project
+     * Setting, off by default, that members switch in the Settings Section.
+     */
+    experimentalFeatures: int("experimental_features", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

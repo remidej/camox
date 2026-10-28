@@ -54,7 +54,8 @@ Camox development API. They do not use collections or route discovery.
 ## Standalone customer publication (slice 3)
 
 `src/collections/customers.ts` is discovered and synced by the Vite plugin; no
-page needs to reference an item before it can be authored. The playground already enables experimental Studio features.
+page needs to reference an item before it can be authored. The dev seed switches on the playground project's experimental features (its Settings, under
+**Experimental features**).
 With `pnpm dev` running, sign into Studio, select the playground project, and open
 **Content → Customers**:
 

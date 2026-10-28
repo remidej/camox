@@ -20,7 +20,7 @@ Most of a revision's build went to bundling Camox, React and their dependencies,
   - The version of the code that builds it, which ships in `camox`, so the SDK owns what goes in.
   - The target: the browser or workerd.
   - The lockfile's resolution of the bundle's own packages.
-  - The settings `camox()` compiles into it: icon ids, telemetry, experimental features and the API URL.
+  - The settings `camox()` compiles into it: icon ids, telemetry and the API URL. Experimental features were one until they became a Project Setting.
 
   Every hosted project shares one SDK Bundle per SDK version, since `vite.config.ts` is platform-owned (ADR 0021). Local development, which points at a local API, gets its own. When those settings move to the database, they leave the name.
 

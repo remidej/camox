@@ -60,6 +60,12 @@ const updateSocialProfiles = authed
   .input(service.updateProjectSocialProfilesInput)
   .handler(({ context, input }) => runService(service.updateProjectSocialProfiles(context, input)));
 
+const updateExperimentalFeatures = authed
+  .input(service.updateProjectExperimentalFeaturesInput)
+  .handler(({ context, input }) =>
+    runService(service.updateProjectExperimentalFeatures(context, input)),
+  );
+
 const createCodeReadToken = authed
   .input(codeAccess.createCodeReadTokenInput)
   .handler(({ context, input }) => runService(codeAccess.createCodeReadToken(context, input)));
@@ -80,6 +86,7 @@ export const projectProcedures = {
   update,
   updateAnalytics,
   updateSocialProfiles,
+  updateExperimentalFeatures,
   createCodeReadToken,
   delete: deleteFn,
 };

@@ -75,7 +75,6 @@ const config = defineConfig({
         authenticationUrl: process.env.VITE_DASHBOARD_URL ?? "http://localhost:3274",
         apiUrl: process.env.VITE_API_URL ?? "http://localhost:8787",
         runtimeBasePath: "/",
-        enableExperimentalFeatures: true,
         devSignIn: {
           open: Boolean(process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE),
           openOnceFile: process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE,
