@@ -1,8 +1,8 @@
 import { getSandbox } from "@cloudflare/sandbox";
 import {
   SDK_BUNDLE_TARGETS,
+  type SdkBundleNames,
   type SdkBundleSettings,
-  type SdkBundleTarget,
   sdkBundleName,
 } from "camox/_internal/sdkBundleName";
 import type { WorkflowStepConfig } from "cloudflare:workers";
@@ -14,8 +14,7 @@ import type { Bindings } from "../../types";
 // or cached `node_modules` was ever there, and stores one archive per target in
 // `REVISION_BUILDS`, unless one with its name is already there. SDK Bundles are never deleted.
 
-/** An SDK Bundle's names: one per target, as each target's name digests it (ADR 0029). */
-export type SdkBundleNames = Record<SdkBundleTarget, string>;
+export type { SdkBundleNames };
 
 /** What an SDK Bundle is built from: a website's manifest and lockfile, and nothing else. */
 export type SdkBundleSource = {
