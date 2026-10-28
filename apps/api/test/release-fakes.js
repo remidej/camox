@@ -250,8 +250,12 @@ export class FakeSandbox extends DurableObject {
     return { success: true, path, timestamp: "" };
   }
 
+  /** @param {string} path a file, or a folder holding one */
   async exists(path) {
-    return { success: true, path, exists: this.files.has(path), timestamp: "" };
+    const exists = [...this.files.keys()].some(
+      (file) => file === path || file.startsWith(`${path}/`),
+    );
+    return { success: true, path, exists, timestamp: "" };
   }
 
   /** Whether the website's camox in `folder` builds against an SDK Bundle. */

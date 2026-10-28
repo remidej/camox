@@ -1,5 +1,6 @@
 import type { DirectoryBackup } from "@cloudflare/ci/worker";
 import { getSandbox } from "@cloudflare/sandbox";
+import { NonRetryableError } from "cloudflare:workflows";
 
 import type { Bindings } from "../../types";
 import type { SdkBundleNames, SdkBundleSource } from "./ensure";
@@ -14,7 +15,7 @@ import { buildsAgainstSdkBundle } from "./switch";
 /**
  * The bundle cache release steps build with (`CAMOX_INTERNAL_SDK_BUNDLE_CACHE`): inside the
  * workspace, the only folder a snapshot keeps, and out of the project's `node_modules`, which
- * an install restores from the project's cache.
+ * an install restores from the project's cache. A project whose files hold it doesn't release.
  */
 export const RELEASE_SDK_BUNDLE_CACHE = "/workspace/.camox-sdk-bundles";
 
@@ -46,6 +47,14 @@ export async function withStoredSdkBundle(
     await sandbox.restoreBackup(snapshot);
     if (!(await buildsAgainstSdkBundle(sandbox, snapshot.dir, buildEnv))) return null;
 
+    // The build step lays its commit's files over this snapshot, so anything the project keeps
+    // there would replace the stored bundle. Emptying it isn't enough: such a release fails.
+    if ((await sandbox.exists(RELEASE_SDK_BUNDLE_CACHE)).exists) {
+      throw new NonRetryableError(
+        `The project holds ${RELEASE_SDK_BUNDLE_CACHE}, where release steps keep the SDK ` +
+          "Bundle: remove it from the project's files.",
+      );
+    }
     const emptied = await sandbox.exec(`rm -rf ${RELEASE_SDK_BUNDLE_CACHE}`);
     if (!emptied.success) {
       throw new Error(`The SDK Bundle cache wasn't emptied: ${emptied.stderr.trim()}`);

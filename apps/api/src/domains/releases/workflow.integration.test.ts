@@ -12,6 +12,8 @@ import { router } from "../../router";
 import { projects, releases } from "../../schema";
 import type { Bindings } from "../../types";
 import { publishScriptsTag } from "../publishes/scripts";
+import type { SdkBundleNames } from "../sdk-bundles/ensure";
+import { RELEASE_SDK_BUNDLE_CACHE } from "../sdk-bundles/workspace";
 
 // A push to a project's repo releases it: the release Workflow installs, runs `camox release`
 // and deploys the project's Worker, each in a sandbox, and records the release as a row.
@@ -576,6 +578,9 @@ describe("a release of a project a publish's Worker serves", () => {
 });
 
 describe("a release of a website built against an SDK Bundle", () => {
+  /** A path in the workspace, from its root, as a commit holds it. */
+  const relative = (path: string) => path.replace(/^\/workspace\//, "");
+
   /** The website's camox builds trees holding this against an SDK Bundle (ADR 0029). */
   const SWITCHED_ON = "// built against an SDK Bundle";
 
@@ -586,25 +591,22 @@ describe("a release of a website built against an SDK Bundle", () => {
   async function pushedWebsite({
     switchedOn = true,
     packageJson = `{ "name": "acme", "dependencies": { "camox": "^1.0.0" } }\n`,
+    files = (_names: SdkBundleNames): Record<string, string> => ({}),
   } = {}) {
     const { db, project } = await createProjectFixture(`release-workflow-${crypto.randomUUID()}`);
     const websiteLock = websiteLockfile("1.0.0", {
       react: `19.3.${Math.floor(Math.random() * 1e9)}`,
     });
     const commit = commitSha();
+    const names = await sdkBundleNamesFor(websiteLock);
     await fakes.buildAgainstSdkBundlesOf(SWITCHED_ON);
     await fakes.push(project.uuid, commit, {
       "package.json": packageJson,
       "pnpm-lock.yaml": websiteLock,
       "src/camox.ts": switchedOn ? `${SWITCHED_ON}\n` : "\n",
+      ...files(names),
     });
-    return {
-      db,
-      project,
-      commit,
-      lockfile: websiteLock,
-      names: await sdkBundleNamesFor(websiteLock),
-    };
+    return { db, project, commit, lockfile: websiteLock, names };
   }
 
   /** What the SDK Bundle cache of the project's `camox release` held as it ran. */
@@ -666,6 +668,29 @@ describe("a release of a website built against an SDK Bundle", () => {
       ({ written }) => written["pnpm-lock.yaml"] === websiteLock,
     );
     expect(builds).toEqual([]);
+  });
+
+  it("fails at its release step, before building, when its commit holds files where release steps keep the SDK Bundle", async () => {
+    // The release step's checkout would lay these over the stored bundle.
+    const {
+      db,
+      project,
+      commit,
+      lockfile: websiteLock,
+    } = await pushedWebsite({
+      files: ({ workerd }) => ({
+        [`${relative(RELEASE_SDK_BUNDLE_CACHE)}/${workerd}/sdk-bundle.json`]: "forged",
+      }),
+    });
+    await storeSdkBundle(websiteLock);
+
+    await receivePush(pushEvent(project.uuid, "refs/heads/main", commit), "errored");
+
+    expect(await releaseOf(db, project.id)).toMatchObject({
+      status: "failed",
+      failedStep: "release",
+    });
+    expect(await releaseCacheOf(project.uuid)).toBeUndefined();
   });
 
   it("fails at its release step, before building, when its SDK Bundle can't be ensured", async () => {
