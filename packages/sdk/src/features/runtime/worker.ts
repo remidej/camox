@@ -3,6 +3,15 @@
  * `camox/worker`. Static files never reach it: Workers Static Assets serves them first in
  * production, and Vite does in dev.
  */
+import {
+  fetchLocalhostOnLoopback,
+  PUBLIC_CACHE_NAME,
+  readLiveCacheKey,
+  rememberPublishingDraft,
+  respondThroughPublicCache,
+  shouldHandleRequest,
+  withDevHtml,
+} from "camox/_internal/workerRuntime";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   devHtml,
@@ -12,11 +21,6 @@ import {
   readDefinitionSet,
   runtimeBasePath,
 } from "virtual:camox/server";
-
-import { fetchLocalhostOnLoopback } from "./loopbackFetch";
-import { PUBLIC_CACHE_NAME, readLiveCacheKey, respondThroughPublicCache } from "./publicCache";
-import { rememberPublishingDraft } from "./publishingDraft";
-import { shouldHandleRequest, withDevHtml } from "./workerRequest";
 
 // Only the dev server has dev HTML.
 if (devHtml) globalThis.fetch = fetchLocalhostOnLoopback(globalThis.fetch.bind(globalThis));

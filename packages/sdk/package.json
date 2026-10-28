@@ -107,6 +107,21 @@
       "types": "./dist/features/og/imageResponse.d.ts",
       "import": "./dist/features/og/imageResponse.js"
     },
+    "./_internal/workerRuntime": {
+      "source": "./src/features/runtime/workerRuntime.ts",
+      "types": "./dist/features/runtime/workerRuntime.d.ts",
+      "import": "./dist/features/runtime/workerRuntime.js"
+    },
+    "./_internal/sdkBundleName": {
+      "source": "./src/features/sdkBundle/sdkBundleName.ts",
+      "types": "./dist/features/sdkBundle/sdkBundleName.d.ts",
+      "import": "./dist/features/sdkBundle/sdkBundleName.js"
+    },
+    "./_internal/sdkBundle": {
+      "source": "./src/features/sdkBundle/buildSdkBundle.ts",
+      "types": "./dist/features/sdkBundle/buildSdkBundle.d.ts",
+      "import": "./dist/features/sdkBundle/buildSdkBundle.js"
+    },
     "./worker": {
       "source": "./src/features/runtime/worker.ts",
       "types": "./dist/features/runtime/worker.d.ts",
@@ -192,6 +207,18 @@
         "types": "./dist/features/og/imageResponse.d.ts",
         "import": "./dist/features/og/imageResponse.js"
       },
+      "./_internal/workerRuntime": {
+        "types": "./dist/features/runtime/workerRuntime.d.ts",
+        "import": "./dist/features/runtime/workerRuntime.js"
+      },
+      "./_internal/sdkBundleName": {
+        "types": "./dist/features/sdkBundle/sdkBundleName.d.ts",
+        "import": "./dist/features/sdkBundle/sdkBundleName.js"
+      },
+      "./_internal/sdkBundle": {
+        "types": "./dist/features/sdkBundle/buildSdkBundle.d.ts",
+        "import": "./dist/features/sdkBundle/buildSdkBundle.js"
+      },
       "./worker": {
         "types": "./dist/features/runtime/worker.d.ts",
         "import": "./dist/features/runtime/worker.js"
@@ -251,6 +278,7 @@
     "shiki": "^4.5.0",
     "takumi-js": "^2.18.1",
     "unhead": "^3.4.3",
+    "yaml": "^2.9.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

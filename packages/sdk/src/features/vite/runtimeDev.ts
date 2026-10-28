@@ -77,6 +77,7 @@ function resolveCamoxSourceImport(id: string): string | undefined {
     "camox/_internal/studioServer": resolve(sdkRoot, "src/features/runtime/studioServer.tsx"),
     "camox/_internal/runtime": resolve(sdkRoot, "src/features/runtime/runtime.ts"),
     "camox/worker": resolve(sdkRoot, "src/features/runtime/worker.ts"),
+    "camox/_internal/workerRuntime": resolve(sdkRoot, "src/features/runtime/workerRuntime.ts"),
   };
   const sourceImport = sourceImports[id];
   if (!sourceImport || !existsSync(sourceImport)) return;
