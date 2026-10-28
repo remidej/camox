@@ -145,6 +145,8 @@ export type RevisionOrigin = {
    * written: it's committed as it is rather than built again.
    */
   built?: Extract<SandboxBuild, { ok: true }>;
+  /** For a member's pushed head, the newest commit of `main` it holds. */
+  mergedMain?: string;
 };
 
 /** The draft a build is of, with what announcing its revisions needs. */
@@ -361,7 +363,7 @@ export async function buildRevision(
 async function buildAndPreview(
   env: Bindings,
   draftId: string,
-  { leftBy, run, prepared: given, built: prebuilt }: RevisionOrigin,
+  { leftBy, run, prepared: given, built: prebuilt, mergedMain }: RevisionOrigin,
   buildSpan: SpanFields,
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
@@ -393,7 +395,7 @@ async function buildAndPreview(
       after: ({ files }) => ({ bytes: files.byteLength }),
     }));
   // A pushed head lands as it is, its files taking its tree.
-  const landing = { commit: prepared.commit, checkout: leftBy === "push" };
+  const landing = { commit: prepared.commit, checkout: leftBy === "push", mergedMain };
   const reuseCheckStartedAt = Date.now();
   const existing = await db
     .select({

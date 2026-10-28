@@ -929,7 +929,8 @@ export class ReleaseFakes extends WorkerEntrypoint {
   }
 
   /**
-   * Makes the next `times` pushes to the branch `branch` of `repo` fail without landing.
+   * Makes the next `times` pushes to the branch `branch` of `repo` fail without landing: `*`
+   * names every branch but `main`.
    * @param {string} repo
    * @param {string} branch
    * @param {number} times

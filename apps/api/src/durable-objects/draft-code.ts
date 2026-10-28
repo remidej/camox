@@ -621,15 +621,18 @@ export class DraftCode extends DurableObject<Bindings> {
    * Moves the draft's branch to `commit`, which `prepareCommit` made, or a member pushed on top
    * of the branch's head, and pushes it. A commit of the tree the branch's head already has, such
    * as one prepared again after the push of the first, leaves the head as it is. With
-   * `checkout`, for a commit made beside the files, the files take its tree. Returns the
-   * branch's head and its parents.
+   * `checkout`, for a commit made beside the files, the files take its tree. A member's pushed
+   * head names `mergedMain`, the newest commit of `main` it holds, which the draft's next merge of
+   * `main` merges from. Returns the branch's head and its parents.
    */
   commit({
     commit,
     checkout = false,
+    mergedMain,
   }: {
     commit: string;
     checkout?: boolean;
+    mergedMain?: string;
   }): Promise<{ commit: string; parents: string[] }> {
     return this.#serially(async () => {
       const fs = await this.#workingCopy();
@@ -662,10 +665,11 @@ export class DraftCode extends DurableObject<Bindings> {
       await timed("draftCode.push", { draftId: this.ctx.id.name }, () =>
         git.push({ ...at, http, url: remote, headers, ref: branch, remoteRef: branch }),
       );
-      if (checkout && !merge && landed === commit) {
+      if (checkout && landed === commit) {
+        // A member's pushed head, merges of `main` included: the push names the `main` it holds.
         await git.checkout({ ...at, ref: branch, force: true });
-      }
-      if (merge && landed === commit) {
+        if (mergedMain) await this.#landedMain(fs, `refs/heads/${branch}`, mergedMain);
+      } else if (merge && landed === commit) {
         // A merge made beside the files, which nothing wrote to since, or from them, as Camox's
         // reconcile turn fixed it: the files take its tree either way.
         await git.checkout({ ...at, ref: branch, force: true });
@@ -676,6 +680,43 @@ export class DraftCode extends DurableObject<Bindings> {
       this.#save(fs);
       const { commit: pushed } = await git.readCommit({ ...at, oid: landed });
       return { commit: landed, parents: pushed.parent };
+    });
+  }
+
+  /**
+   * Records that the branch `ours`, whose files a member's push just checked out, holds the
+   * commit `main` of `main`. A merge of an earlier `main` the files held, uncommitted, for
+   * Camox's reconcile turn is gone with them: it's written again unless the push holds it.
+   */
+  async #landedMain(fs: MemoryFs, ours: string, main: string) {
+    if (this.#mergedMain() !== main) this.ctx.storage.kv.put(MERGED_KEY, main);
+    const merging = this.ctx.storage.kv.get<string>(MERGING_KEY);
+    if (merging === undefined) return;
+    const holds =
+      merging === main ||
+      (await git
+        .isDescendent({ fs, dir: CODE_ROOT, oid: main, ancestor: merging, depth: -1 })
+        .catch(() => false));
+    if (holds) {
+      this.ctx.storage.kv.delete(MERGING_KEY);
+      this.ctx.storage.kv.delete(MERGING_FILES_KEY);
+      return;
+    }
+    await mergeIntoFiles(fs, { ours, base: main, theirs: merging });
+    this.ctx.storage.kv.put(MERGING_FILES_KEY, await uncommittedDigest(fs));
+  }
+
+  /** Whether `commit` is the branch's head or one of its descendants: it includes the head. */
+  includesHead(commit: string): Promise<boolean> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const at = { fs, dir: CODE_ROOT };
+      const head = await git.resolveRef({
+        ...at,
+        ref: `refs/heads/${this.ctx.storage.kv.get<string>(BRANCH_KEY)!}`,
+      });
+      if (head === commit) return true;
+      return git.isDescendent({ ...at, oid: commit, ancestor: head, depth: -1 }).catch(() => false);
     });
   }
 

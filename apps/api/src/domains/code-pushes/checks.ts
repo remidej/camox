@@ -27,9 +27,17 @@ export type PushRefusalReason =
   /** The branch doesn't merge cleanly with the current `main`. */
   | "conflictsWithMain"
   /** The pushed head doesn't build. */
-  | "doesNotBuild";
+  | "doesNotBuild"
+  /** The pushed head doesn't include the draft's current head. */
+  | "pullDraftFirst"
+  /** The draft the push names was published or deleted. */
+  | "draftEnded";
 
-export type PushRefusal = { reason: PushRefusalReason; message: string };
+export type PushRefusal = {
+  reason: PushRefusalReason;
+  message: string;
+  data?: Record<string, unknown>;
+};
 
 /** A push that passed the checks: its head, as a commit to build, and what landing it needs. */
 export type CheckedPush = {
@@ -39,6 +47,15 @@ export type CheckedPush = {
   /** The newest commit of `main` the pushed head holds, which a draft it opens forks from. */
   base: string;
   pack: Uint8Array;
+  /** The subject of each pushed commit, oldest first. */
+  subjects: string[];
+};
+
+/** The refusal of a push that doesn't include the draft's current head. */
+export const PULL_DRAFT_FIRST: PushRefusal = {
+  reason: "pullDraftFirst",
+  message:
+    "The draft has commits your branch doesn't: pull the draft first (`git pull`), then push again.",
 };
 
 /** How long the read token the checks fetch `main` with lasts. */
@@ -48,13 +65,19 @@ const PACK = ".git/objects/pack/pack-push.pack";
 /** The local ref the pushed head is merged from. */
 const PUSHED_REF = "refs/heads/camox-push";
 const MAIN_REF = "refs/heads/main";
+/** The local ref of the branch of the draft the push lands on, when it has one. */
+const DRAFT_REF = "refs/heads/camox-draft";
 
 const listed = (paths: string[]) => paths.map((path) => `\`${path}\``).join(", ");
 
-/** Checks the bundle `bundle`'s commits against the current `main` of the project's repo `repo`. */
+/**
+ * Checks the bundle `bundle`'s commits against the current `main` of the project's repo `repo`,
+ * and against the branch `draftBranch` of the draft they land on, when it has one: they must
+ * then include its head, and may build on its commits as well as on `main`'s.
+ */
 export async function checkPush(
   env: Bindings,
-  { repo, bundle }: { repo: string; bundle: Bundle },
+  { repo, bundle, draftBranch }: { repo: string; bundle: Bundle; draftBranch?: string },
 ): Promise<{ refused: PushRefusal } | { checked: CheckedPush }> {
   const refused = (reason: PushRefusalReason, message: string) => ({
     refused: { reason, message },
@@ -81,11 +104,25 @@ export async function checkPush(
       singleBranch: true,
       noCheckout: true,
     });
+    if (draftBranch) {
+      const { fetchHead } = await git.fetch({
+        ...at,
+        http,
+        url: remote,
+        headers,
+        remoteRef: draftBranch,
+        singleBranch: true,
+        tags: false,
+      });
+      await git.writeRef({ ...at, ref: DRAFT_REF, value: fetchHead!, force: true });
+    }
   }
   const main = await git.resolveRef({ ...at, ref: MAIN_REF });
+  const draftHead = draftBranch ? await git.resolveRef({ ...at, ref: DRAFT_REF }) : undefined;
 
   for (const prerequisite of bundle.prerequisites) {
-    if (!(await onMain(fs, main, prerequisite))) {
+    if (draftHead && (await isAncestor(fs, draftHead, prerequisite))) continue;
+    if (!(await isAncestor(fs, main, prerequisite))) {
       return refused(
         "baseNotOnMain",
         "Your branch starts from a commit that was never on `main`: start it from `main`, then push again.",
@@ -93,13 +130,15 @@ export async function checkPush(
     }
   }
   const head = pushed.oid;
+  let subjects: string[];
   try {
     await fs.promises.writeFile(`/${PACK}`, bundle.pack);
     await git.indexPack({ ...at, filepath: PACK });
-    await walkToPrerequisites(fs, head, new Set(bundle.prerequisites));
+    subjects = await walkToPrerequisites(fs, head, new Set(bundle.prerequisites));
   } catch {
     return refused("invalidBundle", "Camox couldn't read the commits in your push's Git bundle.");
   }
+  if (draftHead && !(await isAncestor(fs, head, draftHead))) return { refused: PULL_DRAFT_FIRST };
 
   const [base] = await git.findMergeBase({ ...at, oids: [head, main] });
   const [headFiles, mainFiles, baseFiles] = await Promise.all(
@@ -129,7 +168,8 @@ export async function checkPush(
     );
   }
 
-  const conflicts = await conflictsWithMain(fs, head, base!, main);
+  // A draft's own merges of `main` are Camox's: its agent reconciles them, as for any draft.
+  const conflicts = draftHead ? undefined : await conflictsWithMain(fs, head, base!, main);
   if (conflicts) {
     return refused(
       "conflictsWithMain",
@@ -152,28 +192,43 @@ export async function checkPush(
       prerequisites: bundle.prerequisites,
       base: base!,
       pack: bundle.pack,
+      subjects,
     },
   };
 }
 
-/** Whether `commit` is `main`'s tip or one of its ancestors. */
-async function onMain(fs: MemoryFs, main: string, commit: string) {
-  if (commit === main) return true;
+/** Whether `commit` is `tip` or one of its ancestors. */
+async function isAncestor(fs: MemoryFs, tip: string, commit: string) {
+  if (commit === tip) return true;
   return git
-    .isDescendent({ fs, dir: CODE_ROOT, oid: main, ancestor: commit, depth: -1 })
+    .isDescendent({ fs, dir: CODE_ROOT, oid: tip, ancestor: commit, depth: -1 })
     .catch(() => false);
 }
 
-/** Reads every commit from `head` down to the prerequisites, throwing at one that's missing. */
+/**
+ * Reads every commit from `head` down to the prerequisites, throwing at one that's missing.
+ * Returns their subjects, oldest first.
+ */
 async function walkToPrerequisites(fs: MemoryFs, head: string, prerequisites: Set<string>) {
   const seen = new Set<string>();
+  const commits: { subject: string; timestamp: number }[] = [];
   const walk = [head];
   while (walk.length > 0) {
     const oid = walk.pop()!;
     if (seen.has(oid) || prerequisites.has(oid)) continue;
     seen.add(oid);
-    walk.push(...(await git.readCommit({ fs, dir: CODE_ROOT, oid })).commit.parent);
+    const { commit } = await git.readCommit({ fs, dir: CODE_ROOT, oid });
+    commits.push({
+      subject: commit.message.split("\n")[0]!.trim(),
+      timestamp: commit.committer.timestamp,
+    });
+    walk.push(...commit.parent);
   }
+  // Newest first as walked; a stable sort keeps commits of the same second in walk order.
+  return commits
+    .reverse()
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map(({ subject }) => subject);
 }
 
 /** A commit's files, each by its mode and blob. */

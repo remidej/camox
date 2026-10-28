@@ -256,6 +256,12 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
     codeOfDraft(ctx.env, ctx.db, scope.id),
   );
   const blockers: Problem[] = [];
+  // Who wrote the head, and who fixes it: a member's push is theirs to fix, or the agent's.
+  const pushed = head?.leftBy === "push";
+  const changes = pushed ? "The code pushed last" : "The agent's latest code changes";
+  const fix = pushed
+    ? "fix them in your checkout and push again, or ask Camox's agent in the draft's thread"
+    : "ask it to fix them in the draft's thread";
   if (clashed) {
     blockers.push(
       codeBlocker(
@@ -269,7 +275,7 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
       codeBlocker(
         scope.id,
         "codeDoesNotBuild",
-        "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
+        `${changes} ${pushed ? "doesn't" : "don't"} build: ${fix}`,
       ),
     );
   } else if (
@@ -280,18 +286,14 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
   ) {
     // It built, but the draft can't use its definitions, so the preview doesn't show it.
     blockers.push(
-      codeBlocker(
-        scope.id,
-        "codeDoesNotBuild",
-        "The agent's latest code changes can't be shown in the preview: ask it to fix them in the draft's thread",
-      ),
+      codeBlocker(scope.id, "codeDoesNotBuild", `${changes} can't be shown in the preview: ${fix}`),
     );
   } else if (head?.buildStatus === "built" && head.typeCheckStatus === "failed") {
     blockers.push(
       codeBlocker(
         scope.id,
         "codeDoesNotTypeCheck",
-        "The agent's latest code changes have type errors: ask it to fix them in the draft's thread",
+        `${changes} ${pushed ? "has" : "have"} type errors: ${fix}`,
       ),
     );
   }
@@ -815,7 +817,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       return yield* new RevisionChangedError({
         message: preview.code.building
           ? "The draft's latest code changes are still building: publish once they're done"
-          : "The agent changed the draft's code since the review. Review it again before publishing.",
+          : "The draft's code changed since the review. Review it again before publishing.",
       });
     }
     const startPublishAt = Date.now();

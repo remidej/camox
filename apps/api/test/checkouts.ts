@@ -24,6 +24,8 @@ export async function checkoutOf(repo: string, branch = BRANCH) {
   ).info();
   await git.clone({ ...at, http, url: remote, ref: "main", singleBranch: true });
   await git.branch({ ...at, ref: branch, checkout: true });
+  /** The draft's branch the local branch follows, once pulled, as `camox push` sets it. */
+  let upstream: string | undefined;
 
   /** Commits `changes` on the branch: a path's new content, or null to delete it. */
   async function commit(changes: Record<string, string | null>, message = "Change the website") {
@@ -62,13 +64,39 @@ export async function checkoutOf(repo: string, branch = BRANCH) {
   }
 
   /**
+   * Fetches the repo's branch `name`, a draft's, and merges it into the branch, as `git pull`
+   * does once the branch follows it: a fast-forward when the branch has nothing of its own.
+   */
+  async function pull(name: string) {
+    const ref = `refs/remotes/origin/${name}`;
+    const { fetchHead } = await git.fetch({
+      ...at,
+      http,
+      url: remote,
+      ref: name,
+      remoteRef: name,
+      singleBranch: true,
+      tags: false,
+    });
+    await git.writeRef({ ...at, ref, value: fetchHead!, force: true });
+    await git.merge({ ...at, ours: branch, theirs: ref, author: AUTHOR, message: `Merge ${name}` });
+    await git.checkout({ ...at, ref: branch, force: true });
+    upstream = ref;
+  }
+
+  /**
    * The branch's commits as a Git bundle: every commit of the branch that `main`, as the
-   * checkout last fetched it, doesn't have, or that `since` doesn't, with the commits they
-   * build on as its prerequisites.
+   * checkout last fetched it, and the draft's branch it last pulled don't have, or that `since`
+   * doesn't, with the commits they build on as its prerequisites.
    */
   async function bundle({ since }: { since?: string } = {}) {
     const head = await git.resolveRef({ ...at, ref: branch });
     const excluded = await ancestors(since ?? (await git.resolveRef({ ...at, ref: MAIN })));
+    if (!since && upstream) {
+      for (const oid of await ancestors(await git.resolveRef({ ...at, ref: upstream }))) {
+        excluded.add(oid);
+      }
+    }
     const commits: string[] = [];
     const prerequisites = new Set<string>();
     const seen = new Set<string>();
@@ -139,6 +167,7 @@ export async function checkoutOf(repo: string, branch = BRANCH) {
     branch,
     commit,
     mergeMain,
+    pull,
     bundle,
     remoteLog,
     log: async () => (await git.log({ ...at, ref: branch })).map(({ oid }) => oid),
