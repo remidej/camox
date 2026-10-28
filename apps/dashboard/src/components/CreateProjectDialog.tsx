@@ -9,6 +9,12 @@ import {
   DialogTitle,
 } from "@camox/ui/dialog";
 import { Input } from "@camox/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from "@camox/ui/input-group";
 import { Label } from "@camox/ui/label";
 import { Spinner } from "@camox/ui/spinner";
 import { useForm, useStore } from "@tanstack/react-form";
@@ -157,8 +163,8 @@ export function CreateProjectDialog({
             {(field) => (
               <div className="grid gap-2">
                 <Label htmlFor="project-slug">Slug</Label>
-                <div className="flex items-center gap-2">
-                  <Input
+                <InputGroup>
+                  <InputGroupInput
                     id="project-slug"
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -166,15 +172,11 @@ export function CreateProjectDialog({
                     className="font-mono"
                     aria-invalid={!!problem}
                   />
-                  <span className="text-muted-foreground shrink-0 font-mono text-sm">
-                    .camox.site
-                  </span>
-                </div>
-                {problem ? (
-                  <p className="text-destructive text-xs">{problem}</p>
-                ) : (
-                  <p className="text-muted-foreground text-xs">Your site's address.</p>
-                )}
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupText className="font-mono">.camox.site</InputGroupText>
+                  </InputGroupAddon>
+                </InputGroup>
+                {problem && <p className="text-destructive text-xs">{problem}</p>}
               </div>
             )}
           </form.Field>
