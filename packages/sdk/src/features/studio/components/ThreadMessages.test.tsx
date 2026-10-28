@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { ThreadView } from "@camox/api-contract/threads";
+import type { AgentActivity, ThreadView } from "@camox/api-contract/threads";
 import { Window } from "happy-dom";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { ThreadMessages } = await import("./ThreadMessages");
+const { ACTIVITY_MIN_DURATION, ACTIVITY_SETTLE_DURATION, ThreadMessages } =
+  await import("./ThreadMessages");
 
 const editor = { id: "user-1", name: "Ada Lovelace", image: null };
 
@@ -37,7 +38,7 @@ void test("a thread shows editors' messages, the agent's Markdown answers and it
   assert.match(html, /<a [^>]*href="https:\/\/example.com\/plans"[^>]*>Plans<\/a>/);
   assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /aria-label="Camox"/);
-  assert.match(html, /Working…/);
+  assert.match(html, /Thinking…/);
 });
 
 void test("a turn Camox started itself opens with its message, from no editor", () => {
@@ -92,7 +93,7 @@ void test("a turn without the agent's message says it was stopped, and by whom, 
 
   assert.match(html, /Stopped by Grace Hopper/);
   assert.match(html, /Camox couldn’t finish this\. Send your message again to retry\./);
-  assert.doesNotMatch(html, /Working…/);
+  assert.doesNotMatch(html, /Thinking…/);
 });
 
 void test("the squareling stays at the end of the thread, idle, after a turn", () => {
@@ -109,7 +110,7 @@ void test("the squareling stays at the end of the thread, idle, after a turn", (
   );
 
   assert.match(html, /Plans start at \$9\.[\s\S]*data-squareling="idle"/);
-  assert.doesNotMatch(html, /Working…/);
+  assert.doesNotMatch(html, /Thinking…/);
 });
 
 void test("an empty thread has the agent's squareling ask how it can help", () => {
@@ -117,14 +118,14 @@ void test("an empty thread has the agent's squareling ask how it can help", () =
 
   assert.match(html, /data-thread-empty/);
   assert.match(html, /How can I help\?/);
-  assert.doesNotMatch(html, /Working…/);
+  assert.doesNotMatch(html, /Thinking…/);
 });
 
 void test("a message still on its way to the thread shows the agent working before its run starts", () => {
   const html = renderToString(<ThreadMessages view={{ messages: [], running: false }} sending />);
 
   assert.doesNotMatch(html, /data-thread-empty/);
-  assert.match(html, /Working…/);
+  assert.match(html, /Thinking…/);
 });
 
 void test("a message sent while the agent works is appended last, so the scroller brings it into view", () => {
@@ -146,41 +147,31 @@ void test("a message sent while the agent works is appended last, so the scrolle
     rows.map((row) => row.getAttribute("data-message-id")),
     ["1", "2"],
   );
-  assert.match(rows.at(-1)!.textContent, /Working…/);
+  assert.match(rows.at(-1)!.textContent, /Thinking…/);
 });
 
-void test("the agent's squareling thinks, acts while it uses its tools or builds, and fixes; only building and fixing say it in words", () => {
+void test("the agent's squareling says what the agent does, in words too, never how", () => {
   const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
   const { document } = new Window();
-  const shown = (status?: ThreadView["status"], usingTools?: true) => {
+  const shown = (activity?: AgentActivity) => {
     document.body.innerHTML = renderToString(
-      <ThreadMessages view={{ running: true, messages: [asked], status, usingTools }} />,
+      <ThreadMessages view={{ running: true, messages: [asked], activity }} />,
     );
     const working = document.querySelector('[role="status"]')!;
     return {
       squareling: working.querySelector("[data-squareling]")?.getAttribute("data-squareling"),
-      visibleText: [...working.children]
-        .filter((child) => child.tagName !== "svg" && !child.classList.contains("sr-only"))
-        .map((child) => child.textContent)
-        .join(""),
-      /** Everything the status says, screen-reader text included. */
       said: working.textContent,
     };
   };
 
-  assert.equal(shown().squareling, "thinking");
-  assert.equal(shown().visibleText, "");
-  assert.equal(shown(undefined, true).squareling, "acting");
-  assert.equal(shown(undefined, true).visibleText, "");
-  assert.equal(shown("building").squareling, "acting");
-  assert.equal(shown("building").visibleText, "Building…");
-  assert.equal(shown("fixing").squareling, "fixing");
-  assert.equal(shown("fixing", true).squareling, "fixing");
-  assert.equal(shown("fixing").visibleText, "Fixing a build error…");
-  // Building and fixing say so instead of working, even to a screen reader.
-  assert.match(shown().said, /Working…/);
-  assert.doesNotMatch(shown("building").said, /Working…/);
-  assert.doesNotMatch(shown("fixing").said, /Working…/);
+  assert.deepEqual(shown("thinking"), { squareling: "thinking", said: "Thinking…" });
+  assert.deepEqual(shown("exploring"), { squareling: "exploring", said: "Looking around…" });
+  assert.deepEqual(shown("changing"), { squareling: "changing", said: "Making changes…" });
+  assert.deepEqual(shown("building"), { squareling: "building", said: "Building…" });
+  assert.deepEqual(shown("fixing"), { squareling: "fixing", said: "Fixing the build…" });
+  assert.deepEqual(shown("startingDraft"), { squareling: "changing", said: "Starting a draft…" });
+  // A run the thread hasn't said anything of yet starts with thinking.
+  assert.deepEqual(shown(), { squareling: "thinking", said: "Thinking…" });
 });
 
 /**
@@ -188,6 +179,27 @@ void test("the agent's squareling thinks, acts while it uses its tools or builds
  * says, what the whole thread says, and the drafts the click opened.
  */
 async function clickingTheCard(view: ThreadView) {
+  return inDocument(async ({ act, root, container }) => {
+    const opened: string[] = [];
+    await act(async () =>
+      root.render(<ThreadMessages view={view} onOpenDraft={(id) => opened.push(id)} />),
+    );
+
+    const card = container.querySelector("[data-thread-draft-card]")!;
+    const shown = { card: card.textContent, thread: container.textContent };
+    await act(async () => (card as unknown as HTMLElement).click());
+    return { ...shown, opened };
+  });
+}
+
+/** Runs `use` with a React root in a happy-dom document, which it unmounts after. */
+async function inDocument<T>(
+  use: (dom: {
+    act: typeof React.act;
+    root: import("react-dom/client").Root;
+    container: Element;
+  }) => Promise<T>,
+): Promise<T> {
   const window = new Window();
   const globals = {
     window,
@@ -210,23 +222,70 @@ async function clickingTheCard(view: ThreadView) {
   try {
     const { act } = await import("react");
     const { createRoot } = await import("react-dom/client");
-    const container = window.document.createElement("div");
-    window.document.body.append(container);
-    const opened: string[] = [];
-    const root = createRoot(container as unknown as Element);
-    await act(async () =>
-      root.render(<ThreadMessages view={view} onOpenDraft={(id) => opened.push(id)} />),
-    );
-
-    const card = container.querySelector("[data-thread-draft-card]")!;
-    const shown = { card: card.textContent, thread: container.textContent };
-    await act(async () => (card as unknown as HTMLElement).click());
-    await act(async () => root.unmount());
-    return { ...shown, opened };
+    const container = window.document.createElement("div") as unknown as Element;
+    window.document.body.append(container as never);
+    const root = createRoot(container);
+    try {
+      return await use({ act, root, container });
+    } finally {
+      await act(async () => root.unmount());
+    }
   } finally {
     Object.assign(globalThis, before);
   }
 }
+
+/** Long enough for any line saying what the agent does to have held. */
+const ACTIVITY_HOLD = 60_000;
+
+void test("what the agent does shows once it lasted, and holds before the next replaces it, so editors can read it", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const asked = { id: "1", from: "editor" as const, sender: editor, text: "Add a pricing section" };
+  const said = await inDocument(async ({ act, root, container }) => {
+    const said: (string | null)[] = [];
+    const status = () => container.querySelector('[role="status"]')!.textContent;
+    const show = async (view: Omit<ThreadView, "messages">) => {
+      await act(async () => root.render(<ThreadMessages view={{ messages: [asked], ...view }} />));
+      said.push(status());
+    };
+    const wait = async (ms: number) => {
+      await act(async () => t.mock.timers.tick(ms));
+      said.push(status());
+    };
+
+    await show({ running: true, activity: "thinking" });
+    await show({ running: true, activity: "exploring" });
+    await wait(ACTIVITY_SETTLE_DURATION);
+    await wait(ACTIVITY_MIN_DURATION);
+    await wait(ACTIVITY_HOLD);
+    await show({ running: true, activity: "thinking" });
+    await wait(ACTIVITY_SETTLE_DURATION / 2);
+    await show({ running: true, activity: "exploring" });
+    await wait(ACTIVITY_HOLD);
+    await show({ running: true, activity: "changing" });
+    await wait(ACTIVITY_HOLD);
+    await show({ running: false });
+    return said;
+  });
+
+  assert.deepEqual(said, [
+    "Thinking…",
+    // Looking around lasted, but thinking only just showed: it waits its turn, then shows.
+    "Thinking…",
+    "Thinking…",
+    "Looking around…",
+    "Looking around…",
+    // Thinking for a moment between two rounds never shows.
+    "Looking around…",
+    "Looking around…",
+    "Looking around…",
+    "Looking around…",
+    "Looking around…",
+    "Making changes…",
+    // A turn that ends shows at once.
+    "",
+  ]);
+});
 
 void test("a Live turn handed off to a draft ends on the draft's card, which opens it", async () => {
   const { card, thread, opened } = await clickingTheCard({

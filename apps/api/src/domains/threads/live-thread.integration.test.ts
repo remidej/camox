@@ -159,6 +159,7 @@ describe("an editor's Live thread", () => {
     expect(again.view()).toEqual({
       messages: [expect.objectContaining({ from: "editor", text: "Take your time" })],
       running: true,
+      activity: "thinking",
     });
     release();
     await again.untilIdle();

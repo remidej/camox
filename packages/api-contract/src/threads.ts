@@ -64,6 +64,40 @@ export type PushOutcome = z.infer<typeof pushOutcomeSchema>;
  */
 export const START_DRAFT_TOOL = "startDraft";
 
+/** The agent's tool building its code changes mid-turn, which the end of a turn also does. */
+export const BUILD_TOOL = "build";
+
+/**
+ * The tools whose calls change a draft: the content tools that write, and the code tools that
+ * write files. The model calls the code tools, and code mode scripts call both. A test in the API
+ * keeps this in step with the tools themselves.
+ */
+export const CHANGING_TOOLS: ReadonlySet<string> = new Set([
+  // Content
+  "addBackToLocale",
+  "addLocale",
+  "createBlock",
+  "createCollectionRecord",
+  "createPage",
+  "deleteBlock",
+  "deleteCollectionRecord",
+  "deletePage",
+  "editBlock",
+  "editCollectionRecord",
+  "moveBlock",
+  "removeLocale",
+  "setPageLayout",
+  "setPageSeo",
+  "updateFile",
+  "updatePage",
+  "uploadFile",
+  // Code
+  "edit",
+  "mv",
+  "rm",
+  "write",
+]);
+
 /** The draft a `startDraft` call started, as its result's details name it for the card. */
 export const startedDraftCardSchema = z.object({ draftId: z.string(), name: z.string() });
 export type StartedDraftCard = z.infer<typeof startedDraftCardSchema>;
@@ -195,21 +229,31 @@ export type ThreadMessage =
    */
   | { id: string; from: "push"; sender: ThreadSender; subjects: string[]; outcome: PushOutcome };
 
+/**
+ * What the agent is doing during a run, as editors see it, without the details of how it works:
+ * - `thinking`: the model is called, and hasn't started writing a tool call.
+ * - `exploring`: it uses tools that only read, from writing a call until the model is called again.
+ * - `changing`: a call of that round changes the draft (`CHANGING_TOOLS`), as soon as it's written
+ *   or, in a code mode script, as soon as the script calls one.
+ * - `building`: its `build` call runs, or the end of the turn builds its code changes.
+ * - `fixing`: the end of the turn's build failed, and the agent fixes it.
+ * - `startingDraft`: on Live, its `startDraft` call runs.
+ */
+export type AgentActivity =
+  | "thinking"
+  | "exploring"
+  | "changing"
+  | "building"
+  | "fixing"
+  | "startingDraft";
+
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
   messages: readonly ThreadMessage[];
   /** Whether a run is going: the agent is working on a turn, and stopping would end it. */
   running: boolean;
-  /**
-   * While a run is going, where the build of the code its turn changed stands: the end of the
-   * turn is building it, or it failed and the agent is fixing it.
-   */
-  status?: BuildStatus;
-  /**
-   * While a run is going, whether the agent is using its tools, code mode included, rather than
-   * thinking: from writing a call until the model is called again.
-   */
-  usingTools?: true;
+  /** While a run is going, what the agent is doing. */
+  activity?: AgentActivity;
 };
 
 export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
@@ -222,10 +266,15 @@ export const EMPTY_THREAD_VIEW: ThreadView = { messages: [], running: false };
 export type ThreadState = {
   steps: readonly ThreadStep[];
   running: boolean;
-  /** The model's calls still running, by call id. A tool's own calls aren't the agent's. */
-  toolCalls?: readonly string[];
+  /** The model's calls still running. A tool's own calls aren't the agent's. */
+  toolCalls?: readonly { callId: string; name: string }[];
   /** Whether the model's latest message makes tool calls: it writes them, then they run. */
   callingTools?: boolean;
+  /**
+   * Whether a call of the latest round changes the draft, the model's or a script's: from writing
+   * or making it until the model is called again.
+   */
+  changing?: boolean;
   /** The drafts the thread's cards name, as the thread last looked them up. */
   drafts?: DraftCardStates;
 };
@@ -446,6 +495,7 @@ export function threadViewOf({
   running,
   toolCalls = [],
   callingTools = false,
+  changing = false,
   drafts = {},
 }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
@@ -563,14 +613,43 @@ export function threadViewOf({
     }
   }
   if (!running) fail();
-  const usingTools = running && (callingTools || toolCalls.length > 0);
+  if (!running) return { messages, running };
   return {
     messages,
     running,
-    ...(running && status && { status }),
-    ...(usingTools && { usingTools }),
+    activity: activityOf({ status, toolCalls, callingTools, changing }),
   };
 }
+
+/** What the agent is doing during a run, from where the turn's build stands and its tool calls. */
+function activityOf({
+  status,
+  toolCalls,
+  callingTools,
+  changing,
+}: {
+  status: BuildStatus | undefined;
+  toolCalls: NonNullable<ThreadState["toolCalls"]>;
+  callingTools: boolean;
+  changing: boolean;
+}): AgentActivity {
+  const calling = (name: string) => toolCalls.some((call) => call.name === name);
+  // Fixing a build error takes thinking, reading and writing, which all read as fixing, but its
+  // builds show as building.
+  if (status === "building" || calling(BUILD_TOOL)) return "building";
+  if (status === "fixing") return "fixing";
+  if (calling(START_DRAFT_TOOL)) return "startingDraft";
+  if (changing) return "changing";
+  if (callingTools || toolCalls.length > 0) return "exploring";
+  return "thinking";
+}
+
+/** Whether a tool call changes the draft. */
+const changes = (name: string) => CHANGING_TOOLS.has(name);
+
+/** Whether a block of the model's message is a call of a tool that changes the draft. */
+const callsChangingTool = (block: AssistantMessage["content"][number]) =>
+  block.type === "toolCall" && changes(block.name);
 
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {
   const step = entry && threadStepOf(entry);
@@ -581,33 +660,71 @@ const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState
 /** Folds one of Pi's agent events into the thread's state. */
 export function reduceThreadState(state: ThreadState, event: AgentEvent): ThreadState {
   switch (event.type) {
-    case "snapshot":
+    case "snapshot": {
+      const toolCalls = event.tools.flatMap((tool) =>
+        tool.status === "done" ? [] : [{ callId: tool.callId, name: tool.name }],
+      );
+      const generated = event.generation?.message?.content ?? [];
       return {
         ...state,
         steps: event.entries.flatMap((entry) => threadStepOf(entry) ?? []),
         running: event.run !== undefined,
-        toolCalls: event.tools.flatMap((tool) => (tool.status === "done" ? [] : [tool.callId])),
-        callingTools: !!event.generation?.message?.content.some((part) => part.type === "toolCall"),
+        toolCalls,
+        callingTools: generated.some((part) => part.type === "toolCall"),
+        // A script's calls count while the script runs, finished or not.
+        changing:
+          generated.some(callsChangingTool) ||
+          toolCalls.some((call) => changes(call.name)) ||
+          event.nestedTools.some(
+            (nested) =>
+              changes(nested.name) &&
+              toolCalls.some(
+                (call) =>
+                  nested.parentCallId === call.callId ||
+                  nested.parentCallId.startsWith(`${call.callId}/`),
+              ),
+          ),
       };
+    }
     case "run_start":
       return { ...state, running: true };
     case "run_end":
-      return { ...state, running: false, toolCalls: [], callingTools: false };
+      return { ...state, running: false, toolCalls: [], callingTools: false, changing: false };
     case "message_start":
       // The model is called again: it thinks until it writes a tool call.
-      return event.message.role === "assistant" ? { ...state, callingTools: false } : state;
-    case "message_update":
-      return event.changes.some((change) => change.type === "toolcall_start")
-        ? { ...state, callingTools: true }
+      return event.message.role === "assistant"
+        ? { ...state, callingTools: false, changing: false }
         : state;
-    case "tool_execution_start":
-      if (event.parentToolCallId !== undefined) return state;
-      return { ...state, toolCalls: [...(state.toolCalls ?? []), event.toolCallId] };
+    case "message_update": {
+      // A call's name may come with its start, a later change to its block, or the whole message.
+      const calls = event.changes.flatMap((change) =>
+        change.type === "toolcall_start" || change.type === "block"
+          ? [change.block]
+          : change.type === "message"
+            ? change.message.content
+            : [],
+      );
+      if (calls.length === 0) return state;
+      return {
+        ...state,
+        callingTools: state.callingTools || calls.some((block) => block.type === "toolCall"),
+        changing: state.changing || calls.some(callsChangingTool),
+      };
+    }
+    case "tool_execution_start": {
+      const changing = state.changing || changes(event.toolName);
+      if (event.parentToolCallId !== undefined) return { ...state, changing };
+      return {
+        ...state,
+        changing,
+        toolCalls: [...(state.toolCalls ?? []), { callId: event.toolCallId, name: event.toolName }],
+      };
+    }
     case "tool_execution_end":
       return append(
         {
           ...state,
-          toolCalls: state.toolCalls?.filter((callId) => callId !== event.toolCallId),
+          toolCalls: state.toolCalls?.filter((call) => call.callId !== event.toolCallId),
         },
         event.entry,
       );

@@ -72,10 +72,12 @@ function viewsOf(thread: ThreadClient): ThreadView[] {
   });
 }
 
-/** The status lines `views` showed, each once in a row. */
+/** Where the build stood as `views` showed it, building or fixing, each once in a row. */
 const statusLines = (views: ThreadView[]) =>
   views
-    .map((view) => view.status)
+    .map(({ activity }) =>
+      activity === "building" || activity === "fixing" ? activity : undefined,
+    )
     .filter((status, at, all) => status !== undefined && status !== all[at - 1]);
 
 /** A new draft of the website, started by its member, with its thread open as theirs. */
@@ -215,7 +217,8 @@ describe("the end of a turn", () => {
     thread.close();
 
     expect(await fakes.revisionBuilds(draftId)).toHaveLength(1);
-    expect(statusLines(viewsOf(thread))).toEqual([]);
+    // Only the agent's own build shows: the end of the turn builds nothing more.
+    expect(statusLines(viewsOf(thread))).toEqual(["building"]);
   });
 
   it("says the draft is building while its latest changes build", async () => {
@@ -224,7 +227,7 @@ describe("the end of a turn", () => {
     answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
     answerNext("I added yearly plans.");
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
-    await thread.until(() => thread.view().status === "building");
+    await thread.until(() => thread.view().activity === "building");
 
     const building = await previewOf(website, draft.id);
     await fakes.releaseBuilds(draft.id);
