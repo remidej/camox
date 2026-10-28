@@ -167,11 +167,26 @@ export const sdkBundleArchiveKey = (name: string) => `sdk/${name}.tar.gz`;
 const sdkBundlePackKey = (name: string) => `sdk/${name}/#assets`;
 const sdkBundleIndexKey = (name: string) => `sdk/${name}/#index`;
 
+/**
+ * What this isolate keeps of one bucket, made on first use: a cache per bucket, so a test's
+ * fake bucket never sees another's.
+ */
+function perBucket<T extends object>(make: () => T) {
+  const kept = new WeakMap<R2Bucket, T>();
+  return (bucket: R2Bucket) => {
+    let found = kept.get(bucket);
+    if (!found) {
+      found = make();
+      kept.set(bucket, found);
+    }
+    return found;
+  };
+}
+
 /** The workerd SDK Bundles' modules this isolate read, by bucket and name: they never change. */
-const sdkBundleModulesOf = new WeakMap<
-  R2Bucket,
-  Map<string, Promise<Record<string, WorkerLoaderModule | string>>>
->();
+const sdkBundleModulesOf = perBucket(
+  () => new Map<string, Promise<Record<string, WorkerLoaderModule | string>>>(),
+);
 /** How many workerd SDK Bundles an isolate keeps the modules of, dropping the oldest. A tuning value. */
 const SDK_BUNDLES_KEPT = 4;
 
@@ -180,11 +195,7 @@ const SDK_BUNDLES_KEPT = 4;
  * `_camox/sdk/<name>/`. Read once per isolate.
  */
 function sdkBundleModules(env: RevisionBindings, name: string) {
-  let kept = sdkBundleModulesOf.get(env.REVISION_BUILDS);
-  if (!kept) {
-    kept = new Map();
-    sdkBundleModulesOf.set(env.REVISION_BUILDS, kept);
-  }
+  const kept = sdkBundleModulesOf(env.REVISION_BUILDS);
   const found = kept.get(name);
   if (found) return found;
   const read = sdkBundleFiles(env, name).then((files) => {
@@ -213,18 +224,14 @@ async function sdkBundleFiles(env: RevisionBindings, name: string) {
 }
 
 /** The browser SDK Bundles this isolate knows are stored to be served, by bucket. */
-const servedSdkBundlesOf = new WeakMap<R2Bucket, Set<string>>();
+const servedSdkBundlesOf = perBucket(() => new Set<string>());
 
 /**
  * Stores a browser SDK Bundle's files where `/_camox/sdk/<name>/` serves them from, unless
  * they're there: the first revision naming it to be prepared stores them for every project.
  */
 async function storeSdkBundleAssets(env: RevisionBindings, name: string) {
-  let served = servedSdkBundlesOf.get(env.REVISION_BUILDS);
-  if (!served) {
-    served = new Set();
-    servedSdkBundlesOf.set(env.REVISION_BUILDS, served);
-  }
+  const served = servedSdkBundlesOf(env.REVISION_BUILDS);
   if (served.has(name)) return;
   if (!(await env.REVISION_BUILDS.head(sdkBundleIndexKey(name)))) {
     const { pack, index } = packed([...(await sdkBundleFiles(env, name))]);
@@ -425,17 +432,13 @@ const ASSET_PATH = /^\/_camox\/r\/([^/]+)\/(.+)$/;
 export const isRevisionAssetPath = (pathname: string) => pathname.startsWith("/_camox/r/");
 
 /** The indexes of revisions' asset packs this isolate read, by bucket and key: they never change. */
-const assetIndexesOf = new WeakMap<R2Bucket, Map<string, Promise<AssetIndex | null>>>();
+const assetIndexesOf = perBucket(() => new Map<string, Promise<AssetIndex | null>>());
 /** How many indexes an isolate keeps, dropping the oldest. A tuning value. */
 const ASSET_INDEXES_KEPT = 100;
 
 /** The index of the asset pack at `key`, or null when it isn't stored (yet). */
 function assetIndexOf(env: RevisionBindings, key: string) {
-  let assetIndexes = assetIndexesOf.get(env.REVISION_BUILDS);
-  if (!assetIndexes) {
-    assetIndexes = new Map();
-    assetIndexesOf.set(env.REVISION_BUILDS, assetIndexes);
-  }
+  const assetIndexes = assetIndexesOf(env.REVISION_BUILDS);
   const kept = assetIndexes.get(key);
   if (kept) return kept;
   const read = env.REVISION_BUILDS.get(key).then(async (object) =>
