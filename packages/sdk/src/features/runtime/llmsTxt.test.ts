@@ -252,7 +252,7 @@ void test("llms.txt reads Live, even for a signed-in editor viewing a draft", as
   const response = await llmsTxt([defaultLayout, articleLayout], {
     path: "/llms.txt?camox-draft=0190a000-0000-7000-8000-000000000000",
     headers: {
-      Cookie: "better-auth.session_token=valid",
+      Cookie: "camox_auth_cookie=valid",
       [DRAFT_HEADER]: "0190a000-0000-7000-8000-000000000000",
     },
   });

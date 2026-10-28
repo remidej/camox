@@ -4,8 +4,11 @@ import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-c
 import { drafts } from "../drafts/schema";
 import type { TypeCheckError } from "./result";
 
-/** What left a revision: the agent's `build`, the end of its turn, or a merge of `main`. */
-export type RevisionSource = "build" | "turn" | "merge";
+/**
+ * What left a revision: the agent's `build`, the end of its turn, a merge of `main`, or a
+ * member's `push` from their own checkout (ADR 0026).
+ */
+export type RevisionSource = "build" | "turn" | "merge" | "push";
 
 /**
  * Where a revision's build stands. A revision that isn't built is a commit the end of a turn made
@@ -20,7 +23,8 @@ export type RevisionTypeErrors = { shown: TypeCheckError[]; total?: number };
 
 /**
  * One state of a draft's code (GLOSSARY.md): a commit on the draft's branch, left each time the
- * agent builds its changes, at the end of a turn that changed code, or by a merge of `main`.
+ * agent builds its changes, at the end of a turn that changed code, by a merge of `main`, or by
+ * a member's push.
  * Each tree is a draft's revision once, so building it again finds the revision.
  */
 export const revisions = sqliteTable(

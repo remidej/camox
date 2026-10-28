@@ -125,7 +125,6 @@ async function fixture() {
     await base.db.insert(drafts).values({
       id,
       projectId,
-      kind: "regular",
       createdBy: base.memberUser.id,
       createdAt: Date.now(),
     });

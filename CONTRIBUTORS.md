@@ -32,12 +32,12 @@ bumps and changelogs from Conventional Commits.
    deployment has succeeded, so no published SDK is ahead of the deployed API
    (ADR 0019).
 4. It publishes the `deploy` job's package builds, in order: `@camox/api-contract`,
-   `@camox/ui`, `@camox/cli`, `create-camox`, and `camox`.
+   `@camox/ui`, `@camox/cli`, and `camox`.
 5. The `refresh-template` job then pushes the Template at the published version
    to `template-default` on Cloudflare Artifacts, which new projects fork
    (`packages/cli/scripts/README.md`).
 
-`release-please-config.json` links the root and these five packages into one
+`release-please-config.json` links the root and these four packages into one
 version group. Package-specific GitHub releases are disabled with
 `skip-github-release`; the root provides the shared GitHub release.
 `.release-please-manifest.json` records the released versions. The configured

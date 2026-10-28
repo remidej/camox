@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -52,10 +52,7 @@ async function fixture() {
     );
     return layout.blocks.map((block) => (block.content as { brand: string }).brand);
   };
-  const inDevelopmentDraft = () => ({
-    context: createRpcContext(db, base.memberUser, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT }),
-  });
-  return { ...base, visitor, brands, inDevelopmentDraft };
+  return { ...base, visitor, brands };
 }
 
 describe("A project named by its Project ID", () => {
@@ -74,17 +71,6 @@ describe("A project named by its Project ID", () => {
     await expect(syncDefinitionSet(f.db, project, navbar("Acme"))).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
-    expect(await f.brands()).toEqual([]);
-  });
-
-  it("gets its definitions synced to a member's development draft when running locally", async () => {
-    const f = await fixture();
-
-    await syncDefinitionSet(f.db, f.project, navbar("Local"), {
-      as: f.memberUser,
-    });
-
-    expect(await f.brands(f.inDevelopmentDraft())).toEqual(["Local"]);
     expect(await f.brands()).toEqual([]);
   });
 
@@ -249,8 +235,7 @@ describe("A project's name in an input", () => {
         router.definitions.sync,
         {
           ...(names as ProjectRef),
-          deployToken: f.project.deployToken,
-          autoCreate: false,
+          deployToken: f.project.deployToken ?? "",
           definitionSet: { blocks: [], layouts: [], collections: [], homepage: null },
         },
         f.visitor(),

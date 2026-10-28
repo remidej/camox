@@ -7,14 +7,14 @@ import { INITIAL_LOCALE } from "../locales/schema";
 import { projects } from "../projects/schema";
 
 /**
- * A collection definition, stored like block definitions: Live's have no draft, a development
- * draft's carry its id (ADR 0006). Read them through `definitionsIn`.
+ * A collection definition, stored like block definitions: Live's have no draft, a draft with
+ * code's carry its id (ADR 0006). Read them through `definitionsIn`.
  */
 export const collectionDefinitions = sqliteTable(
   "collection_definitions",
   {
     rowId: int("row_id").primaryKey(),
-    // The development draft holding this collection, or null for Live's.
+    // The draft with code holding this collection, or null for Live's.
     draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
     projectId: int("project_id")
       .notNull()
@@ -36,8 +36,7 @@ export const collectionDefinitions = sqliteTable(
     contentSchema: text("content_schema", { mode: "json" })
       .notNull()
       .$type<Record<string, unknown>>(),
-    // What shapes content, hashed (`_shared/schema-hash.ts`): a development draft publishes only
-    // while its definitions' names and hashes equal Live's (ADR 0006).
+    // What shapes content, hashed (`_shared/schema-hash.ts`).
     schemaHash: text("schema_hash").notNull().default(""),
   },
   (table) => [

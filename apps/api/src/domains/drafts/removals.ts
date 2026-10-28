@@ -22,8 +22,7 @@ import { draftOf, type DraftScope, inLocale, type ReadScope } from "./scope";
 // What a draft's code removes while Live content uses it (ADR 0021): a block, layout or
 // collection definition, or a field. Content outlives its definitions (ADR 0007), so it's a
 // warning, never a blocker, but no developer meant the removal, so a member should notice it.
-// Only a draft with code holds definitions of its own that can differ from Live's; development
-// drafts have their own blocker for that.
+// Only a draft with code holds definitions of its own that can differ from Live's.
 //
 // Live content is what Live holds and the draft keeps: content the draft deletes won't be on
 // Live once it publishes, and content it adds isn't Live's. Each piece of content is named once,
@@ -105,7 +104,6 @@ export const checkRemovals = Effect.fn("drafts.checkRemovals")(function* (
   ctx: ServiceContext,
   draft: Scope,
 ) {
-  if (draft.kind === "development") return [];
   const scope = draftOf(draft);
   const { projectId } = scope;
   const blockDefs = yield* definitionsOf(ctx, scope, blockDefinitions, (row) => row.blockId);

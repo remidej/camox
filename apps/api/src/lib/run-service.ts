@@ -3,7 +3,6 @@ import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
   LIVE_READ_ONLY_ERROR,
-  NO_DEVELOPMENT_DRAFT_ERROR,
   PUBLISH_BLOCKED_ERROR,
   REVISION_CHANGED_ERROR,
   TRANSLATIONS_PENDING_ERROR,
@@ -11,6 +10,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
+import { PUSH_REFUSED_ERROR } from "../domains/code-pushes/refusal";
 import { catchUpReleaseWrites } from "../domains/drafts/catch-up";
 import { requestOverviewsOfWrites } from "../domains/drafts/overview";
 import { translateWrites } from "../domains/translations/service";
@@ -44,19 +44,18 @@ export function toORPCError(error: ServiceError) {
         message:
           error.message || `Live is read-only: content writes name a draft with ${DRAFT_HEADER}`,
       });
-    case "NoDevelopmentDraftError":
-      return new ORPCError(NO_DEVELOPMENT_DRAFT_ERROR, {
-        status: 404,
-        message:
-          error.message ||
-          "You have no development draft in this project yet: run the site locally first, so dev mode syncs your definitions and creates it",
-      });
     case "ConflictsChangedError":
       return new ORPCError(CONFLICTS_CHANGED_ERROR, { status: 409, message: error.message });
     case "PublishBlockedError":
       return new ORPCError(PUBLISH_BLOCKED_ERROR, { status: 422, message: error.message });
     case "RevisionChangedError":
       return new ORPCError(REVISION_CHANGED_ERROR, { status: 409, message: error.message });
+    case "PushRefusedError":
+      return new ORPCError(PUSH_REFUSED_ERROR, {
+        status: 422,
+        message: error.message,
+        data: { reason: error.reason, ...error.data },
+      });
     case "TranslationsPendingError":
       return new ORPCError(TRANSLATIONS_PENDING_ERROR, {
         status: 409,

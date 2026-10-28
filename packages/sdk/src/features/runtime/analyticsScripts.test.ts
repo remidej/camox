@@ -112,13 +112,10 @@ const runtimeOptions: RuntimeOptions = {
   renderStudio: async () => "<nav>Studio</nav>",
 };
 
-async function request(
-  path: string,
-  { cookie, developmentDraft }: { cookie?: string; developmentDraft?: boolean } = {},
-) {
+async function request(path: string, { cookie }: { cookie?: string } = {}) {
   const response = await handleCamoxRequest(
     new Request(`https://site.test${path}`, { headers: cookie ? { Cookie: cookie } : {} }),
-    { ...runtimeOptions, developmentDraft },
+    runtimeOptions,
   );
   return { body: await response!.text(), kind: kindOf(response!.headers.get("Content-Type")) };
 }
@@ -297,18 +294,6 @@ void test("a member's page loads no analytics, on Live or in a draft", async (t)
       await request(`${path}?camox-draft=d1`, { cookie: MEMBER_SESSION }),
       `${path} in a draft`,
     );
-  }
-});
-
-void test("a development draft's pages load no analytics, for members or anyone else", async (t) => {
-  mockApi(t);
-  for (const path of PAGES) {
-    for (const cookie of [MEMBER_SESSION, undefined]) {
-      assertCountsNobody(
-        await request(path, { cookie, developmentDraft: true }),
-        `${path} ${cookie}`,
-      );
-    }
   }
 });
 

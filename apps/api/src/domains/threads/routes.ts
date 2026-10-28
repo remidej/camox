@@ -56,10 +56,9 @@ threadHonoRoutes.get("/live/:projectId", async (c) => {
 });
 
 /**
- * The socket to a draft's thread, which `draft` names as the studio's draft header does: a
- * draft's id, or `development` for the editor's development draft. Every member who can access
- * the draft connects to the same thread, which starts with the first message; a development
- * draft's thread reaches its developer only.
+ * The socket to a draft's thread, which `draft` names by its id, as the studio's draft header
+ * does. Every member who can access the draft connects to the same thread, which starts with the
+ * first message.
  */
 threadHonoRoutes.get("/draft/:projectId/:draft", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") return c.text("Expected a WebSocket", 426);

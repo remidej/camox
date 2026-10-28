@@ -78,8 +78,7 @@ const publishResultSchema = z.union([
 
 const PREVIEW_SHAPE =
   "`blockers` are problems to fix in the draft before it can be published, including " +
-  "definitions that differ from Live's in a development draft, which only a release can ship " +
-  "(code `definitionsDiffer`), and code the agent changed that doesn't build (code " +
+  "code the agent changed that doesn't build (code " +
   "`codeDoesNotBuild`), doesn't type check (code `codeDoesNotTypeCheck`) or doesn't merge with " +
   "Live's latest code, which Camox's agent fixes in the draft's thread (code `codeDoesNotMerge`); " +
   "`conflicts` is content Live changed or deleted since the draft " +
@@ -117,8 +116,8 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Publish the whole current draft to Live, replacing Live's version of everything it " +
       "changed. Only publish when the user asks to. Pass the token from previewPublish: " +
       "publishing goes ahead only while the draft has no blockers and Live's conflicts are still " +
-      "the ones that preview showed. Returns `{ published: true, ended }` once published " +
-      "(a development draft stays open, emptied, so `ended` is null for it). For a draft whose " +
+      "the ones that preview showed. Returns `{ published: true, ended }` once published. " +
+      "For a draft whose " +
       "code the agent changed, also pass previewPublish's `code.revision`: publishing then runs " +
       "in the background and returns `{ published: true, ended: null }` as it starts; when the " +
       "code changed since the preview it returns `reason: 'revisionChanged'`. When Live changed " +
@@ -166,9 +165,9 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   defineTool({
     name: "deleteDraft",
     description:
-      "Delete every change in the current draft without publishing it. A development draft " +
-      "stays open, emptied; any other draft ends. Live is untouched. This can't be undone, so " +
-      "only delete when the user asks to. Returns `{ ended }`, null for a development draft.",
+      "Delete every change in the current draft without publishing it, ending the draft. Live " +
+      "is untouched. This can't be undone, so only delete when the user asks to. Returns " +
+      "`{ ended }`.",
     inputSchema: deleteInput,
     outputSchema: z.strictObject({ ended: endedDraftSchema.nullable() }),
     meta: { kind: "write", surfaces: ["cli"] },

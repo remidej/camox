@@ -33,7 +33,7 @@ function isPlainClick(event: MouseEvent) {
  */
 export function ProjectCard({ project }: { project: ListedProject }) {
   const { open } = useOpenWebsite();
-  const url = projectWebsiteUrl(project.slug);
+  const url = projectWebsiteUrl(project);
   const live = project.status === "live";
 
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {

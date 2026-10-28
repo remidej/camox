@@ -1,7 +1,6 @@
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
-  NO_DEVELOPMENT_DRAFT_ERROR,
   PUBLISHING_DRAFT_HEADER,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
@@ -71,13 +70,11 @@ interface LoadPageForRequestOptions {
 }
 
 /**
- * Why a member can't see the draft a URL names: it doesn't exist, it's someone else's
- * development draft, or it was published or deleted (ADR 0011). In dev mode, the caller's
- * own development draft doesn't exist until the dev server's first sync creates it.
+ * Why a member can't see the draft a URL names: it doesn't exist, it isn't open to them, or it
+ * was published or deleted (ADR 0011).
  */
 export type DraftNotice =
   | { reason: "missing" }
-  | { reason: "noDevelopmentDraft" }
   | { reason: "forbidden" }
   | ({ reason: "ended" } & EndedDraft);
 
@@ -210,7 +207,6 @@ function draftRefusalNotice(error: unknown, draftId: string): DraftNotice | null
   const { code, status } = getErrorDetails(error);
   const data = (error as { data?: unknown } | null)?.data as Record<string, unknown> | undefined;
   if (code === DRAFT_ENDED_ERROR_CODE && data) return { reason: "ended", ...(data as EndedDraft) };
-  if (code === NO_DEVELOPMENT_DRAFT_ERROR) return { reason: "noDevelopmentDraft" };
   if (isNotFoundError(error) && data?.draftId === draftId) return { reason: "missing" };
   if (code === "FORBIDDEN" || status === 403) return { reason: "forbidden" };
   if (code === "UNAUTHORIZED" || status === 401) return null;

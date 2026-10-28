@@ -9,7 +9,7 @@ import { authClient } from "@/lib/auth-client";
  * one-time token, which it exchanges for a session of its own.
  */
 export function useOpenWebsite() {
-  const open = async (project: Pick<Project, "slug">) => {
+  const open = async (project: Pick<Project, "slug" | "customDomain">) => {
     // Opened before awaiting the token, so the browser counts it as the click's and doesn't block
     // it. Cut from this tab, so the website's scripts can't navigate the dashboard.
     const tab = window.open("", "_blank");
@@ -17,7 +17,7 @@ export function useOpenWebsite() {
     try {
       const { data } = await authClient.$fetch<{ url: string }>("/cross-domain/studio-authorize", {
         method: "POST",
-        body: { callback: projectWebsiteUrl(project.slug) },
+        body: { callback: projectWebsiteUrl(project) },
       });
       if (!data?.url) throw new Error("The API didn't sign the studio in");
       if (tab) tab.location.href = data.url;

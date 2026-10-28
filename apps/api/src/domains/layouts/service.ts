@@ -191,7 +191,7 @@ const planLayoutUpdate = Effect.fn("layouts.planLayoutUpdate")(function* (
 
 /**
  * Plans deleting layout-only blocks no layout declares any more, in the sync's target. A release
- * deletes Live's with their items; drafts keep theirs. Dev mode deletes them in the development
+ * deletes Live's with their items; drafts keep theirs. A revision's sync deletes them in its
  * draft.
  */
 const planOrphanedBlocksRemoval = Effect.fn("layouts.planOrphanedBlocksRemoval")(function* (
@@ -218,8 +218,8 @@ const planOrphanedBlocksRemoval = Effect.fn("layouts.planOrphanedBlocksRemoval")
 });
 
 /**
- * Plans replacing the layouts of a sync's target: Live for a release, or the development draft
- * for dev mode (ADR 0006). Each layout gets the blocks it declares that it lacks, between the
+ * Plans replacing the layouts of a sync's target: Live for a release, or a draft with code for
+ * a revision's sync (ADR 0006). Each layout gets the blocks it declares that it lacks, between the
  * ones it holds; layout-only blocks it no longer declares go, and so do layouts and layout-only
  * definitions nothing uses any more. Block and collection definitions come from the sync
  * (`definitions`, `collections`), not the target, which only holds them once the batch ran.

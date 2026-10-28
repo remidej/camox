@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { Effect, Exit, type Scope } from "effect";
 
 import type { Database } from "../../db";
@@ -7,7 +7,6 @@ import {
   DraftEndedError,
   ForbiddenError,
   LiveReadOnlyError,
-  NoDevelopmentDraftError,
   NotFoundError,
   type ServiceError,
   UnauthenticatedError,
@@ -31,11 +30,8 @@ import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 //    project the request is bound to (`ctx.projectId`).
 // 3. 403: a member is needed (a draft is named, or the mode isn't `public`) and the caller isn't
 //    one of the project's organization.
-// 4. The named draft:
-//    - `development`: the caller's development draft in the project, or NoDevelopmentDraftError.
-//    - an id: created with the create header when missing; 404 when it isn't this project's, or
-//      DraftEndedError when it was published or deleted. Someone else's development draft is
-//      403.
+// 4. The named draft: created with the create header when missing; 404 when it isn't this
+//    project's, or DraftEndedError when it was published or deleted.
 // 5. 404: the request names a locale the scope doesn't have.
 // 6. 404: the scope deleted the entity, or doesn't have it in the locale.
 // 7. LiveReadOnlyError: a `write` that names no draft.
@@ -92,21 +88,14 @@ type AccessContext = Pick<
   "db" | "user" | "draft" | "projectId" | "locale" | "publishingDraft"
 >;
 
-/** One table's rows an entity id names: Live's, and the named draft's (any of the caller's development drafts). */
+/** One table's rows an entity id names: Live's, and the named draft's. */
 function storedForRequest(table: overlay.ContentTable, ctx: AccessContext): SQL {
   const requested = ctx.draft;
-  if (!requested) {
-    // A publishing draft's rows are candidates too: the scope picks Live's unless it publishes.
-    return ctx.publishingDraft
-      ? overlay.storedInLiveOrDraft(table, ctx.publishingDraft)
-      : isNull(table.draftId);
-  }
-  if (!("development" in requested)) return overlay.storedInLiveOrDraft(table, requested.id);
-  const developmentDrafts = ctx.db
-    .select({ id: drafts.id })
-    .from(drafts)
-    .where(and(eq(drafts.kind, "development"), eq(drafts.createdBy, ctx.user!.id)));
-  return or(isNull(table.draftId), inArray(table.draftId, developmentDrafts))!;
+  if (requested) return overlay.storedInLiveOrDraft(table, requested.id);
+  // A publishing draft's rows are candidates too: the scope picks Live's unless it publishes.
+  return ctx.publishingDraft
+    ? overlay.storedInLiveOrDraft(table, ctx.publishingDraft)
+    : isNull(table.draftId);
 }
 
 /** An entity's rows in Live and in the named draft, with the project they belong to. */
@@ -179,14 +168,6 @@ function visibleRow(rows: Candidates["rows"], scope: ReadScope, locale: string |
 const authorize = Effect.fn("access.authorize")(function* (ctx: AccessContext, project: SQL) {
   const requested = ctx.draft;
   const userId = ctx.user?.id ?? null;
-  const namedDraft =
-    requested && "development" in requested
-      ? and(
-          eq(drafts.projectId, projects.id),
-          eq(drafts.kind, "development"),
-          eq(drafts.createdBy, userId ?? ""),
-        )
-      : eq(drafts.id, requested?.id ?? "");
   const row = yield* Effect.promise(() =>
     ctx.db
       .select({
@@ -200,7 +181,7 @@ const authorize = Effect.fn("access.authorize")(function* (ctx: AccessContext, p
         member,
         and(eq(member.organizationId, projects.organizationId), eq(member.userId, userId ?? "")),
       )
-      .leftJoin(drafts, requested ? namedDraft : sql`0`)
+      .leftJoin(drafts, requested ? eq(drafts.id, requested.id) : sql`0`)
       .leftJoin(
         locales,
         and(
@@ -236,8 +217,8 @@ const missingDraft = Effect.fn("access.missingDraft")(function* (
 });
 
 /**
- * The scope the request names on a project, once the caller is known to be a member: Live, the
- * caller's development draft, or a regular draft, which the create header starts when missing.
+ * The scope the request names on a project, once the caller is known to be a member: Live, or a
+ * draft, which the create header starts when missing.
  */
 const resolveScope = Effect.fn("access.resolveScope")(function* (
   ctx: AccessContext & { user: User },
@@ -246,10 +227,6 @@ const resolveScope = Effect.fn("access.resolveScope")(function* (
 ): Effect.fn.Return<{ scope: DraftScope; started: boolean }, ServiceError, Journal> {
   const requested = ctx.draft;
   if (!requested) return { scope: null, started: false };
-  if ("development" in requested) {
-    if (!named) return yield* new NoDevelopmentDraftError();
-    return { scope: draftOf(named), started: false };
-  }
   let draft = named;
   let started = false;
   if (!draft && requested.create) {
@@ -265,10 +242,6 @@ const resolveScope = Effect.fn("access.resolveScope")(function* (
       )) ?? null;
   }
   if (draft?.projectId !== project.id) return yield* missingDraft(ctx.db, project.id, requested.id);
-  // Regular drafts are open to every member; a development draft only to its owner (ADR 0011).
-  if (draft.kind === "development" && draft.createdBy !== ctx.user.id) {
-    return yield* new ForbiddenError({ message: "A development draft is open to its owner only" });
-  }
   return { scope: draftOf(draft), started };
 });
 
@@ -321,7 +294,7 @@ type LocaleRow = typeof locales.$inferSelect;
 
 /**
  * The locale rows a request can read in the project `project` selects: Live's, and the named
- * draft's (any of the caller's development drafts), tombstones included. Read along with the
+ * draft's, tombstones included. Read along with the
  * project, before the draft is checked: `localesSeenBy` keeps those the checked scope reads.
  */
 const localeCandidates = (ctx: AccessContext, project: SQL) =>

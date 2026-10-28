@@ -81,7 +81,6 @@ async function fixture(suffix: string) {
     .insert(drafts)
     .values({
       projectId: base.project.id,
-      kind: "regular",
       createdBy: base.memberUser.id,
       createdAt: now,
     })
@@ -91,7 +90,7 @@ async function fixture(suffix: string) {
     ...base,
     ctx,
     page,
-    draft: { id: draft.id, kind: draft.kind, projectId: draft.projectId },
+    draft: { id: draft.id, projectId: draft.projectId },
   };
 }
 

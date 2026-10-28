@@ -99,7 +99,7 @@ function mockApi(t: test.TestContext, locales: { tag: string; isDefault: boolean
     if (path === "locales/remove") return json({ tag: input?.tag, isDefault: false });
     if (path === "drafts/get") {
       const id = request.headers.get("x-camox-draft");
-      return json({ id, kind: "regular", name: null, changeCount: 1, translatingLocales });
+      return json({ id, name: null, changeCount: 1, translatingLocales });
     }
     return json({});
   });

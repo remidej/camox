@@ -265,9 +265,7 @@ async function mergeIntoDrafts(env: Bindings, projectUuid: string, commit: strin
     .select({ id: drafts.id, threadId: drafts.threadId })
     .from(drafts)
     .innerJoin(projects, eq(projects.id, drafts.projectId))
-    .where(
-      and(eq(projects.uuid, projectUuid), eq(drafts.kind, "regular"), isNotNull(drafts.threadId)),
-    );
+    .where(and(eq(projects.uuid, projectUuid), isNotNull(drafts.threadId)));
   const merges = await Promise.allSettled(
     open.map(async ({ id, threadId }) => {
       if (!(await env.DRAFT_CODE.getByName(id).held())) return "noCode";

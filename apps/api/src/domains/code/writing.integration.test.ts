@@ -1,10 +1,10 @@
-import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createRpcContext, openDevelopmentDraft, startDraft } from "../../../test/fixtures";
+import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import { LOCKFILE } from "../../../test/revision-builds";
 import {
@@ -147,27 +147,6 @@ describe("the agent writing the website's code", () => {
       "blocks/hero.tsx",
     );
     later.close();
-  });
-
-  it("refuses writes in a development draft, whose code is the developer's own", async () => {
-    const website = await websiteWithCode();
-    const draftId = await openDevelopmentDraft(
-      website.db,
-      website.project.id,
-      website.memberUser.id,
-    );
-    const token = await signIn(website.db, website.memberUser.id);
-    const thread = await connectDraftThread(website.project.id, DEVELOPMENT_DRAFT, token);
-
-    const result = await toolResult(thread, "write", {
-      path: "src/blocks/pricing.tsx",
-      content: PRICING,
-    });
-    thread.close();
-
-    expect(result).toContain("development draft");
-    expect(await env.DRAFT_CODE.getByName(draftId).held()).toBe(false);
-    expect(await fakes.branches(website.project.uuid)).toEqual(["main"]);
   });
 
   it("refuses writes beyond the write line, naming the rule, and writes nothing", async () => {

@@ -28,8 +28,7 @@ import { startDraft } from "./service";
 export const CATCH_UP_DRAFT_NAME = "Translations";
 
 /** Whether Camox opened a draft, to catch translations up. */
-export const isCatchUpDraft = (row: { kind: string; createdBy: string }) =>
-  row.kind === "regular" && row.createdBy === CAMOX_ACTOR;
+export const isCatchUpDraft = (row: { createdBy: string }) => row.createdBy === CAMOX_ACTOR;
 
 /** The project's open catch-up draft's row, if any. */
 export const catchUpDraftOf = (db: Database, projectId: number) =>
@@ -37,13 +36,7 @@ export const catchUpDraftOf = (db: Database, projectId: number) =>
     db
       .select()
       .from(drafts)
-      .where(
-        and(
-          eq(drafts.projectId, projectId),
-          eq(drafts.kind, "regular"),
-          eq(drafts.createdBy, CAMOX_ACTOR),
-        ),
-      )
+      .where(and(eq(drafts.projectId, projectId), eq(drafts.createdBy, CAMOX_ACTOR)))
       .get(),
   );
 

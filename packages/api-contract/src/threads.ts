@@ -46,6 +46,17 @@ export const BRIEF_ENTRY = "camox.brief";
 export const DRAFT_ENDED_ENTRY = "camox.draft-ended";
 
 /**
+ * The kind of the transcript entry recording a member's push to the draft's code from their own
+ * checkout (ADR 0026), with a `pushDataSchema` as data. The model reads it as context, never
+ * answering it, and editors see who pushed, their commits, and whether they built.
+ */
+export const PUSH_ENTRY = "camox.push";
+
+/** How a pushed head's build ended: built, built with type errors, or built but not previewed. */
+export const pushOutcomeSchema = z.enum(["built", "typeErrors", "notPreviewed"]);
+export type PushOutcome = z.infer<typeof pushOutcomeSchema>;
+
+/**
  * The agent's tool on Live handing a request off to a draft it starts (ADR 0025). A run whose
  * call of it went through ends on the draft's card.
  */
@@ -84,6 +95,14 @@ export type ThreadSender = z.infer<typeof threadSenderSchema>;
 /** Whether `data` names a sender. */
 export const isSender = (data: unknown): data is ThreadSender =>
   threadSenderSchema.safeParse(data).success;
+
+/** What a push's entry records: who pushed, their commits' subjects, oldest first, and the build. */
+export const pushDataSchema = z.object({
+  pusher: threadSenderSchema,
+  subjects: z.array(z.string()),
+  outcome: pushOutcomeSchema,
+});
+export type PushData = z.infer<typeof pushDataSchema>;
 
 /**
  * What an editor's message entry records: who sent it, the operation id it was sent with, and for
@@ -166,7 +185,13 @@ export type ThreadMessage =
    * the draft's card, with its current name, which opens it. Once the draft ended, it has its
    * last name and how it ended, and opens nothing. The turn is finished.
    */
-  | ({ id: string; from: "draft"; ended?: DraftOutcome } & StartedDraftCard);
+  | ({ id: string; from: "draft"; ended?: DraftOutcome } & StartedDraftCard)
+  /**
+   * A member's push to the draft's code from their own checkout: who pushed, their commits'
+   * subjects, oldest first, and how the pushed head built. It's no turn: the agent doesn't
+   * answer it.
+   */
+  | { id: string; from: "push"; sender: ThreadSender; subjects: string[]; outcome: PushOutcome };
 
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
@@ -226,6 +251,8 @@ type ThreadStep = { id: string } & (
   | ({ type: "draft" } & StartedDraftCard)
   /** Where the build of the turn's code stands, as the turn ends. */
   | { type: "build"; status: BuildStatus }
+  /** A member's push, between turns. */
+  | ({ type: "push" } & PushData)
   /**
    * The end of the turn sent the agent back to work, after its answer: the answer wasn't the
    * turn's last, and what the agent was told is never shown.
@@ -275,8 +302,7 @@ export type ThreadServerMessage =
 
 /**
  * The code a thread closes its sockets with once it ended with its draft, and for good: it's
- * deleted, so reconnecting reaches nothing. A development draft, which stays open, gets a new
- * thread the next time the studio connects.
+ * deleted, so reconnecting reaches nothing.
  */
 export const THREAD_ENDED_CLOSE_CODE = 4000;
 
@@ -315,6 +341,10 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
   }
   // Only the model reads it: as a user message, it would otherwise read as Pi continuing a run.
   if (entry.kind === DRAFT_ENDED_ENTRY) return undefined;
+  if (entry.kind === PUSH_ENTRY) {
+    const push = pushDataSchema.safeParse(entry.data).data;
+    return push && { id, type: "push", ...push };
+  }
   const message = entry.model?.find((candidate) => candidate.role !== "system");
   if (!message) return undefined;
   if (message.role === "user") {
@@ -461,6 +491,16 @@ export function threadViewOf({
         break;
       case "build":
         status = step.status;
+        break;
+      case "push":
+        // Pushes land between turns: one doesn't end a turn, nor start one.
+        messages.push({
+          id: step.id,
+          from: "push",
+          sender: step.pusher,
+          subjects: step.subjects,
+          outcome: step.outcome,
+        });
         break;
       case "tools":
         unfinished = false;

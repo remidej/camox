@@ -528,12 +528,6 @@ importers:
         specifier: 'catalog:'
         version: 1.3.0(@types/node@24.12.4)(@vitest/ui@5.0.5(vitest@5.0.5))(esbuild@0.28.2)(happy-dom@21.0.2)(jiti@2.7.0)(tsx@4.23.15)(typescript@5.9.2)(yaml@2.9.0)
 
-  packages/create-camox:
-    dependencies:
-      '@camox/cli':
-        specifier: workspace:*
-        version: link:../cli
-
   packages/sdk:
     dependencies:
       '@base-ui/react':

@@ -14,8 +14,10 @@ import { MemoryFs } from "../src/lib/memory-fs";
 /** The host the fake repos' remotes are on. The tests route the API's outbound fetches to it. */
 export const FAKE_GIT_HOST = "artifacts.camox.test";
 
-/** The write token the fake's `createToken` mints, which a push must present. */
+/** The secret of the write tokens the fake's `createToken` mints, which a push must present. */
 export const FAKE_WRITE_TOKEN = "artifacts-write-token";
+/** A token's plaintext, as Cloudflare Artifacts takes it: the secret, then its expiry. */
+const BEARER_WRITE_TOKEN = new RegExp(`^Bearer ${FAKE_WRITE_TOKEN}(\\?expires=\\d+)?$`);
 
 const ZERO = "0".repeat(40);
 const MAIN = "refs/heads/main";
@@ -222,7 +224,10 @@ export async function gitLog(name: string) {
   return commits.map(({ oid, commit }) => ({ oid, message: commit.message.trimEnd() }));
 }
 
-/** Makes the next `times` pushes to the branch `branch` of the repo `name` fail without landing. */
+/**
+ * Makes the next `times` pushes to the branch `branch` of the repo `name` fail without landing:
+ * `*` names every branch but `main`.
+ */
 export function failPushes(name: string, branch: string, times: number) {
   const branches = failingPushes.get(name) ?? new Map<string, number>();
   branches.set(`refs/heads/${branch}`, times);
@@ -253,9 +258,11 @@ async function whileHeld(name: string, ref: string) {
 
 /** Whether a push to `ref` of the repo `name` is made to fail, counting it if so. */
 function pushFails(name: string, ref: string) {
-  const left = failingPushes.get(name)?.get(ref) ?? 0;
+  const branches = failingPushes.get(name);
+  const key = (branches?.get(ref) ?? 0) > 0 ? ref : ref === MAIN ? ref : "refs/heads/*";
+  const left = branches?.get(key) ?? 0;
   if (left === 0) return false;
-  failingPushes.get(name)!.set(ref, left - 1);
+  branches!.set(key, left - 1);
   return true;
 }
 
@@ -503,7 +510,7 @@ export async function serveGit(request: Request): Promise<Response> {
   const [, name, endpoint] = match;
   const service = endpoint === "info/refs" ? url.searchParams.get("service") : endpoint;
   if (service === "git-receive-pack") {
-    if (request.headers.get("authorization") !== `Bearer ${FAKE_WRITE_TOKEN}`) {
+    if (!BEARER_WRITE_TOKEN.test(request.headers.get("authorization") ?? "")) {
       return new Response("Unauthorized", { status: 401 });
     }
   }

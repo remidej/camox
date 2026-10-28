@@ -87,7 +87,7 @@ async function fixture(suffix: string, extraBlocks: TestDefinitionSet["blocks"] 
     .get();
   // Content is written in drafts (ADR 0003).
   const draftId = await startDraft(base.db, base.project.id, base.memberUser.id);
-  const draft = draftOf({ id: draftId, kind: "regular", projectId: base.project.id });
+  const draft = draftOf({ id: draftId, projectId: base.project.id });
   return { ...base, ctx: inScope(ctx, draft), page };
 }
 
@@ -437,45 +437,38 @@ describe("a definition sync", () => {
     }
   });
 
-  it.each(["a release", "dev mode"] as const)(
-    "in %s, stores the artifact fields' default sources, nested items' included, and the sources of definitions' default content",
-    async (target) => {
-      const { db, project, memberUser } = await createProjectFixture(
-        `artifact-sources-defaults-${crypto.randomUUID()}`,
-      );
-      const visualDefault = unique("Visual default");
-      const layerDefault = unique("Layer default");
-      const defaultVisual = unique("Default content visual");
-      const defaultScene = unique("Default content scene");
+  it("stores the artifact fields' default sources, nested items' included, and the sources of definitions' default content", async () => {
+    const { db, project } = await createProjectFixture(
+      `artifact-sources-defaults-${crypto.randomUUID()}`,
+    );
+    const visualDefault = unique("Visual default");
+    const layerDefault = unique("Layer default");
+    const defaultVisual = unique("Default content visual");
+    const defaultScene = unique("Default content scene");
 
-      await syncDefinitionSet(
-        db,
-        project,
+    await syncDefinitionSet(db, project, {
+      blocks: [
         {
-          blocks: [
-            {
-              blockId: "defaulted",
-              title: "Defaulted",
-              description: "Artifacts with defaults",
-              contentSchema: {
-                type: "object",
-                properties: {
-                  visual: field.artifact({ size: "fill", default: visualDefault }),
-                  scenes: {
-                    ...scenesField,
-                    items: {
-                      type: "object",
-                      properties: {
-                        scene: field.artifact({ size: "content" }),
-                        layers: {
-                          type: "array",
-                          fieldType: "Repeater",
-                          items: {
-                            type: "object",
-                            properties: {
-                              layer: field.artifact({ size: "content", default: layerDefault }),
-                            },
-                          },
+          blockId: "defaulted",
+          title: "Defaulted",
+          description: "Artifacts with defaults",
+          contentSchema: {
+            type: "object",
+            properties: {
+              visual: field.artifact({ size: "fill", default: visualDefault }),
+              scenes: {
+                ...scenesField,
+                items: {
+                  type: "object",
+                  properties: {
+                    scene: field.artifact({ size: "content" }),
+                    layers: {
+                      type: "array",
+                      fieldType: "Repeater",
+                      items: {
+                        type: "object",
+                        properties: {
+                          layer: field.artifact({ size: "content", default: layerDefault }),
                         },
                       },
                     },
@@ -483,20 +476,19 @@ describe("a definition sync", () => {
                 },
               },
             },
-            visualDefinition("withDefaultContent", {
-              synced: true,
-              defaultContent: { visual: defaultVisual, scenes: [{ scene: defaultScene }] },
-            }),
-          ],
+          },
         },
-        target === "dev mode" ? { as: memberUser } : {},
-      );
+        visualDefinition("withDefaultContent", {
+          synced: true,
+          defaultContent: { visual: defaultVisual, scenes: [{ scene: defaultScene }] },
+        }),
+      ],
+    });
 
-      for (const source of [visualDefault, layerDefault, defaultVisual, defaultScene]) {
-        await expectStored(project, source);
-      }
-    },
-  );
+    for (const source of [visualDefault, layerDefault, defaultVisual, defaultScene]) {
+      await expectStored(project, source);
+    }
+  });
 });
 
 describe("a definition change making existing content's fields artifacts", () => {
@@ -524,41 +516,33 @@ describe("a definition change making existing content's fields artifacts", () =>
     };
   };
 
-  it.each(["a release", "dev mode"] as const)(
-    "in %s, stores the sources the content already held, in Live and in drafts, items included",
-    async (target) => {
-      const { db, ctx, page, project, memberUser } = await fixture("reshaped", [promo("string")]);
-      const liveVisual = unique("Live visual");
-      const liveScene = unique("Live scene");
-      const draftVisual = unique("Draft visual");
-      const draftScene = unique("Draft scene");
-      await seedLiveThrough(ctx, project.id, (_, inDraft) =>
-        createBlock(inDraft, {
-          pageId: page.id,
-          type: "promo",
-          content: { visual: liveVisual, scenes: [{ scene: liveScene }] },
-        }),
-      );
-      await runService(
-        createBlock(ctx, {
-          pageId: page.id,
-          type: "promo",
-          content: { visual: draftVisual, scenes: [{ scene: draftScene }] },
-        }),
-      );
-      // Held as text, the content has no source to store yet.
-      await expectNotStored(project, liveVisual);
+  it("stores the sources the content already held, in Live and in drafts, items included", async () => {
+    const { db, ctx, page, project } = await fixture("reshaped", [promo("string")]);
+    const liveVisual = unique("Live visual");
+    const liveScene = unique("Live scene");
+    const draftVisual = unique("Draft visual");
+    const draftScene = unique("Draft scene");
+    await seedLiveThrough(ctx, project.id, (_, inDraft) =>
+      createBlock(inDraft, {
+        pageId: page.id,
+        type: "promo",
+        content: { visual: liveVisual, scenes: [{ scene: liveScene }] },
+      }),
+    );
+    await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "promo",
+        content: { visual: draftVisual, scenes: [{ scene: draftScene }] },
+      }),
+    );
+    // Held as text, the content has no source to store yet.
+    await expectNotStored(project, liveVisual);
 
-      await syncDefinitionSet(
-        db,
-        project,
-        { blocks: [promo("artifact")] },
-        target === "dev mode" ? { as: memberUser } : {},
-      );
+    await syncDefinitionSet(db, project, { blocks: [promo("artifact")] });
 
-      for (const source of [liveVisual, liveScene, draftVisual, draftScene]) {
-        await expectStored(project, source);
-      }
-    },
-  );
+    for (const source of [liveVisual, liveScene, draftVisual, draftScene]) {
+      await expectStored(project, source);
+    }
+  });
 });

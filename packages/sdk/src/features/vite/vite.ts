@@ -3,8 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
-import { projectIdSchema } from "@camox/api-contract/ids";
+import { generateUuidv7, projectIdSchema } from "@camox/api-contract/ids";
 import {
   type Logger,
   type Plugin,
@@ -60,7 +59,6 @@ import { buildClientThenWorker } from "./workerBuild";
 
 const PRODUCTION_API_URL = "https://api.camox.ai";
 import { VIRTUAL_CAMOX_APP, syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
-import { publishSeededContent } from "./publishSeededContent";
 import { cleanupGeneratedRouteFiles } from "./routeGeneration";
 import {
   RESOLVED_VIRTUAL_DEV_HTML,
@@ -99,8 +97,7 @@ type StoredAuth = NonNullable<ReturnType<typeof readAuthTokenForUrl>>;
  * CLI can pick up the same Project ID / apiUrl / authenticationUrl the
  * plugin actually used. The CLI treats the vite config as the source of
  * truth for those values — there is no other reliable way to recover them
- * from outside vite. No draft is written here: the CLI always works in the
- * developer's development draft (ADR 0010).
+ * from outside vite.
  */
 function writeRuntimeSidecar(
   root: string,
@@ -118,7 +115,11 @@ function writeRuntimeSidecar(
 
 /** What `_internal.afterSync` receives: an API client authenticated as the dev user. */
 export interface CamoxAfterSyncContext {
-  /** Sends the dev session and reads and writes the developer's development draft. */
+  /**
+   * Sends the dev session. Its first content write starts a regular draft, as an edit in the
+   * studio does, and it reads and writes that draft from then on. Until then it reads Live, so
+   * seeding that finds its content starts nothing.
+   */
   client: ServerApiClient;
   /** The project's Project ID, which API inputs name `projectUuid`. */
   projectUuid: string;
@@ -161,11 +162,10 @@ export interface CamoxPluginOptions {
      */
     afterSync?: (context: CamoxAfterSyncContext) => void | Promise<void>;
     /**
-     * Dev-only: a deploy token for seeding Live. When Live has no pages yet, the first sync
-     * releases the local definitions to Live, and the development draft is published after
-     * `afterSync`, so seeded content becomes Live instead of the draft's changes.
+     * Dev-only: the local API's Deploy Token. Dev mode runs only against a local API with it,
+     * and releases the app's definitions to local Live on every save (ADR 0027).
      */
-    seedLiveDeployToken?: string;
+    localDeployToken?: string;
   };
 }
 
@@ -290,6 +290,30 @@ function projectIdOf(options: CamoxPluginOptions): string {
   return options.projectId;
 }
 
+/** Whether an API URL is on this machine, as each checkout's own local API is. */
+function isLocalApi(apiUrl: string): boolean {
+  const { hostname } = new URL(apiUrl);
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]"
+  );
+}
+
+/**
+ * The Deploy Token dev mode releases with, refused when it's missing or the API isn't local:
+ * dev mode exists for Camox contributors, and a hosted project's code never comes from a machine.
+ */
+function localDeployTokenOf(apiUrl: string, options: CamoxPluginOptions): string {
+  const token = options._internal?.localDeployToken;
+  if (token && isLocalApi(apiUrl)) return token;
+  throw new Error(
+    "Camox: dev mode only runs against a local Camox API, with its internal Deploy Token. " +
+      "A hosted project's code reaches Camox through drafts and Upgrades.",
+  );
+}
+
 export function camox(options: CamoxPluginOptions): Plugin {
   const projectUuid = projectIdOf(options);
   const apiUrl = options._internal?.apiUrl ?? PRODUCTION_API_URL;
@@ -306,6 +330,8 @@ export function camox(options: CamoxPluginOptions): Plugin {
   let hostedProject: HostedProject | undefined;
   let resolvedConfig: ResolvedConfig;
   let localAuth: StoredAuth | null = null;
+  /** Set in dev mode, which releases to local Live with it. */
+  let localDeployToken: string | undefined;
   let blockChunks: Record<string, string[]> = {};
   let devServer: ViteDevServer | undefined;
 
@@ -403,14 +429,10 @@ export function camox(options: CamoxPluginOptions): Plugin {
       const release = process.env.CAMOX_INTERNAL_RELEASE;
       isRelease = isBuild && (release === "1" || release === "dry-run");
       isDryRun = isRelease && release === "dry-run";
-      if (!isRelease) {
-        localAuth = readAuthTokenForUrl(authenticationUrl);
-        if (isBuild && !localAuth) {
-          throw new Error(
-            "Camox: not authenticated. Run `npx camox login` before building the site.",
-          );
-        }
+      if (env.command === "serve" && !env.isPreview) {
+        localDeployToken = localDeployTokenOf(apiUrl, options);
       }
+      if (!isBuild) localAuth = readAuthTokenForUrl(authenticationUrl);
       return {
         // One build serves under any URL prefix: Live's `/`, or a revision's preview.
         ...(isBuild && {
@@ -451,8 +473,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
           __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: JSON.stringify(
             options._internal?.enableExperimentalFeatures ?? false,
           ),
-          // Anything but a release works in the developer's development draft (ADR 0006).
-          __CAMOX_DEVELOPMENT_DRAFT__: JSON.stringify(!isRelease),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),
           __CAMOX_PROJECT_ID__: JSON.stringify(projectUuid),
@@ -551,10 +571,12 @@ export function camox(options: CamoxPluginOptions): Plugin {
       }
 
       const mode = config.command === "serve" ? "Running" : "Building";
-      let target = "your development draft";
+      // A build that isn't a release reads Live, and releases nothing.
+      let target = "Live, not released";
       if (isDryRun) target = "Live, dry run";
       else if (isRelease) target = "Live";
-      else if (!localAuth) target = "authentication required";
+      else if (localDeployToken) target = "local Live";
+      else if (!isBuild && !localAuth) target = "authentication required";
       config.logger.info(`${mode} Camox app (${target})`, { timestamp: true });
     },
 
@@ -586,32 +608,26 @@ export function camox(options: CamoxPluginOptions): Plugin {
       }
 
       server.httpServer?.once("listening", () => {
-        if (!localAuth) return;
-        const authToken = localAuth.token;
+        if (!localDeployToken) return;
         void syncDefinitions(server, {
           projectUuid,
           apiUrl,
-          autoCreate: true,
-          authToken,
-          releaseToEmptyLive: options._internal?.seedLiveDeployToken,
-        }).then(async ({ synced, releasedToLive }) => {
-          if (!synced) return;
+          deployToken: localDeployToken,
+        }).then(async ({ synced }) => {
+          const afterSync = options._internal?.afterSync;
+          if (!synced || !afterSync || !localAuth) return;
           const context = {
-            client: createServerApiClient(apiUrl, authToken, DEVELOPMENT_DRAFT),
+            client: createServerApiClient(apiUrl, localAuth.token, generateUuidv7()),
             projectUuid,
             logger: server.config.logger,
           };
-          const afterSync = options._internal?.afterSync;
-          if (afterSync) {
-            try {
-              await afterSync(context);
-            } catch (error) {
-              context.logger.warn(`[camox] afterSync failed: ${String(error)}`, {
-                timestamp: true,
-              });
-            }
+          try {
+            await afterSync(context);
+          } catch (error) {
+            context.logger.warn(`[camox] afterSync failed: ${String(error)}`, {
+              timestamp: true,
+            });
           }
-          if (releasedToLive) await publishSeededContent(context);
         });
       });
     },
@@ -648,7 +664,6 @@ export function camox(options: CamoxPluginOptions): Plugin {
           definitionSet: await camoxModule.camoxApp.getDefinitionSet(),
           projectUuid,
           apiUrl,
-          autoCreate: false,
           deployToken,
           logger: resolvedConfig.logger,
         });

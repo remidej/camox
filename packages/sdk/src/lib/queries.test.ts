@@ -21,7 +21,6 @@ function openStudio(url: string) {
   const draftScope = createDraftScope({
     queryClient: new QueryClient(),
     browser: window as never,
-    developmentMode: false,
   });
   draftScope.adopt({
     draftId: new URL(window.location.href).searchParams.get("camox-draft") ?? undefined,

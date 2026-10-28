@@ -7,6 +7,7 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  startDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { plainTextToLexicalState } from "../../lib/lexical-state";
@@ -68,7 +69,12 @@ async function fixture(suffix: string) {
     live((_draft, c) =>
       createRecord(c, { ...scope, collectionId: "authors", content: { ...author, ...content } }),
     );
-  return { ...base, ctx, publicCtx, scope, create, edit, find, list, createAuthor };
+  /** The member's context in a draft they just started. */
+  const inDraft = async () => {
+    const draftId = await startDraft(base.db, base.project.id, base.memberUser.id);
+    return { ...ctx, draft: { id: draftId, create: false } };
+  };
+  return { ...base, ctx, publicCtx, scope, create, edit, find, list, createAuthor, inDraft };
 }
 
 describe("finding the records a record page renders", () => {
@@ -180,22 +186,16 @@ describe("finding the records a record page renders", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("never returns a development draft's record outside it, nor another project's", async () => {
+  it("never returns a draft's record outside it, nor another project's", async () => {
     const f = await fixture("isolation");
     const live = await f.create({});
-    const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await syncDefinitionSet(
-      f.db,
-      f.project,
-      { collections: [definition, authorsDefinition] },
-      { as: f.memberUser },
-    );
-    // Live's record shows through in the development draft.
-    expect((await f.find("hello", devCtx)).map((record) => record.id)).toEqual([live.id]);
+    const draftCtx = await f.inDraft();
+    // Live's record shows through in the draft.
+    expect((await f.find("hello", draftCtx)).map((record) => record.id)).toEqual([live.id]);
     const drafted = await runService(
-      createRecord(devCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
+      createRecord(draftCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
     );
-    expect((await f.find("drafted", devCtx)).map((record) => record.id)).toEqual([drafted.id]);
+    expect((await f.find("drafted", draftCtx)).map((record) => record.id)).toEqual([drafted.id]);
     expect(await f.find("drafted")).toEqual([]);
     const other = await fixture("isolation-other");
     expect(await other.find("hello")).toEqual([]);
@@ -218,15 +218,9 @@ describe("listing the records that can have a page", () => {
   it("names each record by its title, as Live reads it for visitors", async () => {
     const f = await fixture("list-label");
     const record = await f.create({ title: "Live title", slug: "labelled" });
-    const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await syncDefinitionSet(
-      f.db,
-      f.project,
-      { collections: [definition, authorsDefinition] },
-      { as: f.memberUser },
-    );
+    const draftCtx = await f.inDraft();
     await runService(
-      editRecord(devCtx, {
+      editRecord(draftCtx, {
         ...f.scope,
         id: record.id,
         content: { ...article, title: "Drafted title", slug: "labelled" },
@@ -236,7 +230,7 @@ describe("listing the records that can have a page", () => {
     expect(await f.list()).toEqual([
       { id: record.id, value: "labelled", title: "Live title", description: null },
     ]);
-    expect(await f.list(devCtx)).toEqual([
+    expect(await f.list(draftCtx)).toEqual([
       { id: record.id, value: "labelled", title: "Drafted title", description: null },
     ]);
   });
@@ -255,18 +249,12 @@ describe("listing the records that can have a page", () => {
   it("stays in its draft and project", async () => {
     const f = await fixture("list-isolation");
     const live = await f.create({});
-    const devCtx = { ...f.ctx, draft: { development: true as const } };
-    await syncDefinitionSet(
-      f.db,
-      f.project,
-      { collections: [definition, authorsDefinition] },
-      { as: f.memberUser },
-    );
-    // Live's record shows through in the development draft; the draft's own stays out of Live.
+    const draftCtx = await f.inDraft();
+    // Live's record shows through in the draft; the draft's own stays out of Live.
     const drafted = await runService(
-      createRecord(devCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
+      createRecord(draftCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
     );
-    expect((await f.list(devCtx)).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
+    expect((await f.list(draftCtx)).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
       { id: drafted.id, value: "drafted", title: "Hello", description: null },
       { id: live.id, value: "hello", title: "Hello", description: null },
     ]);

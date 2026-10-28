@@ -61,18 +61,6 @@ export class LiveReadOnlyError extends Data.TaggedError("LiveReadOnlyError")<Opt
   }
 }
 
-/**
- * The request names the caller's development draft, which doesn't exist yet: dev mode's first
- * sync after login creates it (ADR 0006).
- */
-export class NoDevelopmentDraftError extends Data.TaggedError(
-  "NoDevelopmentDraftError",
-)<OptionalMessage> {
-  constructor(args: OptionalMessage = {}) {
-    super(args);
-  }
-}
-
 /** Live changed since the publish preview the caller confirmed, so nothing was published. */
 export class ConflictsChangedError extends Data.TaggedError("ConflictsChangedError")<{
   readonly message: string;
@@ -101,6 +89,16 @@ export class TranslationsPendingError extends Data.TaggedError("TranslationsPend
   readonly translating: readonly string[];
 }> {}
 
+/**
+ * A member's push was refused, writing nothing (ADR 0026): `reason` is its stable code, and a
+ * push that doesn't build has its build's errors.
+ */
+export class PushRefusedError extends Data.TaggedError("PushRefusedError")<{
+  readonly reason: string;
+  readonly message: string;
+  readonly data?: Record<string, unknown>;
+}> {}
+
 export type ServiceError =
   | UnauthenticatedError
   | ForbiddenError
@@ -109,11 +107,11 @@ export type ServiceError =
   | ConflictError
   | DraftEndedError
   | LiveReadOnlyError
-  | NoDevelopmentDraftError
   | ConflictsChangedError
   | PublishBlockedError
   | RevisionChangedError
-  | TranslationsPendingError;
+  | TranslationsPendingError
+  | PushRefusedError;
 
 // --- Helpers ---
 

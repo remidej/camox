@@ -64,7 +64,7 @@ function definitionChanged(
 
 // --- Reads ---
 
-/** The block definitions the request's draft scope reads: a development draft's, else Live's. */
+/** The block definitions the request's draft scope reads: a draft with code's, else Live's. */
 export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinitions")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listBlockDefinitionsInput>,
@@ -108,7 +108,7 @@ export type SyncedDefinitions = Map<string, SyncedDefinition>;
 
 /**
  * Plans replacing the whole set of block definitions in a sync's target: Live for a release, or
- * the development draft for dev mode. Each definition's shared content follows its synced flag.
+ * a draft with code for a revision's sync. Each definition's shared content follows its synced flag.
  * Content never blocks it (ADR 0006, ADR 0007).
  *
  * Tells the definitions the target holds once the plan ran, for the parts of the sync planned

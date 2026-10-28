@@ -94,13 +94,12 @@ async function fixture(suffix: string) {
     .insert(drafts)
     .values({
       projectId: base.project.id,
-      kind: "regular",
       createdBy: base.memberUser.id,
       createdAt: Date.now(),
     })
     .returning()
     .get();
-  const draft = { id: openedDraft.id, kind: openedDraft.kind, projectId: openedDraft.projectId };
+  const draft = { id: openedDraft.id, projectId: openedDraft.projectId };
   return { ...base, ctx, page, draft };
 }
 

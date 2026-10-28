@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -7,15 +7,12 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
 
-// The AI tools that publish and delete the session's draft (ADR 0009), as the CLI calls them
-// through the agent procedures in the caller's development draft (ADR 0010).
-
-const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
+// The AI tools that publish and delete the request's draft (ADR 0009), called through the agent
+// procedures.
 
 type ToolResponse = { ok: true; result: any } | { ok: false; error: { code: string } };
 
@@ -50,15 +47,16 @@ async function fixture() {
     { pageId: page.id, type: "hero", content: { title: "Live" } },
     member(),
   );
-  await openDevelopmentDraft(base.db, projectId, base.memberUser.id);
+  const draft = await call(router.drafts.create, { projectId }, member());
+  const inDraft = { [DRAFT_HEADER]: draft.id };
 
-  const callTool = async (name: string, args: unknown = {}, headers = development) =>
+  const callTool = async (name: string, args: unknown = {}, headers = inDraft) =>
     (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
       member(headers),
     )) as ToolResponse;
-  const result = async (name: string, args: unknown = {}, headers = development) => {
+  const result = async (name: string, args: unknown = {}, headers = inDraft) => {
     const response = await callTool(name, args, headers);
     if (!response.ok) throw new Error(`${name} failed: ${JSON.stringify(response.error)}`);
     return response.result;
@@ -77,13 +75,13 @@ async function fixture() {
     await call(router.drafts.publish, { projectId, token }, inOther);
   };
 
-  return { block, callTool, result, editTitle, titleIn, publishedOnLive };
+  return { block, inDraft, callTool, result, editTitle, titleIn, publishedOnLive };
 }
 
 describe("draft AI tools", () => {
-  it("previewPublish lists the development draft's changes with a token, and publishDraft with it publishes to Live", async () => {
+  it("previewPublish lists the draft's changes with a token, and publishDraft with it publishes to Live", async () => {
     const f = await fixture();
-    await f.editTitle("Mine", development);
+    await f.editTitle("Mine", f.inDraft);
 
     const preview = await f.result("previewPublish");
     expect(preview).toMatchObject({ blockers: [], conflicts: [], lost: [], warnings: [] });
@@ -96,12 +94,11 @@ describe("draft AI tools", () => {
       published: true,
     });
     expect(await f.titleIn()).toBe("Mine");
-    expect((await f.result("previewPublish")).changes).toEqual([]);
   });
 
   it("publishDraft with a stale token publishes nothing and returns the new list with a fresh token", async () => {
     const f = await fixture();
-    await f.editTitle("Mine", development);
+    await f.editTitle("Mine", f.inDraft);
     const { token, conflicts } = await f.result("previewPublish");
     expect(conflicts).toEqual([]);
 
@@ -121,7 +118,7 @@ describe("draft AI tools", () => {
     expect(await f.titleIn()).toBe("Mine");
   });
 
-  it("publishDraft on a development draft without changes says there is nothing to publish", async () => {
+  it("publishDraft on a draft without changes says there is nothing to publish", async () => {
     const f = await fixture();
     const { token } = await f.result("previewPublish");
 
@@ -134,13 +131,11 @@ describe("draft AI tools", () => {
 
   it("publishDraft on a draft an earlier attempt deleted says it was deleted, not published", async () => {
     const f = await fixture();
-    const draft = generateUuidv7();
-    await f.editTitle("Deleted", { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" });
-    const inDraft = { [DRAFT_HEADER]: draft };
-    const { token } = await f.result("previewPublish", {}, inDraft);
-    await f.result("deleteDraft", {}, inDraft);
+    await f.editTitle("Deleted", f.inDraft);
+    const { token } = await f.result("previewPublish");
+    await f.result("deleteDraft");
 
-    expect(await f.result("publishDraft", { token }, inDraft)).toMatchObject({
+    expect(await f.result("publishDraft", { token })).toMatchObject({
       published: false,
       reason: "deleted",
       ended: { outcome: "deleted" },
@@ -148,15 +143,13 @@ describe("draft AI tools", () => {
     expect(await f.titleIn()).toBe("Live");
   });
 
-  it("deleteDraft empties the development draft and leaves Live untouched", async () => {
+  it("deleteDraft ends the draft and leaves Live untouched", async () => {
     const f = await fixture();
-    await f.editTitle("Deleted", development);
-    expect(await f.titleIn(development)).toBe("Deleted");
+    await f.editTitle("Deleted", f.inDraft);
+    expect(await f.titleIn(f.inDraft)).toBe("Deleted");
 
-    await f.result("deleteDraft");
+    expect(await f.result("deleteDraft")).toMatchObject({ ended: { outcome: "deleted" } });
 
-    expect((await f.result("previewPublish")).changes).toEqual([]);
-    expect(await f.titleIn(development)).toBe("Live");
     expect(await f.titleIn()).toBe("Live");
   });
 

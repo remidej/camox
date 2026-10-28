@@ -2,8 +2,7 @@ import { stableStringify } from "../../lib/stable-stringify";
 
 // A definition's schema hash covers what shapes content (ADR 0006): block content and settings
 // schemas, the synced and layout-only flags, a layout's kind, and a collection's content schema.
-// Titles, descriptions and defaults don't count. A development draft publishes only while its
-// definitions have the same names and hashes as Live's.
+// Titles, descriptions and defaults don't count.
 
 async function sha256(value: unknown) {
   const bytes = new TextEncoder().encode(stableStringify(value));

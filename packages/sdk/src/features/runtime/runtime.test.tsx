@@ -229,7 +229,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
   assert.ok(calls.includes("/rpc/layouts/get"));
 });
 
-void test("visitors and members load the same curated page, and only members with native session cookies get the Studio", async (t) => {
+void test("visitors and members load the same curated page, and only members with a studio session get the Studio", async (t) => {
   const pageReads: Array<string | null> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     if (new URL(request.url).pathname.endsWith("/locales/list")) return localesResponse();
@@ -277,8 +277,8 @@ void test("visitors and members load the same curated page, and only members wit
       assert.match(await anonymous!.text(), /Page for public/);
     }
     for (const cookie of [
-      "better-auth.session_token=valid",
-      "__Secure-better-auth.session_token=valid",
+      `camox_auth_cookie=${encodeURIComponent("better-auth.session_token=valid")}`,
+      `camox_auth_cookie=${encodeURIComponent("__Secure-better-auth.session_token=valid")}`,
     ]) {
       const response = await handleCamoxRequest(
         new Request(`https://site.test${path}`, { headers: { Cookie: cookie } }),
@@ -426,10 +426,6 @@ void test("the Canvas route opens the page app with nothing selected", async (t)
     assert.equal(await draft("/_camox/data?path=/camox/canvas"), undefined, "Live");
     assert.equal(await draft("/_camox/data?path=/camox/canvas&camox-draft=spring"), "spring");
     assert.equal(
-      await draft("/_camox/data?path=/camox/canvas", { developmentDraft: true }),
-      "development",
-    );
-    assert.equal(
       await draft("/_camox/data?path=/camox/canvas&camox-draft=spring", {}, false),
       undefined,
       "anyone else sees Live",
@@ -453,7 +449,7 @@ void test("a curated page's Markdown is one read of the API, without a session",
   });
   const response = await handleCamoxRequest(
     new Request("https://site.test/fr/about", {
-      headers: { Accept: "text/markdown", Cookie: "better-auth.session_token=valid" },
+      headers: { Accept: "text/markdown", Cookie: "camox_auth_cookie=valid" },
     }),
     { apiUrl: "https://api.test", projectUuid: "test" },
   );

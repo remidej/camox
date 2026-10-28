@@ -1,4 +1,3 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import {
   EMPTY_THREAD_STATE,
   reduceThreadFrame,
@@ -37,10 +36,10 @@ export type UseThreadOptions = {
 /**
  * Follows a thread in a project over its socket, folding Pi's events into the thread's view: the
  * signed-in editor's Live thread when `draftId` is null, or the draft's thread, which `draftId`
- * names as the draft header does (`development` in dev mode). A message is resent with its
+ * names. A message is resent with its
  * operation id each time the thread shows itself after the socket opens, until it accepts it,
  * which records it once, or turns it down. A draft's thread that ended with its draft isn't
- * reconnected to, but for a development draft's, which moves on to a new thread. Mount it once
+ * reconnected to. Mount it once
  * per project and draft.
  *
  * When the agent on Live hands a request off to a draft it started, the studio that sent a
@@ -80,12 +79,6 @@ export function useThread(
     maxEnqueuedMessages: 0,
     // A thread that ended with its draft is deleted: reconnecting would reach nothing.
     shouldReconnectOnClose: (event) => event.code !== THREAD_ENDED_CLOSE_CODE,
-    onClose(event) {
-      // A development draft stays open, and its new thread starts empty: move on to it at once.
-      if (event.code === THREAD_ENDED_CLOSE_CODE && draftId === DEVELOPMENT_DRAFT) {
-        socket.reconnect();
-      }
-    },
     onOpen() {
       shown.current = false;
     },

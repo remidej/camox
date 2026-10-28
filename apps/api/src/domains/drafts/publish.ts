@@ -27,7 +27,6 @@ import {
   repeatableItems,
   sharedContents,
 } from "../../schema";
-import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { sharedPlacementId } from "../blocks/shared-content";
 import { deleteDraftCode } from "../code/drafts";
@@ -129,7 +128,6 @@ export type LostChange = Subject & InLocale & { reason: (typeof LOSS_REASONS)[nu
 
 /** What a blocker or warning is about. */
 export const PROBLEM_CODES = [
-  "definitionsDiffer",
   "codeDoesNotBuild",
   "codeDoesNotTypeCheck",
   "codeDoesNotMerge",
@@ -227,78 +225,6 @@ const decodeToken = (token: string) =>
     catch: () => new InvalidInputError({ message: "Invalid publish token" }),
   });
 
-// --- Definitions of a development draft (ADR 0006) ---
-
-type DefinitionRow = { name: string; schemaHash: string };
-
-const DEFINITION_KINDS = [
-  { kind: "block", label: "Block", table: blockDefinitions, name: blockDefinitions.blockId },
-  { kind: "layout", label: "Layout", table: layouts, name: layouts.layoutId },
-  {
-    kind: "collection",
-    label: "Collection",
-    table: collectionDefinitions,
-    name: collectionDefinitions.collectionId,
-  },
-] as const;
-
-/**
- * A development draft publishes only while its definitions match Live's: the same names, and
- * the same schema hash for each (ADR 0006). Each definition that differs is a blocker, until a
- * release gives Live the same definitions. Regular drafts read Live's definitions.
- */
-const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-) {
-  if (scope.kind !== "development") return [];
-  const blockers: Problem[] = [];
-  for (const { kind, label, table, name } of DEFINITION_KINDS) {
-    const read = (definitions: DraftScope) =>
-      Effect.promise(() =>
-        ctx.db
-          .select({ name, schemaHash: table.schemaHash })
-          .from(table)
-          .where(and(eq(table.projectId, scope.projectId), definitionsIn(table, definitions))),
-      ) as Effect.Effect<DefinitionRow[]>;
-    const live = new Map((yield* read(null)).map((row) => [row.name, row.schemaHash]));
-    const local = new Map((yield* read(scope)).map((row) => [row.name, row.schemaHash]));
-    const blocker = (definition: string, message: string): Problem => ({
-      entity: "definition",
-      id: `${kind}:${definition}`,
-      label: `${label} "${definition}"`,
-      owner: null,
-      locale: null,
-      code: "definitionsDiffer",
-      field: "",
-      fieldKind: null,
-      blockId: null,
-      message,
-    });
-    for (const [definition, hash] of local) {
-      if (!live.has(definition)) {
-        blockers.push(blocker(definition, "Only in your local code: release it before publishing"));
-        continue;
-      }
-      if (live.get(definition) !== hash) {
-        blockers.push(
-          blocker(definition, "Differs from Live's: release your local code before publishing"),
-        );
-      }
-    }
-    for (const definition of live.keys()) {
-      if (local.has(definition)) continue;
-      blockers.push(
-        blocker(
-          definition,
-          "On Live but not in your local code: sync or release before publishing",
-        ),
-      );
-    }
-  }
-  return blockers.sort((a, b) => (a.id < b.id ? -1 : 1));
-});
-
 // --- The draft's code (spec #560, section 10) ---
 
 /** A blocker about the draft's code, which only the agent fixes, in the draft's thread. */
@@ -326,11 +252,16 @@ const codeBlocker = (
  * type check.
  */
 const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, scope: Scope) {
-  if (scope.kind === "development") return { code: null, blockers: [] };
   const { code, head, clashed } = yield* Effect.promise(() =>
     codeOfDraft(ctx.env, ctx.db, scope.id),
   );
   const blockers: Problem[] = [];
+  // Who wrote the head, and who fixes it: a member's push is theirs to fix, or the agent's.
+  const pushed = head?.leftBy === "push";
+  const changes = pushed ? "The code pushed last" : "The agent's latest code changes";
+  const fix = pushed
+    ? "fix them in your checkout and push again, or ask Camox's agent in the draft's thread"
+    : "ask it to fix them in the draft's thread";
   if (clashed) {
     blockers.push(
       codeBlocker(
@@ -344,7 +275,7 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
       codeBlocker(
         scope.id,
         "codeDoesNotBuild",
-        "The agent's latest code changes don't build: ask it to fix them in the draft's thread",
+        `${changes} ${pushed ? "doesn't" : "don't"} build: ${fix}`,
       ),
     );
   } else if (
@@ -355,18 +286,14 @@ const checkCode = Effect.fn("drafts.checkCode")(function* (ctx: ServiceContext, 
   ) {
     // It built, but the draft can't use its definitions, so the preview doesn't show it.
     blockers.push(
-      codeBlocker(
-        scope.id,
-        "codeDoesNotBuild",
-        "The agent's latest code changes can't be shown in the preview: ask it to fix them in the draft's thread",
-      ),
+      codeBlocker(scope.id, "codeDoesNotBuild", `${changes} can't be shown in the preview: ${fix}`),
     );
   } else if (head?.buildStatus === "built" && head.typeCheckStatus === "failed") {
     blockers.push(
       codeBlocker(
         scope.id,
         "codeDoesNotTypeCheck",
-        "The agent's latest code changes have type errors: ask it to fix them in the draft's thread",
+        `${changes} ${pushed ? "has" : "have"} type errors: ${fix}`,
       ),
     );
   }
@@ -442,7 +369,6 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
 
   const checkedCode = yield* checkCode(ctx, scope);
   const blockers = [
-    ...(yield* checkDefinitions(ctx, scope)),
     ...checkedCode.blockers,
     ...fileChecks.blockers.map(asProblem),
     ...checked.blockers.map(asProblem),
@@ -747,8 +673,7 @@ const recordEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft |
 
 /**
  * What publishing did: nothing, for an empty draft, which publishing leaves as is; or how the
- * draft ended, also when an earlier attempt ended it (null for a development draft, which stays
- * open, emptied).
+ * draft ended, also when an earlier attempt ended it.
  */
 export type PublishResult =
   | { empty: true; ended: null }
@@ -805,7 +730,6 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
         ...patrolReports.endStatements(ctx.db, scope.id),
-        ...thread.statements,
         ...(options.after ?? []),
       ],
     }),
@@ -893,7 +817,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       return yield* new RevisionChangedError({
         message: preview.code.building
           ? "The draft's latest code changes are still building: publish once they're done"
-          : "The agent changed the draft's code since the review. Review it again before publishing.",
+          : "The draft's code changed since the review. Review it again before publishing.",
       });
     }
     const startPublishAt = Date.now();
@@ -1073,7 +997,7 @@ const previewsRevisionGuard = (draftId: string, revision: string): BatchItem =>
  * Live's rows go, and the draft's become Live's, before the draft's own would cascade with it.
  */
 function definitionsPublishStatements(db: ServiceContext["db"], scope: Scope): BatchItem[] {
-  return DEFINITION_KINDS.flatMap(({ table }) => [
+  return [blockDefinitions, layouts, collectionDefinitions].flatMap((table) => [
     db.delete(table).where(and(eq(table.projectId, scope.projectId), isNull(table.draftId))),
     db.update(table).set({ draftId: null }).where(eq(table.draftId, scope.id)),
   ]);
@@ -1129,9 +1053,8 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
 });
 
 /**
- * Deletes the request's draft: a regular draft is deleted with every row it stores, a
- * development draft is emptied. Returns how the draft ended, also when an earlier attempt
- * ended it.
+ * Deletes the request's draft with every row it stores. Returns how the draft ended, also when
+ * an earlier attempt ended it.
  */
 export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
   ctx: ServiceContext,
@@ -1154,7 +1077,6 @@ export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
         ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
         ...patrolReports.endStatements(ctx.db, scope.id),
-        ...thread.statements,
       ],
     }),
   );

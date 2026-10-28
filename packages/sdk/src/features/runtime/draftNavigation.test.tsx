@@ -84,7 +84,6 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
   const draftScope = createDraftScope({
     queryClient,
     browser: window as never,
-    developmentMode: false,
   });
   const notices: DraftNotice[] = [];
   t.after(draftScope.onNotice((notice) => notices.push(notice)));

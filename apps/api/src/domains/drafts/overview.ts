@@ -84,8 +84,8 @@ export function overviewOf(row: DraftRow, fingerprint: string | null): Overview 
 
 /**
  * Requests a draft's overview, after the debounce or `immediately`: a newer request replaces a
- * pending one. Nothing is requested for an ended draft, a draft that stores nothing, as a
- * development draft publishing emptied, or a catch-up draft, which no one reviews before Camox
+ * pending one. Nothing is requested for an ended draft, a draft that stores nothing, or a
+ * catch-up draft, which no one reviews before Camox
  * publishes it. Scheduling doesn't hold up the request; one that can't be scheduled fails the
  * overview, for Retry to request again.
  */
@@ -145,8 +145,7 @@ export const failOverview = (db: Database, projectId: number, draftId: string, s
   });
 
 /**
- * Clears a draft's overview in the batch that publishes or deletes it: a regular draft goes with
- * its overview, and a development draft, emptied, describes nothing until it changes again.
+ * Clears a draft's overview in the batch that publishes or deletes it.
  */
 export function clearStatements(db: Database, draftId: string): overlay.BatchItem[] {
   return [

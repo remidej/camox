@@ -61,7 +61,7 @@ export type Change =
   | { kind: "report"; projectId: number; draftId: string | null }
   /** A draft's overview: requested, written, or failed. It shows in the draft's review only. */
   | { kind: "overview"; projectId: number; draftId: string }
-  /** Definitions synced into Live by a release, or into a development draft by dev mode. */
+  /** Definitions synced into Live by a release, or into a draft with code by a revision. */
   | { kind: "definitions"; projectId: number; draftId: string | null }
   /** A draft was started, renamed, or emptied: what the drafts list shows changed. */
   | { kind: "drafts"; projectId: number }

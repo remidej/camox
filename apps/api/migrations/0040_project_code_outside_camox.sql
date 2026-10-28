@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `code_outside_camox` integer DEFAULT false NOT NULL;

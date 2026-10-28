@@ -61,13 +61,12 @@ async function fixture(suffix: string) {
       .insert(drafts)
       .values({
         projectId: base.project.id,
-        kind: "regular",
         createdBy: base.memberUser.id,
         createdAt: Date.now(),
       })
       .returning()
       .get();
-    return { id: draft.id, kind: draft.kind, projectId: draft.projectId };
+    return { id: draft.id, projectId: draft.projectId };
   };
   /** Creates a block in a draft, or on Live through a published draft. */
   const create = (title: string, scope: DraftScope = null) => {

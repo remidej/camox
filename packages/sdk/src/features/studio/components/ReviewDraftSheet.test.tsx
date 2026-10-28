@@ -110,7 +110,6 @@ type Call = { path: string; input: unknown; draft: string | null };
 
 const draft = {
   id: draftId,
-  kind: "regular",
   name: null as string | null,
   createdBy: { id: "user-2", name: "Ada" },
   createdAt: new Date(2026, 9, 13, 12).getTime(),
@@ -204,7 +203,6 @@ async function openReview() {
   draftScope = createDraftScope({
     queryClient: client,
     browser: window as never,
-    developmentMode: false,
   });
   draftScope.adopt({ draftId });
   initApiClient("http://api.test", draftScope);
@@ -323,7 +321,6 @@ void test("titles the review with the overview's headline, the draft's name and 
       },
     }),
   );
-  drafted = { kind: "development" };
   const close = await openReview();
   try {
     assert.equal(sheetTitle(), "Retitles the homepage hero");
@@ -336,7 +333,7 @@ void test("titles the review with the overview's headline, the draft's name and 
   }
 });
 
-void test("keeps a regular draft's name renamable above the headline", async (t) => {
+void test("keeps the draft's name renamable above the headline", async (t) => {
   mockApi(t, () =>
     json({
       ...emptyPreview,
@@ -376,12 +373,12 @@ void test("keeps showing a stale overview, saying it's updating", async (t) => {
 
 void test("says it's summarizing the draft while the overview is pending, titled with the draft's label", async (t) => {
   mockApi(t, () => json({ ...emptyPreview, overview: { status: "pending" } }));
-  drafted = { kind: "development" };
+  drafted = { name: "Spring launch" };
   const close = await openReview();
   try {
     assert.match(dialogText(), /Summarizing this draft…/);
     assert.ok(window.document.querySelector('[role="dialog"] [data-slot="skeleton"]'));
-    assert.equal(sheetTitle(), "Development draft");
+    assert.equal(sheetTitle(), "Spring launch");
   } finally {
     await close();
   }
@@ -842,18 +839,6 @@ void test("gives no action to a blocker with no page to show", async (t) => {
       ...emptyPreview,
       blockers: [
         {
-          entity: "definition",
-          id: "block:hero",
-          label: 'Block "hero"',
-          owner: null,
-          locale: null,
-          code: "definitionsDiffer",
-          field: "",
-          fieldKind: null,
-          blockId: null,
-          message: "Differs from Live's: release your local code before publishing",
-        },
-        {
           ...blockerIn("wrongKindValue", "title", "String", "wrong kind in the layout"),
           owner: { kind: "layout", name: "default" },
         },
@@ -862,62 +847,29 @@ void test("gives no action to a blocker with no page to show", async (t) => {
   );
   const close = await openReview();
   try {
-    assert.equal(
-      cardAction("Differs from Live's: release your local code before publishing"),
-      null,
-    );
     assert.equal(cardAction("wrong kind in the layout"), null);
   } finally {
     await close();
   }
 });
 
-void test("names a definition that differs from Live's as a blocker of its own, without a place to find it", async (t) => {
-  mockApi(t, () =>
-    json({
-      ...emptyPreview,
-      blockers: [
-        {
-          entity: "definition",
-          id: "hero",
-          label: "Hero",
-          owner: null,
-          code: "definitionsDiffer",
-          field: "",
-          message: "its definition differs from Live's",
-        },
-      ],
-    }),
-  );
-  const close = await openReview();
-  try {
-    assert.match(dialogText(), /its definition differs from Live's/);
-    assert.doesNotMatch(dialogText(), /Elsewhere/);
-    assert.equal(publishButton()?.disabled, true);
-  } finally {
-    await close();
-  }
-});
-
 void test("folds problems sharing a message into one item naming each", async (t) => {
-  const definition = (id: string) => ({
-    entity: "definition",
+  const wrongKind = (id: string) => ({
+    ...blockerIn("wrongKindValue", "title", "String", "Holds a value of the wrong kind"),
     id,
     label: `Block "${id}"`,
     owner: null,
-    code: "definitionsDiffer",
-    field: "",
-    message: "Only in your local code: release it before publishing",
+    blockId: id,
   });
   mockApi(t, () =>
     json({
       ...emptyPreview,
-      blockers: ["hero", "footer", "quote"].map(definition),
+      blockers: ["hero", "footer", "quote"].map(wrongKind),
     }),
   );
   const close = await openReview();
   try {
-    assert.equal(dialogText().match(/Only in your local code/g)?.length, 1);
+    assert.equal(dialogText().match(/Holds a value of the wrong kind/g)?.length, 1);
     assert.match(dialogText(), /Block "hero".*Block "footer".*Block "quote"/);
   } finally {
     await close();
@@ -1520,7 +1472,7 @@ void test("says why the last publish with code went back to the review", async (
   );
   const close = await openReview();
   try {
-    assert.match(dialogText(), /The agent changed the code since this review opened/);
+    assert.match(dialogText(), /The draft's code changed since this review opened/);
     assert.equal(publishButton()?.disabled, false);
   } finally {
     await close();

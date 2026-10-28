@@ -6,6 +6,8 @@ import {
   type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
+  PUSH_ENTRY,
+  type PushData,
   isSender,
   RECONCILE_ENTRY,
   RUN_STOPPED_ENTRY,
@@ -40,7 +42,7 @@ import {
   wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
-import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
 import {
   type CapabilityStartContext,
@@ -56,6 +58,7 @@ import { z } from "zod";
 
 import { createDb } from "../db";
 import { agentServiceContext } from "../domains/_shared/service-context";
+import { type CheckedLanding, type Landing, landPush } from "../domains/code-pushes/land";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
 import { codeInstructions } from "../domains/code/prompt";
@@ -175,6 +178,27 @@ const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
 
 /** The key recording that the thread ended with its draft, all a thread keeps once it did. */
 export const ENDED_KEY = "camox.ended";
+
+/**
+ * How often a push queued behind the agent's turn checks the turn is still going, should its end
+ * not land it. A tuning value.
+ */
+const TURN_CHECK_MS = 1_000;
+
+/** What the model reads of a member's push: context, which it doesn't answer. */
+function pushNote({ pusher, subjects, outcome }: PushData) {
+  const commits = subjects.map((subject) => `\n- ${subject}`).join("");
+  const built = {
+    built: "It built.",
+    typeErrors: "It built, with type errors, which block publishing.",
+    notPreviewed: "It built, but the preview can't show it.",
+  }[outcome];
+  return (
+    `Note from Camox: ${pusher.name} pushed commits to this draft's code from their own ` +
+    `checkout:${commits}\n\n${built} The draft's code is now as they pushed it: read it again ` +
+    "before changing it. This is context, not a request: don't answer it."
+  );
+}
 
 /** `WebSocket.OPEN`, which isn't defined on every runtime's global. */
 const OPEN = 1;
@@ -436,6 +460,7 @@ export class Thread extends DurableObject<Bindings> {
               const next = await this.#onYield(api, context);
               if (!next && api.conversationId === ROOT_CONVERSATION_ID) {
                 await this.#endTurnTiming(api, context);
+                await this.#landPushesAfterTheTurn();
               }
               return next;
             },
@@ -605,13 +630,12 @@ export class Thread extends DurableObject<Bindings> {
         });
         this.#draftsWithCode.add(draftId);
       };
-      const draftId = await runService(
+      return runService(
         Effect.scoped(
           Effect.gen(function* () {
             const { scope: draft } = yield* writeAccessWhilePublishing(ctx, {
               project: actor.projectId,
             });
-            if (draft.kind === "development") return null;
             if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
               yield* Effect.promise(() => startCode(draft.id));
             }
@@ -619,14 +643,6 @@ export class Thread extends DurableObject<Bindings> {
           }),
         ),
       );
-      // A development draft's code is the developer's own, in their checkout.
-      if (draftId === null) {
-        throw new FileError(
-          "permission_denied",
-          "This is a development draft: its code is the developer's, on their computer, and only they change it. You can still change its content.",
-        );
-      }
-      return draftId;
     });
   }
 
@@ -706,8 +722,102 @@ export class Thread extends DurableObject<Bindings> {
     });
   }
 
-  /** The merge of `main` going, which code writes wait for: it lands beside the files. */
+  /**
+   * The merge of `main` or the member's push going, which code writes wait for: it lands beside
+   * the files.
+   */
   #merging: Promise<unknown> = Promise.resolve();
+
+  /** The pushes waiting for the agent's turn to end, each landing once called. */
+  #pushesAfterTheTurn: (() => Promise<unknown>)[] = [];
+
+  /**
+   * Lands a member's checked push `push` on the thread's draft, in its build queue, as `pusher`
+   * pushed it (ADR 0026): once the agent's turn going, if any, made its last commit, and before
+   * the next message. Starts the thread, if nobody messaged it yet, so Camox's merges of `main`
+   * reach the draft. `waiting` hears that the push waits for the turn. A push that landed adds
+   * its entry to the thread: the agent reads it, and doesn't answer it.
+   */
+  async landPush(
+    push: CheckedLanding & { identity: ThreadIdentity; pusher: ThreadSender },
+    waiting?: () => Promise<void> | void,
+  ): Promise<Landing> {
+    if (await this.#hasEnded()) throw new Error("The thread ended with its draft");
+    if (!(await this.#start(push.identity))) {
+      throw new Error("The thread belongs to another project, draft or owner");
+    }
+    const draftId = push.identity.draftId;
+    if (!draftId) throw new Error("A push lands on a draft, never on Live");
+    let landing: Promise<Landing> | undefined;
+    const land = () => {
+      landing ??= (async () => {
+        const landed = this.#buildingSerially(draftId, () => landPush(this.env, draftId, push));
+        this.#merging = landed.catch(() => undefined);
+        const done = await landed;
+        if ("result" in done) {
+          this.#draftsWithCode.add(draftId);
+          await this.notePush({ ...push, result: done.result });
+        }
+        return done;
+      })();
+      return landing;
+    };
+    if (await this.harness.session().busy()) {
+      this.#pushesAfterTheTurn.push(land);
+      await waiting?.();
+      // The turn's end lands it; a turn that ended as it was queued doesn't, so it's checked.
+      while (!landing && (await this.harness.session().busy())) {
+        await scheduler.wait(TURN_CHECK_MS);
+      }
+    }
+    return land();
+  }
+
+  /** Lands the pushes that waited for the turn ending, one after the other. */
+  async #landPushesAfterTheTurn() {
+    const waiting = this.#pushesAfterTheTurn;
+    this.#pushesAfterTheTurn = [];
+    for (const land of waiting) {
+      await land().catch((error: unknown) =>
+        console.error("A push waiting for the turn didn't land", error),
+      );
+    }
+  }
+
+  /**
+   * Adds the entry of a member's push that landed on the thread's draft, starting the thread if
+   * nobody messaged it yet: who pushed, their commits, and how the pushed head built. The model
+   * reads it as context; it starts no turn.
+   */
+  async notePush(push: {
+    identity: ThreadIdentity;
+    pusher: ThreadSender;
+    subjects: string[];
+    result: BuildResult;
+  }): Promise<void> {
+    if (await this.#hasEnded()) return;
+    if (!(await this.#start(push.identity))) {
+      throw new Error("The thread belongs to another project, draft or owner");
+    }
+    const data: PushData = {
+      pusher: push.pusher,
+      subjects: push.subjects,
+      outcome: push.result.ok
+        ? "built"
+        : push.result.types.length > 0
+          ? "typeErrors"
+          : "notPreviewed",
+    };
+    const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
+    await root?.submit(
+      {
+        type: "write",
+        ...(push.result.revision && { requestId: `${PUSH_ENTRY}:${push.result.revision}` }),
+        entry: { kind: PUSH_ENTRY, data, model: [userMessage(pushNote(data))] },
+      },
+      BACKGROUND,
+    );
+  }
 
   /**
    * Merges the current `main` into the thread's draft, when it has code, as a push to `main`
@@ -1491,8 +1601,7 @@ export class Thread extends DurableObject<Bindings> {
    * conversation yet: the run going stops, and studios still open on it see an empty thread
    * before their sockets close. The sandbox's object for the thread stores nothing.
    *
-   * Its draft no longer names it, and a development draft, which stays open, gets a new thread,
-   * but a socket the API forwarded just before may still reach it. So the thread keeps the
+   * Its draft is gone, but a socket the API forwarded just before may still reach it. So the thread keeps the
    * record that it ended, and turns away every socket and message after, as its alarm does
    * nothing: nothing opens Pi again. The object isn't reset, which would fail whatever reached
    * it next.
@@ -1518,7 +1627,7 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * Shows a socket an empty thread and closes it for good, the thread having ended: the studio
-   * doesn't reconnect to it, but to a development draft's new thread.
+   * doesn't reconnect to it.
    */
   #turnAway(socket: WebSocket) {
     send(socket, { type: "events", events: [NOT_STARTED] });

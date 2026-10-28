@@ -34,8 +34,8 @@ export type PreviewQuestion = { project: string; draft: string; session: string 
 /**
  * The revision the draft `draft` of the project `project` previews, when `session` (a `Cookie`
  * header's value, as the SDK forwards it) belongs to a member of the project's organization.
- * Null for anyone else, a draft of another project, an ended or development draft, and a draft
- * that previews no revision yet.
+ * Null for anyone else, a draft of another project, an ended draft, and a draft that previews no
+ * revision yet.
  */
 export async function previewedRevision(
   env: Bindings,
@@ -59,7 +59,7 @@ export async function previewedRevision(
       and(eq(member.organizationId, projects.organizationId), eq(member.userId, signedIn.user.id)),
     )
     .innerJoin(revisions, eq(revisions.id, drafts.previewedRevisionId))
-    .where(and(eq(drafts.id, draft), eq(drafts.kind, "regular"), eq(projects.uuid, project)))
+    .where(and(eq(drafts.id, draft), eq(projects.uuid, project)))
     .get();
   if (!previewed?.archiveKey) return null;
   return { revision: previewed.revision, archiveKey: previewed.archiveKey, project, draft };

@@ -43,9 +43,7 @@ async function openDraft(
   userId: string,
 ) {
   const id = generateUuidv7();
-  await db
-    .insert(drafts)
-    .values({ id, projectId, kind: "regular", createdBy: userId, createdAt: Date.now() });
+  await db.insert(drafts).values({ id, projectId, createdBy: userId, createdAt: Date.now() });
   return id;
 }
 
@@ -725,7 +723,7 @@ describe("stable file identity", () => {
       .get();
 
     const draftId = await openDraft(db, layout.projectId, memberUser.id);
-    const draft = { id: draftId, kind: "regular" as const, projectId: layout.projectId };
+    const draft = { id: draftId, projectId: layout.projectId };
     await runService(deleteFile(inScope(ctx, draft), { id: deleted.id }));
 
     // Publishing catches what now points at nothing, where it can be fixed (ADR 0009).

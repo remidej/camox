@@ -346,8 +346,7 @@ export const copyValue = Effect.fn("generatedValues.copy")(function* (
  * Run once Live holds what the publish leaves: copies the draft's values over Live's, then drops
  * Live's values of entities Live doesn't hold in their locale (what the draft deleted, the
  * descendants deleted with it, changes dropped as lost, and the localizations of a removed
- * locale) and of files in locales Live doesn't have, and deletes the draft's own, also when a
- * development draft stays.
+ * locale) and of files in locales Live doesn't have, and deletes the draft's own.
  */
 export function publishStatements(db: Database, scope: Draft): overlay.BatchItem[] {
   const entities = new Set<string>(GENERATED_ENTITIES);
@@ -394,7 +393,7 @@ export function retagStatements(
   ];
 }
 
-/** Deleting deletes the draft's values, also when a development draft stays. */
+/** Deleting deletes the draft's values. */
 export function deleteStatements(db: Database, draftId: string): overlay.BatchItem[] {
   return [db.delete(generatedValues).where(eq(generatedValues.draftId, draftId))];
 }

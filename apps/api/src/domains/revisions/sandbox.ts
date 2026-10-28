@@ -42,9 +42,9 @@ const TYPE_CHECK_CONFIG_CONTENT = JSON.stringify({
 const TYPE_CHECK_COMMAND = `tsrs -p ${TYPE_CHECK_CONFIG} --pretty false`;
 
 /**
- * What builds and `vp lint` run with: both load the project's Vite config, whose Camox plugin
- * throws for a build that isn't a release when no `camox login` is around, which the sandbox
- * hasn't. A dry-run release builds without one, and turns on the hosted projects' checks.
+ * What builds and `vp lint` run with: both load the project's Vite config. Its Camox plugin
+ * builds a dry-run release as `camox release --dry-run` does, releasing nothing, and the hosted
+ * build's variables turn on the hosted projects' checks.
  */
 const VITE_ENV = { CAMOX_INTERNAL_RELEASE: "dry-run", ...HOSTED_BUILD, CI: "1", NO_COLOR: "1" };
 

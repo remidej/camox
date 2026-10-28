@@ -84,12 +84,14 @@ class FakeRepo extends RpcTarget {
     this.name = name;
   }
 
+  /** Like Cloudflare Artifacts, the plaintext is the secret followed by `?expires=<unix seconds>`. */
   async createToken(scope = "write", ttl = 86_400) {
+    const expires = Math.floor(Date.now() / 1000) + ttl;
     return {
       id: crypto.randomUUID(),
-      plaintext: `artifacts-${scope}-token`,
+      plaintext: `artifacts-${scope}-token?expires=${expires}`,
       scope,
-      expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+      expiresAt: new Date(expires * 1000).toISOString(),
     };
   }
 
@@ -640,7 +642,7 @@ export class FakeRevisionSandbox extends DurableObject {
         )
         .flatMap(({ diagnostics }) => diagnostics);
       // As `vp lint` prints it: the Camox plugin logs as Vite+ loads the config, then the JSON.
-      const stdout = `4:00:00 AM [vite+] Building Camox app (your development draft)
+      const stdout = `4:00:00 AM [vite+] Building Camox app (Live, not released)
 { "diagnostics": [${diagnostics.map((diagnostic) => JSON.stringify(diagnostic)).join(",\n")}],
               "number_of_files": ${Object.keys(this.tree).length},
               "number_of_rules": 127,
@@ -929,7 +931,8 @@ export class ReleaseFakes extends WorkerEntrypoint {
   }
 
   /**
-   * Makes the next `times` pushes to the branch `branch` of `repo` fail without landing.
+   * Makes the next `times` pushes to the branch `branch` of `repo` fail without landing: `*`
+   * names every branch but `main`.
    * @param {string} repo
    * @param {string} branch
    * @param {number} times

@@ -1,15 +1,9 @@
-import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  addMember,
-  createProjectFixture,
-  openDevelopmentDraft,
-  startDraft,
-} from "../../../test/fixtures";
+import { addMember, createProjectFixture, startDraft } from "../../../test/fixtures";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import {
   answerFrom,
@@ -270,43 +264,5 @@ describe("the agent changing content from a draft's thread", () => {
 
     expect(lastAnswer(view)).toBe("FORBIDDEN");
     expect(Object.keys(await pagesOf(website, draftId))).toEqual(["/pricing"]);
-  });
-});
-
-describe("a development draft's thread", () => {
-  it("works for its developer", async () => {
-    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
-    await openDevelopmentDraft(db, project.id, memberUser.id);
-    answerNext("Your local definitions look fine.");
-
-    const thread = await connectDraftThread(
-      project.id,
-      DEVELOPMENT_DRAFT,
-      await signIn(db, memberUser.id),
-    );
-    thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Check my blocks" });
-    await thread.untilIdle(2);
-
-    expect(thread.view().messages.at(-1)).toMatchObject({
-      from: "agent",
-      text: "Your local definitions look fine.",
-    });
-    thread.close();
-  });
-
-  it("isn't reachable by another member, even by the draft's id", async () => {
-    const { db, memberUser, project } = await createProjectFixture(crypto.randomUUID());
-    const teammate = await addMember(db, project.organizationId);
-    const developmentDraftId = await openDevelopmentDraft(db, project.id, memberUser.id);
-    const token = await signIn(db, teammate.id);
-
-    const byId = await requestDraftThread(project.id, developmentDraftId, token);
-    // The teammate has no development draft of their own.
-    const byName = await requestDraftThread(project.id, DEVELOPMENT_DRAFT, token);
-
-    expect(byId.status).toBe(403);
-    expect(byId.webSocket).toBeNull();
-    expect(byName.status).toBe(404);
-    expect(byName.webSocket).toBeNull();
   });
 });

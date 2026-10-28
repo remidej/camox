@@ -25,8 +25,8 @@ function once<A>(load: () => Promise<A>): () => Effect.Effect<A> {
 }
 
 /**
- * The block and collection definitions of a project as a scope reads them: a development
- * draft's own, or Live's. Each is read at most once, the first time a read needs it. Content
+ * The block and collection definitions of a project as a scope reads them: a draft with code's
+ * own, or Live's. Each is read at most once, the first time a read needs it. Content
  * reads never change definitions, so nothing invalidates them.
  */
 export function definitionsOf(db: Database, at: ContentScope): Definitions {

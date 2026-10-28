@@ -24,13 +24,12 @@ async function fixture(suffix: string) {
       .insert(drafts)
       .values({
         projectId: project.id,
-        kind: "regular",
         createdBy: memberUser.id,
         createdAt: Date.now(),
       })
       .returning()
       .get();
-    return { id: draft.id, kind: draft.kind, projectId: draft.projectId };
+    return { id: draft.id, projectId: draft.projectId };
   };
   const publish = (draft: Draft, shown: overlay.ConflictKey[] = [], now = Date.now()) =>
     run(overlay.publish(db, draft, { shown, publishedBy: memberUser.id, now }).pipe(Effect.orDie));

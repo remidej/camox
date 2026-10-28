@@ -8,7 +8,7 @@ import { createStudioCache, type Read, type StudioCache, StudioCacheContext } fr
 
 /** A draft scope on Live, outside any window, for tests that don't follow drafts. */
 export function testDraftScope(queryClient = new QueryClient()): DraftScope {
-  return createDraftScope({ queryClient, developmentMode: false });
+  return createDraftScope({ queryClient });
 }
 
 /** An API whose reads must not happen: tests seed the reads they render. */

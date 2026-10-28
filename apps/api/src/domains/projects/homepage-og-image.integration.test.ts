@@ -1,9 +1,10 @@
 import { call } from "@orpc/server";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
-import { drafts, pages } from "../../schema";
+import { drafts, pages, projects } from "../../schema";
 
 const now = 1_700_000_000_000;
 const customImage = "https://api.camox.ai/files/serve/7/page-og/custom.png";
@@ -49,6 +50,15 @@ describe("The project list's homepage OG image", () => {
     expect(await f.listedImages()).toEqual([f.generated]);
   });
 
+  it("is generated at the project's Custom Domain when it has one", async () => {
+    const f = await fixture();
+    const customDomain = `${f.project.slug}.example`;
+    await f.db.update(projects).set({ customDomain }).where(eq(projects.id, f.project.id));
+    await f.homepage();
+
+    expect(await f.listedImages()).toEqual([`https://${customDomain}/og?path=%2F`]);
+  });
+
   it("is the Live homepage's custom image when it has one", async () => {
     const f = await fixture();
     await f.homepage({
@@ -66,7 +76,6 @@ describe("The project list's homepage OG image", () => {
       .insert(drafts)
       .values({
         projectId: f.project.id,
-        kind: "regular",
         createdBy: f.memberUser.id,
         createdAt: now,
       })

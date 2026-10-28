@@ -1,4 +1,5 @@
-import { DEVELOPMENT_DRAFT, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -6,7 +7,6 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  openDevelopmentDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
@@ -21,8 +21,6 @@ type ToolResponse =
   | { ok: true; result: any }
   | { ok: false; error: { code: string; message: string } };
 type Resolved = { id: string; title: string };
-
-const development: Headers = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
 
 const articleSchema = {
   type: "object" as const,
@@ -140,9 +138,14 @@ async function fixture(titles: [string, string, string]) {
     },
     member(),
   );
-  await openDevelopmentDraft(db, projectId, memberUser.id);
+  // The draft the AI tools work in, which the first request starts: a new one once it's published.
+  const newDraft = (): Headers => ({
+    [DRAFT_HEADER]: generateUuidv7(),
+    [DRAFT_CREATE_HEADER]: "1",
+  });
+  let current = newDraft();
 
-  const tool = async (name: string, args: object = {}, headers = development) => {
+  const tool = async (name: string, args: object = {}, headers = current) => {
     const response = (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
@@ -157,6 +160,7 @@ async function fixture(titles: [string, string, string]) {
     expect(await tool("publishDraft", { token, publishAnyway: true })).toMatchObject({
       published: true,
     });
+    current = newDraft();
   };
   const retitle = (record: { id: string }, title: string, locale: string) =>
     tool("editCollectionRecord", {
@@ -169,8 +173,8 @@ async function fixture(titles: [string, string, string]) {
     tool("deleteCollectionRecord", { collectionId: "articles", id: record.id, locale });
 
   /**
-   * The titles the block's references resolve to in `locale`: for a member in the development
-   * draft, or for a visitor on Live.
+   * The titles the block's references resolve to in `locale`: for a member in the draft, or for
+   * a visitor on Live.
    */
   const referencesIn = async (locale: string | undefined, reader: "member" | "visitor") => {
     const headers: Headers = locale ? { [LOCALE_HEADER]: locale } : {};
@@ -178,7 +182,7 @@ async function fixture(titles: [string, string, string]) {
       router.blocks.get,
       { id: block.id },
       reader === "member"
-        ? member({ ...development, ...headers })
+        ? member({ ...current, ...headers })
         : { context: createRpcContext(db, null, headers) },
     );
     const references = read.references as Record<string, Resolved | Resolved[] | null>;

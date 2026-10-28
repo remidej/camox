@@ -1,4 +1,4 @@
-import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import type { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
@@ -131,13 +131,12 @@ describe("collection record procedures", () => {
     if (!created.ok) throw new Error(created.error.message);
     const record = created.result as Effect.Success<ReturnType<typeof getCollectionRecord>>;
     const target = { collectionId: "customers", id: record.id };
-    // The development draft has its own definitions, here none: Live's collection isn't in it.
-    const development = createRpcContext(f.db, f.memberUser, {
-      [DRAFT_HEADER]: DEVELOPMENT_DRAFT,
+    // Another draft doesn't hold the record the first one created.
+    const another = createRpcContext(f.db, f.memberUser, {
+      [DRAFT_HEADER]: generateUuidv7(),
+      [DRAFT_CREATE_HEADER]: "1",
     });
-    await syncDefinitionSet(f.db, f.project, {}, { as: f.memberUser });
-    expect(await invoke(development, "listCollections", {})).toEqual({ ok: true, result: [] });
-    expect(await invoke(development, "deleteCollectionRecord", target)).toMatchObject({
+    expect(await invoke(another, "deleteCollectionRecord", target)).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });

@@ -1,6 +1,5 @@
-import type { DraftKind } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -25,7 +24,6 @@ export type { Person };
 
 export type DraftSummary = {
   id: string;
-  kind: DraftKind;
   name: string | null;
   createdBy: Person;
   createdAt: number;
@@ -83,7 +81,6 @@ const summarize = Effect.fn("drafts.summarize")(function* (
   );
   return rows.map((row): DraftSummary => ({
     id: row.id,
-    kind: row.kind,
     name: row.name,
     createdBy: personOf(people, row.createdBy),
     createdAt: row.createdAt,
@@ -94,7 +91,7 @@ const summarize = Effect.fn("drafts.summarize")(function* (
 });
 
 /**
- * The project's open regular drafts, most recently changed first, with Live's latest publish.
+ * The project's open drafts, most recently changed first, with Live's latest publish.
  */
 export const listDrafts = Effect.fn("drafts.list")(function* (
   ctx: ServiceContext,
@@ -105,14 +102,7 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
 
   const rows = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(drafts)
-      .where(
-        // Development drafts stay out of the hosted studio: only the localhost studio
-        // shows its owner's (ADR 0006).
-        and(eq(drafts.projectId, projectId), eq(drafts.kind, "regular")),
-      ),
+    ctx.db.select().from(drafts).where(eq(drafts.projectId, projectId)),
   );
   const summaries = yield* summarize(ctx.db, rows);
   summaries.sort((a, b) => (b.lastChangedAt ?? b.createdAt) - (a.lastChangedAt ?? a.createdAt));
@@ -186,9 +176,6 @@ export const renameDraft = Effect.fn("drafts.rename")(function* (
 ) {
   const { projectId, name } = yield* decodeInput(renameInput, rawInput);
   const draft = yield* requireDraft(ctx, projectId);
-  if (draft.kind !== "regular") {
-    return yield* new InvalidInputError({ message: "Only a regular draft has a name" });
-  }
   const trimmed = name?.trim() || null;
   yield* Effect.promise(() =>
     ctx.db.update(drafts).set({ name: trimmed }).where(eq(drafts.id, draft.id)),
