@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.0](https://github.com/remidej/camox/compare/camox-v0.59.0...@camox/cli-v0.60.0) (2026-10-28)
+
+
+### Features
+
+* revisions build against an SDK Bundle ([#681](https://github.com/remidej/camox/issues/681)) ([b7b39c7](https://github.com/remidej/camox/commit/b7b39c7441fb5a79f93da46ca5520327e712e083))
+
 ## [0.59.0](https://github.com/remidej/camox/compare/camox-v0.58.1...@camox/cli-v0.59.0) (2026-10-28)
 
 
