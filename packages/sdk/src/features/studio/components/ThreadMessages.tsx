@@ -1,4 +1,9 @@
-import type { ThreadMessage, ThreadSender, ThreadView } from "@camox/api-contract/threads";
+import type {
+  AgentActivity,
+  ThreadMessage,
+  ThreadSender,
+  ThreadView,
+} from "@camox/api-contract/threads";
 import { Avatar, AvatarFallback, AvatarImage } from "@camox/ui/avatar";
 import { Bubble, BubbleContent } from "@camox/ui/bubble";
 import { Message, MessageAvatar, MessageContent, MessageHeader } from "@camox/ui/message";
@@ -20,9 +25,9 @@ import { ThreadMarkdown } from "./ThreadMarkdown";
  * A thread's messages, and the agent's squareling, which always lives in it. An empty thread has
  * it greet the editor; when the first message arrives, it moves to the end of the thread, and
  * stays there after each message. While a run is going or a message is still `sending` (on its
- * way to the thread, which hasn't accepted it yet), its face says whether the agent thinks or
- * acts (uses its tools, or builds its code). While the end of a turn builds the agent's code, or
- * the agent fixes a build error, it says so in words too. Each editor's message shows its
+ * way to the thread, which hasn't accepted it yet), its face and a line beside it say what the
+ * agent does, never how: thinking, looking around, making changes, building, fixing the build,
+ * or starting a draft. Each editor's message shows its
  * sender's avatar, without their name. A Live turn handed off to a draft ends on the draft's
  * card, which `onOpenDraft` opens.
  */
@@ -119,12 +124,13 @@ function useSquarelingMorph(empty: boolean) {
 }
 
 /**
- * The squareling at the end of the thread: idle between turns, at work during one. Shown in the
- * last message, not after it: the scroller only brings a message the editor just sent into view
- * when it's appended last, and it arrives while the agent is already working.
+ * The squareling at the end of the thread: idle between turns, at work during one, saying what
+ * the agent does. Shown in the last message, not after it: the scroller only brings a message the
+ * editor just sent into view when it's appended last, and it arrives while the agent is already
+ * working.
  */
 function AgentPresence({
-  view: { status, usingTools },
+  view: { activity },
   working,
   squareling,
 }: {
@@ -132,43 +138,67 @@ function AgentPresence({
   working: boolean;
   squareling: React.Ref<SVGSVGElement>;
 }) {
-  // The squareling alone says whether the agent thinks or acts, without the details of how it
-  // works. Building and fixing also say so in words.
+  // A message on its way to the thread starts a run: the agent thinks first.
+  const shown = useSteadyActivity(working ? (activity ?? "thinking") : undefined);
   return (
     <div role="status" className="text-muted-foreground flex items-center gap-2 text-sm">
       <Squareling
         ref={squareling}
-        status={working ? squarelingStatus(status, usingTools) : "idle"}
+        status={shown ? SQUARELING_STATUSES[shown] : "idle"}
         className="size-6"
       />
-      {working &&
-        (status ? (
-          <span className="shimmer">{STATUS_LINES[status]}</span>
-        ) : (
-          <span className="sr-only">Working…</span>
-        ))}
+      {shown && <span className="shimmer">{ACTIVITY_LINES[shown]}</span>}
     </div>
   );
 }
 
-function squarelingStatus(
-  status: ThreadView["status"],
-  usingTools: ThreadView["usingTools"],
-): SquarelingStatus {
-  if (status === "fixing") return "fixing";
-  return status === "building" || usingTools ? "acting" : "thinking";
+/**
+ * How long a line saying what the agent does stays at least, in ms: a round of tool calls can take
+ * less, and the line would flicker.
+ */
+const ACTIVITY_MIN_DURATION = 600;
+
+/**
+ * `activity`, each holding for at least `ACTIVITY_MIN_DURATION` before the next replaces it. A turn
+ * that ends, or starts, shows at once.
+ */
+function useSteadyActivity(activity: AgentActivity | undefined) {
+  // Each line shown is a new object, so one that shows again holds again.
+  const [held, setHeld] = React.useState({ activity });
+  const [settled, setSettled] = React.useState<typeof held>();
+  React.useEffect(() => {
+    const timer = setTimeout(() => setSettled(held), ACTIVITY_MIN_DURATION);
+    return () => clearTimeout(timer);
+  }, [held]);
+  if (activity !== held.activity && (settled === held || !activity || !held.activity)) {
+    setHeld({ activity });
+  }
+  return activity && (held.activity ?? activity);
 }
+
+const SQUARELING_STATUSES: Record<AgentActivity, SquarelingStatus> = {
+  thinking: "thinking",
+  exploring: "acting",
+  changing: "acting",
+  building: "acting",
+  fixing: "fixing",
+  startingDraft: "acting",
+};
+
+const ACTIVITY_LINES: Record<AgentActivity, string> = {
+  thinking: "Thinking…",
+  exploring: "Looking around…",
+  changing: "Making changes…",
+  building: "Building…",
+  fixing: "Fixing the build…",
+  startingDraft: "Starting a draft…",
+};
 
 /** How a member's pushed code built, as the thread says it. */
 const PUSH_OUTCOMES: Record<Extract<ThreadMessage, { from: "push" }>["outcome"], string> = {
   built: "Built, and in the preview.",
   typeErrors: "Built, with type errors that block publishing.",
   notPreviewed: "Built, but the preview can’t show it.",
-};
-
-const STATUS_LINES: Record<NonNullable<ThreadView["status"]>, string> = {
-  building: "Building…",
-  fixing: "Fixing a build error…",
 };
 
 function ThreadMessageRow({

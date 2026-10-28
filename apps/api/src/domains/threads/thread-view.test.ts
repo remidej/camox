@@ -1,5 +1,6 @@
 import {
   BUILD_STATUS_ENTRY,
+  BUILD_TOOL,
   type BuildStatus,
   DRAFT_ENDED_ENTRY,
   EDITOR_MESSAGE_ENTRY,
@@ -21,23 +22,31 @@ import { describe, expect, it } from "vite-plus/test";
 
 const editor = { id: "user-1", name: "Ada Lovelace", image: null };
 
+/** One of the model's calls of the round, as a snapshot has it. */
+type Tool = { callId: string; name: string; status: string };
+
 /**
- * A snapshot of a thread whose transcript is `entries`, with no run going unless `running`, and
- * the model's `tools` calls of the round.
+ * A snapshot of a thread whose transcript is `entries`, with no run going unless `running`, the
+ * model's `tools` calls of the round, and their own `nestedTools` calls.
  */
 const snapshot = (
   entries: Omit<EntryRecord, "id" | "conversationId">[],
   {
     running = false,
     tools = [],
-  }: { running?: boolean; tools?: { callId: string; status: string }[] } = {},
+    nestedTools = [],
+  }: {
+    running?: boolean;
+    tools?: Tool[];
+    nestedTools?: { callId: string; name: string; parentCallId: string }[];
+  } = {},
 ): AgentEvent =>
   ({
     type: "snapshot",
     ...(running && { run: { taskId: "run", inputs: ["input"] } }),
     entries: entries.map((entry, index) => ({ ...entry, id: index + 1, conversationId: "root" })),
     tools,
-    nestedTools: [],
+    nestedTools,
     compactions: [],
     inbox: [],
   }) as unknown as AgentEvent;
@@ -94,12 +103,12 @@ const draftEnded = (text: string) => ({
   model: [{ role: "user" as const, content: text, timestamp: 0 }],
 });
 
-/** What a thread shows once Pi's events brought it `entries`: its messages and its status. */
+/** What a thread shows once Pi's events brought it `entries`: its messages and the agent's activity. */
 const shown = (entries: Omit<EntryRecord, "id" | "conversationId">[], running = true) => {
   const view = threadViewOf(
     reduceThreadEvents(EMPTY_THREAD_STATE, [snapshot(entries, { running })]),
   );
-  return { said: view.messages.map(({ from }) => from), status: view.status };
+  return { said: view.messages.map(({ from }) => from), activity: view.activity };
 };
 
 describe("a thread's view", () => {
@@ -127,15 +136,15 @@ describe("a thread's view", () => {
     const buildingAgain = [...fixing, buildStatus("building")];
     const ended = [...buildingAgain, answer("Done, and fixed.")];
 
-    expect(shown([asked])).toEqual({ said: ["editor"], status: undefined });
-    expect(shown(building)).toEqual({ said: ["editor"], status: "building" });
-    expect(shown(fixing)).toEqual({ said: ["editor"], status: "fixing" });
-    expect(shown(buildingAgain)).toEqual({ said: ["editor"], status: "building" });
-    expect(shown(ended)).toEqual({ said: ["editor", "agent"], status: undefined });
-    expect(shown(fixing, false).status).toBeUndefined();
+    expect(shown([asked])).toEqual({ said: ["editor"], activity: "thinking" });
+    expect(shown(building)).toEqual({ said: ["editor"], activity: "building" });
+    expect(shown(fixing)).toEqual({ said: ["editor"], activity: "fixing" });
+    expect(shown(buildingAgain)).toEqual({ said: ["editor"], activity: "building" });
+    expect(shown(ended)).toEqual({ said: ["editor", "agent"], activity: "thinking" });
+    expect(shown(fixing, false).activity).toBeUndefined();
   });
 
-  it("drops the status once the end of a turn gives up fixing, as the agent explains", () => {
+  it("drops the build's status once the end of a turn gives up fixing, as the agent explains", () => {
     expect(
       shown([
         editorMessage("Add a pricing section"),
@@ -143,11 +152,11 @@ describe("a thread's view", () => {
         answer("Done."),
         continuation("Your code changes still don't build"),
       ]),
-    ).toEqual({ said: ["editor"], status: undefined });
+    ).toEqual({ said: ["editor"], activity: "thinking" });
   });
 
-  it("says the agent uses its tools from writing a call until the model thinks again", () => {
-    const call = fauxToolCall("codemode", { code: "await camox.pages.list()" }, { id: "call-1" });
+  it("says the agent explores from writing a call until the model thinks again", () => {
+    const call = fauxToolCall("codemode", { code: "await tools.listPages({})" }, { id: "call-1" });
     const calling = fauxAssistantMessage([call], { stopReason: "toolUse" });
     const thinking = fauxAssistantMessage([]);
     const events: AgentEvent[] = [
@@ -176,45 +185,145 @@ describe("a thread's view", () => {
       { type: "tool_execution_end", toolCallId: "call-1", toolName: "codemode" },
       { type: "message_start", message: thinking },
     ];
-    const usingTools = (count: number) =>
-      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).usingTools;
+    const activity = (count: number) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).activity;
 
-    expect(usingTools(3)).toBeUndefined();
-    expect(usingTools(4)).toBe(true);
-    expect(usingTools(5)).toBe(true);
-    expect(usingTools(6)).toBe(true);
-    expect(usingTools(7)).toBe(true);
-    expect(usingTools(8)).toBeUndefined();
+    expect(activity(3)).toBe("thinking");
+    expect(activity(4)).toBe("exploring");
+    expect(activity(5)).toBe("exploring");
+    expect(activity(6)).toBe("exploring");
+    expect(activity(7)).toBe("exploring");
+    expect(activity(8)).toBe("thinking");
   });
 
-  it("says the agent uses its tools while a call it made runs, not a tool's own calls", () => {
-    const running = (tools: { callId: string; status: string }[], after: AgentEvent[] = []) =>
+  it("says the agent explores while a call it made runs, whatever the tool's own calls", () => {
+    const activity = (tools: Tool[], after: AgentEvent[] = []) =>
       threadViewOf(
         reduceThreadEvents(EMPTY_THREAD_STATE, [
           snapshot([editorMessage("Translate the home page")], { running: true, tools }),
           ...after,
         ]),
-      ).usingTools;
+      ).activity;
 
-    expect(running([{ callId: "call-1", status: "running" }])).toBe(true);
-    expect(running([{ callId: "call-1", status: "done" }])).toBeUndefined();
+    expect(activity([{ callId: "call-1", name: "grep", status: "running" }])).toBe("exploring");
+    expect(activity([{ callId: "call-1", name: "grep", status: "done" }])).toBe("thinking");
     expect(
-      running(
+      activity(
         [],
         [
           {
             type: "tool_execution_start",
             toolCallId: "call-1/0",
-            toolName: "pages_list",
+            toolName: "listPages",
             args: {},
             parentToolCallId: "call-1",
           },
         ],
       ),
-    ).toBeUndefined();
+    ).toBe("thinking");
     expect(
-      running([{ callId: "call-1", status: "running" }], [{ type: "run_end", inputs: [] }]),
+      activity(
+        [{ callId: "call-1", name: "grep", status: "running" }],
+        [{ type: "run_end", inputs: [] }],
+      ),
     ).toBeUndefined();
+  });
+
+  it("says the agent makes changes from writing a call that changes the draft until the model thinks again", () => {
+    const write = fauxToolCall("write", { path: "src/blocks/pricing.tsx" }, { id: "call-1" });
+    const thinking = fauxAssistantMessage([]);
+    const events: AgentEvent[] = [
+      snapshot([editorMessage("Add a pricing section")], { running: true }),
+      { type: "message_start", message: thinking },
+      {
+        type: "message_update",
+        usage: thinking.usage,
+        changes: [{ type: "toolcall_start", contentIndex: 0, block: write }],
+      },
+      { type: "tool_execution_start", toolCallId: "call-1", toolName: "write", args: {} },
+      { type: "tool_execution_end", toolCallId: "call-1", toolName: "write" },
+      { type: "message_start", message: thinking },
+    ];
+    const activity = (count: number) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).activity;
+
+    expect(activity(2)).toBe("thinking");
+    expect(activity(3)).toBe("changing");
+    expect(activity(4)).toBe("changing");
+    expect(activity(5)).toBe("changing");
+    expect(activity(6)).toBe("thinking");
+  });
+
+  it("says a script explores until it calls a tool that changes the draft, then makes changes", () => {
+    const nested = (toolName: string, index: number): AgentEvent => ({
+      type: "tool_execution_start",
+      toolCallId: `call-1/${index}`,
+      toolName,
+      args: {},
+      parentToolCallId: "call-1",
+    });
+    const events: AgentEvent[] = [
+      snapshot([editorMessage("Shorten the intro")], { running: true }),
+      { type: "tool_execution_start", toolCallId: "call-1", toolName: "codemode", args: {} },
+      nested("getPage", 0),
+      nested("editBlock", 1),
+      { type: "tool_execution_end", toolCallId: "call-1/1", toolName: "editBlock" },
+      nested("getPage", 2),
+    ];
+    const activity = (count: number) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).activity;
+
+    expect(activity(2)).toBe("exploring");
+    expect(activity(3)).toBe("exploring");
+    expect(activity(4)).toBe("changing");
+    expect(activity(6)).toBe("changing");
+  });
+
+  it("says a script that changed the draft makes changes from a snapshot too, as long as it runs", () => {
+    const activity = (tools: Tool[]) =>
+      threadViewOf(
+        reduceThreadEvents(EMPTY_THREAD_STATE, [
+          snapshot([editorMessage("Shorten the intro")], {
+            running: true,
+            tools,
+            nestedTools: [{ callId: "call-1/0", name: "editBlock", parentCallId: "call-1" }],
+          }),
+        ]),
+      ).activity;
+
+    expect(activity([{ callId: "call-1", name: "codemode", status: "running" }])).toBe("changing");
+    expect(activity([{ callId: "call-10", name: "codemode", status: "running" }])).toBe(
+      "exploring",
+    );
+  });
+
+  it("says the agent builds while its build call runs, even as it fixes, and starts a draft while startDraft runs", () => {
+    const activity = (
+      tools: Tool[],
+      entries: Omit<EntryRecord, "id" | "conversationId">[] = [
+        editorMessage("Add a pricing section"),
+      ],
+    ) =>
+      threadViewOf(
+        reduceThreadEvents(EMPTY_THREAD_STATE, [snapshot(entries, { running: true, tools })]),
+      ).activity;
+    const fixing = [
+      editorMessage("Add a pricing section"),
+      buildStatus("fixing"),
+      answer("Done."),
+      continuation("Your code changes don't build"),
+    ];
+
+    expect(activity([{ callId: "call-1", name: BUILD_TOOL, status: "running" }])).toBe("building");
+    expect(activity([{ callId: "call-1", name: BUILD_TOOL, status: "running" }], fixing)).toBe(
+      "building",
+    );
+    expect(activity([{ callId: "call-1", name: "write", status: "running" }], fixing)).toBe(
+      "fixing",
+    );
+    expect(activity([{ callId: "call-1", name: START_DRAFT_TOOL, status: "running" }])).toBe(
+      "startingDraft",
+    );
   });
 
   it("ends a Live turn handed off to a draft on the draft's card, as finished", () => {

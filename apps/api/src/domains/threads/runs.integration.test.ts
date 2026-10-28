@@ -345,6 +345,7 @@ describe("a run in a thread", () => {
     expect(thread.view()).toEqual({
       messages: [expect.objectContaining({ from: "editor" })],
       running: true,
+      activity: "thinking",
     });
     await thread.untilIdle();
 

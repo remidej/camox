@@ -1,3 +1,4 @@
+import { BUILD_TOOL } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
@@ -29,7 +30,7 @@ export const conflictsTool = (list: () => Promise<string[]>) =>
  */
 export const buildTool = (build: (invocation: ToolInvocation) => Promise<BuildResult>) =>
   defineTool({
-    name: "build",
+    name: BUILD_TOOL,
     description:
       "Build the website with your code changes. When the build passes, your changes become the " +
       "draft's new revision, which the preview shows. Returns JSON: `ok`, the `revision` a passing " +
