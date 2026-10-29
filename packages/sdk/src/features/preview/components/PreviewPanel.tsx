@@ -25,6 +25,7 @@ import {
 } from "../previewPageFrame";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, type EditingOwner, type ViewportMode } from "../previewStore";
+import { guardStrayCaret } from "../strayCaretGuard";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
 import { Frame, useFrame } from "./Frame";
@@ -72,6 +73,7 @@ export const PreviewFrameEffects = () => {
     <>
       <FieldOverlayStyles />
       <KeyDownForwarder />
+      <StrayCaretGuard />
       <OverlayTracker />
     </>
   );
@@ -86,6 +88,19 @@ const KeyDownForwarder = () => {
   // Do nothing if we're not in an iframe
   const inIframe = !!iframeWindow?.parent && iframeWindow.parent !== iframeWindow;
   useActionShortcuts(inIframe ? iframeWindow : null);
+  return null;
+};
+
+/* -------------------------------------------------------------------------------------------------
+ * StrayCaretGuard
+ * -----------------------------------------------------------------------------------------------*/
+
+const StrayCaretGuard = () => {
+  const { window: iframeWindow } = useFrame();
+  React.useEffect(() => {
+    if (!iframeWindow) return;
+    return guardStrayCaret(iframeWindow.document);
+  }, [iframeWindow]);
   return null;
 };
 
@@ -190,6 +205,7 @@ function PreviewPageCanvasEffects({ owner }: { owner: EditingOwner | null }) {
   return (
     <>
       <FieldOverlayStyles />
+      <StrayCaretGuard />
       <OverlayTracker />
       <Overlays frame={iframeElement} owner={owner} canAddBlocks={owner?.kind === "page"} />
     </>
