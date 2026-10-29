@@ -5,6 +5,7 @@ import {
   DRAFT_ENDED_ENTRY,
   EDITOR_MESSAGE_ENTRY,
   EMPTY_THREAD_STATE,
+  LOOK_TOOL,
   reduceThreadEvents,
   reduceThreadFrame,
   RUN_STOPPED_ENTRY,
@@ -295,6 +296,43 @@ describe("a thread's view", () => {
     expect(activity([{ callId: "call-10", name: "codemode", status: "running" }])).toBe(
       "exploring",
     );
+  });
+
+  it("says the agent checks the design from writing a look call until the model thinks again", () => {
+    const look = fauxToolCall(LOOK_TOOL, { targets: [] }, { id: "call-1" });
+    const thinking = fauxAssistantMessage([]);
+    const events: AgentEvent[] = [
+      snapshot([editorMessage("Add a pricing section")], { running: true }),
+      { type: "message_start", message: thinking },
+      {
+        type: "message_update",
+        usage: thinking.usage,
+        changes: [{ type: "toolcall_start", contentIndex: 0, block: look }],
+      },
+      { type: "tool_execution_start", toolCallId: "call-1", toolName: LOOK_TOOL, args: {} },
+      { type: "tool_execution_end", toolCallId: "call-1", toolName: LOOK_TOOL },
+      { type: "message_start", message: thinking },
+    ];
+    const activity = (count: number) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).activity;
+
+    expect(activity(2)).toBe("thinking");
+    expect(activity(3)).toBe("checking");
+    expect(activity(4)).toBe("checking");
+    expect(activity(5)).toBe("checking");
+    expect(activity(6)).toBe("thinking");
+  });
+
+  it("says the agent checks the design while its look call runs, from a snapshot too", () => {
+    const activity = (tools: Tool[]) =>
+      threadViewOf(
+        reduceThreadEvents(EMPTY_THREAD_STATE, [
+          snapshot([editorMessage("Add a pricing section")], { running: true, tools }),
+        ]),
+      ).activity;
+
+    expect(activity([{ callId: "call-1", name: LOOK_TOOL, status: "running" }])).toBe("checking");
+    expect(activity([{ callId: "call-1", name: LOOK_TOOL, status: "done" }])).toBe("thinking");
   });
 
   it("says the agent builds while its build call runs, even as it fixes, and starts a draft while startDraft runs", () => {

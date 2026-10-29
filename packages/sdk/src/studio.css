@@ -113,6 +113,16 @@ code {
 [data-face="building"] .squareling-blinks {
   animation: squareling-blink 3.6s linear 300ms infinite;
 }
+/*
+ * Checking the design, its eyes fix on the work, a little down, and narrow slowly as it
+ * scrutinizes it, then open again.
+ */
+[data-face="checking"] .squareling-gaze {
+  transform: translate(3px, 5px);
+}
+[data-face="checking"] .squareling-eyes {
+  animation: squareling-scrutinize 3.2s 300ms infinite;
+}
 /* Fixing, it shakes itself, one eye narrowed. */
 [data-face="fixing"] .squareling-body {
   animation: squareling-wiggle 1.2s ease-in-out 300ms infinite;
@@ -173,6 +183,23 @@ code {
   96%,
   100% {
     transform: translate(0, 0);
+  }
+}
+/* A slow squint, held, then a quicker release, each easing onto where the eyes rest. */
+@keyframes squareling-scrutinize {
+  0%,
+  20% {
+    transform: scaleY(1);
+    animation-timing-function: cubic-bezier(0.645, 0.045, 0.355, 1);
+  }
+  50%,
+  78% {
+    transform: scaleY(0.55);
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  92%,
+  100% {
+    transform: scaleY(1);
   }
 }
 @keyframes squareling-breathe {

@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * What the agent is doing, as far as editors are concerned: nothing (`idle`, looking at them),
- * thinking, looking around, making changes, building its code, or fixing a build error.
+ * thinking, looking around, making changes, building its code, checking the design it built, or
+ * fixing a build error.
  */
 export type SquarelingStatus =
   | "idle"
@@ -13,6 +14,7 @@ export type SquarelingStatus =
   | "exploring"
   | "changing"
   | "building"
+  | "checking"
   | "fixing";
 
 /** Whether a patroller is working, as its squareling's face says. */
@@ -184,11 +186,12 @@ function Eye({
 
 /**
  * The agent's eyes: both narrowed on the work while making changes, the right one while fixing,
- * open otherwise, blinking unless it looks around.
+ * open otherwise, blinking unless it looks around, makes changes, or checks the design, its eyes
+ * fixed on it.
  */
 function AgentEyes({ eyes, status }: { eyes: Eyes; status: SquarelingStatus }) {
   const [left, right] = eyes.x;
-  const blinks = status !== "exploring" && status !== "changing";
+  const blinks = status !== "exploring" && status !== "changing" && status !== "checking";
   return (
     <>
       <Eye x={left} y={eyes.y} narrowed={status === "changing"} blinks={blinks} />
