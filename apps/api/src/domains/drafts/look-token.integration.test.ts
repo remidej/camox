@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { callSeedingLive, createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import type { Bindings } from "../../types";
-import { signLookToken } from "./look-token";
+import { LOOK_TOKEN_TTL_MS, signLookToken } from "./look-token";
 
 // ADR 0032: a look token lets the browser `look` drives read one draft's content, without a
 // session, and nothing else.
@@ -92,7 +92,7 @@ describe("a look token", () => {
   it("is refused once it has expired", async () => {
     const f = await fixture();
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.now() - 10 * 60_000);
+    vi.setSystemTime(Date.now() - LOOK_TOKEN_TTL_MS - 1);
     const token = await lookToken(f.projectId, f.draftId);
     vi.useRealTimers();
     await expect(f.pricing(token)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
