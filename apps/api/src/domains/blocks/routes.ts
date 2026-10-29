@@ -28,6 +28,11 @@ const getSyncedContent = pub
   .input(service.blockTypeInput)
   .handler(({ context, input }) => runService(service.getSyncedBlockContent(context, input)));
 
+/** A Block Definition's block with overrides, unplaced: what the agent's `look` shows of it. */
+const getUnplaced = pub
+  .input(service.getUnplacedBlockInput)
+  .handler(({ context, input }) => runService(service.getUnplacedBlock(context, input)));
+
 // Protected procedures
 
 const create = contentWrite
@@ -70,6 +75,7 @@ export const blockProcedures = {
   getUsageCounts,
   getPagesUsing,
   getSyncedContent,
+  getUnplaced,
   create,
   updateContent,
   updateSettings,

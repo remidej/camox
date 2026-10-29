@@ -1,3 +1,4 @@
+import { UNPLACED_BLOCK_ID } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect, type Scope } from "effect";
@@ -52,7 +53,7 @@ import { deleteOnPurpose } from "../translations/exclusions";
 import { translatePlacedDefaults } from "../translations/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
-import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
+import { findDefinition, loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
 import { layoutSlotsMarkdown, pageMarkdownOf } from "./page-markdown";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
@@ -84,6 +85,9 @@ export const getLayoutMarkdownInput = namingProject(z.object({ layoutId: z.strin
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
 // A Block Definition within a project.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
+export const getUnplacedBlockInput = namingProject(
+  z.object({ type: z.string(), content: z.unknown().optional(), settings: z.unknown().optional() }),
+);
 /** The server mints the id; a client may mint one for an optimistic insert. */
 export const createBlockInput = z.object({
   id: uuidv7Schema.optional(),
@@ -625,6 +629,71 @@ const blockView = Effect.fn("blocks.blockView")(function* (
   const bundle = yield* reader.blocks([{ block: stored }]);
   return { block: bundle.blocks[0]!, repeatableItems: bundle.repeatableItems, files: bundle.files };
 });
+
+/**
+ * A block of the Block Definition `type` as readers would see it if it were placed, without
+ * placing it: its default content and Block Settings, with `content` and `settings` merged on in
+ * the shape the content tools take. Overrides are checked as creating the block checks them, and
+ * may name the Files and Collection Records of the scope. A synced definition shows these, not
+ * its shared content. Nothing is written.
+ */
+export const getUnplacedBlock = Effect.fn("blocks.getUnplacedBlock")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getUnplacedBlockInput>,
+) {
+  const { type, content, settings, ...named } = yield* decodeInput(getUnplacedBlockInput, rawInput);
+  const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
+  const def = yield* findDefinition(ctx.db, { projectId: project.id, type }, scope);
+  if (!def) {
+    return yield* new NotFoundError({ message: `There's no Block Definition named "${type}".` });
+  }
+  const prepared = yield* prepareBlockContent(
+    content ?? {},
+    settings,
+    undefined,
+    def.contentSchema,
+    def.settingsSchema,
+  );
+  const at = { projectId: project.id, draft: scope };
+  yield* validateReferenceValues(ctx, at, def.contentSchema, prepared.bundle);
+  const now = Date.now();
+  const unstored = { draftId: null, version: 1, baseVersion: null, deleted: false, locale: "" };
+  const published = { firstPublishedAt: null, publishedAt: null, publishedBy: null };
+  const block: typeof blocks.$inferSelect = {
+    ...unstored,
+    ...published,
+    rowId: 0,
+    id: UNPLACED_BLOCK_ID,
+    projectId: project.id,
+    pageId: null,
+    layoutId: null,
+    type,
+    content: prepared.content,
+    settings: prepared.settings,
+    slot: null,
+    position: "a0",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const items = prepared.seeds.map((seed): typeof repeatableItems.$inferSelect => ({
+    ...unstored,
+    ...published,
+    rowId: 0,
+    id: seed.tempId,
+    blockId: UNPLACED_BLOCK_ID,
+    projectId: null,
+    sharedContentType: null,
+    parentItemId: seed.parentTempId,
+    fieldName: seed.fieldName,
+    content: seed.content,
+    settings: seed.settings ?? null,
+    position: seed.position,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const bundle = yield* contentReader(ctx, at).blocks([{ unstored: block, items }]);
+  return { block: bundle.blocks[0]!, repeatableItems: bundle.repeatableItems, files: bundle.files };
+}, Effect.scoped);
 
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,

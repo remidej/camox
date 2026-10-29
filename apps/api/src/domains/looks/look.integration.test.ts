@@ -1,10 +1,10 @@
-import { LOOK_TOKEN_COOKIE } from "@camox/api-contract/drafts";
+import { LOOK_TOKEN_COOKIE, UNPLACED_BLOCK_ID } from "@camox/api-contract/drafts";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { browserRunFakes } from "../../../test/browser-run";
-import { startDraft } from "../../../test/fixtures";
+import { startDraft, syncDefinitionSet } from "../../../test/fixtures";
 import { PRICING, revisionFakes, websiteWithCode } from "../../../test/revision-builds";
 import {
   answerFrom,
@@ -105,6 +105,30 @@ async function look(
 }
 
 const pathOf = (url: string) => new URL(url).searchParams.get("path");
+
+/** A Block Definition with a Settings Schema, beside the website's text block. */
+const heroDefinition = {
+  blockId: "hero",
+  title: "Hero",
+  description: "A hero",
+  contentSchema: {
+    type: "object",
+    properties: { title: { type: "string", fieldType: "String", default: "Welcome" } },
+  },
+  settingsSchema: {
+    type: "object",
+    properties: { colorScheme: { type: "string", enum: ["light", "dark"], default: "light" } },
+  },
+};
+
+/** A draft thread of a website whose code defines `heroDefinition`, unplaced. */
+async function draftThreadWithHero() {
+  const opened = await draftThread();
+  await syncDefinitionSet(opened.website.db, opened.website.project, {
+    blocks: [textDefinition, heroDefinition],
+  });
+  return opened;
+}
 
 describe("the agent's look", () => {
   it("returns an image for each page target and size, which the model reads as image content", async () => {
@@ -273,5 +297,65 @@ describe("the agent's look", () => {
     expect(told).toContain("Carry on without looking");
     expect(lastAnswer(view)).toBe("I couldn't check the design.");
     expect(view.running).toBe(false);
+  });
+});
+
+describe("the agent's look at a Block Definition", () => {
+  it("captures the block alone, with its overrides, cut at the block's element", async () => {
+    const { draftId, thread } = await draftThreadWithHero();
+    const target = {
+      blockDefinition: "hero",
+      content: { title: "Spring sale" },
+      settings: { colorScheme: "dark" },
+    };
+
+    const { results, images } = await look(thread, {
+      targets: [{ ...target, sizes: ["desktop", "mobile"] }],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { ...target, size: "desktop" },
+      { ...target, size: "mobile" },
+    ]);
+    expect(images).toHaveLength(2);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(captures.map(({ size }) => size)).toEqual(["desktop", "mobile"]);
+    for (const capture of captures) {
+      const params = new URL(capture.url).searchParams;
+      expect(params.get("blockDefinition")).toBe("hero");
+      expect(JSON.parse(params.get("content")!)).toEqual(target.content);
+      expect(JSON.parse(params.get("settings")!)).toEqual(target.settings);
+      expect(capture.element).toBe(`[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]`);
+    }
+  });
+
+  it("fails a target with an override its schema refuses, or an unknown Block Definition, with the schema's error, and captures the others", async () => {
+    const { draftId, thread } = await draftThreadWithHero();
+
+    const { results, images } = await look(thread, {
+      targets: [
+        { blockDefinition: "hero", settings: { colorScheme: "purple" }, sizes: ["desktop"] },
+        { blockDefinition: "pricing", sizes: ["desktop"] },
+        { blockDefinition: "hero", sizes: ["mobile"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      {
+        blockDefinition: "hero",
+        settings: { colorScheme: "purple" },
+        size: "desktop",
+        error: expect.stringContaining("colorScheme"),
+      },
+      { blockDefinition: "pricing", size: "desktop", error: expect.stringContaining("pricing") },
+      { blockDefinition: "hero", size: "mobile" },
+    ]);
+    expect(images).toHaveLength(1);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(
+      captures.map(({ url, size }) => [new URL(url).searchParams.get("blockDefinition"), size]),
+    ).toEqual([["hero", "mobile"]]);
   });
 });

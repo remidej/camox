@@ -1,9 +1,13 @@
 import {
   DRAFT_SEARCH_PARAM,
+  LOOK_BLOCK_DEFINITION_PARAM,
+  LOOK_CONTENT_PARAM,
   LOOK_DOCUMENT_PATH,
   LOOK_LOCALE_PARAM,
   LOOK_PATH_PARAM,
+  LOOK_SETTINGS_PARAM,
   LOOK_TOKEN_COOKIE,
+  UNPLACED_BLOCK_ID,
 } from "@camox/api-contract/drafts";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import { ORPCError } from "@orpc/server";
@@ -14,6 +18,7 @@ import { runService } from "../../lib/run-service";
 import type { SpanFields } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { agentServiceContext } from "../_shared/service-context";
+import { getUnplacedBlock } from "../blocks/service";
 import { signLookToken } from "../drafts/look-token";
 import { getPageStructure } from "../pages/service";
 import { projects } from "../projects/schema";
@@ -33,8 +38,18 @@ export const DEFAULT_SIZES: readonly LookSize[] = ["desktop", "mobile"];
 /** A page of the draft, by its path in its Locale, the Default Locale without one. */
 export type PageTarget = { path: string; locale?: string };
 
+/**
+ * A Block Definition, unplaced: its default content and Block Settings with overrides merged on,
+ * in the shape the content tools take.
+ */
+export type BlockDefinitionTarget = {
+  blockDefinition: string;
+  content?: unknown;
+  settings?: unknown;
+};
+
 /** What the agent asks `look` to capture, with the sizes it wants. */
-export type LookTarget = PageTarget & { sizes?: LookSize[] };
+export type LookTarget = (PageTarget | BlockDefinitionTarget) & { sizes?: LookSize[] };
 
 /** One result: a target at one size, with its image, or why it failed. */
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
@@ -121,7 +136,11 @@ export async function look(
   });
 }
 
-/** What `target` is captured as: the lightweight document of its page, once it's in the draft. */
+/**
+ * What `target` is captured as: the lightweight document of its page, once it's in the draft, or
+ * of its Block Definition's block, once the draft has the definition and its schemas accept the
+ * overrides.
+ */
 async function resolve(
   env: Bindings,
   where: LookIn,
@@ -129,13 +148,42 @@ async function resolve(
   origin: string,
   target: LookTarget,
 ): Promise<Resolved> {
-  const missing = await pageMissing(env, where, projectUuid, target);
-  if (missing) return { error: missing };
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
+  if ("blockDefinition" in target) {
+    const refused = await blockRefused(env, where, projectUuid, target);
+    if (refused) return { error: refused };
+    url.searchParams.set(LOOK_BLOCK_DEFINITION_PARAM, target.blockDefinition);
+    if (target.content !== undefined)
+      url.searchParams.set(LOOK_CONTENT_PARAM, JSON.stringify(target.content));
+    if (target.settings !== undefined)
+      url.searchParams.set(LOOK_SETTINGS_PARAM, JSON.stringify(target.settings));
+    return { url: url.href, element: `[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]` };
+  }
+  const missing = await pageMissing(env, where, projectUuid, target);
+  if (missing) return { error: missing };
   url.searchParams.set(LOOK_PATH_PARAM, target.path);
   if (target.locale) url.searchParams.set(LOOK_LOCALE_PARAM, target.locale);
   return { url: url.href };
+}
+
+/** A service context reading the draft as the browser will, with the draft's look token. */
+const lookContext = (env: Bindings, where: LookIn, locale?: string) => ({
+  ...agentServiceContext({
+    db: createDb(env.DB),
+    env,
+    user: null,
+    waitUntil: (promise) => void promise.catch(console.error),
+    draftId: where.draftId,
+  }),
+  look: { projectId: where.projectId, draftId: where.draftId },
+  locale,
+});
+
+/** The message of an API error, or the error itself when it isn't one: a bug, which throws. */
+function messageOf(error: unknown) {
+  if (!(error instanceof ORPCError)) throw error;
+  return error.message;
 }
 
 /**
@@ -148,24 +196,39 @@ async function pageMissing(
   projectUuid: string,
   { path, locale }: PageTarget,
 ) {
-  const ctx = {
-    ...agentServiceContext({
-      db: createDb(env.DB),
-      env,
-      user: null,
-      waitUntil: (promise) => void promise.catch(console.error),
-      draftId: where.draftId,
-    }),
-    look: { projectId: where.projectId, draftId: where.draftId },
-    locale,
-  };
   try {
-    await runService(getPageStructure(ctx, { projectUuid, path }));
+    await runService(getPageStructure(lookContext(env, where, locale), { projectUuid, path }));
     return undefined;
   } catch (error) {
-    if (!(error instanceof ORPCError)) throw error;
-    return error.code === "NOT_FOUND"
+    const message = messageOf(error);
+    return (error as ORPCError<string, unknown>).code === "NOT_FOUND"
       ? `The draft has no page at ${path}${locale ? ` in ${locale}` : ""}.`
-      : error.message;
+      : message;
+  }
+}
+
+/**
+ * Why the Block Definition `target` names can't be looked at with its overrides, or undefined when
+ * it can: the draft has no such definition, or its Content Schema or Settings Schema refuses an
+ * override. Read as the browser will, with the draft's look token.
+ */
+async function blockRefused(
+  env: Bindings,
+  where: LookIn,
+  projectUuid: string,
+  { blockDefinition, content, settings }: BlockDefinitionTarget,
+) {
+  try {
+    await runService(
+      getUnplacedBlock(lookContext(env, where), {
+        projectUuid,
+        type: blockDefinition,
+        content,
+        settings,
+      }),
+    );
+    return undefined;
+  } catch (error) {
+    return messageOf(error);
   }
 }
