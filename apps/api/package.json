@@ -24,6 +24,7 @@
   "dependencies": {
     "@better-auth/cimd": "^1.7.14",
     "@better-auth/mcp": "^1.7.14",
+    "@better-auth/oauth-provider": "^1.7.14",
     "@camox/ai-tools": "workspace:*",
     "@camox/api-contract": "workspace:*",
     "@cfworker/json-schema": "^4.1.1",
@@ -33,6 +34,7 @@
     "@earendil-works/pi-codemode": "1.3.0",
     "@earendil-works/pi-durable": "1.3.0",
     "@hono/zod-validator": "^0.9.1",
+    "@modelcontextprotocol/server": "2.3.1",
     "@orpc/server": "^1.15.7",
     "@tanstack/ai": "^0.69.0",
     "@tanstack/ai-openrouter": "^0.22.0",

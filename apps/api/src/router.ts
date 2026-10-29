@@ -3,6 +3,7 @@ import { blockDefinitionProcedures } from "./domains/block-definitions/routes";
 import { blockProcedures } from "./domains/blocks/routes";
 import { codeProcedures } from "./domains/code-pushes/routes";
 import { collectionDefinitionProcedures } from "./domains/collections/routes";
+import { connectedAgentProcedures } from "./domains/connected-agents/procedures";
 import { definitionProcedures } from "./domains/definitions/routes";
 import { draftProcedures } from "./domains/drafts/routes";
 import { fileProcedures } from "./domains/files/routes";
@@ -28,6 +29,7 @@ export const router = {
   agent: agentProcedures,
   patrol: patrolProcedures,
   code: codeProcedures,
+  connectedAgents: connectedAgentProcedures,
 };
 
 export type Router = typeof router;
