@@ -1,4 +1,5 @@
 import { abortAllDurableObjects } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture, startDraft } from "../../../test/fixtures";
@@ -72,6 +73,15 @@ async function openThread() {
     await signIn(fixture.db, fixture.memberUser.id),
   );
   return { ...fixture, draftId, thread };
+}
+
+const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
+
+type Fakes = { emailsSent(): Promise<{ subject: string; text: string }[]> };
+
+/** The emails about a project: every alert names its Project ID. */
+async function emailsAbout(projectId: string) {
+  return (await fakes.emailsSent()).filter(({ text }) => text.includes(projectId));
 }
 
 /** Waits until the draft `draftId` has a page at `/launch`, as a script's write made it. */
@@ -308,6 +318,38 @@ describe("a run in a thread", () => {
       expect.objectContaining({ from: "editor", text: "Rewrite the home page" }),
       { id: expect.any(String), from: "failed" },
     ]);
+    thread.close();
+  });
+
+  it("alerts once when OpenRouter turns the agent down for lack of credit", async () => {
+    const { thread, project } = await openThread();
+    const outOfCredit =
+      '402 {"type":"error","error":{"type":"billing_error","message":"This request requires more credits, or fewer max_tokens."}}';
+    failNext({ errorMessage: outOfCredit });
+    send(thread, "Rewrite the home page");
+    await thread.untilIdle(2);
+    failNext({ errorMessage: outOfCredit });
+
+    send(thread, "Rewrite the home page");
+    await thread.untilIdle(4);
+
+    expect(await emailsAbout(project.uuid)).toEqual([
+      expect.objectContaining({
+        subject: "Camox's agent is out of OpenRouter credit",
+        text: expect.stringContaining("This request requires more credits"),
+      }),
+    ]);
+    thread.close();
+  });
+
+  it("doesn't alert when a model call fails for a reason of its own", async () => {
+    const { thread, project } = await openThread();
+    failNext();
+
+    send(thread, "Rewrite the home page");
+    await thread.untilIdle(2);
+
+    expect(await emailsAbout(project.uuid)).toEqual([]);
     thread.close();
   });
 
