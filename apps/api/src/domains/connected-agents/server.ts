@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { registerDraftTools } from "./drafts";
 import { WORKING_WITH_CAMOX } from "./guidance";
 import { projectInstructions, registerNoProjectTool } from "./projects";
+import { registerReadPage } from "./read-page";
 import type { ConnectedAgentCall } from "./routes";
 import { registerWebsiteTools } from "./website";
 
@@ -20,6 +21,7 @@ export function connectedAgentServer(call: ConnectedAgentCall) {
     return server;
   }
   registerWebsiteTools(server, call);
+  registerReadPage(server, call);
   registerDraftTools(server, call);
   return server;
 }
