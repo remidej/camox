@@ -1,6 +1,6 @@
 # Connected Agents drive Camox's agent, not its tools
 
-Camox's agent knows the website but nothing about the business behind it, and marketers won't explain their company in a studio chat or plug their tools into Camox. Their own Claude or ChatGPT already knows the product, from Notion, specs and code. So Camox offers one MCP server through which a member's Connected Agent drives Camox's agent: it starts drafts and sends their threads messages carrying the request and the business context, and Camox's agent does the work, content and code alike. The Connected Agent brings the knowledge, and Camox brings the website.
+Camox's agent knows the website but nothing about the business behind it, and marketers won't explain their company in a studio chat or plug their tools into Camox. Their own Claude or ChatGPT already knows the product, from Notion, specs and code. So Camox offers one MCP server through which a member's Connected Agent drives Camox's agent: it starts drafts and sends their threads messages carrying the request and the business context, and Camox's agent does the work, content and code alike. The Connected Agent brings the knowledge, and Camox brings the website. ([Connected Agents](https://github.com/remidej/camox/issues/705))
 
 ## Considered Options
 
