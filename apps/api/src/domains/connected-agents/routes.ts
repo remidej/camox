@@ -1,5 +1,5 @@
 import { createResourceServerChallenge } from "@better-auth/oauth-provider";
-import { type AuthInfo, createMcpHandler } from "@modelcontextprotocol/server";
+import { type AuthInfo, createMcpHandler, type ProtocolEra } from "@modelcontextprotocol/server";
 import { APIError } from "better-auth/api";
 import { verifyJwsAccessToken } from "better-auth/oauth2";
 import { Hono } from "hono";
@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import type { Database } from "../../db";
 import type { AppEnv, Bindings } from "../../types";
 import { createAuth } from "../auth/routes";
+import { memberChanges } from "./changes";
 import { type ConnectedMember, loadConnectedMember } from "./member";
 import { issuerOf, mcpResourceOf, REQUESTED_SCOPES, servesMcp } from "./oauth";
 import { connectedAgentServer } from "./server";
@@ -18,6 +19,8 @@ export type ConnectedAgentCall = {
   env: Bindings;
   waitUntil: (promise: Promise<unknown>) => void;
   apiOrigin: string;
+  /** The MCP revisions the call speaks: 2025-era (`legacy`) or 2026-07-28 and later (`modern`). */
+  era: ProtocolEra;
 };
 
 const unauthorized = (message: string) => new APIError("UNAUTHORIZED", { message });
@@ -67,10 +70,6 @@ async function verifiedClaims(
   }
 }
 
-const handler = createMcpHandler(({ authInfo }) =>
-  connectedAgentServer(authInfo!.extra as ConnectedAgentCall),
-);
-
 /**
  * The MCP server Connected Agents call (ADR 0030), over Streamable HTTP. Every call verifies its
  * token and loads the member it acts as, then runs in-process as them: the token never goes
@@ -85,7 +84,7 @@ export const mcpRoutes = new Hono<AppEnv>().all("/", async (c) => {
     const { token, claims } = await verifiedClaims(c.req.raw, auth, origin);
     const member = await loadConnectedMember(c.var.db, claims.sub!);
     if (!member) throw unauthorized("The member this token was issued to no longer exists");
-    const call: ConnectedAgentCall = {
+    const call: Omit<ConnectedAgentCall, "era"> = {
       member,
       db: c.var.db,
       env: c.env,
@@ -98,8 +97,11 @@ export const mcpRoutes = new Hono<AppEnv>().all("/", async (c) => {
       scopes: typeof claims.scope === "string" ? claims.scope.split(" ") : [],
       expiresAt: claims.exp,
       resource: new URL(resource),
-      extra: call,
     };
+    // A handler per call, so a subscription hears of its own member's changes only.
+    const handler = createMcpHandler(({ era }) => connectedAgentServer({ ...call, era }), {
+      bus: memberChanges(call),
+    });
     return await handler.fetch(c.req.raw, { authInfo });
   } catch (error) {
     return challenge(error, resource);
