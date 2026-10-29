@@ -119,9 +119,13 @@ describe("calling the MCP server", () => {
     expect((await callTool(accessToken, "get_website")).isError).toBeFalsy();
 
     await db.delete(member).where(eq(member.userId, memberUser.id));
-    const result = await callTool(accessToken, "get_website");
+    // With no project left, the member has no website tools: the call names one they don't have.
+    const { message } = await mcpRequest(accessToken, "tools/call", {
+      name: "get_website",
+      arguments: {},
+    });
 
-    expect(result.isError).toBe(true);
-    expect(result.content[0]!.text).not.toContain(project.slug);
+    expect(message?.error).toBeDefined();
+    expect(JSON.stringify(message)).not.toContain(project.slug);
   });
 });
