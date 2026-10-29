@@ -14,6 +14,12 @@ export interface CanvasSize {
   height: number;
 }
 
+/** The Canvas content as the camera frames it. */
+export interface CanvasContent extends CanvasSize {
+  /** The narrowest Page's width, when the content has Pages. */
+  pageWidth?: number;
+}
+
 export interface CanvasSnapTarget {
   key: string;
   left: number;
@@ -51,6 +57,11 @@ export const MAX_CANVAS_ZOOM = 2;
  * camera, so painting and panning slow down with the size of the site.
  */
 export const MIN_CANVAS_ZOOM = 0.1;
+/**
+ * The overview is at most this fraction of the page fit's zoom, so it always
+ * shows a Page as an item on the Canvas, even when the site is one short Page.
+ */
+export const CANVAS_OVERVIEW_PAGE_ZOOM = 0.6;
 /** Log-scale zoom per pixel of Ctrl/⌘ + wheel, including trackpad pinches. */
 export const CANVAS_WHEEL_ZOOM_RATE = 0.0139392;
 
@@ -265,12 +276,18 @@ export function zoomCanvasAt(
   };
 }
 
-export function fitCanvas(viewport: CanvasSize, content: CanvasSize): CanvasCamera {
+export function fitCanvas(viewport: CanvasSize, content: CanvasContent): CanvasCamera {
   const padding = canvasInsets(viewport);
+  const pageZoom =
+    content.pageWidth === undefined
+      ? Infinity
+      : CANVAS_OVERVIEW_PAGE_ZOOM *
+        fitCanvasPage(viewport, { left: 0, width: content.pageWidth }).scale;
   const scale = Math.max(
     Number.EPSILON,
     Math.min(
       1,
+      pageZoom,
       (viewport.width - padding.x * 2) / Math.max(1, content.width),
       (viewport.height - padding.top - padding.bottom) / Math.max(1, content.height),
     ),
@@ -283,12 +300,12 @@ export function fitCanvas(viewport: CanvasSize, content: CanvasSize): CanvasCame
 }
 
 /** The zoom floor: the complete overview, unless the site is too large to fit above MIN_CANVAS_ZOOM. */
-export function canvasMinimumScale(viewport: CanvasSize, content: CanvasSize) {
+export function canvasMinimumScale(viewport: CanvasSize, content: CanvasContent) {
   return Math.max(MIN_CANVAS_ZOOM, fitCanvas(viewport, content).scale);
 }
 
 /** The most zoomed-out view: the complete overview, or its start at the zoom floor. */
-export function canvasOverview(viewport: CanvasSize, content: CanvasSize): CanvasCamera {
+export function canvasOverview(viewport: CanvasSize, content: CanvasContent): CanvasCamera {
   const fit = fitCanvas(viewport, content);
   if (fit.scale >= MIN_CANVAS_ZOOM) return fit;
   const padding = canvasInsets(viewport);
@@ -327,7 +344,7 @@ function constrainAxis(position: number, viewport: number, size: number, scale: 
 export function constrainCanvasCamera(
   camera: CanvasCamera,
   viewport: CanvasSize,
-  content: CanvasSize,
+  content: CanvasContent,
   maximumScale = MAX_CANVAS_ZOOM,
   stretched = false,
 ): CanvasCamera {

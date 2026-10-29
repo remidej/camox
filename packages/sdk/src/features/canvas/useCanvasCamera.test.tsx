@@ -1132,7 +1132,7 @@ void test("the overview fits the Canvas row width given by its items, with measu
       offsetHeight: { get: () => height },
     });
     const assertOverview = () => {
-      const expected = fitCanvas(size, { width: 1614, height });
+      const expected = fitCanvas(size, { width: 1614, height, pageWidth: 1366 });
       assert.equal(parseFloat(viewport.style.getPropertyValue("--canvas-x")), expected.x);
       assert.equal(parseFloat(viewport.style.getPropertyValue("--canvas-y")), expected.y);
       assert.equal(Number(viewport.style.getPropertyValue("--canvas-zoom")), expected.scale);
