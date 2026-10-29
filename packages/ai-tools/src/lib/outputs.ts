@@ -28,8 +28,20 @@ const versionedColumns = {
   publishedBy: z.string().nullable(),
 };
 
+// Annotated: declaration emit can't write the inferred type of a recursive schema.
 /** A collection record a reference points at, with its own references one hop further. */
-const resolvedReferenceSchema = z.strictObject({
+const resolvedReferenceSchema: z.ZodObject<
+  {
+    id: z.ZodString;
+    collectionId: z.ZodString;
+    title: z.ZodString;
+    description: z.ZodNullable<z.ZodString>;
+    content: typeof authoredContentSchema;
+    contentSchema: z.ZodUnknown;
+    readonly references: z.ZodOptional<typeof resolvedReferencesSchema>;
+  },
+  z.core.$strict
+> = z.strictObject({
   id: z.string(),
   collectionId: z.string(),
   title: z.string(),

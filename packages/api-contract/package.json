@@ -111,7 +111,8 @@
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.3.0",
-    "@earendil-works/pi-durable": "1.3.0"
+    "@earendil-works/pi-durable": "1.3.0",
+    "tsrs": "catalog:"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "1.3.0",
@@ -136,6 +137,7 @@
           "^production",
           "{workspaceRoot}/apps/api/src/**/*",
           "{workspaceRoot}/packages/ai-tools/src/**/*",
+          "{workspaceRoot}/tsconfig.dts.api-contract.json",
           "!{workspaceRoot}/**/*.test.ts"
         ]
       }

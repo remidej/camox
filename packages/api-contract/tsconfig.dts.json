@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "paths": {
-      "@camox/ai-tools": ["../ai-tools/src/index.ts"]
-    }
-  }
-}

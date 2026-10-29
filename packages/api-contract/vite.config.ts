@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
@@ -21,16 +23,20 @@ export default defineConfig({
     clean: true,
     minify: false,
     outExtensions: () => ({ js: ".js" }),
-    // The router entry reaches into unpublished workspace code (the api app, and
-    // @camox/ai-tools through tsconfig paths), which gets inlined into the
-    // bundled types. Third-party types stay as imports.
-    tsconfig: "tsconfig.dts.json",
     // The api imports Markdown files as text (its wrangler `Text` rule); the router's
     // types reach them.
     loader: { ".md": "text" },
     deps: {
       neverBundle: true,
     },
-    dts: true,
+    // tsrs, the Rust port of TypeScript 7, emits the declarations. The tsconfig sits at the repo
+    // root, as the generator emits relative to its folder. The router entry reaches into
+    // unpublished workspace code (the api app, and @camox/ai-tools through tsconfig paths), which
+    // gets inlined into the bundled types. Third-party types stay as imports.
+    tsconfig: "../../tsconfig.dts.api-contract.json",
+    dts: {
+      generator: "tsgo",
+      tsgo: { path: fileURLToPath(new URL("bin/tsrs", import.meta.resolve("tsrs/package.json"))) },
+    },
   },
 });

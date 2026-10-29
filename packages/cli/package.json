@@ -45,6 +45,7 @@
   "devDependencies": {
     "@camox/api-contract": "workspace:*",
     "@types/node": "^24.12.4",
+    "tsrs": "catalog:",
     "vite-plus": "catalog:"
   },
   "nx": {

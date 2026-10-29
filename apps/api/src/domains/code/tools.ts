@@ -169,7 +169,7 @@ const grepSchema = Type.Object({
   ),
 });
 
-export const grepTool = defineTool({
+export const grepTool: ToolRegistration = defineTool({
   name: "grep",
   description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to ${GREP_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars.`,
   parameters: grepSchema,
@@ -253,7 +253,7 @@ const findSchema = Type.Object({
   limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)" })),
 });
 
-export const findTool = defineTool({
+export const findTool: ToolRegistration = defineTool({
   name: "find",
   description: `Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to ${FIND_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
   parameters: findSchema,
@@ -293,7 +293,7 @@ const lsSchema = Type.Object({
   ),
 });
 
-export const lsTool = defineTool({
+export const lsTool: ToolRegistration = defineTool({
   name: "ls",
   description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${LS_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
   parameters: lsSchema,
@@ -326,7 +326,7 @@ const mvSchema = Type.Object({
 });
 
 /** Camox's own: moves or renames a file, which the write line checks at both ends. */
-export const mvTool = defineTool({
+export const mvTool: ToolRegistration = defineTool({
   name: "mv",
   description:
     "Move or rename a file. Overwrites the destination if it exists. Automatically creates the destination's parent directories.",
@@ -352,7 +352,7 @@ const rmSchema = Type.Object({
 });
 
 /** Camox's own: deletes a file, which the write line checks. */
-export const rmTool = defineTool({
+export const rmTool: ToolRegistration = defineTool({
   name: "rm",
   description: "Delete a file.",
   parameters: rmSchema,

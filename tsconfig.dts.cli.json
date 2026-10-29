@@ -1,0 +1,9 @@
+// Declaration emit for packages/cli (see tsconfig.dts.api-contract.json).
+{
+  "extends": "./packages/cli/tsconfig.json",
+  "compilerOptions": {
+    // `types` resolves from this folder, which has no @types/node.
+    "typeRoots": ["./packages/cli/node_modules/@types"]
+  },
+  "include": ["packages/cli/src"]
+}
