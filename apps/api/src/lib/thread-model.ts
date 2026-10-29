@@ -12,8 +12,8 @@ export type ThreadModel = {
 };
 
 /**
- * Claude Sonnet 5.5 through pi-ai's OpenRouter provider, with the API's OpenRouter key. Integration
- * tests replace this module with pi-ai's fake provider (`test/thread-model.ts`).
+ * Claude Opus 5.5 at medium effort through pi-ai's OpenRouter provider, with the API's OpenRouter
+ * key. Integration tests replace this module with pi-ai's fake provider (`test/thread-model.ts`).
  */
 export const threadModel = (env: Bindings): ThreadModel => {
   const models = createModels({
@@ -27,7 +27,7 @@ export const threadModel = (env: Bindings): ThreadModel => {
   models.setProvider(openrouterProvider());
   return {
     models,
-    model: { provider: "openrouter", id: "anthropic/claude-sonnet-5.5" },
-    thinkingLevel: "low",
+    model: { provider: "openrouter", id: "anthropic/claude-opus-5.5" },
+    thinkingLevel: "medium",
   };
 };
