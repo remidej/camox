@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  CANVAS_OVERVIEW_PAGE_ZOOM,
   CANVAS_HEADER_HEIGHT,
   CANVAS_PAGE_FIT_PADDING,
   CANVAS_OVERSCROLL,
@@ -308,6 +309,28 @@ void test("zooming out stops at the zoom floor, which leaves large sites in view
       assert.ok(camera.y < viewport.height && camera.y + content.height * floor > 0);
     }
   }
+});
+
+void test("the overview zooms out well past a lone short page's fit", () => {
+  const viewport = { width: 1440, height: 900 };
+  const page = { left: 0, width: 1366 };
+  const content = { width: page.width, height: 600, pageWidth: page.width };
+  const pageFit = fitCanvasPage(viewport, page).scale;
+  const overview = canvasOverview(viewport, content);
+  assert.ok(overview.scale < fitCanvas(viewport, { width: page.width, height: 600 }).scale);
+  assert.ok(overview.scale <= pageFit * CANVAS_OVERVIEW_PAGE_ZOOM + 1e-12);
+  assert.equal(canvasMinimumScale(viewport, content), overview.scale);
+  // Still centered, with empty canvas on both sides.
+  assert.ok(Math.abs(overview.x * 2 + page.width * overview.scale - viewport.width) < 1e-9);
+});
+
+void test("a site already zoomed out far past its page fit keeps its overview", () => {
+  const viewport = { width: 1440, height: 900 };
+  const content = { width: 4200, height: 5000 };
+  assert.deepEqual(
+    canvasOverview(viewport, { ...content, pageWidth: 1366 }),
+    canvasOverview(viewport, content),
+  );
 });
 
 void test("zooming out from an edge page keeps the anchor instead of pulling the view", () => {

@@ -2,6 +2,7 @@ import {
   constrainCanvasCamera,
   canvasMinimumScale,
   type CanvasCamera,
+  type CanvasContent,
   type CanvasSize,
 } from "./canvasCamera";
 
@@ -88,7 +89,7 @@ export function createCanvasFlight(
   start: CanvasCamera,
   end: CanvasCamera,
   viewport: CanvasSize,
-  content: CanvasSize,
+  content: CanvasContent,
 ): { duration: number; at: (progress: number) => CanvasCamera } {
   if (start.x === end.x && start.y === end.y && start.scale === end.scale) {
     return { duration: 0, at: () => ({ ...start }) };

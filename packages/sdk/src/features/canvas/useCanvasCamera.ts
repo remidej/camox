@@ -28,6 +28,7 @@ import {
   unstretchCanvasZoom,
   zoomCanvasAt,
   type CanvasCamera,
+  type CanvasContent,
   type CanvasPoint,
   type CanvasSnapTarget,
   type CanvasVerticalRail,
@@ -202,10 +203,16 @@ export function useCanvasCamera(
       };
     };
     let viewportSize = measureViewport();
-    const measureContent = () => ({
-      width: rowRef.current?.width ?? content.offsetWidth,
-      height: content.offsetHeight,
-    });
+    const page = initialTargetRef.current;
+    const targets = () => rowRef.current?.targets ?? (page ? [{ ...page, key: "initial" }] : []);
+    const measureContent = (): CanvasContent => {
+      const widths = targets().map((target) => target.width);
+      return {
+        width: rowRef.current?.width ?? content.offsetWidth,
+        height: content.offsetHeight,
+        pageWidth: widths.length ? Math.min(...widths) : undefined,
+      };
+    };
     let contentSize = measureContent();
     let minimumScale = canvasMinimumScale(viewportSize, contentSize);
     const updateGeometry = (nextViewport = measureViewport(), nextContent = measureContent()) => {
@@ -215,8 +222,6 @@ export function useCanvasCamera(
       contentSize = nextContent;
       minimumScale = canvasMinimumScale(viewportSize, contentSize);
     };
-    const page = initialTargetRef.current;
-    const targets = () => rowRef.current?.targets ?? (page ? [{ ...page, key: "initial" }] : []);
     const targetOf = (key: string | null | undefined) =>
       key == null ? undefined : targets().find((candidate) => candidate.key === key);
     // A zoom past a limit, which springs back at the end of its input.
@@ -742,7 +747,8 @@ export function useCanvasCamera(
         nextViewport.width === viewportSize.width &&
         nextViewport.height === viewportSize.height &&
         nextContent.width === contentSize.width &&
-        nextContent.height === contentSize.height
+        nextContent.height === contentSize.height &&
+        nextContent.pageWidth === contentSize.pageWidth
       )
         return;
       const wasFitted = isOverview(target);
