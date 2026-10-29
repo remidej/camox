@@ -499,85 +499,17 @@ void test("leaves out the line about Live while the draft has conflicts", async 
   }
 });
 
-void test("waits for pending translations, and publishes anyway when asked", async (t) => {
-  const calls = mockApi(t, (path) => {
+void test("shows pending translations as what publishing waits for, with no way around them", async (t) => {
+  mockApi(t, (path) => {
     if (path === "drafts/previewPublish") return json({ ...emptyPreview, translating: ["de"] });
-    return json({
-      ended: { draftId, outcome: "published", endedBy: { id: "user-1", name: "Me" }, endedAt: 1 },
-    });
-  });
-  drafted = { translatingLocales: ["de"] };
-  const close = await openReview();
-  try {
-    assert.match(dialogText(), /Translating into German \(de\)/);
-
-    await click(buttonNamed(/Publish anyway/));
-
-    assert.deepEqual(
-      calls.filter((call) => call.path === "drafts/publish").map((call) => call.input),
-      [{ projectId: 1, token: "token-1", publishAnyway: true }],
-    );
-    assert.equal(draftScope.current(), null);
-  } finally {
-    await close();
-  }
-});
-
-void test("publishes once the translations finish, when asked to while they run", async (t) => {
-  let preview: unknown = { ...emptyPreview, translating: ["de"] };
-  const calls = mockApi(t, (path) => {
-    if (path === "drafts/previewPublish") return json(preview);
-    return json({
-      ended: { draftId, outcome: "published", endedBy: { id: "user-1", name: "Me" }, endedAt: 1 },
-    });
-  });
-  drafted = { translatingLocales: ["de"] };
-  const close = await openReview();
-  const publishes = () => calls.filter((call) => call.path === "drafts/publish");
-  try {
-    await click(publishButton());
-
-    assert.deepEqual(publishes(), []);
-    assert.match(dialogText(), /Publishing once translated/);
-    assert.ok(buttonNamed(/Publish anyway/));
-
-    // The jobs settle, and the project room refreshes the draft's summary.
-    preview = { ...emptyPreview, token: "token-3" };
-    drafted = { translatingLocales: [] };
-    await refreshDraftSummary();
-
-    assert.deepEqual(
-      publishes().map((call) => call.input),
-      [{ projectId: 1, token: "token-3" }],
-    );
-    assert.equal(draftScope.current(), null);
-  } finally {
-    await close();
-  }
-});
-
-void test("stops waiting to publish when a conflict appears as the translations finish", async (t) => {
-  let preview: unknown = { ...emptyPreview, translating: ["de"] };
-  const calls = mockApi(t, (path) => {
-    if (path === "drafts/previewPublish") return json(preview);
     return json({});
   });
   drafted = { translatingLocales: ["de"] };
   const close = await openReview();
   try {
-    await click(publishButton());
-
-    preview = conflictedPreview;
-    drafted = { translatingLocales: [] };
-    await refreshDraftSummary();
-
-    assert.deepEqual(
-      calls.filter((call) => call.path === "drafts/publish"),
-      [],
-    );
-    assert.doesNotMatch(dialogText(), /Publishing once translated/);
-    assert.deepEqual(cardTitles(), ["Replaces Ada's edit to the Hero"]);
-    assert.equal(publishButton()?.disabled, false);
+    assert.match(dialogText(), /Translating into German \(de\)\. Publishing waits for it\./);
+    assert.equal(publishButton()?.disabled, true);
+    assert.equal(buttonNamed(/anyway/i), undefined);
   } finally {
     await close();
   }
@@ -599,7 +531,6 @@ void test("offers to publish once the translations finish", async (t) => {
 
     assert.doesNotMatch(dialogText(), /Translating/);
     assert.equal(publishButton()?.disabled, false);
-    assert.equal(buttonNamed(/Publish anyway/), undefined);
   } finally {
     await close();
   }

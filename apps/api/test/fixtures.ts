@@ -13,12 +13,15 @@ import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
 import { draftOf, RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
 import { insertInitialLocale } from "../src/domains/locales/service";
+import { isTranslationJob } from "../src/lib/ai-job-queue";
+import { runAiJob } from "../src/lib/ai-jobs";
 import type { ServiceError } from "../src/lib/errors";
 import { runService, type ServiceRequirements } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
 import { router } from "../src/router";
 import { drafts, layouts, member, organizationTable, projects, session, user } from "../src/schema";
 import type { Bindings } from "../src/types";
+import { forgetScheduled, scheduled } from "./generation";
 
 const now = 1_700_000_000_000;
 
@@ -282,4 +285,15 @@ export function syncDefinitionSet(
     { projectUuid: project.uuid, deployToken: project.deployToken ?? "", definitionSet },
     { context: createRpcContext(db, null) },
   );
+}
+
+/**
+ * Runs every translation job scheduled so far, as their alarms would, and forgets them. With no
+ * translation scripted, they settle having translated nothing: publishing waits for them.
+ */
+export async function runTranslations(db: ReturnType<typeof createDb>) {
+  const jobs = scheduled().filter(isTranslationJob);
+  forgetScheduled(...jobs.map((job) => job.entityId));
+  const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
+  for (const job of keyed.values()) await runService(runAiJob(db, job));
 }

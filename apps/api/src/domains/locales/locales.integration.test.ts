@@ -7,6 +7,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runTranslations,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
@@ -154,9 +155,10 @@ async function fixture() {
     );
   const preview = (headers = inDraft()) => tool("previewPublish", {}, headers);
   const publish = async (headers = inDraft()) => {
+    // These tests script no translations: the ones adding a locale queues settle untranslated.
+    await runTranslations(db);
     const { token } = await preview(headers);
-    // These tests don't run the translations adding a locale queues.
-    expect(await tool("publishDraft", { token, publishAnyway: true }, headers)).toMatchObject({
+    expect(await tool("publishDraft", { token }, headers)).toMatchObject({
       published: true,
     });
     if (headers === current) current = newDraft();

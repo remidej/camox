@@ -31,11 +31,11 @@ import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blocks } from "../../schema";
+import { blocks, pages } from "../../schema";
 
-// Publishing a draft takes every locale live together (ADR 0017): it waits for the draft's
-// pending translations, unless published anyway. Then Camox opens a draft of its own that
-// finishes the translations against the new Live, and publishes it once they're done.
+// Publishing a draft takes every locale live together (ADR 0033): it waits for the draft's
+// pending translations, always. What a release writes on Live is translated in a draft Camox
+// opens, its catch-up draft, which it publishes once the translations are done.
 
 type Headers = Record<string, string>;
 type ToolResponse =
@@ -121,12 +121,9 @@ async function fixture() {
     await run({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
     return { id, headers: { [DRAFT_HEADER]: id } };
   };
-  const publish = async (
-    headers: Headers,
-    { on = db, ...options }: { publishAnyway?: boolean; on?: Database } = {},
-  ) => {
+  const publish = async (headers: Headers, { on = db }: { on?: Database } = {}) => {
     const { token } = await tool("previewPublish", {}, headers);
-    return tool("publishDraft", { token, ...options }, headers, on);
+    return tool("publishDraft", { token }, headers, on);
   };
 
   // German goes live, translated.
@@ -134,9 +131,20 @@ async function fixture() {
   await runTranslations();
   await publish(german.headers);
 
-  /** The block's title in a locale, on Live or in a draft. */
-  const titleIn = async (locale: string, headers: Headers = {}) =>
-    (await tool("getBlock", { id: block.id, locale }, headers)).block.content.title;
+  /** A block's title in a locale, on Live or in a draft: the fixture's block by default. */
+  const titleIn = async (locale: string, headers: Headers = {}, id: string = block.id) =>
+    (await tool("getBlock", { id, locale }, headers)).block.content.title;
+  /** Writes a hero titled `title` on Live as a release does, on `on` or the project's database. */
+  const release = (title: string, on: Database = db) =>
+    seedLive(on, blocks, {
+      projectId,
+      pageId: page.id,
+      type: "hero",
+      content: { title },
+      position: `b${crypto.randomUUID()}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
   const drafts = async () => call(router.drafts.list, { projectId }, member());
 
   return {
@@ -151,6 +159,7 @@ async function fixture() {
     publish,
     titleIn,
     drafts,
+    release,
   };
 }
 
@@ -239,7 +248,9 @@ describe("publishing a draft with pending translations", () => {
       reason: "translating",
       preview: { translating: ["de"] },
     });
+    expect(result.message).not.toMatch(/anyway/);
     expect(await f.titleIn("en")).toBe("Hello");
+    expect(await f.titleIn("de")).toBe("Hallo");
   });
 
   it("fails with TRANSLATIONS_PENDING through the API", async () => {
@@ -257,14 +268,34 @@ describe("publishing a draft with pending translations", () => {
     expect(await f.titleIn("en")).toBe("Hello");
   });
 
-  it("publishes once they finish", async () => {
+  it("publishes once they finish, opening no catch-up draft", async () => {
     const f = await fixture();
     const edited = await editedDraft(f);
+    expect(await f.publish(edited.headers)).toMatchObject({ reason: "translating" });
     await f.runTranslations();
 
     expect(await f.publish(edited.headers)).toMatchObject({ published: true });
     expect(await f.titleIn("en")).toBe("Welcome");
     expect(await f.titleIn("de")).toBe("Willkommen");
+    expect(await catchUpDrafts(f)).toEqual([]);
+  });
+
+  it("waits for a translation requested while it publishes", async () => {
+    const f = await fixture();
+    const edited = await editedDraft(f);
+    await f.runTranslations();
+
+    // The draft changes again right before its publish batch, requesting a translation.
+    const result = await f.publish(edited.headers, {
+      on: interrupted(publishing, () =>
+        f.tool("editBlock", { id: f.block.id, content: { title: "Hello" } }, edited.headers),
+      ),
+    });
+
+    expect(result).toMatchObject({ published: false, reason: "translating" });
+    expect(await f.titleIn("en")).toBe("Hello");
+    expect(await f.titleIn("de")).toBe("Hallo");
+    expect(await catchUpDrafts(f)).toEqual([]);
   });
 });
 
@@ -272,17 +303,11 @@ describe("publishing a draft with pending translations", () => {
 const catchUpDrafts = async (f: Fixture) =>
   (await f.drafts()).drafts.filter((draft) => draft.createdBy.id === CAMOX_ACTOR);
 
-describe("publishing anyway", () => {
-  it("publishes the draft as it is, then Camox's catch-up draft publishes the remaining translations", async () => {
+describe("a release's catch-up draft", () => {
+  it("translates what the release added, then Camox publishes it", async () => {
     const f = await fixture();
-    const edited = await editedDraft(f);
+    const released = await f.release("Welcome");
 
-    expect(await f.publish(edited.headers, { publishAnyway: true })).toMatchObject({
-      published: true,
-      ended: { outcome: "published" },
-    });
-    expect(await f.titleIn("en")).toBe("Welcome");
-    expect(await f.titleIn("de")).toBe("Hallo");
     expect(await catchUpDrafts(f)).toEqual([
       expect.objectContaining({
         createdBy: { id: CAMOX_ACTOR, name: "Camox" },
@@ -292,134 +317,103 @@ describe("publishing anyway", () => {
 
     await f.runTranslations();
 
-    expect(await f.titleIn("de")).toBe("Willkommen");
+    expect(await f.titleIn("de", {}, released.id)).toBe("Willkommen");
     expect(await catchUpDrafts(f)).toEqual([]);
     expect((await f.drafts()).live.publishedBy).toEqual({ id: CAMOX_ACTOR, name: "Camox" });
   });
 
-  it("adds to the catch-up draft still open rather than opening another", async () => {
+  it("takes later releases in while it's open rather than opening another", async () => {
     const f = await fixture();
-    const first = await editedDraft(f);
-    await f.publish(first.headers, { publishAnyway: true });
-    const second = await f.draft((starting) =>
-      f.tool("editBlock", { id: f.block.id, content: { title: "Hello" } }, starting),
-    );
-    await f.publish(second.headers, { publishAnyway: true });
+    const first = await f.release("Welcome");
+    const second = await f.release("Hello");
 
     expect(await catchUpDrafts(f)).toHaveLength(1);
     await f.runTranslations();
-    expect(await f.titleIn("de")).toBe("Hallo");
+    expect(await f.titleIn("de", {}, first.id)).toBe("Willkommen");
+    expect(await f.titleIn("de", {}, second.id)).toBe("Hallo");
   });
 
-  it("drops a pending merge with Live's localization, which the draft's own replaced", async () => {
+  it("is left behind by no one when its translations changed nothing", async () => {
     const f = await fixture();
-    const editDe = (title: string) => (headers: Headers) =>
-      f.tool("editBlock", { id: f.block.id, content: { title }, locale: "de" }, headers);
-    const mine = await f.draft(editDe("Grüß Gott"));
-    const theirs = await f.draft(editDe("Servus"));
-    await f.publish(theirs.headers);
-    expect((await f.tool("previewPublish", {}, mine.headers)).translating).toEqual(["de"]);
-
-    await f.publish(mine.headers, { publishAnyway: true });
-
-    expect(await catchUpDrafts(f)).toEqual([]);
-    expect(await f.titleIn("de")).toBe("Grüß Gott");
-  });
-
-  it("leaves no catch-up draft behind when its translations changed nothing", async () => {
-    const f = await fixture();
-    const edited = await editedDraft(f);
-    await f.publish(edited.headers, { publishAnyway: true });
+    await f.release("Welcome");
 
     answerEvery("translate", () => new AiCallError({ cause: "OpenRouter 503" }));
     await f.runTranslations();
 
     expect(await catchUpDrafts(f)).toEqual([]);
-    expect(await f.titleIn("de")).toBe("Hallo");
   });
 
-  it("keeps one catch-up draft when two requests catch up at once, as a release's do", async () => {
+  it("stays one when two requests catch up at once, as a release's do", async () => {
     const f = await fixture();
-    const released = (title: string, position: string) =>
-      seedLive(f.db, blocks, {
-        projectId: f.projectId,
-        pageId: f.page.id,
-        type: "hero",
-        content: { title },
-        position,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
 
-    await Promise.all([released("Hello", "b0"), released("Welcome", "c0")]);
+    await Promise.all([f.release("Hello"), f.release("Welcome")]);
 
     expect(await catchUpDrafts(f)).toEqual([
       expect.objectContaining({ translatingLocales: ["de"] }),
     ]);
   });
 
-  it("loses no translation requested while the catch-up draft publishes", async () => {
+  it("loses no translation a release requests while it publishes", async () => {
     const f = await fixture();
-    const edited = await editedDraft(f);
-    await f.publish(edited.headers, { publishAnyway: true });
-    const retitled = await f.draft((starting) =>
-      f.tool("setPageSeo", { id: f.page.id, metaTitle: "Prices" }, starting),
-    );
+    const first = await f.release("Welcome");
+    let second: { id: string } | undefined;
 
-    // The catch-up draft's last translation publishes it, and another draft publishes anyway right
-    // before, requesting the page's translation in it.
+    // The catch-up draft's last translation publishes it, and another release requests a
+    // translation in it right before.
     await f.runTranslations(
-      interrupted(publishing, () => f.publish(retitled.headers, { publishAnyway: true })),
+      interrupted(publishing, async () => {
+        second = await f.release("Prices");
+      }),
     );
     await f.runTranslations();
 
-    expect(await f.titleIn("de")).toBe("Willkommen");
-    const page = await f.tool("getPage", { id: f.page.id, locale: "de" }, {});
-    expect(page.page.metaTitle).toBe("Preise");
+    expect(await f.titleIn("de", {}, first.id)).toBe("Willkommen");
+    expect(await f.titleIn("de", {}, second!.id)).toBe("Preise");
     expect(await catchUpDrafts(f)).toEqual([]);
   });
 
-  it("catches up in a new draft when Camox published the open one meanwhile", async () => {
+  it("is opened anew when Camox published the open one meanwhile", async () => {
     const f = await fixture();
-    const edited = await editedDraft(f);
-    await f.publish(edited.headers, { publishAnyway: true });
-    const retitled = await f.draft((starting) =>
-      f.tool("setPageSeo", { id: f.page.id, metaTitle: "Prices" }, starting),
-    );
+    const first = await f.release("Welcome");
 
-    // Another draft publishing anyway found the catch-up draft open, and Camox publishes it right
-    // before the translations are requested in it.
-    await f.publish(retitled.headers, {
-      publishAnyway: true,
-      on: interrupted(requestingTranslations, () => f.runTranslations()),
-    });
+    // A release found the catch-up draft open, and Camox publishes it right before the
+    // translations are requested in it.
+    const second = await f.release(
+      "Prices",
+      interrupted(requestingTranslations, () => f.runTranslations()),
+    );
     expect(await catchUpDrafts(f)).toEqual([
       expect.objectContaining({ translatingLocales: ["de"] }),
     ]);
     await f.runTranslations();
 
-    expect(await f.titleIn("de")).toBe("Willkommen");
-    const page = await f.tool("getPage", { id: f.page.id, locale: "de" }, {});
-    expect(page.page.metaTitle).toBe("Preise");
+    expect(await f.titleIn("de", {}, first.id)).toBe("Willkommen");
+    expect(await f.titleIn("de", {}, second.id)).toBe("Preise");
     expect(await catchUpDrafts(f)).toEqual([]);
   });
 
-  it("publishes the catch-up draft when its last translations can't be scheduled", async () => {
+  it("is published when its last translations can't be scheduled", async () => {
     const f = await fixture();
-    const edited = await editedDraft(f);
     failEverySchedule();
 
-    await f.publish(edited.headers, { publishAnyway: true });
+    await f.release("Welcome");
 
     expect(await catchUpDrafts(f)).toEqual([]);
   });
 
-  it("leaves the catch-up draft open, like any other draft, when it has a blocker", async () => {
+  it("stays open, like any other draft, when it has a blocker", async () => {
     const f = await fixture();
-    const retitled = await f.draft((starting) =>
-      f.tool("setPageSeo", { id: f.page.id, metaTitle: "Prices" }, starting),
-    );
-    await f.publish(retitled.headers, { publishAnyway: true });
+    const released = await seedLive(f.db, pages, {
+      projectId: f.projectId,
+      layoutId: f.layout.layoutId,
+      pathSegment: "about",
+      fullPath: "/about",
+      nickname: "About",
+      metaTitle: "Prices",
+      contentUpdatedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
 
     // The model translates the meta title to nothing, which blocks publishing.
     answerEvery("translate", ({ texts }) =>
@@ -431,7 +425,7 @@ describe("publishing anyway", () => {
     expect(open).toMatchObject({ translatingLocales: [] });
     const preview = await f.tool("previewPublish", {}, { [DRAFT_HEADER]: open!.id });
     expect(preview.blockers).toEqual([
-      expect.objectContaining({ entity: "page", id: f.page.id, locale: "de" }),
+      expect.objectContaining({ entity: "page", id: released.id, locale: "de" }),
     ]);
   });
 });

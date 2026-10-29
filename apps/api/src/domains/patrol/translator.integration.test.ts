@@ -14,6 +14,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerEvery, answerNext, forgetScheduled, scheduled } from "../../../test/generation";
@@ -23,6 +24,7 @@ import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
+import { blocks } from "../../schema";
 import { runGenerationJob } from "../generated-values/generation";
 
 // The Translator in the Patrol (ADR 0024): edits go through the router, translation jobs run
@@ -166,9 +168,9 @@ async function fixture() {
     await run({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
     return { id, headers: { [DRAFT_HEADER]: id } };
   };
-  const publish = async (headers: Headers, options: { publishAnyway?: boolean } = {}) => {
+  const publish = async (headers: Headers) => {
     const { token } = await tool("previewPublish", {}, headers);
-    return tool("publishDraft", { token, ...options }, headers);
+    return tool("publishDraft", { token }, headers);
   };
 
   // German and French go live, translated.
@@ -413,15 +415,21 @@ describe("the Translator's report subjects", () => {
 });
 
 describe("the catch-up draft", () => {
-  /** A draft retitling the hero, published anyway: its translations carry on in Camox's draft. */
-  const publishedAnyway = async (f: Fixture) => {
-    const edited = await retitled(f);
-    await f.publish(edited.headers, { publishAnyway: true });
-  };
+  /** A release adding a hero titled "Welcome" to Live, which Camox's draft translates. */
+  const released = (f: Fixture) =>
+    seedLive(f.db, blocks, {
+      projectId: f.projectId,
+      pageId: f.page.id,
+      type: "hero",
+      content: { title: "Welcome" },
+      position: "b0",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
 
   it("shows its Translator's work on Live, as Live's, and in any draft, marked Live's", async () => {
     const f = await fixture();
-    await publishedAnyway(f);
+    await released(f);
     forgetSent(f.projectId);
 
     // French still translating keeps the catch-up draft open.
@@ -439,7 +447,7 @@ describe("the catch-up draft", () => {
 
   it("reports on Live publishing the catch-up draft, its own reports ending with it", async () => {
     const f = await fixture();
-    await publishedAnyway(f);
+    await released(f);
 
     await f.runTranslations();
 
@@ -453,7 +461,7 @@ describe("the catch-up draft", () => {
 
   it("refreshes Live's Patrol when an editor deletes the catch-up draft, its reports ending", async () => {
     const f = await fixture();
-    await publishedAnyway(f);
+    await released(f);
     // French still translating keeps the catch-up draft open, with a German report Live shows.
     await f.runTranslationsInto("de");
     const { drafts } = await call(router.drafts.list, { projectId: f.projectId }, f.member());
@@ -473,7 +481,7 @@ describe("the catch-up draft", () => {
 
   it("leaves no report when it's dropped because its translations changed nothing", async () => {
     const f = await fixture();
-    await publishedAnyway(f);
+    await released(f);
     answerEvery("translate", () => new AiCallError({ cause: "OpenRouter 503" }));
 
     await f.runTranslations();

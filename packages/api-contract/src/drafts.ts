@@ -127,7 +127,7 @@ export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";
 
 /**
  * oRPC error code for a publish refused because the draft still has pending translations: every
- * locale goes live together, unless the caller publishes anyway (ADR 0017).
+ * locale goes live together, and there is no publishing anyway (ADR 0033).
  */
 export const TRANSLATIONS_PENDING_ERROR = "TRANSLATIONS_PENDING";
 
